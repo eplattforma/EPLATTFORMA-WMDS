@@ -79,6 +79,8 @@ pg_restore \\
   --clean \\
   --if-exists \\
   --no-owner \\
+  --single-transaction \\
+  --exit-on-error \\
   -d "{database_url_dev}" \\
   /tmp/prod_db.dump
 
