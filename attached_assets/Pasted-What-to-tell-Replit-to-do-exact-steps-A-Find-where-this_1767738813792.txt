@@ -1,0 +1,95 @@
+What to tell Replit to do (exact steps)
+A) Find where this SQL is coming from
+
+Run in the Replit shell:
+
+grep -RIn --line-number "fk_invoices_shipped_by" .
+grep -RIn --line-number "invoices_shipped_by_fkey" .
+
+
+Open the file(s) found and remove:
+
+the duplicated block
+
+the corrupted D ROP line
+
+B) Replace your FK migration with a safe, idempotent version
+
+Use this exact SQL (PostgreSQL):
+
+DO $$
+BEGIN
+  -- Drop either possible FK name (schema drift protection)
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_invoices_shipped_by'
+      AND conrelid = 'public.invoices'::regclass
+  ) THEN
+    ALTER TABLE public.invoices DROP CONSTRAINT fk_invoices_shipped_by;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'invoices_shipped_by_fkey'
+      AND conrelid = 'public.invoices'::regclass
+  ) THEN
+    ALTER TABLE public.invoices DROP CONSTRAINT invoices_shipped_by_fkey;
+  END IF;
+
+  -- Add the FK only if it does not already exist
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_invoices_shipped_by'
+      AND conrelid = 'public.invoices'::regclass
+  ) THEN
+    ALTER TABLE public.invoices
+      ADD CONSTRAINT fk_invoices_shipped_by
+      FOREIGN KEY (shipped_by)
+      REFERENCES public.users(username)
+      ON DELETE NO ACTION
+      ON UPDATE NO ACTION;
+  END IF;
+END $$;
+
+
+Notes:
+
+This handles both constraint name variants.
+
+It will not fail if you run it multiple times.
+
+C) Confirm what PROD and DEV currently have (to prove drift)
+
+Run this on PROD and DEV (change URL accordingly):
+
+nix-shell -p postgresql_16 --run 'psql "$DATABASE_URL_DEV" -c "
+SELECT conname, pg_get_constraintdef(c.oid)
+FROM pg_constraint c
+WHERE conrelid = '\''public.invoices'\''::regclass
+  AND contype = '\''f'\''
+  AND (conname ILIKE '\''%shipped%'\'' OR pg_get_constraintdef(c.oid) ILIKE '\''%users%'\'' );
+"'
+
+
+Do the same with DATABASE_URL_PROD. You will likely see different constraint names/definitions.
+
+D) If the publish process runs migrations multiple times
+
+If you have any “update_schema” code that runs automatically on app startup, and gunicorn has multiple workers, then each worker can run the migration.
+
+Fix pattern: protect migrations with a Postgres advisory lock (one runner only). If you tell me which file executes migrations at startup (often main.py, app.py, or update_schema.py), I’ll give you the exact patch.
+
+Bottom line
+
+What you’re seeing during publishing is caused by:
+
+broken SQL (duplicated + typo), and
+
+DEV/PROD FK naming drift, and potentially
+
+migrations running more than once.
+
+If you paste the output of the grep -RIn "fk_invoices_shipped_by" command (just the file paths and line numbers), I can tell you exactly which file to fix and how to structure it cleanly.
