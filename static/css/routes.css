@@ -168,6 +168,8 @@
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    position: relative;
+    z-index: 10;
 }
 
 .stop-seq {
@@ -191,6 +193,17 @@
 
 .seq-input {
     width: 60px !important;
+    position: relative;
+    z-index: 11;
+}
+
+/* Sequence edit buttons - ensure they're visible above other elements */
+.stop-seq-col .btn-success,
+.stop-seq-col .btn-secondary {
+    position: relative;
+    z-index: 12;
+    padding: 0.25rem 0.5rem;
+    min-width: 32px;
 }
 
 /* Customer Column */
