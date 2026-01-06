@@ -28,9 +28,9 @@ def database_clone_page():
 @bp.route('/database-clone/execute', methods=['POST'])
 @login_required
 def execute_database_clone():
-    """Execute database clone from production to development"""
+    """Execute database clone from production to development - always returns JSON"""
     if not is_admin():
-        return jsonify({"error": "Access denied"}), 403
+        return jsonify({"success": False, "error": "Access denied"}), 403
     
     try:
         # Check environment variables
@@ -38,14 +38,19 @@ def execute_database_clone():
         database_url_dev = os.getenv('DATABASE_URL_DEV') or os.getenv('DATABASE_URL')
         
         if not database_url_prod:
-            return jsonify({"error": "DATABASE_URL_PROD environment variable not set"}), 400
+            return jsonify({"success": False, "error": "DATABASE_URL_PROD environment variable not set"}), 400
         
         if not database_url_dev:
-            return jsonify({"error": "DATABASE_URL or DATABASE_URL_DEV not set"}), 400
+            return jsonify({"success": False, "error": "DATABASE_URL or DATABASE_URL_DEV not set"}), 400
         
-        # Get confirmation
-        if not request.get_json().get('confirmed'):
-            return jsonify({"error": "Clone not confirmed"}), 400
+        # Get confirmation - handle potential JSON parse errors
+        try:
+            payload = request.get_json(silent=True) or {}
+        except Exception:
+            payload = {}
+        
+        if not payload.get('confirmed'):
+            return jsonify({"success": False, "error": "Clone not confirmed"}), 400
         
         logger.info(f"Starting database clone by {current_user.username}")
         
@@ -101,10 +106,12 @@ psql "{database_url_dev}" -c "SELECT COUNT(*) as ps_items_count FROM ps_items_dw
         
     except subprocess.TimeoutExpired:
         return jsonify({
+            "success": False,
             "error": "Clone operation timed out (exceeded 5 minutes)"
         }), 500
     except Exception as e:
         logger.error(f"Error in database clone: {str(e)}", exc_info=True)
         return jsonify({
+            "success": False,
             "error": f"Error: {str(e)}"
         }), 500
