@@ -140,7 +140,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
             }
             
             try:
-                response = call_ps365("list_loyalty_invoices", payload)
+                response = call_ps365("list_loyalty_invoices", payload, page=page, date_from=from_date, date_to=to_date)
             except Exception as api_error:
                 logging.error(f"PS365 API call failed: {str(api_error)}")
                 return {"success": False, "error": f"PS365 API error: {str(api_error)}"}
@@ -426,7 +426,7 @@ def sync_active_customers():
             }
         }
         
-        response = call_ps365("list_loyalty_customers", payload)
+        response = call_ps365("list_loyalty_customers", payload, page=1)
         api_resp = response.get("api_response", {})
         
         if api_resp.get("response_code") != "1":
@@ -475,7 +475,7 @@ def upsert_single_customer(customer_code):
             }
         }
         
-        response = call_ps365("list_loyalty_customers", payload)
+        response = call_ps365("list_loyalty_customers", payload, page=1)
         customers = response.get("list_customers", [])
         
         if not customers:

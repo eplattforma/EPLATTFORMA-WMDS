@@ -1,11 +1,38 @@
 import os
 import time
+import uuid
 import requests
 import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
+
+# Context variable for correlation ID (thread-safe)
+_correlation_id: ContextVar[str] = ContextVar('correlation_id', default='')
+
+
+def get_correlation_id() -> str:
+    """Get the current correlation ID, or generate one if not set."""
+    cid = _correlation_id.get()
+    if not cid:
+        cid = f"ps365_{uuid.uuid4().hex[:12]}"
+        _correlation_id.set(cid)
+    return cid
+
+
+def set_correlation_id(cid: str | None = None) -> str:
+    """Set a correlation ID for the current context. Returns the ID."""
+    if cid is None:
+        cid = f"ps365_{uuid.uuid4().hex[:12]}"
+    _correlation_id.set(cid)
+    return cid
+
+
+def clear_correlation_id():
+    """Clear the correlation ID for the current context."""
+    _correlation_id.set('')
 
 # Connection timeouts: (connect_timeout, read_timeout)
 PS365_CONNECT_TIMEOUT = 10   # 10 seconds to establish connection
@@ -42,32 +69,49 @@ def get_ps365_session():
     return _session
 
 
-def call_ps365(endpoint: str, payload: dict | None = None, method: str = "POST"):
+def call_ps365(endpoint: str, payload: dict | None = None, method: str = "POST", 
+               page: int | None = None, date_from: str | None = None, date_to: str | None = None):
     """
-    Generic call to Powersoft365 API with retry logic and proper timeouts.
+    Generic call to Powersoft365 API with retry logic, proper timeouts, and structured logging.
     Supports both GET and POST methods.
     
     Args:
         endpoint: API endpoint (e.g., 'list_items', 'list_brands')
         payload: Request payload (for POST) or query params (for GET)
         method: HTTP method ('GET' or 'POST')
+        page: Page number for paginated requests (for logging)
+        date_from: Start date for date-range requests (for logging)
+        date_to: End date for date-range requests (for logging)
     """
     start_time = time.time()
+    cid = get_correlation_id()
+    
+    # Build structured log context
+    log_context = {
+        'correlation_id': cid,
+        'endpoint': endpoint,
+        'method': method
+    }
+    if page is not None:
+        log_context['page'] = page
+    if date_from:
+        log_context['date_from'] = date_from
+    if date_to:
+        log_context['date_to'] = date_to
     
     # Read token fresh each time to pick up runtime changes
     ps365_token = os.getenv("PS365_TOKEN", "")
     ps365_base_url = os.getenv("PS365_BASE_URL", "https://api.powersoft365.com")
     
-    logger.info(f"[PS365 CLIENT] Token present: {bool(ps365_token)}, length: {len(ps365_token) if ps365_token else 0}")
-    logger.debug(f"[PS365 CLIENT] Base URL: {ps365_base_url}")
+    logger.info(f"[PS365] [{cid}] Starting request: endpoint={endpoint}, page={page}, dates={date_from or 'N/A'} to {date_to or 'N/A'}")
+    logger.debug(f"[PS365] [{cid}] Token present: {bool(ps365_token)}, Base URL: {ps365_base_url}")
     
     if not ps365_token:
+        logger.error(f"[PS365] [{cid}] Missing PS365_TOKEN")
         raise ValueError("PS365_TOKEN environment variable not set")
     
     base_url = ps365_base_url.rstrip("/")
     url = f"{base_url}/{endpoint}"
-    
-    logger.info(f"[PS365 CLIENT] Calling {method} {url}")
     
     session = get_ps365_session()
     timeout = (PS365_CONNECT_TIMEOUT, PS365_READ_TIMEOUT)
@@ -89,29 +133,30 @@ def call_ps365(endpoint: str, payload: dict | None = None, method: str = "POST")
             resp = session.post(url, json=data, timeout=timeout)
     except requests.exceptions.Timeout as e:
         elapsed = time.time() - start_time
-        logger.error(f"[PS365 CLIENT] Timeout after {elapsed:.1f}s calling {endpoint}: {e}")
+        logger.error(f"[PS365] [{cid}] TIMEOUT after {elapsed:.1f}s: endpoint={endpoint}, page={page}")
         raise ValueError(f"PS365 API timeout after {elapsed:.1f}s - the server took too long to respond") from e
     except requests.exceptions.ConnectionError as e:
         elapsed = time.time() - start_time
-        logger.error(f"[PS365 CLIENT] Connection error after {elapsed:.1f}s calling {endpoint}: {e}")
+        logger.error(f"[PS365] [{cid}] CONNECTION_ERROR after {elapsed:.1f}s: endpoint={endpoint}, error={str(e)[:100]}")
         raise ValueError(f"PS365 API connection failed - please check network connectivity") from e
     
     elapsed = time.time() - start_time
     
     # Check for non-JSON response before parsing
     content_type = resp.headers.get('Content-Type', '')
-    logger.info(f"[PS365 CLIENT] Response status: {resp.status_code}, Content-Type: {content_type}, Time: {elapsed:.1f}s")
     
     if resp.status_code != 200:
-        logger.error(f"[PS365 CLIENT] Error response: {resp.text[:500]}")
+        logger.error(f"[PS365] [{cid}] HTTP_{resp.status_code} after {elapsed:.1f}s: endpoint={endpoint}, page={page}, response={resp.text[:300]}")
         resp.raise_for_status()
     
+    logger.info(f"[PS365] [{cid}] SUCCESS: endpoint={endpoint}, page={page}, status={resp.status_code}, time={elapsed:.1f}s")
+    
     if 'application/json' not in content_type:
-        logger.error(f"[PS365 CLIENT] Non-JSON response: {resp.text[:500]}")
+        logger.error(f"[PS365] [{cid}] INVALID_CONTENT_TYPE: {content_type}, response={resp.text[:200]}")
         raise ValueError(f"PS365 API returned non-JSON response (Content-Type: {content_type}). Response: {resp.text[:200]}")
     
     try:
         return resp.json()
     except Exception as e:
-        logger.error(f"[PS365 CLIENT] JSON parse error: {resp.text[:500]}")
+        logger.error(f"[PS365] [{cid}] JSON_PARSE_ERROR: {resp.text[:300]}")
         raise ValueError(f"PS365 API returned invalid JSON: {resp.text[:200]}") from e
