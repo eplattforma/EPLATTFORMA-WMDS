@@ -2838,34 +2838,45 @@ def pick_item(invoice_no):
     is_skipped_resolution = current_item.pick_status == 'skipped_pending'
     
     # Parse the location into components for display
-    # For format "10-05-A01": corridor-aisle-levelbin
+    # For format "10-06-A 01": corridor-aisle-level bin
     location_parts = {'aisle': '', 'shelf': '', 'level': '', 'bin': ''}
     if current_item.location:
-        parts = current_item.location.strip().split('-')
-        if len(parts) >= 1:
-            location_parts['aisle'] = parts[0]  # corridor (10)
-        if len(parts) >= 2:
-            location_parts['shelf'] = parts[1]  # aisle/shelf (05)
-        if len(parts) >= 3:
-            # Parse level and bin from "A01" -> level "A", bin "01"
-            level_bin = parts[2]
-            import re
-            match = re.match(r'([A-Za-z]*)(\d*)', level_bin)
-            if match:
-                level_part, bin_part = match.groups()
-                location_parts['level'] = level_part  # A
-                location_parts['bin'] = bin_part      # 01
+        # Standardize for parsing: remove dashes and spaces
+        clean_loc = current_item.location.strip().upper().replace("-", "").replace(" ", "")
+        
+        # Expected pattern: 2 digits (corridor) + 2 digits (aisle) + 1 char (level) + 2 digits (bin)
+        if len(clean_loc) == 7:
+            location_parts['aisle'] = clean_loc[0:2]  # corridor (10)
+            location_parts['shelf'] = clean_loc[2:4]  # aisle/shelf (06)
+            location_parts['level'] = clean_loc[4]    # level (A)
+            location_parts['bin'] = clean_loc[5:7]    # bin (01)
+        else:
+            # Fallback for other formats
+            parts = current_item.location.strip().split('-')
+            if len(parts) >= 1:
+                location_parts['aisle'] = parts[0]
+            if len(parts) >= 2:
+                location_parts['shelf'] = parts[1]
+            if len(parts) >= 3:
+                level_bin = parts[2]
+                import re
+                match = re.match(r'([A-Za-z]*)(\d*)', level_bin)
+                if match:
+                    level_part, bin_part = match.groups()
+                    location_parts['level'] = level_part
+                    location_parts['bin'] = bin_part
     
     # Check if there's a next item after the CURRENT item and get its location
-    # This shows a preview of the next location that will be picked (after the current one)
+    # Format the next location for display preview
     next_item_location = None
-    
-    # CRITICAL FIX: Always show the next item in the list as preview
-    # We only want to show location for items with index 1+ (not the first item)
     if len(sorted_items_to_pick) > 1:
-        next_item = sorted_items_to_pick[1]  # Always show the second item in the list
+        next_item = sorted_items_to_pick[1]
         if next_item and next_item.location:
-            next_item_location = next_item.location
+            raw_next = next_item.location.strip().upper().replace("-", "").replace(" ", "")
+            if len(raw_next) == 7:
+                next_item_location = f"{raw_next[0:2]}-{raw_next[2:4]}-{raw_next[4]} {raw_next[5:7]}"
+            else:
+                next_item_location = next_item.location
     
     # Get product image for confirmation screen
     product_image = get_product_image(current_item.item_code)
