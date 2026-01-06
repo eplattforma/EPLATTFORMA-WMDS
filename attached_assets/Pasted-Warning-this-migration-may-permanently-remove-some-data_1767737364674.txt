@@ -1,0 +1,27 @@
+Warning, this migration may permanently remove some data from your production database, learn more:
+You're about to delete is_active column in users table with 14 items
+ALTER TABLE "activity_logs" DROP CONSTRAINT "activity_logs_picker_username_fkey";
+ALTER TABLE "delivery_events" DROP CONSTRAINT "delivery_events_actor_fkey";
+ALTER TABLE "route_delivery_events" DROP CONSTRAINT "route_delivery_events_actor_username_fkey";
+ALTER TABLE "pod_records" DROP CONSTRAINT "pod_records_collected_by_fkey";
+ALTER TABLE "shipping_events" DROP CONSTRAINT "shipping_events_actor_fkey";
+ALTER TABLE "cod_receipts" DROP CONSTRAINT "cod_receipts_driver_username_fkey";
+ALTER TABLE "receiving_sessions" DROP CONSTRAINT "receiving_sessions_operator_fkey";
+ALTER TABLE "delivery_discrepancy_events" DROP CONSTRAINT "delivery_discrepancy_events_actor_fkey";
+ALTER TABLE "picking_exceptions" DROP CONSTRAINT "picking_exceptions_picker_username_fkey";
+ALTER TABLE "shifts" DROP CONSTRAINT "shifts_adjustment_by_fkey";
+ALTER TABLE "shifts" DROP CONSTRAINT "shifts_picker_username_fkey";
+ALTER TABLE "batch_picking_sessions" DROP CONSTRAINT "batch_picking_sessions_assigned_to_fkey";
+ALTER TABLE "time_tracking_alerts" DROP CONSTRAINT "time_tracking_alerts_picker_username_fkey";
+ALTER TABLE "receipt_log" DROP CONSTRAINT "receipt_log_driver_username_fkey";
+ALTER TABLE "purchase_orders" DROP CONSTRAINT "purchase_orders_downloaded_by_fkey";
+ALTER TABLE "purchase_orders" DROP CONSTRAINT "purchase_orders_archived_by_fkey";
+ALTER TABLE "delivery_discrepancies" DROP CONSTRAINT "delivery_discrepancies_reported_by_fkey";
+ALTER TABLE "delivery_discrepancies" DROP CONSTRAINT "delivery_discrepancies_resolved_by_fkey";
+ALTER TABLE "delivery_discrepancies" DROP CONSTRAINT "delivery_discrepancies_validated_by_fkey";
+ALTER TABLE "invoices" DROP CONSTRAINT "fk_invoices_shipped_by";
+ALTER TABLE "invoices" DROP CONSTRAINT "invoices_assigned_to_fkey";
+ALTER TABLE "item_time_tracking" DROP CONSTRAINT "item_time_tracking_picker_username_fkey";
+DROP INDEX "idx_users_is_active";
+ALTER TABLE "users" ALTER COLUMN "require_gps_check" DROP DEFAULT;
+ALTER TABLE "users" DROP COLUMN "is_active";

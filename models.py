@@ -58,17 +58,39 @@ class Setting(db.Model):
         return cls.set(session, key, json_value)
 
 # User Model
-class User(UserMixin, db.Model, ActivatableMixin):
+class User(UserMixin, db.Model):
     __tablename__ = 'users'
     username = db.Column(db.String(64), primary_key=True)
     password = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), nullable=False)  # 'admin', 'picker', 'warehouse_manager', 'driver'
     payment_type_code_365 = db.Column(db.String(50), nullable=True)  # Payment type code for PS365 API receipt sending
-    require_gps_check = db.Column(db.Boolean, default=True)  # Enable/disable GPS location checking for this user
+    require_gps_check = db.Column(db.Boolean, default=True, server_default='true')  # Enable/disable GPS location checking for this user
+    
+    # ActivatableMixin fields defined directly for proper index support
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
+    disabled_at = db.Column(db.DateTime, nullable=True)
+    disabled_reason = db.Column(db.String(255), nullable=True)
+    
+    __table_args__ = (
+        db.Index('idx_users_is_active', 'is_active'),
+    )
     
     # Override get_id for Flask-Login
     def get_id(self):
         return self.username
+    
+    def disable(self, reason=None):
+        """Disable/deactivate this user."""
+        from datetime import datetime
+        self.is_active = False
+        self.disabled_at = datetime.utcnow()
+        self.disabled_reason = reason
+    
+    def enable(self):
+        """Re-enable/reactivate this user."""
+        self.is_active = True
+        self.disabled_at = None
+        self.disabled_reason = None
 
 # Invoices Table
 class Invoice(db.Model, SoftDeleteMixin):
