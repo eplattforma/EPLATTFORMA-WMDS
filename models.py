@@ -112,7 +112,7 @@ class Invoice(db.Model, SoftDeleteMixin):
     
     # Direct shipping fields (without shipments)
     shipped_at = db.Column(UTCDateTime(), nullable=True)  # When order was shipped
-    shipped_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)  # Who shipped the order
+    shipped_by = db.Column(db.String(64), db.ForeignKey('users.username', name='fk_invoices_shipped_by', ondelete='NO ACTION', onupdate='NO ACTION'), nullable=True)  # Who shipped the order
     delivered_at = db.Column(UTCDateTime(), nullable=True)  # When order was delivered
     undelivered_reason = db.Column(db.Text, nullable=True)  # Reason if delivery failed
     
