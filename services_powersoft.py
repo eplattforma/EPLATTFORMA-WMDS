@@ -65,11 +65,19 @@ def recalculate_invoice_totals(invoice_no: str, commit: bool = True) -> bool:
         return False
 
 def _format_location_code(raw_loc):
-    """Format shelf location code for display"""
+    """Format shelf location code for display: 1006A01 -> 10-06-A 01"""
     if not raw_loc:
         return ""
+    
     # Standardize format: remove leading/trailing spaces and ensure uppercase
-    return str(raw_loc).strip().upper()
+    clean_loc = str(raw_loc).strip().upper().replace("-", "")
+    
+    # Format: 10-06-A 01 (Corridor-Aisle-Level Bin)
+    # Expected pattern: 2 digits (corridor) + 2 digits (aisle) + 1 char (level) + 2 digits (bin)
+    if len(clean_loc) == 7:
+        return f"{clean_loc[0:2]}-{clean_loc[2:4]}-{clean_loc[4]} {clean_loc[5:7]}"
+    
+    return clean_loc
 
 def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None) -> Dict[str, Any]:
     """
