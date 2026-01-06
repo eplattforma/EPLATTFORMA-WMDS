@@ -36,6 +36,22 @@ externalPort = 80
 localPort = 8000
 externalPort = 8000
 
+[[ports]]
+localPort = 36265
+externalPort = 3002
+
+[[ports]]
+localPort = 39017
+externalPort = 3003
+
+[[ports]]
+localPort = 42981
+externalPort = 3000
+
+[[ports]]
+localPort = 44321
+externalPort = 3001
+
 [agent]
 integrations = ["python_openai:1.0.0", "dropbox:1.0.0"]
 

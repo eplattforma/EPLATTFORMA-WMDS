@@ -79,17 +79,10 @@ def _format_location_code(raw_loc):
     
     return clean_loc
 
-def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None, bulk_mode: bool = False) -> Dict[str, Any]:
+def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None) -> Dict[str, Any]:
     """
     Sync invoices from PS365 API using list_loyalty_invoices endpoint.
-    
-    Args:
-        invoice_no_365: Specific invoice number to sync
-        import_date: Date to import all invoices from
-        bulk_mode: If True, sets extended DB statement timeout for large imports
     """
-    from sqlalchemy import text
-    
     token_value = os.getenv('PS365_TOKEN', '')
     base_url_value = os.getenv('PS365_BASE_URL', '')
     
@@ -100,19 +93,6 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
     
     if (not invoice_no_365 or not invoice_no_365.strip()) and not import_date:
         return {"success": False, "error": "Invoice number or date is required."}
-    
-    # Track if we set extended timeout (to restore later)
-    extended_timeout_set = False
-    
-    # For bulk imports (date-based), increase statement timeout to 5 minutes
-    if bulk_mode or import_date:
-        try:
-            db.session.execute(text("SET statement_timeout = 300000"))  # 5 minutes
-            db.session.execute(text("SET lock_timeout = 30000"))  # 30 seconds
-            extended_timeout_set = True
-            logging.info("Bulk import: Set extended statement_timeout=300000ms")
-        except Exception as timeout_err:
-            logging.warning(f"Could not set extended timeout: {timeout_err}")
     
     invoice_no_365 = invoice_no_365.strip() if invoice_no_365 else ""
     
@@ -160,7 +140,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
             }
             
             try:
-                response = call_ps365("list_loyalty_invoices", payload, page=page, date_from=from_date, date_to=to_date)
+                response = call_ps365("list_loyalty_invoices", payload)
             except Exception as api_error:
                 logging.error(f"PS365 API call failed: {str(api_error)}")
                 return {"success": False, "error": f"PS365 API error: {str(api_error)}"}
@@ -429,19 +409,9 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
         logging.error(f"Sync failed: {e}")
         db.session.rollback()
         return {"success": False, "error": str(e)}
-    finally:
-        # Reset statement timeout to default after bulk imports to avoid leaving
-        # long timeouts on pooled connections for subsequent lightweight requests
-        if extended_timeout_set:
-            try:
-                db.session.execute(text("SET statement_timeout = 60000"))  # Reset to default 60s
-                db.session.execute(text("SET lock_timeout = 10000"))  # Reset to default 10s
-                logging.info("Bulk import: Reset statement_timeout to default 60000ms")
-            except Exception as reset_err:
-                logging.warning(f"Could not reset timeout: {reset_err}")
 
 def sync_active_customers():
-    """Sync active customers from PS365 API. Returns dict for JSON response."""
+    """Sync active customers from PS365 API"""
     from models import PSCustomer, db
     from ps365_client import call_ps365
     import logging
@@ -456,17 +426,16 @@ def sync_active_customers():
             }
         }
         
-        response = call_ps365("list_loyalty_customers", payload, page=1)
+        response = call_ps365("list_loyalty_customers", payload)
         api_resp = response.get("api_response", {})
         
         if api_resp.get("response_code") != "1":
             logging.error(f"Customer sync failed: {api_resp}")
-            return {"success": False, "error": f"PS365 API error: {api_resp.get('response_message', 'Unknown')}"}
+            return False
             
         customers = response.get("list_customers", [])
         logging.info(f"Found {len(customers)} customers to sync")
         
-        updated_count = 0
         for cust_data in customers:
             customer = cust_data.get("customer", {})
             code = customer.get("customer_code_365")
@@ -482,19 +451,14 @@ def sync_active_customers():
             existing.customer_email = customer.get("customer_email")
             existing.customer_phone = customer.get("customer_phone")
             existing.last_synced_at = datetime.utcnow()
-            updated_count += 1
             
         db.session.commit()
         logging.info("Customer sync completed successfully")
-        return {
-            "success": True,
-            "total_customers": len(customers),
-            "updated_count": updated_count
-        }
+        return True
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error syncing customers: {e}")
-        return {"success": False, "error": str(e)}
+        return False
 
 def upsert_single_customer(customer_code):
     """Sync a single customer by code"""
@@ -511,7 +475,7 @@ def upsert_single_customer(customer_code):
             }
         }
         
-        response = call_ps365("list_loyalty_customers", payload, page=1)
+        response = call_ps365("list_loyalty_customers", payload)
         customers = response.get("list_customers", [])
         
         if not customers:
