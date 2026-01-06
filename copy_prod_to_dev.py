@@ -22,17 +22,18 @@ from datetime import datetime
 
 def check_env_vars():
     """Verify required environment variables are set."""
-    prod_url = os.environ.get('PROD_DATABASE_URL')
-    dev_url = os.environ.get('DEV_DATABASE_URL')
+    # Try both naming conventions (Replit uses DATABASE_URL_PROD/DEV)
+    prod_url = os.environ.get('DATABASE_URL_PROD') or os.environ.get('PROD_DATABASE_URL')
+    dev_url = os.environ.get('DATABASE_URL_DEV') or os.environ.get('DEV_DATABASE_URL')
     
     if not prod_url:
-        print("ERROR: PROD_DATABASE_URL environment variable not set")
-        print("Set it with: export PROD_DATABASE_URL='postgresql://...'")
+        print("ERROR: DATABASE_URL_PROD environment variable not set")
+        print("Check your Replit Secrets for the production database URL")
         return None, None
     
     if not dev_url:
-        print("ERROR: DEV_DATABASE_URL environment variable not set")
-        print("Set it with: export DEV_DATABASE_URL='postgresql://...'")
+        print("ERROR: DATABASE_URL_DEV environment variable not set")
+        print("Check your Replit Secrets for the development database URL")
         return None, None
     
     return prod_url, dev_url
