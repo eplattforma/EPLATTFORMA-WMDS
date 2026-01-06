@@ -163,3 +163,104 @@ def sync_invoices():
             "success": False,
             "error": str(e)
         }), 500
+
+
+@bp_powersoft.route('/sync/invoices/async', methods=['POST'])
+@admin_required
+def sync_invoices_async():
+    """
+    Start an async invoice sync job (recommended for date-based imports).
+    Returns immediately with a job ID that can be polled for status.
+    
+    Query Parameters:
+        date: Required date to import all invoices from (e.g., ?date=2025-12-28)
+    
+    Returns:
+        JSON with job_id for polling status
+    
+    Example:
+        POST /api/powersoft/sync/invoices/async?date=2025-12-28
+        Response: {"success": true, "job_id": "sync_20250128_143022_abc12345", "message": "..."}
+    """
+    import logging
+    
+    try:
+        import_date = request.args.get('date')
+        
+        if not import_date:
+            return jsonify({
+                "success": False,
+                "error": "Date parameter is required for async sync"
+            }), 400
+        
+        from sync_jobs import start_date_sync_async
+        
+        result = start_date_sync_async(
+            import_date=import_date,
+            created_by=current_user.username if current_user.is_authenticated else None
+        )
+        
+        return jsonify(result), 202  # 202 Accepted
+        
+    except Exception as e:
+        logging.error(f"Async invoice sync endpoint error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@bp_powersoft.route('/jobs/<job_id>', methods=['GET'])
+@admin_required
+def get_job_status(job_id):
+    """
+    Get the status of a sync job.
+    
+    URL Parameters:
+        job_id: The job ID returned from async sync endpoint
+    
+    Returns:
+        JSON with job status, progress, and results
+    
+    Example:
+        GET /api/powersoft/jobs/sync_20250128_143022_abc12345
+        Response: {"id": "...", "status": "running", "progress_current": 5, "progress_total": 20, ...}
+    """
+    from sync_jobs import get_job_status as get_status
+    
+    status = get_status(job_id)
+    
+    if not status:
+        return jsonify({
+            "success": False,
+            "error": "Job not found"
+        }), 404
+    
+    return jsonify(status), 200
+
+
+@bp_powersoft.route('/jobs', methods=['GET'])
+@admin_required
+def list_recent_jobs():
+    """
+    List recent sync jobs for monitoring.
+    
+    Query Parameters:
+        limit: Number of jobs to return (default: 20, max: 100)
+    
+    Returns:
+        JSON array of recent jobs
+    
+    Example:
+        GET /api/powersoft/jobs?limit=10
+        Response: [{"id": "...", "status": "completed", ...}, ...]
+    """
+    from sync_jobs import get_recent_jobs
+    
+    limit = min(int(request.args.get('limit', 20)), 100)
+    jobs = get_recent_jobs(limit=limit)
+    
+    return jsonify({
+        "success": True,
+        "jobs": jobs
+    }), 200

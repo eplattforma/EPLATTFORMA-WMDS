@@ -76,6 +76,7 @@ with app.app_context():
         # Import models
         import models  # noqa: F401
         import dw_analytics_models  # noqa: F401
+        from sync_jobs import SyncJob  # noqa: F401
         
         # Register delete guards to prevent data inconsistency
         from delete_guards import register_all_guards
@@ -138,6 +139,43 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error during database initialization: {str(e)}")
         logging.exception("Database initialization error details:")
+
+# Global JSON error handler for API routes
+from flask import jsonify, request
+import traceback
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Return JSON instead of HTML for API routes when unhandled exceptions occur"""
+    if request.path.startswith('/api/'):
+        # Log the full exception
+        logging.error(f"API Error on {request.path}: {str(e)}")
+        logging.error(traceback.format_exc())
+        
+        # Return JSON error response
+        response = {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+        return jsonify(response), 500
+    
+    # For non-API routes, re-raise to let Flask handle it normally
+    raise e
+
+@app.errorhandler(404)
+def not_found_error(e):
+    """Return JSON for API 404 errors"""
+    if request.path.startswith('/api/'):
+        return jsonify({"success": False, "error": "Not found"}), 404
+    raise e
+
+@app.errorhandler(500)
+def internal_error(e):
+    """Return JSON for API 500 errors"""
+    if request.path.startswith('/api/'):
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+    raise e
 
 # Add custom Jinja filters
 import json

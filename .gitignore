@@ -12,6 +12,7 @@ venv/
 .env.*
 *.pem
 *.key
+cookies.txt
 
 # Logs / temp
 *.log
