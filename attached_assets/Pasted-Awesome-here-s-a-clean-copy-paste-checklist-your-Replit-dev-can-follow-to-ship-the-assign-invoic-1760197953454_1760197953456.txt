@@ -1,0 +1,343 @@
+Awesome — here’s a clean, copy-paste checklist your Replit dev can follow to ship the “assign invoices → auto-create stops per customer with auto sequence” feature.
+
+0) Prereqs
+
+Stack: Flask + SQLAlchemy + PostgreSQL (already in your project).
+
+You already have: invoices, shipments (route header), ps_customers (customer master we just built).
+
+1) DB migrations (idempotent)
+
+Append these to /app/schemas.sql and restart the app (startup runs the file):
+
+-- 1) Ensure invoices have customer_code + links to route/stop (nullable)
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS customer_code TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS route_id INTEGER;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stop_id INTEGER;
+
+-- 2) Stops table (one per customer per route) with auto sequence
+CREATE TABLE IF NOT EXISTS route_stops (
+  id SERIAL PRIMARY KEY,
+  shipment_id INTEGER NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
+  customer_code TEXT NOT NULL,                         -- FK-ish to ps_customers.customer_code_365
+  stop_seq INTEGER NOT NULL,                           -- 1..N ordering inside the route
+  address TEXT,
+  town TEXT,
+  total_invoices INTEGER DEFAULT 0,
+  UNIQUE (shipment_id, stop_seq),                      -- no duplicate sequence in a route
+  UNIQUE (shipment_id, customer_code)                  -- 1 stop per customer per route
+);
+
+CREATE INDEX IF NOT EXISTS idx_route_stops_route ON route_stops (shipment_id);
+CREATE INDEX IF NOT EXISTS idx_route_stops_customer ON route_stops (customer_code);
+
+-- 3) Stop ↔ Invoice link table (a stop can hold many invoices)
+CREATE TABLE IF NOT EXISTS route_stop_invoices (
+  id SERIAL PRIMARY KEY,
+  stop_id INTEGER NOT NULL REFERENCES route_stops(id) ON DELETE CASCADE,
+  invoice_no TEXT NOT NULL REFERENCES invoices(invoice_no) ON DELETE CASCADE,
+  UNIQUE (stop_id, invoice_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rsi_stop ON route_stop_invoices (stop_id);
+CREATE INDEX IF NOT EXISTS idx_rsi_invoice ON route_stop_invoices (invoice_no);
+
+-- 4) (Optional) Backfill customer_code on invoices by joining known customer names
+--    Run only if you have exact matches; otherwise skip.
+-- UPDATE invoices i
+-- SET customer_code = p.customer_code_365
+-- FROM ps_customers p
+-- WHERE i.customer_name = CONCAT_WS(' ', NULLIF(p.company_name, ''), NULLIF(p.last_name, ''), NULLIF(p.first_name, ''))
+--   AND i.customer_code IS NULL;
+
+2) SQLAlchemy models
+
+Append to /app/models.py (or adjust names if you already created similar):
+
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, DateTime, Boolean, Float, UniqueConstraint
+from sqlalchemy.orm import declarative_base, relationship
+
+# If Base already exists in this file, reuse it.
+try:
+    Base
+except NameError:
+    Base = declarative_base()
+
+class RouteStop(Base):
+    __tablename__ = "route_stops"
+    id = Column(Integer, primary_key=True)
+    shipment_id = Column(Integer, ForeignKey("shipments.id", ondelete="CASCADE"), nullable=False)
+    customer_code = Column(Text, nullable=False)
+    stop_seq = Column(Integer, nullable=False)
+    address = Column(Text)
+    town = Column(Text)
+    total_invoices = Column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("shipment_id", "stop_seq", name="uq_stop_seq_per_route"),
+        UniqueConstraint("shipment_id", "customer_code", name="uq_stop_customer_per_route"),
+    )
+
+class RouteStopInvoice(Base):
+    __tablename__ = "route_stop_invoices"
+    id = Column(Integer, primary_key=True)
+    stop_id = Column(Integer, ForeignKey("route_stops.id", ondelete="CASCADE"), nullable=False)
+    invoice_no = Column(String, ForeignKey("invoices.invoice_no", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("stop_id", "invoice_no", name="uq_invoice_once_per_stop"),
+    )
+
+
+The app bootstrap (app.py) already runs schemas.sql and Base.metadata.create_all(engine).
+
+3) Routing service (core logic)
+
+Create /app/services_routing.py:
+
+from sqlalchemy import func
+from app.models import RouteStop, RouteStopInvoice
+from app.models import PSCustomer  # from your ps_customers model
+from app.models import Shipment, Invoice  # assuming you mapped these already
+
+def _max_seq(session, shipment_id: int) -> int:
+    return session.query(func.coalesce(func.max(RouteStop.stop_seq), 0)).filter_by(shipment_id=shipment_id).scalar()
+
+def _stop_address_snapshot(session, customer_code: str):
+    # Optional snapshot from ps_customers; safe to return None values
+    row = session.query(PSCustomer).filter(PSCustomer.customer_code_365==customer_code).one_or_none()
+    if not row:
+        return {"address": None, "town": None}
+    addr = " ".join(part for part in [row.address_line_1, row.address_line_2, row.address_line_3] if part)
+    return {"address": addr or None, "town": row.town}
+
+def add_invoices_grouped_by_customer(session, shipment_id: int, invoice_nos: list[str]):
+    """
+    Load invoices by invoice_no, group by customer_code, make one stop per customer in this route.
+    Auto-increments stop_seq. Attaches all invoices to the stop. Writes route_id/stop_id back on invoices.
+    """
+    # Load invoices
+    invs = session.query(Invoice).filter(Invoice.invoice_no.in_(invoice_nos)).all()
+    if not invs:
+        return {"ok": False, "msg": "No invoices found"}
+
+    # Verify customer_code present; if not, try to map by name -> ps_customers (best-effort)
+    missing = [i for i in invs if not i.customer_code]
+    if missing:
+        # best-effort heuristic: try to match by company_name or last+first
+        for i in missing:
+            q = session.query(PSCustomer).filter(
+                (PSCustomer.company_name == i.customer_name) |
+                ((PSCustomer.last_name + ' ' + PSCustomer.first_name) == i.customer_name)
+            ).limit(1).all()
+            if q:
+                i.customer_code = q[0].customer_code_365
+        session.flush()
+
+    # Ensure all invoices have a customer_code
+    no_code = [i.invoice_no for i in invs if not i.customer_code]
+    if no_code:
+        return {"ok": False, "msg": f"Missing customer_code for invoices: {', '.join(no_code)}"}
+
+    # Group by customer_code
+    buckets = {}
+    for i in invs:
+        buckets.setdefault(i.customer_code, []).append(i)
+
+    start_seq = _max_seq(session, shipment_id)
+    made = []
+    seq_cursor = start_seq
+
+    for cust_code, items in buckets.items():
+        # find or create stop for this customer on this route
+        stop = session.query(RouteStop).filter_by(shipment_id=shipment_id, customer_code=cust_code).one_or_none()
+        if not stop:
+            seq_cursor += 1
+            snap = _stop_address_snapshot(session, cust_code)
+            stop = RouteStop(
+                shipment_id=shipment_id,
+                customer_code=cust_code,
+                stop_seq=seq_cursor,
+                address=snap.get("address"),
+                town=snap.get("town"),
+            )
+            session.add(stop)
+            session.flush()
+
+        # attach invoices
+        count = 0
+        for inv in items:
+            inv.route_id = shipment_id
+            inv.stop_id = stop.id
+            session.merge(RouteStopInvoice(stop_id=stop.id, invoice_no=inv.invoice_no))
+            count += 1
+
+        stop.total_invoices = (stop.total_invoices or 0) + count
+        made.append({"customer_code": cust_code, "stop_seq": stop.stop_seq, "invoices": count})
+
+    session.commit()
+    return {"ok": True, "created_or_updated_stops": len(made), "details": made}
+
+4) Flask API (for dashboard to call)
+
+Create /app/routes_routing.py:
+
+from flask import Blueprint, request, jsonify, current_app
+from app.services_routing import add_invoices_grouped_by_customer
+
+bp_routing = Blueprint("routing", __name__)
+
+@bp_routing.route("/routes/<int:route_id>/assign", methods=["POST"])
+def assign_invoices(route_id):
+    """
+    Body: { "invoice_nos": ["INV1","INV2",...]}
+    Effect: groups by customer_code, creates one stop per customer (auto seq), attaches invoices.
+    """
+    session = current_app.session_factory()
+    data = request.get_json(force=True) or {}
+    invoice_nos = data.get("invoice_nos") or []
+    if not invoice_nos:
+        return jsonify({"ok": False, "msg": "invoice_nos required"}), 400
+    res = add_invoices_grouped_by_customer(session, route_id, invoice_nos)
+    code = 200 if res.get("ok") else 400
+    return jsonify(res), code
+
+
+Register it in /app/app.py:
+
+from app.routes_routing import bp_routing
+app.register_blueprint(bp_routing)
+
+5) (Optional) Upsert/Create route API
+
+If you need an endpoint to create/find a route (shipment) quickly:
+
+# /app/routes_routes.py (or new file)
+from flask import Blueprint, request, jsonify, current_app
+from datetime import datetime
+from app.models import Shipment
+from sqlalchemy import select
+
+bp_routes_admin = Blueprint("routes_admin", __name__)
+
+@bp_routes_admin.route("/routes/upsert", methods=["POST"])
+def upsert_route():
+    """
+    Body: { "driver_name": "Andreas", "delivery_date": "2025-10-12", "route_name": "AM1", "status": "PLANNED" }
+    Returns: { ok, route_id }
+    """
+    session = current_app.session_factory()
+    p = request.get_json(force=True)
+    driver = p["driver_name"]
+    day = datetime.strptime(p["delivery_date"], "%Y-%m-%d").date()
+    route = session.execute(
+        select(Shipment).where(Shipment.driver_name==driver, Shipment.delivery_date==day)
+    ).scalar_one_or_none()
+    if not route:
+        route = Shipment(driver_name=driver, delivery_date=day, route_name=p.get("route_name"), status=p.get("status","PLANNED"))
+        session.add(route); session.commit()
+    else:
+        if p.get("route_name"): route.route_name = p["route_name"]
+        if p.get("status"): route.status = p["status"]
+        session.commit()
+    return jsonify({"ok": True, "route_id": route.id})
+
+
+Register:
+
+from app.routes_routes import bp_routes_admin
+app.register_blueprint(bp_routes_admin)
+
+6) Frontend: wire the dashboard button
+
+In your dashboard page:
+
+<button class="btn btn-success" onclick="openAssign()">Assign to Route</button>
+
+<!-- A simple modal/prompt replacement is fine; if you already have a modal, re-use it -->
+<script>
+let SELECTED = new Set();
+
+function collectSelectedInvoiceNos(){
+  // adapt this to your table; assume each row has data-invoice="INVxxxxx"
+  return Array.from(document.querySelectorAll('input.invoice-checkbox:checked'))
+              .map(cb => cb.dataset.invoice);
+}
+
+async function openAssign(){
+  const invoiceNos = collectSelectedInvoiceNos();
+  if(!invoiceNos.length){ alert('Select invoices first.'); return; }
+
+  // 1) Ask route (or you already know it from a route selector on the page)
+  const driver = prompt('Driver name for this route (e.g., Andreas):'); if(!driver) return;
+  const date = prompt('Delivery date (YYYY-MM-DD):'); if(!date) return;
+
+  // 2) Ensure the route exists (or get it)
+  let res = await fetch('/routes/upsert', {
+    method: 'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({driver_name: driver, delivery_date: date, status:'PLANNED'})
+  });
+  let info = await res.json();
+  if(!info.ok){ alert('Failed to create/find route'); return; }
+
+  // 3) Assign invoices -> auto create stops by customer (with auto sequences)
+  res = await fetch(`/routes/${info.route_id}/assign`, {
+    method: 'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({invoice_nos: invoiceNos})
+  });
+  const data = await res.json();
+  if(!data.ok){ alert('Assign failed: '+(data.msg||'')); return; }
+  alert(`Assigned: created/updated ${data.created_or_updated_stops} stops`);
+
+  // 4) Refresh or update the rows’ status
+  location.reload();
+}
+</script>
+
+
+If you already have a left-panel “Assigned to” with driver/date, replace the prompt()s with your modal fields.
+
+7) How the customer code is used
+
+The customer code that controls grouping lives on invoices.customer_code.
+
+When you import customers from Powersoft, you have ps_customers.customer_code_365 (the truth).
+
+Ensure your order intake flow writes the code into each invoice. If you only have the name on old invoices, the service attempts a best-effort match to ps_customers (can be improved later with stricter matching).
+
+8) What the driver will see afterward (FYI)
+
+Each route (shipments.id) now has multiple route_stops like:
+
+(shipment_id=123, stop_seq=1, customer_code='00100010')
+
+(shipment_id=123, stop_seq=2, customer_code='00100011')
+
+Each stop links multiple invoices in route_stop_invoices.
+
+If you re-run assignment with more invoices for the same customer on the same route, they will attach to the existing stop and keep the original stop_seq.
+
+9) Test quickly via curl (dev sanity check)
+# 1) Create/Find route
+curl -s -X POST http://localhost:5000/routes/upsert \
+  -H "Content-Type: application/json" \
+  -d '{"driver_name":"Andreas","delivery_date":"2025-10-12","status":"PLANNED"}'
+
+# → {"ok":true,"route_id":123}
+
+# 2) Assign invoices (auto group by customer, create stops with sequences)
+curl -s -X POST http://localhost:5000/routes/123/assign \
+  -H "Content-Type: application/json" \
+  -d '{"invoice_nos":["TEST048890","TEST048898","TEST048899"]}'
+
+10) Notes & guardrails
+
+The stop sequence is assigned as: max(existing stop_seq) + 1, +2, ... for each new customer bucket in this batch. Existing customer stops keep their original sequence.
+
+The customer → one stop per route rule is enforced by UNIQUE (shipment_id, customer_code).
+
+A stop can have many invoices (through route_stop_invoices).
+
+You can add a “Re-sequence” feature later (drag & drop → update stop_seq).
+
+That’s the whole setup. Paste the SQL/migrations, add the models + services + routes, wire one button in the dashboard, and you’re routing from that screen with auto stops per customer and clean sequencing.

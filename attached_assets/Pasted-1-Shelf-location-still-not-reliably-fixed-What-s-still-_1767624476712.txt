@@ -1,0 +1,154 @@
+1) Shelf location: still not reliably fixed
+What’s still wrong
+
+You build shelf_map with keys ic coming from shelves_result.items(), but you never normalize those keys. Meanwhile your item_code is normalized to uppercase via _norm_code().
+
+If shelves_result returns keys like "1234 " or lowercase or numeric types, then:
+
+shelf_location = shelf_map.get(item_code)
+
+
+will return None even though the shelf exists.
+
+Minimal fix
+
+Normalize shelf_map keys when building it:
+
+Replace:
+
+for ic, shelves_list in shelves_result.items():
+    if shelves_list:
+        raw_loc = ...
+        if raw_loc:
+            shelf_map[ic] = _format_location_code(raw_loc)
+
+
+With:
+
+for ic, shelves_list in (shelves_result or {}).items():
+    nic = _norm_code(ic)
+    if not nic or not shelves_list:
+        continue
+
+    raw_loc = shelves_list[0].get("shelf_code_365") or shelves_list[0].get("shelf_name")
+    if raw_loc:
+        shelf_map[nic] = _format_location_code(raw_loc)
+
+
+Also ensure you pass normalized item codes into the shelf fetch (you already do, because all_item_codes is built with _norm_code).
+
+Recommended additional log (to verify it works)
+
+Right after building shelf_map:
+
+logging.info(f"Invoice {invoice_no_ps365}: shelf_map={len(shelf_map)}/{len(all_item_codes)} items")
+
+2) Counts: not fully fixed (your totals will be misleading)
+What’s still wrong
+
+You return only total_invoices_created, but the user asked “how many invoices were loaded” which normally includes both created and already-existing invoices that were updated/imported.
+
+Your total_items_created / total_items_updated counting is incorrect:
+
+if existing_item:
+    if invoice_is_new:
+        total_items_created += 1
+    else:
+        total_items_updated += 1
+
+
+If an invoice is new, existing_item will almost never exist, so that branch is logically inconsistent. Created vs updated should be based on whether the item exists, not whether the invoice is new.
+
+Minimal fix
+
+Add counters:
+
+At top of try:
+
+total_invoices_processed = 0
+total_invoices_updated = 0
+total_items_processed = 0
+
+
+When upserting invoice:
+
+invoice_record = Invoice.query.filter_by(invoice_no=invoice_no_ps365).first()
+if not invoice_record:
+    ...
+    total_invoices_created += 1
+else:
+    total_invoices_updated += 1
+    ...
+total_invoices_processed += 1
+
+
+In the line loop:
+
+Right after computing item_code and qty:
+
+total_items_processed += 1
+
+
+Then counting:
+
+existing_item = existing_map.get(item_code)
+if existing_item:
+    total_items_updated += 1
+    ...
+else:
+    total_items_created += 1
+    ...
+
+
+Remove invoice_is_new entirely (or keep it but don’t use it for item counts).
+
+Add final summary log (so you “see” it when finished)
+
+Right before return { ... }:
+
+logging.info(
+    "PS365 invoice sync finished: "
+    f"invoices_processed={total_invoices_processed}, "
+    f"invoices_created={total_invoices_created}, "
+    f"invoices_updated={total_invoices_updated}, "
+    f"items_processed={total_items_processed}, "
+    f"items_created={total_items_created}, "
+    f"items_updated={total_items_updated}, "
+    f"errors={import_errors}"
+)
+
+
+And return these fields:
+
+return {
+    "success": True,
+    "invoices_processed": total_invoices_processed,
+    "invoices_created": total_invoices_created,
+    "invoices_updated": total_invoices_updated,
+    "items_processed": total_items_processed,
+    "items_created": total_items_created,
+    "items_updated": total_items_updated,
+    "invoices_found": invoices_found_in_api,
+    "errors": import_errors
+}
+
+3) One more important correction (not asked, but will bite you)
+
+You currently compute barcode as:
+
+barcode = dw.barcode if dw else None
+
+
+This only works if your DwItem model actually has a barcode field populated. If not, you will always fall back to PS365 lookup.
+
+That is acceptable, but you should not do per-item PS365 barcode lookups if you care about speed. You previously had a batch barcode fetch; you can reintroduce that later.
+
+Final answer
+
+So: not fully fixed yet.
+
+Shelf retrieval: almost fixed, but needs normalized shelf_map keys (otherwise .get(item_code) won’t match).
+
+Totals output: not fixed (counters are incomplete and item counts are miscounted).
+
+If you apply the small edits above, then yes—at that point it will be functionally fixed for (a) shelf location, and (b) reporting correct totals.

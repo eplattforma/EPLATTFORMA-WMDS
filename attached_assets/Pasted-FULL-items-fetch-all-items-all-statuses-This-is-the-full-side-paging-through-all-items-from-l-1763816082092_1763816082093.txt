@@ -1,0 +1,171 @@
+FULL items fetch (all items, all statuses)
+
+This is the “full” side: paging through all items from list_items.
+This is already inside full_dw_update() – here’s the relevant items-only part:
+
+from datetime import datetime
+import json, hashlib
+from sqlalchemy.orm import Session
+from models import DwItem
+from ps365_client import call_ps365
+
+PAGE_SIZE = 500
+
+def _compute_hash(data: dict) -> str:
+    return hashlib.md5(
+        json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+def full_items_update(session: Session):
+    """
+    Full refresh of DwItem from PS365 list_items.
+    All items (active + inactive, ecommerce + non-ecommerce).
+    """
+    page = 1
+    while True:
+        response = call_ps365("list_items", {
+            "page_number": page,
+            "page_size": PAGE_SIZE,
+            "filter_define": {
+                "active_type": "all",      # IMPORTANT: you asked for all
+                "ecommerce_type": "all",   # not only ecommerce
+            },
+        })
+        items = response.get("list_items", [])
+        if not items:
+            break
+
+        for i in items:
+            core = {
+                "item_code_365": i["item_code_365"],
+                "item_name": i.get("item_name", ""),
+                "active": bool(i.get("active", True)),
+                "category_code_365": i.get("category_code_365"),
+                "brand_code_365": i.get("brand_code_365"),
+                "season_code_365": i.get("season_code_365"),
+                "attribute_6_code_365": i.get("attribute_6_code_365"),
+            }
+            attr_hash = _compute_hash(core)
+            now = datetime.utcnow()
+
+            existing = session.get(DwItem, core["item_code_365"])
+            if existing and existing.attr_hash == attr_hash:
+                continue  # unchanged
+
+            if existing:
+                for k, v in core.items():
+                    setattr(existing, k, v)
+                existing.attr_hash = attr_hash
+                existing.last_sync_at = now
+            else:
+                obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=now)
+                session.add(obj)
+
+        session.commit()
+        page += 1
+
+
+So: this is the full items-side script.
+
+3️⃣ SYNC / incremental items fetch (list_sync_items)
+
+And here’s the incremental side that uses list_sync_items plus SyncState to remember the last change id.
+
+from models import DwItem, SyncState
+
+def _get_last_change_id(session: Session) -> int | None:
+    state = session.get(SyncState, "items_last_change_id")
+    if not state:
+        return None
+    try:
+        return int(state.value)
+    except ValueError:
+        return None
+
+def _set_last_change_id(session: Session, change_id: int):
+    state = session.get(SyncState, "items_last_change_id")
+    if not state:
+        state = SyncState(key="items_last_change_id", value=str(change_id))
+        session.add(state)
+    else:
+        state.value = str(change_id)
+    session.commit()
+
+def incremental_items_update(session: Session):
+    """
+    Incremental update of DwItem using PS365 list_sync_items.
+    """
+    last_change_id = _get_last_change_id(session)
+    highest_change_id = last_change_id or 0
+
+    while True:
+        payload = {
+            "records": PAGE_SIZE,
+            "ascending_order": True,
+            # If PS365 supports a "from_change_id", add it here:
+            # "from_change_id": last_change_id or 0,
+        }
+
+        response = call_ps365("list_sync_items", payload)
+        sync_items = response.get("list_sync_items", [])
+        if not sync_items:
+            break
+
+        for row in sync_items:
+            # IMPORTANT: adjust this according to your real JSON.
+            # In your PHP code you know if it's row["list_item"] or row itself.
+            i = row["list_item"]  # change to row["list_items"] / row if needed
+            change_id = int(row.get("change_id_365", 0))
+            if change_id > highest_change_id:
+                highest_change_id = change_id
+
+            core = {
+                "item_code_365": i["item_code_365"],
+                "item_name": i.get("item_name", ""),
+                "active": bool(i.get("active", True)),
+                "category_code_365": i.get("category_code_365"),
+                "brand_code_365": i.get("brand_code_365"),
+                "season_code_365": i.get("season_code_365"),
+                "attribute_6_code_365": i.get("attribute_6_code_365"),
+            }
+            attr_hash = _compute_hash(core)
+            now = datetime.utcnow()
+
+            existing = session.get(DwItem, core["item_code_365"])
+            if existing and existing.attr_hash == attr_hash:
+                continue  # unchanged
+
+            if existing:
+                for k, v in core.items():
+                    setattr(existing, k, v)
+                existing.attr_hash = attr_hash
+                existing.last_sync_at = now
+            else:
+                obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=now)
+                session.add(obj)
+
+        session.commit()
+
+    if highest_change_id and highest_change_id != last_change_id:
+        _set_last_change_id(session, highest_change_id)
+
+One thing you must check
+
+For list_sync_items, the exact JSON shape might be:
+
+response["list_sync_items"] → list of records; each record may already contain fields like item_code_365 directly, or may have a nested list_item or item object.
+
+To be 100% correct, open your working PHP sync code and match this line:
+
+foreach ($result['list_sync_items'] as $res) {
+    $item = $res['list_item']; // or ['list_items'] or $res itself
+}
+
+
+Then set the Python line accordingly:
+
+i = row["list_item"]        # if PHP uses ['list_item']
+# or
+i = row["list_items"]       # if PHP uses ['list_items']
+# or
+i = row                     # if fields are at top level

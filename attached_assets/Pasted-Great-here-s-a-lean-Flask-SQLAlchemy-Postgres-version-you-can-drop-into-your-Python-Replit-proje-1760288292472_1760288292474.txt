@@ -1,0 +1,180 @@
+Great—here’s a lean Flask + SQLAlchemy (Postgres) version you can drop into your Python/Replit project. It works with your existing orders and routes tables.
+
+What it does (short)
+
+Driver taps Start Route → API sets route Shipped → InProgress and bulk flips its orders Shipped → OutForDelivery in one transaction (idempotent).
+
+Driver can mark an order Delivered / Returned / Failed (only from OutForDelivery).
+
+(Optional) Complete route when no active orders remain.
+
+Replit setup (Python)
+
+Create/Use a Python repl.
+
+Add Secrets: DATABASE_URL (e.g., postgresql+psycopg2://user:pass@host/db).
+
+Create requirements.txt:
+
+Flask==3.0.3
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.9
+gunicorn==22.0.0
+
+
+In Shell:
+
+pip install -r requirements.txt
+
+
+Create app.py with the code below.
+
+Press Run (or gunicorn -w 2 -k gthread -b 0.0.0.0:8000 app:app).
+
+app.py
+import os
+from flask import Flask, request, jsonify
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import QueuePool
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL secret is missing")
+
+engine = create_engine(
+    DATABASE_URL,
+    poolclass=QueuePool,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+)
+
+app = Flask(__name__)
+
+# --- helpers ---
+def driver_id_or_401():
+    did = request.headers.get("x-driver-id")
+    if not did:
+        return None, (jsonify({"error": "Missing driver id"}), 401)
+    return did, None
+
+# --- health ---
+@app.get("/health")
+def health():
+    return jsonify({"ok": True})
+
+# --- Start Route (idempotent) ---
+@app.patch("/api/routes/<route_id>/start")
+def start_route(route_id):
+    driver_id, err = driver_id_or_401()
+    if err: return err
+
+    with engine.begin() as conn:  # transaction
+        # lock route row
+        r = conn.execute(
+            text("SELECT id, driver_id, status FROM routes WHERE id=:rid FOR UPDATE"),
+            {"rid": route_id},
+        ).mappings().first()
+        if not r:
+            return jsonify({"error": "Route not found"}), 404
+        if str(r["driver_id"]) != str(driver_id):
+            return jsonify({"error": "Not your route"}), 403
+
+        if r["status"] == "InProgress":
+            return jsonify({"routeId": route_id, "status": "InProgress", "ordersUpdated": 0})
+
+        if r["status"] != "Shipped":
+            return jsonify({"error": f"Cannot start from {r['status']}"}), 409
+
+        # flip route
+        conn.execute(
+            text("""UPDATE routes
+                    SET status='InProgress', started_at=NOW(), updated_at=NOW()
+                    WHERE id=:rid AND status='Shipped'"""),
+            {"rid": route_id},
+        )
+        # flip orders (Shipped -> OutForDelivery)
+        upd = conn.execute(
+            text("""UPDATE orders
+                    SET status='OutForDelivery', updated_at=NOW()
+                    WHERE route_id=:rid AND status='Shipped'"""),
+            {"rid": route_id},
+        )
+        return jsonify({
+            "routeId": route_id,
+            "status": "InProgress",
+            "ordersUpdated": upd.rowcount or 0
+        })
+
+# --- Per-order actions ---
+def _order_update_endpoint(to_status):
+    driver_id, err = driver_id_or_401()
+    if err: return err
+    order_id = request.view_args["order_id"]
+    with engine.begin() as conn:
+        q = conn.execute(
+            text("""UPDATE orders
+                    SET status=:to, updated_at=NOW()
+                    WHERE id=:oid AND status='OutForDelivery'
+                    RETURNING id, status"""),
+            {"to": to_status, "oid": order_id},
+        ).mappings().first()
+        if not q:
+            return jsonify({"error": "Invalid state or order not found"}), 409
+        return jsonify({"id": q["id"], "status": q["status"]})
+
+@app.patch("/api/orders/<order_id>/deliver")
+def order_deliver(order_id): return _order_update_endpoint("Delivered")
+
+@app.patch("/api/orders/<order_id>/return")
+def order_return(order_id): return _order_update_endpoint("Returned")
+
+@app.patch("/api/orders/<order_id>/fail")
+def order_fail(order_id): return _order_update_endpoint("Failed")
+
+# --- Optional: complete a route when no active orders remain ---
+@app.patch("/api/routes/<route_id>/complete")
+def complete_route(route_id):
+    driver_id, err = driver_id_or_401()
+    if err: return err
+    with engine.begin() as conn:
+        left_active = conn.execute(
+            text("""SELECT COUNT(*)::int AS c
+                    FROM orders
+                    WHERE route_id=:rid AND status IN ('OutForDelivery','Shipped')"""),
+            {"rid": route_id},
+        ).mappings().first()["c"]
+
+        if left_active > 0:
+            return jsonify({"error": "Route still has active orders"}), 409
+
+        conn.execute(
+            text("""UPDATE routes
+                    SET status='Completed', completed_at=NOW(), updated_at=NOW()
+                    WHERE id=:rid AND status='InProgress'"""),
+            {"rid": route_id},
+        )
+        return jsonify({"routeId": route_id, "status": "Completed"})
+
+if __name__ == "__main__":
+    # Replit often exposes PORT env var
+    port = int(os.getenv("PORT", "8000"))
+    app.run(host="0.0.0.0", port=port, debug=True)
+
+Optional (fast queries) — run once in SQL
+CREATE INDEX IF NOT EXISTS idx_routes_driver_status ON routes (driver_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_route_status  ON orders (route_id, status, updated_at DESC);
+
+Quick tests (from Replit Shell)
+# Start the route (driver must match route.driver_id)
+curl -X PATCH "$REPLIT_URL/api/routes/ROUTE123/start" -H "x-driver-id: DRIVER1"
+
+# Mark an order delivered
+curl -X PATCH "$REPLIT_URL/api/orders/ORDER1/deliver" -H "x-driver-id: DRIVER1"
+
+# Returned / Failed
+curl -X PATCH "$REPLIT_URL/api/orders/ORDER2/return" -H "x-driver-id: DRIVER1"
+curl -X PATCH "$REPLIT_URL/api/orders/ORDER3/fail"   -H "x-driver-id: DRIVER1"
+
+
+That’s it

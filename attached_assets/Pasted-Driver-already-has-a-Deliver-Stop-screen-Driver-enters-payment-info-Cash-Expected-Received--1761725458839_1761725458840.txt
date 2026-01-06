@@ -1,0 +1,368 @@
+Driver already has a “Deliver Stop” screen.
+
+Driver enters payment info (Cash / Expected / Received / Variance / Note).
+
+You have invoice numbers per stop.
+
+You want a “Print Receipt” action that:
+
+Generates the A5 receipt using that data (including invoice refs).
+
+Opens the PDF on the driver’s phone.
+
+Driver prints to the HP OfficeJet 200 via Wi-Fi Direct.
+
+Below is the full setup you need in your Flask app on Replit.
+
+You’ll do 3 things:
+
+Add the draw_driver_receipt_header helper (the layout we finalized).
+
+Add a /driver/print_receipt/<order_id> endpoint that:
+
+pulls the order and its delivery/payment data
+
+builds the PDF in memory
+
+returns it
+
+Add a “Print Receipt” button/link in your driver UI that opens that URL in a new tab.
+
+That’s it. No drivers, no extra SDK, no pairing logic in code.
+
+1. Install required libraries
+
+In requirements.txt (or Replit “Packages”), make sure you have:
+
+flask
+sqlalchemy
+reportlab
+
+
+You likely already have flask and sqlalchemy, just add reportlab for PDF.
+
+2. Your data model (what fields we expect in order)
+
+Your PDF needs these fields. You may already have them — just make sure your object or row gives us:
+
+order.id (int or string) → used for receipt number
+
+order.customer_name → e.g. "OMAR.CY CONSTRUCTIONS LTD NO2"
+
+order.location → e.g. "Christodoulou Chatzipavlou 34.6769000, 33.0489886"
+
+order.delivered_at → Python datetime of delivery
+
+order.driver_name → driver doing the stop
+
+order.payment_method → "Cash", "Card", "Cheque", etc
+
+order.expected_total → expected amount (float)
+
+order.cash_collected → received amount (float)
+
+order.variance → difference expected vs received (float)
+
+order.note → e.g. "check the date if check"
+
+order.exceptions_count → int (like 0)
+
+order.invoice_numbers → list of invoice numbers OR comma string
+
+If you don’t store all of these in your DB yet, you can build a temporary object in memory before generating the PDF (I’ll show how below). You do NOT have to redesign your tables immediately.
+
+3. The PDF header renderer
+
+Add this helper function somewhere in main.py (or a utils file you import). This draws the company info, payment info, invoice references, and signature lines.
+
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A5
+from io import BytesIO
+
+def draw_driver_receipt_header(c, width, height, order):
+    y = height - 40
+
+    # 1. Company header
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(width / 2, y, "STEP EPLATTFORMA LTD")
+    y -= 14
+
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(width / 2, y, "Digeni Akrita 13BC, 1055 Lefkosia")
+    y -= 12
+    c.drawCentredString(width / 2, y, "Tel: 7000 0394")
+    y -= 12
+    c.drawCentredString(width / 2, y, "VAT Reg No: CY10353264O")
+    y -= 14
+
+    c.line(30, y, width - 30, y)
+    y -= 18
+
+    # 2. Receipt title
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(width / 2, y, "CASH SALES RECEIPT")
+    y -= 12
+    c.line(30, y, width - 30, y)
+    y -= 16
+
+    # 3. Delivery / stop info
+    c.setFont("Helvetica", 8)
+
+    date_text = order.delivered_at.strftime('%Y-%m-%d') if getattr(order, "delivered_at", None) else ""
+    time_text = order.delivered_at.strftime('%H:%M') if getattr(order, "delivered_at", None) else ""
+
+    c.drawString(30, y, f"Date: {date_text}")
+    c.drawRightString(width - 30, y, f"Time: {time_text}")
+    y -= 12
+
+    c.drawString(30, y, f"Customer: {order.customer_name}")
+    y -= 12
+
+    if getattr(order, "location", None):
+        c.drawString(30, y, f"Location: {order.location}")
+        y -= 12
+
+    c.drawString(30, y, f"Driver: {getattr(order, 'driver_name', '-')}")
+    y -= 12
+
+    c.line(30, y, width - 30, y)
+    y -= 14
+
+    # 4. Payment Information
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(30, y, "Payment Information")
+    y -= 12
+
+    c.setFont("Helvetica", 8)
+    c.drawString(30, y, "Payment Method: " + str(getattr(order, "payment_method", "Cash")))
+    y -= 12
+
+    c.drawString(30, y, f"Expected: €{getattr(order, 'expected_total', 0.00):.2f}")
+    y -= 12
+
+    c.drawString(30, y, f"Received: €{getattr(order, 'cash_collected', 0.00):.2f}")
+    y -= 12
+
+    c.drawString(30, y, f"Variance: €{getattr(order, 'variance', 0.00):.2f}")
+    y -= 12
+
+    note_val = getattr(order, "note", "")
+    if note_val:
+        c.drawString(30, y, f"Note: {note_val[:60]}")
+        y -= 12
+
+    exc_val = getattr(order, "exceptions_count", None)
+    if exc_val is not None:
+        c.drawString(30, y, f"Exceptions: {exc_val}")
+        y -= 12
+
+    c.line(30, y, width - 30, y)
+    y -= 14
+
+    # 5. Invoice Reference
+    invoices_raw = getattr(order, "invoice_numbers", [])
+    if isinstance(invoices_raw, str):
+        invoices_list = [x.strip() for x in invoices_raw.split(",") if x.strip()]
+    else:
+        invoices_list = list(invoices_raw)
+
+    if invoices_list:
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(30, y, "Invoice Reference:")
+        y -= 12
+
+        c.setFont("Helvetica", 8)
+        for inv_num in invoices_list:
+            c.drawString(40, y, inv_num)
+            y -= 12
+            if y < 80:
+                # if we get too low, new page
+                c.showPage()
+                y = height - 40
+                c.setFont("Helvetica", 8)
+
+        c.line(30, y, width - 30, y)
+        y -= 14
+
+    # 6. Total received
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(30, y, f"TOTAL AMOUNT RECEIVED: €{getattr(order, 'cash_collected', 0.00):.2f}")
+    y -= 16
+
+    c.line(30, y, width - 30, y)
+    y -= 16
+
+    # 7. Footer / signatures
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(width / 2, y, "Thank you for your business.")
+    y -= 12
+    c.drawCentredString(width / 2, y, "This receipt confirms delivery and payment collection.")
+    y -= 20
+
+    c.setFont("Helvetica", 8)
+    c.drawString(30, y, "Customer Signature: ______________________")
+    y -= 14
+    c.drawString(30, y, "Driver Signature:   ______________________")
+    y -= 20
+
+    c.line(30, y, width - 30, y)
+    y -= 20
+
+    return y
+
+
+This is the “visual brain” of the receipt. It draws everything you care about: company header, payment, invoices, totals, signature.
+
+4. The endpoint that returns the PDF to the driver’s phone
+
+Add this route to your Flask app:
+
+from flask import Flask, send_file
+from datetime import datetime
+
+app = Flask(__name__)
+
+@app.route("/driver/print_receipt/<int:order_id>")
+def driver_print_receipt(order_id):
+    """
+    1. Fetch order data (including payment info and invoices)
+    2. Generate A5 PDF with draw_driver_receipt_header
+    3. Return PDF so the phone opens it in a new tab
+    """
+
+    # 1. Get the order from your DB
+    db = SessionLocal()
+    order = db.query(Order).filter(Order.id == order_id).first()
+    db.close()
+
+    if not order:
+        return "Order not found", 404
+
+    # If some fields aren't stored in DB yet, you can inject them here before PDF:
+    # Example of wiring live data from your driver form flow:
+    # order.payment_method   = "Cash"
+    # order.expected_total   = 254.86
+    # order.cash_collected   = 254.86
+    # order.variance         = 0.00
+    # order.note             = "check the date if check"
+    # order.exceptions_count = 0
+    # order.location         = "Christodoulou Chatzipavlou 34.6769000, 33.0489886"
+    # order.driver_name      = "Andreas K."
+    # order.invoice_numbers  = ["INV-2024-00912", "INV-2024-00913"]
+    # order.delivered_at     = datetime.utcnow() if not already set
+
+    # 2. Build the PDF in memory
+    pdf_buffer = BytesIO()
+    c = canvas.Canvas(pdf_buffer, pagesize=A5)
+    width, height = A5
+
+    draw_driver_receipt_header(c, width, height, order)
+
+    # If later you ALSO want to print item lines, continue drawing here using the y returned,
+    # but for now header covers money + invoices which is enough for proof-of-payment.
+
+    c.showPage()
+    c.save()
+    pdf_buffer.seek(0)
+
+    # 3. Send PDF to browser (mobile side will show Share -> Print)
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=f"receipt_{order_id}.pdf"
+    )
+
+
+Important:
+
+driver_print_receipt returns a PDF response.
+
+The phone opens that in a new tab.
+
+The driver then presses Share → Print → chooses HP OfficeJet 200 and A5 paper.
+
+This route is what the driver’s “Print Receipt” button will call.
+
+5. Add the “Print Receipt” button in the driver UI
+
+Where you currently show the stop info and payment section, add this button.
+
+If you’re using a Jinja-style template:
+
+<a
+  href="/driver/print_receipt/{{ order.id }}"
+  target="_blank"
+  style="
+    display:block;
+    text-align:center;
+    background:#0a66ff;
+    color:#fff;
+    font-size:18px;
+    padding:16px;
+    border-radius:10px;
+    font-weight:600;
+    text-decoration:none;
+    width:100%;
+    box-sizing:border-box;
+    margin-top:16px;
+  "
+>
+  Print Receipt
+</a>
+
+
+If you’re using a JS-rendered UI and you already know the order_id in JS:
+
+<button
+  id="printBtn"
+  style="width:100%;background:#0a66ff;color:#fff;font-size:18px;
+         padding:16px;border-radius:10px;border:0;font-weight:600;">
+  Print Receipt
+</button>
+
+<script>
+  const orderId = CURRENT_ORDER_ID; // inject this value from your page context
+  document.getElementById("printBtn").addEventListener("click", () => {
+    window.open(`/driver/print_receipt/${orderId}`, "_blank");
+  });
+</script>
+
+
+This gives the driver a single tap workflow.
+
+6. Physical printing setup for the driver (what you tell the driver)
+
+You don’t code this; this is operational:
+
+Load A5 paper (half A4) into the HP OfficeJet 200.
+
+Turn on Wi-Fi Direct on the HP OfficeJet 200.
+
+On the phone/tablet:
+
+Connect Wi-Fi to the printer’s Wi-Fi Direct network.
+
+In the app, tap “Print Receipt”.
+
+A PDF opens.
+
+Tap Share → Print.
+
+Select the HP OfficeJet 200 as the printer.
+
+Make sure paper size is A5 and scale is 100%.
+
+Print and hand to customer.
+
+No extra code/drivers needed.
+
+TL;DR for Replit
+
+Add reportlab to requirements.
+
+Add draw_driver_receipt_header() exactly as given.
+
+Add /driver/print_receipt/<order_id> route exactly as given.
+
+Add a “Print Receipt” button that links to that route in a new tab.

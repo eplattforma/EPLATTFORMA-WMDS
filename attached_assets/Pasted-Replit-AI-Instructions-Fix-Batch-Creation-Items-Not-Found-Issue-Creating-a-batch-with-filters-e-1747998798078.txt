@@ -1,0 +1,75 @@
+Replit AI Instructions: Fix Batch Creation – Items Not Found
+Issue:
+Creating a batch with filters (e.g., by zone) returns “no items found”, even though there are eligible items.
+
+Step 1: Clean the Zone Format
+Check how the zone value is stored in batch_picking_sessions. It should be plain text like:
+
+python
+Copy code
+"SENSITIVE"
+Do not store it as:
+
+{SENSITIVE}
+
+['SENSITIVE']
+
+'["SENSITIVE"]'
+
+✅ Fix by removing extra characters:
+
+python
+Copy code
+zone_cleaned = zone_input.replace("{", "").replace("}", "").strip()
+Step 2: Correct Filtering Logic in Batch Creation
+When creating a batch, the query should return items that match:
+
+The selected zone(s)
+
+Are not picked
+
+Have pick status 'not_picked', 'reset', 'skipped_pending'
+
+✅ Correct filtering code (SQLAlchemy-style):
+
+python
+Copy code
+filtered_items = (
+    db.query(InvoiceItem)
+    .filter(InvoiceItem.zone.in_(selected_zones))
+    .filter(InvoiceItem.is_picked == False)
+    .filter(InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending']))
+    .all()
+)
+Add a log right before the query:
+
+python
+Copy code
+print("🟢 ZONE Filter:", selected_zones)
+Step 3: Log and Handle Zero Results Gracefully
+If zero items are found, the system should notify the user clearly:
+
+python
+Copy code
+if not filtered_items:
+    print("⚠️ No items found with selected filters.")
+    return "No items match the filter. Please check zone name or status values."
+Step 4: Fix Old Data (Optional)
+If older batches were saved with {SENSITIVE} or other incorrect zone data, update them in the DB:
+
+sql
+Copy code
+UPDATE batch_picking_sessions
+SET zones = REPLACE(zones, '{', '')
+WHERE zones LIKE '{%';
+
+UPDATE batch_picking_sessions
+SET zones = REPLACE(zones, '}', '')
+WHERE zones LIKE '%}';
+Final Notes for Replit AI:
+Double-check that zone names are correctly extracted as a list (e.g., ['SENSITIVE'])
+
+Confirm that all eligible InvoiceItems exist and match the filter conditions
+
+Run the batch creation test with known data (e.g., 5 items in SENSITIVE zone) to confirm fix
+

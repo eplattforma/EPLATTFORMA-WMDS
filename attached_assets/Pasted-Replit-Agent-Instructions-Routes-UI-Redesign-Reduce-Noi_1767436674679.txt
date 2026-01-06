@@ -1,0 +1,273 @@
+Replit Agent Instructions: Routes UI Redesign (Reduce Noise, Improve Visibility)
+Objective
+
+Refactor the Route Detail page (and lightly improve the Routes List page if present) to:
+
+Reduce visual clutter and unnecessary data density
+
+Improve at-a-glance operational visibility (readiness, picked progress, totals)
+
+Replace tall stop “cards” with a compact, scannable stop list with expandable details
+
+Add an “Exceptions” block that explains why Dispatch is blocked and allows filtering to problematic stops
+
+No database schema changes are required.
+
+Scope
+Pages
+
+Route detail page: /routes/<route_id> (or equivalent)
+
+(Optional) Routes list page: /routes
+
+Data
+
+Use existing models/fields; compute UI aggregates in the route detail controller:
+
+Stops count
+
+Invoices count
+
+Picked count (or picked progress)
+
+Total amount due
+
+“Invoices ready” count and list of exceptions blocking dispatch
+
+Implementation Plan
+1) Backend: Controller/Route Handler updates
+
+Locate the route detail handler (likely routes.py, views/routes.py, or blueprints/routes.py).
+
+Add computed view-model fields passed to the template:
+
+Required computed values
+
+kpis = { stops_total, invoices_total, picked_count, ready_count, total_due }
+
+dispatch_blockers = [ {type, message, stop_ids} ] (list)
+
+show filter support via querystring: ?show=issues (only show stops that block dispatch)
+
+Filtering logic
+
+If request.args.get("show") == "issues" then filter stops to only those in blocked_stop_ids.
+
+Otherwise show all stops.
+
+Define “ready” and “picked”
+Use existing fields already used in UI badges:
+
+“Ready” vs “Not Picked” seems available today. Reuse the same logic currently used for those labels.
+
+For dispatch readiness, use the same rule currently used to display “Not all invoices ready”.
+
+Example (pseudocode)
+
+stop_is_ready = stop.invoice_status == "READY" or stop.is_ready == True
+
+stop_is_picked = stop.pick_status == "PICKED" or stop.picked_at is not None
+
+total_due = sum(stop.amount_due or invoice.total)
+
+ready_count = sum(stop_is_ready)
+
+picked_count = sum(stop_is_picked)
+
+blocked_stop_ids = [stop.id for stop in stops if not stop_is_ready or other missing requirements]
+
+Pass stops (filtered), all_stops (optional), kpis, and dispatch_blockers into the template context.
+
+2) Route Detail Template: New Layout
+
+Locate: templates/routes/detail.html (or similar).
+
+2.1 Sticky Route Summary Bar (top)
+
+Create a sticky header section that remains visible while scrolling.
+
+Left side
+
+Route #184
+
+Driver name
+
+Date
+
+Area/zone label
+
+Center (4 compact KPI blocks)
+
+Stops: 15
+
+Picked: X/15
+
+Ready: Y/15
+
+Total Due: €...
+
+Right side
+
+Primary button: Dispatch
+
+Secondary actions in dropdown: Edit, Print, Export, Archive route, etc.
+
+Dispatch disabled state
+
+If blocked, disable the button and show a single-line reason:
+“Dispatch disabled: 3 invoices not ready” with a link “Show issues” (?show=issues).
+
+2.2 Exceptions Panel (only if blockers exist)
+
+Immediately under summary bar:
+
+Title: Exceptions (N)
+List up to 3 items, each like:
+
+2 invoices not ready
+
+1 stop missing payment method
+Each row: [Show] link that filters list (?show=issues), and optionally anchors to first problematic stop.
+
+2.3 Replace Stop Cards with Compact Stop List
+
+Convert the current large card layout into a list/table-like layout.
+
+Stop row columns
+
+Stop number + Customer name (bold) + optional city/area (small)
+
+Invoice number (monospace badge)
+
+Status badge (single operational badge: Ready / Not Picked / Picking / Picked / Issue)
+
+Payment (e.g., COD Cash) (small)
+
+Amount (right aligned, prominent)
+
+Actions: Edit + kebab menu
+
+Remove from primary row
+
+GPS coordinates
+
+Multiple metric chips (lines/items/kg) shown always
+
+Expandable details
+Each stop row can expand/collapse to show:
+
+Address (single line)
+
+“Map” link (Google Maps query by address)
+
+Notes/open hours
+
+Secondary metrics: lines, items, kg, etc.
+
+Use either:
+
+Bootstrap collapse (if Bootstrap already in project), or
+
+Minimal vanilla JS toggle using hidden class.
+
+2.4 Reduce repeated/competing UI elements
+
+Remove the large “Progress” bar unless it reflects something meaningful (picked ratio). If kept, make it small and near KPIs.
+
+Keep only one prominent status indicator per stop.
+
+Keep chips minimal; put rest under expand.
+
+3) Styling (Dark Theme Improvements)
+
+Create or update:
+
+static/css/routes.css
+
+Goals:
+
+Increase contrast between background and list rows (slightly lighter row background).
+
+Ensure typography hierarchy:
+
+Route title larger
+
+KPI numbers bold and large
+
+Metadata muted
+
+Improve spacing:
+
+Compact rows
+
+Consistent padding
+
+Ensure sticky header doesn’t overlap content (add top padding/margin).
+
+Add CSS classes:
+
+.route-summary.sticky { position: sticky; top: 0; z-index: 20; }
+
+.stop-row { border-radius: 12px; margin-bottom: 10px; }
+
+.muted { opacity: 0.75; }
+
+.kpi-value { font-size: 1.25rem; font-weight: 700; }
+
+4) JavaScript (if needed for row expand/collapse)
+
+Create/update:
+
+static/js/routes.js
+
+Implement:
+
+Click on “Details” caret toggles the stop detail section.
+
+Optional: persist expanded state in sessionStorage by stop id.
+
+No heavy libraries.
+
+5) (Optional) Routes List Page Cleanup
+
+If you have templates/routes/list.html, update it to match the new visual language:
+
+Each route row:
+
+Route #, date, driver, zone
+
+Status pill (Planned / In transit / Completed)
+
+Readiness icon (check / warning)
+
+Picked: X/Y as text (not a big bar)
+
+One primary action: open route; others under kebab
+
+Acceptance Criteria (must meet)
+
+Route detail page shows a sticky summary bar with compact KPIs and one primary Dispatch action.
+
+Stops are displayed in a compact list; large cards are removed.
+
+Coordinates are not shown by default; they appear only in expanded details (or removed).
+
+Only essential metrics are visible by default; secondary metrics appear only in expanded details.
+
+If dispatch is blocked, the UI clearly states why and provides “Show issues” filter.
+
+?show=issues filters the stop list to only problematic stops.
+
+Mobile responsiveness: summary bar wraps cleanly; stop rows remain readable.
+
+Deliverables
+
+Updated controller for route detail page with computed KPIs + blockers + filtering
+
+Updated route detail template implementing the new structure
+
+static/css/routes.css improvements
+
+static/js/routes.js (if needed)
+
+(Optional) updated routes list template

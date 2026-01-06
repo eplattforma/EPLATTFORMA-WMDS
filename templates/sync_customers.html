@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Synchronise Customers - EPLATTFORMA{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-sync me-2"></i>Synchronise Customers</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>What this does:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>Synchronizes customer data from PS365 to the local database</li>
+                            <li>Creates payment customer records for all active PS365 customers</li>
+                            <li>Automatically creates default payment terms for customers without active terms</li>
+                        </ul>
+                    </div>
+
+                    <div id="sync-status" class="alert d-none"></div>
+
+                    <div class="text-center mt-4">
+                        <button id="btn-sync" class="btn btn-primary btn-lg">
+                            <i class="fas fa-sync me-2"></i>Start Synchronisation
+                        </button>
+                    </div>
+
+                    <div id="sync-progress" class="mt-4 d-none">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+                        </div>
+                        <p class="text-center mt-2 text-muted">
+                            <i class="fas fa-spinner fa-spin me-2"></i>Synchronising customers...
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("btn-sync").onclick = async () => {
+    const statusDiv = document.getElementById("sync-status");
+    const progressDiv = document.getElementById("sync-progress");
+    const btn = document.getElementById("btn-sync");
+
+    if (!confirm("Are you sure you want to synchronise customers from PS365? This may take a few moments.")) {
+        return;
+    }
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Running...';
+        progressDiv.classList.remove("d-none");
+        statusDiv.classList.add("d-none");
+
+        const res = await fetch("{{ url_for('payment_terms.reconcile_missing_terms') }}", {
+            method: "POST",
+            headers: {
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        });
+
+        const data = await res.json();
+
+        progressDiv.classList.add("d-none");
+
+        if (res.ok) {
+            statusDiv.className = "alert alert-success";
+            statusDiv.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>Synchronisation Complete!</strong><br>
+                <ul class="mb-0 mt-2">
+                    <li>Customers synced: ${data.synced_customers || 0}</li>
+                    <li>Payment terms created: ${data.created_defaults || 0}</li>
+                </ul>
+            `;
+        } else {
+            throw new Error(data.error || "Synchronisation failed");
+        }
+
+        statusDiv.classList.remove("d-none");
+    } catch (err) {
+        progressDiv.classList.add("d-none");
+        statusDiv.className = "alert alert-danger";
+        statusDiv.innerHTML = `
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>Error:</strong> ${err.message}
+        `;
+        statusDiv.classList.remove("d-none");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync me-2"></i>Start Synchronisation';
+    }
+};
+</script>
+{% endblock %}

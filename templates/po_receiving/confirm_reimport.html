@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Confirm Re-import - {{ po_code }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card border-warning">
+                <div class="card-header bg-warning text-dark">
+                    <h4 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Re-import Confirmation Required</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning">
+                        <h5><strong>Warning:</strong> This purchase order already exists with receiving data</h5>
+                        <hr>
+                        <p class="mb-2"><strong>Purchase Order:</strong> {{ po_code }}</p>
+                        <p class="mb-2"><strong>Supplier:</strong> {{ po.supplier_name or 'N/A' }}</p>
+                        <p class="mb-2"><strong>Total Received:</strong> {{ total_received|int }} units</p>
+                    </div>
+                    
+                    <h5 class="mt-4 mb-3">What happens if you continue?</h5>
+                    <ul class="list-group mb-4">
+                        <li class="list-group-item">
+                            <i class="fas fa-trash text-danger"></i> 
+                            <strong>All receiving sessions</strong> will be permanently deleted
+                        </li>
+                        <li class="list-group-item">
+                            <i class="fas fa-trash text-danger"></i> 
+                            <strong>All received quantities and expiration dates</strong> will be deleted
+                        </li>
+                        <li class="list-group-item">
+                            <i class="fas fa-trash text-danger"></i> 
+                            <strong>All order lines</strong> will be replaced with fresh data from PS365
+                        </li>
+                        <li class="list-group-item">
+                            <i class="fas fa-download text-success"></i> 
+                            <strong>Fresh order data</strong> will be imported from PS365
+                        </li>
+                    </ul>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> 
+                        <strong>Note:</strong> This action cannot be undone. Make sure you want to discard all existing receiving data before proceeding.
+                    </div>
+                    
+                    <form method="POST" action="{{ url_for('po_receiving.download') }}">
+                        <input type="hidden" name="po_code" value="{{ po_code }}">
+                        <input type="hidden" name="is_shopping_cart" value="{{ 'Y' if is_cart else 'N' }}">
+                        <input type="hidden" name="force_reimport" value="yes">
+                        
+                        <div class="d-flex gap-2 justify-content-between">
+                            <a href="{{ url_for('po_receiving.index') }}" class="btn btn-secondary btn-lg">
+                                <i class="fas fa-times"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn btn-danger btn-lg">
+                                <i class="fas fa-exclamation-triangle"></i> Delete All Data and Re-import
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

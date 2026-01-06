@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}AI Optimization Suggestions{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h3 mb-0">🤖 AI Optimization Suggestions</h1>
+                    <p class="text-muted">Intelligent recommendations to improve warehouse efficiency</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('ai_insights_dashboard') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
+                    </a>
+                </div>
+            </div>
+
+            <!-- Analysis Info -->
+            <div class="alert alert-info mb-4">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-info-circle fa-2x me-3"></i>
+                    <div>
+                        <h5 class="alert-heading mb-1">Analysis Complete</h5>
+                        <p class="mb-0">Analyzed <strong>{{ data_points }}</strong> picking data points from the last <strong>{{ days }}</strong> days using advanced AI algorithms.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Layout Optimization -->
+            {% if suggestions.layout_optimization %}
+            <div class="card mb-4">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0"><i class="fas fa-warehouse me-2"></i>Layout Optimization</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Recommendations to improve warehouse layout and accessibility</p>
+                    {% for suggestion in suggestions.layout_optimization %}
+                    <div class="alert alert-light border-start border-danger border-3 mb-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="mb-0">{{ suggestion.title }}</h6>
+                            <div>
+                                <span class="badge bg-danger me-2">Impact: {{ suggestion.impact_score }}/10</span>
+                                <span class="badge bg-secondary">{{ suggestion.affected_items }} items</span>
+                            </div>
+                        </div>
+                        <p class="mb-0">{{ suggestion.description }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Process Improvements -->
+            {% if suggestions.process_improvements %}
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-white">
+                    <h5 class="mb-0"><i class="fas fa-cogs me-2"></i>Process Improvements</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Workflow and process optimization opportunities</p>
+                    {% for suggestion in suggestions.process_improvements %}
+                    <div class="alert alert-light border-start border-warning border-3 mb-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="mb-0">{{ suggestion.title }}</h6>
+                            <div>
+                                <span class="badge bg-warning me-2">Impact: {{ suggestion.impact_score }}/10</span>
+                                {% if suggestion.potential_savings %}
+                                <span class="badge bg-success">Save: {{ suggestion.potential_savings }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="mb-0">{{ suggestion.description }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Training Recommendations -->
+            {% if suggestions.training_recommendations %}
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-graduation-cap me-2"></i>Training Recommendations</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Targeted training to improve picker performance</p>
+                    {% for suggestion in suggestions.training_recommendations %}
+                    <div class="alert alert-light border-start border-primary border-3 mb-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="mb-0">{{ suggestion.title }}</h6>
+                            <div>
+                                <span class="badge bg-primary me-2">Impact: {{ suggestion.impact_score }}/10</span>
+                                <span class="badge bg-info">{{ suggestion.affected_picks }} picks affected</span>
+                            </div>
+                        </div>
+                        <p class="mb-0">{{ suggestion.description }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Inventory Positioning -->
+            {% if suggestions.inventory_positioning %}
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-boxes me-2"></i>Inventory Positioning</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Strategic item placement recommendations</p>
+                    {% for suggestion in suggestions.inventory_positioning %}
+                    <div class="alert alert-light border-start border-success border-3 mb-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="mb-0">{{ suggestion.title }}</h6>
+                            <span class="badge bg-success">Impact: {{ suggestion.impact_score }}/10</span>
+                        </div>
+                        <p class="mb-0">{{ suggestion.description }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- No Suggestions -->
+            {% if not suggestions.layout_optimization and not suggestions.process_improvements and not suggestions.training_recommendations and not suggestions.inventory_positioning %}
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <i class="fas fa-check-circle fa-4x text-success mb-3"></i>
+                    <h4 class="text-success">Excellent Performance!</h4>
+                    <p class="text-muted mb-4">Your warehouse is operating efficiently. No critical optimization opportunities detected at this time.</p>
+                    <div class="row justify-content-center">
+                        <div class="col-md-8">
+                            <div class="alert alert-light">
+                                <h6>Keep monitoring:</h6>
+                                <ul class="list-unstyled mb-0">
+                                    <li>• Continue tracking picking times for trends</li>
+                                    <li>• Monitor zone performance as volumes change</li>
+                                    <li>• Review recommendations weekly for new insights</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Implementation Guide -->
+            <div class="card mt-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Implementation Tips</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-star text-warning me-1"></i> High Priority Actions</h6>
+                            <ul class="small">
+                                <li>Focus on recommendations with impact scores 8-10</li>
+                                <li>Address layout issues that affect multiple items</li>
+                                <li>Implement process changes with measurable time savings</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-chart-line text-success me-1"></i> Measuring Success</h6>
+                            <ul class="small">
+                                <li>Monitor average pick times after changes</li>
+                                <li>Track efficiency ratios by zone</li>
+                                <li>Re-run analysis monthly to measure improvement</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Add some interactivity for better UX
+document.addEventListener('DOMContentLoaded', function() {
+    // Highlight impact scores with colors
+    const impactBadges = document.querySelectorAll('.badge:contains("Impact")');
+    impactBadges.forEach(badge => {
+        const scoreText = badge.textContent;
+        const score = parseInt(scoreText.match(/\d+/)[0]);
+        
+        if (score >= 8) {
+            badge.classList.remove('bg-danger', 'bg-warning', 'bg-primary');
+            badge.classList.add('bg-danger');
+        } else if (score >= 6) {
+            badge.classList.remove('bg-danger', 'bg-warning', 'bg-primary');
+            badge.classList.add('bg-warning');
+        } else {
+            badge.classList.remove('bg-danger', 'bg-warning', 'bg-primary');
+            badge.classList.add('bg-primary');
+        }
+    });
+});
+</script>
+{% endblock %}

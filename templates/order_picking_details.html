@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block title %}Order Picking Details - {{ invoice.invoice_no }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .picking-report {
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        line-height: 1.4;
+    }
+    
+    .order-header {
+        border: 2px solid #000;
+        padding: 10px;
+        margin-bottom: 20px;
+        background-color: #f8f9fa;
+    }
+    
+    .section-header {
+        background-color: #e9ecef;
+        padding: 8px;
+        margin: 15px 0 5px 0;
+        border-left: 4px solid #007bff;
+        font-weight: bold;
+    }
+    
+    .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 15px;
+        font-size: 11px;
+    }
+    
+    .items-table th,
+    .items-table td {
+        border: 1px solid #ddd;
+        padding: 4px 6px;
+        text-align: left;
+    }
+    
+    .items-table th {
+        background-color: #f5f5f5;
+        font-weight: bold;
+    }
+    
+    .picked-item {
+        background-color: #d4edda;
+    }
+    
+    .not-picked {
+        background-color: #f8d7da;
+    }
+    
+    .partial-picked {
+        background-color: #fff3cd;
+    }
+    
+    .batch-section {
+        border-left: 4px solid #ffc107;
+    }
+    
+    .manual-section {
+        border-left: 4px solid #28a745;
+    }
+    
+    .time-info {
+        font-size: 10px;
+        color: #666;
+        font-style: italic;
+    }
+    
+    .exception-item {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        padding: 8px;
+        margin: 5px 0;
+        border-radius: 4px;
+    }
+    
+    @media print {
+        .no-print {
+            display: none !important;
+        }
+        
+        .picking-report {
+            font-size: 10px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid picking-report">
+    <!-- Header Actions (No Print) -->
+    <div class="no-print mb-3">
+        <a href="/operations/shipped-orders-report" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Shipped Orders
+        </a>
+        <button onclick="window.print()" class="btn btn-primary ms-2">
+            <i class="fas fa-print me-1"></i>Print Report
+        </button>
+    </div>
+
+    <!-- Order Header -->
+    <div class="order-header">
+        <div class="row">
+            <div class="col-md-6">
+                <h4><strong>ORDER: {{ invoice.invoice_no }}</strong></h4>
+                <p class="mb-1"><strong>Customer:</strong> {{ invoice.customer_name or 'Unknown' }}</p>
+                <p class="mb-1"><strong>Status:</strong> {{ invoice.status.replace('_', ' ').title() }}</p>
+                <p class="mb-1"><strong>Routing:</strong> {{ invoice.routing or 'N/A' }}</p>
+            </div>
+            <div class="col-md-6">
+                <p class="mb-1"><strong>Picker:</strong> {{ invoice.assigned_to or 'Not Assigned' }}</p>
+                <p class="mb-1"><strong>Upload Date:</strong> {{ invoice.upload_date or 'N/A' }}</p>
+                <p class="mb-1"><strong>Total Weight:</strong> {{ "%.1f"|format(invoice.total_weight) }} kg</p>
+                {% if invoice.shipped_at %}
+                <p class="mb-1"><strong>Shipped:</strong> {{ invoice.shipped_at|local_time('%Y-%m-%d %H:%M') }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Picked Items -->
+    {% if manual_items %}
+    <div class="section-header manual-section">
+        <i class="fas fa-hand-paper me-2"></i>MANUAL PICKED ITEMS ({{ manual_items|length }})
+    </div>
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 15%;">Item Code</th>
+                <th style="width: 35%;">Description</th>
+                <th style="width: 15%;">Location</th>
+                <th style="width: 8%;">Zone</th>
+                <th style="width: 8%;">Req.</th>
+                <th style="width: 8%;">Picked</th>
+                <th style="width: 11%;">Picking Time</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item_data in manual_items %}
+            {% set item = item_data.item %}
+            {% set time_info = item_data.time_info %}
+            <tr class="{% if item.is_picked %}picked-item{% elif item.picked_qty and item.picked_qty != item.qty %}partial-picked{% else %}not-picked{% endif %}">
+                <td><strong>{{ item.item_code }}</strong></td>
+                <td>{{ item.item_name or 'N/A' }}</td>
+                <td>{{ item.location or 'N/A' }}</td>
+                <td>{{ item.zone or 'N/A' }}</td>
+                <td>{{ item.qty or 0 }}</td>
+                <td>{{ item.picked_qty or 0 }}</td>
+                <td>
+                    {% if time_info %}
+                    <div class="time-info">
+                        <strong>{{ "%.1f"|format(time_info.total_time) }}s</strong><br>
+                        W:{{ "%.1f"|format(time_info.walking_time) }}s 
+                        P:{{ "%.1f"|format(time_info.picking_time) }}s 
+                        C:{{ "%.1f"|format(time_info.confirmation_time) }}s<br>
+                        <small>{{ time_info.picked_at|local_time('%H:%M:%S') if time_info.picked_at else 'N/A' }}</small>
+                    </div>
+                    {% else %}
+                    <span class="text-muted">No timing</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    <!-- Batch Picked Items -->
+    {% if batch_items_list %}
+    <div class="section-header batch-section">
+        <i class="fas fa-layer-group me-2"></i>BATCH PICKED ITEMS ({{ batch_items_list|length }})
+    </div>
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 15%;">Item Code</th>
+                <th style="width: 30%;">Description</th>
+                <th style="width: 15%;">Location</th>
+                <th style="width: 8%;">Zone</th>
+                <th style="width: 8%;">Req.</th>
+                <th style="width: 8%;">Picked</th>
+                <th style="width: 8%;">Batch</th>
+                <th style="width: 8%;">Time</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item_data in batch_items_list %}
+            {% set item = item_data.item %}
+            {% set batch_info = item_data.batch_info %}
+            {% set time_info = item_data.time_info %}
+            <tr class="{% if item.is_picked %}picked-item{% elif item.picked_qty and item.picked_qty != item.qty %}partial-picked{% else %}not-picked{% endif %}">
+                <td><strong>{{ item.item_code }}</strong></td>
+                <td>{{ item.item_name or 'N/A' }}</td>
+                <td>{{ item.location or 'N/A' }}</td>
+                <td>{{ item.zone or 'N/A' }}</td>
+                <td>{{ item.qty or 0 }}</td>
+                <td>{{ item.picked_qty or 0 }}</td>
+                <td>
+                    {% if batch_info %}
+                    <span class="badge bg-warning text-dark">{{ batch_info.batch_id }}</span>
+                    {% else %}
+                    N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if time_info %}
+                    <div class="time-info">
+                        <strong>{{ "%.1f"|format(time_info.total_time) }}s</strong><br>
+                        <small>{{ time_info.picked_at|local_time('%H:%M:%S') if time_info.picked_at else 'N/A' }}</small>
+                    </div>
+                    {% elif batch_info and batch_info.picked_at %}
+                    <div class="time-info">
+                        <small>{{ batch_info.picked_at|local_time('%H:%M:%S') }}</small>
+                    </div>
+                    {% else %}
+                    <span class="text-muted">No timing</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    <!-- Exceptions Section -->
+    {% if exceptions %}
+    <div class="section-header">
+        <i class="fas fa-exclamation-triangle me-2 text-warning"></i>PICKING EXCEPTIONS ({{ exceptions|length }})
+    </div>
+    {% for exception in exceptions %}
+    <div class="exception-item">
+        <strong>{{ exception.item_code }}</strong> - 
+        Expected: <strong>{{ exception.expected_qty }}</strong>, 
+        Picked: <strong>{{ exception.picked_qty }}</strong><br>
+        <strong>Reason:</strong> {{ exception.reason }}<br>
+        <small>{{ exception.picker_username }} - {{ exception.timestamp|local_time('%Y-%m-%d %H:%M:%S') }}</small>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- Summary Section -->
+    <div class="section-header">
+        <i class="fas fa-chart-bar me-2"></i>PICKING SUMMARY
+    </div>
+    <div class="row">
+        <div class="col-md-6">
+            <p><strong>Total Items:</strong> {{ (manual_items|length) + (batch_items_list|length) }}</p>
+            <p><strong>Manual Items:</strong> {{ manual_items|length }}</p>
+            <p><strong>Batch Items:</strong> {{ batch_items_list|length }}</p>
+            <p><strong>Exceptions:</strong> {{ exceptions|length }}</p>
+        </div>
+        <div class="col-md-6">
+            {% set total_manual_time = manual_items|selectattr('time_info')|map(attribute='time_info.total_time')|sum %}
+            {% set total_batch_time = batch_items_list|selectattr('time_info')|map(attribute='time_info.total_time')|sum %}
+            {% set items_with_timing = (manual_items|selectattr('time_info')|list|length) + (batch_items_list|selectattr('time_info')|list|length) %}
+            
+            {% if total_manual_time > 0 %}
+            <p><strong>Manual Picking Time:</strong> {{ "%.1f"|format(total_manual_time) }}s</p>
+            {% endif %}
+            {% if total_batch_time > 0 %}
+            <p><strong>Batch Picking Time:</strong> {{ "%.1f"|format(total_batch_time) }}s</p>
+            {% endif %}
+            {% if (total_manual_time + total_batch_time) > 0 %}
+            <p><strong>Total Picking Time:</strong> {{ "%.1f"|format(total_manual_time + total_batch_time) }}s</p>
+            <p><strong>Items with Timing:</strong> {{ items_with_timing }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="mt-4 pt-3 border-top">
+        <small class="text-muted">
+            Generated on {{ moment()|local_time('%Y-%m-%d %H:%M:%S') }} | 
+            EPLATTFORMA Picking System v2.0
+        </small>
+    </div>
+</div>
+{% endblock %}

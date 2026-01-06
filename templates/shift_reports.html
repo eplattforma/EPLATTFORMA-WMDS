@@ -1,0 +1,281 @@
+{% extends 'base.html' %}
+
+{% block title %}Shift Reports - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a></li>
+                    <li class="breadcrumb-item active">Shift Reports</li>
+                </ol>
+            </nav>
+            <h2 class="h4 mb-3">
+                <i class="fas fa-chart-line me-2"></i>Time & Productivity Reports
+            </h2>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Report Filters</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" action="{{ url_for('shift_reports') }}">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label for="start_date" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="start_date" name="start_date" 
+                               value="{{ start_date.strftime('%d/%m/%y') if start_date else '' }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="end_date" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="end_date" name="end_date" 
+                               value="{{ end_date.strftime('%d/%m/%y') if end_date else '' }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="picker" class="form-label">Picker</label>
+                        <select class="form-select" id="picker" name="picker">
+                            <option value="">All Pickers</option>
+                            {% for picker in all_pickers %}
+                            <option value="{{ picker.username }}" {% if picker_filter == picker.username %}selected{% endif %}>
+                                {{ picker.username }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search me-1"></i>Apply Filters
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Summary Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body text-center">
+                    <h4 class="display-6">{{ total_shifts }}</h4>
+                    <p class="mb-0">Total Shifts</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body text-center">
+                    <h4 class="display-6">{{ total_hours }}h</h4>
+                    <p class="mb-0">Total Hours Worked</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body text-center">
+                    <h4 class="display-6">{{ avg_shift_duration }}h</h4>
+                    <p class="mb-0">Avg Shift Duration</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body text-center">
+                    <h4 class="display-6">{{ items_per_hour }}</h4>
+                    <p class="mb-0">Items Per Hour</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Picker Performance -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-users me-2"></i>Picker Performance</h5>
+        </div>
+        <div class="card-body">
+            {% if picker_stats %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Picker</th>
+                            <th>Total Shifts</th>
+                            <th>Total Hours</th>
+                            <th>Items Picked</th>
+                            <th>Items/Hour</th>
+                            <th>Avg Shift Hours</th>
+                            <th>Performance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for picker in picker_stats %}
+                        <tr>
+                            <td>
+                                <strong>{{ picker.username }}</strong>
+                            </td>
+                            <td>{{ picker.total_shifts }}</td>
+                            <td>{{ "%.1f"|format(picker.total_hours) }}h</td>
+                            <td>{{ picker.items_picked }}</td>
+                            <td>
+                                <span class="badge bg-{% if picker.items_per_hour >= 10 %}success{% elif picker.items_per_hour >= 5 %}warning{% else %}danger{% endif %}">
+                                    {{ "%.1f"|format(picker.items_per_hour) }}
+                                </span>
+                            </td>
+                            <td>{{ "%.1f"|format(picker.avg_shift_hours) }}h</td>
+                            <td>
+                                <div class="progress" style="height: 20px;">
+                                    {% set max_performance = picker_stats|map(attribute='items_per_hour')|max %}
+                                    {% set performance_percent = (picker.items_per_hour / max_performance * 100) if max_performance > 0 else 0 %}
+                                    <div class="progress-bar bg-{% if performance_percent >= 80 %}success{% elif performance_percent >= 60 %}warning{% else %}danger{% endif %}" 
+                                         style="width: {{ performance_percent }}%">
+                                        {{ "%.0f"|format(performance_percent) }}%
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>No picker data found for the selected date range.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Recent Shifts -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Recent Shifts</h5>
+        </div>
+        <div class="card-body">
+            {% if shifts %}
+            <div class="table-responsive">
+                <table class="table table-hover table-striped">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Picker</th>
+                            <th>Check-In</th>
+                            <th>Check-Out</th>
+                            <th>Duration</th>
+                            <th>Idle Time</th>
+                            <th>Breaks</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for shift in shifts %}
+                        <tr class="{{ 'table-warning' if shift.admin_adjusted else '' }}">
+                            <td>
+                                <strong>{{ shift.picker_username }}</strong>
+                            </td>
+                            <td>{{ shift.check_in_time|local_time if shift.check_in_time else 'N/A' }}</td>
+                            <td>
+                                {% if shift.check_out_time %}
+                                    {{ shift.check_out_time|local_time }}
+                                {% else %}
+                                    <span class="badge bg-warning">Active</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if shift.total_duration_minutes %}
+                                    {{ "%.1f"|format(shift.total_duration_minutes / 60) }}h
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set idle_time = shift.total_idle_time() %}
+                                {% if idle_time > 0 %}
+                                    <span class="badge bg-secondary">{{ idle_time }}min</span>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set break_count = shift.break_count() %}
+                                {% if break_count > 0 %}
+                                    <span class="badge bg-info">{{ break_count }}</span>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-{% if shift.status == 'completed' %}success{% elif shift.status == 'active' %}primary{% else %}secondary{% endif %}">
+                                    {{ shift.status.title() }}
+                                </span>
+                                {% if shift.admin_adjusted %}
+                                <span class="badge bg-warning ms-1" title="Admin Adjusted">
+                                    <i class="fas fa-edit"></i>
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group">
+                                    <span class="btn btn-sm btn-outline-info" title="Shift ID: {{ shift.id }}">
+                                        <i class="fas fa-info-circle"></i>
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>No shifts found for the selected date range.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Performance Insights -->
+<div class="card mb-4">
+    <div class="card-header bg-light">
+        <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Performance Insights</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Productivity Analysis</h6>
+                <ul class="list-unstyled">
+                    {% if picker_stats %}
+                        {% set top_performer = picker_stats[0] %}
+                        <li><i class="fas fa-star text-warning me-2"></i>Top performer: <strong>{{ top_performer.username }}</strong> ({{ "%.1f"|format(top_performer.items_per_hour) }} items/hour)</li>
+                        {% set total_items = picker_stats|sum(attribute='items_picked') %}
+                        <li><i class="fas fa-boxes text-info me-2"></i>Total items processed: <strong>{{ total_items }}</strong></li>
+                        {% if total_hours > 0 %}
+                        <li><i class="fas fa-clock text-success me-2"></i>Overall efficiency: <strong>{{ "%.1f"|format(total_items / total_hours) }}</strong> items/hour</li>
+                        {% endif %}
+                    {% endif %}
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <h6>Time Management</h6>
+                <ul class="list-unstyled">
+                    {% if total_shifts > 0 %}
+                    <li><i class="fas fa-calendar text-primary me-2"></i>Average shift length: <strong>{{ "%.1f"|format(avg_shift_duration) }}</strong> hours</li>
+                    {% endif %}
+                    {% if shifts %}
+                        {% set active_shifts = shifts|selectattr('status', 'equalto', 'active')|list|length %}
+                        {% if active_shifts > 0 %}
+                        <li><i class="fas fa-user-clock text-warning me-2"></i>Currently active: <strong>{{ active_shifts }}</strong> picker{{ 's' if active_shifts != 1 else '' }}</li>
+                        {% endif %}
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

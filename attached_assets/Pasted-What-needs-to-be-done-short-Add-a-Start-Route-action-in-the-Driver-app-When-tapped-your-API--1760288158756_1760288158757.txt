@@ -1,0 +1,168 @@
+What needs to be done (short)
+
+Add a “Start Route” action in the Driver app.
+
+When tapped, your API will:
+
+set the route status Shipped → InProgress (idempotent),
+
+bulk update its orders Shipped → OutForDelivery.
+
+Provide per-order actions for the driver: Delivered, Returned, Failed.
+
+(Optional) auto-complete the route when no active orders remain.
+
+Add the right DB indexes so it’s fast.
+
+Minimal SQL you’ll use
+-- Flip a route to InProgress (driver pressed Start)
+UPDATE routes
+SET status='InProgress', started_at=NOW(), updated_at=NOW()
+WHERE id=$1 AND status='Shipped';
+
+-- Bulk flip orders on that route
+UPDATE orders
+SET status='OutForDelivery', updated_at=NOW()
+WHERE route_id=$1 AND status='Shipped';
+
+-- Per-order updates from the stop screen
+UPDATE orders SET status='Delivered', updated_at=NOW() WHERE id=$1 AND status='OutForDelivery';
+UPDATE orders SET status='Returned',  updated_at=NOW() WHERE id=$1 AND status='OutForDelivery';
+UPDATE orders SET status='Failed',    updated_at=NOW() WHERE id=$1 AND status='OutForDelivery';
+
+-- Helpful indexes
+CREATE INDEX IF NOT EXISTS idx_routes_driver_status ON routes (driver_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_route_status ON orders (route_id, status, updated_at DESC);
+
+Replit instructions (Node.js API + Driver UI)
+1) Set up the API
+
+In Replit, create a Node.js repl (or use your existing one).
+
+Packages:
+
+npm i express pg cors
+
+
+Secrets: Add DATABASE_URL in Replit Secrets (pointing to your Postgres).
+
+Create server.js:
+
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+const app = express();
+app.use(cors());
+app.use(express.json());
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Require driver id from header
+const requireDriver = (req, res, next) => {
+  const id = req.header('x-driver-id');
+  if (!id) return res.status(401).json({ error: 'Missing driver id' });
+  req.driverId = id;
+  next();
+};
+
+// Start route (idempotent)
+app.patch('/api/routes/:id/start', requireDriver, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const routeId = req.params.id;
+    const driverId = req.driverId;
+
+    await client.query('BEGIN');
+    const r = await client.query(
+      'SELECT id, driver_id, status FROM routes WHERE id=$1 FOR UPDATE',
+      [routeId]
+    );
+    if (r.rowCount === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Route not found' }); }
+    const route = r.rows[0];
+    if (route.driver_id !== driverId) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'Not your route' }); }
+
+    if (route.status === 'InProgress') { await client.query('COMMIT'); return res.json({ routeId, status: 'InProgress', ordersUpdated: 0 }); }
+    if (route.status !== 'Shipped') { await client.query('ROLLBACK'); return res.status(409).json({ error: `Cannot start from ${route.status}` }); }
+
+    await client.query(
+      `UPDATE routes SET status='InProgress', started_at=NOW(), updated_at=NOW()
+       WHERE id=$1 AND status='Shipped'`,
+      [routeId]
+    );
+    const upd = await client.query(
+      `UPDATE orders SET status='OutForDelivery', updated_at=NOW()
+       WHERE route_id=$1 AND status='Shipped'`,
+      [routeId]
+    );
+    await client.query('COMMIT');
+    res.json({ routeId, status: 'InProgress', ordersUpdated: upd.rowCount });
+  } catch (e) {
+    await pool.query('ROLLBACK');
+    res.status(500).json({ error: 'Internal error' });
+  } finally { client.release(); }
+});
+
+// Per-order actions
+const updateOrder = (to) => async (req, res) => {
+  const { id } = req.params;
+  const q = await pool.query(
+    `UPDATE orders SET status=$1, updated_at=NOW()
+     WHERE id=$2 AND status='OutForDelivery'
+     RETURNING id, status`,
+    [to, id]
+  );
+  if (q.rowCount === 0) return res.status(409).json({ error: 'Invalid state or not found' });
+  res.json(q.rows[0]);
+};
+app.patch('/api/orders/:id/deliver', requireDriver, updateOrder('Delivered'));
+app.patch('/api/orders/:id/return',  requireDriver, updateOrder('Returned'));
+app.patch('/api/orders/:id/fail',    requireDriver, updateOrder('Failed'));
+
+app.get('/health', (_, res) => res.json({ ok: true }));
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`API on ${port}`));
+
+
+Run the repl. Check GET /health.
+
+2) Add the Start button in the Driver UI (React/Vite or your existing frontend)
+async function startRoute(routeId) {
+  const r = await fetch(`${import.meta.env.VITE_API}/api/routes/${routeId}/start`, {
+    method: 'PATCH',
+    headers: { 'x-driver-id': driverId }
+  });
+  const data = await r.json();
+  if (!r.ok) return alert(data.error || 'Failed');
+  // reload route + stops list; orders should show OutForDelivery
+}
+
+
+Render Start Route only when route.status === 'Shipped'.
+
+For each stop, wire buttons to:
+
+await fetch(`${API}/api/orders/${orderId}/deliver`, { method:'PATCH', headers:{'x-driver-id': driverId}});
+await fetch(`${API}/api/orders/${orderId}/return`,  { method:'PATCH', headers:{'x-driver-id': driverId}});
+await fetch(`${API}/api/orders/${orderId}/fail`,    { method:'PATCH', headers:{'x-driver-id': driverId}});
+
+3) (Optional) Auto-complete route
+
+Call a small endpoint when the driver finishes:
+
+-- Complete only if no active orders remain
+WITH remaining AS (
+  SELECT COUNT(*)::int c FROM orders
+  WHERE route_id=$1 AND status IN ('OutForDelivery','Shipped')
+)
+UPDATE routes
+SET status='Completed', completed_at=NOW(), updated_at=NOW()
+WHERE id=$1 AND (SELECT c FROM remaining)=0 AND status='InProgress';
+
+4) Quick test (from Replit shell)
+# Start route
+curl -X PATCH "$REPLIT_URL/api/routes/ROUTE123/start" -H "x-driver-id: DRIVER1"
+
+# Deliver an order
+curl -X PATCH "$REPLIT_URL/api/orders/ORDER1/deliver" -H "x-driver-id: DRIVER1"
+
+
+That’s it:

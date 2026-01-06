@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block title %}Item Classifications{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-boxes me-2"></i>Item Classifications</h2>
+        <a href="{{ url_for('oi_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('oi_items') }}" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Search</label>
+                    <input type="text" class="form-control" name="search" value="{{ filters.search }}" 
+                           placeholder="Item code or name...">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" name="category">
+                        <option value="">All Categories</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.category_code_365 }}" {% if filters.category == cat.category_code_365 %}selected{% endif %}>
+                            {{ cat.category_code_365 }} - {{ cat.category_name[:20] }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Zone</label>
+                    <select class="form-select" name="zone">
+                        <option value="">All Zones</option>
+                        {% for z in zones %}
+                        <option value="{{ z }}" {% if filters.zone == z %}selected{% endif %}>{{ z }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Fragility</label>
+                    <select class="form-select" name="fragility">
+                        <option value="">All</option>
+                        <option value="YES" {% if filters.fragility == 'YES' %}selected{% endif %}>YES</option>
+                        <option value="SEMI" {% if filters.fragility == 'SEMI' %}selected{% endif %}>SEMI</option>
+                        <option value="NO" {% if filters.fragility == 'NO' %}selected{% endif %}>NO</option>
+                        <option value="NULL" {% if filters.fragility == 'NULL' %}selected{% endif %}>Not Set</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" name="needs_review">
+                        <option value="">All Items</option>
+                        <option value="true" {% if filters.needs_review == 'true' %}selected{% endif %}>Needs Review Only</option>
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="active_only" value="true" id="activeOnly"
+                               {% if filters.active_only %}checked{% endif %}>
+                        <label class="form-check-label" for="activeOnly">
+                            Active Only
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>Found {{ pagination.total }} item{{ 's' if pagination.total != 1 else '' }}</strong>
+                    {% if pagination.pages > 1 %}
+                    <small class="text-muted">(Page {{ pagination.page }} of {{ pagination.pages }})</small>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Item Code</th>
+                            <th>Item Name</th>
+                            <th>Category</th>
+                            <th>Zone</th>
+                            <th>Fragility</th>
+                            <th>Spill</th>
+                            <th>Pressure</th>
+                            <th>Temp</th>
+                            <th>Box Fit</th>
+                            <th>Confidence</th>
+                            <th>Source</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr class="{% if item.needs_review() %}table-warning{% endif %}">
+                            <td>
+                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365) }}">
+                                    {{ item.item_code_365 }}
+                                </a>
+                            </td>
+                            <td>{{ item.item_name[:40] }}{% if item.item_name|length > 40 %}...{% endif %}</td>
+                            <td><small>{{ item.category_code_365 or '-' }}</small></td>
+                            <td>
+                                {% if item.wms_zone %}
+                                <span class="badge bg-primary">{{ item.wms_zone }}</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.wms_fragility == 'YES' %}
+                                <span class="badge bg-danger">YES</span>
+                                {% elif item.wms_fragility == 'SEMI' %}
+                                <span class="badge bg-warning text-dark">SEMI</span>
+                                {% elif item.wms_fragility == 'NO' %}
+                                <span class="badge bg-secondary">NO</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.wms_spill_risk == true %}
+                                <span class="badge bg-info">Yes</span>
+                                {% elif item.wms_spill_risk == false %}
+                                <span class="badge bg-secondary">No</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.wms_pressure_sensitivity == 'high' %}
+                                <span class="badge bg-danger">high</span>
+                                {% elif item.wms_pressure_sensitivity == 'medium' %}
+                                <span class="badge bg-warning text-dark">med</span>
+                                {% elif item.wms_pressure_sensitivity == 'low' %}
+                                <span class="badge bg-secondary">low</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.wms_temperature_sensitivity == 'cool_required' %}
+                                <span class="badge bg-info">cool</span>
+                                {% elif item.wms_temperature_sensitivity == 'heat_sensitive' %}
+                                <span class="badge bg-warning text-dark">heat</span>
+                                {% elif item.wms_temperature_sensitivity == 'normal' %}
+                                <span class="badge bg-secondary">normal</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.wms_box_fit_rule == 'TOP' %}
+                                <span class="badge bg-light text-dark border">TOP</span>
+                                {% elif item.wms_box_fit_rule == 'MIDDLE' %}
+                                <span class="badge bg-primary">MID</span>
+                                {% elif item.wms_box_fit_rule == 'BOTTOM' %}
+                                <span class="badge bg-dark">BTM</span>
+                                {% elif item.wms_box_fit_rule == 'COOLER_BAG' %}
+                                <span class="badge bg-info">COOL</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.wms_class_confidence %}
+                                <div class="progress" style="width: 60px; height: 8px;">
+                                    <div class="progress-bar {% if item.wms_class_confidence >= 80 %}bg-success{% elif item.wms_class_confidence >= 60 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                         style="width: {{ item.wms_class_confidence }}%"></div>
+                                </div>
+                                <small>{{ item.wms_class_confidence }}%</small>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if item.wms_class_source == 'MANUAL' %}
+                                <span class="badge bg-success">MANUAL</span>
+                                {% elif item.wms_class_source == 'CATEGORY_DEFAULT' %}
+                                <span class="badge bg-info">DEFAULT</span>
+                                {% elif item.wms_class_source == 'RULES' %}
+                                <span class="badge bg-secondary">RULES</span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365) }}" 
+                                   class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="12" class="text-center py-4 text-muted">
+                                No items found matching your criteria
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% if pagination.pages > 1 %}
+        <div class="card-footer">
+            <nav>
+                <ul class="pagination mb-0 justify-content-center">
+                    {% if pagination.has_prev %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('oi_items', page=pagination.prev_num, **filters) }}">&laquo;</a>
+                    </li>
+                    {% endif %}
+                    {% for p in pagination.iter_pages() %}
+                    {% if p %}
+                    <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                        <a class="page-link" href="{{ url_for('oi_items', page=p, **filters) }}">{{ p }}</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                    {% endfor %}
+                    {% if pagination.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('oi_items', page=pagination.next_num, **filters) }}">&raquo;</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

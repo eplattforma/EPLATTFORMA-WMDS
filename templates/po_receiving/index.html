@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}PO Receiving{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4><i class="fas fa-box-open"></i> PO Receiving</h4>
+        <div class="btn-group">
+            <a href="{{ url_for('po_receiving.download') }}" class="btn btn-primary">
+                <i class="fas fa-download"></i> Download PO
+            </a>
+            <a href="{{ url_for('po_receiving.archived') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-archive"></i> View Archived
+            </a>
+        </div>
+    </div>
+
+    {% if order_data %}
+    <div class="list-group">
+        {% for item in order_data %}
+        <div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <h6 class="mb-1">
+                        <strong>{{ item.po.code_365 or item.po.shopping_cart_code }}</strong>
+                        {% if item.is_complete %}
+                        <span class="badge bg-success">Complete</span>
+                        {% elif item.open_session %}
+                        <span class="badge bg-warning">In Progress</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Not Started</span>
+                        {% endif %}
+                    </h6>
+                    {% if item.po.supplier_name %}
+                    <div class="mb-1">{{ item.po.supplier_name }}</div>
+                    {% endif %}
+                    <div class="mb-1">
+                        <small class="text-muted">Description:</small>
+                        <span id="desc-display-{{ item.po.id }}" 
+                              onclick="editDescription({{ item.po.id }}, '{{ (item.po.description or '')|replace("'", "\\'") }}')"
+                              style="cursor: pointer; min-width: 200px; display: inline-block;"
+                              title="Click to edit description">
+                            <i class="fas fa-edit text-muted"></i>
+                            <span class="text-muted">{{ item.po.description or 'Click to add description...' }}</span>
+                        </span>
+                    </div>
+                    <small class="text-muted">
+                        Status: {{ item.po.status_name }}<br>
+                        Ordered: {{ item.total_ordered }} | Received: {{ item.total_received }}
+                    </small>
+                </div>
+                <div class="d-flex gap-2">
+                    {% if item.open_session %}
+                    <a href="{{ url_for('po_receiving.receive', po_id=item.po.id) }}" class="btn btn-sm btn-warning">
+                        <i class="fas fa-play"></i> Continue
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('po_receiving.receive', po_id=item.po.id) }}" class="btn btn-sm btn-success">
+                        <i class="fas fa-plus"></i> Start
+                    </a>
+                    {% endif %}
+                    <button onclick="archivePO({{ item.po.id }}, '{{ item.po.code_365 or item.po.shopping_cart_code }}')" class="btn btn-sm btn-outline-secondary" title="Archive this PO">
+                        <i class="fas fa-archive"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i> No purchase orders downloaded yet. Click "Download PO" to get started.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function editDescription(poId, currentDesc) {
+    const displaySpan = document.getElementById(`desc-display-${poId}`);
+    
+    // Create input element
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentDesc || '';
+    input.className = 'form-control form-control-sm';
+    input.style.width = '300px';
+    input.style.display = 'inline-block';
+    input.placeholder = 'Enter description...';
+    
+    // Create save button
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-sm btn-success ms-1';
+    saveBtn.innerHTML = '<i class="fas fa-check"></i>';
+    saveBtn.onclick = () => saveDescription(poId, input.value, currentDesc);
+    
+    // Create cancel button
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-sm btn-secondary ms-1';
+    cancelBtn.innerHTML = '<i class="fas fa-times"></i>';
+    cancelBtn.onclick = () => cancelDescEdit(poId, currentDesc);
+    
+    // Create container
+    const container = document.createElement('div');
+    container.className = 'd-inline-flex align-items-center';
+    container.id = `desc-edit-${poId}`;
+    container.appendChild(input);
+    container.appendChild(saveBtn);
+    container.appendChild(cancelBtn);
+    
+    // Replace display with input
+    displaySpan.replaceWith(container);
+    input.focus();
+    
+    // Handle Enter key
+    input.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            saveDescription(poId, input.value, currentDesc);
+        } else if (e.key === 'Escape') {
+            cancelDescEdit(poId, currentDesc);
+        }
+    });
+}
+
+function saveDescription(poId, newDesc, originalDesc) {
+    const container = document.getElementById(`desc-edit-${poId}`);
+    container.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    
+    fetch(`/po-receiving/update-description/${poId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            description: newDesc
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Recreate the display span with updated text
+            const displaySpan = document.createElement('span');
+            displaySpan.id = `desc-display-${poId}`;
+            displaySpan.onclick = () => editDescription(poId, data.description);
+            displaySpan.style.cursor = 'pointer';
+            displaySpan.style.minWidth = '200px';
+            displaySpan.style.display = 'inline-block';
+            displaySpan.title = 'Click to edit description';
+            displaySpan.innerHTML = `<i class="fas fa-edit text-muted"></i> <span class="text-muted">${data.description || 'Click to add description...'}</span>`;
+            
+            container.replaceWith(displaySpan);
+        } else {
+            alert('Error updating description: ' + (data.error || 'Unknown error'));
+            cancelDescEdit(poId, originalDesc);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating description: ' + error);
+        cancelDescEdit(poId, originalDesc);
+    });
+}
+
+function cancelDescEdit(poId, originalDesc) {
+    const container = document.getElementById(`desc-edit-${poId}`);
+    
+    const displaySpan = document.createElement('span');
+    displaySpan.id = `desc-display-${poId}`;
+    displaySpan.onclick = () => editDescription(poId, originalDesc);
+    displaySpan.style.cursor = 'pointer';
+    displaySpan.style.minWidth = '200px';
+    displaySpan.style.display = 'inline-block';
+    displaySpan.title = 'Click to edit description';
+    displaySpan.innerHTML = `<i class="fas fa-edit text-muted"></i> <span class="text-muted">${originalDesc || 'Click to add description...'}</span>`;
+    
+    container.replaceWith(displaySpan);
+}
+
+function archivePO(poId, poCode) {
+    if (!confirm(`Archive purchase order ${poCode}? You can restore it later from the archived view.`)) {
+        return;
+    }
+    
+    fetch(`/po-receiving/archive/${poId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('Error archiving PO: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error archiving PO: ' + error);
+    });
+}
+</script>
+{% endblock %}

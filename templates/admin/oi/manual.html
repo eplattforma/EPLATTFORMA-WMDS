@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Operational Intelligence Manual{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <div>
+            <h2><i class="fas fa-book me-2"></i>Operational Intelligence Manual</h2>
+            <p class="text-muted mb-0">Picking & Packing Extended Item Classification (Moderate Mode)</p>
+        </div>
+        <a href="{{ url_for('oi_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <!-- Introduction -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">1. Purpose</h4>
+                <p>Operational Intelligence (OI) adds warehouse-relevant attributes to your item master so the system can:</p>
+                <ul>
+                    <li>Standardize safe packing decisions (fragility, spill, pressure, temperature, box-fit)</li>
+                    <li>Create predictable handling flows (zones)</li>
+                    <li>Reduce damage and returns</li>
+                    <li>Build an explainable, auditable process for improving classification over time</li>
+                </ul>
+                <p><strong>OI is designed as an extension of your item master.</strong> The ERP remains the source of truth for core item data.</p>
+            </section>
+
+            <!-- Scope -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">2. Scope</h4>
+                <ul>
+                    <li><strong>Mode:</strong> Moderate (confidence threshold ≥ 60)</li>
+                    <li><strong>Execution:</strong> Manual only (Admin clicks Reclassify Items)</li>
+                    <li><strong>Active Items Only:</strong> Only items where <code>active = TRUE</code> are processed. Inactive SKUs remain unchanged.</li>
+                </ul>
+            </section>
+
+            <!-- Key Concepts -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">3. Key Concepts</h4>
+                
+                <div class="mb-4">
+                    <h6 class="fw-bold">3.1 Precedence (Final Value Resolution)</h6>
+                    <p>For each attribute, the final stored value is chosen in this order:</p>
+                    <ol>
+                        <li><strong>SKU Override</strong> (manual per item)</li>
+                        <li><strong>Category Default</strong> (manual per category, field-by-field)</li>
+                        <li><strong>Computed Rules</strong> (automated classification)</li>
+                        <li>If confidence is below threshold and no default/override exists → <strong>NULL (blank)</strong></li>
+                    </ol>
+                    <p class="text-muted small"><em>This prevents unsafe guesses.</em></p>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">3.2 Confidence Gating (Moderate ≥ 60)</h6>
+                    <p>The rule engine produces <code>(value, confidence, reason)</code> per attribute.</p>
+                    <ul>
+                        <li>If confidence <strong>≥ 60</strong>, the system may store the value (unless overridden).</li>
+                        <li>If confidence <strong>&lt; 60</strong>, the system leaves it <strong>blank</strong> unless a default/override fills it.</li>
+                    </ul>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">3.3 Needs Review</h6>
+                    <p>An item is "Needs Review" when:</p>
+                    <ul>
+                        <li>Any <strong>critical attribute</strong> is NULL, OR</li>
+                        <li>Overall confidence &lt; 60</li>
+                    </ul>
+                    <p><strong>Critical attributes:</strong> Fragility, Spill Risk, Pressure Sensitivity, Temperature Sensitivity, Box Fit Rule</p>
+                </div>
+            </section>
+
+            <!-- Attribute Definitions -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">4. Attribute Definitions</h4>
+                
+                <div class="mb-4">
+                    <h6 class="fw-bold">Zone (wms_zone)</h6>
+                    <p>Defines how the item flows through picking/packing.</p>
+                    <ul>
+                        <li><code>MAIN</code> – standard flow</li>
+                        <li><code>SENSITIVE</code> – special handling / sequencing</li>
+                        <li><code>SNACKS</code> – crush-prone snack flow</li>
+                        <li><code>CROSS_SHIPPING</code> – same-day received-to-ship flow</li>
+                    </ul>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">Unit Type (wms_unit_type)</h6>
+                    <p>Defines what the picker physically handles.</p>
+                    <ul>
+                        <li><code>item</code>, <code>pack</code>, <code>box</code>, <code>case</code>, <code>virtual_pack</code></li>
+                    </ul>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">Fragility (wms_fragility)</h6>
+                    <p>Damage risk under normal handling: break, bend, crush, melt, dent.</p>
+                    <ul>
+                        <li><code>YES</code> (high risk)</li>
+                        <li><code>SEMI</code> (moderate)</li>
+                        <li><code>NO</code> (robust)</li>
+                    </ul>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">Pressure Sensitivity (wms_pressure_sensitivity)</h6>
+                    <p>Will the item deform/become unsellable if something is placed on it?</p>
+                    <ul>
+                        <li><code>high</code> – significant deformation risk</li>
+                        <li><code>medium</code> – moderate deformation risk</li>
+                        <li><code>low</code> – minimal deformation risk</li>
+                    </ul>
+                    <p class="text-muted small"><em>Note: Cartons (e.g., cereals) may be pressure-sensitive even if not "fragile glass."</em></p>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">Spill Risk (wms_spill_risk)</h6>
+                    <p>If it leaks, will it contaminate the order?</p>
+                    <ul>
+                        <li><code>TRUE</code> – will contaminate</li>
+                        <li><code>FALSE</code> – will not contaminate</li>
+                    </ul>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">Temperature Sensitivity (wms_temperature_sensitivity)</h6>
+                    <p>Heat/cold handling requirements.</p>
+                    <ul>
+                        <li><code>normal</code> – standard temperature</li>
+                        <li><code>heat_sensitive</code> – cannot exceed threshold</li>
+                        <li><code>cool_required</code> – refrigeration needed</li>
+                    </ul>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="fw-bold">Box Fit Rule (wms_box_fit_rule)</h6>
+                    <p>Packing placement guidance for box organization.</p>
+                    <ul>
+                        <li><code>BOTTOM</code> – heavy/stable/upright spill-contained</li>
+                        <li><code>MIDDLE</code> – general items</li>
+                        <li><code>TOP</code> – fragile/pressure-sensitive</li>
+                        <li><code>COOLER_BAG</code> – heat-sensitive items when hot-weather handling is enabled</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Summer Mode -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">5. Summer Mode (Hot Weather Handling)</h4>
+                <p>"Summer mode" is a manual operational toggle that enables special handling for heat-sensitive items.</p>
+                <div class="alert alert-info">
+                    <p class="mb-0"><strong>When ON:</strong> Items flagged <code>heat_sensitive</code> can trigger <code>COOLER_BAG</code> handling and/or SENSITIVE flow.</p>
+                    <p class="mb-0"><strong>When OFF:</strong> Heat-sensitive flags remain but do not enforce cooler handling.</p>
+                    <p class="mb-0 mt-2"><em>Recommended: Admin toggle, not calendar-based automation.</em></p>
+                </div>
+            </section>
+
+            <!-- Roles -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">6. Roles & Responsibilities</h4>
+                <div class="mb-3">
+                    <h6 class="fw-bold">Admin / Warehouse Manager</h6>
+                    <ul>
+                        <li>Runs "Reclassify Items"</li>
+                        <li>Maintains Category Defaults</li>
+                        <li>Maintains SKU Overrides</li>
+                        <li>Resolves "Needs Review"</li>
+                        <li>Validates category-level assumptions by sampling SKUs</li>
+                    </ul>
+                </div>
+                <div>
+                    <h6 class="fw-bold">Picking / Packing Team</h6>
+                    <ul>
+                        <li>Follows handling outputs (badges/instructions)</li>
+                        <li>Reports incidents (crushed / leaked / melted / broken), feeding improvements</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Dashboard Metrics -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">7. Dashboard Metrics</h4>
+                <p><strong>Critical Attribute Coverage:</strong> % of active items with a non-NULL value for that attribute.</p>
+                <ul>
+                    <li>Low early coverage is expected with confidence gating</li>
+                    <li>Objective: increase coverage safely using Category Defaults and SKU Overrides</li>
+                    <li>Never force unsafe guesses to achieve higher coverage</li>
+                </ul>
+            </section>
+
+            <!-- Recommended SOP -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">8. Recommended Workflow</h4>
+                <ol>
+                    <li>Admin: <strong>Reclassify Items</strong></li>
+                    <li>Admin: Open <strong>Needs Review</strong> filter</li>
+                    <li>Fix patterns:
+                        <ul>
+                            <li>Use <strong>Category Defaults</strong> when the category is consistent</li>
+                            <li>Use <strong>SKU Overrides</strong> for exceptions</li>
+                        </ul>
+                    </li>
+                    <li>Re-run <strong>Reclassify Items</strong></li>
+                    <li>Monitor coverage &amp; incident feedback</li>
+                </ol>
+            </section>
+
+            <!-- Troubleshooting -->
+            <section class="mb-5">
+                <h4 class="border-bottom pb-2 mb-3">9. Troubleshooting</h4>
+                <ul>
+                    <li><strong>Coverage is low:</strong> Add category defaults for clear categories; do not force unsafe guesses.</li>
+                    <li><strong>A category is ambiguous:</strong> Leave defaults blank and handle via overrides until you confirm patterns.</li>
+                    <li><strong>Temperature is 100% but others are low:</strong> Verify you are not forcing a universal default unintentionally.</li>
+                </ul>
+            </section>
+
+            <!-- Enumerations -->
+            <section>
+                <h4 class="border-bottom pb-2 mb-3">10. Standard Values (Enumerations)</h4>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <tbody>
+                            <tr>
+                                <td class="fw-bold" style="width: 25%;">Fragility</td>
+                                <td><code>YES</code>, <code>SEMI</code>, <code>NO</code></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold">Spill Risk</td>
+                                <td><code>TRUE</code>, <code>FALSE</code></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold">Pressure Sensitivity</td>
+                                <td><code>low</code>, <code>medium</code>, <code>high</code></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold">Temperature Sensitivity</td>
+                                <td><code>normal</code>, <code>heat_sensitive</code>, <code>cool_required</code></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold">Box Fit Rule</td>
+                                <td><code>BOTTOM</code>, <code>MIDDLE</code>, <code>TOP</code>, <code>COOLER_BAG</code></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold">Zone</td>
+                                <td><code>MAIN</code>, <code>SENSITIVE</code>, <code>SNACKS</code>, <code>CROSS_SHIPPING</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

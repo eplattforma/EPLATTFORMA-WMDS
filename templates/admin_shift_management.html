@@ -1,0 +1,422 @@
+{% extends 'base.html' %}
+
+{% block title %}Shift Management - Admin - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <h2><i class="fas fa-user-clock me-2"></i>Shift Management</h2>
+            <p class="text-muted">Monitor and manage picker shifts, breaks, and idle time</p>
+        </div>
+        <div class="col-md-6 text-md-end">
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+            </a>
+        </div>
+    </div>
+    
+    <!-- Current Shifts Section -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-users me-2"></i>Current Active Shifts</h5>
+            <span class="badge bg-light text-dark">{{ active_shifts|length }} Active</span>
+        </div>
+        <div class="card-body p-0">
+            {% if active_shifts %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Picker</th>
+                            <th>Check-In</th>
+                            <th>Total Time</th>
+                            <th>Breaks</th>
+                            <th>Idle Time</th>
+                            <th>Working Time</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for shift in active_shifts %}
+                        <tr>
+                            <td><strong>{{ shift.picker_username }}</strong></td>
+                            <td>{{ shift.check_in_time_formatted }}</td>
+                            <td>{{ shift.total_elapsed_minutes }} min</td>
+                            <td>{{ shift.total_break_time() }} min</td>
+                            <td style="color: #ff9800;"><strong>{{ shift.total_idle_time() }} min</strong></td>
+                            <td>{{ shift.working_time() }} min</td>
+                            <td>
+                                {% if is_on_break(shift.id) %}
+                                <span class="badge bg-warning text-dark" title="On Break"><i class="fas fa-pause-circle"></i></span>
+                                {% else %}
+                                <span class="badge bg-success" title="Working"><i class="fas fa-play-circle"></i></span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('admin_edit_shift', shift_id=shift.id) }}" class="btn btn-sm btn-outline-primary" title="Edit Shift">
+                                    <i class="fas fa-edit"></i> Edit
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center p-4">
+                <div class="mb-3">
+                    <i class="fas fa-users-slash fa-3x text-muted"></i>
+                </div>
+                <h5>No Active Shifts</h5>
+                <p class="text-muted">There are no pickers currently checked in.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Filter Form - No card header, all on one line -->
+    <div class="mb-4 mt-5 pt-4 border-top">
+        <form method="get" action="{{ url_for('admin_shift_management') }}" class="d-flex gap-2 flex-wrap align-items-end">
+            <div>
+                <label for="start_date" class="form-label">Start Date</label>
+                <input type="date" class="form-control" id="start_date" name="start_date" 
+                       value="{{ request.args.get('start_date', '') }}">
+            </div>
+            <div>
+                <label for="end_date" class="form-label">End Date</label>
+                <input type="date" class="form-control" id="end_date" name="end_date" 
+                       value="{{ request.args.get('end_date', '') }}">
+            </div>
+            <div>
+                <label for="status" class="form-label">Shift Status</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="">All Statuses</option>
+                    <option value="active" {% if request.args.get('status') == 'active' %}selected{% endif %}>Active</option>
+                    <option value="completed" {% if request.args.get('status') == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="unclosed" {% if request.args.get('status') == 'unclosed' %}selected{% endif %}>Unclosed</option>
+                </select>
+            </div>
+            <div>
+                <label for="show_adjusted" class="form-label">Admin Adjusted</label>
+                <select class="form-select" id="show_adjusted" name="show_adjusted">
+                    <option value="">All Shifts</option>
+                    <option value="yes" {% if request.args.get('show_adjusted') == 'yes' %}selected{% endif %}>Adjusted Only</option>
+                    <option value="no" {% if request.args.get('show_adjusted') == 'no' %}selected{% endif %}>Non-Adjusted Only</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-search me-2"></i>Apply Filters
+            </button>
+            <a href="{{ url_for('admin_shift_management') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-times me-2"></i>Clear Filters
+            </a>
+        </form>
+    </div>
+    
+    <!-- Shifts History Section - No header, Export button inline -->
+    <div class="card">
+        <div class="d-flex justify-content-end p-3 border-bottom">
+            {% if shifts %}
+            <a href="{{ url_for('admin_export_shifts', start_date=request.args.get('start_date', ''), end_date=request.args.get('end_date', '')) }}" 
+               class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-file-export me-1"></i>Export Report
+            </a>
+            {% endif %}
+        </div>
+        <div class="card-body p-0">
+            {% if shifts %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>Picker</th>
+                            <th>Check-In</th>
+                            <th>Check-Out</th>
+                            <th>Duration</th>
+                            <th>Idle Time</th>
+                            <th>Breaks</th>
+                            <th>Working Time</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for shift in shifts %}
+                        <tr {% if shift.admin_adjusted %}class="table-warning"{% endif %}>
+                            <td>{{ shift.id }}</td>
+                            <td>{{ shift.picker_username }}</td>
+                            <td>{{ shift.check_in_time.strftime('%d/%m/%y %H:%M') }}</td>
+                            <td>
+                                {% if shift.check_out_time %}
+                                {{ shift.check_out_time.strftime('%d/%m/%y %H:%M') }}
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if shift.total_duration_minutes %}
+                                {{ shift.total_duration_minutes }} min
+                                {% elif shift.check_in_time %}
+                                {{ ((now - shift.check_in_time).total_seconds() / 60)|int }} min
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>{{ shift.total_idle_time() }} min</td>
+                            <td>{{ shift.break_count() }}</td>
+                            <td><span class="text-success fw-bold">{{ shift.working_time() }} min</span></td>
+                            <td>
+                                {% if shift.status == 'active' %}
+                                <span class="badge bg-success">Active</span>
+                                {% elif shift.status == 'completed' %}
+                                <span class="badge bg-primary">Completed</span>
+                                {% elif shift.status == 'unclosed' %}
+                                <span class="badge bg-warning text-dark">Unclosed</span>
+                                {% elif shift.status == 'auto_closed' %}
+                                <span class="badge bg-secondary">Auto-Closed</span>
+                                {% endif %}
+                                
+                                {% if shift.admin_adjusted %}
+                                <span class="badge bg-info text-dark" data-bs-toggle="tooltip" 
+                                      title="Adjusted by {{ shift.adjustment_by }} on {{ shift.adjustment_time.strftime('%d/%m/%y %H:%M') }}">
+                                    <i class="fas fa-user-edit me-1"></i>Adjusted
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" 
+                                            data-bs-target="#viewShiftModal{{ shift.id }}" title="View Details">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <a href="{{ url_for('admin_edit_shift', shift_id=shift.id) }}" class="btn btn-sm btn-outline-warning" title="Edit Shift">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                </div>
+                                
+                                <!-- Quick View Modal -->
+                                <div class="modal fade" id="viewShiftModal{{ shift.id }}" tabindex="-1" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg">
+                                        <div class="modal-content">
+                                            <div class="modal-header bg-dark text-white">
+                                                <h5 class="modal-title text-white">Shift Details - {{ shift.picker_username }}</h5>
+                                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <!-- Shift Details -->
+                                                <div class="row mb-4">
+                                                    <div class="col-md-6">
+                                                        <div class="card border-0 bg-light">
+                                                            <div class="card-body">
+                                                                <h6 class="card-title text-dark">Check-In</h6>
+                                                                <p class="mb-0 text-dark">{{ shift.check_in_time.strftime('%d/%m/%y %H:%M') }}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <div class="card border-0 bg-light">
+                                                            <div class="card-body">
+                                                                <h6 class="card-title text-dark">Check-Out</h6>
+                                                                <p class="mb-0 text-dark">
+                                                                    {% if shift.check_out_time %}
+                                                                    {{ shift.check_out_time.strftime('%d/%m/%y %H:%M') }}
+                                                                    {% else %}
+                                                                    <em>Active</em>
+                                                                    {% endif %}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Time Summary -->
+                                                <div class="row mb-4">
+                                                    <div class="col-md-3">
+                                                        <div class="card border-0 bg-light">
+                                                            <div class="card-body text-center">
+                                                                <h6 class="card-title text-dark small">Total Time</h6>
+                                                                <p class="mb-0 fw-bold text-dark">
+                                                                    {% if shift.total_duration_minutes %}
+                                                                    {{ shift.total_duration_minutes }}
+                                                                    {% elif shift.check_in_time %}
+                                                                    {{ ((now - shift.check_in_time).total_seconds() / 60)|int }}
+                                                                    {% else %}
+                                                                    -
+                                                                    {% endif %} min
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="card border-0 bg-light">
+                                                            <div class="card-body text-center">
+                                                                <h6 class="card-title text-dark small">Working Time</h6>
+                                                                <p class="mb-0 fw-bold text-success">{{ shift.working_time() }} min</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="card border-0 bg-light">
+                                                            <div class="card-body text-center">
+                                                                <h6 class="card-title text-dark small">Break Time</h6>
+                                                                <p class="mb-0 fw-bold text-info">{{ shift.total_break_time() }} min</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="card border-0 bg-light">
+                                                            <div class="card-body text-center">
+                                                                <h6 class="card-title text-dark small">Idle Time</h6>
+                                                                <p class="mb-0 fw-bold" style="color: #ff9800;">{{ shift.total_idle_time() }} min</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Status -->
+                                                <div class="mb-4">
+                                                    <h6 class="text-muted mb-2">Status</h6>
+                                                    <div>
+                                                        {% if shift.status == 'active' %}
+                                                        <span class="badge bg-success">Active</span>
+                                                        {% elif shift.status == 'completed' %}
+                                                        <span class="badge bg-primary">Completed</span>
+                                                        {% elif shift.status == 'unclosed' %}
+                                                        <span class="badge bg-warning text-dark">Unclosed</span>
+                                                        {% elif shift.status == 'auto_closed' %}
+                                                        <span class="badge bg-secondary">Auto-Closed</span>
+                                                        {% endif %}
+                                                        {% if shift.admin_adjusted %}
+                                                        <span class="badge bg-info text-dark">Adjusted</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Breaks Table -->
+                                                <div>
+                                                    <h6 class="text-muted mb-2">Breaks & Idle Periods</h6>
+                                                    <div class="table-responsive">
+                                                        <table class="table table-sm table-hover mb-0">
+                                                            <thead class="table-light">
+                                                                <tr>
+                                                                    <th>Type</th>
+                                                                    <th>Start</th>
+                                                                    <th>End</th>
+                                                                    <th>Duration</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {% set idle_periods = shift.idle_periods %}
+                                                                {% if idle_periods %}
+                                                                    {% for period in idle_periods %}
+                                                                    <tr>
+                                                                        <td>
+                                                                            {% if period.is_break %}
+                                                                            <span class="badge bg-info text-dark">Break</span>
+                                                                            {% else %}
+                                                                            <span class="badge bg-warning text-dark">Idle</span>
+                                                                            {% endif %}
+                                                                        </td>
+                                                                        <td>{{ period.start_time.strftime('%H:%M') }}</td>
+                                                                        <td>
+                                                                            {% if period.end_time %}
+                                                                            {{ period.end_time.strftime('%H:%M') }}
+                                                                            {% else %}
+                                                                            <em>-</em>
+                                                                            {% endif %}
+                                                                        </td>
+                                                                        <td>
+                                                                            {% if period.end_time %}
+                                                                            {{ ((period.end_time - period.start_time).total_seconds() / 60)|int }} min
+                                                                            {% else %}
+                                                                            <em>Ongoing</em>
+                                                                            {% endif %}
+                                                                        </td>
+                                                                    </tr>
+                                                                    {% endfor %}
+                                                                {% else %}
+                                                                <tr>
+                                                                    <td colspan="4" class="text-center text-muted">No breaks recorded</td>
+                                                                </tr>
+                                                                {% endif %}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center p-4">
+                <div class="mb-3">
+                    <i class="fas fa-history fa-3x text-muted"></i>
+                </div>
+                <h5>No Shift History</h5>
+                <p class="text-muted">No shifts found for the selected criteria.</p>
+            </div>
+            {% endif %}
+        </div>
+        
+        {% if pagination and pagination.pages > 1 %}
+        <div class="card-footer">
+            <nav aria-label="Shift history navigation">
+                <ul class="pagination justify-content-center mb-0">
+                    <li class="page-item {% if pagination.page == 1 %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('admin_shift_management', page=pagination.prev_num, **request.args) }}" tabindex="-1">Previous</a>
+                    </li>
+                    
+                    {% for p in pagination.iter_pages() %}
+                        {% if p %}
+                            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                                <a class="page-link" href="{{ url_for('admin_shift_management', page=p, **request.args) }}">{{ p }}</a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    <li class="page-item {% if pagination.page == pagination.pages %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('admin_shift_management', page=pagination.next_num, **request.args) }}">Next</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+        
+        // Set default dates if not set - show last 2 days unless filters are already applied
+        if (!document.getElementById('start_date').value) {
+            var today = new Date();
+            var startDate = new Date();
+            startDate.setDate(today.getDate() - 2);  // Default to 2 days ago
+            
+            document.getElementById('start_date').value = startDate.toISOString().split('T')[0];
+            document.getElementById('end_date').value = today.toISOString().split('T')[0];
+        }
+    });
+</script>
+{% endblock %}

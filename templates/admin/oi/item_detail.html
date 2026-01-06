@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}Item Detail - {{ item.item_code_365 }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2><i class="fas fa-cube me-2"></i>{{ item.item_code_365 }}</h2>
+            <p class="text-muted mb-0">{{ item.item_name }}</p>
+        </div>
+        <a href="{{ url_for('oi_items') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Back to Items
+        </a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Item Info</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th>Category</th>
+                            <td>{{ category.category_name if category else item.category_code_365 or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Brand</th>
+                            <td>{{ brand.brand_name if brand else item.brand_code_365 or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Unit Type (attr1)</th>
+                            <td>{{ item.attribute_1_code_365 or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Weight</th>
+                            <td>{{ item.item_weight or '-' }} kg</td>
+                        </tr>
+                        <tr>
+                            <th>Dimensions</th>
+                            <td>{{ item.item_length or '-' }} x {{ item.item_width or '-' }} x {{ item.item_height or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Pieces</th>
+                            <td>{{ item.number_of_pieces or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th>Active</th>
+                            <td>
+                                {% if item.active %}
+                                <span class="badge bg-success">Yes</span>
+                                {% else %}
+                                <span class="badge bg-secondary">No</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-tags me-2"></i>Current Classification</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span>Overall Confidence</span>
+                            <span class="fw-bold">{{ item.wms_class_confidence or 0 }}%</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar {% if item.wms_class_confidence and item.wms_class_confidence >= 80 %}bg-success{% elif item.wms_class_confidence and item.wms_class_confidence >= 60 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                 style="width: {{ item.wms_class_confidence or 0 }}%"></div>
+                        </div>
+                    </div>
+                    <table class="table table-sm">
+                        <tr>
+                            <th>Source</th>
+                            <td>
+                                {% if item.wms_class_source == 'MANUAL' %}
+                                <span class="badge bg-success">MANUAL</span>
+                                {% elif item.wms_class_source == 'CATEGORY_DEFAULT' %}
+                                <span class="badge bg-info">CATEGORY DEFAULT</span>
+                                {% elif item.wms_class_source == 'RULES' %}
+                                <span class="badge bg-secondary">RULES</span>
+                                {% else %}
+                                <span class="text-muted">Not classified</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr><th>Zone</th><td>{{ item.wms_zone or '-' }}</td></tr>
+                        <tr><th>Fragility</th><td>{{ item.wms_fragility or '-' }}</td></tr>
+                        <tr><th>Spill Risk</th><td>{{ 'Yes' if item.wms_spill_risk else ('No' if item.wms_spill_risk == false else '-') }}</td></tr>
+                        <tr><th>Pressure</th><td>{{ item.wms_pressure_sensitivity or '-' }}</td></tr>
+                        <tr><th>Stackability</th><td>{{ item.wms_stackability or '-' }}</td></tr>
+                        <tr><th>Temperature</th><td>{{ item.wms_temperature_sensitivity or '-' }}</td></tr>
+                        <tr><th>Shape</th><td>{{ item.wms_shape_type or '-' }}</td></tr>
+                        <tr><th>Pick Difficulty</th><td>{{ item.wms_pick_difficulty or '-' }}</td></tr>
+                        <tr><th>Shelf Height</th><td>{{ item.wms_shelf_height or '-' }}</td></tr>
+                        <tr><th>Box Fit Rule</th><td>{{ item.wms_box_fit_rule or '-' }}</td></tr>
+                    </table>
+                    {% if item.wms_classified_at %}
+                    <small class="text-muted">Last classified: {{ item.wms_classified_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Set Override</h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('oi_item_override', item_code_365=item.item_code_365) }}" method="POST">
+                        <div class="mb-2">
+                            <label class="form-label">Zone</label>
+                            <select class="form-select form-select-sm" name="zone_override">
+                                <option value="">-- No Override --</option>
+                                <option value="MAIN" {% if override and override.zone_override == 'MAIN' %}selected{% endif %}>MAIN</option>
+                                <option value="SENSITIVE" {% if override and override.zone_override == 'SENSITIVE' %}selected{% endif %}>SENSITIVE</option>
+                                <option value="SNACKS" {% if override and override.zone_override == 'SNACKS' %}selected{% endif %}>SNACKS</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Fragility</label>
+                            <select class="form-select form-select-sm" name="fragility_override">
+                                <option value="">-- No Override --</option>
+                                <option value="YES" {% if override and override.fragility_override == 'YES' %}selected{% endif %}>YES</option>
+                                <option value="SEMI" {% if override and override.fragility_override == 'SEMI' %}selected{% endif %}>SEMI</option>
+                                <option value="NO" {% if override and override.fragility_override == 'NO' %}selected{% endif %}>NO</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Spill Risk</label>
+                            <select class="form-select form-select-sm" name="spill_risk_override">
+                                <option value="">-- No Override --</option>
+                                <option value="true" {% if override and override.spill_risk_override == true %}selected{% endif %}>Yes</option>
+                                <option value="false" {% if override and override.spill_risk_override == false %}selected{% endif %}>No</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Pressure Sensitivity</label>
+                            <select class="form-select form-select-sm" name="pressure_sensitivity_override">
+                                <option value="">-- No Override --</option>
+                                <option value="high" {% if override and override.pressure_sensitivity_override == 'high' %}selected{% endif %}>High</option>
+                                <option value="medium" {% if override and override.pressure_sensitivity_override == 'medium' %}selected{% endif %}>Medium</option>
+                                <option value="low" {% if override and override.pressure_sensitivity_override == 'low' %}selected{% endif %}>Low</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Temperature Sensitivity</label>
+                            <select class="form-select form-select-sm" name="temperature_sensitivity_override">
+                                <option value="">-- No Override --</option>
+                                <option value="normal" {% if override and override.temperature_sensitivity_override == 'normal' %}selected{% endif %}>Normal</option>
+                                <option value="heat_sensitive" {% if override and override.temperature_sensitivity_override == 'heat_sensitive' %}selected{% endif %}>Heat Sensitive</option>
+                                <option value="cool_required" {% if override and override.temperature_sensitivity_override == 'cool_required' %}selected{% endif %}>Cool Required</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Box Fit Rule</label>
+                            <select class="form-select form-select-sm" name="box_fit_rule_override">
+                                <option value="">-- No Override --</option>
+                                <option value="BOTTOM" {% if override and override.box_fit_rule_override == 'BOTTOM' %}selected{% endif %}>BOTTOM</option>
+                                <option value="MIDDLE" {% if override and override.box_fit_rule_override == 'MIDDLE' %}selected{% endif %}>MIDDLE</option>
+                                <option value="TOP" {% if override and override.box_fit_rule_override == 'TOP' %}selected{% endif %}>TOP</option>
+                                <option value="COOLER_BAG" {% if override and override.box_fit_rule_override == 'COOLER_BAG' %}selected{% endif %}>COOLER_BAG</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Reason</label>
+                            <textarea class="form-control form-control-sm" name="override_reason" rows="2">{{ override.override_reason if override else '' }}</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-save me-1"></i> Save Override
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if evidence %}
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-microscope me-2"></i>Classification Evidence</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Attribute</th>
+                            <th>Value</th>
+                            <th>Confidence</th>
+                            <th>Source</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for attr, data in evidence.items() %}
+                        <tr>
+                            <td><strong>{{ attr.replace('_', ' ').title() }}</strong></td>
+                            <td>{{ data.value if data.value is not none else '-' }}</td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="progress me-2" style="width: 60px; height: 8px;">
+                                        <div class="progress-bar {% if data.confidence >= 80 %}bg-success{% elif data.confidence >= 60 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                             style="width: {{ data.confidence }}%"></div>
+                                    </div>
+                                    {{ data.confidence }}%
+                                </div>
+                            </td>
+                            <td>
+                                {% if data.source == 'MANUAL' %}
+                                <span class="badge bg-success">MANUAL</span>
+                                {% elif data.source == 'CATEGORY_DEFAULT' %}
+                                <span class="badge bg-info">DEFAULT</span>
+                                {% else %}
+                                <span class="badge bg-secondary">RULES</span>
+                                {% endif %}
+                            </td>
+                            <td><small>{{ data.reason }}</small></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

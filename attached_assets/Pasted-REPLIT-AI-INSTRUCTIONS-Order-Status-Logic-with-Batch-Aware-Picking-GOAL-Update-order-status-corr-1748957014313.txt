@@ -1,0 +1,78 @@
+REPLIT AI INSTRUCTIONS: Order Status Logic with Batch-Aware Picking
+🎯 GOAL
+Update order status correctly when:
+
+Only part of the order is picked.
+
+Remaining items are locked in a batch.
+
+Ensure the order doesn't remain incorrectly open.
+
+🧱 Step 1: Add or Update Order Status Field
+Make sure each order has a status field with these possible values:
+
+python
+Copy code
+order.status in [
+  "open",                # not yet started
+  "in_progress",         # some items picked, some remaining
+  "awaiting_batch_items",# all remaining items are locked by a batch
+  "picked",              # fully picked
+  "cancelled"            # optional
+]
+🔄 Step 2: Status Update Logic After Picking
+After a picker submits or finishes picking:
+
+Count total items in the order.
+
+Count how many items have been fully picked.
+
+Check if the remaining unpicked items are locked in a batch.
+
+Set the correct status.
+
+✅ Step 3: Implement This Function
+Paste this function and call it whenever an order is updated:
+
+python
+Copy code
+def update_order_status(order):
+    total_items = len(order["items"])
+    picked_items = 0
+    all_remaining_locked = True
+
+    for item in order["items"]:
+        if item["picked_quantity"] >= item["quantity"]:
+            picked_items += 1
+        else:
+            if item.get("locked_by_batch_id") is None:
+                all_remaining_locked = False
+
+    if picked_items == total_items:
+        order["status"] = "picked"
+    elif all_remaining_locked:
+        order["status"] = "awaiting_batch_items"
+    else:
+        order["status"] = "in_progress"
+Call update_order_status(order) after each picking action.
+
+🧪 Optional UX Hint
+In the UI or API response, include:
+
+python
+Copy code
+order["summary"] = f"Picked: {picked_items}/{total_items}. Awaiting batch: {all_remaining_locked}"
+🛠 Trigger This Function When:
+A picker completes a pick for any order item.
+
+A batch is completed and may have fulfilled remaining items from the order.
+
+Let me know if you'd also like a function for checking and updating all orders after a batch is completed.
+
+
+
+
+
+
+
+

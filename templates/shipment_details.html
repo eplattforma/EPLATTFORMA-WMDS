@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Shipment #{{ shipment.id }} Details</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .status-badge {
+            font-size: 0.8em;
+            padding: 0.3em 0.6em;
+        }
+        .status-created { background-color: #ffc107; color: #000; }
+        .status-in_transit { background-color: #17a2b8; color: #fff; }
+        .status-completed { background-color: #28a745; color: #fff; }
+        .status-cancelled { background-color: #dc3545; color: #fff; }
+        .delivery-pending { background-color: #6c757d; color: #fff; }
+        .delivery-delivered { background-color: #28a745; color: #fff; }
+        .delivery-undelivered { background-color: #dc3545; color: #fff; }
+        .shipment-header {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .order-card {
+            border-left: 4px solid #007bff;
+            margin-bottom: 1rem;
+        }
+        .btn-action {
+            margin: 0.2rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('shipments.shipments_dashboard') }}">
+                <i class="fas fa-shipping-fast me-2"></i>Shipment Management
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="{{ url_for('shipments.shipments_dashboard') }}">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Shipment Header -->
+        <div class="shipment-header">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h2><i class="fas fa-truck me-2"></i>Shipment #{{ shipment.id }}</h2>
+                    <p class="mb-1"><i class="fas fa-user me-2"></i><strong>Driver:</strong> {{ shipment.driver_name }}</p>
+                    {% if shipment.route_name %}
+                        <p class="mb-1"><i class="fas fa-route me-2"></i><strong>Route:</strong> {{ shipment.route_name }}</p>
+                    {% endif %}
+                    <p class="mb-0"><i class="fas fa-calendar me-2"></i><strong>Delivery Date:</strong> {{ shipment.delivery_date.strftime('%d/%m/%y') }}</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <span class="badge status-badge status-{{ shipment.status }}" style="font-size: 1rem;">
+                        {{ shipment.status.replace('_', ' ').title() }}
+                    </span>
+                    <br><br>
+                    <form method="POST" action="{{ url_for('shipments.update_shipment_status', shipment_id=shipment.id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <select name="status" class="form-select form-select-sm d-inline-block w-auto me-2">
+                            <option value="created" {{ 'selected' if shipment.status == 'created' }}>Created</option>
+                            <option value="in_transit" {{ 'selected' if shipment.status == 'in_transit' }}>In Transit</option>
+                            <option value="completed" {{ 'selected' if shipment.status == 'completed' }}>Completed</option>
+                            <option value="cancelled" {{ 'selected' if shipment.status == 'cancelled' }}>Cancelled</option>
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-light">Update</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Quick Actions -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-plus me-2"></i>Add Orders to Shipment</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('shipments.add_order_to_shipment', shipment_id=shipment.id) }}" class="row g-3">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="col-md-8">
+                                <label for="invoice_no" class="form-label">Invoice Number</label>
+                                <input type="text" class="form-control" id="invoice_no" name="invoice_no" 
+                                       placeholder="Enter invoice number" required>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary me-2">
+                                    <i class="fas fa-plus me-1"></i>Add Order
+                                </button>
+                                <a href="{{ url_for('shipments.available_orders', shipment_id=shipment.id) }}" class="btn btn-outline-secondary">
+                                    <i class="fas fa-search me-1"></i>Browse Available
+                                </a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orders in Shipment -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-boxes me-2"></i>Orders in Shipment 
+                    <span class="badge bg-info">{{ shipment_orders|length }}</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if shipment_orders %}
+                    {% for shipment_order, invoice in shipment_orders %}
+                        <div class="card order-card mb-3">
+                            <div class="card-body py-4">
+                                <div class="row align-items-center">
+                                    <div class="col-md-3">
+                                        <h5 class="mb-2 fw-bold">
+                                            <i class="fas fa-file-invoice me-2"></i>{{ invoice.invoice_no }}
+                                        </h5>
+                                        <p class="mb-0 text-muted fs-6">{{ invoice.customer_name }}</p>
+                                    </div>
+                                    <div class="col-md-2 text-center">
+                                        <div class="text-muted small mb-1">Route</div>
+                                        <div class="fw-bold fs-5">{{ invoice.routing or 'N/A' }}</div>
+                                    </div>
+                                    <div class="col-md-2 text-center">
+                                        <div class="text-muted small mb-1">Weight</div>
+                                        <div class="fw-bold fs-5">{{ (invoice.total_weight or 0)|round(1) }} kg</div>
+                                    </div>
+                                    <div class="col-md-2 text-center">
+                                        <div class="text-muted small mb-2">Status</div>
+                                        {{ invoice.status|status_badge|safe }}
+                                    </div>
+                                    <div class="col-md-3 text-end">
+                                        {% if invoice.status == 'shipped' %}
+                                            <!-- Mark as Delivered -->
+                                            <form method="POST" action="{{ url_for('shipments.mark_order_delivered', shipment_id=shipment.id) }}" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+                                                <button type="submit" class="btn btn-sm btn-success btn-action">
+                                                    <i class="fas fa-check me-1"></i>Delivered
+                                                </button>
+                                            </form>
+                                            
+                                            <!-- Mark as Failed -->
+                                            <button type="button" class="btn btn-sm btn-warning btn-action" 
+                                                    data-bs-toggle="modal" data-bs-target="#undeliveredModal{{ loop.index }}">
+                                                <i class="fas fa-times me-1"></i>Delivery Failed
+                                            </button>
+                                        {% elif invoice.status == 'delivered' %}
+                                            <!-- Mark as Failed -->
+                                            <button type="button" class="btn btn-sm btn-warning btn-action" 
+                                                    data-bs-toggle="modal" data-bs-target="#undeliveredModal{{ loop.index }}">
+                                                <i class="fas fa-times me-1"></i>Mark Delivery Failed
+                                            </button>
+                                        {% elif invoice.status == 'delivery_failed' %}
+                                            <!-- Mark as Delivered -->
+                                            <form method="POST" action="{{ url_for('shipments.mark_order_delivered', shipment_id=shipment.id) }}" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+                                                <button type="submit" class="btn btn-sm btn-success btn-action">
+                                                    <i class="fas fa-check me-1"></i>Delivered
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                        
+                                        <!-- Remove from Shipment -->
+                                        <form method="POST" action="{{ url_for('shipments.remove_order_from_shipment', shipment_id=shipment.id) }}" class="d-inline">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger btn-action" 
+                                                    onclick="return confirm('Remove this order from the shipment?')">
+                                                <i class="fas fa-trash me-1"></i>Remove
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Undelivered Modal -->
+                        <div class="modal fade" id="undeliveredModal{{ loop.index }}" tabindex="-1">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Mark Order as Undelivered</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <form method="POST" action="{{ url_for('shipments.mark_order_undelivered', shipment_id=shipment.id) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <div class="modal-body">
+                                            <input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+                                            <div class="mb-3">
+                                                <label for="reason{{ loop.index }}" class="form-label">Reason for Undelivered Status *</label>
+                                                <select class="form-select" id="reason{{ loop.index }}" name="reason" required>
+                                                    <option value="">Select a reason...</option>
+                                                    <option value="Customer not available">Customer not available</option>
+                                                    <option value="Wrong address">Wrong address</option>
+                                                    <option value="Refused delivery">Refused delivery</option>
+                                                    <option value="Damaged package">Damaged package</option>
+                                                    <option value="Access issues">Access issues</option>
+                                                    <option value="Other">Other</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-warning">Mark as Undelivered</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-boxes text-muted" style="font-size: 3rem;"></i>
+                        <h5 class="text-muted mt-3">No Orders in This Shipment</h5>
+                        <p class="text-muted">Add completed orders to start tracking deliveries.</p>
+                        <a href="{{ url_for('shipments.available_orders', shipment_id=shipment.id) }}" class="btn btn-primary">
+                            <i class="fas fa-plus me-1"></i>Add Orders
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Summary Stats -->
+        {% if shipment_orders %}
+            <div class="row mt-4">
+                {% set shipped_count = shipment_orders|selectattr('1.status', 'equalto', 'shipped')|list|length %}
+                {% set delivered_count = shipment_orders|selectattr('1.status', 'equalto', 'delivered')|list|length %}
+                {% set failed_count = shipment_orders|selectattr('1.status', 'equalto', 'delivery_failed')|list|length %}
+                
+                <div class="col-md-4">
+                    <div class="card text-center bg-primary text-white">
+                        <div class="card-body">
+                            <h4>{{ shipped_count }}</h4>
+                            <p class="mb-0">Shipped</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center bg-success text-white">
+                        <div class="card-body">
+                            <h4>{{ delivered_count }}</h4>
+                            <p class="mb-0">Delivered</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center bg-danger text-white">
+                        <div class="card-body">
+                            <h4>{{ failed_count }}</h4>
+                            <p class="mb-0">Failed Delivery</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

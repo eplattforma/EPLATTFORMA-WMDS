@@ -1,0 +1,65 @@
+ Issue 1: Batch Still Closes Prematurely After One Item
+Despite the patch, batches are still marked as "complete" after picking one item, even when many more remain unpicked.
+
+🔍 Likely causes:
+
+The fix may have updated logic for item counting but is not applied correctly in the picking flow.
+
+pick_status checks might be missing or incorrect.
+
+The "current index = end of list" is still used to trigger batch completion without comparing picked count vs total.
+
+🛠️ Instructions for Replit AI:
+
+Fix batch completion logic to ensure a batch is marked complete only if all eligible items are picked.
+
+python
+Copy code
+# In routes_batch.py or batch_picking_controller.py
+
+# Fix logic when user confirms last item
+# Ensure batch is only marked complete if all batch items are picked
+picked_items = db.session.query(InvoiceItem).filter(
+    InvoiceItem.batch_id == batch_id,
+    InvoiceItem.pick_status == 'picked'
+).count()
+
+total_items = db.session.query(InvoiceItem).filter(
+    InvoiceItem.batch_id == batch_id,
+    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending', 'picked'])
+).count()
+
+if picked_items == total_items:
+    batch.status = 'complete'
+else:
+    batch.status = 'incomplete'
+    # Optionally log how many items are left
+🔧 Issue 2: Batch Says “Sequential” Even When Created as “Consolidated”
+🛠️ Instructions for Replit AI:
+
+Fix the UI and logic to reflect the correct batch type (sequential or consolidated) in the picking screen.
+
+Store the batch type correctly in the batch_picking_sessions table as a field (e.g. picking_mode = 'consolidated' or 'sequential').
+
+When starting a picking session, retrieve and display the correct value.
+
+Update the display header or label to show:
+
+yaml
+Copy code
+Picking Mode: Consolidated   # or Sequential
+✅ Suggest Testing Flow
+Create a new batch using consolidated mode.
+
+Confirm all items appear in picking screen.
+
+Pick 1–2 items, skip others.
+
+Ensure:
+
+Batch does not close early.
+
+Picking mode label matches what you selected.
+
+Status changes to “incomplete” only when you exit with items left.
+

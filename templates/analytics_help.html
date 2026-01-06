@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics Help - Customer Opportunity Insights{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h3 mb-0">❓ AI Insights Analytics - FYI</h1>
+                    <p class="text-muted">Understanding customer opportunity analytics</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('analytics.analytics_home') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-arrow-left me-1"></i> Back to Analytics
+                    </a>
+                </div>
+            </div>
+
+            <!-- Overview -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>What is AI Insights Analytics?</h5>
+                </div>
+                <div class="card-body">
+                    <p>AI Insights uses your invoice and customer data to automatically discover business opportunities:</p>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item"><strong>Cross-sell recommendations</strong> - Products customers often buy together</li>
+                        <li class="list-group-item"><strong>Category gaps</strong> - Product categories each customer has never purchased</li>
+                        <li class="list-group-item"><strong>Spending potential</strong> - How much more each customer could spend</li>
+                        <li class="list-group-item"><strong>Churn warnings</strong> - Customers whose spending is dropping in specific categories</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Feature 1: Market Basket -->
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-shopping-basket me-2"></i>Market Basket - Cross-Sell Recommendations</h5>
+                </div>
+                <div class="card-body">
+                    <h6>What it does:</h6>
+                    <p>Analyzes all your invoices to find products that are frequently bought together. It then generates rules like "Customers who buy Item A often also buy Item B."</p>
+                    
+                    <h6 class="mt-3">How to use it:</h6>
+                    <p>When viewing a customer's insights, you'll see "Product Recommendations." These are items the customer hasn't bought yet, but customers who buy their current products often purchase them too.</p>
+                    
+                    <h6 class="mt-3">Key metrics:</h6>
+                    <ul>
+                        <li><strong>Confidence:</strong> How often customers buy the recommended item when they buy the starting item (0-100%)</li>
+                        <li><strong>Lift:</strong> How much more likely they are to buy it (e.g., 2.5x means 2.5 times more likely)</li>
+                    </ul>
+                    
+                    <div class="alert alert-info mt-3">
+                        <strong>💡 Sales Tip:</strong> Use these recommendations when approaching customers to suggest add-on products or complementary items.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature 2: Category Penetration -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-list me-2"></i>Missing Categories - Growth Opportunities</h5>
+                </div>
+                <div class="card-body">
+                    <h6>What it does:</h6>
+                    <p>Maps every customer against all product categories. Shows which categories the customer has bought from, and which ones they've never purchased.</p>
+                    
+                    <h6 class="mt-3">How to use it:</h6>
+                    <p>When you select a customer, the "Missing Categories" section shows all the product types they've never bought. These are new revenue opportunities!</p>
+                    
+                    <div class="alert alert-success mt-3">
+                        <strong>💡 Sales Tip:</strong> Contact customers with many missing categories - they're opportunities for new product category introductions and account expansion.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature 3: Share of Wallet -->
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-white">
+                    <h5 class="mb-0"><i class="fas fa-wallet me-2"></i>Share of Wallet - Spending Potential</h5>
+                </div>
+                <div class="card-body">
+                    <h6>What it does:</h6>
+                    <p>Compares each customer's actual spending against the average customer's spending. Calculates the "opportunity gap" - how much more revenue potential exists.</p>
+                    
+                    <h6 class="mt-3">How to use it:</h6>
+                    <p>The "Share of Wallet" card shows three numbers:</p>
+                    <ul>
+                        <li><strong>Actual Spend:</strong> What they currently spend</li>
+                        <li><strong>Average Spend:</strong> What the typical customer spends</li>
+                        <li><strong>Opportunity Gap:</strong> The difference (revenue potential)</li>
+                    </ul>
+                    
+                    <div class="alert alert-warning mt-3">
+                        <strong>💡 Sales Tip:</strong> Customers with large gaps are underutilizing your products. Prioritize them for relationship building and upsell campaigns.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature 4: Churn Risk -->
+            <div class="card mb-4">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0"><i class="fas fa-exclamation-circle me-2"></i>Churn Risk - Retention Alerts</h5>
+                </div>
+                <div class="card-body">
+                    <h6>What it does:</h6>
+                    <p>Compares a customer's spending in the last 90 days vs. the previous 90 days. If spending dropped by more than 50%, it flags the category as "high risk."</p>
+                    
+                    <h6 class="mt-3">How to use it:</h6>
+                    <p>The "Churn Risk" section shows which product categories a customer is buying less of. Use this to reach out and understand why.</p>
+                    
+                    <h6 class="mt-3">Example:</h6>
+                    <p>If a customer spent 1,000 in category "Electronics" last quarter but only 300 this quarter, they'll be flagged for that category with a 70% drop.</p>
+                    
+                    <div class="alert alert-danger mt-3">
+                        <strong>💡 Sales Tip:</strong> Call customers with "HIGH RISK" flags. They may be switching suppliers or cutting budgets. Early intervention can save the relationship.
+                    </div>
+                </div>
+            </div>
+
+            <!-- How to Use Section -->
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="fas fa-book me-2"></i>How to Use Analytics</h5>
+                </div>
+                <div class="card-body">
+                    <ol>
+                        <li>
+                            <strong>Refresh the Data:</strong> Click "Refresh Analytics Data" to calculate all insights from your latest invoices. This takes 1-2 minutes depending on data volume.
+                        </li>
+                        <li>
+                            <strong>Select a Customer:</strong> Use the dropdown to pick a customer and see their personalized opportunities.
+                        </li>
+                        <li>
+                            <strong>Review Their Profile:</strong>
+                            <ul class="mt-2">
+                                <li>Check "Share of Wallet" - are they spending less than average?</li>
+                                <li>Look at "Missing Categories" - what new products could they buy?</li>
+                                <li>See "Churn Risk" - are they reducing spending anywhere?</li>
+                                <li>Review "Recommendations" - what complementary products fit their profile?</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Take Action:</strong> Use these insights to:
+                            <ul class="mt-2">
+                                <li>Plan targeted sales campaigns</li>
+                                <li>Identify at-risk accounts to retain</li>
+                                <li>Suggest new products to existing customers</li>
+                                <li>Expand underutilized accounts</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>View Global Trends:</strong> Click "View Top Opportunities" to see:
+                            <ul class="mt-2">
+                                <li>Biggest spending gaps across all customers</li>
+                                <li>Strongest cross-sell rules</li>
+                                <li>Highest churn risks</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Frequency -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="fas fa-clock me-2"></i>How Often to Refresh?</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Recommended:</strong> Run "Refresh Analytics Data" weekly or after major invoice imports.</p>
+                    <p class="text-muted">This ensures your insights stay current with the latest customer activity.</p>
+                </div>
+            </div>
+
+            <!-- Back Button -->
+            <div class="mb-4">
+                <a href="{{ url_for('analytics.analytics_home') }}" class="btn btn-primary btn-lg">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Analytics Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

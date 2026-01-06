@@ -1,0 +1,113 @@
+🎯 "I’m building a shipment management system for delivering customer orders that are already completed by the picking system. Please create the following backend and basic admin dashboard UI to manage shipments and order delivery status."
+
+📦 Required Features
+Create Shipments
+
+Each shipment has:
+
+shipment_id
+
+driver_name
+
+route_name (optional)
+
+status (created, in_transit, completed, cancelled)
+
+delivery_date
+
+Add/Remove Orders
+
+Show a list of available orders with status = completed
+
+Allow admin to:
+
+Add these orders to a shipment
+
+Remove an order from a shipment (returns to "unassigned")
+
+Track Order Delivery per Shipment
+
+Each order in a shipment has:
+
+delivery_status: pending, delivered, undelivered
+
+undelivered_reason: optional text field
+
+Dashboard UI
+
+Show a list of all shipments
+
+With filters by driver, date, status
+
+Click into a shipment to:
+
+View assigned orders
+
+Mark orders delivered or undelivered
+
+Add new orders
+
+💾 Suggested Data Models
+shipments
+json
+Copy code
+{
+  "id": "auto",
+  "driver_name": "string",
+  "route_name": "string",
+  "status": "created | in_transit | completed | cancelled",
+  "delivery_date": "date",
+  "created_at": "timestamp"
+}
+shipment_orders
+json
+Copy code
+{
+  "shipment_id": "fk",
+  "order_id": "fk",
+  "delivery_status": "pending | delivered | undelivered",
+  "reason": "string (optional)"
+}
+🔧 Suggested API Endpoints
+Endpoint	Method	Purpose
+/shipments	GET	List all shipments
+/shipments	POST	Create a new shipment
+/shipments/:id	GET	View shipment details
+/shipments/:id/add-order	POST	Add an order to a shipment
+/shipments/:id/remove-order	POST	Remove an order from a shipment
+/shipments/:id/mark-delivered	POST	Mark an order as delivered
+/shipments/:id/mark-undelivered	POST	Mark an order undelivered and record a reason
+/orders/available	GET	List all orders with status = completed and not assigned to any shipment
+
+📋 UI Pages to Build
+Shipments Dashboard
+
+Table of all shipments
+
+Button: “Create Shipment”
+
+Filter: by status, driver, delivery date
+
+Shipment Details Page
+
+Table of orders in this shipment
+
+Button: “Add Orders” (select from available orders)
+
+Button next to each order: “Mark Delivered” / “Mark Undelivered”
+
+Available Orders View
+
+Table of completed orders not yet assigned to any shipment
+
+Button: “Add to Shipment”
+
+💡 Additional Instructions
+Do not create duplicate shipments with the same ID.
+
+Only include orders with status = completed in available orders list.
+
+If an order is removed from a shipment and was not delivered, mark it as completed again.
+
+✅ Sample Prompt Summary
+“Build a shipment management module with endpoints and an admin dashboard. I should be able to create shipments, assign completed orders to them, track delivery status per order (delivered or undelivered), and manage shipments by driver or route. The system must allow adding/removing orders and logging undelivered reasons.”

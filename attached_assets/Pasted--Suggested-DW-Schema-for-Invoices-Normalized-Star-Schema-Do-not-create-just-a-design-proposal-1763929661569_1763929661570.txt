@@ -1,0 +1,131 @@
+✅ Suggested DW Schema for Invoices (Normalized Star Schema)
+
+(Do not create — just a design proposal)
+
+This structure is optimized for analytics, fast aggregations, incremental syncing from PS365, and future expansion (returns, payments, promotions, etc.)
+
+🌟 Fact Table (Central Table)
+dw_invoice_line
+
+One row = one invoice line item.
+
+Column	Type	Notes
+id	PK	Auto
+invoice_header_id	FK → dw_invoice_header.id	Links each line to its invoice
+item_code_365	FK → dw_item.item_code_365	Reuse item dimension since you already sync items
+line_number	int	From PS365
+quantity	numeric	line quantity
+price_excl	numeric	price before VAT
+price_incl	numeric	price with VAT
+discount_percent	numeric	if applicable
+vat_code_365	text	VAT code
+vat_percent	numeric	VAT %
+line_total_excl	numeric	total excl
+line_total_incl	numeric	total incl
+synced_at	timestamp	when DW loaded the row
+Why this works
+
+Perfect granularity.
+
+You can sum totals per store, customer, dates, etc.
+
+Connects to all your existing item dimensions.
+
+📘 Dimension Table 1 — Invoice Header
+dw_invoice_header
+
+One row = one invoice.
+
+Column	Type	Notes
+id	PK	Auto
+invoice_no_365	text	Unique index
+invoice_type	text	SALE / RETURN / etc
+invoice_date	timestamp	from PS365
+customer_code_365	FK → dw_customer.customer_code_365	
+store_code_365	FK → dw_store.store_code_365	
+user_code_365	FK → dw_cashier.user_code_365	
+total_sub	numeric	ex VAT
+total_discount	numeric	aggregated discount
+total_vat	numeric	
+total_grand	numeric	
+points_earned	numeric	if used
+points_redeemed	numeric	if used
+last_modified_at	timestamp	For incremental sync
+synced_at	timestamp	when DW row was created
+Why this is needed
+
+Invoice-level facts don’t belong in the line table.
+
+Enables fast queries: turnover per day, per customer, per store, per user.
+
+📘 Dimension Table 2 — Customer
+dw_customer
+Column	Type
+customer_code_365 (PK)	
+customer_name	
+email	
+phone_1	
+phone_2	
+mobile	
+sms_optin	
+first_seen_at	
+last_updated_at	
+📘 Dimension Table 3 — Store
+dw_store
+Column	Type
+store_code_365 (PK)	
+store_name	
+first_seen_at	
+last_updated_at	
+📘 Dimension Table 4 — Cashier / User
+dw_cashier
+Column	Type
+user_code_365 (PK)	
+user_name	
+first_seen_at	
+last_updated_at	
+🧠 How This Works With Your Current DW
+
+You already have:
+
+ps_items_dw → used as an Item dimension
+
+Category, brand, department dimensions
+
+A working incremental sync structure
+
+last_modified_date handling from items
+
+The invoice DW schema aligns perfectly with all of this.
+
+🚀 Why This Schema Is Excellent
+
+Normalized
+
+No duplicated customer/store details per invoice.
+
+Star schema optimized
+
+Fast Power BI and reporting.
+
+Incremental sync friendly
+
+Use PS365: invoice_last_modified_from.
+
+Traceable
+
+Each invoice header → many lines.
+
+Scalable
+
+Can later add:
+
+returns
+
+credit notes
+
+stock movements
+
+payments
+
+promotions

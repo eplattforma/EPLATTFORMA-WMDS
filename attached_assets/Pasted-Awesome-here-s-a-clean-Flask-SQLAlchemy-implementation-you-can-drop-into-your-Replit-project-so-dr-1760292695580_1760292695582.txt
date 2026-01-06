@@ -1,0 +1,693 @@
+Awesome—here’s a clean Flask + SQLAlchemy implementation you can drop into your Replit project so drivers can issue customer receipts via the Powersoft365 API. It auto-generates the reference_number starting from R1000001, uses your required defaults, and logs each attempt.
+
+Replit setup (Flask/SQLAlchemy)
+
+1) requirements.txt
+
+Flask==3.0.3
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.9
+requests==2.32.3
+python-dateutil==2.9.0.post0
+
+
+2) Secrets (Replit → Tools → Secrets):
+
+DATABASE_URL → e.g. postgresql+psycopg2://user:pass@host/db
+
+POWERSOFT_BASE → e.g. https://api.powersoft365.com (their base URL)
+
+POWERSOFT_TOKEN → the token they gave you
+
+(optional) LOCAL_TZ → Asia/Nicosia (defaulted below)
+
+app.py (drop-in)
+import os, json
+from datetime import datetime, date, timezone
+from zoneinfo import ZoneInfo
+
+import requests
+from flask import Flask, request, jsonify
+from sqlalchemy import create_engine, text, String, Integer, DateTime, Numeric
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.pool import QueuePool
+
+# --- Config ---
+DB_URL = os.getenv("DATABASE_URL")
+POWERSOFT_BASE = os.getenv("POWERSOFT_BASE")
+POWERSOFT_TOKEN = os.getenv("POWERSOFT_TOKEN")
+LOCAL_TZ = os.getenv("LOCAL_TZ", "Asia/Nicosia")
+
+if not all([DB_URL, POWERSOFT_BASE, POWERSOFT_TOKEN]):
+    raise RuntimeError("Missing one of: DATABASE_URL, POWERSOFT_BASE, POWERSOFT_TOKEN")
+
+engine = create_engine(DB_URL, poolclass=QueuePool, pool_pre_ping=True, pool_size=5, max_overflow=10)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+class Base(DeclarativeBase): pass
+
+# --- Models ---
+class ReceiptSequence(Base):
+    __tablename__ = "receipt_sequence"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1_000_000)  # start from 1,000,000 -> next becomes R1000001
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class ReceiptLog(Base):
+    __tablename__ = "receipt_log"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reference_number: Mapped[str] = mapped_column(String(32), index=True)
+    customer_code_365: Mapped[str] = mapped_column(String(32), index=True)
+    amount: Mapped[float] = mapped_column(Numeric(12,2))
+    comments: Mapped[str] = mapped_column(String(1000))
+    response_id: Mapped[str] = mapped_column(String(128), nullable=True)  # Powersoft365 transaction code
+    success: Mapped[int] = mapped_column(Integer, default=0)  # 1/0
+    request_json: Mapped[str] = mapped_column(String)         # stored for audit
+    response_json: Mapped[str] = mapped_column(String)        # stored for audit
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+Base.metadata.create_all(engine)
+
+app = Flask(__name__)
+
+# --- Helpers ---
+def next_reference_number(db):
+    """
+    Generates the next reference number, starting at R1000001.
+    Uses SELECT ... FOR UPDATE to ensure uniqueness under concurrency.
+    """
+    # initialize row if not exists
+    row = db.execute(text("SELECT id, last_number FROM receipt_sequence LIMIT 1")).first()
+    if not row:
+        db.execute(text("INSERT INTO receipt_sequence (last_number) VALUES (1000000)"))
+        db.flush()
+
+    seq = db.execute(text("SELECT id, last_number FROM receipt_sequence FOR UPDATE")).first()
+    nxt = seq.last_number + 1
+    db.execute(text("UPDATE receipt_sequence SET last_number=:n, updated_at=NOW() AT TIME ZONE 'UTC'"), {"n": nxt})
+    return f"R{nxt:07d}"  # R1000001 formatting with 7 digits after R
+
+def local_and_utc_now():
+    tz = ZoneInfo(LOCAL_TZ)
+    now_local = datetime.now(tz)
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    return now_local.date().isoformat(), now_utc.strftime("%Y-%m-%d %H:%M:%S")
+
+# --- Health ---
+@app.get("/health")
+def health():
+    return jsonify({"ok": True})
+
+# --- Create customer receipt (Driver flow) ---
+"""
+POST /api/receipts
+Body (JSON):
+{
+  "customer_code_365": "10001800",   # required
+  "amount": 100,                     # required
+  "comments": "optional string",     # optional
+  "agent_code_365": "2",             # optional, defaults to "2"
+  "user_code": ""                    # optional, defaults to ""
+}
+Behavior:
+- Auto-generates reference_number starting from R1000001
+- Sets required defaults per spec:
+    receipt_description: "Receipt from API"
+    payment_type_code_365: "CASH"
+    cheque_number: ""
+    cheque_date: ""
+"""
+@app.post("/api/receipts")
+def create_receipt():
+    payload = request.get_json(silent=True) or {}
+    customer_code = (payload.get("customer_code_365") or "").strip()
+    amount = payload.get("amount")
+    comments = payload.get("comments") or ""
+    agent_code = (payload.get("agent_code_365") or "2").strip()
+    user_code = payload.get("user_code") or ""
+
+    if not customer_code:
+        return jsonify({"error": "customer_code_365 is required"}), 400
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            raise ValueError()
+    except Exception:
+        return jsonify({"error": "amount must be a positive number"}), 400
+
+    receipt_date_local, receipt_date_utc0 = local_and_utc_now()
+
+    db = SessionLocal()
+    try:
+        # Generate reference number inside a DB txn
+        db.begin()
+        reference_number = next_reference_number(db)
+        db.commit()
+
+        # Build request for Powersoft365
+        req_obj = {
+            "api_credentials": { "token": POWERSOFT_TOKEN },
+            "customer_receipt": {
+                "customer_code_365": customer_code,
+                "receipt_date_local": receipt_date_local,
+                "receipt_date_utc0": receipt_date_utc0,
+                "reference_number": reference_number,
+                "receipt_description": "Receipt from API",
+                "amount": amount_val,
+                "agent_code_365": agent_code,           # required default "2"
+                "payment_type_code_365": "CASH",        # required
+                "cheque_number": "",                    # empty per requirement
+                "cheque_date": "",                      # empty per requirement
+                "comments": comments,
+                "user_code": user_code or ""
+            }
+        }
+
+        # Call external API
+        url = f"{POWERSOFT_BASE.rstrip('/')}/customer_receipt"
+        ps_resp = requests.post(url, json=req_obj, timeout=20)
+        ok = ps_resp.ok
+        ps_json = {}
+        try:
+            ps_json = ps_resp.json()
+        except Exception:
+            ps_json = {"raw": ps_resp.text}
+
+        # Extract response_id if present (Powersoft365 transaction code)
+        response_id = (ps_json or {}).get("api_response", {}).get("response_id") or ps_json.get("response_id")
+
+        # Log
+        log = ReceiptLog(
+            reference_number=reference_number,
+            customer_code_365=customer_code,
+            amount=amount_val,
+            comments=comments,
+            response_id=response_id,
+            success=1 if ok else 0,
+            request_json=json.dumps(req_obj, ensure_ascii=False),
+            response_json=json.dumps(ps_json, ensure_ascii=False),
+        )
+        db.add(log)
+        db.commit()
+
+        if not ok:
+            return jsonify({
+                "ok": False,
+                "reference_number": reference_number,
+                "powersoft_status": ps_resp.status_code,
+                "powersoft_body": ps_json
+            }), 502
+
+        return jsonify({
+            "ok": True,
+            "reference_number": reference_number,
+            "transaction_code": response_id,
+            "powersoft_response": ps_json
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": "internal_error", "detail": str(e)}), 500
+    finally:
+        db.close()
+
+How the driver app should call it
+
+From your mobile app (or your driver UI), send:
+
+POST https://<your-repl-url>/api/receipts
+Content-Type: application/json
+
+{
+  "customer_code_365": "10001800",
+  "amount": 100,
+  "comments": "Cash received by driver at doorstep",
+  "agent_code_365": "2",
+  "user_code": ""
+}
+
+
+What the API does automatically
+
+Builds reference_number R1000001, R1000002, … (safe under concurrency).
+
+Fills:
+
+"receipt_description": "Receipt from API"
+
+"payment_type_code_365": "CASH"
+
+"cheque_number": ""
+
+"cheque_date": ""
+
+"agent_code_365": "2" (unless you override in body)
+
+Local/UTC dates according to Asia/Nicosia.
+
+Posts to POWERSOFT_BASE/customer_receipt with your POWERSOFT_TOKEN.
+
+Logs request/response (including the Powersoft transaction code in response_id) to receipt_log.
+
+Quick test (Replit Shell)
+curl -s -X POST "$REPLIT_URL/api/receipts" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_code_365":"10001800","amount":42.50,"comments":"Test cash"}' | jq
+
+Notes & best practices
+
+If Powersoft enforces unique reference_number across all time (it does), this sequence table and FOR UPDATE lock guarantees uniqueness.
+
+If you ever need to reset starting number, set receipt_sequence.last_number to 1000000 (or higher).
+
+You can expose a read endpoint (e.g., /api/receipts/<reference_number>) to let admins or support look up what was sent & Powersoft’s response.
+
+Add retry/backoff if you expect intermittent connectivity for drivers; you can queue unsent receipts and replay when online.
+
+If you want, I can also add a tiny HTML/mobile-friendly form (Flask template) for drivers to enter amount + comments and submit the receipt directly.
+
+You said:
+yes include the form
+ChatGPT said:
+Thought for 8s
+
+Perfect—here’s a small, mobile-friendly HTML form wired into your existing Flask + SQLAlchemy API so drivers can enter amount and comments (plus customer code). It reuses the same logic you already have to call Powersoft365 and log the receipt.
+
+1) Add two routes to your app.py
+
+/receipts/new → shows the form
+
+/receipts/submit → handles the POST, creates the Powersoft receipt, and shows a result page
+
+I’ve refactored the core “create receipt” logic into a helper so both the JSON API and the HTML form use the same path.
+
+# --- add near the top of app.py ---
+from flask import render_template, redirect, url_for
+
+# --- refactor core receipt creation into a helper ---
+def create_receipt_core(customer_code: str, amount_val: float, comments: str, agent_code: str = "2", user_code: str = ""):
+    receipt_date_local, receipt_date_utc0 = local_and_utc_now()
+    db = SessionLocal()
+    try:
+        db.begin()
+        reference_number = next_reference_number(db)
+        db.commit()
+
+        req_obj = {
+            "api_credentials": {"token": POWERSOFT_TOKEN},
+            "customer_receipt": {
+                "customer_code_365": customer_code,
+                "receipt_date_local": receipt_date_local,
+                "receipt_date_utc0": receipt_date_utc0,
+                "reference_number": reference_number,
+                "receipt_description": "Receipt from API",
+                "amount": float(amount_val),
+                "agent_code_365": agent_code,
+                "payment_type_code_365": "CASH",
+                "cheque_number": "",
+                "cheque_date": "",
+                "comments": comments or "",
+                "user_code": user_code or ""
+            }
+        }
+
+        url = f"{POWERSOFT_BASE.rstrip('/')}/customer_receipt"
+        ps_resp = requests.post(url, json=req_obj, timeout=20)
+        ok = ps_resp.ok
+        try:
+            ps_json = ps_resp.json()
+        except Exception:
+            ps_json = {"raw": ps_resp.text}
+
+        response_id = (ps_json or {}).get("api_response", {}).get("response_id") or ps_json.get("response_id")
+
+        log = ReceiptLog(
+            reference_number=reference_number,
+            customer_code_365=customer_code,
+            amount=float(amount_val),
+            comments=comments or "",
+            response_id=response_id,
+            success=1 if ok else 0,
+            request_json=json.dumps(req_obj, ensure_ascii=False),
+            response_json=json.dumps(ps_json, ensure_ascii=False),
+        )
+        db.add(log)
+        db.commit()
+
+        return ok, reference_number, response_id, ps_resp.status_code, ps_json
+    except Exception as e:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+# --- HTML form (GET) ---
+@app.get("/receipts/new")
+def new_receipt_form():
+    return render_template("receipt_form.html")
+
+# --- HTML form (POST) ---
+@app.post("/receipts/submit")
+def submit_receipt_form():
+    customer_code = (request.form.get("customer_code_365") or "").strip()
+    amount_raw = request.form.get("amount") or ""
+    comments = request.form.get("comments") or ""
+    user_code = request.form.get("user_code") or ""
+    agent_code = (request.form.get("agent_code_365") or "2").strip()
+
+    if not customer_code:
+        return render_template("receipt_form.html", error="Customer code is required", form=request.form), 400
+
+    try:
+        amount_val = float(amount_raw)
+        if amount_val <= 0:
+            raise ValueError()
+    except Exception:
+        return render_template("receipt_form.html", error="Amount must be a positive number", form=request.form), 400
+
+    try:
+        ok, ref, txn, status_code, body = create_receipt_core(
+            customer_code=customer_code,
+            amount_val=amount_val,
+            comments=comments,
+            agent_code=agent_code or "2",
+            user_code=user_code or ""
+        )
+        return render_template("receipt_result.html",
+                               ok=ok, reference_number=ref, transaction_code=txn,
+                               powersoft_status=status_code, powersoft_body=body,
+                               customer_code_365=customer_code, amount=amount_val, comments=comments)
+    except Exception as e:
+        return render_template("receipt_form.html", error=f"Internal error: {e}", form=request.form), 500
+
+
+Your existing /api/receipts JSON endpoint can now just call create_receipt_core(...) to avoid duplicate logic (optional).
+
+2) Add the templates
+
+Create a folder templates/ in your Replit project and add these two files.
+
+templates/receipt_form.html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Create Customer Receipt</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 16px; }
+    .card { max-width: 520px; margin: 0 auto; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; }
+    .row { margin-bottom: 12px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input, textarea, select { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 16px; }
+    button { width: 100%; padding: 12px; border: 0; border-radius: 10px; font-size: 16px; background: #111827; color: white; cursor: pointer; }
+    .hint { color: #6b7280; font-size: 12px; margin-top: 6px; }
+    .error { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+    .muted { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Create Customer Receipt</h2>
+    <p class="muted">Defaults: <b>payment = CASH</b>, <b>agent_code_365 = 2</b>. Reference number auto-generated (R1000001…)</p>
+
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('submit_receipt_form') }}">
+      <div class="row">
+        <label for="customer_code_365">Customer Code (365) *</label>
+        <input id="customer_code_365" name="customer_code_365" required
+               value="{{ (form.customer_code_365 if form else '') | e }}">
+      </div>
+
+      <div class="row">
+        <label for="amount">Amount (€) *</label>
+        <input id="amount" name="amount" type="number" step="0.01" min="0.01" required
+               inputmode="decimal" value="{{ (form.amount if form else '') | e }}">
+      </div>
+
+      <div class="row">
+        <label for="comments">Comments</label>
+        <textarea id="comments" name="comments" rows="3" placeholder="Optional note (shown in Powersoft)">{{ (form.comments if form else '') | e }}</textarea>
+      </div>
+
+      <div class="row">
+        <label for="user_code">User Code</label>
+        <input id="user_code" name="user_code" placeholder="Optional" value="{{ (form.user_code if form else '') | e }}">
+        <div class="hint">If you track which driver created the receipt, fill it (e.g., DRV-12). Otherwise leave blank.</div>
+      </div>
+
+      <div class="row">
+        <label for="agent_code_365">Agent Code (365)</label>
+        <input id="agent_code_365" name="agent_code_365" value="{{ (form.agent_code_365 if form else '2') | e }}">
+        <div class="hint">Defaults to 2. Keep as-is unless you need a different agent.</div>
+      </div>
+
+      <div class="row">
+        <label>Payment Type</label>
+        <input value="CASH" disabled>
+        <div class="hint">This form submits <b>CASH</b>. Cheque fields are blank by design.</div>
+      </div>
+
+      <button type="submit">Create Receipt</button>
+    </form>
+  </div>
+</body>
+</html>
+
+templates/receipt_result.html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Receipt Result</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 16px; }
+    .card { max-width: 560px; margin: 0 auto; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; }
+    .ok { background: #ecfdf5; color: #065f46; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+    .bad { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f9fafb; padding: 12px; border-radius: 8px; }
+    a.button { display:inline-block; margin-top: 10px; padding: 10px 14px; background:#111827; color:#fff; text-decoration:none; border-radius:10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    {% if ok %}
+      <div class="ok"><b>Receipt created successfully.</b></div>
+    {% else %}
+      <div class="bad"><b>Failed to create receipt.</b> Check details below.</div>
+    {% endif %}
+
+    <p><b>Reference Number:</b> {{ reference_number }}</p>
+    <p><b>Powersoft Transaction Code:</b> {{ transaction_code or '—' }}</p>
+    <p><b>Customer:</b> {{ customer_code_365 }}</p>
+    <p><b>Amount (€):</b> {{ '%.2f'|format(amount|float) }}</p>
+    <p><b>Comments:</b> {{ comments or '—' }}</p>
+
+    <h3>Powersoft API Response</h3>
+    <pre>{{ powersoft_body | tojson(indent=2) }}</pre>
+
+    <p><a class="button" href="{{ url_for('new_receipt_form') }}">Create another receipt</a></p>
+  </div>
+</body>
+</html>
+
+3) Replit quick steps
+
+Put the two HTML files into templates/.
+
+Add the new routes + helper to your app.py.
+
+Confirm Secrets: DATABASE_URL, POWERSOFT_BASE, POWERSOFT_TOKEN, (LOCAL_TZ optional).
+
+Press Run and open:
+
+/receipts/new → the driver form
+
+Submit → it posts to Powersoft and shows the result (reference no. R1000001…, transaction code, and raw API response).
+
+Notes / options
+
+If drivers need to pick customer from a list, preload a dropdown (AJAX to your /customers endpoint).
+
+To protect the form, add a lightweight auth (driver PIN or login) or secure it behind your existing session.
+
+Want a printable receipt? Add a button that calls your existing printer logic or generates a small PDF.
+
+If you want, I can add a very simple login and a print-friendly receipt page next.
+
+You said:
+i need a print receipt page 
+ChatGPT said:
+Thought for 7s
+
+Awesome — here’s a print-friendly receipt page you can add to your existing Flask/SQLAlchemy app on Replit. It’s optimized for 80 mm thermal printers (also looks fine in a browser) and pulls data from your ReceiptLog row by reference_number.
+
+1) Add a print route to app.py
+# add near the top
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from flask import render_template, abort
+
+# company header (override via Replit Secrets if you like)
+COMPANY_NAME    = os.getenv("COMPANY_NAME", "Your Company Ltd")
+COMPANY_VAT     = os.getenv("COMPANY_VAT", "CY12345678Z")
+COMPANY_ADDRESS = os.getenv("COMPANY_ADDRESS", "123 Example St, Nicosia, Cyprus")
+COMPANY_PHONE   = os.getenv("COMPANY_PHONE", "+357 22 000000")
+
+def to_local(dt_utc, tz_name=os.getenv("LOCAL_TZ","Asia/Nicosia")):
+    if not dt_utc:
+        return ""
+    if dt_utc.tzinfo is None:
+        dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+    return dt_utc.astimezone(ZoneInfo(tz_name))
+
+@app.get("/receipts/<reference_number>/print")
+def print_receipt(reference_number):
+    # pull from your ReceiptLog
+    db = SessionLocal()
+    try:
+        row = db.execute(
+            text("""SELECT reference_number, customer_code_365, amount, comments,
+                           response_id, success, created_at
+                    FROM receipt_log
+                    WHERE reference_number=:ref
+                    ORDER BY id DESC
+                    LIMIT 1"""),
+            {"ref": reference_number}
+        ).mappings().first()
+        if not row:
+            abort(404, description="Receipt not found")
+
+        created_local = to_local(row["created_at"])
+        ctx = {
+            "company": {
+                "name": COMPANY_NAME,
+                "vat": COMPANY_VAT,
+                "address": COMPANY_ADDRESS,
+                "phone": COMPANY_PHONE,
+            },
+            "receipt": {
+                "reference_number": row["reference_number"],
+                "date": created_local.strftime("%Y-%m-%d"),
+                "time": created_local.strftime("%H:%M"),
+                "customer_code_365": row["customer_code_365"],
+                "amount": float(row["amount"]),
+                "comments": row["comments"] or "",
+                "transaction_code": row["response_id"] or "",
+                "status_ok": bool(row["success"]),
+                "payment_type": "CASH",          # per your flow
+                "agent_code_365": "2",           # default used
+            }
+        }
+        return render_template("receipt_print.html", **ctx)
+    finally:
+        db.close()
+
+2) Create the template templates/receipt_print.html
+
+This renders a clean 80 mm receipt with Print and Back buttons (hidden on actual print). It uses simple CSS; browsers will print nicely to thermal printers.
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Receipt {{ receipt.reference_number }}</title>
+<style>
+  /* Base sizing for thermal: ~80mm content width */
+  :root { --paper-width: 80mm; }
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+         margin: 0; background: #f5f5f5; }
+  .sheet { width: var(--paper-width); margin: 0 auto; background: #fff; padding: 8px 10px; }
+  .tools { display: flex; gap: 8px; justify-content: center; padding: 10px; }
+  .btn { padding: 8px 12px; border: 1px solid #111; background: #111; color: #fff; border-radius: 6px; text-decoration: none; }
+  .muted { color: #555; font-size: 12px; }
+  .center { text-align: center; }
+  .line { border-top: 1px dashed #000; margin: 6px 0; }
+  .kv { display: flex; justify-content: space-between; margin: 2px 0; }
+  h1 { font-size: 16px; margin: 4px 0; }
+  h2 { font-size: 14px; margin: 4px 0; }
+  .totals { font-weight: 700; }
+  .footer { margin-top: 6px; font-size: 11px; text-align: center; }
+  .ok { color: #0a7a0a; }
+  .bad { color: #a00; }
+
+  @media print {
+    @page { size: var(--paper-width) auto; margin: 0; }
+    body { background: #fff; }
+    .tools { display: none !important; }
+    .sheet { padding-top: 6px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="tools">
+  <a class="btn" href="javascript:window.print()">Print</a>
+  <a class="btn" href="javascript:history.back()">Back</a>
+</div>
+
+<div class="sheet">
+  <div class="center">
+    <h1>{{ company.name }}</h1>
+    <div class="muted">{{ company.address }}</div>
+    <div class="muted">VAT: {{ company.vat }} • {{ company.phone }}</div>
+  </div>
+
+  <div class="line"></div>
+
+  <div class="kv"><span>Receipt Ref</span><span>{{ receipt.reference_number }}</span></div>
+  <div class="kv"><span>Date</span><span>{{ receipt.date }} {{ receipt.time }}</span></div>
+  <div class="kv"><span>Customer (365)</span><span>{{ receipt.customer_code_365 }}</span></div>
+  <div class="kv"><span>Payment</span><span>{{ receipt.payment_type }}</span></div>
+  <div class="kv"><span>Agent</span><span>{{ receipt.agent_code_365 }}</span></div>
+
+  <div class="line"></div>
+
+  {% if receipt.comments %}
+    <h2>Comments</h2>
+    <div style="white-space: pre-wrap">{{ receipt.comments }}</div>
+    <div class="line"></div>
+  {% endif %}
+
+  <div class="kv totals"><span>Total</span><span>{{ '%.2f'|format(receipt.amount|float) }} €</span></div>
+
+  <div class="line"></div>
+
+  <div class="kv">
+    <span>Powersoft Txn</span>
+    <span>{{ receipt.transaction_code or '—' }}</span>
+  </div>
+  <div class="kv">
+    <span>API Result</span>
+    <span class="{{ 'ok' if receipt.status_ok else 'bad' }}">{{ 'OK' if receipt.status_ok else 'FAILED' }}</span>
+  </div>
+
+  <div class="footer">
+    Thank you!<br>
+    This is a computer-generated receipt.
+  </div>
+</div>
+
+<div class="tools">
+  <a class="btn" href="javascript:window.print()">Print</a>
+</div>
+
+</body>
+</html>
+
+3) How to open/print
+
+After creating a receipt (from your form or API), redirect or link to:
+
+/receipts/<REFERENCE_NUMBER>/print
+
+
+Example: /receipts/R1000007/print
+
+Browser’s Print dialog will be prepped for an 80 mm thermal width by CSS.
+On Windows/macOS, select your thermal printer and disable “Fit to page” if needed.

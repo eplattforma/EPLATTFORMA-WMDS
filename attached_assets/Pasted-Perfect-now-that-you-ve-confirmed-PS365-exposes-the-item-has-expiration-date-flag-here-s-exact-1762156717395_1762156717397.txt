@@ -1,0 +1,144 @@
+Perfect 👍 — now that you’ve confirmed PS365 exposes the item_has_expiration_date flag, here’s exactly how your Replit system should send back the received quantities and expiry dates to PS365.
+
+🧭 Objective
+
+Send the goods received quantities (and expiry dates when required) back to PS365 using
+POST /order_pick_list.
+
+This tells PS365 which quantities were received per PO line and, for expiry-controlled items, their expiry dates.
+
+✅ Step-by-step instructions for your Replit app
+1️⃣ Prepare your data
+
+When the user finishes receiving a Purchase Order (e.g. PO10008318), your app should have:
+
+The PS365 purchase order code (e.g. "PO10008318")
+
+The user name performing the receipt ("warehouse_op_01")
+
+The quantities received for each line (line_id_365)
+
+The expiry dates for items where item_has_expiration_date == true
+
+Example data structure:
+
+{
+  "po_code": "PO10008318",
+  "user_code": "warehouse_op_01",
+  "received_qty_by_lineid": {
+    "00100002L1": 3,
+    "00100002L2": 5,
+    "00100002L3": 3,
+    "00100002L4": 6
+  },
+  "expiry_batches_by_lineid": {
+    "00100002L2": [ { "expired_date": "2026-08-31", "qty": 5 } ],
+    "00100002L3": [ { "expired_date": "2026-07-15", "qty": 3 } ]
+  }
+}
+
+2️⃣ Call your local endpoint
+
+Send that JSON to your local Flask endpoint /ps365/receive-from-po (which we built earlier).
+
+Example (if your Replit app runs at https://warehouse.replit.app):
+
+curl -X POST https://warehouse.replit.app/ps365/receive-from-po \
+  -H "Content-Type: application/json" \
+  -d '{
+        "po_code": "PO10008318",
+        "user_code": "warehouse_op_01",
+        "received_qty_by_lineid": {
+          "00100002L1": 3,
+          "00100002L2": 5,
+          "00100002L3": 3,
+          "00100002L4": 6
+        },
+        "expiry_batches_by_lineid": {
+          "00100002L2": [ { "expired_date": "2026-08-31", "qty": 5 } ],
+          "00100002L3": [ { "expired_date": "2026-07-15", "qty": 3 } ]
+        }
+      }'
+
+3️⃣ What your Flask endpoint does internally
+
+Fetches the PO details from PS365:
+
+GET /purchaseorder?token=XXXX&purchase_order_code=PO10008318
+
+
+Reads each line and checks the flag item_has_expiration_date.
+
+Builds a valid order_pick_list payload:
+
+{
+  "api_credentials": { "token": "XXXX" },
+  "order": {
+    "user_code": "warehouse_op_01",
+    "order_type": "PurchaseOrder",
+    "comment": "GRN for PO10008318",
+    "list_order_details": [
+      {
+        "line_id_365": "00100002L1",
+        "line_quantity": 3,
+        "pick_order_no": 1
+      },
+      {
+        "line_id_365": "00100002L2",
+        "line_quantity": 5,
+        "pick_order_no": 2,
+        "list_lot_expired_date_analysis": [
+          {
+            "expired_date": "2026-08-31",
+            "display_date": "2026-08-31",
+            "lot_quantity": 5
+          }
+        ]
+      },
+      {
+        "line_id_365": "00100002L3",
+        "line_quantity": 3,
+        "pick_order_no": 3,
+        "list_lot_expired_date_analysis": [
+          {
+            "expired_date": "2026-07-15",
+            "display_date": "2026-07-15",
+            "lot_quantity": 3
+          }
+        ]
+      },
+      {
+        "line_id_365": "00100002L4",
+        "line_quantity": 6,
+        "pick_order_no": 4
+      }
+    ]
+  }
+}
+
+
+Posts it to PS365:
+
+POST /order_pick_list
+
+
+Returns PS365’s response (should include response_code = 1 and response_id = pick list code created).
+
+4️⃣ PS365 response example
+{
+  "api_response": {
+    "response_code": "1",
+    "response_msg": "OK",
+    "response_id": "PICKLIST12345"
+  }
+}
+
+
+✅ If you see "response_code": "1", the receipt was accepted successfully.
+
+5️⃣ Summary of logic
+Step	Action	Endpoint
+1	Get PO details to see which items require expiry	GET /purchaseorder
+2	User confirms received quantities & expiry dates	(your Replit UI / scanner app)
+3	Build and send payload back	POST /order_pick_list
+4	Confirm response OK	(PS365 returns response_code=1)

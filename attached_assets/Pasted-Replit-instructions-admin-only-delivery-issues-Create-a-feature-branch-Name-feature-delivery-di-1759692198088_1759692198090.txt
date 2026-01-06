@@ -1,0 +1,125 @@
+Replit instructions (admin-only delivery issues)
+
+Create a feature branch
+
+Name: feature/delivery-discrepancies
+
+Environment variables (Secrets)
+
+DATABASE_URL = your Postgres connection string
+
+PORT = 3000 (or your choice)
+(Optional, later): AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET, S3_REGION
+
+Install backend deps
+
+npm i express pg multer
+# (optional, if you use CORS or dotenv)
+npm i cors dotenv
+# dev
+npm i -D nodemon
+
+
+DB migration
+
+Create migrations/2025_10_05_delivery_discrepancies.sql with the DDL we agreed (delivery_discrepancies + delivery_discrepancy_events + view).
+
+Apply it to your DB (use your existing migration runner or psql).
+
+psql "$DATABASE_URL" -f migrations/2025_10_05_delivery_discrepancies.sql
+
+
+Add backend files
+
+Create src/routes/deliveryIssues.js and src/routes/invoices.js from the canvas.
+
+Create/Update src/server.js to:
+
+init pg.Pool and attach req.db
+
+add a simple auth stub for dev: req.user = { username:'admin', role:'admin' }
+
+mount routes:
+
+app.use('/api', require('./routes/deliveryIssues'));
+app.use('/api', require('./routes/invoices')); // helper endpoint
+
+
+Package scripts
+
+{
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
+  }
+}
+
+
+Run the API (Replit)
+
+Set the Run command to npm run dev (or npm start).
+
+Open the webview URL → confirm “API running” in console.
+
+Smoke test the API
+
+# Create an issue
+curl -X POST http://localhost:3000/api/delivery-issues \
+ -H "Content-Type: application/json" \
+ -d '{"invoice_no":"INV-TEST","item_code_expected":"SKU-1","qty_expected":5,"discrepancy_type":"short_pick","qty_actual":3,"reported_source":"driver","note":"test"}'
+
+# List issues
+curl "http://localhost:3000/api/delivery-issues?status=reported"
+
+# Validate → Resolve
+curl -X PATCH http://localhost:3000/api/delivery-issues/1/validate -H "Content-Type: application/json" -d '{"note":"ok"}'
+curl -X PATCH http://localhost:3000/api/delivery-issues/1/resolve -H "Content-Type: application/json" -d '{"resolution_action":"stock_adjust","note":"done"}'
+
+
+Replace INV-TEST/SKU-1 with real values present in your DB.
+
+Frontend wiring (React in the same Replit project)
+
+Add pages from the canvas:
+
+src/pages/admin/RecordIssuePage.jsx
+
+src/pages/admin/DiscrepancyReviewPage.jsx
+
+Add routes in your router:
+
+/admin/discrepancies/new → RecordIssuePage
+
+/admin/discrepancies → DiscrepancyReviewPage
+
+Ensure your frontend calls the backend at /api/*. If different origin, enable CORS on the server.
+
+Manual QA
+
+Open /admin/discrepancies/new:
+
+Load an invoice → pick a line → save issue (+ optional photos).
+
+Open /admin/discrepancies:
+
+Filter by status = reported
+
+Open drawer → Validate → Resolve (stock_adjust/credit_note/re_pick/no_action)
+
+Done criteria
+
+Records created with reported_by=admin.
+
+Review page lists, filters, opens timeline, and transitions states.
+
+Events are written for created, status_changed, resolution_applied.
+
+No 500s in logs during normal use.
+
+Nice-to-have (later)
+
+Swap Multer temp storage for S3/R2.
+
+Add auth to use your real login instead of the dev stub.
+
+Add pagination + CSV export on the Review page.

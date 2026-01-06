@@ -1,0 +1,141 @@
+list_item_categories
+
+GET /list_item_categories
+To get a list of item categories.
+
+
+/list_item_categories?token=XXXXX
+field	description
+token	Credentials provided by Powersoft that allow access to the API
+Returns
+
+       {
+            "api_response": {
+                "response_code": "1",
+                "response_msg": "OK",
+                "response_id": ""
+            },
+            "list_item_categories": [
+                {
+                    "item_category_parent_code_365": "",
+                    "item_category_parent_name": "",
+                    "item_category_parent_secondary_code": "",
+                    "item_category_code_365": "1",
+                    "item_category_name": "CATEGORY",
+                    "item_category_secondary_code": "",
+                    "item_category_other_name": "",
+                    "excluded_from_ecommerce": false,
+                    "excluded_from_pos": false,
+                    "excluded_from_app": false,
+                    "is_law_11E": false,
+                    "unit_of_measure_code": "",
+                    "unit_of_measure_description": "",
+                    "category_factor": 0.0,
+                    "list_pictures_url":null
+                },
+                {
+                    "item_category_parent_code_365": "1",
+                    "item_category_parent_name": "CATEGORY",
+                    "item_category_parent_secondary_code": "",
+                    "item_category_code_365": "CAT1",
+                    "item_category_name": "CATEGORY 1",
+                    "item_category_secondary_code": "",
+                    "excluded_from_ecommerce": false,
+                    "excluded_from_pos": false,
+                    "excluded_from_app": false,
+                    "is_law_11E": false,
+                    "unit_of_measure_code": "",
+                    "unit_of_measure_description": "",
+                    "category_factor": 0.0,
+                    "list_pictures_url": null
+                },
+                {
+                    "item_category_parent_code_365": "1",
+                    "item_category_parent_name": "CATEGORY",
+                    "item_category_parent_secondary_code": "",
+                    "item_category_code_365": "CAT2",
+                    "item_category_name": "CATEGORY 2",
+                    "item_category_secondary_code": "",
+                    "excluded_from_ecommerce": false,
+                    "excluded_from_pos": false,
+                    "excluded_from_app": false,
+                    "is_law_11E": false,
+                    "unit_of_measure_code": "",
+                    "unit_of_measure_description": "",
+                    "category_factor": 0.0,
+                    "list_pictures_url": null
+                },
+                {
+                    "item_category_parent_code_365": "PSOTTU",
+                    "item_category_parent_name": "OTERO TOP-UPS",
+                    "item_category_parent_other_name": "",
+                    "item_category_parent_secondary_code": "",
+                    "item_category_code_365": "PSOTTU21",
+                    "item_category_name": "CITYCELL",
+                    "item_category_other_name": "",
+                    "excluded_from_ecommerce": false,
+                    "excluded_from_pos": false,
+                    "excluded_from_app": false,
+                    "item_category_secondary_code": "",
+                    "is_law_11E": false,
+                    "unit_of_measure_code": "",
+                    "unit_of_measure_description": "",
+                    "category_factor": 0.00,
+                    "list_pictures_url": [
+                        "https://powersoft365customers.blob.core.windows.net/demo365cafe-demo365cafe/ItemCategories/PSOTTU21.jpg",
+                        "https://powersoft365customers.blob.core.windows.net/demo365cafe-demo365cafe/ItemCategories/PSOTTU21_t.jpg"
+                    ]
+                },
+                {
+                    "item_category_parent_code_365": "PIZZA",
+                    "item_category_parent_name": "PIZZA",
+                    "item_category_parent_other_name": "PIZZA",
+                    "item_category_parent_secondary_code": "",
+                    "item_category_code_365": "PIZZA-XL",
+                    "item_category_name": "PIZZA JUMBO XL 16 PIECES",
+                    "item_category_other_name": "XL 12 PIECES",
+                    "excluded_from_ecommerce": false,
+                    "excluded_from_pos": false,
+                    "excluded_from_app": false,
+                    "item_category_secondary_code": "",
+                    "is_law_11E": false,
+                    "unit_of_measure_code": "",
+                    "unit_of_measure_description": "",
+                    "category_factor": 0.00,
+                    "list_pictures_url": null,
+                    "list_modifiers_groups": [
+                        {
+                            "modifier_group_header": {
+                                "modifier_group_code": "EXT",
+                                "modifier_group_description": "EXTRA SLICES PIZZA",
+                                "modifier_group_position": 9999,
+                                "allow_multiple_selection": true
+                            },
+                            "list_modifiers": [
+                                {
+                                    "modifier_code_365": "001123",
+                                    "modifier_name": "EXTRA SLICE PIZZA",
+                                    "item_department_code_365": "N/A",
+                                    "item_department_name": "N/A",
+                                    "item_category_code_365": "PIZZA",
+                                    "item_category_name": "PIZZA",
+                                    "charge_amount": 1.0000,
+                                    "vat_code_365": "005",
+                                    "vat_value": 0.0500,
+                                    "display_on_invoice": true,
+                                    "item_code_365": "PITA",
+                                    "item_name": "PIZZA",
+                                    "display_colour": "#FF9900",
+                                    "to_delete": false,
+                                    "position_inside_group": 999
+                                }
+                            ]
+                        }
+                    ]
+                }
+              ]
+            }
+       
+© 2025 - Powersoft Computer Solutions Ltd
+
+Last updated: 09 November 2025

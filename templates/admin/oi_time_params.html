@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+{% block title %}OI – ETC Parameters{% endblock %}
+
+{% block content %}
+<!-- Info Modal -->
+<div class="modal fade" id="infoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="infoModalTitle">Parameter Information</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="infoModalBody">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h3 class="mb-1">Order Time Estimation (ETC) Parameters</h3>
+      <div class="text-muted">Edit parameters, toggle Summer Mode, and recalculate estimated times.</div>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-secondary" type="button" id="btnDownloadJson">Download JSON</button>
+      <label class="btn btn-outline-secondary mb-0">
+        Import JSON <input type="file" id="fileImportJson" accept="application/json" hidden>
+      </label>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-xl-8">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <div class="fw-semibold">Structured Editor</div>
+          <div class="text-muted small">Fields map directly to <code>settings.oi_time_params_v1</code></div>
+        </div>
+        <div class="card-body">
+          <form method="POST" id="paramsForm">
+            <input type="hidden" name="action" value="save">
+            <textarea class="form-control d-none" name="params_json" id="params_json" rows="10">{{ params_json }}</textarea>
+
+            <div class="accordion" id="accParams">
+
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="hLoc">
+                  <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#cLoc">Location Settings</button>
+                </h2>
+                <div id="cLoc" class="accordion-collapse collapse show" data-bs-parent="#accParams">
+                  <div class="accordion-body">
+                    <div class="row g-2">
+                      <div class="col-md-6">
+                        <label class="form-label">Upper Corridors (comma-separated) <i class="fas fa-info-circle text-primary info-icon" data-title="Upper Corridors" data-content="List of corridors located on a mezzanine or upper floor. The system adds a 'Stairs' penalty only once per order if it contains items from these corridors."></i></label>
+                        <input class="form-control" data-path="location.upper_corridors" placeholder="70,80,90">
+                        <div class="form-text">Corridors that require stairs (one upstairs trip per order).</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="hOver">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cOver">Overhead</button>
+                </h2>
+                <div id="cOver" class="accordion-collapse collapse" data-bs-parent="#accParams">
+                  <div class="accordion-body">
+                    <div class="row g-2">
+                      <div class="col-md-6">
+                        <label class="form-label">Start Overhead (seconds) <i class="fas fa-info-circle text-primary info-icon" data-title="Start Overhead" data-content="Fixed time added to every order to account for the picker starting the session, grabbing a trolley/tote, and reading the first instruction."></i></label>
+                        <input type="number" class="form-control" data-path="overhead.start_seconds" min="0" step="1">
+                        <div class="form-text">Admin tasks / opening tote / confirmation screens at the start of the order.</div>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">End Overhead (seconds) <i class="fas fa-info-circle text-primary info-icon" data-title="End Overhead" data-content="Fixed time added to every order for finishing the pick, marking it as complete, and moving the trolley to the staging/packing area."></i></label>
+                        <input type="number" class="form-control" data-path="overhead.end_seconds" min="0" step="1">
+                        <div class="form-text">Closing / staging / handover tasks at the end of the order.</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="hTravel">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cTravel">Travel Model</button>
+                </h2>
+                <div id="cTravel" class="accordion-collapse collapse" data-bs-parent="#accParams">
+                  <div class="accordion-body">
+
+                    <div class="row g-2">
+                      <div class="col-md-4">
+                        <label class="form-label">Align per stop (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Align Per Stop" data-content="Time spent per line item to stop the trolley, orient to the correct shelf, and scan the shelf barcode before picking."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_align_per_stop" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Zone switch (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Zone Switch" data-content="Extra time added when the picker has to move between major warehouse zones (e.g., from Ambient to Chilled)."></i></label>
+                        <input type="number" class="form-control" data-path="travel.zone_switch_seconds" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Upper walk multiplier <i class="fas fa-info-circle text-primary info-icon" data-title="Upper Walk Multiplier" data-content="A speed factor for walking on the mezzanine level. 1.10 would mean walking is 10% slower upstairs."></i></label>
+                        <input type="number" class="form-control" data-path="travel.upper_walk_multiplier" step="0.01" min="1">
+                      </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="row g-2">
+                      <div class="col-md-6">
+                        <label class="form-label">Corridor change penalty (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Corridor Change Penalty" data-content="Time lost whenever the picker turns into a new corridor. This covers slowing down, turning, and locating the first bay."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_per_corridor_change" step="0.1" min="0">
+                        <div class="form-text">Fixed cost when corridor changes (turning, scanning signage, repositioning).</div>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Corridor step (sec per corridor diff) <i class="fas fa-info-circle text-primary info-icon" data-title="Corridor Step" data-content="Walking time between adjacent corridors. If moving from corridor 10 to 12, the system adds 2 'steps' worth of this time."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_per_corridor_step" step="0.1" min="0">
+                        <div class="form-text">Variable cost per corridor difference: 10 → 12 adds two steps.</div>
+                      </div>
+                    </div>
+
+                    <div class="row g-2 mt-2">
+                      <div class="col-md-6">
+                        <label class="form-label">Bay step (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Bay Step" data-content="Walking time between adjacent bays (shelving sections) within the same corridor."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_per_bay_step" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Position step (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Position Step" data-content="Walking time between horizontal positions on the same shelf. Usually very small as items are right next to each other."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_per_pos_step" step="0.1" min="0">
+                      </div>
+                    </div>
+
+                    <div class="row g-2 mt-2">
+                      <div class="col-md-6">
+                        <label class="form-label">Stairs up (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Stairs Up" data-content="Time penalty for climbing stairs to reach an upper floor/mezzanine level. Applied once per order if upper corridors are involved."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_stairs_up" step="1" min="0">
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Stairs down (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Stairs Down" data-content="Time penalty for descending stairs from an upper floor. Applied once per order if upper corridors were involved."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_stairs_down" step="1" min="0">
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="hPick">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cPick">Pick Model</button>
+                </h2>
+                <div id="cPick" class="accordion-collapse collapse" data-bs-parent="#accParams">
+                  <div class="accordion-body">
+                    <div class="mb-3">
+                      <div class="fw-semibold mb-2">Base seconds by unit type <i class="fas fa-info-circle text-primary info-icon" data-title="Base Pick Seconds" data-content="Fixed time added for the first unit of each item line. Covers reaching for the item, scanning the barcode, and placing it in the bin."></i></div>
+                      <div class="row g-2">
+                        {% for ut in ["item","pack","box","case","virtual_pack"] %}
+                        <div class="col-6 col-md-4">
+                          <label class="form-label text-capitalize">{{ ut.replace("_"," ") }}</label>
+                          <input type="number" class="form-control" data-path="pick.base_by_unit_type.{{ ut }}" step="0.1" min="0">
+                        </div>
+                        {% endfor %}
+                      </div>
+                      <div class="form-text">Base includes: reach, confirm label, and picking first unit.</div>
+                    </div>
+
+                    <div class="mb-3">
+                      <div class="fw-semibold mb-2">Incremental seconds per additional quantity <i class="fas fa-info-circle text-primary info-icon" data-title="Incremental Pick Seconds" data-content="Extra time added for each additional unit of the same item. 1.1s means if you pick 10 units, it adds (9 * 1.1) extra seconds."></i></div>
+                      <div class="row g-2">
+                        {% for ut in ["item","pack","box","case","virtual_pack"] %}
+                        <div class="col-6 col-md-4">
+                          <label class="form-label text-capitalize">{{ ut.replace("_"," ") }}</label>
+                          <input type="number" class="form-control" data-path="pick.per_qty_by_unit_type.{{ ut }}" step="0.1" min="0">
+                        </div>
+                        {% endfor %}
+                      </div>
+                      <div class="form-text">Added for each additional unit after the first.</div>
+                    </div>
+
+                    <div class="row g-3">
+                      <div class="col-lg-6">
+                        <div class="fw-semibold mb-2">Level penalty (seconds) <i class="fas fa-info-circle text-primary info-icon" data-title="Level Penalty" data-content="Time penalty for picking from different heights. Levels C and D typically require a ladder or reaching up, so they are slower than eye-level B or ground A."></i></div>
+                        <div class="row g-2">
+                          {% for lvl in ["A","B","C","D"] %}
+                          <div class="col-6">
+                            <label class="form-label">Level {{ lvl }}</label>
+                            <input type="number" class="form-control" data-path="pick.level_seconds.{{ lvl }}" step="0.1" min="0">
+                          </div>
+                          {% endfor %}
+                        </div>
+                        <div class="form-text">C/D typically requires ladder on main corridors.</div>
+                      </div>
+
+                      <div class="col-lg-6">
+                        <div class="fw-semibold mb-2">Pick difficulty penalty (seconds) <i class="fas fa-info-circle text-primary info-icon" data-title="Difficulty Penalty" data-content="Extra time added for items tagged with higher difficulty (1-5). Difficulty 5 might be heavy or awkward items that take longer to scan and handle."></i></div>
+                        <div class="row g-2">
+                          {% for d in ["1","2","3","4","5"] %}
+                          <div class="col-4">
+                            <label class="form-label">Diff {{ d }}</label>
+                            <input type="number" class="form-control" data-path="pick.difficulty_seconds.{{ d }}" step="0.1" min="0">
+                          </div>
+                          {% endfor %}
+                        </div>
+                        <div class="form-text">Uses item OI attribute <code>wms_pick_difficulty</code> (1–5).</div>
+                      </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="fw-semibold mb-2">Ladder Rules</div>
+                    <div class="text-muted small mb-2">Define which corridor + level combinations require a ladder and how many extra seconds to add.</div>
+                    <div id="ladderRulesContainer" class="mb-3">
+                      <!-- Ladder rules will be inserted here by JavaScript -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mb-3" id="btnAddLadderRule">+ Add Ladder Rule</button>
+
+                    <hr class="my-3">
+
+                    <div class="fw-semibold mb-2">Handling penalties (seconds) <i class="fas fa-info-circle text-primary info-icon" data-title="Handling Penalties" data-content="Extra time for items with specific characteristics like fragility or spill risk. These are cumulative (e.g., if an item is both fragile and a spill risk)."></i></div>
+                    <div class="row g-2">
+                      <div class="col-md-4">
+                        <label class="form-label">Fragility YES</label>
+                        <input type="number" class="form-control" data-path="pick.handling_seconds.fragility_yes" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Fragility SEMI</label>
+                        <input type="number" class="form-control" data-path="pick.handling_seconds.fragility_semi" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Spill risk TRUE</label>
+                        <input type="number" class="form-control" data-path="pick.handling_seconds.spill_true" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Pressure HIGH</label>
+                        <input type="number" class="form-control" data-path="pick.handling_seconds.pressure_high" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Heat-sensitive (summer)</label>
+                        <input type="number" class="form-control" data-path="pick.handling_seconds.heat_sensitive_summer" step="0.1" min="0">
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="hPack">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cPack">Packing Model</button>
+                </h2>
+                <div id="cPack" class="accordion-collapse collapse" data-bs-parent="#accParams">
+                  <div class="accordion-body">
+                    <div class="row g-2">
+                      <div class="col-md-4">
+                        <label class="form-label">Base packing (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Base Packing" data-content="Fixed time per order for grabbing a box/bag, setting up the packing station, and sealing/labeling the final package."></i></label>
+                        <input type="number" class="form-control" data-path="pack.base_seconds" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Per line (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Packing Per Line" data-content="Additional time per line item to scan it into the box and arrange it safely."></i></label>
+                        <input type="number" class="form-control" data-path="pack.per_line_seconds" step="0.1" min="0">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Per special group (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Special Group Penalty" data-content="Extra time for handling special categories (Fragile, Liquid, etc.). If an order has 5 fragile items, this penalty is added once."></i></label>
+                        <input type="number" class="form-control" data-path="pack.special_group_seconds" step="0.1" min="0">
+                      </div>
+                    </div>
+                    <div class="form-text mt-2">
+                      Special groups are counted if the order contains at least one item in each group:
+                      fragile, spill, pressure-high, heat-sensitive (summer).
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="d-flex gap-2 mt-3">
+              <button class="btn btn-primary" type="button" id="btnSaveParams">Save parameters</button>
+              <button class="btn btn-outline-secondary" type="button" id="btnResetDefaults">Reset to defaults</button>
+              <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#jsonModal">Advanced JSON</button>
+            </div>
+
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-4">
+      <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold">Summer Mode</div>
+        <div class="card-body">
+          <form method="POST">
+            <input type="hidden" name="action" value="toggle_summer">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="summerSwitch" name="summer_mode" value="on" {% if summer_mode %}checked{% endif %}>
+              <label class="form-check-label" for="summerSwitch">Enable Summer Mode</label>
+            </div>
+            <div class="text-muted small mt-2">
+              When enabled, <code>wms_temperature_sensitivity = heat_sensitive</code> adds extra handling time and can drive cooler-bag rules in packing.
+            </div>
+            <button class="btn btn-outline-primary mt-3" type="submit">Save</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold">Recalculate ETC</div>
+        <div class="card-body">
+          <form method="POST" class="mb-3">
+            <input type="hidden" name="action" value="recalc_invoice">
+            <label class="form-label">Invoice number</label>
+            <div class="input-group">
+              <input class="form-control" name="invoice_no" placeholder="e.g. IN10052417">
+              <button class="btn btn-outline-primary" type="submit">Recalc</button>
+            </div>
+            <div class="form-text">Writes <code>invoices.total_exp_time</code> and <code>invoice_items.exp_time</code>.</div>
+          </form>
+
+          <form method="POST">
+            <input type="hidden" name="action" value="recalc_open">
+            <div class="mb-2 fw-semibold">Bulk recalc (open statuses)</div>
+            {% for st in ["not_started","picking","ready_for_dispatch"] %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="statuses" value="{{ st }}" id="st_{{ st }}" checked>
+              <label class="form-check-label" for="st_{{ st }}">{{ st }}</label>
+            </div>
+            {% endfor %}
+            <button class="btn btn-outline-primary mt-3" type="submit">Recalc open</button>
+            <div class="form-text">Safety cap: 500 invoices per run.</div>
+          </form>
+        </div>
+      </div>
+
+        <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold text-dark">Test Estimates</div>
+        <div class="card-body">
+          <form id="checkForm" class="row g-2 align-items-end">
+            <div class="col-md-8">
+              <label class="form-label text-dark">Invoice No</label>
+              <input type="text" id="test_invoice_no" class="form-control" placeholder="IN100..." value="{{ invoice_no or '' }}">
+            </div>
+            <div class="col-md-4">
+              <button type="submit" class="btn btn-outline-primary w-100">Check Analysis</button>
+            </div>
+          </form>
+
+          <div id="checkResult" class="mt-3 d-none">
+            <hr>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="mb-0 text-dark">Estimated Time: <span id="resMinutes" class="text-primary">-</span> mins</h5>
+                <a id="printAnalysisBtn" href="#" target="_blank" class="btn btn-sm btn-outline-dark">
+                    <i class="fas fa-print"></i> Print Motion Study
+                </a>
+            </div>
+            <div class="small text-muted mb-2">Breakdown (seconds):</div>
+            <div class="row g-2 text-center small">
+              <div class="col-3">
+                <div class="p-2 border rounded bg-light">
+                  <div class="text-dark small">Over</div>
+                  <div id="resOver" class="fw-semibold text-dark">-</div>
+                </div>
+              </div>
+              <div class="col-3">
+                <div class="p-2 border rounded bg-light">
+                  <div class="text-dark small">Trav</div>
+                  <div id="resTrav" class="fw-semibold text-dark">-</div>
+                </div>
+              </div>
+              <div class="col-3">
+                <div class="p-2 border rounded bg-light">
+                  <div class="text-dark small">Pick</div>
+                  <div id="resPick" class="fw-semibold text-dark">-</div>
+                </div>
+              </div>
+              <div class="col-3">
+                <div class="p-2 border rounded bg-light">
+                  <div class="text-dark small">Pack</div>
+                  <div id="resPack" class="fw-semibold text-dark">-</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Advanced JSON Modal -->
+<div class="modal fade" id="jsonModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Advanced JSON Editor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning small mb-2">
+          Editing JSON bypasses form validation. Use <strong>Apply</strong> to load into the form, then <strong>Save parameters</strong>.
+        </div>
+        <textarea class="form-control font-monospace" id="advanced_json" rows="18"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" type="button" id="btnApplyAdvanced">Apply JSON to form</button>
+        <button class="btn btn-outline-secondary" type="button" id="btnCopyAdvanced">Copy</button>
+        <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.__OI_ETC_DEFAULTS__ = {{ params_json|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/oi_time_params.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/oi_time_params.css') }}">
+{% endblock %}

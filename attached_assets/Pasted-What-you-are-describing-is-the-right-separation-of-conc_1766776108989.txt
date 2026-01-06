@@ -1,0 +1,244 @@
+What you are describing is the right separation of concerns:
+
+Operational completion (the driver finished the route work: every stop/invoice is either delivered or failed).
+
+Administrative reconciliation (cash/receipts/returns/POD/discrepancies verified and closed).
+
+Archiving is a post-reconciliation action, not the same thing as “completed”.
+
+Below is a clean way to implement this in your current schema with minimal disruption.
+
+1) Define the lifecycle clearly
+A. Route operational status (already exists)
+
+Shipment.status: created → PLANNED → DISPATCHED → IN_TRANSIT → COMPLETED (or CANCELLED)
+
+Rule: A route becomes COMPLETED when all work items are terminal (delivered or failed).
+
+B. Reconciliation status (add this)
+
+Add Shipment.reconciliation_status with something like:
+
+NOT_READY (route not completed yet)
+
+PENDING (route completed, awaiting reconciliation)
+
+IN_REVIEW (admin reviewing cash/POD/returns)
+
+RECONCILED (finalized)
+
+You already have Shipment.settlement_status (PENDING, DRIVER_SUBMITTED, SETTLED). That’s helpful but it is not the same as reconciliation. You can either:
+
+Option 1 (recommended): keep settlement_status for cash, and add reconciliation_status for the overall administrative closeout, or
+
+Option 2: rename/expand settlement into reconciliation (more intrusive).
+
+Given your “returns + POD + discrepancy + cash variance” reality, Option 1 is safer.
+
+C. Archiving (add this)
+
+Add Shipment.is_archived (boolean) + archived_at/by.
+
+Rule: Routes remain visible on the dashboard if is_archived = False, even if status = COMPLETED.
+
+Only archive when reconciliation_status = RECONCILED.
+
+2) Decide what “all invoices delivered or failed” means in your data model
+
+You have multiple layers:
+
+RouteStop has delivered_at, failed_at, failure_reason.
+
+RouteStopInvoice.status exists (ASSIGNED/PICKING/READY.../DELIVERED/FAILED).
+
+Invoice.status exists with delivery outcomes.
+
+DeliveryEvent and DeliveryLine exist for audit and quantities.
+
+The simplest, most consistent approach is:
+
+Terminal condition at invoice-level
+
+Treat each RouteStopInvoice as the route’s “work unit”. A route is complete when all RouteStopInvoice.status are terminal.
+
+Terminal statuses (example):
+
+DELIVERED
+
+FAILED
+
+(If you support partial deliveries, you can either treat PARTIAL_DELIVERED as terminal or force a decision: partial triggers a post-delivery case and still counts as “terminal for this route”.)
+
+3) Database changes (migration)
+Shipment
+
+Add:
+
+reconciliation_status (string, default NOT_READY)
+
+reconciled_at (UTC datetime, nullable)
+
+reconciled_by (username, nullable)
+
+is_archived (bool, default False)
+
+archived_at (UTC datetime, nullable)
+
+archived_by (username, nullable)
+
+You already have:
+
+status, completed_at, settlement_status, cash fields, returns fields
+
+That’s good.
+
+4) Route completion logic (automatic)
+
+Whenever a driver action changes delivery outcome (deliver/fail), do:
+
+Update the relevant RouteStopInvoice.status (and timestamps on stop/invoice if you use them)
+
+Recompute the route completion status
+
+Recompute rule
+
+A route is complete if:
+
+Count of route invoices where status NOT IN (DELIVERED, FAILED) is 0
+
+Pseudo-code (Flask/SQLAlchemy):
+
+TERMINAL = {"DELIVERED", "FAILED"}
+
+def recompute_route_completion(route_id):
+    shipment = Shipment.query.get(route_id)
+    if not shipment or shipment.status in ("CANCELLED",):
+        return
+
+    remaining = db.session.query(RouteStopInvoice).join(RouteStop).filter(
+        RouteStop.shipment_id == route_id,
+        RouteStop.deleted_at.is_(None),  # if using SoftDeleteMixin
+        RouteStopInvoice.status.notin_(TERMINAL)
+    ).count()
+
+    if remaining == 0:
+        if shipment.status != "COMPLETED":
+            shipment.status = "COMPLETED"
+            shipment.completed_at = get_utc_now()
+
+        # Reconciliation becomes “ready”
+        if shipment.reconciliation_status in (None, "NOT_READY"):
+            shipment.reconciliation_status = "PENDING"
+    else:
+        # If you allow reopening, ensure route can move back
+        if shipment.status == "COMPLETED":
+            shipment.status = "IN_TRANSIT"
+            shipment.completed_at = None
+            # reconciliation should not stay pending if route is not complete
+            shipment.reconciliation_status = "NOT_READY"
+
+    db.session.commit()
+
+
+Where to call this:
+
+after “Deliver stop” action
+
+after “Fail stop” action
+
+after any “Undo delivery / reopen stop” admin action
+
+This ensures completion is always consistent.
+
+5) Reconciliation workflow (manual with clear state transitions)
+
+Create an admin “Reconcile Route” view for a completed route that displays:
+
+cash_expected, cash_handed_in, variance + variance note
+
+COD receipts created (ReceiptLog / CODReceipt)
+
+POD photos present (PODRecord.photo_paths)
+
+returns_count/weight and whether post-delivery cases exist
+
+delivery discrepancies logged and whether they are resolved
+
+Suggested rule set
+
+Route can only move to RECONCILED if Shipment.status == COMPLETED
+
+If cash_variance != 0, require cash_variance_note
+
+If returns exist, require post-delivery intake status to be received (optional business rule)
+
+Reconcile action:
+
+def reconcile_route(route_id, admin_username):
+    shipment = Shipment.query.get(route_id)
+    if shipment.status != "COMPLETED":
+        raise ValueError("Route must be completed before reconciliation.")
+
+    # enforce variance note rule
+    if shipment.cash_variance and shipment.cash_variance != 0 and not shipment.cash_variance_note:
+        raise ValueError("Variance note required.")
+
+    shipment.reconciliation_status = "RECONCILED"
+    shipment.reconciled_at = get_utc_now()
+    shipment.reconciled_by = admin_username
+
+    # you may also set settlement status here if you want a single “final” close:
+    shipment.settlement_status = "SETTLED"
+
+    # Auto-archive on reconcile
+    shipment.is_archived = True
+    shipment.archived_at = get_utc_now()
+    shipment.archived_by = admin_username
+
+    db.session.commit()
+
+6) Dashboard behavior (what shows where)
+
+The dashboard should not be “active-only”. It should be “operational + closeout”.
+
+Recommended dashboard sections (simple + effective)
+
+In Progress
+
+is_archived = False
+
+status IN (PLANNED, DISPATCHED, IN_TRANSIT, created)
+
+Completed – Pending Reconciliation
+
+is_archived = False
+
+status = COMPLETED
+
+reconciliation_status != RECONCILED
+
+Archived
+
+is_archived = True
+
+This matches your requirement exactly: completed routes still appear until reconciled, then they move to archived.
+
+7) What I think / key design guidance
+
+Do not overload Shipment.status to mean both completion and reconciliation. Keep completion operational; reconciliation administrative.
+
+Use RouteStopInvoice as the unit of completion (it is the most precise representation of “all invoices”).
+
+Make route completion automatic and reconciliation manual (with guardrails).
+
+Make archiving dependent on reconciliation, not completion.
+
+This is a strong pattern operationally and it will scale as you add:
+
+partial deliveries
+
+reroute requests
+
+returns intake workflows
+
+discrepancy resolution workflows

@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Position Report{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-3">
+        <div class="col-md-8">
+            <h2><i class="fas fa-boxes me-2"></i>Stock Position Report</h2>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back
+            </a>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="text-primary">{{ "{:,}".format(stats.total_records) }}</h3>
+                    <p class="text-muted mb-0">Total Records</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="text-success">{{ stats.unique_items }}</h3>
+                    <p class="text-muted mb-0">Unique Items</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="text-info">{{ stats.unique_stores }}</h3>
+                    <p class="text-muted mb-0">Stores</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h3 class="text-warning">{{ "{:,.2f}".format(stats.total_stock) }}</h3>
+                    <p class="text-muted mb-0">Total Stock</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Search Item Code/Description</label>
+                    <input type="text" id="searchText" class="form-control" placeholder="Type to search...">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Filter by Item</label>
+                    <select id="filterItem" class="form-select">
+                        <option value="">All Items</option>
+                        {% for item in unique_items %}
+                        <option value="{{ item }}">{{ item }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Filter by Store</label>
+                    <select id="filterStore" class="form-select">
+                        <option value="">All Stores</option>
+                        {% for store in unique_stores %}
+                        <option value="{{ store }}">{{ store }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Filter by Stock</label>
+                    <select id="filterStock" class="form-select">
+                        <option value="">All Stock</option>
+                        <option value="positive">Positive Only</option>
+                        <option value="negative">Negative Only</option>
+                        <option value="zero">Zero Only</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-12">
+                    <button class="btn btn-secondary" onclick="clearFilters()">
+                        <i class="fas fa-times me-1"></i>Clear Filters
+                    </button>
+                    <span class="ms-3 text-muted" id="recordCount">Showing {{ "{:,}".format(stats.total_records) }} records</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" id="stockTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="cursor: pointer;" onclick="sortTable(0)">
+                                Item Code <i class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(1)">
+                                Item Description <i class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(2)">
+                                Store Code <i class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(3)">
+                                Store Name <i class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable(4)">
+                                Exp Date <i class="fas fa-sort"></i>
+                            </th>
+                            <th style="cursor: pointer; text-align: right;" onclick="sortTable(5)">
+                                Stock <i class="fas fa-sort"></i>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="stockTableBody">
+                        {% for row in stock_data %}
+                        <tr data-item-code="{{ row['Item Code'] }}" 
+                            data-item-desc="{{ row['Item Description'] }}" 
+                            data-store="{{ row['Store Name'] }}" 
+                            data-stock="{{ row['Stock'] }}">
+                            <td><strong>{{ row['Item Code'] }}</strong></td>
+                            <td>{{ row['Item Description'] }}</td>
+                            <td>{{ row['Store Code'] }}</td>
+                            <td>{{ row['Store Name'] }}</td>
+                            <td>{{ row['Exp Date'] }}</td>
+                            <td style="text-align: right;">
+                                {% if row['Stock'] > 0 %}
+                                <span class="badge bg-success">{{ "%.2f"|format(row['Stock']) }}</span>
+                                {% elif row['Stock'] < 0 %}
+                                <span class="badge bg-danger">{{ "%.2f"|format(row['Stock']) }}</span>
+                                {% else %}
+                                <span class="badge bg-secondary">0.00</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Filter functionality
+function applyFilters() {
+    const searchText = document.getElementById('searchText').value.toLowerCase();
+    const filterItem = document.getElementById('filterItem').value;
+    const filterStore = document.getElementById('filterStore').value;
+    const filterStock = document.getElementById('filterStock').value;
+    
+    const rows = document.querySelectorAll('#stockTableBody tr');
+    let visibleCount = 0;
+    
+    rows.forEach(row => {
+        const itemCode = row.dataset.itemCode.toLowerCase();
+        const itemDesc = row.dataset.itemDesc.toLowerCase();
+        const store = row.dataset.store;
+        const stock = parseFloat(row.dataset.stock);
+        
+        let show = true;
+        
+        // Search text filter
+        if (searchText && !itemCode.includes(searchText) && !itemDesc.includes(searchText)) {
+            show = false;
+        }
+        
+        // Item filter
+        if (filterItem && row.dataset.itemCode !== filterItem) {
+            show = false;
+        }
+        
+        // Store filter
+        if (filterStore && store !== filterStore) {
+            show = false;
+        }
+        
+        // Stock filter
+        if (filterStock) {
+            if (filterStock === 'positive' && stock <= 0) show = false;
+            if (filterStock === 'negative' && stock >= 0) show = false;
+            if (filterStock === 'zero' && stock !== 0) show = false;
+        }
+        
+        row.style.display = show ? '' : 'none';
+        if (show) visibleCount++;
+    });
+    
+    document.getElementById('recordCount').textContent = `Showing ${visibleCount.toLocaleString()} records`;
+}
+
+function clearFilters() {
+    document.getElementById('searchText').value = '';
+    document.getElementById('filterItem').value = '';
+    document.getElementById('filterStore').value = '';
+    document.getElementById('filterStock').value = '';
+    applyFilters();
+}
+
+// Add event listeners
+document.getElementById('searchText').addEventListener('input', applyFilters);
+document.getElementById('filterItem').addEventListener('change', applyFilters);
+document.getElementById('filterStore').addEventListener('change', applyFilters);
+document.getElementById('filterStock').addEventListener('change', applyFilters);
+
+// Sort table
+let sortDirection = {};
+function sortTable(columnIndex) {
+    const table = document.getElementById('stockTable');
+    const tbody = document.getElementById('stockTableBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    // Toggle sort direction
+    sortDirection[columnIndex] = !sortDirection[columnIndex];
+    const ascending = sortDirection[columnIndex];
+    
+    rows.sort((a, b) => {
+        let aVal = a.cells[columnIndex].textContent.trim();
+        let bVal = b.cells[columnIndex].textContent.trim();
+        
+        // Try to parse as number for stock column
+        if (columnIndex === 5) {
+            aVal = parseFloat(aVal) || 0;
+            bVal = parseFloat(bVal) || 0;
+        }
+        
+        if (aVal < bVal) return ascending ? -1 : 1;
+        if (aVal > bVal) return ascending ? 1 : -1;
+        return 0;
+    });
+    
+    // Re-append sorted rows
+    rows.forEach(row => tbody.appendChild(row));
+    
+    // Update sort icon
+    const headers = table.querySelectorAll('th i');
+    headers.forEach((icon, idx) => {
+        if (idx === columnIndex) {
+            icon.className = ascending ? 'fas fa-sort-up' : 'fas fa-sort-down';
+        } else {
+            icon.className = 'fas fa-sort';
+        }
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+
+{% block title %}Customer Terms Management{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="fas fa-credit-card me-2"></i>Customer Terms Management</h2>
+            <p class="text-muted">Manage customer credit terms, payment methods, and payment policies</p>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-search me-2"></i>Search & Filter</h5>
+        </div>
+        <div class="card-body">
+            <div class="input-group mb-3">
+                <span class="input-group-text bg-light"><i class="fas fa-search"></i></span>
+                <input id="q" type="search" class="form-control" placeholder="Search by code, customer name, or group...">
+                <button class="btn btn-outline-secondary" type="button" id="btn-clear-search" title="Clear search">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="d-flex justify-content-center gap-2">
+                <button id="btn-ps365-sync" class="btn btn-info btn-sm" title="Sync customers from PS365">
+                    <i class="fas fa-sync me-1"></i>Sync PS365 Customers
+                </button>
+                <a href="{{ url_for('payment_terms.export_terms') }}" class="btn btn-success btn-sm" title="Export to Excel">
+                    <i class="fas fa-file-excel me-1"></i>Export
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-light text-dark d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-3">
+                <span class="badge bg-secondary" id="result-count" style="display:none; font-size: 0.9rem; padding: 0.4rem 0.6rem;">0</span>
+                <div id="stats-display" style="display: none;">
+                    <small style="color: #000;">
+                        <span class="fw-bold">Total:</span> <span id="stat-total">0</span> | 
+                        <span class="fw-bold">Credit:</span> <span id="stat-credit">0</span> | 
+                        <span class="fw-bold">With Limits:</span> <span id="stat-limits">0</span> | 
+                        <span class="fw-bold">Total Credit (€):</span> <span id="stat-credit-total">0</span>
+                    </small>
+                </div>
+            </div>
+            <small class="text-muted" id="search-status" style="display:none;"></small>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="tbl" class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 10%;">Code</th>
+                            <th style="width: 20%;">Customer</th>
+                            <th style="width: 10%;">Group</th>
+                            <th style="width: 8%;">Terms</th>
+                            <th style="width: 8%;" data-toggle="tooltip" title="Payment due days">Due Days</th>
+                            <th style="width: 8%;" data-toggle="tooltip" title="Credit allowed">Credit</th>
+                            <th style="width: 10%;" data-toggle="tooltip" title="Credit limit">Limit</th>
+                            <th style="width: 12%;" data-toggle="tooltip" title="Cash, Card, Bank, Cheque">Methods</th>
+                            <th style="width: 8%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div id="no-results" class="text-center p-5 text-muted" style="display: none;">
+                <i class="fas fa-inbox fa-3x mb-3 opacity-50"></i>
+                <p>No payment terms found. Create one to get started.</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Modal for Add/Edit -->
+<div class="modal fade" id="dlg" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dlg-title">New Customer Terms</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="frm">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Customer Code <span class="text-danger">*</span></label>
+                            <input name="customer_code" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Customer Name <span class="text-danger">*</span></label>
+                            <input name="customer_name" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Group</label>
+                            <input name="group" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Terms Code <span class="text-danger">*</span></label>
+                            <input name="terms_code" class="form-control" placeholder="e.g., POD, COD, NET30" required>
+                            <small class="text-muted">Enter any custom terms code</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Due Days</label>
+                            <input type="number" name="due_days" class="form-control" value="30">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Credit Limit (€)</label>
+                            <input type="number" name="credit_limit" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-4">
+                                <input type="checkbox" name="is_credit" class="form-check-input" id="is_credit" checked>
+                                <label class="form-check-label" for="is_credit">Is Credit</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-4">
+                                <input type="checkbox" name="allow_cash" class="form-check-input" id="allow_cash">
+                                <label class="form-check-label" for="allow_cash">Allow Cash</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-4">
+                                <input type="checkbox" name="allow_card_pos" class="form-check-input" id="allow_card_pos" checked>
+                                <label class="form-check-label" for="allow_card_pos">Allow Card (POS)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check mt-4">
+                                <input type="checkbox" name="allow_bank_transfer" class="form-check-input" id="allow_bank_transfer" checked>
+                                <label class="form-check-label" for="allow_bank_transfer">Allow Bank Transfer</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check mt-2">
+                                <input type="checkbox" name="allow_cheque" class="form-check-input" id="allow_cheque">
+                                <label class="form-check-label" for="allow_cheque">Allow Cheque</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Cheque Days Allowed</label>
+                            <input type="number" name="cheque_days_allowed" class="form-control" placeholder="0 = same-day, 15, 30...">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Notes for Driver</label>
+                            <textarea name="notes" class="form-control" rows="3"></textarea>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="btn-save" class="btn btn-primary">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const tblBody = document.querySelector("#tbl tbody");
+const dlg = new bootstrap.Modal(document.getElementById('dlg'));
+let editing = null;
+
+function boolTxt(b) { return b ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-danger"></i>'; }
+
+async function fetchRows() {
+    const q = document.getElementById("q").value.trim();
+    const res = await fetch(`{{ url_for('payment_terms.list_terms') }}?query=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    renderRows(data.items || []);
+}
+
+function renderRows(items) {
+    tblBody.innerHTML = "";
+    const statsDisplay = document.getElementById("stats-display");
+    const noResults = document.getElementById("no-results");
+    const resultCount = document.getElementById("result-count");
+    const searchStatus = document.getElementById("search-status");
+    
+    if (!items.length) {
+        noResults.style.display = "block";
+        resultCount.style.display = "none";
+        searchStatus.style.display = "none";
+        statsDisplay.style.display = "none";
+        return;
+    }
+    
+    noResults.style.display = "none";
+    resultCount.textContent = items.length;
+    resultCount.style.display = "inline-block";
+    searchStatus.style.display = "inline-block";
+    searchStatus.textContent = `Showing ${items.length} term${items.length !== 1 ? 's' : ''}`;
+    
+    // Calculate stats
+    const totalCredit = items.reduce((sum, r) => sum + (r.credit_limit || 0), 0);
+    document.getElementById("stat-total").textContent = items.length;
+    document.getElementById("stat-credit").textContent = items.filter(r => r.is_credit).length;
+    document.getElementById("stat-limits").textContent = items.filter(r => r.credit_limit).length;
+    document.getElementById("stat-credit-total").textContent = totalCredit.toLocaleString('en-US', {style: 'decimal', maximumFractionDigits: 0});
+    statsDisplay.style.display = "block";
+    
+    for (const r of items) {
+        const tr = document.createElement("tr");
+        const methods = [];
+        if (r.allow_cash) methods.push('<span class="badge bg-success">Cash</span>');
+        if (r.allow_card_pos) methods.push('<span class="badge bg-info">Card</span>');
+        if (r.allow_bank_transfer) methods.push('<span class="badge bg-warning">Bank</span>');
+        if (r.allow_cheque) methods.push('<span class="badge bg-secondary">Cheque</span>');
+        
+        const gpsLink = (r.latitude && r.longitude) 
+            ? `<a href="https://www.google.com/maps?q=${r.latitude},${r.longitude}" target="_blank" class="ms-2 text-success" title="View on Google Maps"><i class="fas fa-map-marker-alt"></i></a>`
+            : '';
+        tr.innerHTML = `
+            <td><code class="fw-bold">${r.customer_code || ""}</code></td>
+            <td><strong>${r.customer_name || ""}</strong>${gpsLink}</td>
+            <td><span class="text-muted">${r.group || "-"}</span></td>
+            <td><span class="badge bg-primary">${r.terms_code || ""}</span></td>
+            <td class="text-center">${r.due_days ?? "-"}</td>
+            <td class="text-center">${boolTxt(!!r.is_credit)}</td>
+            <td>${r.credit_limit ? '<span class="fw-bold">€' + r.credit_limit.toLocaleString('en-US', {maximumFractionDigits: 0}) + '</span>' : "-"}</td>
+            <td>${methods.length ? methods.join(' ') : '<span class="text-muted">None</span>'}</td>
+            <td class="text-center">
+                <button class="btn btn-sm btn-outline-primary btn-edit" title="Edit">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </td>`;
+        tr.querySelector(".btn-edit").onclick = () => openEdit(r);
+        tblBody.appendChild(tr);
+    }
+}
+
+function openNew() {
+    editing = null;
+    document.getElementById("dlg-title").textContent = "New Customer Terms";
+    const frm = document.getElementById("frm");
+    if (frm) frm.reset();
+    
+    // Safely set form fields with null checks
+    const termsCodeField = document.querySelector('input[name="terms_code"]');
+    if (termsCodeField) termsCodeField.value = "NET30";
+    
+    const dueDaysField = document.querySelector('input[name="due_days"]');
+    if (dueDaysField) dueDaysField.value = 30;
+    
+    const isCreditField = document.querySelector('input[name="is_credit"]');
+    if (isCreditField) isCreditField.checked = true;
+    
+    const cardField = document.querySelector('input[name="allow_card_pos"]');
+    if (cardField) cardField.checked = true;
+    
+    const bankField = document.querySelector('input[name="allow_bank_transfer"]');
+    if (bankField) bankField.checked = true;
+    
+    dlg.show();
+}
+
+function openEdit(r) {
+    editing = r;
+    document.getElementById("dlg-title").textContent = "Edit Customer Terms";
+    const f = document.getElementById("frm");
+    f.customer_code.value = r.customer_code || "";
+    f.customer_name.value = r.customer_name || "";
+    f.group.value = r.group || "";
+    f.terms_code.value = r.terms_code || "NET30";
+    f.due_days.value = r.due_days ?? 0;
+    f.is_credit.checked = !!r.is_credit;
+    f.credit_limit.value = r.credit_limit ?? "";
+    f.allow_cash.checked = !!r.allow_cash;
+    f.allow_card_pos.checked = !!r.allow_card_pos;
+    f.allow_bank_transfer.checked = !!r.allow_bank_transfer;
+    f.allow_cheque.checked = !!r.allow_cheque;
+    f.cheque_days_allowed.value = r.cheque_days_allowed ?? "";
+    f.notes.value = r.notes || "";
+    dlg.show();
+}
+
+document.getElementById("btn-clear-search").onclick = () => {
+    document.getElementById("q").value = "";
+    fetchRows();
+};
+
+document.getElementById("btn-save").onclick = async () => {
+    const f = document.getElementById("frm");
+    const payload = {
+        customer_code: f.customer_code.value.trim(),
+        customer_name: f.customer_name.value.trim(),
+        group: f.group.value.trim(),
+        terms_code: f.terms_code.value,
+        due_days: Number(f.due_days.value || 0),
+        is_credit: f.is_credit.checked,
+        credit_limit: f.credit_limit.value === "" ? null : Number(f.credit_limit.value),
+        allow_cash: f.allow_cash.checked,
+        allow_card_pos: f.allow_card_pos.checked,
+        allow_bank_transfer: f.allow_bank_transfer.checked,
+        allow_cheque: f.allow_cheque.checked,
+        cheque_days_allowed: f.cheque_days_allowed.value === "" ? null : Number(f.cheque_days_allowed.value),
+        notes: f.notes.value
+    };
+    if (!payload.customer_code || !payload.customer_name) {
+        alert("Customer code and name are required.");
+        return;
+    }
+    const res = await fetch("{{ url_for('payment_terms.save_terms') }}", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+        alert("Save failed: " + await res.text());
+        return;
+    }
+    dlg.hide();
+    fetchRows();
+};
+
+document.getElementById("q").addEventListener("input", () => {
+    clearTimeout(window.__t);
+    window.__t = setTimeout(fetchRows, 250);
+});
+
+document.getElementById("btn-ps365-sync").onclick = async () => {
+    if (!confirm("Sync customer data from PS365? This may take several minutes for large datasets.")) return;
+    
+    const btn = document.getElementById("btn-ps365-sync");
+    const originalText = btn.innerHTML;
+    
+    try {
+        // Show loading state
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Syncing from PS365...';
+        
+        const res = await fetch("{{ url_for('powersoft.sync_customers') }}", {method: "POST"});
+        const data = await res.json();
+        
+        if (data.error || !data.success) {
+            alert("PS365 Sync failed: " + (data.error || "Unknown error"));
+        } else {
+            alert(`PS365 Sync Completed!\n\nTotal Customers: ${data.total_customers}\nTotal Pages: ${data.total_pages}\nRecords Updated: ${data.updated_count}\nCustomer Terms Created: ${data.payment_terms_created || 0}`);
+            fetchRows();
+        }
+    } catch (err) {
+        alert("Error: " + err.message);
+    } finally {
+        // Restore button state
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+};
+
+// Initial load
+fetchRows();
+</script>
+{% endblock %}

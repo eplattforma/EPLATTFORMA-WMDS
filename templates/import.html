@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Excel - EPLATTFORMA Picking System{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Main import form
+        const form = document.querySelector('form');
+        const importBtn = document.getElementById('importBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        
+        form.addEventListener('submit', function() {
+            // Only show loading if there's a file selected
+            const fileInput = document.getElementById('file');
+            if (fileInput && fileInput.files && fileInput.files.length > 0) {
+                importBtn.disabled = true;
+                importBtn.innerHTML = 'Processing...';
+                loadingOverlay.classList.remove('d-none');
+            }
+        });
+        
+        // Sample data form
+        const sampleForm = document.querySelector('.sample-form');
+        const sampleBtn = document.getElementById('sampleBtn');
+        
+        if (sampleForm && sampleBtn) {
+            sampleForm.addEventListener('submit', function() {
+                sampleBtn.disabled = true;
+                sampleBtn.innerHTML = 'Processing...';
+                loadingOverlay.classList.remove('d-none');
+            });
+        }
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="display-5 mb-0">
+            <i class="fas fa-file-excel me-2"></i>Import Excel Data
+        </h1>
+        <p class="text-muted mb-0">Import order data from Excel files</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary btn-lg">
+            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+        </a>
+        <button type="submit" form="importForm" class="btn btn-success btn-lg" id="importBtn">
+            <i class="fas fa-upload me-2"></i>Import Data
+        </button>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+            <i class="fas fa-upload me-2"></i>Upload Excel File
+        </h5>
+    </div>
+    <div class="card-body">
+        <form method="post" enctype="multipart/form-data" id="importForm">
+            <div class="mb-4">
+                <label for="file" class="form-label">Excel File (.xlsx)</label>
+                <input type="file" class="form-control" id="file" name="file" accept=".xlsx" required>
+                <div class="form-text">
+                    The Excel file should contain the following columns: INVOICE NO, ROUTING, CUSTOMER NAME, LOCATION, 
+                    ITEM CODE, BARCODE, ZONE, Items.Weight, ITEM NAME, UNIT TYPE, Pack, QTY, EXP TIME
+                </div>
+            </div>
+            
+            <!-- Removing duplicate buttons that were previously here -->
+            
+            <div class="alert alert-info">
+                <h5><i class="fas fa-info-circle me-2"></i>Import Process:</h5>
+                <ul class="mb-0">
+                    <li>Data will be separated into Invoices and Invoice Items tables</li>
+                    <li>Line Weight will be calculated as Items.Weight × QTY</li>
+                    <li>Current date will be automatically set as UPLOAD DATE</li>
+                    <li>Duplicate invoices and items will be logged and skipped</li>
+                </ul>
+            </div>
+            
+            <div class="alert alert-warning">
+                <h5><i class="fas fa-exclamation-triangle me-2"></i>Important Excel Format Requirements:</h5>
+                <p>For successful import, your Excel file should contain the following columns:</p>
+                <ul>
+                    <li><strong>INVOICE NO</strong> - Unique identifier for each invoice (required)</li>
+                    <li><strong>ROUTING</strong> - Routing information</li>
+                    <li><strong>CUSTOMER NAME</strong> - Name of the customer</li>
+                    <li><strong>LOCATION</strong> - Warehouse location</li>
+                    <li><strong>ITEM CODE</strong> - Unique code for each item (required)</li>
+                    <li><strong>BARCODE</strong> - Barcode information</li>
+                    <li><strong>ZONE</strong> - Warehouse zone</li>
+                    <li><strong>Items.Weight</strong> - Weight of each item unit</li>
+                    <li><strong>ITEM NAME</strong> - Description of the item</li>
+                    <li><strong>UNIT TYPE</strong> - Type of unit (e.g., BOX, PACK)</li>
+                    <li><strong>Pack</strong> - Pack information (can be numeric or text)</li>
+                    <li><strong>QTY</strong> - Quantity of items</li>
+                    <li><strong>EXP TIME</strong> - Expected processing time</li>
+                </ul>
+                <p class="mb-1"><strong>Note:</strong> If you don't have the sample Excel file, you can create a simple one with these columns to test the import functionality.</p>
+            </div>
+            
+            <!-- Loading overlay with animated spinner -->
+            <div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none" style="background-color: rgba(0,0,0,0.7); z-index: 9999;">
+                <div class="position-absolute top-50 start-50 translate-middle text-center text-white">
+                    <img src="{{ url_for('static', filename='images/loading-spinner.svg') }}" alt="Loading" class="mb-3" style="width: 120px; height: 120px;">
+                    <h4 class="mb-2">Importing data...</h4>
+                    <p class="fs-5">This may take a few minutes for large files.</p>
+                </div>
+            </div>
+        </form>
+        
+        {% if has_sample %}
+        <hr class="my-4">
+        <div class="alert alert-success">
+            <h5><i class="fas fa-lightbulb me-2"></i>Sample Data Available</h5>
+            <p>A sample data file is available for testing the import functionality. You can use this to test the system without uploading your own file.</p>
+            <form method="post" class="sample-form">
+                <input type="hidden" name="use_sample" value="1">
+                <button type="submit" class="btn btn-info" id="sampleBtn">
+                    <i class="fas fa-vial me-2"></i>Import Sample Data
+                </button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

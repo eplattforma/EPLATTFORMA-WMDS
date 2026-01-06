@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+
+{% block title %}Batch Picking List - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-8">
+        <h1 class="h3">
+            <i class="fas fa-boxes me-2"></i>My Batch Picking Sessions
+        </h1>
+        <p class="text-muted">View and start your assigned batch picking sessions</p>
+    </div>
+    <div class="col-md-4 text-md-end">
+        <a href="{{ url_for('picker_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+        </a>
+    </div>
+</div>
+
+<!-- Active Batch Sessions -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="fas fa-play-circle me-2 text-success"></i>Active Batch Sessions
+        </h5>
+    </div>
+    <div class="card-body">
+        {% if batch_sessions %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Batch Number</th>
+                            <th>Name</th>
+                            <th>Zones</th>
+                            <th>Mode</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for batch in batch_sessions %}
+                        <tr>
+                            <td>
+                                <span class="badge bg-dark">{{ batch.batch_number or 'BATCH-' ~ batch.id }}</span>
+                            </td>
+                            <td>{{ batch.name }}</td>
+                            <td>
+                                <span class="badge bg-secondary">{{ batch.zones }}</span>
+                            </td>
+                            <td>
+                                {% if batch.picking_mode == 'Consolidated' %}
+                                    <span class="badge bg-info">Consolidated</span>
+                                {% else %}
+                                    <span class="badge bg-primary">Sequential</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if batch.status == 'Created' %}
+                                    <span class="badge bg-warning">Created</span>
+                                {% elif batch.status == 'Active' %}
+                                    <span class="badge bg-success">Active</span>
+                                {% elif batch.status == 'In Progress' %}
+                                    <span class="badge bg-success">In Progress</span>
+                                {% elif batch.status == 'picking' %}
+                                    <span class="badge bg-info">Picking</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ batch.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ batch.created_at.strftime('%d/%m/%y %H:%M') }}</td>
+                            <td>
+                                {% if batch.status == 'Created' %}
+                                    <a href="{{ url_for('batch.start_batch_picking', batch_id=batch.id) }}" 
+                                       class="btn btn-success btn-sm">
+                                        <i class="fas fa-play me-1"></i>Start Picking
+                                    </a>
+                                    {% if current_user.role == 'admin' %}
+                                        <button type="button" class="btn btn-outline-danger btn-sm ms-1" 
+                                                onclick="deleteBatch({{ batch.id }}, '{{ batch.batch_number or 'BATCH-' ~ batch.id }}')">
+                                            <i class="fas fa-trash me-1"></i>Delete
+                                        </button>
+                                    {% endif %}
+                                {% elif batch.status == 'Active' or batch.status == 'In Progress' or batch.status == 'picking' %}
+                                    <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" 
+                                       class="btn btn-primary btn-sm">
+                                        <i class="fas fa-arrow-right me-1"></i>Continue
+                                    </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-4">
+                <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">No Active Batch Sessions</h5>
+                <p class="text-muted">You don't have any active batch picking sessions assigned to you.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+
+
+<script>
+function deleteBatch(batchId, batchName) {
+    if (confirm(`Are you sure you want to delete batch "${batchName}"? This action cannot be undone.`)) {
+        // Create a form and submit it to delete the batch
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/batch/delete/' + batchId;
+        form.style.display = 'none';
+        
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+</script>
+
+{% endblock %}

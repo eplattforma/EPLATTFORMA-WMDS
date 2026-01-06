@@ -1,0 +1,234 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Settings - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5">
+            <i class="fas fa-cogs me-2"></i>Admin Settings
+        </h1>
+        <p class="text-muted">Configure system-wide settings</p>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end gap-2 mt-3 mt-md-0">
+        <a href="{{ url_for('admin_discrepancy_config') }}" class="btn btn-info">
+            <i class="fas fa-clipboard-list me-2"></i>Discrepancy Config
+        </a>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+        </a>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>Application Settings</h5>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('admin_settings') }}">
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header bg-light text-dark">
+                            <h5 class="mb-0">Picking Process Settings</h5>
+                        </div>
+                        <div class="card-body text-dark">
+                            <div class="mb-4">
+                                <label for="confirm_picking_step" class="form-label">Confirmation Window</label>
+                                <select class="form-select" id="confirm_picking_step" name="confirm_picking_step">
+                                    <option value="true" {% if confirm_picking == 'true' %}selected{% endif %}>
+                                        Enabled - Show confirmation window
+                                    </option>
+                                    <option value="false" {% if confirm_picking == 'false' %}selected{% endif %}>
+                                        Disabled - Skip confirmation window
+                                    </option>
+                                </select>
+                                <div class="form-text text-body-secondary">
+                                    When enabled, pickers will see a confirmation window with product image before confirming each pick. 
+                                    When disabled, picks will be automatically confirmed without showing the confirmation window.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label for="show_image_on_picking_screen" class="form-label">Product Images</label>
+                                <select class="form-select" id="show_image_on_picking_screen" name="show_image_on_picking_screen">
+                                    <option value="true" {% if show_image == 'true' %}selected{% endif %}>
+                                        Enabled - Show product images on picking screen
+                                    </option>
+                                    <option value="false" {% if show_image == 'false' %}selected{% endif %}>
+                                        Disabled - Hide product images on picking screen
+                                    </option>
+                                </select>
+                                <div class="form-text text-body-secondary">
+                                    When enabled, product images will be displayed above the item name on the picking screen.
+                                    When disabled, no images will be shown during picking, which may improve loading times.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label for="require_skip_reason" class="form-label">Skip Reason Requirement</label>
+                                <select class="form-select" id="require_skip_reason" name="require_skip_reason">
+                                    <option value="true" {% if require_skip_reason == 'true' %}selected{% endif %}>
+                                        Enabled - Require reason when skipping items
+                                    </option>
+                                    <option value="false" {% if require_skip_reason == 'false' %}selected{% endif %}>
+                                        Disabled - Skip without requiring reason
+                                    </option>
+                                </select>
+                                <div class="form-text text-body-secondary">
+                                    When enabled, pickers must provide a reason when skipping items.
+                                    When disabled, items can be skipped without providing a reason.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label for="skip_reasons" class="form-label">Skip Reasons (one per line)</label>
+                                <textarea class="form-control" id="skip_reasons" name="skip_reasons" rows="5">{{ skip_reasons }}</textarea>
+                                <div class="form-text text-body-secondary">
+                                    Enter the available skip reasons, one per line. These will appear in the dropdown when skipping items. 
+                                    Always include "Other" as an option.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label for="exception_reasons" class="form-label">Exception Reasons (one per line)</label>
+                                <textarea class="form-control" id="exception_reasons" name="exception_reasons" rows="5">{{ exception_reasons }}</textarea>
+                                <div class="form-text text-body-secondary">
+                                    Enter the available exception reasons, one per line. These will appear in the dropdown when reporting exceptions during picking. 
+                                    Always include "Other" as an option.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label for="show_multi_qty_warning" class="form-label">Multi-Quantity Warning Badge</label>
+                                <select class="form-select" id="show_multi_qty_warning" name="show_multi_qty_warning">
+                                    <option value="true" {% if show_multi_qty_warning == 'true' %}selected{% endif %}>
+                                        Enabled - Show warning when quantity ≠ 1
+                                    </option>
+                                    <option value="false" {% if show_multi_qty_warning == 'false' %}selected{% endif %}>
+                                        Disabled - No quantity warnings
+                                    </option>
+                                </select>
+                                <div class="form-text text-body-secondary">
+                                    When enabled, pickers will see a prominent warning badge "⚠️ PICK X UNITS ⚠️" 
+                                    whenever the quantity to pick is not equal to 1. This helps prevent mistakes when picking multiple units.
+                                </div>
+                            </div>
+                            
+                            <!-- Batch picking settings removed - will be rebuilt -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header bg-light text-dark">
+                            <h5 class="mb-0">PO Receiving Settings</h5>
+                        </div>
+                        <div class="card-body text-dark">
+                            <div class="mb-4">
+                                <label for="receiving_notes" class="form-label">Receiving Notes (one per line)</label>
+                                <textarea class="form-control" id="receiving_notes" name="receiving_notes" rows="5">{{ receiving_notes }}</textarea>
+                                <div class="form-text text-body-secondary">
+                                    Enter the available receiving notes, one per line. These will appear in the dropdown during PO receiving to mark special conditions.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-2"></i>Save Settings
+                    </button>
+                </div>
+            </div>
+            <!-- Time Tracking Alerts Section -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header bg-warning text-dark">
+                            <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Time Tracking Alerts</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="time_alerts_enabled" name="time_alerts_enabled" value="true" {% if alert_settings.enabled %}checked{% endif %}>
+                                            <label class="form-check-label" for="time_alerts_enabled">
+                                                <strong>Enable Time Tracking Alerts</strong>
+                                            </label>
+                                        </div>
+                                        <div class="form-text">Monitor orders that exceed expected completion times</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <a href="{{ url_for('admin_time_alerts') }}" class="btn btn-warning">
+                                        <i class="fas fa-eye me-2"></i>View Active Alerts
+                                    </a>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="warning_threshold" class="form-label">Warning Threshold (%)</label>
+                                        <input type="number" class="form-control" id="warning_threshold" name="warning_threshold" 
+                                               value="{{ alert_settings.warning_threshold or 120 }}" min="100" max="300" step="5">
+                                        <div class="form-text">Warning at 120% of expected time</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="critical_threshold" class="form-label">Critical Threshold (%)</label>
+                                        <input type="number" class="form-control" id="critical_threshold" name="critical_threshold" 
+                                               value="{{ alert_settings.critical_threshold or 150 }}" min="100" max="500" step="5">
+                                        <div class="form-text">Critical alert at 150% of expected time</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <div class="form-check mt-4">
+                                            <input class="form-check-input" type="checkbox" id="show_picker_warnings" name="show_picker_warnings" value="true" {% if alert_settings.show_picker_warnings %}checked{% endif %}>
+                                            <label class="form-check-label" for="show_picker_warnings">
+                                                Show warnings to pickers
+                                            </label>
+                                        </div>
+                                        <div class="form-text">Display alerts on picker screens</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-sort me-2"></i>Picking Process Advanced Settings</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">Sorting Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Configure how items are sorted during the picking process. You can enable/disable sorting by location parameters, set priorities, and define sort directions.</p>
+                        <a href="{{ url_for('admin_sorting_settings') }}" class="btn btn-primary">
+                            <i class="fas fa-cog me-2"></i>Manage Sorting Settings
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

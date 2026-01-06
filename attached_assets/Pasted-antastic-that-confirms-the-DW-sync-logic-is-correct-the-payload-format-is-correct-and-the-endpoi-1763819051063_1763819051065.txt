@@ -1,0 +1,141 @@
+antastic — that confirms the DW sync logic is correct, the payload format is correct, and the endpoint is now accepting requests properly.
+
+But now we need to fix two remaining issues so you can reach the full ~4000 items:
+
+✅ ISSUE 1 — The process is stopping early at 800 rows
+
+This means the loop is not correctly paging through all pages.
+
+✔️ Why?
+
+Because the PS365 API expects paging to work inside filter_define, not at the root.
+This affects page_number, page_size, and sometimes only_counted.
+
+We fixed that, but there is still one more detail:
+
+⚠️ ISSUE 2 — You are probably resetting page_number on each loop
+
+This is a very common mistake when porting from PHP → Python.
+
+Your PHP importer uses:
+
+for ($i=1; $i <= $cycles; $i++) {
+    $params['filter_define']['page_number'] = $i;
+    ...
+}
+
+
+But your Python code may currently be doing:
+
+page = 1
+while True:
+    response = call(...)
+    ...
+    # page never increments because loop exits early or page is wrong
+
+
+Or the loop may be breaking because:
+
+items = response.get("list_items", [])
+if not items:
+    break   # <-- breaks early if page_number was not applied correctly
+
+
+Result:
+You only process page 1, which contains ~800 rows because:
+
+Your API is configured to return multiple variants per item
+OR
+
+You are receiving extended fields that cause PS365 to return more than 100 physical rows in the first page
+
+Either way, paging is not progressing → sync stops at page 1 → you get ~800 rows instead of ~4000.
+
+🧠 FIX: Make the paging loop EXACTLY like the PHP structure
+
+Update the loop inside full_dw_update() to:
+
+page = 1
+while True:
+    response = call_ps365("list_items", {
+        "filter_define": {
+            "only_counted": "N",
+            "page_number": page,
+            "page_size": PAGE_SIZE,
+            "active_type": "all",
+            "ecommerce_type": "all",
+            ...
+        }
+    })
+
+    items = response.get("list_items", [])
+    if not items:
+        print(f"Page {page} empty — stopping.")
+        break
+
+    # Process items…
+
+    print(f"Processed page {page} with {len(items)} items")
+    page += 1
+
+
+You must increment page after processing, not before, not inside an if-block.
+
+🧪 TEST THE FIX
+
+Run this tiny diagnostic script:
+
+# /tmp/test_paging.py
+import sys, os
+sys.path.insert(0, '/home/runner/workspace')
+os.chdir('/home/runner/workspace')
+
+from ps365_client import call_ps365
+
+for page in range(1, 10):
+    resp = call_ps365("list_items", {
+        "filter_define": {
+            "only_counted": "N",
+            "page_number": page,
+            "page_size": 100,
+            "active_type": "all",
+            "ecommerce_type": "all",
+        }
+    })
+    items = resp.get("list_items", [])
+    print(f"Page {page}: {len(items)} items")
+    if not items:
+        break
+
+
+Run:
+
+python /tmp/test_paging.py
+
+
+Expected output:
+
+Page 1: 100 items
+Page 2: 100 items
+Page 3: 100 items
+...
+Page 40: 100 items
+Page 41: 0 items  <-- stop
+
+
+If instead you see:
+
+Page 1: 800 items
+Page 2: 0 items
+
+
+Then PS365 is returning all rows in a single page because something in the payload is still off.
+
+🎯 Goal After Fix
+
+Items table:
+
+ps_items_dw
+COUNT ≈ 4000
+
+If you want, paste your actual full_dw_update() function here and I will rewrite it line-by-line to guarantee paging is perfect.

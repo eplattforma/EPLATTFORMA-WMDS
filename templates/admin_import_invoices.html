@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Invoices - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <h2 class="mb-4">Import Invoices from PS365</h2>
+            
+            <!-- Import by Date -->
+            <div class="card mb-3">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-calendar-day me-2"></i>Import by Date</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="importDate"><strong>Select Date:</strong></label>
+                        <div class="input-group">
+                            <input type="date" class="form-control" id="importDate" />
+                            <button class="btn btn-success" id="importByDateBtn">
+                                <i class="fas fa-download me-1"></i>Import All Invoices
+                            </button>
+                        </div>
+                        <small class="form-text text-muted">Import all invoices created on the selected date</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Import by Invoice Number -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-file-invoice me-2"></i>Import Specific Invoice</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="invoiceNumber"><strong>Invoice Number:</strong></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="invoiceNumber" placeholder="e.g., IN10052209" />
+                            <button class="btn btn-primary" id="importBtn">Import</button>
+                        </div>
+                        <small class="form-text text-muted">Enter a specific invoice number to import</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="statusContainer" style="margin-top: 20px; display: none;">
+                <div id="successAlert" class="alert alert-success" style="display: none;">
+                    <strong>Success!</strong>
+                    <div id="successMessage"></div>
+                </div>
+                <div id="errorAlert" class="alert alert-danger" style="display: none;">
+                    <strong>Error!</strong>
+                    <div id="errorMessage"></div>
+                </div>
+                <div id="loadingAlert" class="alert alert-info" style="display: none;">
+                    <strong>Processing...</strong> Please wait while invoices are being imported.
+                </div>
+            </div>
+
+            <!-- Results Summary -->
+            <div id="resultsContainer" style="margin-top: 20px; display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Import Summary</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card bg-light border-primary shadow-sm mb-3">
+                                    <div class="card-body text-center py-4">
+                                        <h3 id="invoiceCount" class="display-5 fw-bold text-primary mb-1">0</h3>
+                                        <p class="text-dark mb-0 fw-bold">Invoices Imported</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light border-success shadow-sm mb-3">
+                                    <div class="card-body text-center py-4">
+                                        <h3 id="itemCount" class="display-5 fw-bold text-success mb-1">0</h3>
+                                        <p class="text-dark mb-0 fw-bold">Items Imported</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light border-warning shadow-sm mb-3">
+                                    <div class="card-body text-center py-4">
+                                        <h3 id="errorCount" class="display-5 fw-bold text-warning mb-1">0</h3>
+                                        <p class="text-dark mb-0 fw-bold">Errors</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Set today's date as default
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('importDate').value = today;
+});
+
+// Common import function
+async function doImport(url, btn) {
+    const statusContainer = document.getElementById('statusContainer');
+    const successAlert = document.getElementById('successAlert');
+    const errorAlert = document.getElementById('errorAlert');
+    const loadingAlert = document.getElementById('loadingAlert');
+    const resultsContainer = document.getElementById('resultsContainer');
+    
+    // Reset alerts
+    statusContainer.style.display = 'block';
+    successAlert.style.display = 'none';
+    errorAlert.style.display = 'none';
+    loadingAlert.style.display = 'block';
+    resultsContainer.style.display = 'none';
+    
+    // Disable button during request
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        // Check if response is JSON before parsing
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('Server returned an error. Please refresh the page and try again.');
+        }
+        
+        const data = await response.json();
+        loadingAlert.style.display = 'none';
+        
+        if (data.success) {
+            successAlert.style.display = 'block';
+            document.getElementById('successMessage').innerHTML = data.message || 'Invoices imported successfully!';
+            
+            // Show results
+            document.getElementById('invoiceCount').textContent = data.invoices_processed || data.total_invoices_imported || 0;
+            document.getElementById('itemCount').textContent = data.items_processed || data.total_items_imported || 0;
+            document.getElementById('errorCount').textContent = data.errors || 0;
+            resultsContainer.style.display = 'block';
+        } else {
+            errorAlert.style.display = 'block';
+            document.getElementById('errorMessage').innerHTML = data.error || 'An error occurred during import.';
+        }
+    } catch (error) {
+        loadingAlert.style.display = 'none';
+        errorAlert.style.display = 'block';
+        document.getElementById('errorMessage').innerHTML = error.message || 'Network error. Please try again.';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// Import by date
+document.getElementById('importByDateBtn').addEventListener('click', async function() {
+    const importDate = document.getElementById('importDate').value;
+    if (!importDate) {
+        alert('Please select a date');
+        return;
+    }
+    
+    const url = '/api/powersoft/sync/invoices?date=' + encodeURIComponent(importDate);
+    await doImport(url, this);
+});
+
+// Import by invoice number
+document.getElementById('importBtn').addEventListener('click', async function() {
+    const invoiceNumber = document.getElementById('invoiceNumber').value.trim();
+    if (!invoiceNumber) {
+        alert('Please enter an invoice number');
+        return;
+    }
+    
+    const url = '/api/powersoft/sync/invoices?invoice_no=' + encodeURIComponent(invoiceNumber);
+    await doImport(url, this);
+    document.getElementById('invoiceNumber').value = '';
+});
+
+// Allow Enter key to trigger import
+document.getElementById('invoiceNumber').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        document.getElementById('importBtn').click();
+    }
+});
+</script>
+{% endblock %}

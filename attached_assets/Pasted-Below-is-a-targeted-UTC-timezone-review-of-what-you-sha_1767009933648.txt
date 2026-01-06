@@ -1,0 +1,180 @@
+Below is a targeted UTC/timezone review of what you shared, focusing on the kinds of defects that typically produce “off-by-one day”, DST surprises, or Python “naive vs aware” exceptions.
+
+1) Mixed datetime column types (highest risk)
+
+You are using three different timestamp patterns:
+
+UTCDateTime() (your custom type)
+
+db.DateTime(timezone=True)
+
+Strings (e.g., upload_date, order_date_local, order_date_utc0)
+
+This is risky because any coercion/normalization you built into UTCDateTime does not apply to plain db.DateTime(timezone=True) or strings.
+
+Concrete instances
+
+InvoiceRouteHistory.created_at uses db.DateTime(timezone=True) with default=utc_now (not UTCDateTime).
+
+RerouteRequest.created_at / completed_at use db.DateTime(timezone=True) (not UTCDateTime).
+
+Various “date/time” fields are stored as strings (PO models; Invoice.upload_date).
+
+Why it matters
+
+If your app assumes “all timestamps are stored in UTC” but some columns bypass the UTCDateTime type, you can end up with:
+
+mixed storage (some UTC, some local, some naive),
+
+runtime errors when subtracting aware and naive datetimes,
+
+inconsistent serialization.
+
+Recommended fix
+
+Pick one approach for all timestamps and use it everywhere:
+
+Prefer UTCDateTime() everywhere for timestamps if it enforces UTC on bind/result.
+
+Or use db.DateTime(timezone=True) everywhere, but then enforce UTC in one place (see section 3).
+
+At minimum, I would change:
+
+InvoiceRouteHistory.created_at → UTCDateTime()
+
+RerouteRequest.created_at and completed_at → UTCDateTime()
+
+2) Naive vs aware subtraction hazards (high risk)
+
+There are many places where you subtract datetimes:
+
+Shift.calculate_duration(): self.check_out_time - self.check_in_time
+
+Shift.current_idle_minutes(): get_utc_now() - active_idle.start_time
+
+Shift.working_time(): get_utc_now() - self.check_in_time
+
+IdlePeriod.calculate_duration()
+
+ItemTimeTracking.calculate_metrics(): item_completed_tz - item_started_tz
+
+If any one of these values is naive while the other is aware, Python will raise:
+
+TypeError: can't subtract offset-naive and offset-aware datetimes
+
+Recommended fix
+
+Ensure your system returns and stores datetimes in one consistent form:
+
+Option A (recommended): store aware UTC (tzinfo=UTC) in Python objects
+
+Option B: store naive UTC in Python objects (works, but requires strict discipline)
+
+Whichever you choose, your get_utc_now() and your UTCDateTime decorator must match that convention. Right now, the code suggests you intend UTC consistency, but the mixed column types make it hard to guarantee.
+
+3) Verify what get_utc_now() and UTCDateTime actually do (critical)
+
+Your whole design depends on these behaving correctly:
+
+get_utc_now() should return UTC, consistently.
+
+UTCDateTime should coerce inputs and normalize outputs consistently.
+
+What to check in your implementation
+
+Does get_utc_now() return an aware datetime (datetime.now(timezone.utc)) or naive?
+
+Does UTCDateTime:
+
+convert aware local times to UTC on write?
+
+treat naive datetimes as UTC (or reject them)?
+
+return aware UTC on read, or naive?
+
+If UTCDateTime returns naive UTC but get_utc_now() returns aware UTC (or vice versa), you will eventually hit subtraction errors.
+
+4) Local timezone logic uses Europe/Athens (likely wrong for Cyprus)
+
+In ItemTimeTracking.calculate_metrics() you do:
+
+athens_tz = pytz.timezone('Europe/Athens')
+...
+item_started_tz = pytz.UTC.localize(self.item_started).astimezone(athens_tz)
+
+
+If your business timezone is Cyprus, use Europe/Nicosia (IANA zone). Using Athens may appear “close enough” most of the year, but it is a correctness risk (and unnecessary when the correct zone exists).
+
+Also: avoid converting for duration
+
+You don’t need local timezone to compute elapsed seconds. Duration is invariant. Convert only for “time_of_day”, “day_of_week”, “peak_hours”.
+
+Recommended improvement
+
+Compute delta = self.item_completed - self.item_started in UTC (no conversion).
+
+Convert only item_started to local tz for time-of-day and day-of-week categorization.
+
+5) get_utc_today used for “business-valid-from” dates (subtle risk)
+
+CreditTerms.valid_from = db.Column(db.Date, default=get_utc_today)
+
+If valid_from is a business date (what the business considers “today” in Cyprus), using UTC can shift the date near midnight. Example: at 00:30 Cyprus time, UTC might still be “yesterday” (depending on offset), causing valid_from to be one day behind.
+
+Recommended fix
+
+If valid_from is meant to be a business-local date, default using local tz date (Europe/Nicosia).
+
+If it’s truly meant to be UTC date, keep as-is—but then you should be explicit that it is UTC-based.
+
+6) “Date stored as string” fields will cause drift and parsing issues
+
+Examples:
+
+Invoice.upload_date is db.String(10) (YYYY-MM-DD)
+
+Purchase order dates: order_date_local, order_date_utc0 stored as strings
+
+This is not inherently “wrong”, but it increases the chance of:
+
+inconsistent formats,
+
+incorrect sorting/filtering,
+
+silent timezone drift when you later reconstruct datetimes.
+
+Recommended fix
+
+Use db.Date for pure dates and UTCDateTime/DateTime(timezone=True) for timestamps. If you need the raw upstream string, store it separately as an “external_raw_*” field.
+
+7) Minor but important: inconsistent helper usage
+
+You have:
+
+def utc_now(): return get_utc_now()
+
+Many columns use default=get_utc_now
+
+A few use default=utc_now
+
+This is harmless but invites divergence later. Prefer one (get_utc_now) and remove utc_now() unless you need it for a specific signature.
+
+Practical “hardening” checklist
+
+If you want this to be stable long-term, I would implement the following:
+
+Standardize timestamp columns: use UTCDateTime() everywhere for timestamps (or DateTime(timezone=True) everywhere, but not both).
+
+Decide one rule for Python datetime objects (aware UTC preferred).
+
+Enforce conversion at the boundary:
+
+On write: convert any aware non-UTC to UTC; treat naive as UTC or reject (choose one).
+
+On read: return aware UTC consistently (or naive UTC consistently).
+
+Use Europe/Nicosia for business-local categorization fields (time_of_day, peak_hours).
+
+Fix business “today”: decide whether “today” is UTC or local for each “date-only” concept.
+
+If you paste your timezone_utils.py (get_utc_now, get_utc_today) and your UTCDateTime implementation, I can point out precisely whether you are currently returning/expecting naive or aware datetimes and give you a concrete, minimal patch aligned with the convention you want.

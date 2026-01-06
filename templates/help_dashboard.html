@@ -1,0 +1,215 @@
+{% extends 'base.html' %}
+
+{% block title %}Help & Documentation - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Help & Documentation</li>
+                </ol>
+            </nav>
+            <div class="d-flex justify-content-between align-items-center">
+                <h2 class="h4 mb-0">
+                    <i class="fas fa-question-circle me-2"></i>Help & Documentation
+                </h2>
+                {% if current_user.role == 'admin' %}
+                <a href="{{ url_for('help.admin_help_manage') }}" class="btn btn-primary">
+                    <i class="fas fa-edit me-2"></i>Manage Content
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Search -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="input-group">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text" class="form-control" id="helpSearch" placeholder="Search help topics...">
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Sections -->
+    <div class="row">
+        <!-- System Overview -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-primary text-white rounded-circle p-3 me-3">
+                            <i class="fas fa-home fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">System Overview</h5>
+                    </div>
+                    <p class="card-text">General system introduction, main features, and navigation guide.</p>
+                    <a href="{{ url_for('help.help_section', section='system_overview') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Picking Process -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-success text-white rounded-circle p-3 me-3">
+                            <i class="fas fa-boxes fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">Picking Process</h5>
+                    </div>
+                    <p class="card-text">Step-by-step guide for warehouse picking, scanning, and order completion.</p>
+                    <a href="{{ url_for('help.help_section', section='picking_process') }}" class="btn btn-outline-success btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Batch Picking -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-info text-white rounded-circle p-3 me-3">
+                            <i class="fas fa-layer-group fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">Batch Picking</h5>
+                    </div>
+                    <p class="card-text">How to create, manage, and execute batch picking sessions efficiently.</p>
+                    <a href="{{ url_for('help.help_section', section='batch_picking') }}" class="btn btn-outline-info btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shipment Management -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-warning text-white rounded-circle p-3 me-3">
+                            <i class="fas fa-shipping-fast fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">Shipment Management</h5>
+                    </div>
+                    <p class="card-text">Managing shipments, tracking deliveries, and customer updates.</p>
+                    <a href="{{ url_for('help.help_section', section='shipment_management') }}" class="btn btn-outline-warning btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Definitions -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-secondary text-white rounded-circle p-3 me-3">
+                            <i class="fas fa-tags fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">Status Definitions</h5>
+                    </div>
+                    <p class="card-text">Understanding order statuses, batch statuses, and their meanings.</p>
+                    <a href="{{ url_for('help.help_section', section='status_definitions') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Time Tracking -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-danger text-white rounded-circle p-3 me-3">
+                            <i class="fas fa-clock fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">Time Tracking</h5>
+                    </div>
+                    <p class="card-text">Understanding productivity metrics, time analysis, and performance reports.</p>
+                    <a href="{{ url_for('help.help_section', section='time_tracking') }}" class="btn btn-outline-danger btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Management -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-dark text-white rounded-circle p-3 me-3">
+                            <i class="fas fa-users fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">User Management</h5>
+                    </div>
+                    <p class="card-text">Managing user accounts, roles, permissions, and password changes.</p>
+                    <a href="{{ url_for('help.help_section', section='user_management') }}" class="btn btn-outline-dark btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Troubleshooting -->
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 help-card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="bg-warning text-dark rounded-circle p-3 me-3">
+                            <i class="fas fa-tools fa-lg"></i>
+                        </div>
+                        <h5 class="card-title mb-0">Troubleshooting</h5>
+                    </div>
+                    <p class="card-text">Common issues, solutions, and how to get additional support.</p>
+                    <a href="{{ url_for('help.help_section', section='troubleshooting') }}" class="btn btn-outline-warning btn-sm">
+                        <i class="fas fa-arrow-right me-1"></i>Read More
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.help-card {
+    transition: transform 0.2s ease-in-out;
+    border: 1px solid #e9ecef;
+}
+
+.help-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+</style>
+
+<script>
+document.getElementById('helpSearch').addEventListener('input', function() {
+    const searchTerm = this.value.toLowerCase();
+    const cards = document.querySelectorAll('.help-card');
+    
+    cards.forEach(card => {
+        const title = card.querySelector('.card-title').textContent.toLowerCase();
+        const text = card.querySelector('.card-text').textContent.toLowerCase();
+        
+        if (title.includes(searchTerm) || text.includes(searchTerm)) {
+            card.parentElement.style.display = 'block';
+        } else {
+            card.parentElement.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %}

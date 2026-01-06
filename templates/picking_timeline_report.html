@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block title %}Picking Log Report - {{ invoice.invoice_no }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2><i class="fas fa-clock me-2"></i>Picking Log Report</h2>
+                    <h4 class="text-muted">Order: {{ invoice.invoice_no }}</h4>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted">Customer: {{ invoice.customer_name }}</small><br>
+                    <small class="text-muted">Total Items Tracked: {{ total_items }}</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Picks Section -->
+    {% if manual_picks %}
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-hand-paper me-2"></i>Manual Picks
+                <span class="badge bg-light text-dark ms-2">{{ manual_picks|length }} items</span>
+            </h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 80px;">Time</th>
+                            <th style="width: 100px;">Item Code</th>
+                            <th>Item Name</th>
+                            <th style="width: 80px;">Location</th>
+                            <th style="width: 50px;">Qty</th>
+                            <th style="width: 100px;">Picker</th>
+                            <th style="width: 60px;">Duration</th>
+                            <th style="width: 80px;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pick in manual_picks %}
+                        <tr {% if pick.was_skipped %}class="table-warning"{% endif %}>
+                            <td class="text-nowrap">
+                                <small>{{ pick.completed_time.strftime('%H:%M:%S') if pick.completed_time else 'N/A' }}</small>
+                            </td>
+                            <td><strong>{{ pick.item_code }}</strong></td>
+                            <td>
+                                <small>{{ pick.item_name[:40] }}{% if pick.item_name|length > 40 %}...{% endif %}</small>
+                            </td>
+                            <td><small>{{ pick.location }}</small></td>
+                            <td class="text-center">{{ pick.quantity_picked }}</td>
+                            <td>
+                                <span class="badge bg-primary">{{ pick.picker }}</span>
+                            </td>
+                            <td class="text-center">
+                                <small>{{ pick.total_time_minutes }}m</small>
+                            </td>
+                            <td class="text-center">
+                                {% if pick.was_skipped %}
+                                    <i class="fas fa-exclamation-triangle text-warning" title="Skipped: {{ pick.skip_reason }}"></i>
+                                {% else %}
+                                    <i class="fas fa-check text-success" title="Picked"></i>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Batch Picks Section -->
+    {% if batch_picks_grouped %}
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-layer-group me-2"></i>Batch Picks
+                <span class="badge bg-light text-dark ms-2">{{ batch_picks_grouped|length }} batch(es)</span>
+            </h5>
+        </div>
+        <div class="card-body p-0">
+            {% for batch_id, batch_items in batch_picks_grouped.items() %}
+            <div class="mb-3 {% if not loop.last %}border-bottom{% endif %} pb-3">
+                <div class="bg-light p-2 d-flex justify-content-between align-items-center">
+                    <strong><i class="fas fa-box me-2"></i>Batch {{ batch_id }}</strong>
+                    <small class="text-muted">{{ batch_items|length }} items</small>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 80px;">Time</th>
+                                <th style="width: 100px;">Item Code</th>
+                                <th>Item Name</th>
+                                <th style="width: 80px;">Location</th>
+                                <th style="width: 50px;">Qty</th>
+                                <th style="width: 100px;">Picker</th>
+                                <th style="width: 60px;">Duration</th>
+                                <th style="width: 80px;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pick in batch_items %}
+                            <tr {% if pick.was_skipped %}class="table-warning"{% endif %}>
+                                <td class="text-nowrap">
+                                    <small>{{ pick.completed_time.strftime('%H:%M:%S') if pick.completed_time else 'N/A' }}</small>
+                                </td>
+                                <td><strong>{{ pick.item_code }}</strong></td>
+                                <td>
+                                    <small>{{ pick.item_name[:40] }}{% if pick.item_name|length > 40 %}...{% endif %}</small>
+                                </td>
+                                <td><small>{{ pick.location }}</small></td>
+                                <td class="text-center">{{ pick.quantity_picked }}</td>
+                                <td>
+                                    <span class="badge bg-info">{{ pick.picker }}</span>
+                                </td>
+                                <td class="text-center">
+                                    <small>{{ pick.total_time_minutes }}m</small>
+                                </td>
+                                <td class="text-center">
+                                    {% if pick.was_skipped %}
+                                        <i class="fas fa-exclamation-triangle text-warning" title="Skipped: {{ pick.skip_reason }}"></i>
+                                    {% else %}
+                                        <i class="fas fa-check text-success" title="Picked"></i>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Empty State -->
+    {% if not manual_picks and not batch_picks_grouped %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>
+        No picking log data available for this order. This could mean:
+        <ul class="mb-0 mt-2">
+            <li>Items haven't been picked yet</li>
+            <li>Time tracking wasn't enabled when items were picked</li>
+            <li>Data may have been cleaned up from old records</li>
+        </ul>
+    </div>
+    {% endif %}
+
+    <!-- Actions -->
+    <div class="row mt-4">
+        <div class="col">
+            <a href="javascript:history.back()" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back
+            </a>
+            <button onclick="window.print()" class="btn btn-outline-primary">
+                <i class="fas fa-print me-1"></i>Print Log Report
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    .btn, .btn-group {
+        display: none !important;
+    }
+    
+    .card {
+        border: 1px solid #000 !important;
+        page-break-inside: avoid;
+    }
+    
+    .card-header {
+        background-color: #e9ecef !important;
+        color: #000 !important;
+    }
+    
+    .table th {
+        background-color: #f8f9fa !important;
+        color: #000 !important;
+        border: 1px solid #000 !important;
+    }
+    
+    .table td {
+        border: 1px solid #000 !important;
+    }
+    
+    .badge {
+        border: 1px solid #000 !important;
+    }
+}
+</style>
+{% endblock %}

@@ -1,0 +1,601 @@
+To meet the user's request, I'll provide clear instructions for setting up a Flask app on Replit, using Flask and SQLAlchemy for managing payment details. The basic steps include setting up models, creating migration paths, and defining routes for importing/exporting Excel (with Pandas). I'll keep it simple with minimal HTML and Bootstrap or Tailwind for the front-end.
+
+Done
+
+awesome — here’s a Replit-ready plan (Flask + SQLAlchemy) to:
+
+create a database table for customer payment details (credit terms, cheque days, allowed methods)
+
+build a maintenance interface (web page) to view/add/edit, plus import from Excel/CSV and export to Excel
+
+0) Create a new Replit (Python)
+
+Template: Python (not “Flask” — we’ll add Flask ourselves)
+
+Files you’ll add below.
+
+1) requirements.txt
+Flask==3.0.3
+SQLAlchemy==2.0.35
+pandas==2.2.2
+openpyxl==3.1.5
+python-dotenv==1.0.1
+
+
+Replit will auto-install on first run.
+
+2) models.py — database models
+# models.py
+from datetime import date
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import (
+    Column, Integer, String, Boolean, Date, ForeignKey, UniqueConstraint
+)
+
+Base = declarative_base()
+
+class Customer(Base):
+    __tablename__ = "customers"
+    id = Column(Integer, primary_key=True)
+    code = Column(String, unique=True, index=True, nullable=False)  # PS customer code
+    name = Column(String, nullable=False)
+    group = Column(String, index=True)
+
+class CreditTerms(Base):
+    __tablename__ = "credit_terms"
+    id = Column(Integer, primary_key=True)
+    customer_code = Column(String, ForeignKey("customers.code"), index=True, nullable=False)
+
+    # Core terms
+    terms_code = Column(String, nullable=False)       # e.g. COD, NET30, NET60
+    due_days = Column(Integer, nullable=False, default=0)
+    is_credit = Column(Boolean, nullable=False, default=False)
+
+    # Limits & payment methods
+    credit_limit = Column(Integer, nullable=True)
+    allow_cash = Column(Boolean, default=False)
+    allow_card_pos = Column(Boolean, default=True)
+    allow_bank_transfer = Column(Boolean, default=True)
+    allow_cheque = Column(Boolean, default=False)
+    cheque_days_allowed = Column(Integer, nullable=True)  # 0 = same-day only
+
+    # Optional constraints / notes
+    min_cash_allowed = Column(Integer, nullable=True)
+    max_cash_allowed = Column(Integer, nullable=True)
+    notes_for_driver = Column(String, nullable=True)
+
+    valid_from = Column(Date, default=date.today)
+    valid_to = Column(Date, nullable=True)  # NULL = active
+
+    __table_args__ = (
+        UniqueConstraint("customer_code", "valid_from", name="uniq_terms_version"),
+    )
+
+3) main.py — Flask app, routes, simple admin UI
+# main.py
+import os, io, datetime as dt
+from flask import Flask, request, jsonify, render_template, send_file
+from sqlalchemy import create_engine, or_
+from sqlalchemy.orm import sessionmaker
+from models import Base, Customer, CreditTerms
+import pandas as pd
+
+DB_URL = os.environ.get("DB_URL", "sqlite:///credit_terms.db")
+
+app = Flask(__name__, static_folder="static", template_folder="templates")
+engine = create_engine(DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})
+Session = sessionmaker(bind=engine)
+Base.metadata.create_all(engine)
+
+# ---------- helpers ----------
+def truthy(v):
+    if pd.isna(v): return False
+    return str(v).strip().lower() in ("1","true","yes","y")
+
+REQUIRED_COLS = [
+    "customer_code","customer_name","group","terms_code","due_days","is_credit","credit_limit",
+    "allow_cash","allow_card_pos","allow_bank_transfer","allow_cheque","cheque_days_allowed","notes"
+]
+
+# ---------- pages ----------
+@app.get("/")
+def index():
+    return render_template("admin.html")
+
+# ---------- list (JSON) ----------
+@app.get("/admin/credit-terms/list")
+def list_terms():
+    q = (request.args.get("query") or "").strip()
+    s = Session()
+    try:
+        qry = (s.query(
+            Customer.code.label("customer_code"),
+            Customer.name.label("customer_name"),
+            Customer.group.label("group"),
+            CreditTerms.terms_code,
+            CreditTerms.due_days,
+            CreditTerms.is_credit,
+            CreditTerms.credit_limit,
+            CreditTerms.allow_cash,
+            CreditTerms.allow_card_pos,
+            CreditTerms.allow_bank_transfer,
+            CreditTerms.allow_cheque,
+            CreditTerms.cheque_days_allowed,
+            CreditTerms.notes_for_driver.label("notes"),
+        )
+        .join(CreditTerms, CreditTerms.customer_code == Customer.code)
+        .filter(CreditTerms.valid_to.is_(None)))
+        if q:
+            t = f"%{q}%"
+            qry = qry.filter(or_(Customer.code.ilike(t), Customer.name.ilike(t), Customer.group.ilike(t)))
+        rows = [dict(r._asdict()) for r in qry.order_by(Customer.code.asc()).all()]
+        return jsonify({"items": rows})
+    finally:
+        s.close()
+
+# ---------- save (create new version) ----------
+@app.post("/admin/credit-terms/save")
+def save_terms():
+    data = request.get_json(force=True)
+    s = Session()
+    try:
+        cust = s.query(Customer).filter_by(code=data["customer_code"]).one_or_none()
+        if not cust:
+            cust = Customer(code=data["customer_code"], name=data["customer_name"], group=data.get("group"))
+            s.add(cust)
+        else:
+            cust.name = data["customer_name"]
+            cust.group = data.get("group")
+
+        active = (s.query(CreditTerms)
+                  .filter(CreditTerms.customer_code==data["customer_code"], CreditTerms.valid_to.is_(None))
+                  .order_by(CreditTerms.valid_from.desc()).first())
+
+        new_terms = CreditTerms(
+            customer_code=data["customer_code"],
+            terms_code=data["terms_code"].strip(),
+            due_days=int(data.get("due_days") or 0),
+            is_credit=bool(data.get("is_credit")) if data.get("is_credit") is not None else int(data.get("due_days") or 0) > 0,
+            credit_limit=(int(data["credit_limit"]) if data.get("credit_limit") not in (None, "") else None),
+            allow_cash=bool(data.get("allow_cash")),
+            allow_card_pos=bool(data.get("allow_card_pos")),
+            allow_bank_transfer=bool(data.get("allow_bank_transfer")),
+            allow_cheque=bool(data.get("allow_cheque")),
+            cheque_days_allowed=(int(data["cheque_days_allowed"]) if data.get("cheque_days_allowed") not in (None, "") else None),
+            notes_for_driver=(data.get("notes") or None),
+            valid_from=dt.date.today(),
+        )
+
+        def key(t):
+            return (t.terms_code, t.due_days, t.is_credit, t.credit_limit,
+                    t.allow_cash, t.allow_card_pos, t.allow_bank_transfer, t.allow_cheque,
+                    t.cheque_days_allowed, t.notes_for_driver or "")
+
+        if active and key(active) == key(new_terms):
+            return jsonify({"status": "no_change"})
+
+        if active and active.valid_to is None:
+            active.valid_to = dt.date.today()
+        s.add(new_terms)
+        s.commit()
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        s.rollback()
+        return {"error": str(e)}, 500
+    finally:
+        s.close()
+
+# ---------- export to Excel ----------
+@app.get("/admin/credit-terms/export.xlsx")
+def export_terms():
+    s = Session()
+    try:
+        rows = (
+            s.query(
+                Customer.code.label("customer_code"),
+                Customer.name.label("customer_name"),
+                Customer.group.label("group"),
+                CreditTerms.terms_code,
+                CreditTerms.due_days,
+                CreditTerms.is_credit,
+                CreditTerms.credit_limit,
+                CreditTerms.allow_cash,
+                CreditTerms.allow_card_pos,
+                CreditTerms.allow_bank_transfer,
+                CreditTerms.allow_cheque,
+                CreditTerms.cheque_days_allowed,
+                CreditTerms.notes_for_driver.label("notes"),
+            )
+            .join(CreditTerms, CreditTerms.customer_code == Customer.code)
+            .filter(CreditTerms.valid_to.is_(None))
+            .order_by(Customer.code.asc())
+            .all()
+        )
+        df = pd.DataFrame(rows, columns=REQUIRED_COLS)
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as w:
+            df.to_excel(w, index=False, sheet_name="CreditTerms")
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name="credit_terms_export.xlsx",
+        )
+    finally:
+        s.close()
+
+# ---------- import from Excel/CSV (with ?dry_run=1) ----------
+@app.post("/admin/credit-terms/import")
+def import_terms():
+    dry_run = request.args.get("dry_run") in ("1","true","yes")
+    f = request.files.get("file")
+    if not f:
+        return {"error": "Upload a file in form field 'file' (.xlsx or .csv)"}, 400
+
+    # read
+    name = (f.filename or "").lower()
+    if name.endswith(".xlsx"):
+        df = pd.read_excel(f)
+    elif name.endswith(".csv"):
+        df = pd.read_csv(f)
+    else:
+        return {"error": "Unsupported file. Use .xlsx or .csv"}, 400
+
+    # normalize
+    df.columns = [c.strip() for c in df.columns]
+    for col in REQUIRED_COLS:
+        if col not in df.columns:
+            return {"error": f"Missing required column: {col}"}, 400
+
+    df["due_days"] = pd.to_numeric(df["due_days"], errors="coerce").fillna(0).astype(int)
+    df["credit_limit"] = pd.to_numeric(df["credit_limit"], errors="coerce")
+    df["cheque_days_allowed"] = pd.to_numeric(df["cheque_days_allowed"], errors="coerce")
+
+    for b in ["is_credit","allow_cash","allow_card_pos","allow_bank_transfer","allow_cheque"]:
+        df[b] = df[b].apply(truthy)
+    df["notes"] = df["notes"].fillna("")
+
+    s = Session()
+    created_customers = 0
+    created_terms = 0
+    closed_versions = 0
+    updated_terms = 0
+
+    try:
+        for _, r in df.iterrows():
+            # upsert customer
+            cust = s.query(Customer).filter_by(code=r["customer_code"]).one_or_none()
+            if not cust:
+                cust = Customer(code=r["customer_code"], name=r["customer_name"], group=r["group"])
+                if not dry_run: s.add(cust)
+                created_customers += 1
+            else:
+                cust.name = r["customer_name"]
+                cust.group = r["group"]
+
+            active = (
+                s.query(CreditTerms)
+                .filter(CreditTerms.customer_code == r["customer_code"], CreditTerms.valid_to.is_(None))
+                .order_by(CreditTerms.valid_from.desc())
+                .first()
+            )
+
+            new_terms = CreditTerms(
+                customer_code=r["customer_code"],
+                terms_code=str(r["terms_code"]).strip(),
+                due_days=int(r["due_days"]),
+                is_credit=bool(r["is_credit"]) if pd.notna(r["is_credit"]) else (int(r["due_days"]) > 0),
+                credit_limit=int(r["credit_limit"]) if pd.notna(r["credit_limit"]) else None,
+                allow_cash=bool(r["allow_cash"]),
+                allow_card_pos=bool(r["allow_card_pos"]),
+                allow_bank_transfer=bool(r["allow_bank_transfer"]),
+                allow_cheque=bool(r["allow_cheque"]),
+                cheque_days_allowed=int(r["cheque_days_allowed"]) if pd.notna(r["cheque_days_allowed"]) else None,
+                notes_for_driver=(r["notes"] or None),
+                valid_from=dt.date.today(),
+            )
+
+            def as_key(t: CreditTerms):
+                return (
+                    t.terms_code, t.due_days, t.is_credit, t.credit_limit,
+                    t.allow_cash, t.allow_card_pos, t.allow_bank_transfer, t.allow_cheque,
+                    t.cheque_days_allowed, (t.notes_for_driver or "")
+                )
+
+            if active and as_key(active) == as_key(new_terms):
+                continue  # no-change
+
+            if dry_run:
+                updated_terms += 1 if active else 0
+                created_terms += 1 if not active else 0
+                continue
+
+            if active and active.valid_to is None:
+                active.valid_to = dt.date.today()
+                closed_versions += 1
+            s.add(new_terms)
+            created_terms += 1
+
+        if not dry_run:
+            s.commit()
+
+        return jsonify({
+            "status": "dry_run_ok" if dry_run else "ok",
+            "rows_processed": int(df.shape[0]),
+            "created_customers": created_customers,
+            "created_terms_versions": created_terms,
+            "closed_previous_versions": closed_versions,
+            "updated_existing": updated_terms
+        })
+    except Exception as e:
+        if not dry_run: s.rollback()
+        return {"error": str(e)}, 500
+    finally:
+        s.close()
+
+if __name__ == "__main__":
+    # Replit runs this
+    app.run(host="0.0.0.0", port=8000, debug=True)
+
+4) templates/admin.html — simple maintenance UI (no build tools)
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Credit Terms Maintenance</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" rel="stylesheet">
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .truncate { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+<body class="container">
+  <h2>Credit Terms Maintenance</h2>
+
+  <nav>
+    <input id="q" type="search" placeholder="Search code/name/group…" />
+    <a class="contrast" href="/admin/credit-terms/export.xlsx">Export to Excel</a>
+  </nav>
+
+  <article>
+    <header>
+      <h3>Active Terms</h3>
+      <button id="btn-new">New</button>
+      <button id="btn-refresh">Refresh</button>
+    </header>
+    <table id="tbl" role="grid">
+      <thead>
+        <tr>
+          <th>Code</th><th>Customer</th><th>Group</th><th>Terms</th><th>Due</th><th>Credit</th>
+          <th>Limit</th><th>Cash</th><th>Card</th><th>Bank</th><th>Cheque</th><th>Cheque Days</th><th>Notes</th><th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </article>
+
+  <article>
+    <header><h3>Bulk Import</h3></header>
+    <label for="file">Select .xlsx or .csv</label>
+    <input type="file" id="file" accept=".xlsx,.csv">
+    <div>
+      <button id="btn-dry">Dry run</button>
+      <button id="btn-import">Import</button>
+      <a class="secondary" href="/admin/credit-terms/export.xlsx">Download Template</a>
+    </div>
+    <pre id="dryout" style="max-height:220px; overflow:auto;"></pre>
+  </article>
+
+  <!-- Modal -->
+  <dialog id="dlg">
+    <article>
+      <header><h3 id="dlg-title">New Terms</h3></header>
+      <form id="frm" onsubmit="return false">
+        <div class="grid">
+          <label>Customer Code <input name="customer_code" required></label>
+          <label>Customer Name <input name="customer_name" required></label>
+          <label>Group <input name="group"></label>
+          <label>Terms Code
+            <select name="terms_code">
+              <option>COD</option><option>NET7</option><option>NET15</option>
+              <option selected>NET30</option><option>NET45</option><option>NET60</option>
+            </select>
+          </label>
+          <label>Due Days <input type="number" name="due_days" value="30"></label>
+          <label>Is Credit <input type="checkbox" name="is_credit" checked></label>
+          <label>Credit Limit (€) <input type="number" name="credit_limit"></label>
+          <label>Allow Cash <input type="checkbox" name="allow_cash"></label>
+          <label>Allow Card (POS) <input type="checkbox" name="allow_card_pos" checked></label>
+          <label>Allow Bank Transfer <input type="checkbox" name="allow_bank_transfer" checked></label>
+          <label>Allow Cheque <input type="checkbox" name="allow_cheque"></label>
+          <label>Cheque Days Allowed <input type="number" name="cheque_days_allowed" placeholder="0, 15, 30…"></label>
+          <label class="grid" style="grid-column:1/-1">Notes
+            <textarea name="notes" rows="3"></textarea>
+          </label>
+        </div>
+      </form>
+      <footer>
+        <button id="btn-cancel" class="secondary">Cancel</button>
+        <button id="btn-save">Save</button>
+      </footer>
+    </article>
+  </dialog>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const tblBody = $("#tbl tbody");
+const dlg = $("#dlg");
+let editing = null; // current row item
+
+function boolTxt(b){ return b ? "Yes" : "No"; }
+
+async function fetchRows(){
+  const q = $("#q").value.trim();
+  const res = await fetch(`/admin/credit-terms/list?query=${encodeURIComponent(q)}`);
+  const data = await res.json();
+  renderRows(data.items || []);
+}
+function renderRows(items){
+  tblBody.innerHTML = "";
+  if(!items.length){
+    tblBody.innerHTML = `<tr><td colspan="14">No rows</td></tr>`;
+    return;
+  }
+  for(const r of items){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="mono">${r.customer_code||""}</td>
+      <td>${r.customer_name||""}</td>
+      <td>${r.group||""}</td>
+      <td>${r.terms_code||""}</td>
+      <td>${r.due_days??""}</td>
+      <td>${boolTxt(!!r.is_credit)}</td>
+      <td>${r.credit_limit ?? "-"}</td>
+      <td>${boolTxt(!!r.allow_cash)}</td>
+      <td>${boolTxt(!!r.allow_card_pos)}</td>
+      <td>${boolTxt(!!r.allow_bank_transfer)}</td>
+      <td>${boolTxt(!!r.allow_cheque)}</td>
+      <td>${r.cheque_days_allowed ?? "-"}</td>
+      <td class="truncate" title="${r.notes||""}">${r.notes||""}</td>
+      <td><button class="secondary outline btn-edit">Edit</button></td>`;
+    tr.querySelector(".btn-edit").onclick = () => openEdit(r);
+    tblBody.appendChild(tr);
+  }
+}
+
+function openNew(){
+  editing = null;
+  $("#dlg-title").textContent = "New Terms";
+  $("#frm").reset();
+  $('select[name="terms_code"]').value = "NET30";
+  $('input[name="due_days"]').value = 30;
+  $('input[name="is_credit"]').checked = true;
+  dlg.showModal();
+}
+function openEdit(r){
+  editing = r;
+  $("#dlg-title").textContent = "Edit Terms";
+  const f = $("#frm");
+  f.customer_code.value = r.customer_code || "";
+  f.customer_name.value = r.customer_name || "";
+  f.group.value = r.group || "";
+  f.terms_code.value = r.terms_code || "NET30";
+  f.due_days.value = r.due_days ?? 0;
+  f.is_credit.checked = !!r.is_credit;
+  f.credit_limit.value = r.credit_limit ?? "";
+  f.allow_cash.checked = !!r.allow_cash;
+  f.allow_card_pos.checked = !!r.allow_card_pos;
+  f.allow_bank_transfer.checked = !!r.allow_bank_transfer;
+  f.allow_cheque.checked = !!r.allow_cheque;
+  f.cheque_days_allowed.value = r.cheque_days_allowed ?? "";
+  f.notes.value = r.notes || "";
+  dlg.showModal();
+}
+$("#btn-new").onclick = openNew;
+$("#btn-cancel").onclick = () => dlg.close();
+$("#btn-refresh").onclick = fetchRows;
+
+$("#btn-save").onclick = async () => {
+  const f = $("#frm");
+  const payload = {
+    customer_code: f.customer_code.value.trim(),
+    customer_name: f.customer_name.value.trim(),
+    group: f.group.value.trim(),
+    terms_code: f.terms_code.value,
+    due_days: Number(f.due_days.value || 0),
+    is_credit: f.is_credit.checked,
+    credit_limit: f.credit_limit.value === "" ? null : Number(f.credit_limit.value),
+    allow_cash: f.allow_cash.checked,
+    allow_card_pos: f.allow_card_pos.checked,
+    allow_bank_transfer: f.allow_bank_transfer.checked,
+    allow_cheque: f.allow_cheque.checked,
+    cheque_days_allowed: f.cheque_days_allowed.value === "" ? null : Number(f.cheque_days_allowed.value),
+    notes: f.notes.value
+  };
+  if(!payload.customer_code || !payload.customer_name){
+    alert("Customer code and name are required.");
+    return;
+  }
+  const res = await fetch("/admin/credit-terms/save", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  });
+  if(!res.ok){
+    alert("Save failed: " + await res.text());
+    return;
+  }
+  dlg.close();
+  fetchRows();
+};
+
+$("#q").addEventListener("input", () => {
+  // simple debounce
+  clearTimeout(window.__t);
+  window.__t = setTimeout(fetchRows, 250);
+});
+
+$("#btn-dry").onclick = async () => {
+  const file = $("#file").files[0];
+  if(!file) return alert("Select a file first.");
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/admin/credit-terms/import?dry_run=1", {method:"POST", body: fd});
+  $("#dryout").textContent = JSON.stringify(await res.json(), null, 2);
+};
+$("#btn-import").onclick = async () => {
+  const file = $("#file").files[0];
+  if(!file) return alert("Select a file first.");
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/admin/credit-terms/import", {method:"POST", body: fd});
+  $("#dryout").textContent = JSON.stringify(await res.json(), null, 2);
+  fetchRows();
+};
+
+fetchRows();
+</script>
+</body>
+</html>
+
+5) Replit “Run” command
+
+Replit usually detects python main.py. If not, set “Run” to:
+
+python main.py
+
+
+Open the webview ➜ you’ll see the Credit Terms Maintenance page.
+
+6) Excel/CSV Template (column order)
+
+Your import/export uses this header (first row):
+
+customer_code,customer_name,group,terms_code,due_days,is_credit,credit_limit,allow_cash,allow_card_pos,allow_bank_transfer,allow_cheque,cheque_days_allowed,notes
+
+
+Booleans accept: true/false, yes/no, or 1/0.
+
+cheque_days_allowed: 0 (same-day only), 15, 30, etc. Leave blank for “no specific grace set”.
+
+7) Rename your app
+
+Since it now includes delivery, set in Replit Secrets: APP_NAME="FulfillFlow" (or your pick), and show it in the HTML header if you like.
+
+That’s it
+
+Run it on Replit and you have:
+
+a SQL table for payment/credit terms,
+
+a web interface to manage entries,
+
+Export to Excel and Import from Excel/CSV (with dry-run).
+
+If you want me to add a Rules tab (e.g., “NO RELEASE if overdue > 15 days” with CRUD) or an AR aging import page, say the word and I’ll extend this setup.
+
+ChatGPT can make mistakes. Check

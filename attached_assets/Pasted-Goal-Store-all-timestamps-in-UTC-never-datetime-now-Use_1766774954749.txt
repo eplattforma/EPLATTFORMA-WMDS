@@ -1,0 +1,204 @@
+Goal
+
+Store all timestamps in UTC (never datetime.now()).
+
+Use timezone-aware UTC in code.
+
+Ensure SQLite dev can still store/read timestamps without breaking.
+
+Fix Date columns that incorrectly use DateTime defaults.
+
+Step 1 — Add a UTC-safe DateTime type (works for Postgres + SQLite)
+
+Create a new file: db_types.py
+
+from datetime import datetime, timezone
+from sqlalchemy.types import TypeDecorator, DateTime
+
+class UTCDateTime(TypeDecorator):
+    """
+    Stores UTC timestamps.
+    - Postgres: stores timezone-aware UTC datetimes
+    - SQLite: stores naive UTC datetimes (no tz support), returns aware UTC on read
+    """
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+
+        # Treat naive as UTC
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+
+        value = value.astimezone(timezone.utc)
+
+        # SQLite can't store tz-aware reliably; store as naive UTC
+        if dialect.name == "sqlite":
+            return value.replace(tzinfo=None)
+
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+
+        # SQLite returns naive; interpret as UTC
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+
+        return value.astimezone(timezone.utc)
+
+Step 2 — Centralize UTC “now” and “today”
+
+Create (or update) file: timezone_utils.py
+
+from datetime import datetime, timezone, date
+
+def get_utc_now():
+    return datetime.now(timezone.utc)
+
+def get_utc_today():
+    return datetime.now(timezone.utc).date()
+
+Step 3 — Fix your DB URL config (Postgres in prod, SQLite fallback)
+
+In your Flask config (commonly app.py or config.py), ensure this:
+
+import os
+
+db_url = os.getenv("DATABASE_URL")
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+SQLALCHEMY_DATABASE_URI = db_url or "sqlite:///picking.db"
+SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+
+This avoids SQLAlchemy issues with older postgres:// URLs and preserves your fallback.
+
+Step 4 — Replace ALL datetime.now defaults with UTC
+
+In your models file:
+
+4A) Remove/stop using datetime.now defaults
+
+You currently have many fields like:
+
+default=datetime.now
+
+onupdate=datetime.now
+
+These must become UTC.
+
+4B) Update utc_now() to call your shared util
+
+At the top of your models file, do this:
+
+from timezone_utils import get_utc_now, get_utc_today
+from db_types import UTCDateTime
+
+
+Then remove your current utc_now() (or keep it as an alias):
+
+def utc_now():
+    return get_utc_now()
+
+4C) Global search/replace rules
+
+In Replit, use Find in File / global replace:
+
+Replace default=datetime.now → default=get_utc_now
+
+Replace onupdate=datetime.now → onupdate=get_utc_now
+
+Replace default=lambda: datetime.utcnow() → default=get_utc_now
+
+Also replace any default=datetime.utcnow usage with get_utc_now if present.
+
+Step 5 — Use UTCDateTime for DateTime columns (recommended)
+
+Wherever you have db.Column(db.DateTime, ...), change to db.Column(UTCDateTime(), ...).
+
+Examples (do this pattern everywhere you care about correctness):
+
+Before
+status_updated_at = db.Column(db.DateTime, default=utc_now)
+
+After
+status_updated_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
+
+Also fix “timezone=True” columns
+
+You currently have things like:
+
+created_at = db.Column(db.DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+Change to:
+
+created_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
+updated_at = db.Column(UTCDateTime(), default=get_utc_now, onupdate=get_utc_now, nullable=False)
+
+
+This avoids SQLite inconsistencies while preserving correct semantics in Postgres.
+
+Step 6 — Fix Date columns that incorrectly use DateTime defaults
+
+You have at least:
+
+valid_from = db.Column(db.Date, default=utc_now)
+
+
+That is wrong because utc_now() returns a datetime, but column type is Date.
+
+Fix:
+
+valid_from = db.Column(db.Date, default=get_utc_today)
+
+Step 7 — Quick runtime sanity checks (confirm Postgres vs SQLite + UTC)
+
+Add this once at startup (e.g., after app/db init):
+
+from datetime import datetime
+from timezone_utils import get_utc_now
+
+@app.before_first_request
+def log_runtime_info():
+    try:
+        print("DB Dialect:", db.engine.dialect.name)
+        print("DB URL (sanitized):", str(db.engine.url).split("@")[-1])  # avoids printing creds
+        print("Server datetime.now():", datetime.now())
+        print("UTC get_utc_now():", get_utc_now())
+    except Exception as e:
+        print("Runtime info log error:", e)
+
+
+This will tell you definitively whether you’re on postgresql or sqlite.
+
+Step 8 — Handling existing “Cairo-time” historical data
+
+After you deploy Steps 1–7, new rows will be correct. Older rows written with datetime.now() in Cairo time may still be “off”.
+
+Do NOT mass-convert blindly unless you know:
+
+which columns were written in local time, and
+
+the time window when that behavior existed.
+
+If you want, I can provide a safe one-off migration script once you tell me:
+
+which tables/columns you want corrected, and
+
+approximately when you deployed the Cairo-time defaults.
+
+Minimal “must-do” if you want the fastest safe fix
+
+If you want the smallest set of changes that immediately stops the problem:
+
+Replace all datetime.now defaults/onupdates with get_utc_now
+
+Fix valid_from → get_utc_today
+
+(Strongly recommended) switch key timestamp columns to UTCDateTime()

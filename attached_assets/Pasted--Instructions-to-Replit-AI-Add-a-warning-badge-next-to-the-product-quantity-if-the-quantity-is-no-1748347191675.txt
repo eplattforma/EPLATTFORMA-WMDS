@@ -1,0 +1,79 @@
+🧾 Instructions to Replit AI:
+Add a warning badge next to the product quantity if the quantity is not equal to 1. Also, add a toggle setting to enable or disable this feature in the app settings. Here's the logic:
+
+Add a config flag to enable or disable this feature:
+
+js
+Copy code
+const settings = {
+  showMultiQtyWarning: true, // Set to false to disable the badge
+};
+In the item display function, check if quantity is not 1 and the setting is enabled:
+
+js
+Copy code
+function renderPickItem(item) {
+  const container = document.createElement("div");
+  container.className = "pick-item";
+
+  const name = document.createElement("p");
+  name.textContent = `Product: ${item.name}`;
+
+  const quantity = document.createElement("p");
+  quantity.textContent = `Qty: ${item.qty}`;
+
+  container.appendChild(name);
+  container.appendChild(quantity);
+
+  // Add badge if qty ≠ 1 and setting is enabled
+  if (settings.showMultiQtyWarning && item.qty !== 1) {
+    const warning = document.createElement("div");
+    warning.textContent = `⚠️ PICK ${item.qty} UNITS`;
+    warning.style.backgroundColor = "#ffeeba";
+    warning.style.color = "#8a6d3b";
+    warning.style.padding = "6px 12px";
+    warning.style.marginTop = "10px";
+    warning.style.borderRadius = "4px";
+    warning.style.fontWeight = "bold";
+    container.appendChild(warning);
+  }
+
+  document.getElementById("pick-area").appendChild(container);
+}
+Sample HTML structure:
+
+html
+Copy code
+<div id="pick-area"></div>
+Optional: Add a toggle UI to enable/disable the setting:
+
+html
+Copy code
+<label>
+  <input type="checkbox" id="toggleWarning" checked>
+  Show quantity warning when qty ≠ 1
+</label>
+
+<script>
+  document.getElementById("toggleWarning").addEventListener("change", (e) => {
+    settings.showMultiQtyWarning = e.target.checked;
+    document.getElementById("pick-area").innerHTML = ""; // Clear previous picks
+    items.forEach(renderPickItem); // Re-render
+  });
+</script>
+Example item list for testing:
+
+js
+Copy code
+const items = [
+  { name: "Pens", qty: 1 },
+  { name: "Boxes", qty: 3 },
+  { name: "Markers", qty: 2 },
+];
+
+items.forEach(renderPickItem);
+✅ Result
+Pickers will see a clear visual warning when they need to pick more than 1.
+
+Admins or users can turn the warning feature on/off via a toggle or config.
+

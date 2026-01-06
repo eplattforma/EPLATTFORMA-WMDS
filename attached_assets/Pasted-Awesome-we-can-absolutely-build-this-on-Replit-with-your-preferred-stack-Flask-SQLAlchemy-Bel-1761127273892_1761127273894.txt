@@ -1,0 +1,752 @@
+Awesome — we can absolutely build this on Replit with your preferred stack (Flask + SQLAlchemy). Below is a single-file app that:
+
+Downloads a specific purchase order from Powersoft365 (by purchase order code or shopping cart code).
+
+Shows the lines to be received.
+
+Lets you scan a barcode with the device camera (via QuaggaJS), or type a code.
+
+Captures received quantity and expiration date per line (supports multiple lots per line).
+
+Stores everything locally in SQLite so you can pause/resume a receipt.
+
+Exports a JSON payload of what was received (for future posting to 365’s “goods receipt” or another endpoint).
+
+You’ll just paste this into Replit as app.py, add your env vars, and run.
+
+What you’ll need
+
+Your Powersoft 365 API details
+
+POWERSOFT_BASE_URL (e.g. https://api.powersoft365.example.com)
+
+POWERSOFT_TOKEN (the token=XXXXX)
+
+Replit secrets
+Add these in Tools → Secrets:
+
+POWERSOFT_BASE_URL
+
+POWERSOFT_TOKEN
+
+How it works (quick flow)
+
+Home page → enter purchase_order_code and set whether it’s a shopping cart code (Y/N).
+
+App calls GET /purchaseorder?token=...&purchase_order_code=...&is_shopping_cart_code=Y|N.
+
+Order is saved in local DB; you are redirected to the Receive screen.
+
+On the Receive screen:
+
+Scan or type an item code (the scanner fills the item code box).
+
+Choose the matching line (if multiple match).
+
+Enter Qty and Expiry date → Add lot.
+
+Repeat for all items/lots.
+
+When done, click Finish / Export to get a JSON of what was received.
+
+Note: The demo treats the scanned value as item_code_365. If your scanner emits additional barcodes (EANs, etc.), you can paste a small mapping table in the code (see the BARCODE_MAP note) or fetch mappings from your DB later. When creating orders, you can pass search_additional_barcodes: true; here we’re only receiving against an already-downloaded order.
+
+The code (single file)
+# app.py
+import os
+import json
+import uuid
+from datetime import datetime
+from urllib.parse import urlencode
+
+import requests
+from flask import Flask, request, redirect, url_for, render_template_string, jsonify, abort
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import relationship
+from sqlalchemy import func
+
+# =========================
+# Config
+# =========================
+POWERSOFT_BASE_URL = os.getenv("POWERSOFT_BASE_URL", "").rstrip("/")
+POWERSOFT_TOKEN = os.getenv("POWERSOFT_TOKEN", "")
+
+if not POWERSOFT_BASE_URL or not POWERSOFT_TOKEN:
+    print("WARNING: Set POWERSOFT_BASE_URL and POWERSOFT_TOKEN in Replit Secrets.")
+
+app = Flask(__name__)
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///receiving.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db = SQLAlchemy(app)
+
+# Optional: If your scanner reads retail barcodes (EAN/UPC)
+# and you need to translate them to item_code_365, define a mapping here
+# or load from a table. Example:
+BARCODE_MAP = {
+    # "5901234123457": "ARTICLE01-AZURE-240",
+    # "1234567890123": "ARTICLE01-BLK-290",
+}
+
+# =========================
+# Models
+# =========================
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    code_365 = db.Column(db.String, nullable=True)          # purchase_order_code_365 (may be null in response)
+    shopping_cart_code = db.Column(db.String, nullable=True)
+    supplier_code = db.Column(db.String, nullable=True)
+    status_code = db.Column(db.String, nullable=True)
+    status_name = db.Column(db.String, nullable=True)
+    order_date_local = db.Column(db.String, nullable=True)
+    order_date_utc0 = db.Column(db.String, nullable=True)
+    comments = db.Column(db.String, nullable=True)
+    total_sub = db.Column(db.Float, nullable=True)
+    total_discount = db.Column(db.Float, nullable=True)
+    total_vat = db.Column(db.Float, nullable=True)
+    total_grand = db.Column(db.Float, nullable=True)
+
+    lines = relationship("OrderLine", backref="order", cascade="all, delete-orphan")
+    receipts = relationship("Receipt", backref="order", cascade="all, delete-orphan")
+
+class OrderLine(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+
+    line_number = db.Column(db.Integer, nullable=False)
+    item_code_365 = db.Column(db.String, nullable=False)
+    item_name = db.Column(db.String, nullable=True)
+
+    line_quantity = db.Column(db.Float, nullable=True)
+    line_price_excl_vat = db.Column(db.Float, nullable=True)
+    line_total_sub = db.Column(db.Float, nullable=True)
+    line_total_discount = db.Column(db.Float, nullable=True)
+    line_total_discount_percentage = db.Column(db.Float, nullable=True)
+    line_vat_code_365 = db.Column(db.String, nullable=True)
+    line_total_vat = db.Column(db.Float, nullable=True)
+    line_total_vat_percentage = db.Column(db.Float, nullable=True)
+    line_total_grand = db.Column(db.Float, nullable=True)
+
+    receipts = relationship("ReceiptLine", backref="order_line", cascade="all, delete-orphan")
+
+class Receipt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+    receipt_code = db.Column(db.String, nullable=False, default=lambda: f"RCPT-{uuid.uuid4().hex[:8].upper()}")
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    operator = db.Column(db.String, nullable=True)  # who received
+
+    lines = relationship("ReceiptLine", backref="receipt", cascade="all, delete-orphan")
+
+class ReceiptLine(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    receipt_id = db.Column(db.Integer, db.ForeignKey("receipt.id"), nullable=False)
+    order_line_id = db.Column(db.Integer, db.ForeignKey("order_line.id"), nullable=False)
+
+    barcode_scanned = db.Column(db.String, nullable=True)
+    item_code_365 = db.Column(db.String, nullable=False)  # denormalised for export
+    qty_received = db.Column(db.Float, nullable=False)
+    expiry_date = db.Column(db.String, nullable=True)     # store as string YYYY-MM-DD (simple)
+    lot_note = db.Column(db.String, nullable=True)
+
+# =========================
+# DB Init
+# =========================
+with app.app_context():
+    db.create_all()
+
+# =========================
+# Helpers
+# =========================
+def fetch_order_from_powersoft(purchase_order_code: str, is_shopping_cart_code: bool):
+    """
+    Calls GET /purchaseorder to fetch a specific order.
+    """
+    if not POWERSOFT_BASE_URL or not POWERSOFT_TOKEN:
+        raise RuntimeError("POWERSOFT credentials missing.")
+
+    params = {
+        "token": POWERSOFT_TOKEN,
+        "purchase_order_code": purchase_order_code,
+        "is_shopping_cart_code": "Y" if is_shopping_cart_code else "N",
+    }
+    url = f"{POWERSOFT_BASE_URL}/purchaseorder?{urlencode(params)}"
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    api_resp = data.get("api_response", {})
+    if api_resp.get("response_code") != "1":
+        raise RuntimeError(f"Powersoft error: {api_resp.get('response_msg')}")
+    return data["order"]
+
+def upsert_order(order_payload):
+    """
+    Saves/updates the order and its lines into SQLite.
+    Returns the Order instance.
+    """
+    hdr = order_payload.get("purchase_order_header", {})
+    lines = order_payload.get("list_purchase_order_details", []) or []
+
+    code_365 = hdr.get("purchase_order_code_365")
+    sc_code = hdr.get("shopping_cart_code")
+    # Find existing by either code_365 (preferred) or shopping_cart_code
+    q = Order.query
+    if code_365:
+        q = q.filter_by(code_365=code_365)
+    elif sc_code:
+        q = q.filter_by(shopping_cart_code=sc_code)
+    existing = q.first()
+
+    if existing:
+        ord_model = existing
+        ord_model.lines.clear()  # re-sync lines
+    else:
+        ord_model = Order()
+
+    ord_model.code_365 = code_365
+    ord_model.shopping_cart_code = sc_code
+    ord_model.supplier_code = hdr.get("supplier_code_365")
+    ord_model.status_code = hdr.get("order_status_code_365")
+    ord_model.status_name = hdr.get("order_status_name")
+    ord_model.order_date_local = hdr.get("order_date_local")
+    ord_model.order_date_utc0 = hdr.get("order_date_utc0")
+    ord_model.comments = hdr.get("comments")
+    ord_model.total_sub = hdr.get("total_sub")
+    ord_model.total_discount = hdr.get("total_discount")
+    ord_model.total_vat = hdr.get("total_vat")
+    ord_model.total_grand = hdr.get("total_grand")
+
+    for ln in lines:
+        ol = OrderLine(
+            line_number=int(ln.get("line_number", 0)),
+            item_code_365=ln.get("item_code_365") or "",
+            item_name=ln.get("item_name"),
+            line_quantity=to_float(ln.get("line_quantity")),
+            line_price_excl_vat=to_float(ln.get("line_price_excl_vat")),
+            line_total_sub=to_float(ln.get("line_total_sub")),
+            line_total_discount=to_float(ln.get("line_total_discount")),
+            line_total_discount_percentage=to_float(ln.get("line_total_discount_percentage")),
+            line_vat_code_365=ln.get("line_vat_code_365"),
+            line_total_vat=to_float(ln.get("line_total_vat")),
+            line_total_vat_percentage=to_float(ln.get("line_total_vat_percentage")),
+            line_total_grand=to_float(ln.get("line_total_grand")),
+        )
+        ord_model.lines.append(ol)
+
+    db.session.add(ord_model)
+    db.session.commit()
+    return ord_model
+
+def to_float(v):
+    try:
+        return float(v) if v is not None and v != "" else None
+    except Exception:
+        return None
+
+def find_order_by_code(user_code: str):
+    """
+    Look up an order we previously saved by either 365 code or shopping cart code.
+    """
+    order = Order.query.filter(
+        (Order.code_365 == user_code) | (Order.shopping_cart_code == user_code)
+    ).first()
+    return order
+
+def map_scanned_to_item_code(scanned: str) -> str:
+    """
+    If the scanner reads a retail barcode, map it to item_code_365.
+    Fallback: assume scanned text IS the item_code_365.
+    """
+    return BARCODE_MAP.get(scanned, scanned)
+
+# =========================
+# Routes
+# =========================
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        code = request.form.get("purchase_order_code", "").strip()
+        is_cart = request.form.get("is_shopping_cart_code", "Y") == "Y"
+        operator = request.form.get("operator", "").strip()
+
+        try:
+            order_data = fetch_order_from_powersoft(code, is_cart)
+            ord_model = upsert_order(order_data)
+        except Exception as e:
+            return render_template_string(TPL_INDEX, error=str(e))
+
+        # create a new receipt session (or reuse last open)
+        open_receipt = (
+            Receipt.query.filter_by(order_id=ord_model.id, finished_at=None)
+            .order_by(Receipt.started_at.desc())
+            .first()
+        )
+        if not open_receipt:
+            open_receipt = Receipt(order_id=ord_model.id, operator=operator or None)
+            db.session.add(open_receipt)
+            db.session.commit()
+
+        # Redirect to receive screen by whichever code exists
+        display_code = ord_model.code_365 or ord_model.shopping_cart_code
+        return redirect(url_for("receive", order_code=display_code))
+
+    return render_template_string(TPL_INDEX, error=None)
+
+@app.route("/receive/<order_code>")
+def receive(order_code):
+    order = find_order_by_code(order_code)
+    if not order:
+        abort(404, "Order not found. Download it from the home page first.")
+
+    receipt = (
+        Receipt.query.filter_by(order_id=order.id, finished_at=None)
+        .order_by(Receipt.started_at.desc())
+        .first()
+    )
+    if not receipt:
+        # create a new one if none is open
+        receipt = Receipt(order_id=order.id)
+        db.session.add(receipt)
+        db.session.commit()
+
+    # aggregate received so far by line
+    agg = (
+        db.session.query(ReceiptLine.order_line_id, func.sum(ReceiptLine.qty_received))
+        .filter(ReceiptLine.receipt_id == receipt.id)
+        .group_by(ReceiptLine.order_line_id)
+        .all()
+    )
+    received_by_line = {line_id: qty or 0 for line_id, qty in agg}
+
+    return render_template_string(
+        TPL_RECEIVE,
+        order=order,
+        receipt=receipt,
+        received_by_line=received_by_line,
+    )
+
+@app.route("/api/receive/add", methods=["POST"])
+def api_receive_add():
+    """
+    Add a received lot for a given order_line.
+    POST JSON: {
+      "receipt_id": int,
+      "order_line_id": int,
+      "barcode_scanned": str (optional),
+      "item_code_365": str,
+      "qty_received": float,
+      "expiry_date": "YYYY-MM-DD" (optional),
+      "lot_note": str (optional)
+    }
+    """
+    data = request.get_json(force=True)
+    receipt = Receipt.query.get(data.get("receipt_id"))
+    if not receipt or receipt.finished_at is not None:
+        return jsonify({"ok": False, "error": "Receipt not open."}), 400
+
+    ol = OrderLine.query.get(data.get("order_line_id"))
+    if not ol or ol.order_id != receipt.order_id:
+        return jsonify({"ok": False, "error": "Invalid order line."}), 400
+
+    # Basic validations
+    qty = to_float(data.get("qty_received"))
+    if not qty or qty <= 0:
+        return jsonify({"ok": False, "error": "Quantity must be > 0"}), 400
+
+    # If you want to enforce not exceeding ordered qty, uncomment:
+    # already = db.session.query(func.sum(ReceiptLine.qty_received)).filter_by(order_line_id=ol.id, receipt_id=receipt.id).scalar() or 0
+    # if already + qty > (ol.line_quantity or 0):
+    #     return jsonify({"ok": False, "error": "Cannot receive more than ordered."}), 400
+
+    rl = ReceiptLine(
+        receipt_id=receipt.id,
+        order_line_id=ol.id,
+        barcode_scanned=(data.get("barcode_scanned") or None),
+        item_code_365=data.get("item_code_365") or ol.item_code_365,
+        qty_received=qty,
+        expiry_date=(data.get("expiry_date") or None),
+        lot_note=(data.get("lot_note") or None),
+    )
+    db.session.add(rl)
+    db.session.commit()
+
+    return jsonify({"ok": True, "id": rl.id})
+
+@app.route("/api/receive/finish", methods=["POST"])
+def api_receive_finish():
+    """
+    Mark a receipt as finished and return an exportable JSON summarising the receipt.
+    POST JSON: { "receipt_id": int }
+    """
+    data = request.get_json(force=True)
+    receipt = Receipt.query.get(data.get("receipt_id"))
+    if not receipt:
+        return jsonify({"ok": False, "error": "Receipt not found"}), 404
+    if receipt.finished_at:
+        # already finished; still return export
+        return jsonify({"ok": True, "export": build_export(receipt)})
+
+    receipt.finished_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"ok": True, "export": build_export(receipt)})
+
+def build_export(receipt: Receipt):
+    """
+    Build a clean JSON export of what was received (grouped by order line).
+    """
+    order = receipt.order
+    lines = []
+    for ol in order.lines:
+        lots = []
+        for rl in receipt.lines:
+            if rl.order_line_id == ol.id:
+                lots.append({
+                    "barcode_scanned": rl.barcode_scanned,
+                    "item_code_365": rl.item_code_365,
+                    "qty_received": rl.qty_received,
+                    "expiry_date": rl.expiry_date,
+                    "lot_note": rl.lot_note,
+                })
+        if lots:
+            lines.append({
+                "line_number": ol.line_number,
+                "item_code_365": ol.item_code_365,
+                "item_name": ol.item_name,
+                "ordered_qty": ol.line_quantity,
+                "lots": lots
+            })
+
+    export = {
+        "receipt_code": receipt.receipt_code,
+        "operator": receipt.operator,
+        "order": {
+            "purchase_order_code_365": order.code_365,
+            "shopping_cart_code": order.shopping_cart_code,
+            "supplier_code_365": order.supplier_code,
+            "status": {"code": order.status_code, "name": order.status_name},
+            "order_date_local": order.order_date_local,
+            "comments": order.comments,
+        },
+        "received_at_utc": (receipt.finished_at or datetime.utcnow()).isoformat() + "Z",
+        "lines": lines
+    }
+    return export
+
+# =========================
+# Templates (inline)
+# =========================
+
+TPL_INDEX = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PO Receiving</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; max-width: 700px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    label { display: block; font-weight: 600; margin-top: 8px; }
+    input, select, button { padding: 10px; border-radius: 8px; border: 1px solid #ccc; width: 100%; }
+    button { cursor: pointer; }
+    .error { color: #b00020; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Receive Purchase Order</h1>
+  <div class="card">
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <div class="row">
+        <div style="flex:2">
+          <label>Purchase Order Code or Shopping Cart Code</label>
+          <input name="purchase_order_code" placeholder="e.g. CART192 or 365 code" required>
+        </div>
+        <div style="flex:1">
+          <label>Is shopping cart code?</label>
+          <select name="is_shopping_cart_code">
+            <option value="Y">Y</option>
+            <option value="N">N</option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <label>Operator (optional)</label>
+          <input name="operator" placeholder="e.g. Maria">
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button type="submit">Download & Start Receipt</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+TPL_RECEIVE = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Receiving - {{ order.code_365 or order.shopping_cart_code }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
+    h2, h3 { margin: 8px 0 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; }
+    input, select, button { padding: 10px; border-radius: 8px; border: 1px solid #ccc; width: 100%; }
+    button { cursor: pointer; }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background:#f1f5f9; font-size:12px; }
+    #interactive.viewport { position: relative; width: 100%; }
+    #interactive video { width: 100%; border-radius: 12px; }
+    #interactive canvas.drawingBuffer { position: absolute; top: 0; left: 0; }
+    .ok { color: #0a7f2e; }
+    .warn { color: #9a6700; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+
+  <h2>Receiving: <span class="pill">{{ order.code_365 or order.shopping_cart_code }}</span></h2>
+  <div class="grid">
+    <div class="card">
+      <h3>1) Scan / Enter Item</h3>
+      <div id="interactive" class="viewport"></div>
+      <div class="row" style="margin-top:10px">
+        <input id="manualCode" placeholder="Type or paste item code (or retail barcode)">
+        <button onclick="useManual()">Use code</button>
+        <button onclick="toggleScanner()">Start/Stop Camera</button>
+      </div>
+
+      <h3 style="margin-top:16px">2) Choose matching line</h3>
+      <select id="lineSelect">
+        <option value="">-- Select line --</option>
+        {% for ln in order.lines %}
+          <option value="{{ ln.id }}">{{ ln.line_number }} | {{ ln.item_code_365 }} — {{ ln.item_name or '' }}</option>
+        {% endfor %}
+      </select>
+
+      <h3 style="margin-top:16px">3) Enter Qty & Expiry (lot)</h3>
+      <div class="row">
+        <input id="qty" type="number" min="0" step="0.0001" placeholder="Qty received">
+        <input id="expiry" type="date" placeholder="Expiry date">
+        <input id="lotNote" placeholder="Lot note (optional)">
+        <button onclick="addLot()">Add lot</button>
+      </div>
+      <div id="addMsg" style="margin-top:10px"></div>
+
+      <h3 style="margin-top:18px">4) Finish</h3>
+      <button onclick="finishReceipt()">Finish & Export JSON</button>
+      <pre id="exportBox" style="margin-top:12px; white-space:pre-wrap;"></pre>
+    </div>
+
+    <div class="card">
+      <h3>Order Lines</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Item</th><th>Ordered</th><th>Received</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ln in order.lines %}
+          <tr>
+            <td>{{ ln.line_number }}</td>
+            <td>
+              <strong>{{ ln.item_code_365 }}</strong><br>
+              <small>{{ ln.item_name or '' }}</small>
+            </td>
+            <td>{{ ln.line_quantity or '' }}</td>
+            <td>
+              {% set rec = received_by_line.get(ln.id, 0) %}
+              <span class="{{ 'ok' if (ln.line_quantity and rec>=ln.line_quantity) else '' }}">
+                {{ '%.4f'|format(rec) if rec else '0' }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <h3 style="margin-top:18px">Header</h3>
+      <div><strong>Supplier:</strong> {{ order.supplier_code }}</div>
+      <div><strong>Status:</strong> {{ order.status_code }} ({{ order.status_name }})</div>
+      <div><strong>Local date:</strong> {{ order.order_date_local }}</div>
+      <div><strong>Comments:</strong> {{ order.comments or '—' }}</div>
+    </div>
+  </div>
+
+<script>
+  const RECEIPT_ID = {{ receipt.id }};
+  let scannerOn = false;
+  let lastDetected = null;
+
+  function toggleScanner() {
+    if (scannerOn) {
+      Quagga.stop();
+      scannerOn = false;
+      return;
+    }
+    startScanner();
+  }
+
+  function startScanner() {
+    Quagga.init({
+      inputStream : {
+        name : "Live",
+        type : "LiveStream",
+        constraints: {
+          facingMode: "environment"
+        },
+        target: document.querySelector('#interactive')
+      },
+      decoder : {
+        readers : [
+          "code_128_reader",
+          "ean_reader",
+          "ean_8_reader",
+          "upc_reader",
+          "upc_e_reader",
+          "code_39_reader",
+          "codabar_reader"
+        ]
+      }
+    }, function(err) {
+        if (err) { console.error(err); return }
+        Quagga.start();
+        scannerOn = true;
+    });
+
+    Quagga.onDetected(function(res){
+      const code = res.codeResult.code;
+      if (!code || code === lastDetected) return;
+      lastDetected = code;
+      document.getElementById("manualCode").value = code;
+      // Try to preselect by matching item_code_365
+      preselectLineByCode(code);
+    });
+  }
+
+  function useManual() {
+    const code = document.getElementById("manualCode").value.trim();
+    if (!code) return;
+    preselectLineByCode(code);
+  }
+
+  function preselectLineByCode(scanned) {
+    // For demo we assume scanned equals item_code_365. If you maintain a mapping, do it server-side or embed here.
+    const sel = document.getElementById("lineSelect");
+    let found = false;
+    for (const opt of sel.options) {
+      if (!opt.value) continue;
+      if (opt.text.includes(scanned)) { sel.value = opt.value; found = true; break; }
+    }
+    if (!found) {
+      // keep code anyway; user can choose manually
+    }
+  }
+
+  async function addLot() {
+    const lineId = document.getElementById("lineSelect").value;
+    const qty = document.getElementById("qty").value;
+    const expiry = document.getElementById("expiry").value;
+    const lotNote = document.getElementById("lotNote").value;
+    const barcode = document.getElementById("manualCode").value.trim();
+
+    if (!lineId) return msg("Please select a line.", true);
+    if (!qty || Number(qty) <= 0) return msg("Quantity must be > 0.", true);
+
+    // Extract item_code_365 for the chosen line (from option text).
+    const selText = document.getElementById("lineSelect").selectedOptions[0].text;
+    const codeMatch = selText.split("|")[1]?.trim().split(" — ")[0] || "";
+    const itemCode = codeMatch || "";
+
+    const res = await fetch("/api/receive/add", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        receipt_id: RECEIPT_ID,
+        order_line_id: Number(lineId),
+        barcode_scanned: barcode || null,
+        item_code_365: itemCode,
+        qty_received: Number(qty),
+        expiry_date: expiry || null,
+        lot_note: lotNote || null
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) return msg(data.error || "Error", true);
+    msg("Lot added ✔");
+    // reset qty only
+    document.getElementById("qty").value = "";
+    document.getElementById("lotNote").value = "";
+    // Refresh page to update received totals
+    location.reload();
+  }
+
+  function msg(t, err=false) {
+    const el = document.getElementById("addMsg");
+    el.textContent = t;
+    el.style.color = err ? "#b00020" : "#0a7f2e";
+  }
+
+  async function finishReceipt() {
+    const res = await fetch("/api/receive/finish", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ receipt_id: RECEIPT_ID })
+    });
+    const data = await res.json();
+    if (!data.ok) { document.getElementById("exportBox").textContent = data.error || "Error"; return; }
+    document.getElementById("exportBox").textContent = JSON.stringify(data.export, null, 2);
+    alert("Receipt finished. JSON ready below.");
+  }
+</script>
+</body>
+</html>
+"""
+
+# =========================
+# Run
+# =========================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=True)
+
+Notes & extensions
+
+Barcode → item_code_365 mapping: if your scanner reads EAN/UPC, add those to BARCODE_MAP or create a table to look them up. Right now, the UI tries to match the scanned string inside the option text (so if your item_code_365 is printed as a barcode, it’ll match directly).
+
+Prevent over-receipt: uncomment the validation in /api/receive/add to stop receiving more than ordered.
+
+Multiple receipts per order: you can start/finish multiple receipts; each export includes a receipt_code.
+
+Posting back to 365: when you’re ready to push received data back to 365, we can add a new endpoint call (e.g., a “goods receipt” API if Powersoft provides it). The build_export() structure is designed to be easy to transform.
+
+Quick start on Replit
+
+Create a Python Repl.
+
+Add Secrets:
+
+POWERSOFT_BASE_URL
+
+POWERSOFT_TOKEN
+
+Add packages in pyproject.toml or poetry (or in Replit’s Packages panel):
+
+flask
+
+flask_sqlalchemy
+
+requests
+
+Create app.py with the code above.
+
+Run. Open the webview (HTTPS — required for camera).
+
+Enter an order code (e.g., CART192, Y for shopping cart) and start receiving.

@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+
+{% block title %}Manage Help Content - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('help.help_dashboard') }}">Help</a></li>
+                    <li class="breadcrumb-item active">Manage Content</li>
+                </ol>
+            </nav>
+            <div class="d-flex justify-content-between align-items-center">
+                <h2 class="h4 mb-0">
+                    <i class="fas fa-edit me-2"></i>Manage Help Content
+                </h2>
+                <a href="{{ url_for('help.help_dashboard') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Help
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Section Editor -->
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-list me-2"></i>Help Sections</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        {% for section_key, section_data in help_sections.items() %}
+                        <a href="#" class="list-group-item list-group-item-action help-section-link" 
+                           data-section="{{ section_key }}"
+                           data-title="{{ section_data.title }}"
+                           data-content="{{ section_data.content }}">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">{{ section_data.title }}</h6>
+                                {% if section_data.content %}
+                                <small class="text-success"><i class="fas fa-check"></i></small>
+                                {% else %}
+                                <small class="text-muted"><i class="fas fa-edit"></i></small>
+                                {% endif %}
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Edit Content</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('help.admin_help_save') }}" id="helpForm">
+                        <input type="hidden" name="section" id="sectionInput">
+                        
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Section Title</label>
+                            <input type="text" class="form-control" id="title" name="title" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="content" class="form-label">Content</label>
+                            <textarea class="form-control" id="content" name="content" rows="15" 
+                                      placeholder="Enter help content here. You can use HTML for formatting."></textarea>
+                            <div class="form-text">
+                                You can use basic HTML tags like &lt;h3&gt;, &lt;p&gt;, &lt;strong&gt;, &lt;ul&gt;, &lt;li&gt;, &lt;br&gt; for formatting.
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-2"></i>Save Content
+                            </button>
+                            <div class="btn-group">
+                                <button type="button" class="btn btn-outline-secondary" onclick="previewContent()">
+                                    <i class="fas fa-eye me-2"></i>Preview
+                                </button>
+                                <button type="button" class="btn btn-outline-danger" onclick="clearContent()">
+                                    <i class="fas fa-trash me-2"></i>Clear
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Preview Area -->
+            <div class="card mt-4" id="previewCard" style="display: none;">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-eye me-2"></i>Preview</h5>
+                </div>
+                <div class="card-body" id="previewContent">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Handle section selection
+document.querySelectorAll('.help-section-link').forEach(link => {
+    link.addEventListener('click', function(e) {
+        e.preventDefault();
+        
+        // Remove active class from all links
+        document.querySelectorAll('.help-section-link').forEach(l => l.classList.remove('active'));
+        
+        // Add active class to clicked link
+        this.classList.add('active');
+        
+        // Fill form with section data
+        document.getElementById('sectionInput').value = this.dataset.section;
+        document.getElementById('title').value = this.dataset.title;
+        document.getElementById('content').value = this.dataset.content;
+        
+        // Hide preview
+        document.getElementById('previewCard').style.display = 'none';
+    });
+});
+
+// Preview function
+function previewContent() {
+    const content = document.getElementById('content').value;
+    const title = document.getElementById('title').value;
+    
+    if (!content.trim()) {
+        alert('Please enter some content to preview.');
+        return;
+    }
+    
+    const previewDiv = document.getElementById('previewContent');
+    previewDiv.innerHTML = `<h3>${title}</h3>${content}`;
+    
+    document.getElementById('previewCard').style.display = 'block';
+    previewDiv.scrollIntoView({ behavior: 'smooth' });
+}
+
+// Clear function
+function clearContent() {
+    if (confirm('Are you sure you want to clear all content?')) {
+        document.getElementById('title').value = '';
+        document.getElementById('content').value = '';
+        document.getElementById('previewCard').style.display = 'none';
+    }
+}
+
+// Auto-select first section on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const firstLink = document.querySelector('.help-section-link');
+    if (firstLink) {
+        firstLink.click();
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,280 @@
+Replit Agent — Implementation Plan
+0) Summary (what to change)
+
+Switch Deliver Step to exception-only (no full scanning).
+
+Support single-line Wrong/Substitution (expected → actual) in one discrepancy record.
+
+Keep plain Short / Damaged unchanged.
+
+Recompute COD Expected from delivered quantities.
+
+Preserve existing discrepancy lifecycle (reported → validated → resolved → review → closed).
+
+1) DB migrations (PostgreSQL)
+1.1 Add “actual” fields to support single-line substitution
+
+Create Alembic migration:
+
+ALTER TABLE delivery_discrepancies
+  ADD COLUMN actual_item_id     INTEGER NULL,
+  ADD COLUMN actual_item_code   TEXT NULL,
+  ADD COLUMN actual_item_name   TEXT NULL,
+  ADD COLUMN actual_qty         NUMERIC(12,3) NULL,
+  ADD COLUMN actual_barcode     TEXT NULL;
+
+
+Backfill not required. Existing records remain valid with these fields NULL.
+
+1.2 (Optional) Add generated view for reporting
+CREATE OR REPLACE VIEW v_discrepancies_readable AS
+SELECT
+  d.id,
+  d.discrepancy_type,
+  COALESCE(d.item_id, d.expected_item_id) AS expected_item_id,    -- if you already store expected_*
+  d.item_id                                 AS legacy_expected_item_id,
+  d.actual_item_id,
+  d.qty                                     AS legacy_qty,
+  d.actual_qty,
+  CASE
+    WHEN d.discrepancy_type='wrong_item' THEN
+      CONCAT('Expected ', d.item_id, ' → Sent ', COALESCE(d.actual_item_id::text, d.actual_barcode))
+    ELSE NULL
+  END AS substitution_label,
+  d.notes, d.status, d.reported_source, d.created_at
+FROM delivery_discrepancies d;
+
+2) Models (Python / SQLAlchemy)
+
+File: models.py
+
+Ensure DeliveryDiscrepancy includes new columns:
+
+from sqlalchemy import Text
+
+class DeliveryDiscrepancy(Base):
+    __tablename__ = "delivery_discrepancies"
+    # ...existing fields...
+    actual_item_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_item_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_item_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_qty: Mapped[Numeric | None] = mapped_column(Numeric(12,3), nullable=True)
+    actual_barcode: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+No other model changes required.
+
+3) Deliver wizard UI (Jinja + Bootstrap)
+
+File: templates/deliver_wizard.html
+
+3.1 Exception modal: extend “Wrong” to include Actual item
+
+Add “Actual item” section that supports scan/barcode or manual code:
+
+<!-- In the Exception Modal, under Type/Qty/Notes -->
+<div class="mb-2" id="actualWrapper" hidden>
+  <label class="form-label">Actual item (what actually went)</label>
+  <input type="text" class="form-control mb-2" id="actualBarcode" placeholder="Scan barcode or enter code">
+  <input type="text" class="form-control" id="actualItemCode" placeholder="Item code (optional if barcode provided)">
+  <!-- If you have SKU search API, add a small 'Search' button to open a picker -->
+</div>
+
+3.2 Toggle visibility for actual fields
+
+Show #actualWrapper only when Type = WRONG.
+
+4) Frontend JS changes
+
+File: static/js/deliver_exceptions.js
+
+4.1 Extend saved exception payload for WRONG/Substitution
+
+When saving an exception:
+
+// inside save handler
+const type = document.getElementById('excType').value;
+const qty  = parseFloat(document.getElementById('excQty').value||'0');
+const notes = document.getElementById('excNotes').value.trim();
+const damagedAccepted = document.getElementById('damAccepted').checked;
+
+// NEW: substitution fields
+const actual = (type === 'WRONG') ? {
+  barcode: document.getElementById('actualBarcode').value.trim() || null,
+  item_code: document.getElementById('actualItemCode').value.trim() || null,
+  // if you later add a product picker, include actual.item_id and actual.item_name
+  qty: qty
+} : null;
+
+exceptions.push({
+  item_id: currentItemId, // expected item row
+  type, qty, notes, damagedAccepted, photos: [],
+  actual  // only present when type === 'WRONG'
+});
+
+4.2 Modal UI toggles
+document.getElementById('excType').addEventListener('change', (e)=>{
+  const isDam = e.target.value === 'DAMAGED';
+  const isWrong = e.target.value === 'WRONG';
+  document.getElementById('damagedGroup').hidden = !isDam;
+  document.getElementById('actualWrapper').hidden = !isWrong;
+});
+
+4.3 Recompute delivered math (unchanged)
+
+SHORT & DAMAGED(rejected) reduce delivered.
+
+WRONG does not reduce delivered on the expected line (handled server-side via derived short if you enable that policy).
+
+5) Backend handler (Flask) — parse substitution
+
+File: app.py → function submit_delivery
+
+5.1 Read new “actual” object for WRONG
+
+Update exception loop:
+
+for ex in exceptions:
+    ex_type = (ex.get("type") or "").upper()
+    item_id = ex.get("item_id")
+    qty = Decimal(str(ex.get("qty", 0) or 0))
+    notes = ex.get("notes") or ""
+    damaged_accepted = bool(ex.get("damagedAccepted", False))
+
+    # Optional 'actual' block for substitution
+    actual = ex.get("actual") or {}
+    actual_code = actual.get("item_code")
+    actual_barcode = actual.get("barcode")
+    actual_qty = Decimal(str(actual.get("qty", qty))) if ex_type == "WRONG" else None
+    actual_item_id = actual.get("item_id")  # if you add SKU picker later
+
+    # Locate expected line by item_id (as before) -> key
+    key = next((k for k in by_key.keys() if str(k[1]) == str(item_id)), None)
+
+    # Create discrepancy row with both sides when WRONG
+    disc_kwargs = dict(
+        route_id=route.id, route_stop_id=stop.id,
+        invoice_id=key[0] if key else None,
+        item_id=item_id,
+        discrepancy_type=ex_type.lower(),  # e.g., 'wrong_item'
+        qty=qty, notes=notes,
+        reported_by=current_driver_id(),
+        reported_source="driver", status="reported",
+        created_at=now()
+    )
+    if ex_type == "WRONG":
+        disc_kwargs.update({
+            "actual_item_id": actual_item_id,
+            "actual_item_code": actual_code,
+            "actual_item_name": None,  # optional to fill if you resolve SKU
+            "actual_qty": actual_qty,
+            "actual_barcode": actual_barcode
+        })
+
+    disc = DeliveryDiscrepancy(**disc_kwargs)
+    s.add(disc); s.flush()
+    s.add(DeliveryDiscrepancyEvent(
+        discrepancy_id=disc.id, event_type="created",
+        actor_id=current_driver_id(), notes="reported from driver app",
+        created_at=now(),
+    ))
+
+    # Delivered derivation:
+    if key in by_key:
+        if ex_type == "SHORT":
+            by_key[key]["short"] += qty
+        elif ex_type == "DAMAGED" and not damaged_accepted:
+            by_key[key]["dam_rej"] += qty
+        elif ex_type == "WRONG":
+            # POLICY A (recommended): treat as short on expected line
+            by_key[key]["short"] += qty
+            # and optionally create a pseudo delivered line for actual item (see below)
+
+5.2 Optional: create pseudo delivery line for actual item
+
+If you want COD and delivery snapshot to reflect what actually left:
+
+if ex_type == "WRONG" and actual_item_id:
+    # Create a pseudo delivery line for the 'actual' item
+    dl_sub = DeliveryLine(
+        route_id=route.id, route_stop_id=stop.id,
+        invoice_id=key[0] if key else None,  # same invoice context
+        item_id=int(actual_item_id),
+        qty_ordered=Decimal("0"),            # not ordered on this invoice
+        qty_delivered=actual_qty or qty,
+        created_at=now()
+    )
+    s.add(dl_sub)
+    delivery_lines.append(dl_sub)
+
+
+If you do not want to bill the actual item, skip the pseudo delivery line. COD then reflects only delivered items from the invoice, not the substitution.
+
+6) COD recalculation (unchanged mechanics)
+
+Already computed from delivery_lines in your handler.
+
+With substitution pseudo lines (optional), COD will include the “actual” item price if you load its price. If you keep invoice-only pricing, leave as-is and let finance handle credits.
+
+If you need actual item price:
+
+Add a quick lookup before computing COD:
+
+price_map[actual_item_id] = get_price_for_item(actual_item_id)
+
+
+Use that for pseudo lines’ contribution.
+
+7) Receipt & PS365 (unchanged)
+
+Keep GET /receipts/<id>/print as-is.
+
+Push cod_receipt to PS365.
+
+No change needed for discrepancy integration.
+
+8) Reporting changes
+
+List View: render Wrong/Substitution as “Expected <code> × qty → Sent <actual_code or barcode> × qty”.
+
+Detail View: show both expected and actual blocks with notes/photos.
+
+No duplication of lines required.
+
+9) Validation rules (backend)
+
+For SHORT and DAMAGED(rejected), enforce short + damaged_rejected ≤ ordered.
+
+For WRONG, enforce qty ≤ ordered_remaining on expected item, unless you allow over-substitution.
+
+If actual_item_id is missing but actual_barcode provided, accept and store barcode (warehouse maps later).
+
+🔬 QA / Acceptance tests
+
+Plain short: One item short by 1; delivered reduces by 1; COD drops by 1×price; 1 discrepancy created (short_pick).
+
+Damaged accepted: Damaged 1 (accepted) → delivered unchanged; discrepancy recorded.
+
+Damaged rejected: Damaged 1 (rejected) → delivered −1; discrepancy recorded.
+
+Wrong/Substitution:
+
+Expected item A ×1 replaced with item B ×1: one discrepancy row with expected→actual; delivered for A reduces by 1; (optional) pseudo line for B.
+
+No exceptions: All delivered; COD expected equals original sum.
+
+Variance note: COD received ≠ expected → note required.
+
+Receipt print: After submit, print URL opens 58mm receipt.
+
+10) Small UX polish
+
+In Exceptions list, render WRONG entry as:
+
+Wrong/Substitution — BAT-0026 ×1 → DUR-AAA ×1
+Notes: duracel instead
+
+
+Disable Confirm Delivery when a variance exists and COD note is empty.
+
+If POD “Signed invoice collected” is off, require receiver name.

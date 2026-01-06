@@ -1,0 +1,121 @@
+2025-10-30 10:46:56.97
+94429e4d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): powersoft365customers.blob.core.windows.net:443
+2025-10-30 10:46:57.50
+94429e4d
+User
+DEBUG:urllib3.connectionpool:https://powersoft365customers.blob.core.windows.net:443 "GET /he353264-step-eplattforma/Items/SNA-0015.jpg HTTP/1.1" 200 30801
+2025-10-30 10:46:57.62
+94429e4d
+User
+INFO:root:Successfully downloaded and processed image for SNA-0015
+2025-10-30 10:47:49.71
+94429e4d
+User
+ERROR:app:Error sorting items: '<' not supported between instances of 'str' and 'tuple'
+2025-10-30 10:47:50.58
+94429e4d
+User
+INFO:root:Attempting to download image from https://powersoft365customers.blob.core.windows.net/he353264-step-eplattforma/Items/SNA-0002.jpg
+2025-10-30 10:47:50.58
+94429e4d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): powersoft365customers.blob.core.windows.net:443
+2025-10-30 10:47:51.05
+94429e4d
+User
+DEBUG:urllib3.connectionpool:https://powersoft365customers.blob.core.windows.net:443 "GET /he353264-step-eplattforma/Items/SNA-0002.jpg HTTP/1.1" 200 32253
+2025-10-30 10:47:51.16
+94429e4d
+User
+INFO:root:Successfully downloaded and processed image for SNA-0002
+2025-10-30 10:48:24.63
+94429e4d
+User
+ERROR:app:Error sorting items: '<' not supported between instances of 'str' and 'tuple'
+2025-10-30 10:48:25.43
+94429e4d
+User
+INFO:root:Attempting to download image from https://powersoft365customers.blob.core.windows.net/he353264-step-eplattforma/Items/CLE-0054.jpg
+2025-10-30 10:48:25.43
+94429e4d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): powersoft365customers.blob.core.windows.net:443
+
+2025-10-30 10:48:25.87
+94429e4d
+User
+DEBUG:urllib3.connectionpool:https://powersoft365customers.blob.core.windows.net:443 "GET /he353264-step-eplattforma/Items/CLE-0054.jpg HTTP/1.1" 200 31506
+2025-10-30 10:48:25.99
+94429e4d
+User
+INFO:root:Successfully downloaded and processed image for CLE-0054
+2025-10-30 10:49:27.47
+94429e4d
+User
+ERROR:app:Error sorting items: '<' not supported between instances of 'str' and 'tuple'
+2025-10-30 10:49:28.31
+94429e4d
+User
+INFO:root:Image for KCO-0042 found in local cache
+2025-10-30 10:50:05.76
+94429e4d
+User
+ERROR:app:Error sorting items: '<' not supported between instances of 'str' and 'tuple'
+2025-10-30 10:50:06.72
+94429e4d
+User
+INFO:root:Attempting to download image from https://powersoft365customers.blob.core.windows.net/he353264-step-eplattforma/Items/SNA-0105.jpg
+2025-10-30 10:50:06.72
+94429e4d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): powersoft365customers.blob.core.windows.net:443
+2025-10-30 10:50:07.16
+94429e4d
+User
+DEBUG:urllib3.connectionpool:https://powersoft365customers.blob.core.windows.net:443 "GET /he353264-step-eplattforma/Items/SNA-0105.jpg HTTP/1.1" 200 197814
+2025-10-30 10:50:07.69
+94429e4d
+User
+INFO:root:Successfully downloaded and processed image for SNA-0105
+2025-10-30 10:50:30.29
+94429e4d
+User
+ERROR:app:Error sorting items: '<' not supported between instances of 'str' and 'tuple'
+2025-10-30 10:50:31.09
+94429e4d
+User
+INFO:root:Attempting to download image from https://powersoft365customers.blob.core.windows.net/he353264-step-eplattforma/Items/INC-0004.jpg
+2025-10-30 10:50:31.09
+94429e4d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): powersoft365customers.blob.core.windows.net:443
+2025-10-30 10:50:31.51
+94429e4d
+User
+DEBUG:urllib3.connectionpool:https://powersoft365customers.blob.core.windows.net:443 "GET /he353264-step-eplattforma/Items/INC-0004.jpg HTTP/1.1" 200 46565
+2025-10-30 10:50:31.73
+94429e4d
+User
+INFO:root:Successfully downloaded and processed image for INC-0004
+2025-10-30 10:51:01.19
+94429e4d
+User
+ERROR:app:Error sorting items: '<' not supported between instances of 'str' and 'tuple'
+2025-10-30 10:51:01.97
+94429e4d
+User
+INFO:root:Attempting to download image from https://powersoft365customers.blob.core.windows.net/he353264-step-eplattforma/Items/SNA-0106.jpg
+2025-10-30 10:51:01.97
+94429e4d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): powersoft365customers.blob.core.windows.net:443
+2025-10-30 10:51:02.40
+94429e4d
+User
+DEBUG:urllib3.connectionpool:https://powersoft365customers.blob.core.windows.net:443 "GET /he353264-step-eplattforma/Items/SNA-0106.jpg HTTP/1.1" 200 201719
+2025-10-30 10:51:02.83
+94429e4d
+User
+INFO:root:Successfully downloaded and processed image for SNA-0106

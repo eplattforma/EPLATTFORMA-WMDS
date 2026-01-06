@@ -1,0 +1,370 @@
+What the driver must see (rules)
+
+If customer is Credit (is_credit = true)
+
+No COD section.
+
+No “issue receipt” option (driver cannot create/print a receipt).
+
+Show a banner: “On Account (Credit)” and any notes_for_driver.
+
+Button remains Confirm Delivery (no payment controls).
+
+If customer is NOT Credit (is_credit = false)
+
+Show COD section and limit payment methods to what the terms allow:
+
+Cash (if allow_cash)
+
+Cheque (if allow_cheque)
+
+Pay Online (if allow_bank_transfer) → driver records “will pay online” (no cash/cheque collected), and we do not print a receipt now.
+
+(Optionally: POS card if allow_card_pos, but you asked for cash/cheque/online specifically.)
+
+Allow Print receipt only for immediate payments (cash/cheque). No print for “Pay Online”.
+
+Source fields live in your credit_terms data (e.g., is_credit, allowed methods, driver notes). 
+
+credit_terms
+
+Backend: fetch terms for the stop
+
+Assumption: RouteStop has customer_code. Add a helper to fetch terms (from DB or service; using a stub here).
+
+# app.py (add helper)
+def get_credit_terms(session, customer_code: str):
+    # replace with real query/table/service. Must return:
+    # is_credit, allow_cash, allow_cheque, allow_bank_transfer, allow_card_pos, notes_for_driver
+    terms = session.execute("""
+        SELECT is_credit, allow_cash, allow_cheque, allow_bank_transfer, allow_card_pos, notes_for_driver
+        FROM credit_terms
+        WHERE customer_code = :code
+        ORDER BY valid_from DESC
+        LIMIT 1
+    """, {"code": customer_code}).mappings().first()
+    if not terms:
+        # sensible defaults: POD, non-credit, allow cash
+        return dict(is_credit=False, allow_cash=True, allow_cheque=False, allow_bank_transfer=True, allow_card_pos=False, notes_for_driver=None)
+    return dict(terms)
+
+
+Use it in stop detail and deliver wizard:
+
+@app.get("/stops/<int:stop_id>/deliver")
+def deliver_wizard(stop_id):
+    with Session(engine) as s:
+        stop = s.get(RouteStop, stop_id) or abort(404)
+        route = s.get(Route, stop.route_id)
+        require_in_transit_route(route)
+
+        terms = get_credit_terms(s, stop.customer_code)
+
+        invoice_lines = (
+            s.query(InvoiceLine).join(Invoice, InvoiceLine.invoice_id==Invoice.id)
+             .filter(Invoice.route_stop_id==stop_id).all()
+        )
+        lines = [{
+            "invoice_id": il.invoice_id,
+            "item_id": il.item_id,
+            "item_code": il.item_code,
+            "item_name": il.item_name,
+            "qty_ordered": float(il.qty_ordered),
+            "unit_price": float(il.unit_price or 0),
+        } for il in invoice_lines]
+
+        return render_template(
+            "deliver_wizard.html",
+            stop=stop, route=route, lines=lines, terms=terms
+        )
+
+
+If you don’t store customer_code on RouteStop, fetch from Invoice.customer_code (ensure all invoices at the stop share the same customer).
+
+Template: show/hide payment UI based on terms
+
+templates/deliver_wizard.html — add a banner and pass the allowed methods into data-* attributes for JS:
+
+<!-- Top banner about credit / notes -->
+{% if terms.is_credit %}
+  <div class="alert alert-info mb-2">
+    <strong>On Account (Credit)</strong> — No receipt will be issued at delivery.
+    {% if terms.notes_for_driver %}<div class="small mt-1">{{ terms.notes_for_driver }}</div>{% endif %}
+  </div>
+{% else %}
+  {% if terms.notes_for_driver %}
+  <div class="alert alert-warning mb-2"><strong>Note:</strong> {{ terms.notes_for_driver }}</div>
+  {% endif %}
+{% endif %}
+
+<!-- Root container: expose allowed payment methods for JS -->
+<div class="container py-3" id="deliverApp"
+     data-stop-id="{{ stop.id }}"
+     data-invoice-ids="{{ lines|map(attribute='invoice_id')|list|unique|join(',') }}"
+     data-is-credit="{{ '1' if terms.is_credit else '0' }}"
+     data-allow-cash="{{ '1' if terms.allow_cash else '0' }}"
+     data-allow-cheque="{{ '1' if terms.allow_cheque else '0' }}"
+     data-allow-online="{{ '1' if terms.allow_bank_transfer else '0' }}">
+
+
+Replace the COD + POD card’s payment method area:
+
+{% if not terms.is_credit %}
+  <div class="card mt-3" id="codCard">
+    <div class="card-body">
+      <h6 class="mb-2">Payment</h6>
+
+      <div class="mb-2">
+        <label class="form-label">Payment option</label>
+        <select id="codMethod" class="form-select">
+          {% if terms.allow_cash %}<option value="cash">Cash</option>{% endif %}
+          {% if terms.allow_cheque %}<option value="cheque">Cheque</option>{% endif %}
+          {% if terms.allow_bank_transfer %}<option value="online">Pay Online (bank transfer)</option>{% endif %}
+        </select>
+      </div>
+
+      <!-- Show amount only when immediate payment (cash/cheque); hide for online -->
+      <div class="row g-2 mt-1" id="codAmountRow">
+        <div class="col-6">
+          <div>Expected: € <strong id="codExpected">0.00</strong></div>
+        </div>
+        <div class="col-6">
+          <label class="form-label">Received</label>
+          <input id="codReceived" type="number" step="0.01" inputmode="decimal" class="form-control" placeholder="0.00">
+        </div>
+      </div>
+
+      <div class="mt-1">Variance: <span id="codVariance" class="fw-semibold">€ 0.00</span></div>
+
+      <div class="mt-2" id="codNoteWrap">
+        <label class="form-label">Payment note <span class="text-muted">(required if variance ≠ 0)</span></label>
+        <textarea id="codNote" class="form-control" rows="2"></textarea>
+      </div>
+
+      <div class="form-check mt-2" id="printReceiptWrap">
+        <input class="form-check-input" type="checkbox" id="printReceipt" checked>
+        <label class="form-check-label" for="printReceipt">Print receipt after saving</label>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+Frontend JS: enforce terms (show/hide money fields)
+
+static/js/deliver_exceptions.js — add logic at init & on method change:
+
+(() => {
+  const $app = document.getElementById('deliverApp');
+  const isCredit = $app.dataset.isCredit === '1';
+  const allowCash = $app.dataset.allowCash === '1';
+  const allowCheque = $app.dataset.allowCheque === '1';
+  const allowOnline = $app.dataset.allowOnline === '1';
+
+  // Hide entire Payment card if credit
+  if (isCredit) {
+    const card = document.getElementById('codCard');
+    if (card) card.remove();
+  }
+
+  function togglePaymentControls() {
+    const methodEl = document.getElementById('codMethod');
+    if (!methodEl) return;
+    const method = methodEl.value; // cash | cheque | online
+    const amountRow = document.getElementById('codAmountRow');
+    const varianceEl = document.getElementById('codVariance');
+    const noteWrap = document.getElementById('codNoteWrap');
+    const printWrap = document.getElementById('printReceiptWrap');
+
+    if (method === 'online') {
+      // online => no cash now, no receipt print
+      if (amountRow) amountRow.style.display = 'none';
+      if (varianceEl) varianceEl.textContent = '€ 0.00';
+      if (printWrap) { printWrap.style.display = 'none'; document.getElementById('printReceipt')?.removeAttribute('checked'); }
+    } else {
+      if (amountRow) amountRow.style.display = '';
+      if (printWrap) printWrap.style.display = '';
+    }
+
+    recomputeVariance(); // will keep 0 for online
+  }
+
+  // existing recomputeVariance should treat "online" as expected 0 received 0
+  function recomputeVariance(){
+    const methodEl = document.getElementById('codMethod');
+    const method = methodEl ? methodEl.value : 'cash';
+    const expected = parseFloat(document.getElementById('codExpected')?.textContent || '0');
+    let received = parseFloat(document.getElementById('codReceived')?.value || '0');
+    if (method === 'online') received = 0; // nothing collected now
+    const variance = received - expected;
+    const el = document.getElementById('codVariance');
+    if (el) el.textContent = `€ ${(Math.round(variance*100)/100).toFixed(2)}`;
+  }
+
+  document.getElementById('codMethod')?.addEventListener('change', togglePaymentControls);
+
+  // On submit, shape payload per terms
+  document.getElementById('submitDelivery').addEventListener('click', async ()=>{
+    const isCreditNow = isCredit;
+    let codPayload = null;
+
+    if (!isCreditNow) {
+      const method = document.getElementById('codMethod').value;
+      let received = 0;
+      if (method !== 'online') {
+        received = parseFloat(document.getElementById('codReceived').value || '0');
+      }
+      const note = document.getElementById('codNote').value.trim();
+      codPayload = { method, received, note };
+    }
+
+    const payload = {
+      invoice_ids: invoiceIds,
+      exceptions: exceptions,
+      cod: codPayload,                // null on credit accounts
+      pod: {
+        has_physical_signed_invoice: document.getElementById('podSigned')?.checked ?? true,
+        receiver_name: document.getElementById('podReceiver')?.value || '',
+        photos: []
+      },
+      gps: {}
+    };
+
+    const res = await fetch(`/stops/${stopId}/deliver`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok){ alert(data.error || 'Failed'); return; }
+
+    // open print only for immediate payments and if server produced a print_url
+    if (data.print_url) window.open(data.print_url, '_blank');
+    window.location.href = `/stops/${stopId}`;
+  });
+
+  // call once at load
+  togglePaymentControls();
+})();
+
+Handler: enforce terms & receipt logic
+
+app.py → submit_delivery() — incorporate customer terms and payment method behavior:
+
+@app.post("/stops/<int:stop_id>/deliver")
+def submit_delivery(stop_id):
+    payload = request.get_json(force=True, silent=False)
+    exceptions = payload.get("exceptions", [])
+    invoice_ids = payload.get("invoice_ids", [])
+    cod = payload.get("cod")  # may be None for credit customers
+    pod = payload.get("pod", {}) or {}
+    gps = payload.get("gps", {}) or {}
+
+    with Session(engine) as s:
+        stop = s.get(RouteStop, stop_id) or abort(404)
+        route = s.get(Route, stop.route_id)
+        require_in_transit_route(route)
+
+        # NEW: load terms for this customer
+        terms = get_credit_terms(s, stop.customer_code)
+        is_credit = terms["is_credit"]
+
+        # ... (derive delivered + record discrepancies as before) ...
+
+        # Compute expected COD from delivered lines
+        cod_expected = Decimal("0.00")
+        for key, agg in by_key.items():
+            il = agg["invoice_line"]
+            price = Decimal(il.unit_price or 0)
+            cod_expected += price * agg["delivered"]
+
+        print_url = None
+
+        if is_credit:
+            # Credit account → no receipt, no collection now
+            cod_receipt = None
+        else:
+            # Not credit: cod payload is required
+            if not cod:
+                abort(400, description="Payment info required for non-credit customer")
+            method = (cod.get("method") or "").lower()
+            # Only allow per terms
+            allowed = {
+                "cash": terms["allow_cash"],
+                "cheque": terms["allow_cheque"],
+                "online": terms["allow_bank_transfer"]
+            }
+            if method not in allowed or not allowed[method]:
+                abort(400, description=f"Payment method '{method}' not allowed by terms")
+
+            received = Decimal(str(cod.get("received", 0) or 0))
+            note = cod.get("note") or ""
+
+            # Online means zero collected now; store an intent and skip printing
+            if method == "online":
+                received = Decimal("0.00")
+
+            variance = received - cod_expected
+            if variance != 0 and not note:
+                abort(422, description="Variance note is required")
+
+            cod_receipt = CODReceipt(
+                route_id=route.id, route_stop_id=stop.id,
+                driver_id=current_driver_id(),
+                invoice_ids=invoice_ids,
+                expected_amount=cod_expected,
+                received_amount=received,
+                method=method,
+                note=note,
+                created_at=now()
+            )
+            s.add(cod_receipt)
+            s.flush()
+
+            # Push to PS365 only when money was collected now (cash/cheque)
+            if method in ("cash", "cheque") and received > 0:
+                try:
+                    ps_ref = push_cash_receipt(cod_receipt, s)
+                    cod_receipt.ps365_receipt_id = ps_ref
+                except Exception:
+                    pass
+
+            # Only print for immediate payments
+            if method in ("cash", "cheque") and received > 0:
+                print_url = url_for("print_receipt", receipt_id=cod_receipt.id, _external=False)
+
+        # Store POD, events, update invoice statuses ... (same as earlier)
+
+        s.commit()
+        return jsonify({
+            "ok": True,
+            "cod": {
+                "expected": float(cod_expected),
+                "received": float(cod_receipt.received_amount) if (not is_credit and cod_receipt) else 0.0,
+                "method": (cod_receipt.method if (not is_credit and cod_receipt) else None)
+            },
+            "print_url": print_url  # null for credit or online
+        })
+
+Small UI tweaks (labels)
+
+In the COD card title, rename to Payment (since some customers will have “Pay Online”).
+
+If is_credit, insert a small “No receipt at delivery” chip under the banner.
+
+If allow_cheque is true and you have cheque_days_allowed, show a small helper text: “Cheque accepted (up to X days)”.
+
+Why this works
+
+Drivers see exactly what they should (no payment controls for credit customers).
+
+For non-credit:
+
+The allowed methods come straight from customer terms, so the app never offers an invalid option. 
+
+credit_terms
+
+Cash/Cheque collect money and print a receipt.
+
+Pay Online records intent, collects no cash now, and skips printing (so finance expects a bank transfer).
+
+All the behavior is driven by the terms you already maintain (including future notes_for_driver). 
+
+credit_terms

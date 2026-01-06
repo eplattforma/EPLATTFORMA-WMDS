@@ -1,0 +1,503 @@
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+import requests
+import os
+import re
+
+app = Flask(__name__)
+
+CORS_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+if CORS_ORIGINS != "*":
+    CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS.split(",")]
+CORS(app, origins=CORS_ORIGINS)
+
+RETURN_URL_WHITELIST = os.getenv("RETURN_URL_WHITELIST", "")
+if RETURN_URL_WHITELIST:
+    RETURN_URL_WHITELIST = [url.strip() for url in RETURN_URL_WHITELIST.split(",")]
+else:
+    RETURN_URL_WHITELIST = None
+
+PS365_API_URL = os.getenv("PS365_API_URL", "")
+PS365_API_KEY = os.getenv("PS365_API_KEY", "")
+
+SHELF_REGEX = re.compile(
+    r"""^
+        (?P<zone>\d{2})
+        [-\s]?
+        (?P<aisle>\d{2})
+        [-\s]?
+        (?P<section>[A-Za-z])
+        (?P<slot>\d{2})
+    $""",
+    re.VERBOSE
+)
+
+def parse_and_normalize_shelf_code(raw):
+    """
+    Accept formats like: 10-01-c03, 10 01 C03, 1001c03.
+    Returns:
+      - normalized_for_api: '1001C03'
+      - display_format:     '10-01-C03'
+    Raises ValueError if invalid.
+    """
+    if not raw:
+        raise ValueError("Empty shelf code.")
+
+    code = raw.strip()
+    m = SHELF_REGEX.match(code) or SHELF_REGEX.match(code.replace("-", "").replace(" ", ""))
+    if not m:
+        raise ValueError("Invalid shelf code format. Use like 10-01-C03.")
+
+    zone = m.group("zone")
+    aisle = m.group("aisle")
+    section = m.group("section").upper()
+    slot = m.group("slot")
+
+    normalized_for_api = f"{zone}{aisle}{section}{slot}"
+    display_format = f"{zone}-{aisle}-{section}{slot}"
+
+    return normalized_for_api, display_format
+
+@app.route("/")
+def index():
+    # Pass allowed origins/return URLs to frontend for validation
+    return render_template("index.html", 
+                         return_url_whitelist=RETURN_URL_WHITELIST)
+
+@app.route("/api/lookup/<barcode>", methods=["GET"])
+def lookup_barcode(barcode):
+    """
+    Lookup item by barcode or item code.
+    Returns only stock from store 777 (E-shop).
+    """
+    if not barcode:
+        return jsonify({"error": "Barcode is required"}), 400
+    
+    if not PS365_API_URL:
+        return jsonify({"error": "PS365 API not configured"}), 500
+    
+    try:
+        item_data = fetch_from_ps365(barcode)
+        
+        if not item_data:
+            return jsonify({"error": "Item not found", "barcode": barcode}), 404
+        
+        return jsonify({
+            "success": True,
+            "barcode": barcode,
+            "data": item_data
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to fetch data from PS365",
+            "message": str(e)
+        }), 500
+
+def fetch_from_ps365(barcode):
+    """Fetch item stock data from PS365 API"""
+    url = f"{PS365_API_URL}/list_stock_stores_item"
+    params = {
+        "token": PS365_API_KEY,
+        "item_code_365": barcode
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get("api_response", {}).get("response_code") == "1":
+                stock_data = data.get("list_stock_stores_item", [])
+                if stock_data:
+                    return format_ps365_response(stock_data)
+        
+        return None
+    
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Connection error: {str(e)}")
+
+def format_ps365_response(stock_data_list):
+    """
+    Format PS365 stock data.
+    Filter to only include store 777 (E-shop).
+    """
+    if not stock_data_list:
+        return None
+    
+    # Filter to only store 777
+    store_777_data = [item for item in stock_data_list 
+                      if item.get("store_code_365") == "777"]
+    
+    if not store_777_data:
+        return None
+    
+    first_item = store_777_data[0]
+    item_code = first_item.get("item_code_365", "")
+    item_name = first_item.get("item_name", "")
+    
+    total_stock = 0
+    locations = []
+    
+    for store_data in store_777_data:
+        stock = store_data.get("stock", 0)
+        total_stock += stock
+        
+        shelf_code = store_data.get("shelf_code", "")
+        shelf_desc = store_data.get("shelf_description", "")
+        location_name = shelf_desc if shelf_desc else store_data.get("store_name", "")
+        
+        if stock > 0 or shelf_code:
+            locations.append({
+                "code": shelf_code or store_data.get("store_code_365", ""),
+                "name": location_name,
+                "qty": stock
+            })
+    
+    if not locations:
+        for store_data in store_777_data[:3]:
+            locations.append({
+                "code": store_data.get("store_code_365", ""),
+                "name": store_data.get("store_name", ""),
+                "qty": store_data.get("stock", 0)
+            })
+    
+    return {
+        "item_code": item_code,
+        "description": item_name,
+        "stock": total_stock,
+        "locations": locations
+    }
+
+@app.route("/api/search", methods=["POST"])
+def search_items():
+    """
+    Search items by name.
+    Returns only active items.
+    """
+    data = request.get_json()
+    query = data.get("query", "").strip()
+    
+    if not query:
+        return jsonify({"error": "Search query is required"}), 400
+    
+    if len(query) < 3:
+        return jsonify({"error": "Search query must be at least 3 characters"}), 400
+    
+    if not PS365_API_URL:
+        return jsonify({"error": "PS365 API not configured"}), 500
+    
+    try:
+        results = search_items_in_ps365(query)
+        
+        return jsonify({
+            "success": True,
+            "query": query,
+            "results": results
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to search items in PS365",
+            "message": str(e)
+        }), 500
+
+def search_items_in_ps365(query):
+    """Search items in PS365 API"""
+    url = f"{PS365_API_URL}/search_item"
+    
+    payload = {
+        "api_credentials": {
+            "token": PS365_API_KEY
+        },
+        "search_option": {
+            "only_counted": "N",
+            "page_number": 1,
+            "page_size": 50,
+            "expression_searched": query,
+            "search_operator_type": "Contains",
+            "search_in_fields": "ItemCode,ItemName,ItemBarcode",
+            "active_type": "active"
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get("api_response", {}).get("response_code") == "1":
+                items_list = data.get("list_items", [])
+                
+                results = []
+                for item in items_list[:50]:
+                    # Extract barcode from list_item_barcodes array
+                    barcode = extract_barcode_from_list(item)
+                    
+                    results.append({
+                        "item_code": item.get("item_code_365", ""),
+                        "description": item.get("item_name", ""),
+                        "barcode": barcode,
+                        "active": item.get("active", True)
+                    })
+                
+                return results
+        
+        return []
+    
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Connection error: {str(e)}")
+
+def extract_barcode_from_list(item):
+    """Extract barcode from PS365 item's list_item_barcodes array"""
+    barcode = ""
+    barcode_list = item.get("list_item_barcodes", [])
+    
+    if barcode_list:
+        # Prefer label barcode
+        for bc in barcode_list:
+            if bc.get("is_label_barcode", False):
+                barcode = bc.get("barcode", "")
+                break
+        
+        # Fall back to first barcode
+        if not barcode and barcode_list:
+            barcode = barcode_list[0].get("barcode", "")
+    
+    return barcode
+
+@app.route("/api/shelf-items/<shelf_code>", methods=["GET"])
+def get_shelf_items(shelf_code):
+    """
+    Get all items on a specific shelf.
+    Query param: ?store=777
+    """
+    store_code = request.args.get("store", "777")
+    
+    if not shelf_code:
+        return jsonify({"error": "Shelf code is required"}), 400
+    
+    if not PS365_API_URL:
+        return jsonify({"error": "PS365 API not configured"}), 500
+    
+    try:
+        items = fetch_shelf_items_from_ps365(shelf_code, store_code)
+        
+        return jsonify({
+            "success": True,
+            "shelf_code": shelf_code,
+            "store_code": store_code,
+            "items": items,
+            "count": len(items)
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to fetch shelf items from PS365",
+            "message": str(e)
+        }), 500
+
+def fetch_shelf_items_from_ps365(shelf_code, store_code):
+    """Fetch items on a specific shelf from PS365"""
+    url = f"{PS365_API_URL}/list_shelves"
+    
+    # Normalize shelf code (remove dashes + uppercase via parser)
+    try:
+        normalized_for_api, _ = parse_and_normalize_shelf_code(shelf_code)
+    except ValueError:
+        # fallback (keeps backward compatibility)
+        normalized_for_api = shelf_code.replace("-", "").replace(" ", "").upper()
+    
+    payload = {
+        "api_credentials": {
+            "token": PS365_API_KEY
+        },
+        "filter_define": {
+            "page_number": 1,
+            "page_size": 100,
+            "only_counted": "N",
+            "shelf_code_365_selection": normalized_for_api,
+            "store_code_365_selection": store_code,
+            "item_code_365_selection": "",
+            "only_on_stock": False
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('api_response', {}).get('response_code') == "1":
+                shelves = data.get("list_shelves", [])
+                
+                items = []
+                for shelf in shelves:
+                    items_list = shelf.get("list_items", [])
+                    
+                    if items_list:
+                        for item in items_list:
+                            if item.get("store_code_365") == store_code:
+                                items.append({
+                                    "item_code": item.get("item_code_365", ""),
+                                    "item_name": item.get("item_name", ""),
+                                    "stock": item.get("stock", 0),
+                                    "stock_reserved": item.get("stock_reserved", 0),
+                                    "stock_ordered": item.get("stock_ordered", 0)
+                                })
+                
+                return items
+        
+        return []
+    
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Connection error: {str(e)}")
+
+@app.route("/api/empty-shelves", methods=["GET"])
+def get_empty_shelves():
+    """
+    Get list of empty shelves (shelves with no items).
+    Query param: ?store=777
+    """
+    store_code = request.args.get("store", "777")
+    
+    if not PS365_API_URL:
+        return jsonify({"error": "PS365 API not configured"}), 500
+    
+    try:
+        empty_shelves = fetch_empty_shelves_from_ps365(store_code)
+        
+        return jsonify({
+            "success": True,
+            "store_code": store_code,
+            "empty_shelves": empty_shelves,
+            "count": len(empty_shelves)
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to fetch empty shelves from PS365",
+            "message": str(e)
+        }), 500
+
+def fetch_empty_shelves_from_ps365(store_code):
+    """Fetch empty shelves from PS365"""
+    url = f"{PS365_API_URL}/list_shelves"
+    
+    payload = {
+        "api_credentials": {
+            "token": PS365_API_KEY
+        },
+        "filter_define": {
+            "page_number": 1,
+            "page_size": 100,
+            "only_counted": "N",
+            "shelf_code_365_selection": "",
+            "store_code_365_selection": store_code,
+            "item_code_365_selection": "",
+            "only_on_stock": False
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('api_response', {}).get('response_code') == "1":
+                all_shelves = data.get("list_shelves", [])
+                
+                empty_shelves = []
+                for shelf in all_shelves:
+                    items_list = shelf.get("list_items", [])
+                    
+                    # Check if shelf has any items in the specified store
+                    items_in_store = [item for item in items_list 
+                                    if item.get("store_code_365") == store_code]
+                    
+                    if len(items_in_store) == 0:
+                        empty_shelves.append({
+                            "shelf_code": shelf.get("shelf_code_365", ""),
+                            "shelf_name": shelf.get("shelf_name", "")
+                        })
+                
+                return empty_shelves
+        
+        return []
+    
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Connection error: {str(e)}")
+
+@app.route("/api/scan", methods=["POST"])
+def scan_and_process():
+    """
+    Accept a scanned code (keyboard-wedge scanners type text + Enter).
+    If it matches a shelf (e.g. 10-01-C03), return shelf items for store (default 777).
+    Otherwise treat it as an item barcode/code and return item info (store 777).
+    Body: { "scan": "<raw>", "store": "777" }
+    """
+    data = request.get_json(silent=True) or {}
+    raw = (data.get("scan") or "").strip()
+    store_code = (data.get("store") or "777").strip()
+
+    if not raw:
+        return jsonify({"error": "Scan value is required"}), 400
+
+    if not PS365_API_URL:
+        return jsonify({"error": "PS365 API not configured"}), 500
+
+    # Try shelf first
+    try:
+        normalized_for_api, display_format = parse_and_normalize_shelf_code(raw)
+        items = fetch_shelf_items_from_ps365(normalized_for_api, store_code)
+        return jsonify({
+            "success": True,
+            "type": "shelf",
+            "shelf": {
+                "input": raw,
+                "code_display": display_format,
+                "code_api": normalized_for_api,
+                "store_code": store_code
+            },
+            "items": items,
+            "count": len(items)
+        }), 200
+    except ValueError:
+        # Not a shelf → try item lookup
+        try:
+            item = fetch_from_ps365(raw)
+            if not item:
+                return jsonify({
+                    "success": False,
+                    "type": "item",
+                    "message": "Item not found",
+                    "scan": raw
+                }), 404
+            return jsonify({
+                "success": True,
+                "type": "item",
+                "scan": raw,
+                "data": item
+            }), 200
+        except Exception as e:
+            return jsonify({
+                "error": "Failed to process scanned code",
+                "message": str(e)
+            }), 500
+
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    """Health check endpoint"""
+    ps365_configured = bool(PS365_API_URL and PS365_API_KEY)
+    return jsonify({
+        "status": "ok",
+        "ps365_configured": ps365_configured
+    }), 200
+
+if __name__ == "__main__":
+    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+    app.run(host="0.0.0.0", port=5000, debug=debug_mode)

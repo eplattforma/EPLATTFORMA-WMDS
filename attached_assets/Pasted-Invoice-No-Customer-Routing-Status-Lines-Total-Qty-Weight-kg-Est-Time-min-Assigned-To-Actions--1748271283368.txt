@@ -1,0 +1,57 @@
+Invoice No	Customer	Routing	Status	Lines	Total Qty	Weight (kg)	Est. Time (min)	Assigned To	Actions
+IN10048634	PETROLINA HOLDINGS PUBLIC LTD - S/S LARNACA AIRPORT	0.0	Not Started	0 of 1	20	0.0	3.25	Unassigned	
+IN10048639	HLIA THERAPON	0.0	Not Started	0 of 7	7	83.61	3.85	Unassigned	
+IN10048640	MAYRIDHS ANESTIS	0.0	Not Started	0 of 30	77	58.72	21.15	Unassigned	
+IN10048772	EKO CYPRUS LIMITED -RAM OIL - DHALI INDUSTRIAL AREA	TODAY	Not Started	0 of 33	64	98.05	20.6	Unassigned	
+IN10048773	PETROLINA HOLDINGS PUBLIC LTD - S/S KARVOUNAS		Not Started	0 of 31	100	31.35	30.95	Unassigned	
+IN10048777	P.I. KIOSKY LTD		Not Started	0 of 4	4	4.94	2.0	Unassigned	
+IN10048778	A.C EXPRESSO KIOSK LTD		Completed 12min	12 of 12	20	73.03	8.65	Arslan	
+IN10048780	EKO CYPRUS LIMITED - G & K Kouppas Ltd	svelta	Completed 5min	15 of 15	26	61.37	9.15	Andreas	
+IN10048628	AN & SOTHRIOY EPIXEIR. LTD	1.4	Not Started	0 of 27	120	86.99	25.8	Unassigned	
+IN10048636	PETROLINA HOLDINGS PUBLIC LTD - S/S EKALIS	2.0	Not Started	0 of 17	39	20.55	10.7	Unassigned	
+IN10048766	CH.K GREEN MARKET LTD	2	Completed 13min	7 of 7	54	34.66	9.85	Arslan	
+IN10048631	EKO CYPRUS LIMITED - RAM OIL - PALODIA S.S	4.0	Not Started	0 of 11	14	108.94	6.95	Unassigned	
+IN10048624	TASANDREAN LIMITED	5.0	Not Started	0 of 8	14	6.44	5.0	Unassigned	
+IN10048635	KYRIAKOY ALEXIS - EVERYTHING2U	6.0	Not Started	0 of 7	59	56.17	10.6	Unassigned	
+IN10048638	KYRIAKOY ALEXIS - EVERYTHING2U	6.0	Not Started	0 of 3	5	6.12	2.0	Unassigned	
+IN10048767	G&K KOYKKOYLHS LTD	6	Completed 8min	6 of 6	11	68.18	4.75	Arslan	
+IN10048623	MINI MARKET GUINNESS	7.0	Not Started	0 of 21	26	163.85	12.75	Unassigned	
+IN10048632	EKO CYPRUS LIMITED - RAMOIL LIM SPYROU KYPRIANOU S/S	8.0	Not Started	0 of 11	13	92.13	6.5	Unassigned	
+IN10048775	EKO CYPRUS LIMITED -RAMOIL LARNAKOS AVENUE	10	Completed 10min	11 of 11	11	60.78	5.85	Arslan	
+IN10048625	J & P SUPER KIOSK LTD	12.0	In Progress	3 of 4	12	8.9	3.0	Polis	
+IN10048774	PETROLINA HOLDINGS PUBLIC LTD - SS GSP LATSIA	12	Ready for Packing	10 of 10	22	45.8	7.3	Arslan	
+IN10048622	CHRISTOS G. NEOPHYTOU KIOSK LTD	13.0	Not Started	0 of 7	12	3.1	4.75	Unassigned	
+IN10048637	NPM GABRIEL LTD SHELL	14.0	Not Started	0 of 12	12	81.87	6.5	Unassigned	
+IN10048627	DAMIANOS CHRYSANTHOU & YIOI LTD	15.0	Not Started	0 of 28	43	57.99	15.05	Unassigned	
+IN10048626	DOROS CHR.CONSTRUCTIONS LIMITED	16.0	Not Started	0 of 12	13	49.99	6.5	Unassigned	
+IN10048633	PETROLINA HOLDINGS PUBLIC LTD - S/S FRANGLINOU ROUZVELT	16.0	Not Started	0 of 18	30	41.91	10.85	Unassigned	
+IN10048630	N.K. SUNSHINE KIOSK LTD	19.0	Not Started	0 of 8	52	9.3	12.8	Unassigned	
+IN10048629	DIZZY CORNER	34	Not Started	0 of 7	12	29.51	3.95	Unassigned	
+Order Summary
+Total Items
+892
+Total Weight
+1444.25 kg
+Total Time
+271.05 min
+Shipped Orders 6 orders
+Orders that have been assigned to shipments and are out for delivery
+Invoice No	Customer	Routing	Status	Shipment Info	Actions
+IN10048779	PERIPTERO KARAYIANNIS & SIA LTD - NEO AYIOS ANTONIOS	9	Completed
+Shipped	In shipment
+Out for delivery	
+IN10048776	ANTRIKKAS KIOSK LTD	-	Completed
+Shipped	In shipment
+Out for delivery	
+IN10048771	BROTHERS TWIN & L&S II LTD	1	Completed
+Shipped	In shipment
+Out for delivery	
+IN10048770	GALADRIEL STORES LTD	5	Completed
+Shipped	In shipment
+Out for delivery	
+IN10048769	A. CHR. PSILLOS & SONS LTD	11	Completed
+Shipped	In shipment
+Out for delivery	
+IN10048768	PADIGLIONE DI TIMOTEO E ANNA LTD	4	Completed
+Shipped	In shipment
+Out for delivery	

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Validate Issue{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="background-color: #1a202c; min-height: 100vh; padding: 20px;">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-8 col-lg-6">
+            <div class="d-flex align-items-center mb-4">
+                <a href="{{ url_for('delivery_issues.picker_review_issues') }}" class="btn btn-link text-white p-0 me-3">
+                    <i class="fas fa-arrow-left fa-lg"></i>
+                </a>
+                <h4 class="text-white mb-0">Validate Issue #{{ issue.id }}</h4>
+            </div>
+
+            <div class="card" style="background-color: #2d3748; border: none; border-radius: 12px;">
+                <div class="card-body p-4">
+                    <div class="mb-3">
+                        <div class="text-muted small mb-2">Invoice & Customer</div>
+                        <div class="text-white">{{ issue.invoice_no }} - {{ issue.invoice.customer_name if issue.invoice else '-' }}</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="text-muted small mb-2">Item</div>
+                        <div class="text-white">{{ issue.item_code_expected }} - {{ issue.item_name or '-' }}</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="text-muted small mb-2">Discrepancy</div>
+                        <div style="background-color: #dc3545; color: white; padding: 12px; border-radius: 8px;">
+                            <strong>{{ issue.discrepancy_type }}</strong>
+                            <div class="mt-2">
+                                <span>Expected: {{ issue.qty_expected }}</span>
+                                <span class="ms-3">Actual: {{ issue.qty_actual if issue.qty_actual is not none else '-' }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form method="POST" action="{{ url_for('delivery_issues.picker_validate_submit', issue_id=issue.id) }}">
+                        <div class="mb-3">
+                            <label for="reason" class="form-label text-white">Validation Reason <span class="text-danger">*</span></label>
+                            <select class="form-select" id="reason" name="reason" required style="background-color: #1a202c; color: white; border-color: #4a5568;">
+                                <option value="">Select a reason...</option>
+                                <option value="ACKNOWLEDGED">ACKNOWLEDGED</option>
+                                <option value="DISPUTE">DISPUTE</option>
+                                <option value="SYSTEM_ISSUE">SYSTEM_ISSUE</option>
+                                <option value="NEEDS_TRAINING">NEEDS_TRAINING</option>
+                                <option value="PROCESS_ISSUE">PROCESS_ISSUE</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="note" class="form-label text-white">Additional Notes</label>
+                            <textarea class="form-control" id="note" name="note" rows="4" 
+                                      style="background-color: #1a202c; color: white; border-color: #4a5568;"
+                                      placeholder="Add any additional notes or comments..."></textarea>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-check me-2"></i>Submit Validation
+                            </button>
+                            <a href="{{ url_for('delivery_issues.picker_review_issues') }}" class="btn btn-secondary">
+                                Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

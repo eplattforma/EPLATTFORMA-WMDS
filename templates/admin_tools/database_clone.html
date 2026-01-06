@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Database Clone - Admin Tools{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-database me-2"></i>Database Clone Tool</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        <strong>⚠️ Warning:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li><strong>Make sure that you published all changes before proceeding</strong></li>
+                            <li>This operation will <strong>overwrite</strong> your development database with production data</li>
+                            <li>Ensure you have backups if needed</li>
+                            <li>The operation may take several minutes (3-5 GB databases)</li>
+                            <li>All development-only changes will be lost</li>
+                        </ul>
+                    </div>
+
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="card border-info">
+                                <div class="card-body">
+                                    <h6 class="card-title"><i class="fas fa-server me-2"></i>Source</h6>
+                                    <p class="mb-0"><strong>Production Database</strong></p>
+                                    <small class="text-muted">From: DATABASE_URL_PROD</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card border-success">
+                                <div class="card-body">
+                                    <h6 class="card-title"><i class="fas fa-arrow-right me-2"></i>Target</h6>
+                                    <p class="mb-0"><strong>Development Database</strong></p>
+                                    <small class="text-muted">To: DATABASE_URL</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="clone-status" class="alert d-none mt-4"></div>
+
+                    <div class="text-center mt-4">
+                        <button id="btn-clone" class="btn btn-danger btn-lg">
+                            <i class="fas fa-sync me-2"></i>Start Clone
+                        </button>
+                    </div>
+
+                    <div id="clone-progress" class="mt-4 d-none">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%"></div>
+                        </div>
+                        <p class="text-center mt-2 text-muted">
+                            <i class="fas fa-spinner fa-spin me-2"></i>Cloning database... This may take several minutes.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById("btn-clone").onclick = async () => {
+    const statusDiv = document.getElementById("clone-status");
+    const progressDiv = document.getElementById("clone-progress");
+    const btn = document.getElementById("btn-clone");
+
+    if (!confirm("⚠️ This will OVERWRITE your development database with production data.\n\nAre you sure you want to continue?")) {
+        return;
+    }
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Running...';
+        progressDiv.classList.remove("d-none");
+        statusDiv.classList.add("d-none");
+
+        const res = await fetch("{{ url_for('admin_tools.execute_database_clone') }}", {
+            method: "POST",
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ confirmed: true })
+        });
+
+        const data = await res.json();
+
+        progressDiv.classList.add("d-none");
+
+        if (res.ok && data.success) {
+            statusDiv.className = "alert alert-success";
+            statusDiv.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>Clone Complete!</strong><br>
+                <small>${data.message}</small>
+                <div style="background:#f8f9fa; padding:10px; border-radius:5px; margin-top:10px; max-height:200px; overflow-y:auto; font-family:monospace; font-size:12px; white-space:pre-wrap;">
+                ${data.output.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                </div>
+            `;
+        } else {
+            throw new Error(data.error || "Clone failed");
+        }
+
+        statusDiv.classList.remove("d-none");
+    } catch (err) {
+        progressDiv.classList.add("d-none");
+        statusDiv.className = "alert alert-danger";
+        statusDiv.innerHTML = `
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>Error:</strong> ${err.message}
+        `;
+        statusDiv.classList.remove("d-none");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync me-2"></i>Start Clone';
+    }
+};
+</script>
+{% endblock %}

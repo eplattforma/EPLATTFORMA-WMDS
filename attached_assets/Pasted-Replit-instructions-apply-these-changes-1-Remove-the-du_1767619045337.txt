@@ -1,0 +1,268 @@
+Replit instructions (apply these changes)
+1) Remove the duplicate invoice-item upsert logic (critical)
+
+In sync_invoices_from_ps365(), inside the for line_index, line in enumerate(lines): loop you currently have two separate “exists/update/insert” blocks:
+
+First block uses item_exists = InvoiceItem.query.filter_by(...).first() and updates/creates new_item
+
+Second block uses existing_item = InvoiceItem.query.filter_by(...).first() and updates/creates invoice_item
+
+Delete the entire first block (the one with item_exists / new_item). Keep only a single update/insert path.
+
+This prevents a common outcome where a barcode is set and then overwritten later.
+
+2) Never overwrite an existing barcode with None (barcode persistence fix)
+
+Right now you do:
+
+existing_item.barcode = barcode
+
+
+If barcode is None (lookup missed), you wipe any previously stored barcode.
+
+Change it to:
+
+if barcode:
+    existing_item.barcode = barcode
+
+
+Do the same pattern for other optional fields if you don’t want nulls to wipe existing values (location/zone/unit_type).
+
+3) Normalize item codes and barcode-map keys (fix lookup mismatches)
+
+A frequent cause of “barcode not inserted” is item_code having spaces or being an int in one place and str in another.
+
+Add these helpers near the top of the module:
+
+def _norm_code(v):
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+def _norm_barcode(v):
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+def _parse_qty_int(v):
+    if v is None or v == "":
+        return 0
+    try:
+        # PS365 may send "2.0" as string; handle that
+        return int(float(v))
+    except (ValueError, TypeError):
+        return 0
+
+
+Then, when reading item_code:
+
+item_code = _norm_code(line.get("item_code_365") or line.get("item_code") or line.get("product_code"))
+if not item_code:
+    continue
+
+
+After batch barcode lookup, normalize the map:
+
+barcodes_map = { _norm_code(k): _norm_barcode(v) for k, v in (barcodes_map or {}).items() if _norm_code(k) }
+
+
+And then:
+
+barcode = barcodes_map.get(item_code)
+
+4) Stop committing per item; commit once per invoice (consistency + speed)
+
+You currently db.session.commit() inside the per-line loop. Remove that.
+
+Do:
+
+item updates/adds inside the loop
+
+totals recalculation once per invoice
+
+one db.session.commit() per invoice
+
+This avoids partial invoice imports and makes barcode persistence deterministic.
+
+Drop-in replacement code for the invoice-item loop (safe version)
+
+In sync_invoices_from_ps365(), replace the entire inner section that processes lines (from for line_index, line in enumerate(lines): down to the per-item commits) with the following. This version:
+
+uses one upsert path
+
+normalizes item codes
+
+preserves existing barcode if lookup fails
+
+commits once per invoice
+
+avoids duplicate queries by prefetching existing invoice items once
+
+# --- BEFORE looping lines: build code lists and prefetch existing items in one query ---
+
+all_item_codes = []
+for line in lines:
+    code = _norm_code(line.get("item_code_365") or line.get("item_code") or line.get("product_code"))
+    if code:
+        all_item_codes.append(code)
+
+# Prefetch existing invoice items to avoid querying per line
+existing_items = InvoiceItem.query.filter(
+    InvoiceItem.invoice_no == invoice_no_ps365,
+    InvoiceItem.item_code.in_(all_item_codes)
+).all()
+existing_map = {it.item_code: it for it in existing_items}
+
+# Prefetch DW items in one query (avoid N+1)
+dw_items = DwItem.query.filter(DwItem.item_code_365.in_(all_item_codes)).all()
+dw_map = {d.item_code_365: d for d in dw_items}
+
+# Prefetch attributes (optional but recommended)
+attr1 = DwAttribute1.query.all()
+attr1_map = {a.attribute_1_code_365: a.attribute_1_name for a in attr1}
+
+attr3 = DwAttribute3.query.all()
+attr3_map = {a.attribute_3_code_365: a.attribute_3_name for a in attr3}
+
+# Normalize barcode map keys/values (after your batch lookup)
+barcodes_map = { _norm_code(k): _norm_barcode(v) for k, v in (barcodes_map or {}).items() if _norm_code(k) }
+
+# --- Process lines (single update/insert path) ---
+invoice_items_imported = 0
+
+for line_index, line in enumerate(lines):
+    item_code = _norm_code(line.get("item_code_365") or line.get("item_code") or line.get("product_code"))
+    if not item_code:
+        logging.debug(f"Skipping line with missing item_code: {line}")
+        continue
+
+    # Be strict about qty fields; avoid "amount" unless you are 100% sure it's quantity
+    qty_raw = (line.get("line_quantity") or line.get("qty") or line.get("quantity"))
+    qty_int = _parse_qty_int(qty_raw)
+
+    # Shelf (from cache)
+    shelf_location = shelf_locations_map.get(item_code)
+
+    # Barcode (batch cache first, then fallback)
+    barcode = barcodes_map.get(item_code)
+    if not barcode:
+        try:
+            barcode = _norm_barcode(find_barcode_for_item_ps365(item_code, timeout=30))
+        except Exception as e:
+            logging.warning(f"Individual barcode lookup failed for {item_code}: {e}")
+            barcode = None
+
+    # DW metadata (cached)
+    dw = dw_map.get(item_code)
+    item_name = dw.item_name if dw else None
+    item_weight = float(dw.item_weight) if (dw and dw.item_weight) else None
+    selling_qty = int(dw.selling_qty) if (dw and dw.selling_qty) else None
+    number_of_pieces = int(dw.number_of_pieces) if (dw and dw.number_of_pieces) else None
+    attribute_1_code = dw.attribute_1_code_365 if dw else None
+
+    zone = attr3_map.get(dw.attribute_3_code_365) if (dw and dw.attribute_3_code_365) else None
+    unit_type = attr1_map.get(dw.attribute_1_code_365) if (dw and dw.attribute_1_code_365) else None
+
+    # expected pieces
+    if attribute_1_code == "VPACK" and number_of_pieces:
+        expected_pieces = qty_int * number_of_pieces
+    else:
+        expected_pieces = qty_int
+
+    # exp_time (use your existing logic; pulled inline here)
+    try:
+        from models import Setting
+        oi_params = Setting.get_json(db.session, "oi_time_params_v1", {})
+
+        pick_config = oi_params.get("pick", {})
+        base_pick_seconds = pick_config.get("base_by_unit_type", {}).get(unit_type.lower() if unit_type else "item", 3)
+        per_qty_seconds = pick_config.get("per_qty_by_unit_type", {}).get(unit_type.lower() if unit_type else "item", 1.6)
+
+        travel_config = oi_params.get("travel", {})
+        align_seconds = travel_config.get("sec_align_per_stop", 2)
+
+        # NOTE: your code had (per_qty_seconds * 10 * qty_int). Keep only if intentional.
+        total_seconds = align_seconds + base_pick_seconds + (per_qty_seconds * qty_int)
+        exp_time_minutes = total_seconds / 60
+    except Exception as e:
+        logging.warning(f"Error calculating dynamic exp_time for item {item_code}: {e}. Falling back to default.")
+        exp_time_minutes = (15 + 16 * qty_int) / 60
+
+    line_weight = (item_weight * qty_int) if (item_weight and qty_int) else 0
+    pack_val = f"{selling_qty}" if selling_qty else None
+
+    existing_item = existing_map.get(item_code)
+
+    if existing_item:
+        # Update; do not wipe existing values with None
+        existing_item.qty = qty_int
+
+        if shelf_location:
+            existing_item.location = shelf_location
+        if item_name:
+            existing_item.item_name = item_name
+        if item_weight is not None:
+            existing_item.item_weight = item_weight
+        if zone:
+            existing_item.zone = zone
+        if unit_type:
+            existing_item.unit_type = unit_type
+        if barcode:
+            existing_item.barcode = barcode
+
+        existing_item.pack = pack_val or existing_item.pack
+        existing_item.line_weight = line_weight
+        existing_item.exp_time = exp_time_minutes
+        existing_item.pieces_per_unit_snapshot = number_of_pieces
+        existing_item.expected_pick_pieces = expected_pieces
+
+    else:
+        new_item = InvoiceItem(
+            invoice_no=invoice_no_ps365,
+            item_code=item_code,
+            qty=qty_int,
+            location=shelf_location,
+            item_name=item_name,
+            item_weight=item_weight,
+            zone=zone,
+            unit_type=unit_type,
+            barcode=barcode,
+            pack=pack_val,
+            line_weight=line_weight,
+            exp_time=exp_time_minutes,
+            pieces_per_unit_snapshot=number_of_pieces,
+            expected_pick_pieces=expected_pieces
+        )
+        db.session.add(new_item)
+        existing_map[item_code] = new_item
+        invoice_items_imported += 1
+
+# After all items for this invoice: recalc totals and commit ONCE
+recalculate_invoice_totals(invoice_no_ps365)
+db.session.commit()
+
+logging.info(f"Imported/updated invoice {invoice_no_ps365}. New items created: {invoice_items_imported}. Lines processed: {len(lines)}")
+
+Optional but recommended: enforce uniqueness in DB
+
+To guarantee no duplicates per invoice, add a unique constraint/index on (invoice_no, item_code) in your migration:
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_items_invoice_no_item_code
+ON invoice_items (invoice_no, item_code);
+
+
+This is the prerequisite if you later decide to move to a true PostgreSQL ON CONFLICT DO UPDATE bulk upsert for items.
+
+One diagnostic log to confirm barcode flow
+
+Temporarily add this right after barcode resolution:
+
+logging.info(f"[BARCODE DEBUG] invoice={invoice_no_ps365} item={item_code} barcode={barcode!r}")
+
+
+If it prints real barcodes and DB remains empty, the issue is schema/migration/model.
+If it prints None most of the time, the issue is upstream lookup or item-code mismatch (which normalization above usually fixes).
+
+If you apply the steps above, you will fix the primary cause of “barcode not inserted” in your current codebase: barcodes being overwritten with nulls and/or being lost due to duplicate update paths and per-item commits.

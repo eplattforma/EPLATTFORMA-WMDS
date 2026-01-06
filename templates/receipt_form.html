@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Create Receipt{% endblock %}
+
+{% block content %}
+<div class="driver-container">
+    <!-- Header -->
+    <div class="receipt-header">
+        <a href="{{ url_for('routes.dashboard') }}" class="back-btn">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <h4 class="mb-0">{% if is_stop_receipt %}Customer Receipt{% else %}Create Cash Receipt{% endif %}</h4>
+    </div>
+
+    <!-- Form Card -->
+    <div class="form-section">
+        <form method="POST" action="{{ url_for('receipts.submit_receipt_form') }}">
+            <!-- Customer Information -->
+            <div class="form-card">
+                <h6 class="mb-3"><i class="fas fa-user me-2"></i>Customer Information</h6>
+                
+                {% if customer %}
+                <div class="customer-display mb-3">
+                    <div class="customer-name">{{ customer.company_name }}</div>
+                    <div class="customer-code">Code: {{ customer.customer_code_365 }}</div>
+                </div>
+                <input type="hidden" name="customer_code_365" value="{{ customer_code }}">
+                {% else %}
+                <div class="mb-3">
+                    <label for="customer_code_365" class="form-label">Customer Code <span class="text-danger">*</span></label>
+                    <input type="text" 
+                           class="form-control form-control-lg" 
+                           id="customer_code_365" 
+                           name="customer_code_365" 
+                           value="{{ customer_code or '' }}"
+                           required
+                           placeholder="Enter customer code">
+                </div>
+                {% endif %}
+
+                {% if invoice_no %}
+                <div class="mb-3">
+                    <label class="form-label">{% if is_stop_receipt %}Invoice Numbers{% else %}Invoice Number{% endif %}</label>
+                    <input type="text" class="form-control" value="{{ invoice_no }}" readonly>
+                    <input type="hidden" name="invoice_no" value="{{ invoice_no }}">
+                    {% if is_stop_receipt %}
+                    <input type="hidden" name="route_stop_id" value="{{ route_stop_id }}">
+                    <small class="text-muted">This receipt covers all invoices for {{ stop_name }}</small>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Payment Information -->
+            <div class="form-card">
+                <h6 class="mb-3"><i class="fas fa-money-bill-wave me-2"></i>Payment Details</h6>
+                
+                <div class="mb-3">
+                    <label for="amount" class="form-label">Amount (€) <span class="text-danger">*</span></label>
+                    <input type="number" 
+                           class="form-control form-control-lg" 
+                           id="amount" 
+                           name="amount" 
+                           step="0.01" 
+                           min="0.01" 
+                           required
+                           inputmode="decimal"
+                           placeholder="0.00"
+                           style="font-size: 1.5rem; font-weight: 600;">
+                </div>
+
+                <div class="mb-3">
+                    <label for="comments" class="form-label">Comments <span class="text-muted">(Optional)</span></label>
+                    <textarea class="form-control" 
+                              id="comments" 
+                              name="comments" 
+                              rows="3"
+                              placeholder="Add any notes about this payment"></textarea>
+                </div>
+
+                <div class="payment-info-box">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-wallet me-2"></i>Payment Type</span>
+                        <span class="badge bg-success">CASH</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="form-actions">
+                <button type="submit" class="btn-submit-receipt">
+                    <i class="fas fa-receipt me-2"></i>Create Receipt
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+/* Receipt Form Styles */
+.driver-container {
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+    background: #f5f5f5;
+    min-height: 100vh;
+}
+
+.receipt-header {
+    position: sticky;
+    top: 56px;
+    z-index: 100;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.back-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    text-decoration: none;
+}
+
+.form-section {
+    padding: 16px;
+}
+
+.form-card {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.form-card h6 {
+    font-weight: 600;
+    color: #212529;
+}
+
+.customer-display {
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 8px;
+}
+
+.customer-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #212529;
+}
+
+.customer-code {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-top: 4px;
+}
+
+.form-control-lg {
+    font-size: 1.1rem;
+    padding: 12px;
+}
+
+.payment-info-box {
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 16px;
+}
+
+.form-actions {
+    padding: 0 0 24px;
+}
+
+.btn-submit-receipt {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    transition: all 0.2s;
+}
+
+.btn-submit-receipt:active {
+    transform: scale(0.98);
+}
+</style>
+{% endblock %}

@@ -1,0 +1,394 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Shift - Admin - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card border-primary shadow">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0"><i class="fas fa-edit me-2"></i>Edit Shift Record</h4>
+                    <span class="badge bg-light text-dark">Shift #{{ shift.id }}</span>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('admin_edit_shift', shift_id=shift.id) }}">
+                        <!-- Picker Information -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2"><i class="fas fa-user me-2"></i>Picker Information</h5>
+                            <div class="row mb-3">
+                                <label class="col-sm-3 col-form-label">Picker Username:</label>
+                                <div class="col-sm-9">
+                                    <input type="text" class="form-control-plaintext" value="{{ shift.picker_username }}" readonly>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Check-In Information -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2"><i class="fas fa-sign-in-alt me-2"></i>Check-In Information</h5>
+                            <div class="row mb-3">
+                                <label for="check_in_date" class="col-sm-3 col-form-label">Check-In Date:</label>
+                                <div class="col-sm-9">
+                                    <input type="date" class="form-control" id="check_in_date" name="check_in_date" 
+                                           value="{{ shift.check_in_time|local_time('%Y-%m-%d') }}" required>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <label for="check_in_time" class="col-sm-3 col-form-label">Check-In Time:</label>
+                                <div class="col-sm-9">
+                                    <input type="time" class="form-control" id="check_in_time" name="check_in_time"
+                                           value="{{ shift.check_in_time|local_time('%H:%M') }}" required>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <label for="check_in_coordinates" class="col-sm-3 col-form-label">Check-In Location:</label>
+                                <div class="col-sm-9">
+                                    <input type="text" class="form-control" id="check_in_coordinates" name="check_in_coordinates"
+                                           value="{{ shift.check_in_coordinates or '' }}">
+                                    <small class="form-text text-muted">Format: latitude,longitude (e.g., 34.0522,-118.2437)</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Check-Out Information -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2"><i class="fas fa-sign-out-alt me-2"></i>Check-Out Information</h5>
+                            <div class="row mb-3">
+                                <label for="check_out_date" class="col-sm-3 col-form-label">Check-Out Date:</label>
+                                <div class="col-sm-9">
+                                    <input type="date" class="form-control" id="check_out_date" name="check_out_date"
+                                           value="{% if shift.check_out_time %}{{ shift.check_out_time|local_time('%Y-%m-%d') }}{% endif %}">
+                                    <small class="form-text text-muted">Leave empty for active shifts</small>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <label for="check_out_time" class="col-sm-3 col-form-label">Check-Out Time:</label>
+                                <div class="col-sm-9">
+                                    <input type="time" class="form-control" id="check_out_time" name="check_out_time"
+                                           value="{% if shift.check_out_time %}{{ shift.check_out_time|local_time('%H:%M') }}{% endif %}">
+                                    <small class="form-text text-muted">Leave empty for active shifts</small>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <label for="check_out_coordinates" class="col-sm-3 col-form-label">Check-Out Location:</label>
+                                <div class="col-sm-9">
+                                    <input type="text" class="form-control" id="check_out_coordinates" name="check_out_coordinates"
+                                           value="{{ shift.check_out_coordinates or '' }}">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Shift Status -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2"><i class="fas fa-info-circle me-2"></i>Shift Status</h5>
+                            <div class="row mb-3">
+                                <label for="status" class="col-sm-3 col-form-label">Status:</label>
+                                <div class="col-sm-9">
+                                    <select class="form-select" id="status" name="status" required>
+                                        <option value="active" {% if shift.status == 'active' %}selected{% endif %}>Active</option>
+                                        <option value="completed" {% if shift.status == 'completed' %}selected{% endif %}>Completed</option>
+                                        <option value="unclosed" {% if shift.status == 'unclosed' %}selected{% endif %}>Unclosed</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Admin Notes -->
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2"><i class="fas fa-clipboard me-2"></i>Admin Notes</h5>
+                            <div class="row mb-3">
+                                <label for="adjustment_note" class="col-sm-3 col-form-label">Adjustment Reason:</label>
+                                <div class="col-sm-9">
+                                    <textarea class="form-control" id="adjustment_note" name="adjustment_note" rows="3">{{ shift.adjustment_note or '' }}</textarea>
+                                    <small class="form-text text-muted">Please provide a reason for this adjustment</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Admin Edit Information -->
+                        {% if shift.admin_adjusted %}
+                        <div class="alert alert-info">
+                            <div class="d-flex align-items-center">
+                                <div class="me-3">
+                                    <i class="fas fa-info-circle fa-2x"></i>
+                                </div>
+                                <div>
+                                    <p class="mb-1">This shift record was previously adjusted by <strong>{{ shift.adjustment_by }}</strong></p>
+                                    <p class="mb-1">Adjustment time: <strong>{{ shift.adjustment_time.strftime('%d/%m/%y %H:%M') }}</strong></p>
+                                    {% if shift.adjustment_note %}
+                                    <p class="mb-0">Previous note: <strong>{{ shift.adjustment_note }}</strong></p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        <!-- Form Actions -->
+                        <div class="d-flex justify-content-between align-items-center">
+                            <a href="{{ url_for('admin_shift_management') }}" class="btn btn-secondary">
+                                <i class="fas fa-times me-2"></i>Cancel
+                            </a>
+                            <div>
+                                {% if shift.status == 'active' %}
+                                <button type="button" class="btn btn-danger me-2" data-bs-toggle="modal" data-bs-target="#checkoutModal">
+                                    <i class="fas fa-sign-out-alt me-2"></i>Check Out Picker
+                                </button>
+                                {% endif %}
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save me-2"></i>Save Changes
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                    
+                    <!-- Checkout Modal -->
+                    {% if shift.status == 'active' %}
+                    <div class="modal fade" id="checkoutModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Check Out Picker</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <p>Are you sure you want to check out <strong>{{ shift.picker_username }}</strong>?</p>
+                                    <p>Shift duration: <strong>{{ shift.total_break_time() }} minutes working time</strong></p>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <form action="{{ url_for('admin_checkout_picker', shift_id=shift.id) }}" method="post" style="display: inline;">
+                                        <button type="submit" class="btn btn-danger">Check Out Picker</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Shift Activity Timeline -->
+            {% if activities %}
+            <div class="card mt-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="fas fa-history me-2"></i>Shift Activity Timeline</h5>
+                </div>
+                <div class="card-body p-3">
+                    <div class="timeline">
+                        {% for activity in activities %}
+                        <div class="timeline-item">
+                            <div class="timeline-item-marker">
+                                {% if activity.activity_type == 'check_in' %}
+                                <div class="timeline-item-marker-indicator bg-success"><i class="fas fa-sign-in-alt"></i></div>
+                                {% elif activity.activity_type == 'check_out' %}
+                                <div class="timeline-item-marker-indicator bg-danger"><i class="fas fa-sign-out-alt"></i></div>
+                                {% elif activity.activity_type == 'start_break' %}
+                                <div class="timeline-item-marker-indicator bg-info"><i class="fas fa-coffee"></i></div>
+                                {% elif activity.activity_type == 'end_break' %}
+                                <div class="timeline-item-marker-indicator bg-warning"><i class="fas fa-check"></i></div>
+                                {% elif activity.activity_type == 'admin_shift_adjustment' %}
+                                <div class="timeline-item-marker-indicator bg-primary"><i class="fas fa-user-edit"></i></div>
+                                {% elif activity.activity_type == 'auto_checkout' %}
+                                <div class="timeline-item-marker-indicator bg-secondary"><i class="fas fa-clock"></i></div>
+                                {% else %}
+                                <div class="timeline-item-marker-indicator bg-light"><i class="fas fa-info-circle"></i></div>
+                                {% endif %}
+                                <div class="timeline-item-marker-text">{{ activity.timestamp.strftime('%H:%M') }}</div>
+                            </div>
+                            <div class="timeline-item-content">
+                                <div class="fw-bold">
+                                    {% if activity.activity_type == 'check_in' %}
+                                    Shift Check-In
+                                    {% elif activity.activity_type == 'check_out' %}
+                                    Shift Check-Out
+                                    {% elif activity.activity_type == 'start_break' %}
+                                    Break Started
+                                    {% elif activity.activity_type == 'end_break' %}
+                                    Break Ended
+                                    {% elif activity.activity_type == 'admin_shift_adjustment' %}
+                                    Admin Adjustment
+                                    {% elif activity.activity_type == 'auto_checkout' %}
+                                    Automatic Checkout
+                                    {% elif activity.activity_type == 'item_pick' %}
+                                    Item Picked
+                                    {% else %}
+                                    {{ activity.activity_type|title }}
+                                    {% endif %}
+                                </div>
+                                <div class="small text-muted">{{ activity.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+                                <div class="mt-1">{{ activity.details }}</div>
+                                {% if activity.invoice_no %}
+                                <div class="small">Invoice: {{ activity.invoice_no }}{% if activity.item_code %} / Item: {{ activity.item_code }}{% endif %}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Shift Breaks -->
+            {% if idle_periods %}
+            <div class="card mt-4">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0"><i class="fas fa-coffee me-2"></i>Breaks & Idle Periods</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Duration</th>
+                                    <th>Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for period in idle_periods %}
+                                <tr>
+                                    <td>
+                                        {% if period.is_break %}
+                                        <span class="badge bg-info text-dark">Break</span>
+                                        {% else %}
+                                        <span class="badge bg-warning text-dark">Idle</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ period.start_time.strftime('%d/%m/%y %H:%M') }}</td>
+                                    <td>
+                                        {% if period.end_time %}
+                                        {{ period.end_time.strftime('%d/%m/%y %H:%M') }}
+                                        {% else %}
+                                        <span class="badge bg-secondary">In Progress</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if period.duration_minutes %}
+                                        {{ period.duration_minutes }} min
+                                        {% elif period.end_time %}
+                                        {{ ((period.end_time - period.start_time).total_seconds() / 60)|int }} min
+                                        {% else %}
+                                        {{ ((now - period.start_time).total_seconds() / 60)|int }} min
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ period.break_reason or '-' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+    .timeline {
+        position: relative;
+        padding-left: 1rem;
+        margin: 0;
+    }
+    
+    .timeline::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0.25rem;
+        width: 2px;
+        height: 100%;
+        background-color: #e5e7eb;
+    }
+    
+    .timeline-item {
+        position: relative;
+        margin-bottom: 1.5rem;
+    }
+    
+    .timeline-item:last-child {
+        margin-bottom: 0;
+    }
+    
+    .timeline-item-marker {
+        position: absolute;
+        left: -1rem;
+        width: 1rem;
+    }
+    
+    .timeline-item-marker-text {
+        font-size: 0.75rem;
+        color: #616161;
+        margin-top: 0.25rem;
+    }
+    
+    .timeline-item-marker-indicator {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 100%;
+        font-size: 0.875rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.1);
+        color: white;
+    }
+    
+    .timeline-item-content {
+        padding-top: 0.25rem;
+        padding-left: 2rem;
+        padding-bottom: 1rem;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize input validation
+        const form = document.querySelector('form');
+        const checkInDate = document.getElementById('check_in_date');
+        const checkInTime = document.getElementById('check_in_time');
+        const checkOutDate = document.getElementById('check_out_date');
+        const checkOutTime = document.getElementById('check_out_time');
+        const status = document.getElementById('status');
+        
+        form.addEventListener('submit', function(event) {
+            // If status is 'completed' or 'unclosed', check-out time is required
+            if ((status.value === 'completed' || status.value === 'unclosed') && 
+                (!checkOutDate.value || !checkOutTime.value)) {
+                alert('Check-out date and time are required for completed or unclosed shifts.');
+                event.preventDefault();
+                return;
+            }
+            
+            // If check-out date is provided, check-out time must also be provided
+            if (checkOutDate.value && !checkOutTime.value) {
+                alert('Please provide both check-out date and time.');
+                event.preventDefault();
+                return;
+            }
+            
+            // If check-out time is provided, check-out date must also be provided
+            if (checkOutTime.value && !checkOutDate.value) {
+                alert('Please provide both check-out date and time.');
+                event.preventDefault();
+                return;
+            }
+            
+            // Check that check-out is not before check-in
+            if (checkOutDate.value && checkOutTime.value) {
+                const checkIn = new Date(`${checkInDate.value}T${checkInTime.value}`);
+                const checkOut = new Date(`${checkOutDate.value}T${checkOutTime.value}`);
+                
+                if (checkOut < checkIn) {
+                    alert('Check-out time cannot be before check-in time.');
+                    event.preventDefault();
+                    return;
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

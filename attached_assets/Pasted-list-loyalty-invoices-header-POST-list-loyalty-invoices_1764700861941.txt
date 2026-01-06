@@ -1,0 +1,146 @@
+list_loyalty_invoices_header
+
+POST /list_loyalty_invoices_header
+To get the TOTAL COUNT of list of loyalty invoices for multiple search criteria.
+
+Use this method with only_counted = 'Y' FIRST to determine how many total records there are for the given criteria.
+
+After you call this method with only_counted = 'Y', then call again this method with only_counted = 'N', and pass the required paging parameters.
+
+
+            {
+                "api_credentials": {
+                    "token": "XXXXX"
+                },
+              "filter_define": {
+                "only_counted": "Y",
+                "page_number":1,
+                "page_size":10,
+                "invoice_type":"all",
+                "invoice_number_selection":"",
+                "invoice_customer_code_selection":"",
+                "invoice_customer_name_selection":"",
+                "invoice_customer_email_selection": "",
+                "invoice_customer_phone_selection":"",
+                "from_date":"",
+                "to_date":"",
+                "session_date_from_utc0": "2020-12-07 05:00:00",
+                "session_date_to_utc0":"2020-12-09 15:00:00"
+              }
+            }
+        
+To get a list of loyalty invoices for multiple search criteria.
+
+
+            {
+                "api_credentials": {
+                    "token": "XXXXX"
+                },
+              "filter_define": {
+                "only_counted": "N",
+                "page_number":1,
+                "page_size":10,
+                "invoice_type":"all",
+                "invoice_number_selection":"",
+                "invoice_customer_code_selection":"",
+                "invoice_customer_name_selection":"",
+                "invoice_customer_email_selection": "",
+                "invoice_customer_phone_selection":"",
+                "from_date":"",
+                "to_date":"",
+                "session_date_from_utc0": "2020-12-07 05:00:00",
+                "session_date_to_utc0":"2020-12-09 15:00:00"
+              }
+            }
+        
+
+field	type	description
+api_credentials
+token	string	Credentials provided by Powersoft that allow access to the API
+filter_define
+only_counted	string	'Y' = brings only the total of invoices found based on user filter criteria. 'N' = brings the list of the invoices found based on user filter criteria
+page_number	integer	The page number in the entire list. eg Page 1.
+page_size	integer	The number of rows to return. eg 10 rows
+invoice_type	string	'sale' = Only the sales invoices. 'sale return' = Only the sale return. 'all' = All the invoices
+invoice_number_selection	string	A comma separated list of 365 invoices numbers (eg 'IN10000003,IN10000004,...'). If the value is empty then no search criteria by invoice number is applied.
+invoice_customer_code_selection	string	A comma separated list of 365 customers codes (eg '10000003,10000004,...'). If the value is empty then no search criteria by customer code is applied.
+invoice_customer_name_selection	string	A comma separated list of 365 customers names (eg 'CUSTOMER1,CASH...'). If the value is empty then no search criteria by customer name is applied.
+invoice_customer_email_selection	string	A comma separated list of customers emails address (eg 'jdoe@test.com,...'). If the value is empty then no search criteria by customer emails is applied.
+invoice_customer_phone_selection	string	A comma separated list of customers phones numbers (eg '96XXXXX,...'). If the value is empty then no search criteria by customer phone number is applied.
+from_date	string	From date. The date must be provided in format yyyy-mm-dd. Pass "" if you don't want selection by date
+to_date	string	To date. The date must be provided in format yyyy-mm-dd. Pass "" if you don't want selection by date
+session_date_from	string	Session date from . The date must be provided in format yyyy-mm-dd hh:MM:ss and is the Coordinated Universal Time (UTC). ie at time zone +0. Pass "" if you don't want selection by sesion date time
+session_date_to	string	Session date to. The date must be provided in format yyyy-mm-dd hh:MM:ss and is the Coordinated Universal Time (UTC). ie at time zone +0. Pass "" if you don't want selection by sesion date time
+Returns
+TOTAL COUNT of list of loyalty invoices for multiple search criteria (only_counted='Y').
+
+
+           {
+            "api_response": {
+                "response_code": "1",
+                "response_msg": "OK",
+                "response_id": ""
+            },
+            "total_count_list_invoices": 5,
+            "list_invoices": null
+           }
+        
+List of loyalty invoices for multiple search criteria (only_counted='N').
+
+
+             {
+                    "api_response": {
+                        "response_code": "1",
+                        "response_msg": "OK",
+                        "response_id": ""
+                    },
+                    "total_count_list_invoices": 2,
+                    "list_invoices": [
+                        {
+                            "invoice_no_365": "IN10000075",
+                            "invoice_type": "SALE",
+                            "invoice_date_local": "2016-02-25",
+                            "invoice_date_utc0": "2016-02-25 12:28:17",
+                            "customer_code_365": "00100001",
+                            "customer_name": "John Doe",
+                            "customer_email": "jdoe@test.com",
+                            "customer_tel_1": "22YYYYYY",
+                            "customer_tel_2": "22ZZZZZZ",
+                            "customer_mobile": "99XXXXXX",
+                            "customer_sms": "99XXXXXX",
+                            "points_earned": 5,
+                            "points_redeemed": 0,
+                            "store_code_365": "100",
+                            "user_code_365": "CASHIER1",
+                            "total_sub": 42.02,
+                            "total_discount": 2.52,
+                            "total_vat": 7.5,
+                            "total_grand": 47
+                        },
+                        {
+                            "invoice_no_365": "CC10000076",
+                            "invoice_type": "SALE RETURN",
+                            "invoice_date_local": "2016-09-01",
+                            "invoice_date_utc0": "2016-09-01 13:45:29",
+                            "customer_code_365": "00100001",
+                            "customer_name": "John Doe",
+                            "customer_email": "jdoe@test.com",
+                            "customer_tel_1": "22YYYYYY",
+                            "customer_tel_2": "22ZZZZZZ",
+                            "customer_mobile": "99XXXXXX",
+                            "customer_sms": "99XXXXXX",
+                            "points_earned": 0,
+                            "points_redeemed": 5,
+                            "store_code_365": "100",
+                            "user_code_365": "CASHIER1",
+                            "total_sub": 42.02,
+                            "total_discount": 2.52,
+                            "total_vat": 7.5,
+                            "total_grand": 47
+                        }
+                    ]
+                } 
+        
+© 2025 - Powersoft Computer Solutions Ltd
+
+Last updated: 30 November 2025

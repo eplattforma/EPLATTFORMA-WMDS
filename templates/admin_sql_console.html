@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}SQL Console - Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>🔧 SQL Console (Temporary Admin Tool)</h2>
+            <div class="alert alert-warning">
+                <strong>⚠️ WARNING:</strong> This tool runs queries directly on your database. Use with caution!
+                <br>
+                <strong>For Production:</strong> Republish your app to access production database.
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Execute SQL Query</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label for="sql_query" class="form-label">SQL Query:</label>
+                            <textarea 
+                                class="form-control font-monospace" 
+                                id="sql_query" 
+                                name="sql_query" 
+                                rows="8"
+                                placeholder="Enter your SQL query here..."
+                                style="font-size: 14px;">{{ query }}</textarea>
+                            <small class="form-text text-muted">
+                                Start with SELECT queries to preview data before deleting.
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-play-fill"></i> Execute Query
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {% if results %}
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Query Results</h5>
+                </div>
+                <div class="card-body">
+                    {% if results is mapping %}
+                        <p class="text-success">{{ results.message }}</p>
+                    {% elif results is iterable %}
+                        {% if results|length > 0 %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-sm">
+                                <thead>
+                                    <tr>
+                                        {% for key in results[0].keys() %}
+                                        <th>{{ key }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in results %}
+                                    <tr>
+                                        {% for value in row.values() %}
+                                        <td>{{ value }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted">No rows returned.</p>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if error %}
+            <div class="card border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0">Error</h5>
+                </div>
+                <div class="card-body">
+                    <pre class="text-danger mb-0">{{ error }}</pre>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">📋 Sample Queries</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Step 1: Preview Test Invoices</strong></p>
+                    <div class="mb-3">
+                        <button class="btn btn-sm btn-outline-secondary w-100 text-start" 
+                                type="button"
+                                data-query="{{ sample_queries.preview_test_invoices }}"
+                                onclick="copyQuery(this.getAttribute('data-query'))">
+                            Preview TEST invoices
+                        </button>
+                    </div>
+
+                    <div class="mb-3">
+                        <button class="btn btn-sm btn-outline-secondary w-100 text-start" 
+                                type="button"
+                                data-query="{{ sample_queries.count_test_invoices }}"
+                                onclick="copyQuery(this.getAttribute('data-query'))">
+                            Count TEST invoices
+                        </button>
+                    </div>
+
+                    <hr>
+
+                    <p><strong>Step 2: Delete Test Data (Run in order)</strong></p>
+                    <small class="text-danger">⚠️ These DELETE queries are permanent!</small>
+                    
+                    <div class="mt-2 mb-2">
+                        <button class="btn btn-sm btn-warning w-100 text-start" 
+                                type="button"
+                                data-query="{{ sample_queries.delete_test_items }}"
+                                onclick="copyQuery(this.getAttribute('data-query'))">
+                            1. Delete TEST invoice items
+                        </button>
+                    </div>
+
+                    <div class="mb-2">
+                        <button class="btn btn-sm btn-warning w-100 text-start" 
+                                type="button"
+                                data-query="{{ sample_queries.delete_test_exceptions }}"
+                                onclick="copyQuery(this.getAttribute('data-query'))">
+                            2. Delete TEST exceptions
+                        </button>
+                    </div>
+
+                    <div class="mb-2">
+                        <button class="btn btn-sm btn-warning w-100 text-start" 
+                                type="button"
+                                data-query="{{ sample_queries.delete_test_activities }}"
+                                onclick="copyQuery(this.getAttribute('data-query'))">
+                            3. Delete TEST activities
+                        </button>
+                    </div>
+
+                    <div class="mb-2">
+                        <button class="btn btn-sm btn-warning w-100 text-start" 
+                                type="button"
+                                data-query="{{ sample_queries.delete_test_tracking }}"
+                                onclick="copyQuery(this.getAttribute('data-query'))">
+                            4. Delete TEST tracking
+                        </button>
+                    </div>
+
+                    <div class="mb-2">
+                        <button class="btn btn-sm btn-danger w-100 text-start" 
+                                type="button"
+                                data-query="{{ sample_queries.delete_test_invoices }}"
+                                onclick="copyQuery(this.getAttribute('data-query'))">
+                            5. Delete TEST invoices (FINAL)
+                        </button>
+                    </div>
+
+                    <hr>
+
+                    <div class="alert alert-info mt-3">
+                        <small>
+                            <strong>💡 Tip:</strong> Click any button to copy the query to the input field above.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col">
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Admin Dashboard
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+function copyQuery(query) {
+    document.getElementById('sql_query').value = query;
+    document.getElementById('sql_query').focus();
+}
+</script>
+{% endblock %}

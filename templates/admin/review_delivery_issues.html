@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+
+{% block title %}Review Delivery Issues{% endblock %}
+
+{% block head %}
+<style>
+    .status-badge {
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+    .status-reported { background-color: #f56565; color: white; }
+    .status-review { background-color: #48bb78; color: white; }
+    .status-closed { background-color: #718096; color: white; }
+    
+    .action-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.8rem;
+        margin-top: 4px;
+    }
+    
+    .action-complete {
+        color: #48bb78;
+        font-weight: 600;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .action-complete .person-name {
+        color: white;
+        font-weight: 400;
+        font-size: 0.75rem;
+        margin-top: 2px;
+    }
+    
+    .action-pending {
+        color: #a0aec0;
+    }
+    
+    .issues-table {
+        width: 100%;
+        background: #1a202c;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+    .issues-table thead {
+        background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+        border-bottom: 2px solid #4a5568;
+    }
+    
+    .issues-table th {
+        padding: 12px 10px;
+        color: #cbd5e0;
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-right: 1px solid #2d3748;
+        position: sticky;
+        top: 0;
+        background: #2d3748;
+        z-index: 100;
+    }
+    
+    .issues-table th:last-child {
+        border-right: none;
+    }
+    
+    .issue-row {
+        border-bottom: 3px solid #0d1117;
+        transition: background-color 0.2s;
+        background: #2a3544;
+    }
+    
+    .issue-row:hover {
+        background: #374151;
+    }
+    
+    .issue-row.reported {
+        border-left: 4px solid #f56565;
+    }
+    
+    .issue-row.review {
+        border-left: 4px solid #48bb78;
+    }
+    
+    .issue-row.closed {
+        border-left: 4px solid #718096;
+    }
+    
+    .issue-row td {
+        padding: 12px 10px;
+        vertical-align: top;
+        color: #e2e8f0;
+        font-size: 0.9rem;
+    }
+    
+    .issue-number {
+        font-weight: 600;
+        color: #63b3ed;
+        font-size: 0.95rem;
+    }
+    
+    .discrepancy-type {
+        color: #fc8181;
+        font-weight: 600;
+        font-size: 0.95rem;
+        margin-top: 4px;
+    }
+    
+    .item-code {
+        color: #fbbf24;
+        font-weight: 700;
+        font-size: 1.1rem;
+    }
+    
+    .item-details {
+        line-height: 1.5;
+    }
+    
+    .item-name {
+        font-weight: 500;
+        color: #e2e8f0;
+    }
+    
+    .item-meta {
+        font-size: 0.8rem;
+        color: #a0aec0;
+        margin-top: 2px;
+    }
+    
+    .qty-box {
+        display: inline-block;
+        padding: 4px 8px;
+        background: #1a202c;
+        border-radius: 4px;
+        font-weight: 600;
+        margin-right: 5px;
+    }
+    
+    .qty-expected {
+        color: #68d391;
+    }
+    
+    .qty-actual {
+        color: #f6ad55;
+    }
+    
+    .notes-row {
+        background: #1e2837 !important;
+        border-bottom: 3px solid #0d1117;
+    }
+    
+    .notes-cell {
+        padding: 10px !important;
+        font-size: 0.85rem;
+        color: #cbd5e0;
+    }
+    
+    .notes-content {
+        background: #2d3748;
+        padding: 8px 12px;
+        border-radius: 4px;
+        border-left: 3px solid #4299e1;
+        display: inline-block;
+        max-width: 100%;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    
+    .action-buttons .btn {
+        font-size: 0.8rem;
+        padding: 4px 10px;
+    }
+    
+    .filter-tabs {
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="fas fa-clipboard-list me-2"></i>Delivery Discrepancies
+                    {% if current_user.role == 'warehouse_manager' and resolved_filter == 'unresolved' %}
+                    <span class="badge bg-warning text-dark ms-2">Unresolved Only</span>
+                    {% endif %}
+                </h2>
+                <div class="d-flex gap-2">
+                    {% if current_user.role == 'warehouse_manager' %}
+                        {% if resolved_filter == 'unresolved' %}
+                        <a href="{{ url_for('delivery_issues.review_issues', filter='all', status=status_filter) }}" class="btn btn-secondary">
+                            <i class="fas fa-list me-1"></i>Show All Issues
+                        </a>
+                        {% else %}
+                        <a href="{{ url_for('delivery_issues.review_issues', filter='unresolved', status=status_filter) }}" class="btn btn-warning">
+                            <i class="fas fa-filter me-1"></i>Show Unresolved Only
+                        </a>
+                        {% endif %}
+                    {% endif %}
+                    <a href="{{ url_for('delivery_issues.record_issue') }}" class="btn btn-primary">
+                        <i class="fas fa-plus me-1"></i>Record New Issue
+                    </a>
+                </div>
+            </div>
+
+            <div class="filter-tabs">
+                <ul class="nav nav-pills">
+                    <li class="nav-item">
+                        <a class="nav-link {% if status_filter == 'all' %}active{% endif %}" 
+                           href="{{ url_for('delivery_issues.review_issues', status='all') }}">
+                            All Issues ({{ issues|length }})
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if status_filter == 'reported' %}active{% endif %}" 
+                           href="{{ url_for('delivery_issues.review_issues', status='reported') }}">
+                            Reported ({{ issues|selectattr('status', 'equalto', 'reported')|list|length }})
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if status_filter == 'review' %}active{% endif %}" 
+                           href="{{ url_for('delivery_issues.review_issues', status='review') }}">
+                            Ready for Review ({{ issues|selectattr('status', 'equalto', 'review')|list|length }})
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if status_filter == 'closed' %}active{% endif %}" 
+                           href="{{ url_for('delivery_issues.review_issues', status='closed') }}">
+                            Closed ({{ issues|selectattr('status', 'equalto', 'closed')|list|length }})
+                        </a>
+                    </li>
+                </ul>
+            </div>
+
+            {% if issues|length == 0 %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                No delivery issues found for the selected filter.
+            </div>
+            {% else %}
+
+            <table class="issues-table">
+                <thead>
+                    <tr>
+                        <th style="width: 6%;">Issue</th>
+                        <th style="width: 8%;">Date</th>
+                        <th style="width: 8%;">Invoice No</th>
+                        <th style="width: 15%;">Customer</th>
+                        <th style="width: 8%;">Picked Date</th>
+                        <th style="width: 8%;">Item Code</th>
+                        <th style="width: 15%;">Item Name</th>
+                        <th style="width: 8%;">Shelf Location</th>
+                        <th style="width: 10%;">Picker Name</th>
+                        <th style="width: 5%;">Exp QTY</th>
+                        <th style="width: 5%;">Act Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for issue in issues %}
+                    <tr class="issue-row {{ issue.status }}">
+                        <td>
+                            <div class="issue-number">#{{ issue.id }}</div>
+                            <span class="status-badge status-{{ issue.status }} mt-2 d-inline-block">
+                                {{ issue.status.upper() }}
+                            </span>
+                        </td>
+                        <td>
+                            <div>{{ issue.reported_at.strftime('%d/%m/%Y') if issue.reported_at else 'N/A' }}</div>
+                            {% if issue.is_validated or issue.is_resolved %}
+                            <div class="d-flex align-items-start gap-3 mt-2">
+                                {% if issue.is_validated %}
+                                <span class="action-complete">
+                                    <span><i class="fas fa-check-circle"></i> Validated</span>
+                                    <span class="person-name">{{ issue.validated_by }}</span>
+                                </span>
+                                {% endif %}
+                                {% if issue.is_resolved %}
+                                <span class="action-complete">
+                                    <span><i class="fas fa-check-circle"></i> Resolved</span>
+                                    <span class="person-name">{{ issue.resolved_by }}</span>
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td><strong>{{ issue.invoice_no }}</strong></td>
+                        <td>{{ issue.invoice.customer_name }}</td>
+                        <td>
+                            {% if issue.picked_at %}
+                            {{ issue.picked_at.strftime('%d/%m/%Y') }}<br>
+                            <small class="text-muted">{{ issue.picked_at.strftime('%H:%M') }}</small>
+                            {% else %}
+                            N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="item-code">
+                                {% if issue.discrepancy_type == 'wrong' or issue.discrepancy_type == 'wrong_item' %}
+                                    {% if issue.actual_item_code or issue.actual_barcode %}
+                                        {{ issue.item_code_expected }} → {{ issue.actual_item_code or issue.actual_barcode }}
+                                    {% else %}
+                                        {{ issue.item_code_expected }}
+                                    {% endif %}
+                                {% else %}
+                                    {{ issue.item_code_expected }}
+                                {% endif %}
+                            </div>
+                            <div class="discrepancy-type">{{ issue.discrepancy_type.replace('_', ' ').title() }}</div>
+                        </td>
+                        <td>
+                            <div class="item-details">
+                                <div class="item-name">{{ issue.item_name or 'N/A' }}</div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="item-meta">
+                                {% if issue.shelf_code_365 %}
+                                    <i class="fas fa-box me-1"></i>{{ issue.shelf_code_365 }}
+                                {% elif issue.location %}
+                                    <i class="fas fa-map-marker-alt me-1"></i>{{ issue.location }}
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            {% if issue.picker_username %}
+                                <i class="fas fa-user me-1"></i>{{ issue.picker_username }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="qty-box qty-expected">{{ issue.qty_expected }}</span>
+                        </td>
+                        <td>
+                            {% if issue.qty_actual is not none %}
+                            <span class="qty-box qty-actual">{{ issue.qty_actual }}</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if issue.note or issue.status in ['reported', 'review'] %}
+                    <tr class="notes-row {{ issue.status }}">
+                        <td></td>
+                        <td colspan="5" class="notes-cell">
+                            {% if issue.note %}
+                            <div class="notes-content">
+                                <strong>Notes:</strong> {{ issue.note }}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td colspan="3" class="notes-cell">
+                            <div class="action-buttons">
+                                {% if issue.status == 'reported' %}
+                                    {% if current_user.role == 'admin' %}
+                                        {% if not issue.is_validated %}
+                                        <button type="button" class="btn btn-sm btn-warning" 
+                                                onclick="validateIssue({{ issue.id }})">
+                                            <i class="fas fa-check me-1"></i>Validate
+                                        </button>
+                                        {% else %}
+                                        <button type="button" class="btn btn-sm btn-secondary" disabled>
+                                            <i class="fas fa-check me-1"></i>Validated
+                                        </button>
+                                        {% endif %}
+                                    {% endif %}
+                                    
+                                    {% if not issue.is_resolved %}
+                                    <button type="button" class="btn btn-sm btn-success" 
+                                            onclick="resolveIssue({{ issue.id }}, '{{ issue.discrepancy_type }}')">
+                                        <i class="fas fa-check-double me-1"></i>Resolve
+                                    </button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-sm btn-secondary" disabled>
+                                        <i class="fas fa-check-double me-1"></i>Resolved
+                                    </button>
+                                    {% endif %}
+                                {% elif issue.status == 'review' %}
+                                    {% if current_user.role == 'admin' %}
+                                    <button type="button" class="btn btn-sm btn-primary" 
+                                            onclick="closeIssue({{ issue.id }})">
+                                        <i class="fas fa-times-circle me-1"></i>Close Issue
+                                    </button>
+                                    {% endif %}
+                                {% endif %}
+                                
+                                {% if current_user.role == 'admin' %}
+                                <button type="button" class="btn btn-sm btn-danger" 
+                                        onclick="deleteIssue({{ issue.id }}, '{{ issue.item_code_expected }}', '{{ issue.invoice_no }}')">
+                                    <i class="fas fa-trash me-1"></i>Delete
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Validate Modal -->
+<div class="modal fade" id="validateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="validateForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Validate Issue</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="validate_note" class="form-label">Validation Notes</label>
+                        <textarea class="form-control" id="validate_note" name="note" rows="3" 
+                                  placeholder="Add any validation notes..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning">Validate Issue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Resolve Modal -->
+<div class="modal fade" id="resolveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="resolveForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Resolve Issue</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="resolution_action" class="form-label">Resolution Action *</label>
+                        <select class="form-select" id="resolution_action" name="resolution_action" required>
+                            <option value="">Select action...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="resolve_note" class="form-label">Resolution Notes</label>
+                        <textarea class="form-control" id="resolve_note" name="note" rows="3" 
+                                  placeholder="Describe the resolution..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Resolve Issue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Close Modal -->
+<div class="modal fade" id="closeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="closeForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Close Issue</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="close_note" class="form-label">Closing Notes</label>
+                        <textarea class="form-control" id="close_note" name="note" rows="3" 
+                                  placeholder="Add any closing notes..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Close Issue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="deleteForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Delete Delivery Discrepancy</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> This action cannot be undone. This will permanently delete the delivery discrepancy and all its event history.
+                    </div>
+                    <p>Are you sure you want to delete this issue?</p>
+                    <p class="mb-0">
+                        <strong>Issue ID:</strong> <span id="delete_issue_id"></span><br>
+                        <strong>Invoice:</strong> <span id="delete_invoice_no"></span><br>
+                        <strong>Item Code:</strong> <span id="delete_item_code"></span>
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash me-1"></i>Delete Permanently
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Resolutions by discrepancy type
+const resolutionsByType = {
+    {% for dtype, resolutions in resolutions_by_type.items() %}
+    '{{ dtype }}': [
+        {% for resolution in resolutions %}
+        { value: '{{ resolution.resolution_name }}', label: '{{ resolution.resolution_name }}' }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]{% if not loop.last %},{% endif %}
+    {% endfor %}
+};
+
+function validateIssue(issueId) {
+    const form = document.getElementById('validateForm');
+    form.action = `/admin/delivery-issues/${issueId}/validate`;
+    const modal = new bootstrap.Modal(document.getElementById('validateModal'));
+    modal.show();
+}
+
+function resolveIssue(issueId, discrepancyType) {
+    const form = document.getElementById('resolveForm');
+    form.action = `/admin/delivery-issues/${issueId}/resolve`;
+    
+    // Populate resolution dropdown based on discrepancy type
+    const resolutionSelect = document.getElementById('resolution_action');
+    resolutionSelect.innerHTML = '<option value="">Select action...</option>';
+    
+    const resolutions = resolutionsByType[discrepancyType] || [];
+    resolutions.forEach(resolution => {
+        const option = document.createElement('option');
+        option.value = resolution.value;
+        option.textContent = resolution.label;
+        resolutionSelect.appendChild(option);
+    });
+    
+    // Always add a separator and "Other" option
+    if (resolutions.length > 0) {
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = '──────────';
+        resolutionSelect.appendChild(separator);
+    }
+    
+    const otherOption = document.createElement('option');
+    otherOption.value = 'Other';
+    otherOption.textContent = 'Other';
+    resolutionSelect.appendChild(otherOption);
+    
+    const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
+    modal.show();
+}
+
+// Prevent double submission on validate form
+document.getElementById('validateForm').addEventListener('submit', function(e) {
+    const submitBtn = this.querySelector('button[type="submit"]');
+    if (submitBtn.disabled) {
+        e.preventDefault();
+        return false;
+    }
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Validating...';
+});
+
+// Prevent double submission on resolve form
+document.getElementById('resolveForm').addEventListener('submit', function(e) {
+    const submitBtn = this.querySelector('button[type="submit"]');
+    if (submitBtn.disabled) {
+        e.preventDefault();
+        return false;
+    }
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Resolving...';
+});
+
+function closeIssue(issueId) {
+    const form = document.getElementById('closeForm');
+    form.action = `/admin/delivery-issues/${issueId}/close`;
+    const modal = new bootstrap.Modal(document.getElementById('closeModal'));
+    modal.show();
+}
+
+// Prevent double submission on close form
+document.getElementById('closeForm').addEventListener('submit', function(e) {
+    const submitBtn = this.querySelector('button[type="submit"]');
+    if (submitBtn.disabled) {
+        e.preventDefault();
+        return false;
+    }
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Closing...';
+});
+
+function deleteIssue(issueId, itemCode, invoiceNo) {
+    const form = document.getElementById('deleteForm');
+    form.action = `/admin/delivery-issues/${issueId}/delete`;
+    
+    // Populate modal with issue details
+    document.getElementById('delete_issue_id').textContent = '#' + issueId;
+    document.getElementById('delete_invoice_no').textContent = invoiceNo;
+    document.getElementById('delete_item_code').textContent = itemCode;
+    
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    modal.show();
+}
+
+// Prevent double submission on delete form
+document.getElementById('deleteForm').addEventListener('submit', function(e) {
+    const submitBtn = this.querySelector('button[type="submit"]');
+    if (submitBtn.disabled) {
+        e.preventDefault();
+        return false;
+    }
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+});
+</script>
+{% endblock %}

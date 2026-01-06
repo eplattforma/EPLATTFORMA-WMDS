@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+
+{% block title %}Import Invoices - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h3 mb-0"><i class="fas fa-file-invoice me-2"></i>Import Invoices</h1>
+                    <p class="text-muted">Import picking orders from PS365 or Excel files</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
+                    </a>
+                </div>
+            </div>
+
+            <!-- PRIMARY: Import from PS365 API -->
+            <div class="card border-primary mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-cloud-download-alt me-2"></i>Import from PS365 (Recommended)</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- Import by Date -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header bg-success text-white">
+                                    <h6 class="mb-0"><i class="fas fa-calendar-day me-2"></i>Import by Date</h6>
+                                </div>
+                                <div class="card-body">
+                                    <label for="importDate" class="form-label"><strong>Select Date:</strong></label>
+                                    <div class="input-group">
+                                        <input type="date" class="form-control form-control-lg" id="importDate" />
+                                        <button class="btn btn-success btn-lg" id="importByDateBtn">
+                                            <i class="fas fa-download me-1"></i>Import
+                                        </button>
+                                    </div>
+                                    <small class="form-text text-muted mt-2">Import all invoices created on the selected date</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Import by Invoice Number -->
+                        <div class="col-md-6 mb-3">
+                            <div class="card h-100">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-file-invoice me-2"></i>Import Specific Invoice</h6>
+                                </div>
+                                <div class="card-body">
+                                    <label for="invoiceNumber" class="form-label"><strong>Invoice Number:</strong></label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control form-control-lg" id="invoiceNumber" placeholder="e.g., IN10052209" />
+                                        <button class="btn btn-primary btn-lg" id="importBtn">
+                                            <i class="fas fa-download me-1"></i>Import
+                                        </button>
+                                    </div>
+                                    <small class="form-text text-muted mt-2">Enter a specific invoice number to import</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Status Messages -->
+                    <div id="statusContainer" style="display: none;" class="mt-3">
+                        <div id="successAlert" class="alert alert-success" style="display: none;">
+                            <strong><i class="fas fa-check-circle me-2"></i>Success!</strong>
+                            <div id="successMessage"></div>
+                        </div>
+                        <div id="errorAlert" class="alert alert-danger" style="display: none;">
+                            <strong><i class="fas fa-exclamation-circle me-2"></i>Error!</strong>
+                            <div id="errorMessage"></div>
+                        </div>
+                        <div id="loadingAlert" class="alert alert-info" style="display: none;">
+                            <i class="fas fa-spinner fa-spin me-2"></i><strong>Processing...</strong> Please wait while invoices are being imported.
+                        </div>
+                    </div>
+
+                    <!-- Results Summary -->
+                    <div id="resultsContainer" style="display: none;" class="mt-3">
+                        <div class="card border-dark">
+                            <div class="card-header bg-dark text-white">
+                                <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Import Summary</h6>
+                            </div>
+                            <div class="card-body bg-white">
+                                <div class="row text-center">
+                                    <div class="col-md-4">
+                                        <h2 id="invoiceCount" class="text-primary fw-bold mb-1">0</h2>
+                                        <p class="text-dark fw-bold mb-0">Invoices Imported</p>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <h2 id="itemCount" class="text-success fw-bold mb-1">0</h2>
+                                        <p class="text-dark fw-bold mb-0">Items Imported</p>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <h2 id="errorCount" class="text-danger fw-bold mb-1">0</h2>
+                                        <p class="text-dark fw-bold mb-0">Errors</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECONDARY: Excel Upload (Collapsible) -->
+            <div class="card mb-4">
+                <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#excelUploadSection">
+                    <h5 class="mb-0">
+                        <i class="fas fa-file-excel me-2"></i>Import from Excel File
+                        <i class="fas fa-chevron-down float-end"></i>
+                    </h5>
+                </div>
+                <div id="excelUploadSection" class="collapse">
+                    <div class="card-body">
+                        <form method="post" enctype="multipart/form-data">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="file" class="form-label">Select Excel File (.xlsx)</label>
+                                        <input type="file" class="form-control" name="file" id="file" 
+                                               accept=".xlsx,.xls" required>
+                                        <div class="form-text">
+                                            Choose an Excel file containing your picking order data to import.
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 d-flex align-items-end">
+                                    <button type="submit" class="btn btn-secondary w-100" id="excelUploadBtn">
+                                        <i class="fas fa-upload me-2"></i>Upload & Import
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PS365 Synchronization (Collapsible) -->
+            <div class="card">
+                <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#syncSection">
+                    <h5 class="mb-0">
+                        <i class="fas fa-sync-alt me-2"></i>PS365 Data Synchronization
+                        <i class="fas fa-chevron-down float-end"></i>
+                    </h5>
+                </div>
+                <div id="syncSection" class="collapse">
+                    <div class="card-body">
+                        <p class="text-muted">Sync product data from PS365 API to keep your system up to date.</p>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <form method="post" action="{{ url_for('datawarehouse.full_sync') }}" class="d-inline">
+                                    <button type="submit" class="btn btn-info w-100">
+                                        <i class="fas fa-boxes me-2"></i>Synchronise Items (Full)
+                                    </button>
+                                </form>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <form method="post" action="{{ url_for('datawarehouse.incremental_sync') }}" class="d-inline">
+                                    <button type="submit" class="btn btn-info w-100">
+                                        <i class="fas fa-sync-alt me-2"></i>Synchronise Items (Incremental)
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Set today's date as default
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('importDate').value = today;
+});
+
+// Common import function for PS365
+async function doImport(url, btn) {
+    const statusContainer = document.getElementById('statusContainer');
+    const successAlert = document.getElementById('successAlert');
+    const errorAlert = document.getElementById('errorAlert');
+    const loadingAlert = document.getElementById('loadingAlert');
+    const resultsContainer = document.getElementById('resultsContainer');
+    
+    // Reset alerts
+    statusContainer.style.display = 'block';
+    successAlert.style.display = 'none';
+    errorAlert.style.display = 'none';
+    loadingAlert.style.display = 'block';
+    resultsContainer.style.display = 'none';
+    
+    // Disable button during request
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Importing...';
+    
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        // Handle non-JSON responses (proxy errors, timeouts)
+        const responseText = await response.text();
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            // Server returned non-JSON (likely HTML error page from proxy)
+            loadingAlert.style.display = 'none';
+            errorAlert.style.display = 'block';
+            const statusInfo = `HTTP ${response.status} ${response.statusText}`;
+            const preview = responseText.replace(/<[^>]*>/g, '').trim().slice(0, 300);
+            document.getElementById('errorMessage').innerHTML = 
+                `<strong>Server Error (${statusInfo}):</strong><br>` +
+                `<small class="text-muted">${preview || 'No response body'}</small><br><br>` +
+                `<em>This usually means the request timed out. Try importing fewer invoices at once.</em>`;
+            return;
+        }
+        
+        loadingAlert.style.display = 'none';
+        
+        if (data.success) {
+            successAlert.style.display = 'block';
+            document.getElementById('successMessage').innerHTML = data.message || 'Invoices imported successfully!';
+            
+            // Show results - use invoices_processed/items_processed from API
+            document.getElementById('invoiceCount').textContent = data.invoices_processed || data.total_invoices_imported || 0;
+            document.getElementById('itemCount').textContent = data.items_processed || data.total_items_imported || 0;
+            document.getElementById('errorCount').textContent = data.errors || 0;
+            resultsContainer.style.display = 'block';
+        } else {
+            errorAlert.style.display = 'block';
+            document.getElementById('errorMessage').innerHTML = data.error || 'An error occurred during import.';
+        }
+    } catch (error) {
+        loadingAlert.style.display = 'none';
+        errorAlert.style.display = 'block';
+        document.getElementById('errorMessage').innerHTML = 
+            `<strong>Network Error:</strong> ${error.message || 'Connection failed'}<br>` +
+            `<em>Please check your internet connection and try again.</em>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// Import by date
+document.getElementById('importByDateBtn').addEventListener('click', async function() {
+    const importDate = document.getElementById('importDate').value;
+    if (!importDate) {
+        alert('Please select a date');
+        return;
+    }
+    
+    const url = '/api/powersoft/sync/invoices?date=' + encodeURIComponent(importDate);
+    await doImport(url, this);
+});
+
+// Import by invoice number
+document.getElementById('importBtn').addEventListener('click', async function() {
+    const invoiceNumber = document.getElementById('invoiceNumber').value.trim();
+    if (!invoiceNumber) {
+        alert('Please enter an invoice number');
+        return;
+    }
+    
+    const url = '/api/powersoft/sync/invoices?invoice_no=' + encodeURIComponent(invoiceNumber);
+    await doImport(url, this);
+    document.getElementById('invoiceNumber').value = '';
+});
+
+// Allow Enter key to trigger import
+document.getElementById('invoiceNumber').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        document.getElementById('importBtn').click();
+    }
+});
+
+// Excel file upload feedback
+document.addEventListener('DOMContentLoaded', function() {
+    const fileInput = document.getElementById('file');
+    const uploadBtn = document.getElementById('excelUploadBtn');
+    
+    if (fileInput && uploadBtn) {
+        fileInput.addEventListener('change', function() {
+            if (this.files && this.files[0]) {
+                const fileName = this.files[0].name;
+                const fileSize = (this.files[0].size / 1024 / 1024).toFixed(2);
+                
+                uploadBtn.innerHTML = `<i class="fas fa-upload me-2"></i>Import "${fileName}" (${fileSize}MB)`;
+                uploadBtn.classList.remove('btn-secondary');
+                uploadBtn.classList.add('btn-success');
+            } else {
+                uploadBtn.innerHTML = '<i class="fas fa-upload me-2"></i>Upload & Import';
+                uploadBtn.classList.remove('btn-success');
+                uploadBtn.classList.add('btn-secondary');
+            }
+        });
+    }
+    
+    // Prevent double submission on forms
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+        form.addEventListener('submit', function() {
+            const submitBtn = this.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processing...';
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

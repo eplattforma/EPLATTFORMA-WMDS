@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delivery Receipt - Stop #3</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        @page {
+            size: 70mm auto;
+            margin: 0;
+        }
+        
+        @media print {
+            body {
+                width: 70mm;
+            }
+        }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.3;
+            width: 70mm;
+            margin: 0 auto;
+            padding: 5mm;
+            background: white;
+        }
+        
+        .receipt {
+            width: 100%;
+        }
+        
+        .header {
+            text-align: center;
+            border-bottom: 1px dashed #000;
+            padding-bottom: 5px;
+            margin-bottom: 8px;
+        }
+        
+        .company-name {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+        
+        .company-info {
+            font-size: 9px;
+            line-height: 1.2;
+        }
+        
+        .section {
+            margin-bottom: 8px;
+            border-bottom: 1px dashed #000;
+            padding-bottom: 5px;
+        }
+        
+        .row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        
+        .label {
+            font-weight: bold;
+        }
+        
+        .items-table {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        
+        .item-row {
+            margin-bottom: 4px;
+            font-size: 10px;
+        }
+        
+        .item-name {
+            font-weight: bold;
+            margin-bottom: 1px;
+            font-size: 9px;
+        }
+        
+        .item-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+        }
+        
+        .invoice-divider {
+            border-top: 1px solid #000;
+            margin: 8px 0 5px 0;
+            padding-top: 5px;
+        }
+        
+        .totals {
+            margin-top: 8px;
+            border-top: 1px solid #000;
+            padding-top: 5px;
+        }
+        
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+        
+        .grand-total {
+            font-size: 13px;
+            font-weight: bold;
+            border-top: 1px solid #000;
+            border-bottom: 1px solid #000;
+            padding: 3px 0;
+            margin-top: 3px;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 8px;
+            font-size: 9px;
+            border-top: 1px dashed #000;
+            padding-top: 5px;
+        }
+        
+        .no-print {
+            margin: 20px auto;
+            text-align: center;
+        }
+        
+        @media print {
+            .no-print {
+                display: none;
+            }
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 2px 5px;
+            background: #28a745;
+            color: white;
+            font-size: 8px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <button class="btn" onclick="window.print()">🖨️ Print Receipt</button>
+        <button class="btn" onclick="window.close()">❌ Close</button>
+    </div>
+
+    <div class="receipt">
+        <!-- Header -->
+        <div class="header">
+            <div class="company-name">YOUR COMPANY NAME</div>
+            <div class="company-info">
+                123 Warehouse Street<br>
+                City, State 12345<br>
+                Tel: (555) 123-4567<br>
+                www.yourcompany.com
+            </div>
+        </div>
+        
+        <!-- Delivery Info -->
+        <div class="section">
+            <div class="row">
+                <span class="label">ROUTE:</span>
+                <span>#R-2025-042</span>
+            </div>
+            <div class="row">
+                <span class="label">STOP:</span>
+                <span>#3 of 12</span>
+            </div>
+            <div class="row">
+                <span class="label">DRIVER:</span>
+                <span>John Smith</span>
+            </div>
+            <div class="row">
+                <span class="label">DATE:</span>
+                <span>2025-10-28 15:30</span>
+            </div>
+        </div>
+        
+        <!-- Customer Info -->
+        <div class="section">
+            <div class="row">
+                <span class="label">DELIVER TO:</span>
+            </div>
+            <div style="margin-left: 5px; font-size: 10px;">
+                ABC Trading Company<br>
+                456 Customer Avenue<br>
+                Business District<br>
+                Tel: (555) 987-6543
+            </div>
+        </div>
+        
+        <!-- Invoice #1 -->
+        <div class="section">
+            <div class="row" style="background: #f0f0f0; padding: 2px; margin: -2px -2px 3px -2px;">
+                <span class="label">INVOICE: IN10051413</span>
+                <span class="badge">DELIVERED</span>
+            </div>
+            
+            <div class="item-row">
+                <div class="item-name">MR.BROWN ORIGINAL 240ML 1X24</div>
+                <div class="item-details">
+                    <span>ICC-0005</span>
+                    <span>2 x $24.00</span>
+                </div>
+            </div>
+            
+            <div class="item-row">
+                <div class="item-name">LUCOZADE ORANGE 380ML 1X24</div>
+                <div class="item-details">
+                    <span>SPD-0006</span>
+                    <span>1 x $36.00</span>
+                </div>
+            </div>
+            
+            <div class="item-row">
+                <div class="item-name">PERRIER WATER BTL 330ML 4X6</div>
+                <div class="item-details">
+                    <span>WAT-0001</span>
+                    <span>3 x $18.00</span>
+                </div>
+            </div>
+            
+            <div class="row" style="margin-top: 5px; font-size: 10px; font-weight: bold;">
+                <span>Invoice Total:</span>
+                <span>$102.00</span>
+            </div>
+        </div>
+        
+        <!-- Invoice #2 -->
+        <div class="section">
+            <div class="row" style="background: #f0f0f0; padding: 2px; margin: -2px -2px 3px -2px;">
+                <span class="label">INVOICE: IN10051418</span>
+                <span class="badge">DELIVERED</span>
+            </div>
+            
+            <div class="item-row">
+                <div class="item-name">MR.BROWN BLACK 240ML 1X24</div>
+                <div class="item-details">
+                    <span>ICC-0006</span>
+                    <span>1 x $24.00</span>
+                </div>
+            </div>
+            
+            <div class="item-row">
+                <div class="item-name">MR.BROWN VANILLA 240ML 1X24</div>
+                <div class="item-details">
+                    <span>ICC-0007</span>
+                    <span>2 x $24.00</span>
+                </div>
+            </div>
+            
+            <div class="row" style="margin-top: 5px; font-size: 10px; font-weight: bold;">
+                <span>Invoice Total:</span>
+                <span>$72.00</span>
+            </div>
+        </div>
+        
+        <!-- Stop Totals -->
+        <div class="totals">
+            <div class="total-row">
+                <span>Total Invoices:</span>
+                <span>2</span>
+            </div>
+            <div class="total-row">
+                <span>Total Items:</span>
+                <span>9 units</span>
+            </div>
+            <div class="total-row grand-total">
+                <span>TOTAL AMOUNT:</span>
+                <span>$174.00</span>
+            </div>
+        </div>
+        
+        <!-- Payment Info -->
+        <div class="section" style="font-size: 9px;">
+            <div class="row">
+                <span class="label">PAYMENT TYPE:</span>
+                <span>CASH ON DELIVERY</span>
+            </div>
+            <div class="row">
+                <span>Amount Due:</span>
+                <span>$174.00</span>
+            </div>
+            <div class="row">
+                <span>Amount Paid:</span>
+                <span>$180.00</span>
+            </div>
+            <div class="row">
+                <span>Change Given:</span>
+                <span>$6.00</span>
+            </div>
+        </div>
+        
+        <!-- Delivery Confirmation -->
+        <div class="section" style="font-size: 9px;">
+            <div class="row">
+                <span class="label">RECEIVED BY:</span>
+            </div>
+            <div style="margin-top: 3px;">
+                Name: Maria Santos<br>
+                Time: 2025-10-28 15:30<br>
+                Signature: ________________
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <div style="margin-bottom: 3px;">THANK YOU FOR YOUR BUSINESS!</div>
+            <div style="font-size: 8px;">
+                Goods sold are not returnable<br>
+                Please check items before signing<br>
+                For inquiries: (555) 123-4567<br>
+                ---<br>
+                Route: R-2025-042 | Stop: 3
+            </div>
+        </div>
+    </div>
+</body>
+</html>

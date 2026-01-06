@@ -1,0 +1,253 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Corrections - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a></li>
+                    <li class="breadcrumb-item active">Picking Corrections</li>
+                </ol>
+            </nav>
+            <h2 class="h4 mb-3"><i class="fas fa-edit me-2"></i>Picking Corrections</h2>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Filters</h5>
+        </div>
+        <div class="card-body">
+            <form method="get" action="{{ url_for('admin_corrections') }}" id="filterForm">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-2">
+                        <label for="invoice_no" class="form-label">Invoice Number</label>
+                        <input type="text" class="form-control" id="invoice_no" name="invoice_no" value="{{ request.args.get('invoice_no', '') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="customer_name" class="form-label">Customer Name</label>
+                        <input type="text" class="form-control" id="customer_name" name="customer_name" value="{{ request.args.get('customer_name', '') }}" placeholder="Search customer name...">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="picker" class="form-label">Picker</label>
+                        <select class="form-select" id="picker" name="picker">
+                            <option value="">All Pickers</option>
+                            {% for user in users %}
+                                {% if user.role == 'picker' %}
+                                <option value="{{ user.username }}" {% if request.args.get('picker') == user.username %}selected{% endif %}>{{ user.username }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="status" class="form-label">Status</label>
+                        <select class="form-select" id="status" name="status">
+                            <option value="">All Statuses</option>
+                            <option value="not_started" {% if request.args.get('status') == 'not_started' %}selected{% endif %}>Not Started</option>
+                            <option value="picking" {% if request.args.get('status') == 'picking' %}selected{% endif %}>Picking</option>
+                            <option value="ready_for_dispatch" {% if request.args.get('status') == 'ready_for_dispatch' %}selected{% endif %}>Ready for Dispatch</option>
+                            <option value="shipped" {% if request.args.get('status') == 'shipped' %}selected{% endif %}>Shipped</option>
+                            <option value="delivered" {% if request.args.get('status') == 'delivered' %}selected{% endif %}>Delivered</option>
+                            <option value="delivery_failed" {% if request.args.get('status') == 'delivery_failed' %}selected{% endif %}>Delivery Failed</option>
+                            <option value="returned_to_warehouse" {% if request.args.get('status') == 'returned_to_warehouse' %}selected{% endif %}>Returned to Warehouse</option>
+                            <option value="cancelled" {% if request.args.get('status') == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-filter me-1"></i> Apply Filters
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Invoices List -->
+    <div class="card mb-4">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Invoices</h5>
+            <span class="badge bg-primary">{{ invoices|length }} results</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Customer</th>
+                            <th>Routing #</th>
+                            <th>Picker</th>
+                            <th>Status</th>
+                            <th>Progress</th>
+                            <th>Items Picked</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if invoices %}
+                            {% for invoice in invoices %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for('admin_view_invoice', invoice_no=invoice.invoice_no) }}" class="fw-bold text-decoration-none">
+                                        {{ invoice.invoice_no }}
+                                    </a>
+                                </td>
+                                <td>{{ invoice.customer_name }}</td>
+                                <td>
+                                    <input type="text" 
+                                           class="form-control form-control-sm routing-input" 
+                                           value="{{ invoice.routing or '' }}" 
+                                           data-invoice="{{ invoice.invoice_no }}"
+                                           style="width: 80px; font-size: 0.9em;"
+                                           placeholder="No routing">
+                                </td>
+                                <td>
+                                    {% if invoice.assigned_to %}
+                                        {{ invoice.assigned_to }}
+                                    {% else %}
+                                        <span class="text-muted">Unassigned</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ invoice.status|status_badge|safe }}
+                                </td>
+                                <td>
+                                    <div class="progress" style="height: 10px;">
+                                        {% if invoice.status == 'ready_for_dispatch' %}
+                                            {% set progress = 100 %}
+                                        {% elif invoice.status == 'not started' %}
+                                            {% set progress = 0 %}
+                                        {% elif invoice.current_item_index == 0 and invoice.items|selectattr('is_picked', 'equalto', true)|list|length == 0 %}
+                                            {% set progress = 0 %}
+                                        {% else %}
+                                            {% set progress = (invoice.current_item_index / invoice.total_lines * 100) if invoice.total_lines and invoice.total_lines > 0 else 0 %}
+                                        {% endif %}
+                                        <div class="progress-bar {% if invoice.status == 'Completed' %}bg-success{% elif progress == 0 %}bg-secondary{% else %}bg-info{% endif %}" 
+                                             role="progressbar" style="width: {{ progress }}%;" 
+                                             aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"></div>
+                                    </div>
+                                    <small class="text-muted">
+                                        {% if invoice.status == 'Completed' %}
+                                            {{ invoice.total_lines or 0 }} / {{ invoice.total_lines or 0 }} items
+                                        {% elif invoice.status == 'not_started' %}
+                                            0 / {{ invoice.total_lines or 0 }} items
+                                        {% elif invoice.current_item_index == 0 and invoice.items|selectattr('is_picked', 'equalto', true)|list|length == 0 %}
+                                            0 / {{ invoice.total_lines or 0 }} items
+                                        {% else %}
+                                            {{ invoice.current_item_index or 0 }} / {{ invoice.total_lines or 0 }} items
+                                        {% endif %}
+                                    </small>
+                                </td>
+                                <td>
+                                    {% set picked_count = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
+                                    {% set total_count = invoice.items|length %}
+                                    {% set exception_count = invoice.exceptions|length %}
+                                    
+                                    <span data-bs-toggle="tooltip" title="{{ picked_count }} of {{ total_count }} items picked">
+                                        {{ picked_count }} / {{ total_count }}
+                                    </span>
+                                    {% if exception_count > 0 %}
+                                    <span class="ms-2 badge bg-danger" data-bs-toggle="tooltip" 
+                                          title="{{ exception_count }} exceptions reported">
+                                        {{ exception_count }} <i class="fas fa-exclamation-triangle"></i>
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('admin_view_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-edit me-1"></i> Edit
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="7" class="text-center py-4">
+                                    <p class="text-muted mb-0">No invoices found matching your filters.</p>
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+
+        // Handle routing number updates
+        document.querySelectorAll('.routing-input').forEach(function(input) {
+            let originalValue = input.value;
+            
+            input.addEventListener('change', function() {
+                const invoiceNo = this.dataset.invoice;
+                const newValue = this.value;
+                
+                // Only update if value actually changed
+                if (newValue !== originalValue) {
+                    // Show loading state
+                    this.style.backgroundColor = '#fff3cd';
+                    this.disabled = true;
+                    
+                    // Send update to server
+                    fetch('/admin/update-routing-number', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            invoice_no: invoiceNo,
+                            routing_number: newValue
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Success - show green briefly
+                            this.style.backgroundColor = '#d1edff';
+                            originalValue = newValue;
+                            setTimeout(() => {
+                                this.style.backgroundColor = '';
+                            }, 1500);
+                        } else {
+                            // Error - show red and revert
+                            this.style.backgroundColor = '#f8d7da';
+                            this.value = originalValue;
+                            alert('Error updating routing number: ' + (data.error || 'Unknown error'));
+                            setTimeout(() => {
+                                this.style.backgroundColor = '';
+                            }, 2000);
+                        }
+                    })
+                    .catch(error => {
+                        // Network error - show red and revert
+                        this.style.backgroundColor = '#f8d7da';
+                        this.value = originalValue;
+                        alert('Network error updating routing number');
+                        setTimeout(() => {
+                            this.style.backgroundColor = '';
+                        }, 2000);
+                    })
+                    .finally(() => {
+                        this.disabled = false;
+                    });
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

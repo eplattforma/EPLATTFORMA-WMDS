@@ -1,0 +1,91 @@
+2025-11-26 21:41:49,510 - datawarehouse_sync - INFO - Status updated: RUNNING - Starting invoice sync...
+2025-11-26 21:41:49,510 - datawarehouse_sync - INFO - 
+================================================================================
+2025-11-26 21:41:49,510 - datawarehouse_sync - INFO - STARTING INVOICE SYNC FROM 2025-11-26 to 2025-11-26
+2025-11-26 21:41:49,510 - datawarehouse_sync - INFO - Log file: logs/sync_invoices_20251126_194149.log
+2025-11-26 21:41:49,510 - datawarehouse_sync - INFO - ================================================================================
+
+2025-11-26 21:41:49,709 - datawarehouse_sync - INFO - Status updated: RUNNING - Syncing invoice headers...
+2025-11-26 21:41:49,710 - datawarehouse_sync - INFO - Syncing invoice headers from 2025-11-26 to 2025-11-26
+2025-11-26 21:41:49,710 - datawarehouse_sync - INFO - API invoice date filter: 2025-11-26 to 2025-11-27
+2025-11-26 21:41:49,710 - datawarehouse_sync - INFO - Fetching invoice headers page 1...
+2025-11-26 21:41:50,839 - datawarehouse_sync - INFO - API response received, parsing...
+2025-11-26 21:41:50,839 - datawarehouse_sync - INFO - Page 1: received 30 invoices
+2025-11-26 21:41:53,364 - datawarehouse_sync - INFO - Fetching invoice headers page 2...
+2025-11-26 21:41:54,095 - datawarehouse_sync - INFO - API response received, parsing...
+2025-11-26 21:41:54,096 - datawarehouse_sync - INFO - Page 2: received 0 invoices
+2025-11-26 21:41:54,096 - datawarehouse_sync - INFO - No more invoices on page 2
+2025-11-26 21:41:54,096 - datawarehouse_sync - INFO - Invoice headers synced: 30 inserted, total 30
+2025-11-26 21:41:54,319 - datawarehouse_sync - INFO - Status updated: RUNNING - Headers done (30 inserted). Syncing lines...
+2025-11-26 21:41:54,319 - datawarehouse_sync - INFO - Syncing invoice lines from 2025-11-26 to 2025-11-26
+2025-11-26 21:41:54,319 - datawarehouse_sync - INFO - API invoice date filter: 2025-11-26 to 2025-11-27
+2025-11-26 21:41:54,439 - datawarehouse_sync - INFO - Pre-loaded 0 existing invoice lines for fast lookup
+2025-11-26 21:41:54,520 - datawarehouse_sync - INFO - Pre-loaded 30 existing invoice headers for fast lookup
+2025-11-26 21:41:54,521 - datawarehouse_sync - INFO - Fetching invoice lines page 1...
+2025-11-26 21:41:56,346 - datawarehouse_sync - INFO - Page 1: received 30 invoices with details
+2025-11-26 21:41:56,346 - datawarehouse_sync - INFO - DEBUG Page 1 Invoice 1 response keys: ['invoice']
+2025-11-26 21:41:56,347 - datawarehouse_sync - INFO - Page 1 Invoice 1 (IN10052107): received 9 lines
+2025-11-26 21:41:56,347 - datawarehouse_sync - INFO - DEBUG Page 1 Invoice 2 response keys: ['invoice']
+2025-11-26 21:41:56,348 - datawarehouse_sync - INFO - Page 1 Invoice 2 (IN10052108): received 28 lines
+2025-11-26 21:41:56,349 - datawarehouse_sync - INFO - Page 1 Invoice 3 (IN10052109): received 77 lines
+2025-11-26 21:41:56,352 - datawarehouse_sync - INFO - Page 1 Invoice 4 (IN10052110): received 22 lines
+2025-11-26 21:41:56,353 - datawarehouse_sync - INFO - Page 1 Invoice 5 (IN10052111): received 10 lines
+2025-11-26 21:41:56,354 - datawarehouse_sync - INFO - Page 1 Invoice 6 (IN10052112): received 50 lines
+2025-11-26 21:41:56,356 - datawarehouse_sync - INFO - Page 1 Invoice 7 (IN10052113): received 42 lines
+2025-11-26 21:41:56,358 - datawarehouse_sync - INFO - Page 1 Invoice 8 (IN10052114): received 4 lines
+2025-11-26 21:41:56,358 - datawarehouse_sync - INFO - Page 1 Invoice 9 (IN10052115): received 7 lines
+2025-11-26 21:41:56,359 - datawarehouse_sync - INFO - Page 1 Invoice 10 (IN10052116): received 6 lines
+2025-11-26 21:41:56,359 - datawarehouse_sync - INFO - Page 1 Invoice 11 (IN10052117): received 15 lines
+2025-11-26 21:41:56,360 - datawarehouse_sync - INFO - Page 1 Invoice 12 (IN10052118): received 11 lines
+2025-11-26 21:41:56,361 - datawarehouse_sync - INFO - Page 1 Invoice 13 (IN10052119): received 9 lines
+2025-11-26 21:41:56,361 - datawarehouse_sync - INFO - Page 1 Invoice 14 (IN10052120): received 8 lines
+2025-11-26 21:41:56,362 - datawarehouse_sync - INFO - Page 1 Invoice 15 (IN10052121): received 7 lines
+2025-11-26 21:41:56,362 - datawarehouse_sync - INFO - Page 1 Invoice 16 (IN10052122): received 35 lines
+2025-11-26 21:41:56,364 - datawarehouse_sync - INFO - Page 1 Invoice 17 (IN10052123): received 36 lines
+2025-11-26 21:41:56,365 - datawarehouse_sync - INFO - Page 1 Invoice 18 (IN10052124): received 5 lines
+2025-11-26 21:41:56,366 - datawarehouse_sync - INFO - Page 1 Invoice 19 (IN10052125): received 4 lines
+2025-11-26 21:41:56,367 - datawarehouse_sync - INFO - Page 1 Invoice 20 (IN10052126): received 15 lines
+2025-11-26 21:41:56,368 - datawarehouse_sync - INFO - Page 1 Invoice 21 (CR10006998): received 1 lines
+2025-11-26 21:41:56,368 - datawarehouse_sync - INFO - Page 1 Invoice 22 (CR10006999): received 1 lines
+2025-11-26 21:41:56,369 - datawarehouse_sync - INFO - Page 1 Invoice 23 (IN10052127): received 1 lines
+2025-11-26 21:41:56,369 - datawarehouse_sync - INFO - Page 1 Invoice 24 (IN10052128): received 1 lines
+2025-11-26 21:41:56,369 - datawarehouse_sync - INFO - Page 1 Invoice 25 (IN10052129): received 3 lines
+2025-11-26 21:41:56,369 - datawarehouse_sync - INFO - Page 1 Invoice 26 (IN10052130): received 12 lines
+2025-11-26 21:41:56,370 - datawarehouse_sync - INFO - Page 1 Invoice 27 (CR10007000): received 1 lines
+2025-11-26 21:41:56,370 - datawarehouse_sync - INFO - Page 1 Invoice 28 (CR10007001): received 6 lines
+2025-11-26 21:41:56,370 - datawarehouse_sync - INFO - Page 1 Invoice 29 (CR10007002): received 10 lines
+2025-11-26 21:41:56,371 - datawarehouse_sync - INFO - Page 1 Invoice 30 (CR10007003): received 3 lines
+2025-11-26 21:41:56,729 - datawarehouse_sync - INFO - Page 1 complete: 439 lines inserted, 0 skipped
+2025-11-26 21:41:56,729 - datawarehouse_sync - INFO - Fetching invoice lines page 2...
+2025-11-26 21:41:57,608 - datawarehouse_sync - INFO - Page 2: received 0 invoices with details
+2025-11-26 21:41:57,608 - datawarehouse_sync - INFO - No more invoices on page 2
+2025-11-26 21:41:57,608 - datawarehouse_sync - INFO - 
+================================================================================
+2025-11-26 21:41:57,608 - datawarehouse_sync - INFO - INVOICE LINES SYNC SUMMARY
+2025-11-26 21:41:57,608 - datawarehouse_sync - INFO - ================================================================================
+2025-11-26 21:41:57,608 - datawarehouse_sync - INFO - Total invoices received from API: 30
+2025-11-26 21:41:57,609 - datawarehouse_sync - INFO - Total lines received from API: 439
+2025-11-26 21:41:57,609 - datawarehouse_sync - INFO - Total lines inserted: 439
+2025-11-26 21:41:57,609 - datawarehouse_sync - INFO - Total lines skipped (already existed): 0
+2025-11-26 21:41:57,609 - datawarehouse_sync - INFO - Total unique line records: 439
+2025-11-26 21:41:57,609 - datawarehouse_sync - INFO - ================================================================================
+
+2025-11-26 21:41:57,827 - datawarehouse_sync - INFO - Status updated: RUNNING - Lines done (439 inserted). Syncing stores...
+2025-11-26 21:41:57,827 - datawarehouse_sync - INFO - Syncing invoice stores from headers
+2025-11-26 21:41:57,946 - datawarehouse_sync - INFO - Found 4 unique store codes: ['100', '103', '777', '778']
+2025-11-26 21:41:58,308 - datawarehouse_sync - INFO - Stores synced: 4 inserted, 0 updated
+2025-11-26 21:41:58,526 - datawarehouse_sync - INFO - Status updated: RUNNING - Syncing cashiers...
+2025-11-26 21:41:58,526 - datawarehouse_sync - INFO - Syncing invoice cashiers from headers
+2025-11-26 21:41:58,644 - datawarehouse_sync - INFO - Found 1 unique user codes: ['HE353264.ELEONORA']
+2025-11-26 21:41:58,769 - datawarehouse_sync - INFO - Cashiers synced: 1 inserted, 0 updated
+2025-11-26 21:41:58,986 - datawarehouse_sync - INFO - Status updated: COMPLETE - Headers: 30, Lines: 439, Stores: 4, Cashiers: 1
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - 
+================================================================================
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - INVOICE SYNC COMPLETE
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - ================================================================================
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - Headers:  30 inserted, 0 updated
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - Lines:    439 inserted, 0 updated
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - Stores:   4 inserted, 0 updated
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - Cashiers: 1 inserted, 0 updated
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - Note: Using existing PSCustomer table for customers (not syncing separately)
+2025-11-26 21:41:58,987 - datawarehouse_sync - INFO - ================================================================================

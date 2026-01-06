@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+
+{% block title %}Database Maintenance - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5">
+            <i class="fas fa-wrench me-2"></i>Database Maintenance
+        </h1>
+        <p class="text-muted">Optimize and maintain database health</p>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end gap-2 mt-3 mt-md-0">
+        <a href="{{ url_for('admin_settings') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back
+        </a>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-tools me-2"></i>Run Maintenance Operations</h5>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('admin_db_maintenance') }}">
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card bg-light text-dark">
+                        <div class="card-header">
+                            <h5 class="mb-0">Optimization Options</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" name="vacuum" id="vacuum" value="true" checked>
+                                <label class="form-check-label" for="vacuum">
+                                    <strong>VACUUM & ANALYZE</strong>
+                                    <div class="small text-muted">Optimize table storage and query performance</div>
+                                </label>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" name="reindex" id="reindex" value="true" checked>
+                                <label class="form-check-label" for="reindex">
+                                    <strong>Reindex Tables</strong>
+                                    <div class="small text-muted">Rebuild indexes for better query performance</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card bg-light text-dark">
+                        <div class="card-header">
+                            <h5 class="mb-0">Cleanup Options</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" name="cleanup_idle" id="cleanup_idle" value="true" checked>
+                                <label class="form-check-label" for="cleanup_idle">
+                                    <strong>Clean Old Idle Periods</strong>
+                                    <div class="small text-muted">Remove idle records older than 30 days</div>
+                                </label>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" name="cleanup_logs" id="cleanup_logs" value="true" checked>
+                                <label class="form-check-label" for="cleanup_logs">
+                                    <strong>Clean Old Activity Logs</strong>
+                                    <div class="small text-muted">Remove activity logs older than 90 days</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-info mb-4">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Full Maintenance:</strong> Runs all optimization and cleanup operations for complete database health.
+            </div>
+
+            <button type="submit" name="action" value="full" class="btn btn-success btn-lg me-2">
+                <i class="fas fa-play me-2"></i>Run Full Maintenance
+            </button>
+            <button type="submit" name="action" value="custom" class="btn btn-primary btn-lg">
+                <i class="fas fa-cog me-2"></i>Run Custom Selection
+            </button>
+        </form>
+    </div>
+</div>
+
+{% if maintenance_results %}
+<div class="card shadow">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Maintenance Results</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Operation</th>
+                        <th>Status</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for result in maintenance_results %}
+                    <tr>
+                        <td><strong>{{ result.operation }}</strong></td>
+                        <td>
+                            {% if result.success %}
+                                <span class="badge bg-success">✓ Success</span>
+                            {% else %}
+                                <span class="badge bg-danger">✗ Failed</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ result.message }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if health_info %}
+        <hr>
+        <h6 class="mt-4">Database Health Report</h6>
+        <div class="row">
+            <div class="col-md-6">
+                <ul class="list-unstyled">
+                    <li><strong>Database Size:</strong> {{ health_info.get('size', 'N/A') }}</li>
+                    <li><strong>Total Tables:</strong> {{ health_info.get('tables', 'N/A') }}</li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <ul class="list-unstyled">
+                    <li><strong>Connections:</strong> {{ health_info.get('connections', 'N/A') }}</li>
+                    <li><strong>Connection Usage:</strong> {{ health_info.get('usage', 'N/A') }}%</li>
+                </ul>
+            </div>
+        </div>
+
+        {% if health_info.get('records') %}
+        <h6 class="mt-3">Record Counts</h6>
+        <ul class="list-unstyled">
+            {% for table, count in health_info.get('records', {}).items() %}
+                <li>{{ table }}: <strong>{{ "{:,}".format(count) }}</strong></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% endif %}
+
+        <div class="alert alert-success mt-4 mb-0">
+            <i class="fas fa-check me-2"></i>
+            <strong>Maintenance completed successfully!</strong> Your database has been optimized.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,220 @@
+1) Must-fix: aggregate PS365 lines by item_code before upsert
+Why
+
+Because (invoice_no, item_code) is unique, the “correct” representation in your DB is an aggregated line per SKU (per invoice), not a raw “invoice lines table”.
+
+Pattern
+
+Aggregate quantities and keep one representative line for other attributes:
+
+from collections import defaultdict
+
+qty_by_code = defaultdict(int)
+repr_line_by_code = {}
+
+for line in lines:
+    code = _norm_code(line.get("item_code_365") or line.get("item_code") or line.get("product_code"))
+    if not code:
+        continue
+
+    qty = _parse_qty_int(line.get("line_quantity") or line.get("qty") or line.get("quantity"))
+    qty_by_code[code] += qty
+
+    # keep first line as representative for metadata (if you need it later)
+    repr_line_by_code.setdefault(code, line)
+
+all_item_codes = list(qty_by_code.keys())
+
+
+Then your “process lines” loop becomes:
+
+for item_code in all_item_codes:
+    qty_int = qty_by_code[item_code]
+    ...
+
+2) Preserve picking-state columns on update (critical for operational correctness)
+
+Your table includes live operational fields:
+
+picked_qty, is_picked, pick_status
+
+locked_by_batch_id
+
+reset/skip tracking fields
+
+corridor
+
+If your sync overwrites those fields (directly or indirectly), you can break active picking sessions.
+
+Recommendation
+
+When an item already exists, update only master-data + demand fields, and do not touch picking workflow fields.
+
+Safe fields to update from PS365/DW:
+
+qty, item_name, item_weight, barcode, zone, unit_type, pack
+
+location (only if not locked—see below)
+
+computed: line_weight, exp_time, pieces_per_unit_snapshot, expected_pick_pieces
+
+Fields to preserve (do not overwrite in sync):
+
+picked_qty, is_picked, pick_status
+
+locked_by_batch_id
+
+reset_by, reset_timestamp, reset_note
+
+skip_reason, skip_timestamp, skip_count
+
+corridor (unless you control it deterministically elsewhere)
+
+Add “do not move items that are locked”
+
+If locked_by_batch_id is not null, avoid changing zone/corridor/location during sync (otherwise the picker’s route can change mid-pick).
+
+Example:
+
+is_locked = existing_item.locked_by_batch_id is not None
+
+if not is_locked and shelf_location:
+    existing_item.location = shelf_location
+
+if not is_locked and zone:
+    existing_item.zone = zone
+
+3) Handle “qty reduced below picked_qty” explicitly
+
+This situation will happen (credit/revisions, partial invoices, API corrections). Decide policy; do not let it silently corrupt picking KPIs.
+
+Recommended safe policy:
+
+Keep picked_qty as-is (audit trail), but prevent impossible states:
+
+If picked_qty > qty, set pick_status = 'attention' (or similar) and/or log loudly.
+
+If you cannot add new statuses, at minimum log:
+
+if existing_item.picked_qty and qty_int is not None and existing_item.picked_qty > qty_int:
+    logging.warning(
+        f"Invoice {invoice_no_ps365} item {item_code}: picked_qty {existing_item.picked_qty} > qty {qty_int}"
+    )
+
+
+If you prefer to clamp:
+
+existing_item.picked_qty = min(existing_item.picked_qty or 0, qty_int)
+
+
+Clamping is operationally convenient but loses signal; logging-only preserves truth.
+
+4) Decide what to do with items that disappear from the API
+
+Right now, you only upsert what you see; you do not remove items that are no longer returned. That can leave stale InvoiceItems in the invoice and inflate totals.
+
+Because you do not have an is_active/deleted_at column, hard-deleting can be risky.
+
+Safe approach without schema change:
+
+Compute removed codes: existing_codes - incoming_codes
+
+For each removed item:
+
+If picked_qty > 0 or locked_by_batch_id is not null: keep it and log
+
+Else delete it
+
+Example:
+
+incoming = set(all_item_codes)
+existing_codes = {it.item_code for it in existing_items}
+removed = existing_codes - incoming
+
+for code in removed:
+    it = existing_map[code]
+    if (it.picked_qty or 0) > 0 or it.locked_by_batch_id is not None:
+        logging.warning(f"Not deleting picked/locked item removed by API: {invoice_no_ps365} {code}")
+        continue
+    db.session.delete(it)
+
+
+Better long-term: add is_active BOOLEAN DEFAULT TRUE or removed_at TIMESTAMP and “soft remove” instead of deleting.
+
+5) One schema note: you have redundant uniqueness
+
+You already have PRIMARY KEY (invoice_no, item_code). You also have:
+
+UNIQUE INDEX uq_invoice_items_invoice_no_item_code
+
+plus the PK index itself
+
+That duplicate unique index is unnecessary and adds write overhead. It is not urgent, but it is worth removing later.
+
+6) Implementation sketch: corrected upsert loop
+
+This shows the overall structure using your current query strategy:
+
+# after aggregating qty_by_code and building all_item_codes...
+
+existing_items = InvoiceItem.query.filter(
+    InvoiceItem.invoice_no == invoice_no_ps365,
+    InvoiceItem.item_code.in_(all_item_codes)
+).all()
+existing_map = {it.item_code: it for it in existing_items}
+
+for item_code in all_item_codes:
+    qty_int = qty_by_code[item_code]
+    dw = dw_map.get(item_code)
+
+    # normalize + compute
+    barcode = _norm_barcode(dw.barcode) if (dw and dw.barcode) else None
+    item_weight = float(dw.item_weight) if (dw and dw.item_weight) else 0.0
+    item_name = dw.item_name if dw else None
+    # unit_type_code/name: see earlier guidance
+    # zone, pack, expected_pieces, exp_time_minutes, shelf_location...
+
+    existing_item = existing_map.get(item_code)
+    if existing_item:
+        # preserve picking/lock/reset/skip fields
+        existing_item.qty = qty_int
+        existing_item.item_weight = item_weight
+        existing_item.line_weight = item_weight * qty_int
+        existing_item.exp_time = exp_time_minutes
+        existing_item.item_name = item_name or existing_item.item_name
+        if barcode:
+            existing_item.barcode = barcode
+
+        is_locked = existing_item.locked_by_batch_id is not None
+        if not is_locked:
+            if shelf_location:
+                existing_item.location = shelf_location
+            if zone:
+                existing_item.zone = zone
+            if unit_type:
+                existing_item.unit_type = unit_type
+
+        existing_item.pack = str(selling_qty) if selling_qty else existing_item.pack
+        existing_item.pieces_per_unit_snapshot = number_of_pieces
+        existing_item.expected_pick_pieces = expected_pieces
+
+    else:
+        db.session.add(InvoiceItem(
+            invoice_no=invoice_no_ps365,
+            item_code=item_code,
+            qty=qty_int,
+            item_name=item_name,
+            item_weight=item_weight,
+            zone=zone,
+            unit_type=unit_type,
+            barcode=barcode,
+            location=shelf_location,
+            pack=str(selling_qty) if selling_qty else None,
+            line_weight=item_weight * qty_int,
+            exp_time=exp_time_minutes,
+            pieces_per_unit_snapshot=number_of_pieces,
+            expected_pick_pieces=expected_pieces,
+            pick_status="not_picked",
+            is_picked=False,
+            picked_qty=0,
+        ))

@@ -1,0 +1,84 @@
+✅ REPLIT AI INSTRUCTIONS: Batch Picking Lock System
+🧱 1. Data Model Updates
+Update your database or in-memory structures as follows:
+
+Batch Model (Batch)
+python
+Copy code
+{
+  "id": str,
+  "assigned_to": str,  # user ID
+  "orders": List[str],  # order IDs in the batch
+  "items": List[{
+    "sku": str,
+    "quantity": int,
+    "picked_quantity": int,
+    "locked": bool  # optional helper
+  }],
+  "status": str  # "open", "in_progress", "completed", "deleted"
+}
+Inventory or OrderItem should include:
+python
+Copy code
+"locked_by_batch_id": Optional[str]  # If set, this item is locked
+🔐 2. Locking Logic on Batch Creation
+When creating a batch:
+
+Lock all included SKUs by setting locked_by_batch_id = batch.id.
+
+Prevent any picker from picking those SKUs unless they're part of that batch.
+
+🚫 3. Conflict Prevention on Order Picking
+Before allowing a picker to pick an item:
+
+Check if that item has locked_by_batch_id set.
+
+If it is locked and the picker is not working on that batch, block or warn.
+
+🔁 4. Batch Editing
+When editing a batch (adding/removing items/orders):
+
+For new items being added: lock them (locked_by_batch_id = batch.id).
+
+For items being removed:
+
+If not picked yet → unlock (locked_by_batch_id = null).
+
+If already picked → keep picked status and do not unlock.
+
+Always keep picked_quantity accurate.
+
+❌ 5. Batch Deletion Logic
+When a batch is deleted:
+
+Set batch status to "deleted".
+
+For each item:
+
+If picked_quantity == 0 → unlock it (locked_by_batch_id = null).
+
+If picked_quantity > 0 → leave it locked or mark as “manually picked”.
+
+Keep picked state intact.
+
+python
+Copy code
+for item in batch["items"]:
+    if item["picked_quantity"] == 0:
+        unlock_item(item["sku"])  # Clear locked_by_batch_id
+    else:
+        pass  # Keep picked as is
+set_batch_status(batch["id"], "deleted")
+🧪 6. Optional Enhancements
+Add release_batch() function to allow deletion while preserving picks.
+
+Track changes in a batch_log or audit table.
+
+Add UI warnings when attempting to pick locked items.
+
+✅ Summary
+Operation	Lock Action	Pick Status
+Create Batch	Lock included SKUs	Initial picked = 0
+Edit Batch	Lock added SKUs, unlock removed ones if not picked	Keep picked unchanged
+Delete Batch	Unlock if not picked, keep picked SKUs	Do not rollback picks
+Manual Picking	Block or warn if SKU is batch-locked

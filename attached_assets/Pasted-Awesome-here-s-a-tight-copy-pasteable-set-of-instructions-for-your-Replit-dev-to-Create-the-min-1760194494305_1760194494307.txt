@@ -1,0 +1,365 @@
+Awesome — here’s a tight, copy-pasteable set of instructions for your Replit dev to:
+
+Create the minimal ps_customers table (only the fields you want).
+
+Expose a small API to:
+
+Bulk import/update from Powersoft (initial fill + later refresh).
+
+Upsert a single customer by code (useful for point updates).
+
+Provide a script that can run the bulk sync without starting the web server.
+
+Everything uses: Flask + SQLAlchemy + PostgreSQL + requests.
+
+0) Requirements & config
+
+requirements.txt
+
+flask
+sqlalchemy
+psycopg2-binary
+requests
+python-dotenv
+
+
+.env (on Replit “Secrets”)
+
+DATABASE_URL=postgresql+psycopg2://USER:PASS@HOST:5432/DBNAME
+POWERSOFT_BASE_URL=https://your-powersoft-api.example.com
+POWERSOFT_TOKEN=REPLACE_ME
+POWERSOFT_PAGE_SIZE=200
+
+
+/app/config.py
+
+import os
+class Config:
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev")
+    POWERSOFT_BASE_URL = os.getenv("POWERSOFT_BASE_URL")
+    POWERSOFT_TOKEN = os.getenv("POWERSOFT_TOKEN")
+    POWERSOFT_PAGE_SIZE = int(os.getenv("POWERSOFT_PAGE_SIZE", "200"))
+
+1) Table creation (DDL)
+
+/app/schemas.sql (append this; it’s idempotent)
+
+CREATE TABLE IF NOT EXISTS ps_customers (
+  customer_code_365         TEXT PRIMARY KEY,
+  customer_code_secondary   TEXT,
+  is_company                BOOLEAN,
+  company_name              TEXT,
+  last_name                 TEXT,
+  first_name                TEXT,
+  store_code_365            TEXT,
+  active                    BOOLEAN NOT NULL DEFAULT TRUE,
+  tel_1                     TEXT,
+  mobile                    TEXT,
+  sms                       TEXT,
+  website                   TEXT,
+  category_code_1_365       TEXT,
+  category_1_name           TEXT,
+  category_code_2_365       TEXT,
+  category_2_name           TEXT,
+  company_activity_code_365 TEXT,
+  company_activity_name     TEXT,
+  credit_limit_amount       DOUBLE PRECISION,
+  vat_registration_number   TEXT,
+  address_line_1            TEXT,
+  address_line_2            TEXT,
+  address_line_3            TEXT,
+  postal_code               TEXT,
+  town                      TEXT,
+  contact_last_name         TEXT,
+  contact_first_name        TEXT,
+  agent_code_365            TEXT,
+  agent_name                TEXT,
+  last_synced_at            TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ps_customers_active ON ps_customers (active);
+CREATE INDEX IF NOT EXISTS idx_ps_customers_name ON ps_customers (last_name, first_name, company_name);
+
+2) SQLAlchemy model
+
+/app/models.py
+
+from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, String, Text, Boolean, Float, DateTime
+
+Base = declarative_base()
+
+class PSCustomer(Base):
+    __tablename__ = "ps_customers"
+
+    customer_code_365 = Column(String, primary_key=True)
+    customer_code_secondary = Column(Text)
+    is_company = Column(Boolean)
+    company_name = Column(Text)
+    last_name = Column(Text)
+    first_name = Column(Text)
+    store_code_365 = Column(Text)
+    active = Column(Boolean, nullable=False, default=True)
+    tel_1 = Column(Text)
+    mobile = Column(Text)
+    sms = Column(Text)
+    website = Column(Text)
+    category_code_1_365 = Column(Text)
+    category_1_name = Column(Text)
+    category_code_2_365 = Column(Text)
+    category_2_name = Column(Text)
+    company_activity_code_365 = Column(Text)
+    company_activity_name = Column(Text)
+    credit_limit_amount = Column(Float)
+    vat_registration_number = Column(Text)
+    address_line_1 = Column(Text)
+    address_line_2 = Column(Text)
+    address_line_3 = Column(Text)
+    postal_code = Column(Text)
+    town = Column(Text)
+    contact_last_name = Column(Text)
+    contact_first_name = Column(Text)
+    agent_code_365 = Column(Text)
+    agent_name = Column(Text)
+    last_synced_at = Column(DateTime)
+
+3) App bootstrap (runs migration once at startup)
+
+/app/app.py
+
+import os
+from flask import Flask
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, scoped_session
+from app.config import Config
+from app.models import Base
+from app.routes_powersoft import bp_ps
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+
+    engine = create_engine(app.config['DATABASE_URL'], pool_pre_ping=True)
+    Base.metadata.bind = engine
+    app.session_factory = scoped_session(sessionmaker(bind=engine))
+
+    # Run idempotent SQL migration
+    with engine.begin() as conn:
+        sql_path = os.path.join(os.path.dirname(__file__), 'schemas.sql')
+        with open(sql_path, 'r', encoding='utf-8') as f:
+            conn.execute(text(f.read()))
+    # Ensure mapped tables exist
+    Base.metadata.create_all(engine)
+
+    app.register_blueprint(bp_ps)
+
+    @app.teardown_appcontext
+    def shutdown_session(exception=None):
+        app.session_factory.remove()
+
+    return app
+
+app = create_app()
+
+4) Powersoft sync service (bulk import + upsert)
+
+/app/services_powersoft.py
+
+import math, requests
+from datetime import datetime
+from typing import Iterable, Dict, Any
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+from flask import current_app
+from app.models import PSCustomer
+
+def _cfg():
+    c = current_app.config
+    return c["POWERSOFT_BASE_URL"].rstrip("/"), c["POWERSOFT_TOKEN"], int(c["POWERSOFT_PAGE_SIZE"])
+
+def _count_active():
+    base, token, _ = _cfg()
+    r = requests.get(f"{base}/list_customers", params={"token": token, "active_type": "active"}, timeout=60)
+    r.raise_for_status()
+    js = r.json()
+    if js.get("api_response", {}).get("response_code") != "1":
+        raise RuntimeError(js)
+    return int(js.get("total_count_list_customers", 0))
+
+def _page_active(page_number: int, page_size: int) -> Iterable[Dict[str, Any]]:
+    base, token, _ = _cfg()
+    r = requests.get(
+        f"{base}/list_customers",
+        params={"token": token, "active_type": "active", "page_number": page_number, "page_size": page_size},
+        timeout=120
+    )
+    r.raise_for_status()
+    js = r.json()
+    if js.get("api_response", {}).get("response_code") != "1":
+        raise RuntimeError(js)
+    return js.get("list_customers", []) or []
+
+# Map only fields we store (handle API variants)
+def _pick(rec: Dict[str, Any]) -> Dict[str, Any]:
+    out = {
+        "customer_code_365": rec.get("customer_code_365"),
+        "customer_code_secondary": rec.get("customer_code_secondary"),
+        "is_company": rec.get("is_company"),
+        "company_name": rec.get("company_name"),
+        "last_name": rec.get("last_name"),
+        "first_name": rec.get("first_name"),
+        "store_code_365": rec.get("store_code_365"),
+        "active": bool(rec.get("active", True)),
+        "tel_1": rec.get("tel_1"),
+        "mobile": rec.get("mobile"),
+        "sms": rec.get("sms"),
+        "website": rec.get("website"),
+        "category_code_1_365": rec.get("category_code_1_365") or rec.get("category_code_365"),
+        "category_1_name": rec.get("category_1_name") or rec.get("category_name"),
+        "category_code_2_365": rec.get("category_code_2_365") or rec.get("category_2_code_365"),
+        "category_2_name": rec.get("category_2_name"),
+        "company_activity_code_365": rec.get("company_activity_code_365"),
+        "company_activity_name": rec.get("company_activity_name"),
+        "credit_limit_amount": rec.get("credit_limit_amount"),
+        "vat_registration_number": rec.get("vat_registration_number"),
+        "address_line_1": rec.get("address_line_1"),
+        "address_line_2": rec.get("address_line_2"),
+        "address_line_3": rec.get("address_line_3"),
+        "postal_code": rec.get("postal_code"),
+        "town": rec.get("town"),
+        "contact_last_name": rec.get("contact_last_name"),
+        "contact_first_name": rec.get("contact_first_name"),
+        "agent_code_365": rec.get("agent_code_365"),
+        "agent_name": rec.get("agent_name"),
+        "last_synced_at": datetime.utcnow(),
+    }
+    return out
+
+def upsert_batch(session: Session, records: Iterable[Dict[str, Any]]) -> int:
+    changed = 0
+    for rec in records:
+        payload = _pick(rec)
+        stmt = insert(PSCustomer).values(**payload).on_conflict_do_update(
+            index_elements=[PSCustomer.customer_code_365],
+            set_=payload
+        )
+        session.execute(stmt)
+        changed += 1
+    session.commit()
+    return changed
+
+def sync_active_customers(session: Session) -> dict:
+    base, token, page_size = _cfg()
+    total = _count_active()
+    pages = math.ceil(total / page_size) if total else 0
+    updated = 0
+    for p in range(1, pages + 1):
+        batch = list(_page_active(p, page_size))
+        updated += upsert_batch(session, batch)
+    return {"total": total, "pages": pages, "updated": updated}
+
+5) Flask API routes
+
+/app/routes_powersoft.py
+
+from flask import Blueprint, current_app, jsonify, request
+from sqlalchemy.dialects.postgresql import insert
+from app.services_powersoft import sync_active_customers, _pick
+from app.models import PSCustomer
+
+bp_ps = Blueprint("powersoft", __name__)
+
+@bp_ps.route("/sync/customers", methods=["POST"])
+def sync_customers():
+    """Bulk sync: calls Powersoft (active only), upserts into ps_customers."""
+    session = current_app.session_factory()
+    res = sync_active_customers(session)
+    return jsonify({"ok": True, **res})
+
+@bp_ps.route("/customers/upsert", methods=["POST"])
+def upsert_one_customer():
+    """
+    Upsert a single customer from JSON payload (fields per PSCustomer).
+    Useful for point updates by customer_code_365.
+    """
+    session = current_app.session_factory()
+    data = request.get_json(force=True) or {}
+    payload = _pick(data)
+    if not payload.get("customer_code_365"):
+        return jsonify({"ok": False, "error": "customer_code_365 required"}), 400
+
+    stmt = insert(PSCustomer).values(**payload).on_conflict_do_update(
+        index_elements=[PSCustomer.customer_code_365],
+        set_=payload
+    )
+    session.execute(stmt)
+    session.commit()
+    return jsonify({"ok": True, "code": payload["customer_code_365"]})
+
+@bp_ps.route("/customers/<code>", methods=["GET"])
+def get_customer(code):
+    session = current_app.session_factory()
+    row = session.get(PSCustomer, code)
+    if not row:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    return jsonify({"ok": True, "customer": {
+        k: getattr(row, k) for k in row.__table__.columns.keys()
+    }})
+
+6) Scriptable bulk import (no web server needed)
+
+/app/sync_customers.py
+
+from app.app import create_app
+from app.services_powersoft import sync_active_customers
+
+def main():
+    app = create_app()
+    with app.app_context():
+        session = app.session_factory()
+        result = sync_active_customers(session)
+        print(result)
+
+if __name__ == "__main__":
+    main()
+
+
+Run it in Replit shell:
+
+python -m app.sync_customers
+
+7) How to use
+A) Initial fill (bulk)
+
+Option 1 (CLI): python -m app.sync_customers
+
+Option 2 (HTTP):
+
+curl -X POST https://<your-replit-url>/sync/customers
+
+B) Later updates (bulk refresh)
+
+Re-run the same command/endpoint; it upserts by customer_code_365.
+
+C) Point update (one customer)
+curl -X POST https://<your-replit-url>/customers/upsert \
+  -H "Content-Type: application/json" \
+  -d '{
+        "customer_code_365":"00100010",
+        "first_name":"Alex",
+        "last_name":"Baldwin",
+        "active": true,
+        "mobile":"+3579xxxxxxx"
+      }'
+
+D) Read one customer
+curl https://<your-replit-url>/customers/00100010
+
+Notes / Guarantees
+
+Idempotent: Re-running bulk sync won’t duplicate rows; it updates on conflict.
+
+Active-only import: We fetch active_type=active but we store the active flag so you can keep state. (If later you need to bring in inactives too, add a second pass with active_type=inactive—the table already supports it.)
+
+Minimal fields only: Exactly the columns you requested; mapping handles Powersoft’s small naming variants for category fields.

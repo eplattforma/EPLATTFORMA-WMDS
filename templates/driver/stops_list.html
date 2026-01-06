@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}Route Stops - Driver App{% endblock %}
+
+{% block content %}
+    <style>
+        .stop-item {
+            border-left: 5px solid #6c757d;
+            border-radius: 12px !important;
+            margin-bottom: 1rem;
+            transition: all 0.2s ease;
+            background-color: #1e1e1e; /* Dark theme compatible */
+        }
+        .stop-item.status-delivered {
+            border-left-color: #28a745;
+            background-color: rgba(40, 167, 69, 0.05);
+        }
+        .stop-item.status-failed {
+            border-left-color: #dc3545;
+            background-color: rgba(220, 53, 69, 0.05);
+        }
+        .stop-item.status-pending {
+            border-left-color: #007bff;
+        }
+        .animate-pulse {
+            animation: pulse-red 2s infinite;
+            border: 2px solid white;
+        }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        }
+    </style>
+<div class="container-fluid p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <a href="{{ url_for('driver.routes_list') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Back
+            </a>
+        </div>
+        <h5 class="mb-0">Route #{{ route.id }}</h5>
+        <button class="btn btn-sm btn-outline-primary" onclick="updateProgress()">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+    </div>
+
+    {% set cash_stops = [] %}
+    {% set ns = namespace(cash_total=0.0, credit_count=0, online_count=0) %}
+
+    {% for item in stops_data %}
+        {% if item.status == 'delivered' %}
+            {% set stop_receipt = item.stop.cod_receipts[0] if item.stop.cod_receipts else None %}
+            {% if stop_receipt %}
+                {% if stop_receipt.payment_method in ['cash', 'cheque', 'card'] and stop_receipt.received_amount > 0 %}
+                    {% set _ = cash_stops.append(item.stop.seq_no) %}
+                    {% set ns.cash_total = ns.cash_total + stop_receipt.received_amount|float %}
+                {% elif stop_receipt.payment_method == 'online' %}
+                    {% set ns.online_count = ns.online_count + 1 %}
+                {% endif %}
+            {% endif %}
+            {% if item.payment_method|lower == 'credit' %}
+                {% set ns.credit_count = ns.credit_count + 1 %}
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+
+    <div class="card mb-3 shadow" style="border: 2px solid #28a745; border-radius: 12px; overflow: hidden;">
+        <div class="card-header text-white text-center py-2" style="background: linear-gradient(135deg, #28a745, #20c997);">
+            <h6 class="mb-0 fw-bold"><i class="fas fa-chart-pie me-2"></i>Route Summary</h6>
+        </div>
+        <div class="card-body p-3" style="background-color: #f8f9fa;">
+            <div id="progress-container" class="mb-3">
+                <div class="progress" style="height: 35px; border-radius: 8px; background-color: #e9ecef;">
+                    <div id="progress-bar" class="progress-bar" role="progressbar" 
+                         style="width: 0%; background: linear-gradient(90deg, #28a745, #20c997);" 
+                         aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        <span id="progress-text" class="fw-bold" style="font-size: 1rem;">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-2 text-center">
+                <div class="col-4">
+                    <div class="p-2 rounded shadow-sm" style="background: linear-gradient(135deg, #28a745, #218838); border-radius: 10px;">
+                        <div class="text-white fw-bold small"><i class="fas fa-money-bill-wave me-1"></i>Cash</div>
+                        <div class="text-white fw-bold" style="font-size: 1.5rem;">{{ cash_stops|length }}</div>
+                        <div class="text-white fw-bold small">€{{ "%.2f"|format(ns.cash_total) }}</div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="p-2 rounded shadow-sm" style="background: linear-gradient(135deg, #007bff, #0056b3); border-radius: 10px;">
+                        <div class="text-white fw-bold small"><i class="fas fa-credit-card me-1"></i>Credit</div>
+                        <div class="text-white fw-bold" style="font-size: 1.5rem;">{{ ns.credit_count }}</div>
+                        <div class="text-white-50 small">Stops</div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="p-2 rounded shadow-sm" style="background: linear-gradient(135deg, #fd7e14, #e65c00); border-radius: 10px;">
+                        <div class="text-white fw-bold small"><i class="fas fa-globe me-1"></i>Online</div>
+                        <div class="text-white fw-bold" style="font-size: 1.5rem;">{{ ns.online_count }}</div>
+                        <div class="text-white-50 small">Stops</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if stops_data %}
+        <div class="list-group">
+            {% for item in stops_data %}
+            {% set stop = item.stop %}
+            {% set status_icon = 'check-circle text-success' if item.status == 'delivered' else 'times-circle text-danger' if item.status == 'failed' else 'circle text-secondary' %}
+            {% set can_deliver = item.status == 'pending' and route.status == 'IN_TRANSIT' %}
+            
+            <div class="list-group-item stop-item p-3 shadow-sm status-{{ item.status }}" data-stop-id="{{ stop.route_stop_id }}">
+                <div class="row g-2">
+                    <div class="col-12 col-md-9">
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="badge bg-primary me-2">{{ stop.seq_no }}</span>
+                            <i class="fas fa-{{ status_icon }} me-2"></i>
+                            <strong class="text-wrap">{{ stop.stop_name or 'Stop ' + stop.seq_no|string }}</strong>
+                        </div>
+                        
+                        <p class="mb-2 text-muted small">
+                            <i class="fas fa-map-marker-alt"></i> {{ stop.stop_addr }}{% if stop.stop_city %}, {{ stop.stop_city }}{% endif %}{% if stop.stop_postcode %} {{ stop.stop_postcode }}{% endif %}
+                        </p>
+                        
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <a href="https://www.google.com/maps/dir/?api=1&destination={{ stop.stop_addr|urlencode }}{% if stop.stop_city %},{{ stop.stop_city|urlencode }}{% endif %}" 
+                               target="_blank" 
+                               class="btn btn-sm btn-outline-primary flex-fill">
+                                <i class="fas fa-directions"></i> Navigate
+                            </a>
+                            {% if stop.phone %}
+                            <a href="tel:{{ stop.phone }}" class="btn btn-sm btn-outline-success flex-fill">
+                                <i class="fas fa-phone"></i> Call
+                            </a>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="row g-2 mb-2">
+                            <div class="col-6 col-sm-3 small text-muted">
+                                <i class="fas fa-box"></i> {{ item.items_count }} items
+                            </div>
+                            <div class="col-6 col-sm-3 small text-muted">
+                                <i class="fas fa-weight"></i> {{ item.total_weight }}kg
+                            </div>
+                            <div class="col-6 col-sm-3 small text-muted">
+                                <i class="fas fa-file-invoice"></i> {{ item.invoices|length }} inv.
+                            </div>
+                            {% if item.total_gross > 0 %}
+                            <div class="col-6 col-sm-3 small text-muted">
+                                <i class="fas fa-euro-sign"></i> €{{ "%.2f"|format(item.total_gross) }}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        {% if item.status == 'pending' %}
+                        <div class="mb-2">
+                            <span class="d-inline-block text-primary {% if item.payment_method|lower != 'credit' %}badge bg-danger text-white p-2 animate-pulse w-100 text-center{% endif %}">
+                                <i class="fas fa-euro-sign me-1"></i> {{ item.payment_method }}
+                            </span>
+                        </div>
+                        {% endif %}
+
+                        {% if stop.delivery_window_start or stop.delivery_window_end %}
+                        <p class="mb-2 small">
+                            <i class="fas fa-clock"></i> 
+                            {% if stop.delivery_window_start %}{{ stop.delivery_window_start.strftime('%H:%M') }}{% endif %}
+                            -
+                            {% if stop.delivery_window_end %}{{ stop.delivery_window_end.strftime('%H:%M') }}{% endif %}
+                        </p>
+                        {% endif %}
+                        
+                        {% if stop.notes %}
+                        <div class="alert alert-info mt-2 mb-2 small py-2">
+                            <i class="fas fa-sticky-note"></i> <strong>Note:</strong> {{ stop.notes }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="col-12 col-md-3 mt-2 mt-md-0 d-flex flex-row flex-md-column gap-2 justify-content-end align-items-center align-items-md-end">
+                        {% if can_deliver %}
+                        <a href="{{ url_for('driver.deliver_wizard', stop_id=stop.route_stop_id) }}" 
+                           class="btn btn-success flex-fill w-100">
+                            <i class="fas fa-check"></i> Deliver
+                        </a>
+                        <button class="btn btn-danger flex-fill w-100" onclick="failStop({{ stop.route_stop_id }})">
+                            <i class="fas fa-times"></i> Fail
+                        </button>
+                        {% elif item.status == 'delivered' %}
+                        <div class="text-end w-100">
+                            <div class="alert alert-success py-2 mb-0 w-100 text-center border-0" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb !important;">
+                                <div class="fw-bold mb-1" style="color: #155724;"><i class="fas fa-check-circle"></i> DELIVERED</div>
+                                {% if item.payment_method == 'Credit' or item.payment_method|lower == 'credit' %}
+                                    <div class="small">
+                                        <i class="fas fa-credit-card me-1 text-primary"></i>
+                                        <span class="text-primary fw-bold">CREDIT ACCOUNT</span>
+                                        <div class="mt-1 small fw-bold text-dark">
+                                            <i class="fas fa-file-signature"></i> POD Collected
+                                        </div>
+                                    </div>
+                                {% elif item.total_gross > 0 %}
+                                <div class="small">
+                                    <i class="fas fa-hand-holding-usd me-1 text-success"></i>
+                                    {% if stop.cod_receipts and stop.cod_receipts[0].payment_method == 'online' and stop.cod_receipts[0].received_amount == 0 %}
+                                        <span class="fw-bold" style="color: #d35400;">Online Payment Pending</span>
+                                    {% else %}
+                                        <span class="text-success fw-bold">Payment Received:</span> <strong class="text-dark fw-bold">€{{ "%.2f"|format(item.total_gross) }}</strong>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                                <small class="d-block mt-1 fw-bold text-dark">{{ stop.delivered_at|local_time }}</small>
+                            </div>
+                        </div>
+                        {% elif item.status == 'failed' %}
+                        <div class="text-end w-100">
+                            <div class="alert alert-danger py-2 mb-0 w-100 text-center">
+                                <div class="fw-bold mb-1"><i class="fas fa-times-circle"></i> FAILED</div>
+                                <small class="d-block text-muted">{{ stop.failure_reason }}</small>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-warning">No stops found for this route.</div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="failModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Mark Delivery as Failed</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Reason</label>
+                    <select class="form-select" id="fail-reason">
+                        <option value="Customer Not Available">Customer Not Available</option>
+                        <option value="Wrong Address">Wrong Address</option>
+                        <option value="Customer Refused">Customer Refused</option>
+                        <option value="Access Denied">Access Denied</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" id="fail-notes" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="submitFail()">Mark as Failed</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentStopId = null;
+const routeId = {{ route.id }};
+
+async function updateProgress() {
+    try {
+        const response = await fetch(`/driver/api/routes/${routeId}/progress`);
+        const data = await response.json();
+        
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        
+        progressBar.style.width = data.progress_percent + '%';
+        progressBar.setAttribute('aria-valuenow', data.progress_percent);
+        progressText.textContent = `${data.delivered} of ${data.total} delivered`;
+    } catch (error) {
+        console.error('Error updating progress:', error);
+    }
+}
+
+function failStop(stopId) {
+    currentStopId = stopId;
+    const modal = new bootstrap.Modal(document.getElementById('failModal'));
+    modal.show();
+}
+
+async function submitFail() {
+    const reason = document.getElementById('fail-reason').value;
+    const notes = document.getElementById('fail-notes').value;
+    
+    try {
+        // Get GPS location if available (optional - don't fail if unavailable)
+        let gps = null;
+        if (navigator.geolocation) {
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+                });
+                gps = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+            } catch (gpsError) {
+                console.log('GPS not available, continuing without location');
+                // Continue without GPS - it's optional
+            }
+        }
+        
+        const response = await fetch(`/driver/stops/${currentStopId}/fail`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason, notes, gps })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('failModal')).hide();
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to mark delivery as failed');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error submitting failure. Please try again.');
+    }
+}
+
+updateProgress();
+setInterval(updateProgress, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,372 @@
+{% extends 'base.html' %}
+
+{% block title %}Manage Users - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="display-5">
+            <i class="fas fa-users me-2"></i>Manage Users
+        </h1>
+        <p class="text-muted">Add and view system users</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-plus me-2"></i>Add New User
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="role" class="form-label">Role</label>
+                        <select class="form-select" id="role" name="role" required>
+                            <option value="" selected disabled>-- Select a Role --</option>
+                            <option value="admin">Admin</option>
+                            <option value="picker">Picker</option>
+                            <option value="warehouse_manager">Warehouse Manager</option>
+                            <option value="driver">Driver</option>
+                        </select>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Create User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="card shadow">
+            <div class="card-header bg-secondary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-users me-2"></i>Current Users
+                    </h5>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <a href="{{ url_for('manage_users', filter='all') }}" 
+                           class="btn btn-{% if status_filter == 'all' %}light{% else %}outline-light{% endif %}">
+                            All Users
+                        </a>
+                        <a href="{{ url_for('manage_users', filter='active') }}" 
+                           class="btn btn-{% if status_filter == 'active' %}light{% else %}outline-light{% endif %}">
+                            Active Only
+                        </a>
+                        <a href="{{ url_for('manage_users', filter='inactive') }}" 
+                           class="btn btn-{% if status_filter == 'inactive' %}light{% else %}outline-light{% endif %}">
+                            Inactive Only
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr class="{% if not user.is_active %}table-secondary{% endif %}">
+                                <td>
+                                    {{ user.username }}
+                                    {% if not user.is_active %}
+                                    <i class="fas fa-ban text-muted ms-1" title="Inactive"></i>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-{% if user.role == 'admin' %}primary{% elif user.role == 'picker' %}info{% elif user.role == 'warehouse_manager' %}warning{% elif user.role == 'driver' %}success{% else %}secondary{% endif %}">
+                                        {{ user.role.replace('_', ' ').title() }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if user.is_active %}
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-check-circle me-1"></i>Active
+                                    </span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">
+                                        <i class="fas fa-ban me-1"></i>Inactive
+                                    </span>
+                                    {% if user.disabled_reason %}
+                                    <br><small class="text-muted">{{ user.disabled_reason }}</small>
+                                    {% endif %}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-primary edit-user-btn" 
+                                            data-username="{{ user.username }}"
+                                            data-role="{{ user.role }}"
+                                            data-payment-code="{{ user.payment_type_code_365 or '' }}"
+                                            data-require-gps="{{ user.require_gps_check }}"
+                                            title="Edit User">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <a href="{{ url_for('admin_reset_password') }}?user={{ user.username }}" 
+                                       class="btn btn-sm btn-warning" 
+                                       title="Reset Password">
+                                        <i class="fas fa-key"></i>
+                                    </a>
+                                    {% if user.username != current_user.username %}
+                                    <button type="button" class="btn btn-sm btn-{% if user.is_active %}secondary{% else %}success{% endif %} toggle-status-btn" 
+                                            data-username="{{ user.username }}"
+                                            data-active="{{ user.is_active }}"
+                                            title="{% if user.is_active %}Disable{% else %}Enable{% endif %} User">
+                                        <i class="fas fa-{% if user.is_active %}user-slash{% else %}user-check{% endif %}"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-danger delete-user-btn" 
+                                            data-username="{{ user.username }}"
+                                            title="Delete User">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if not users %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>No users found. Add one using the form.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="editUserForm" action="">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit User</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="edit_username" name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_role" class="form-label">Role</label>
+                        <select class="form-select" id="edit_role" name="role" required>
+                            <option value="admin">Admin</option>
+                            <option value="picker">Picker</option>
+                            <option value="warehouse_manager">Warehouse Manager</option>
+                            <option value="driver">Driver</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_payment_code" class="form-label">Payment Type Code (PS365)</label>
+                        <input type="text" class="form-control" id="edit_payment_code" name="payment_type_code_365" placeholder="Optional - for receipt API">
+                        <small class="text-muted">Used for PS365 receipt API when sending customer receipts</small>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="edit_require_gps_check" name="require_gps_check" value="on">
+                        <label for="edit_require_gps_check" class="form-check-label">Require GPS Location Checking</label>
+                        <br><small class="text-muted">If enabled, pickers must be within 200m of warehouse to check in/out</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="editUserSubmitBtn">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete User Modal -->
+<div class="modal fade" id="deleteUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="deleteUserForm">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Delete User</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete user <strong id="delete_username"></strong>?</p>
+                    <p class="text-danger"><i class="fas fa-exclamation-triangle me-2"></i>This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Toggle User Status Modal -->
+<div class="modal fade" id="toggleStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="toggleStatusForm">
+                <div class="modal-header" id="toggleStatusHeader">
+                    <h5 class="modal-title" id="toggleStatusTitle"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="toggleStatusMessage"></p>
+                    <div id="disableReasonSection" style="display: none;">
+                        <label for="disable_reason" class="form-label">Reason for disabling (optional)</label>
+                        <textarea class="form-control" id="disable_reason" name="reason" rows="2" placeholder="e.g., Employee no longer with company"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn" id="toggleStatusSubmitBtn"></button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Edit user buttons
+    document.querySelectorAll('.edit-user-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const username = this.getAttribute('data-username');
+            const role = this.getAttribute('data-role');
+            const paymentCode = this.getAttribute('data-payment-code');
+            const requireGps = this.getAttribute('data-require-gps') === 'True';
+            
+            console.log('Edit button clicked for username:', username);
+            
+            document.getElementById('edit_username').value = username;
+            document.getElementById('edit_role').value = role;
+            document.getElementById('edit_payment_code').value = paymentCode || '';
+            document.getElementById('edit_require_gps_check').checked = requireGps;
+            
+            const formAction = `/admin/users/${encodeURIComponent(username)}/edit`;
+            console.log('Setting form action to:', formAction);
+            document.getElementById('editUserForm').action = formAction;
+            
+            const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
+            modal.show();
+        });
+    });
+    
+    // Toggle user status buttons
+    document.querySelectorAll('.toggle-status-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const username = this.getAttribute('data-username');
+            const isActive = this.getAttribute('data-active') === 'True';
+            
+            console.log('Toggle status button clicked for username:', username, 'isActive:', isActive);
+            
+            const modal = document.getElementById('toggleStatusModal');
+            const title = document.getElementById('toggleStatusTitle');
+            const message = document.getElementById('toggleStatusMessage');
+            const submitBtn = document.getElementById('toggleStatusSubmitBtn');
+            const header = document.getElementById('toggleStatusHeader');
+            const reasonSection = document.getElementById('disableReasonSection');
+            
+            if (isActive) {
+                // User is active, show disable confirmation
+                title.textContent = 'Disable User';
+                message.innerHTML = `Are you sure you want to disable user <strong>${username}</strong>?<br><small class="text-muted">The user will not be able to log in while disabled.</small>`;
+                submitBtn.textContent = 'Disable User';
+                submitBtn.className = 'btn btn-warning';
+                header.className = 'modal-header bg-warning text-dark';
+                reasonSection.style.display = 'block';
+            } else {
+                // User is inactive, show enable confirmation
+                title.textContent = 'Enable User';
+                message.innerHTML = `Are you sure you want to enable user <strong>${username}</strong>?<br><small class="text-muted">The user will be able to log in again.</small>`;
+                submitBtn.textContent = 'Enable User';
+                submitBtn.className = 'btn btn-success';
+                header.className = 'modal-header bg-success text-white';
+                reasonSection.style.display = 'none';
+            }
+            
+            const formAction = `/admin/users/${encodeURIComponent(username)}/toggle-status`;
+            console.log('Setting form action to:', formAction);
+            document.getElementById('toggleStatusForm').action = formAction;
+            
+            const modalInstance = new bootstrap.Modal(modal);
+            modalInstance.show();
+        });
+    });
+    
+    // Delete user buttons
+    document.querySelectorAll('.delete-user-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const username = this.getAttribute('data-username');
+            
+            console.log('Delete button clicked for username:', username);
+            
+            document.getElementById('delete_username').textContent = username;
+            
+            const formAction = `/admin/users/${encodeURIComponent(username)}/delete`;
+            console.log('Setting form action to:', formAction);
+            document.getElementById('deleteUserForm').action = formAction;
+            
+            const modal = new bootstrap.Modal(document.getElementById('deleteUserModal'));
+            modal.show();
+        });
+    });
+    
+    // Prevent form submission if action is not set
+    document.getElementById('editUserForm').addEventListener('submit', function(e) {
+        const submitBtn = document.getElementById('editUserSubmitBtn');
+        const actionUrl = this.action;
+        
+        console.log('Form action before submit:', actionUrl);
+        
+        if (!actionUrl || actionUrl.endsWith('/admin/users/edit') || !actionUrl.match(/\/admin\/users\/.+\/edit$/)) {
+            e.preventDefault();
+            alert('Error: Form action not set properly. Please close and try again.');
+            console.error('Invalid form action:', actionUrl);
+            return;
+        }
+        
+        // Disable submit button to prevent double submission
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+        
+        console.log('Form submitting to:', actionUrl);
+    });
+    
+    document.getElementById('deleteUserForm').addEventListener('submit', function(e) {
+        const actionUrl = this.action;
+        
+        console.log('Delete form action before submit:', actionUrl);
+        
+        if (!actionUrl || actionUrl.endsWith('/admin/users/delete') || !actionUrl.match(/\/admin\/users\/.+\/delete$/)) {
+            e.preventDefault();
+            alert('Error: Form action not set properly. Please close and try again.');
+            console.error('Invalid form action:', actionUrl);
+            return;
+        }
+        
+        console.log('Delete form submitting to:', actionUrl);
+    });
+});
+</script>
+
+{% endblock %}

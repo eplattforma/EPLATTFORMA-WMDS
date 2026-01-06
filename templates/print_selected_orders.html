@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Print Selected Orders - EPLATTFORMA Picking System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .container {
+            max-width: 210mm; /* A4 width */
+            margin: 0 auto;
+            padding: 15px;
+        }
+        
+        .label-section {
+            padding: 15px;
+            border: 3px solid #000;
+            margin-bottom: 20px;
+        }
+        
+        .label-heading {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .label-detail {
+            font-size: 20px;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .routing-large {
+            font-size: 80px;
+            font-weight: bold;
+            text-align: center;
+            line-height: 1;
+            margin: 0;
+            vertical-align: middle;
+        }
+        
+        .header-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        
+        .header-table td {
+            border: 2px solid #000;
+            padding: 15px;
+            vertical-align: middle;
+            height: 120px;
+        }
+        
+        .route-column {
+            width: 20%;
+            text-align: center;
+        }
+        
+        .invoice-column {
+            width: 60%;
+            text-align: center;
+        }
+        
+        .status-column {
+            width: 20%;
+            text-align: center;
+            font-size: 14px;
+            vertical-align: top;
+            padding-top: 10px;
+        }
+        
+        .stats-info {
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        .invoice-number {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .customer-name {
+            font-size: 20px;
+            font-weight: bold;
+        }
+        
+        .label-summary {
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
+        .report-table {
+            width: 100%;
+            margin-bottom: 20px;
+            border-collapse: collapse;
+        }
+        
+        .report-table th, .report-table td {
+            border: 1px solid #ddd;
+            padding: 3px 6px;
+            text-align: left;
+            font-size: 12px;
+            line-height: 1.1;
+        }
+        
+        .report-table th {
+            background-color: #f2f2f2;
+        }
+        
+        .report-totals {
+            text-align: right;
+            font-weight: bold;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        
+        .report-totals p {
+            margin: 5px 0;
+        }
+        
+        .discrepancy {
+            background-color: #ffeaea;
+        }
+        
+        .no-print {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        /* Page break between orders */
+        .order-page {
+            page-break-after: always;
+        }
+        
+        .order-page:last-child {
+            page-break-after: avoid;
+        }
+        
+        /* Print-specific styles */
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+                font-size: 12px;
+                color: #000000;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            
+            .container {
+                width: 100%;
+                max-width: 100%;
+                padding: 0;
+                margin: 0;
+            }
+            
+            .no-print {
+                display: none;
+            }
+            
+            .label-section {
+                page-break-after: avoid;
+                border: 3px solid #000000;
+            }
+            
+            .report-table {
+                page-break-inside: avoid;
+                border-collapse: collapse;
+            }
+            
+            .report-table th, .report-table td {
+                border: 1.5px solid #000000;
+                padding: 8px;
+                font-size: 12px;
+                color: #000000;
+            }
+            
+            /* Make discrepancies more visible */
+            .discrepancy {
+                background-color: #ffeaea !important;
+                border: 2px solid #000000;
+                font-weight: bold;
+            }
+            
+            .report-table th {
+                background-color: #e3e3e3 !important;
+                border-bottom: 2px solid #000;
+                font-weight: bold;
+                color: #000000;
+            }
+            
+            h1, h2, h3 {
+                color: #000000;
+                font-weight: bold;
+            }
+            
+            .label-detail {
+                color: #000000;
+                font-weight: bold;
+            }
+            
+            .label-summary {
+                border-top: 2px solid #000000;
+                color: #000000;
+                font-weight: bold;
+            }
+            
+            .report-totals {
+                color: #000000;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            
+            strong {
+                font-weight: bolder;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Print Button (won't show when printed) -->
+        <div class="no-print" style="margin-bottom: 20px; text-align: center;">
+            <button id="printBtn" class="btn btn-primary">
+                <i class="fas fa-print"></i> Print Selected Orders
+            </button>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+        
+        {% for order_data in invoices_data %}
+        <div class="order-page">
+            <!-- Label Section (Top of Page) -->
+            <div class="label-section">
+                <table class="header-table">
+                    <tr>
+                        <td class="route-column">
+                            <div class="routing-large">{{ order_data.invoice.routing or 'N/A' }}</div>
+                        </td>
+                        <td class="invoice-column">
+                            <div class="invoice-number">{{ order_data.invoice.invoice_no }}</div>
+                            <div class="customer-name">{{ order_data.invoice.customer_name or 'N/A' }}</div>
+                            {% if order_data.invoice.assigned_to %}
+                            <div style="font-size: 14px; font-weight: bold; margin-top: 5px;">
+                                Picker: {{ order_data.invoice.assigned_to }}
+                            </div>
+                            {% endif %}
+                            <div style="font-size: 14px; margin-top: 10px;">{{ order_data.invoice.status }}</div>
+                        </td>
+                        <td class="status-column">
+                            <div class="stats-info">
+                                <div><strong>DATE:</strong> {{ now.strftime('%d/%m/%y') }}</div>
+                                <div><strong>TIME:</strong> {{ now.strftime('%H:%M:%S') }}</div>
+                                <div><strong>LINES:</strong> {{ order_data.invoice.total_lines }}</div>
+                                <div><strong>ITEMS:</strong> {{ order_data.invoice.total_items|int }}</div>
+                                <div><strong>WEIGHT:</strong> {{ "%.1f"|format(order_data.invoice.total_weight) }} kg</div>
+                                <div><strong>PICK TIME:</strong> {{ "%.1f"|format(order_data.invoice.total_exp_time) }} min</div>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
+            <table class="report-table" style="margin-top: 5px;">
+                <thead>
+                    <tr>
+                        <th>LOCATION</th>
+                        <th>ITEM CODE</th>
+                        <th>ITEM NAME</th>
+                        <th>UNIT TYPE</th>
+                        <th>PACK</th>
+                        <th style="width: 40px; text-align: center;">QTY<br>REQ</th>
+                        <th style="width: 40px; text-align: center;">QTY<br>PCK</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in order_data.invoice_items %}
+                    <tr {% if item.picked_qty is not none and item.picked_qty < item.qty %}class="discrepancy"{% endif %}>
+                        <td>{{ item.location }}</td>
+                        <td>{{ item.item_code }}</td>
+                        <td>{{ item.item_name }}</td>
+                        <td>{{ item.unit_type }}</td>
+                        <td>{{ item.pack }}</td>
+                        <td style="text-align: center;">{{ item.qty|int }}</td>
+                        <td style="text-align: center;">{{ item.picked_qty|int if item.picked_qty else 0 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            <!-- Exceptions Section (if any) -->
+            {% if order_data.exceptions %}
+            <h3>Picking Exceptions</h3>
+            <table class="report-table">
+                <thead>
+                    <tr>
+                        <th>ITEM CODE</th>
+                        <th>EXPECTED QTY</th>
+                        <th>PICKED QTY</th>
+                        <th>PICKER</th>
+                        <th>REASON</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for exception in order_data.exceptions %}
+                    <tr>
+                        <td>{{ exception.item_code }}</td>
+                        <td>{{ exception.expected_qty|int }}</td>
+                        <td>{{ exception.picked_qty|int }}</td>
+                        <td>{{ exception.picker_username }}</td>
+                        <td>{{ exception.reason }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+            
+            <!-- Batch Picked Items Section (if any) -->
+            {% if order_data.batch_items %}
+            <h3 style="border-left: 5px solid #007bff; padding-left: 10px;">Items Picked via Batch</h3>
+
+            {% for batch_id, items in order_data.batch_items|groupby('batch_id') %}
+            <div style="margin-bottom: 1.5rem;">
+                <div style="background-color: #e7f1ff; padding: 8px; border: 1px solid #b8daff; font-weight: bold; margin-bottom: 5px;">
+                    Batch {{ batch_id }}
+                </div>
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>ITEM CODE</th>
+                            <th>ITEM NAME</th>
+                            <th>LOCATION</th>
+                            <th>UNIT TYPE</th>
+                            <th>PACK</th>
+                            <th style="width: 40px; text-align: center;">QTY<br>REQ</th>
+                            <th style="width: 40px; text-align: center;">QTY<br>PCK</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr {% if item.get('status') == 'not_picked' %}style="background-color: #fff3cd;"{% endif %}>
+                            <td>{{ item.item_code }}</td>
+                            <td>{{ item.item_name }}</td>
+                            <td>{{ item.location }}</td>
+                            <td>{{ item.unit_type }}</td>
+                            <td>{{ item.pack }}</td>
+                            <td style="text-align: center;">{{ item.requested_qty|int }}</td>
+                            <td style="text-align: center;">
+                                {% if item.get('status') == 'not_picked' %}
+                                    <span style="color: #856404; font-weight: bold;">Not Picked</span>
+                                {% else %}
+                                    {{ item.qty|int }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        document.getElementById('printBtn').addEventListener('click', function() {
+            window.print();
+        });
+        
+        // Auto-print when page loads
+        window.onload = function() {
+            // Small delay to ensure everything is rendered
+            setTimeout(function() {
+                window.print();
+            }, 500);
+        };
+    </script>
+</body>
+</html>

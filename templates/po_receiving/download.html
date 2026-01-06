@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Download Purchase Order{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{{ url_for('po_receiving.index') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+        <h5 class="mb-0">Download Purchase Order</h5>
+        <span></span>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="POST">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Purchase Order Code</label>
+                    <input type="text" name="po_code" class="form-control form-control-lg" 
+                           placeholder="e.g., CART192 or 365 code" required autofocus>
+                    <small class="text-muted">Enter shopping cart code or PS365 purchase order code</small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Code Type</label>
+                    <select name="is_shopping_cart" class="form-select">
+                        <option value="Y">Shopping Cart Code</option>
+                        <option value="N" selected>PS365 Purchase Order Code</option>
+                    </select>
+                </div>
+
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-download"></i> Download & Start Receiving
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Receipt Created{% endblock %}
+
+{% block content %}
+<div class="driver-container">
+    <!-- Header -->
+    <div class="success-header">
+        <div class="checkmark-circle">
+            <i class="fas fa-check"></i>
+        </div>
+        <h4 class="mb-1">Receipt Created!</h4>
+        <p class="mb-0">Transaction successfully recorded</p>
+    </div>
+
+    <!-- Receipt Details -->
+    <div class="receipt-section">
+        <div class="receipt-card">
+            <div class="receipt-number">
+                <div class="label">Receipt Number</div>
+                <div class="value">{{ receipt.reference_number }}</div>
+            </div>
+
+            {% if receipt.response_id %}
+            <div class="receipt-detail">
+                <span class="label">Transaction Code</span>
+                <span class="value">{{ receipt.response_id }}</span>
+            </div>
+            {% endif %}
+
+            <div class="receipt-detail">
+                <span class="label">Customer Code</span>
+                <span class="value">{{ receipt.customer_code_365 }}</span>
+            </div>
+
+            <div class="receipt-detail">
+                <span class="label">Amount</span>
+                <span class="value amount">€{{ "%.2f"|format(receipt.amount|float) }}</span>
+            </div>
+
+            {% if receipt.comments %}
+            <div class="receipt-detail">
+                <span class="label">Comments</span>
+                <span class="value">{{ receipt.comments }}</span>
+            </div>
+            {% endif %}
+
+            <div class="receipt-detail">
+                <span class="label">Date & Time</span>
+                <span class="value">{{ receipt.created_at|local_time('%d/%m/%Y %H:%M') }}</span>
+            </div>
+
+            <div class="status-badge {% if receipt.success %}success{% else %}warning{% endif %}">
+                {% if receipt.success %}
+                <i class="fas fa-check-circle me-2"></i>Synced to Powersoft365
+                {% else %}
+                <i class="fas fa-exclamation-triangle me-2"></i>Logged Locally Only
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons">
+            <a href="{{ url_for('routes.dashboard') }}" class="btn-action btn-primary">
+                <i class="fas fa-route me-2"></i>Back to Routes
+            </a>
+            <a href="{{ url_for('receipts.new_receipt_form') }}" class="btn-action btn-secondary">
+                <i class="fas fa-plus me-2"></i>New Receipt
+            </a>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Success Page Styles */
+.driver-container {
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+    background: #f5f5f5;
+    min-height: 100vh;
+}
+
+.success-header {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    padding: 40px 16px 32px;
+    text-align: center;
+}
+
+.checkmark-circle {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    animation: scaleIn 0.3s ease-out;
+}
+
+.checkmark-circle i {
+    font-size: 2.5rem;
+}
+
+@keyframes scaleIn {
+    from {
+        transform: scale(0);
+    }
+    to {
+        transform: scale(1);
+    }
+}
+
+.receipt-section {
+    padding: 16px;
+}
+
+.receipt-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.receipt-number {
+    text-align: center;
+    padding: 20px 0;
+    border-bottom: 2px dashed #e5e7eb;
+    margin-bottom: 20px;
+}
+
+.receipt-number .label {
+    font-size: 0.85rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.receipt-number .value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #10b981;
+    font-family: monospace;
+}
+
+.receipt-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.receipt-detail:last-of-type {
+    border-bottom: none;
+}
+
+.receipt-detail .label {
+    font-size: 0.9rem;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.receipt-detail .value {
+    font-size: 1rem;
+    color: #212529;
+    font-weight: 600;
+    text-align: right;
+}
+
+.receipt-detail .value.amount {
+    font-size: 1.3rem;
+    color: #10b981;
+}
+
+.status-badge {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 600;
+}
+
+.status-badge.success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.status-badge.warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.action-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.btn-action {
+    padding: 14px;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: none;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-secondary {
+    background: white;
+    color: #10b981;
+    border: 2px solid #10b981;
+}
+
+.btn-action:active {
+    transform: scale(0.98);
+}
+</style>
+{% endblock %}

@@ -1,0 +1,694 @@
+{% extends "base.html" %}
+
+{% block title %}AI Insights Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0 text-gray-800">
+            <i class="fas fa-brain me-2"></i>AI Insights Dashboard
+        </h1>
+        <div>
+            <button class="btn btn-success" onclick="runQuickAnalysis(7)">
+                <i class="fas fa-chart-line me-1"></i>Last 7 Days
+            </button>
+            <button class="btn btn-info" onclick="runQuickAnalysis(30)">
+                <i class="fas fa-calendar-alt me-1"></i>Last 30 Days
+            </button>
+        </div>
+    </div>
+
+    <!-- Analysis Controls -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">
+                <i class="fas fa-sliders-h me-2"></i>Analysis Controls
+            </h5>
+        </div>
+        <div class="card-body">
+            <form id="analysisForm">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label for="dateFrom" class="form-label">From Date</label>
+                        <input type="date" class="form-control" id="dateFrom" name="date_from">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="dateTo" class="form-label">To Date</label>
+                        <input type="date" class="form-control" id="dateTo" name="date_to">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="pickerSelect" class="form-label">Picker (Optional)</label>
+                        <select class="form-select" id="pickerSelect" name="picker_username">
+                            <option value="">All Pickers</option>
+                            {% for picker in pickers %}
+                            <option value="{{ picker }}">{{ picker }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="zoneSelect" class="form-label">Zone (Optional)</label>
+                        <select class="form-select" id="zoneSelect" name="zone">
+                            <option value="">All Zones</option>
+                            {% for zone in zones %}
+                            <option value="{{ zone }}">{{ zone }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <button type="button" class="btn btn-primary" onclick="runCustomAnalysis()">
+                            <i class="fas fa-play me-1"></i>Run Analysis
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearFilters()">
+                            <i class="fas fa-times me-1"></i>Clear Filters
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loadingIndicator" class="text-center py-5" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div class="mt-2">Analyzing picking data...</div>
+    </div>
+
+    <!-- Analysis Results -->
+    <div id="analysisResults" style="display: none;">
+        <!-- Performance Summary -->
+        <div class="row mb-4" id="summaryCards">
+            <!-- Summary cards will be populated here -->
+        </div>
+
+        <!-- Recommendations Section -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-lightbulb me-2"></i>AI Recommendations
+                </h5>
+                <span class="badge bg-info" id="recommendationCount">0</span>
+            </div>
+            <div class="card-body">
+                <div id="recommendationsList">
+                    <!-- Recommendations will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Analysis Tabs -->
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" id="analysisTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="picker-tab" data-bs-toggle="tab" data-bs-target="#picker" type="button" role="tab">
+                            <i class="fas fa-users me-1"></i>Picker Performance
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="zone-tab" data-bs-toggle="tab" data-bs-target="#zone" type="button" role="tab">
+                            <i class="fas fa-map-marked-alt me-1"></i>Zone Analysis
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="item-tab" data-bs-toggle="tab" data-bs-target="#item" type="button" role="tab">
+                            <i class="fas fa-boxes me-1"></i>Item Analysis
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="trends-tab" data-bs-toggle="tab" data-bs-target="#trends" type="button" role="tab">
+                            <i class="fas fa-chart-line me-1"></i>Trends
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="model-tab" data-bs-toggle="tab" data-bs-target="#model" type="button" role="tab">
+                            <i class="fas fa-robot me-1"></i>ML Model
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content" id="analysisTabContent">
+                    <!-- Picker Performance Tab -->
+                    <div class="tab-pane fade show active" id="picker" role="tabpanel">
+                        <div id="pickerAnalysis">
+                            <!-- Picker analysis content -->
+                        </div>
+                    </div>
+
+                    <!-- Zone Analysis Tab -->
+                    <div class="tab-pane fade" id="zone" role="tabpanel">
+                        <div id="zoneAnalysis">
+                            <!-- Zone analysis content -->
+                        </div>
+                    </div>
+
+                    <!-- Item Analysis Tab -->
+                    <div class="tab-pane fade" id="item" role="tabpanel">
+                        <div id="itemAnalysis">
+                            <!-- Item analysis content -->
+                        </div>
+                    </div>
+
+                    <!-- Trends Tab -->
+                    <div class="tab-pane fade" id="trends" role="tabpanel">
+                        <div id="trendsAnalysis">
+                            <!-- Trends analysis content -->
+                        </div>
+                    </div>
+
+                    <!-- ML Model Tab -->
+                    <div class="tab-pane fade" id="model" role="tabpanel">
+                        <div id="modelAnalysis">
+                            <!-- Model analysis content -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Options -->
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-download me-2"></i>Export Analysis
+                </h5>
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-primary" onclick="exportAnalysis('json')">
+                        <i class="fas fa-file-code me-1"></i>Export JSON
+                    </button>
+                    <button type="button" class="btn btn-outline-primary" onclick="exportAnalysis('text')">
+                        <i class="fas fa-file-alt me-1"></i>Export Report
+                    </button>
+                    <button type="button" class="btn btn-outline-success" onclick="generateReport()">
+                        <i class="fas fa-chart-bar me-1"></i>Generate Report
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentAnalysisData = null;
+
+function showLoading() {
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('analysisResults').style.display = 'none';
+}
+
+function hideLoading() {
+    document.getElementById('loadingIndicator').style.display = 'none';
+}
+
+function showResults() {
+    document.getElementById('analysisResults').style.display = 'block';
+}
+
+function runQuickAnalysis(days) {
+    showLoading();
+    
+    fetch(`/ai_insights/quick_analysis/${days}`)
+        .then(response => response.json())
+        .then(data => {
+            hideLoading();
+            if (data.success) {
+                currentAnalysisData = data;
+                displayAnalysisResults(data);
+                showResults();
+            } else {
+                alert('Analysis failed: ' + data.error);
+            }
+        })
+        .catch(error => {
+            hideLoading();
+            alert('Error running analysis: ' + error.message);
+        });
+}
+
+function runCustomAnalysis() {
+    const form = document.getElementById('analysisForm');
+    const formData = new FormData(form);
+    
+    const analysisParams = {
+        date_from: formData.get('date_from'),
+        date_to: formData.get('date_to'),
+        picker_username: formData.get('picker_username'),
+        zone: formData.get('zone')
+    };
+    
+    showLoading();
+    
+    fetch('/ai_insights/run_analysis', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(analysisParams)
+    })
+        .then(response => response.json())
+        .then(data => {
+            hideLoading();
+            if (data.success) {
+                currentAnalysisData = data;
+                displayAnalysisResults(data);
+                showResults();
+            } else {
+                alert('Analysis failed: ' + data.error);
+            }
+        })
+        .catch(error => {
+            hideLoading();
+            alert('Error running analysis: ' + error.message);
+        });
+}
+
+function displayAnalysisResults(data) {
+    displaySummaryCards(data.summary);
+    displayRecommendations(data.recommendations);
+    displayPickerAnalysis(data.picker_performance);
+    displayZoneAnalysis(data.zone_performance);
+    displayItemAnalysis(data.item_analysis);
+    displayTrendsAnalysis(data.trends);
+    displayModelAnalysis(data.model_results);
+}
+
+function displaySummaryCards(summary) {
+    const container = document.getElementById('summaryCards');
+    container.innerHTML = `
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Total Picks</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">${summary.total_picks?.toLocaleString() || '0'}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-clipboard-list fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Avg Efficiency</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">${summary.avg_efficiency?.toFixed(2) || '0.00'}</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-tachometer-alt fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Accuracy</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">${summary.overall_accuracy?.toFixed(1) || '0.0'}%</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-bullseye fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Skip Rate</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800">${summary.skip_rate?.toFixed(1) || '0.0'}%</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-exclamation-triangle fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function displayRecommendations(recommendations) {
+    const container = document.getElementById('recommendationsList');
+    const countBadge = document.getElementById('recommendationCount');
+    
+    countBadge.textContent = recommendations?.length || 0;
+    
+    if (!recommendations || recommendations.length === 0) {
+        container.innerHTML = '<div class="text-muted">No recommendations available.</div>';
+        return;
+    }
+    
+    const recommendationsHtml = recommendations.slice(0, 10).map(rec => `
+        <div class="alert alert-${getPriorityClass(rec.priority)} alert-dismissible fade show" role="alert">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h6 class="alert-heading">${rec.title}</h6>
+                    <p class="mb-1">${rec.description}</p>
+                    <small class="text-muted">Category: ${rec.category} | Priority: ${rec.priority === 1 ? 'High' : rec.priority === 2 ? 'Medium' : 'Low'}</small>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-secondary">Impact: ${rec.impact_score?.toFixed(1) || 'N/A'}</span>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    container.innerHTML = recommendationsHtml;
+}
+
+function getPriorityClass(priority) {
+    switch (priority) {
+        case 1: return 'danger';
+        case 2: return 'warning';
+        case 3: return 'info';
+        default: return 'secondary';
+    }
+}
+
+function displayPickerAnalysis(pickerData) {
+    const container = document.getElementById('pickerAnalysis');
+    
+    if (!pickerData || pickerData.length === 0) {
+        container.innerHTML = '<div class="text-muted">No picker data available.</div>';
+        return;
+    }
+    
+    const tableHtml = `
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Picker</th>
+                        <th>Avg Time (s)</th>
+                        <th>Efficiency</th>
+                        <th>Accuracy</th>
+                        <th>Skip Rate</th>
+                        <th>Total Picks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${pickerData.map(picker => `
+                        <tr>
+                            <td>${picker.picker_username}</td>
+                            <td>${picker.total_time_seconds_mean?.toFixed(1) || 'N/A'}</td>
+                            <td>${picker.efficiency_ratio_mean?.toFixed(2) || 'N/A'}</td>
+                            <td>${((picker.picked_correctly_mean || 0) * 100).toFixed(1)}%</td>
+                            <td>${((picker.was_skipped_mean || 0) * 100).toFixed(1)}%</td>
+                            <td>${picker.total_time_seconds_count || 0}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = tableHtml;
+}
+
+function displayZoneAnalysis(zoneData) {
+    const container = document.getElementById('zoneAnalysis');
+    
+    if (!zoneData || zoneData.length === 0) {
+        container.innerHTML = '<div class="text-muted">No zone data available.</div>';
+        return;
+    }
+    
+    const tableHtml = `
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Zone</th>
+                        <th>Avg Time (s)</th>
+                        <th>Walking Time (s)</th>
+                        <th>Picking Time (s)</th>
+                        <th>Efficiency</th>
+                        <th>Total Picks</th>
+                        <th>Needs Attention</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${zoneData.map(zone => `
+                        <tr>
+                            <td>${zone.zone}</td>
+                            <td>${zone.total_time_seconds_mean?.toFixed(1) || 'N/A'}</td>
+                            <td>${zone.walking_time_seconds_mean?.toFixed(1) || 'N/A'}</td>
+                            <td>${zone.picking_time_seconds_mean?.toFixed(1) || 'N/A'}</td>
+                            <td>${zone.picking_efficiency_mean?.toFixed(2) || 'N/A'}</td>
+                            <td>${zone.total_time_seconds_count || 0}</td>
+                            <td>${zone.needs_attention ? '<span class="badge bg-warning">Yes</span>' : '<span class="badge bg-success">No</span>'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = tableHtml;
+}
+
+function displayItemAnalysis(itemData) {
+    const container = document.getElementById('itemAnalysis');
+    
+    if (!itemData || itemData.length === 0) {
+        container.innerHTML = '<div class="text-muted">No item data available.</div>';
+        return;
+    }
+    
+    // Show top 20 items by pick count
+    const topItems = itemData.slice(0, 20);
+    
+    const tableHtml = `
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Item Code</th>
+                        <th>Item Name</th>
+                        <th>Avg Time (s)</th>
+                        <th>Efficiency</th>
+                        <th>Skip Rate</th>
+                        <th>Accuracy</th>
+                        <th>Total Picks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${topItems.map(item => `
+                        <tr>
+                            <td>${item.item_code}</td>
+                            <td>${item.item_name || 'N/A'}</td>
+                            <td>${item.total_time_seconds_mean?.toFixed(1) || 'N/A'}</td>
+                            <td>${item.picking_efficiency_mean?.toFixed(2) || 'N/A'}</td>
+                            <td class="${(item.was_skipped_mean || 0) > 0.2 ? 'text-danger' : ''}">${((item.was_skipped_mean || 0) * 100).toFixed(1)}%</td>
+                            <td class="${(item.picked_correctly_mean || 0) < 0.9 ? 'text-danger' : ''}">${((item.picked_correctly_mean || 0) * 100).toFixed(1)}%</td>
+                            <td>${item.total_time_seconds_count || 0}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = tableHtml;
+}
+
+function displayTrendsAnalysis(trendsData) {
+    const container = document.getElementById('trendsAnalysis');
+    
+    if (!trendsData || !trendsData.daily_efficiency) {
+        container.innerHTML = '<div class="text-muted">No trends data available.</div>';
+        return;
+    }
+    
+    const trendsHtml = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Efficiency Trend</h6>
+                <p class="text-${trendsData.efficiency_trend > 0 ? 'success' : 'danger'}">
+                    ${trendsData.efficiency_trend > 0 ? 'Improving' : 'Declining'} 
+                    (${(trendsData.efficiency_trend * 100).toFixed(3)}% per day)
+                </p>
+            </div>
+            <div class="col-md-6">
+                <h6>Time Trend</h6>
+                <p class="text-${trendsData.time_trend < 0 ? 'success' : 'danger'}">
+                    ${trendsData.time_trend < 0 ? 'Getting Faster' : 'Getting Slower'} 
+                    (${trendsData.time_trend.toFixed(2)}s per day)
+                </p>
+            </div>
+        </div>
+        <div class="mt-3">
+            <h6>Recent Daily Performance</h6>
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Avg Efficiency</th>
+                            <th>Avg Time (s)</th>
+                            <th>Accuracy</th>
+                            <th>Pick Count</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${trendsData.daily_efficiency.slice(-10).map(day => `
+                            <tr>
+                                <td>${day.pick_date}</td>
+                                <td>${day.avg_efficiency?.toFixed(2) || 'N/A'}</td>
+                                <td>${day.avg_time?.toFixed(1) || 'N/A'}</td>
+                                <td>${((day.accuracy || 0) * 100).toFixed(1)}%</td>
+                                <td>${day.pick_count || 0}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = trendsHtml;
+}
+
+function displayModelAnalysis(modelData) {
+    const container = document.getElementById('modelAnalysis');
+    
+    if (!modelData || !modelData.success) {
+        container.innerHTML = '<div class="text-muted">Machine learning model not available or insufficient data for training.</div>';
+        return;
+    }
+    
+    const metrics = modelData.metrics;
+    const featureImportance = modelData.feature_importance;
+    
+    const modelHtml = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Model Performance</h6>
+                <ul class="list-unstyled">
+                    <li><strong>Model Type:</strong> ${metrics.model_type}</li>
+                    <li><strong>Prediction Accuracy (R²):</strong> ${metrics.r2_score?.toFixed(3) || 'N/A'}</li>
+                    <li><strong>Average Error:</strong> ${metrics.mae?.toFixed(1) || 'N/A'} seconds</li>
+                    <li><strong>Training Samples:</strong> ${metrics.training_samples || 'N/A'}</li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <h6>Feature Importance</h6>
+                <div class="small">
+                    ${Object.entries(featureImportance || {}).slice(0, 5).map(([feature, importance]) => `
+                        <div class="d-flex justify-content-between">
+                            <span>${feature.replace('_', ' ')}</span>
+                            <span>${(importance * 100).toFixed(1)}%</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = modelHtml;
+}
+
+function clearFilters() {
+    document.getElementById('analysisForm').reset();
+}
+
+function exportAnalysis(format) {
+    if (!currentAnalysisData) {
+        alert('No analysis data to export. Please run an analysis first.');
+        return;
+    }
+    
+    fetch('/ai_insights/export_data', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            analysis_results: currentAnalysisData,
+            format: format
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const blob = new Blob([format === 'json' ? JSON.stringify(data.data, null, 2) : data.data], {
+                    type: format === 'json' ? 'application/json' : 'text/plain'
+                });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = data.filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } else {
+                alert('Export failed: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Export error: ' + error.message);
+        });
+}
+
+function generateReport() {
+    if (!currentAnalysisData) {
+        alert('No analysis data available. Please run an analysis first.');
+        return;
+    }
+    
+    fetch('/ai_insights/generate_report', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            analysis_results: currentAnalysisData
+        })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const blob = new Blob([data.report], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ai_insights_report_${new Date().toISOString().split('T')[0]}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } else {
+                alert('Report generation failed: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Report generation error: ' + error.message);
+        });
+}
+
+// Set default date range to last 7 days
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    document.getElementById('dateTo').value = today.toISOString().split('T')[0];
+    document.getElementById('dateFrom').value = weekAgo.toISOString().split('T')[0];
+});
+</script>
+{% endblock %}

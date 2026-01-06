@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+
+{% block title %}Picking Completed - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('picker_dashboard') }}">Dashboard</a></li>
+                <li class="breadcrumb-item active">Completed: Invoice #{{ invoice.invoice_no }}</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12 text-center">
+        <div class="card border-success">
+            <div class="card-body p-5">
+                <div class="mb-4">
+                    <i class="fas fa-check-circle text-success fa-5x"></i>
+                </div>
+                <h1 class="display-5 mb-3">Picking Completed!</h1>
+                <p class="lead text-muted">
+                    You have successfully completed all picking tasks for Invoice #{{ invoice.invoice_no }}.
+                </p>
+                <div class="mt-4">
+                    <a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" 
+                       class="btn btn-success btn-lg me-3" target="_blank">
+                        <i class="fas fa-print me-2"></i> Print Picking Report
+                    </a>
+                    <a href="{{ url_for('picker_dashboard') }}" class="btn btn-primary btn-lg">
+                        <i class="fas fa-home me-2"></i> Return to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if exceptions %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-warning">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">
+                    <i class="fas fa-exclamation-triangle me-2"></i> 
+                    Picking Exceptions ({{ exceptions|length }})
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>Expected Qty</th>
+                                <th>Picked Qty</th>
+                                <th>Difference</th>
+                                <th>Reason</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for exception in exceptions %}
+                            <tr>
+                                <td>{{ exception.item_code }}</td>
+                                <td>{{ exception.expected_qty|round(1) }}</td>
+                                <td>{{ exception.picked_qty|round(1) }}</td>
+                                <td class="text-danger">
+                                    {{ (exception.picked_qty - exception.expected_qty)|round(1) }}
+                                </td>
+                                <td>{{ exception.reason or 'No reason provided' }}</td>
+                                <td>{{ exception.timestamp.strftime('%H:%M:%S') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Order Summary -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-clipboard-list me-2"></i> Order Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table">
+                            <tr>
+                                <th>Invoice Number:</th>
+                                <td>{{ invoice.invoice_no }}</td>
+                            </tr>
+                            <tr>
+                                <th>Customer:</th>
+                                <td>{{ invoice.customer_name }}</td>
+                            </tr>
+                            <tr>
+                                <th>Routing:</th>
+                                <td>{{ invoice.routing }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table">
+                            <tr>
+                                <th>Total Lines:</th>
+                                <td>{{ invoice.total_lines }}</td>
+                            </tr>
+                            <tr>
+                                <th>Total Items:</th>
+                                <td>{{ invoice.total_items|round(1) }}</td>
+                            </tr>
+                            <tr>
+                                <th>Total Weight:</th>
+                                <td>{{ invoice.total_weight|round(1) }} kg</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

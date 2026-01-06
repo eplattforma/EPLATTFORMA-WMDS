@@ -1,0 +1,707 @@
+{% extends 'base.html' %}
+
+{% block title %}Picking Item - EPLATTFORMA Picking System{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .location-display {
+        min-width: 80%;
+    }
+    .location-labels {
+        display: flex;
+        justify-content: space-around;
+        text-transform: uppercase;
+        color: #6c757d;
+    }
+    
+    /* Add styling for smooth transitions */
+    .modal-backdrop {
+        opacity: 0.8 !important;
+    }
+    
+    .modal-content {
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    
+    .next-location-container {
+        animation: fadeInUp 0.4s ease-out;
+    }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    /* Ensure no flashing happens */
+    body {
+        transition: background-color 0.3s ease;
+    }
+    
+    /* Make modal transitions immediate */
+    .modal.fade .modal-dialog {
+        transition: transform .1s ease-out !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<style>
+    .navbar, footer {
+        display: none !important;
+    }
+    .container {
+        padding-top: 0.5rem !important;
+        padding-bottom: 0.5rem !important;
+    }
+</style>
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2 class="h4 mb-0">
+                <a href="{{ url_for('picker_dashboard') }}" class="text-decoration-none">
+                    <i class="fas fa-arrow-left me-1"></i>
+                </a>
+                {{ invoice.routing }} <small class="text-muted">{{ invoice.customer_name }}</small>
+            </h2>
+            <span class="badge bg-primary" style="font-size: 1.2rem; padding: 0.5rem 0.75rem;">{{ picked_items }}/{{ total_items }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Location Block with Yellow Text on Black Background -->
+<div class="row mt-2 mb-2">
+    <div class="col-12">
+        <div class="card border-0" style="background-color: #000;">
+            <div class="card-body p-2 text-center">
+                <div class="d-flex justify-content-center">
+                    <div class="location-display">
+                        <h1 class="mb-0 fw-bold" style="color: #ffff00; font-size: 50px;">
+                            {{ location_parts.aisle }} - {{ location_parts.shelf }} - {{ location_parts.level }} {{ location_parts.bin }}
+                        </h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Centered Product Name -->
+<div class="row mb-2">
+    <div class="col-12 text-center">
+        <h3 class="text-uppercase fw-bold text-white mb-1">{{ item.item_name }}</h3>
+        <div class="text-white" style="font-size: 1.2rem; font-weight: 700; background-color: rgba(0,0,0,0.5); display: inline-block; padding: 2px 8px; border-radius: 4px;">
+            {{ item.item_code }} / {{ item.barcode if item.barcode else 'No Barcode' }}
+        </div>
+    </div>
+</div>
+
+<!-- Product Image -->
+<div class="row mb-1">
+    <div class="col-12">
+        <div class="text-center">
+            <img src="{{ url_for('static', filename=product_image) }}" 
+                 alt="{{ item.item_name }}" 
+                 class="img-fluid rounded" 
+                 style="max-height: 180px; object-fit: contain;">
+        </div>
+    </div>
+</div>
+
+<!-- Unit Type Below Image -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="text-center fw-bold" style="color: #ffff00; font-size: 40px;">
+            {{ item.unit_type }}
+        </div>
+    </div>
+</div>
+
+<!-- Action Buttons and Form -->
+<div class="row">
+    <div class="col-12">
+        <button id="confirmPickBtn" class="btn btn-success btn-lg w-100 py-3 mb-2">
+            <i class="fas fa-arrow-right me-2"></i> Proceed to Pick
+        </button>
+
+        <div class="row">
+            <div class="col-6">
+                <a href="{{ url_for('picker_dashboard') }}" class="btn btn-outline-secondary w-100">
+                    <i class="fas fa-times-circle me-1"></i> Exit Picking
+                </a>
+            </div>
+            <div class="col-6">
+                <button id="skipBtn" class="btn btn-outline-warning w-100">
+                    <i class="fas fa-forward me-1"></i> Skip
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for confirming the picked item and quantity -->
+<div class="modal fade" id="confirmPickModal" tabindex="-1" aria-labelledby="confirmPickModalLabel" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="confirmPickModalLabel">Confirm Item</h5>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3">
+                    <!-- Product Image Only -->
+                    <div class="mb-3">
+                        <img src="{{ url_for('static', filename=product_image) }}" 
+                             alt="{{ item.item_name }}" 
+                             class="img-fluid rounded border" 
+                             style="max-height: 250px; object-fit: contain;">
+                    </div>
+                </div>
+                
+                <div class="text-center mb-3">
+                    <!-- Quantity Display - Large, Bold and Yellow -->
+                    <h2 class="display-5 fw-bold mb-3">Pick <span id="expectedQuantity" style="color: #ffff00; background-color: #000; padding: 10px 20px; border-radius: 5px; font-size: 4rem;">{{ item.display_qty|int }}</span> {% if item.display_unit_type|lower == 'item' %}{% if item.display_qty|int > 1 %}Pieces{% else %}Piece{% endif %}{% else %}{{ item.display_unit_type }}{% endif %}{% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' and item.display_unit_type != 'Pieces' and item.display_unit_type|lower != 'item' and item.unit_type|lower not in ['piece', 'item'] %} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>{% endif %}</h2>
+                </div>
+                
+                <!-- Quantity Entry Section for items > 1 -->
+                {% if (item.expected_pick_pieces or item.qty)|int > 1 %}
+                <div id="quantityEntrySection" class="mb-4">
+                    <div class="form-group">
+                        <label for="picked_quantity_input" class="form-label fs-5 fw-bold text-center d-block mb-2">Enter quantity picked:</label>
+                        <input 
+                            id="picked_quantity_input" 
+                            type="tel" 
+                            class="form-control form-control-lg text-center fs-3" 
+                            inputmode="numeric" 
+                            pattern="[0-9]*" 
+                            min="0"
+                            max="{{ (item.expected_pick_pieces or item.qty)|int }}"
+                            placeholder="{{ (item.expected_pick_pieces or item.qty)|int }}"
+                            autofocus 
+                            autocomplete="off"
+                            style="font-size: 2rem; height: 70px;"
+                        >
+                    </div>
+                    <p id="warningMessage" class="text-danger text-center mt-2 fs-6 fw-bold" style="display:none;">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        Quantity mismatch! Please use the 'Report Exception' process to proceed.
+                    </p>
+                </div>
+                {% endif %}
+                
+                <form id="pickForm" action="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}" method="POST">
+                    <input type="hidden" name="confirm" value="true">
+                    <input type="hidden" name="picked_qty" id="picked_qty" value="{{ (item.expected_pick_pieces or item.qty)|int }}">
+                    <input type="hidden" name="item_code" value="{{ item.item_code }}">
+                    <input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+                    {% if tracking_id %}
+                    <input type="hidden" name="tracking_id" value="{{ tracking_id }}">
+                    {% endif %}
+                </form>
+            </div>
+            <div class="modal-footer" style="display: flex; padding: 1rem; gap: 10px;">
+                <button type="button" id="cancelConfirmBtn" class="btn btn-outline-secondary" style="flex: 1; font-size: 1.1rem; padding: 0.75rem 0;">Cancel</button>
+                <button type="button" id="reportExceptionButton" class="btn btn-warning" style="flex: 1; font-size: 1.1rem; padding: 0.75rem 0;" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#issueModal">Report Exception</button>
+                <button type="button" id="confirmYesBtn" class="btn btn-success" style="flex: 2; font-size: 1.2rem; padding: 0.75rem 0;" {% if (item.expected_pick_pieces or item.qty)|int > 1 %}disabled{% endif %}>Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal with Next Location -->
+<div class="modal fade" id="nextLocationModal" tabindex="-1" aria-labelledby="nextLocationModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="nextLocationModalLabel">Processing...</h5>
+            </div>
+            <div class="modal-body text-center p-5">
+                <div id="nextLocationSpinner">
+                    <img src="{{ url_for('static', filename='images/loading-spinner.svg') }}" alt="Processing" class="mb-4" style="width: 120px; height: 120px;">
+                </div>
+                <div id="nextLocationStatus" class="fs-5 fw-bold mb-3 text-primary">Saving pick...</div>
+                
+                {% if next_item_location %}
+                <div class="next-location-container mt-3">
+                    <h3 class="text-success mb-2">Next Location:</h3>
+                    <h1 class="display-4 fw-bold text-primary">{{ next_item_location }}</h1>
+                    <p class="fs-5 mt-3">Start moving while we save your current pick...</p>
+                </div>
+                {% else %}
+                <div class="next-location-container mt-3">
+                    <h3 class="text-success mb-2">Last Item!</h3>
+                    <p class="fs-5 mt-3">Processing your final pick for this invoice...</p>
+                </div>
+                {% endif %}
+            </div>
+            <div class="modal-footer justify-content-center" style="display: none;">
+                <button id="nextLocationContinue" type="button" class="btn btn-success btn-lg px-5" disabled>Continue</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for reporting an issue or quantity discrepancy -->
+<div class="modal fade" id="issueModal" tabindex="-1" aria-labelledby="issueModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="issueModalLabel">Report Issue</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="issueForm" action="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}" method="POST">
+                    <input type="hidden" name="confirm" value="true">
+                    
+                    <div class="mb-3">
+                        <label for="issue_picked_qty" class="form-label fs-5 fw-bold">Actual Quantity Picked:</label>
+                        <input 
+                            type="tel" 
+                            class="form-control form-control-lg text-center fs-3" 
+                            id="issue_picked_qty" 
+                            name="picked_qty" 
+                            placeholder="0" 
+                            inputmode="numeric" 
+                            pattern="[0-9]*" 
+                            min="0" 
+                            max="{{ ((item.expected_pick_pieces or item.qty)|int) - 1 }}" 
+                            autocomplete="off"
+                            style="font-size: 2rem; height: 70px;"
+                            required>
+                        <div class="form-text">Enter the actual quantity you were able to pick (whole numbers only, must be less than {{ (item.expected_pick_pieces or item.qty)|int }} for exception reports)</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="issue_reason" class="form-label">Reason for Exception:</label>
+                        <select class="form-select" id="issue_reason" name="reason">
+                            {% for reason in exception_reasons_list %}
+                            <option value="{{ reason }}">{{ reason }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="closeIssueBtn">Close</button>
+                <button type="button" id="submitIssueBtn" class="btn btn-danger" disabled>Submit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for skipping an item -->
+<div class="modal fade" id="skipModal" tabindex="-1" aria-labelledby="skipModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title" id="skipModalLabel">Skip This Item</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    This item will be moved to the end of your picking queue. You'll need to resolve it before completing the order.
+                </div>
+                
+                <form id="skipForm" action="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}" method="POST">
+                    <input type="hidden" name="skip" value="true">
+                    <input type="hidden" name="item_code" value="{{ item.item_code }}">
+                    
+                    {% if require_skip_reason == 'true' %}
+                    <div class="mb-3">
+                        <label for="skip_reason" class="form-label">Why are you skipping this item?</label>
+                        <select class="form-select" id="skip_reason" name="skip_reason" required>
+                            <option value="">Select a reason...</option>
+                            {% for reason in skip_reasons_list %}
+                                <option value="{{ reason }}">{{ reason }}</option>
+                            {% endfor %}
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3" id="otherReasonDiv" style="display: none;">
+                        <label for="other_skip_reason" class="form-label">Please specify:</label>
+                        <input type="text" class="form-control" id="other_skip_reason" name="other_skip_reason">
+                    </div>
+                    {% else %}
+                    <input type="hidden" name="skip_reason" value="Not specified">
+                    <p class="text-muted mb-0">Item will be skipped without requiring a reason.</p>
+                    {% endif %}
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="submitSkipBtn" class="btn btn-warning">Skip Item</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize modals
+    var confirmPickModal = new bootstrap.Modal(document.getElementById('confirmPickModal'));
+    var issueModal = new bootstrap.Modal(document.getElementById('issueModal'));
+    var skipModal = new bootstrap.Modal(document.getElementById('skipModal'));
+    
+    // Initialize the next location modal
+    var nextLocationModal = new bootstrap.Modal(document.getElementById('nextLocationModal'));
+    
+    // Function to show next location and submit form asynchronously
+    async function showNextLocationAndSubmit(formId) {
+        const statusEl = document.getElementById('nextLocationStatus');
+        const continueBtn = document.getElementById('nextLocationContinue');
+        const spinnerEl = document.getElementById('nextLocationSpinner');
+        
+        // Reset state
+        statusEl.textContent = 'Saving pick...';
+        statusEl.className = 'fs-5 fw-bold mb-3 text-primary';
+        continueBtn.disabled = true;
+        continueBtn.textContent = 'Continue';
+        if (spinnerEl) spinnerEl.style.display = 'block';
+        
+        // Show the modal immediately so picker can start walking
+        nextLocationModal.show();
+        
+        // Allow browser to paint the modal
+        await new Promise(r => setTimeout(r, 0));
+        
+        const form = document.getElementById(formId);
+        const formData = new FormData(form);
+        
+        // For issue form, fall back to regular submit (has different logic)
+        if (formId === 'issueForm') {
+            setTimeout(function() {
+                form.submit();
+            }, 300);
+            return;
+        }
+        
+        try {
+            const invoiceNo = formData.get('invoice_no');
+            const url = `/api/picker/invoice/${encodeURIComponent(invoiceNo)}/confirm-pick`;
+            
+            const res = await fetch(url, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'fetch'
+                },
+                keepalive: true
+            });
+            
+            const data = await res.json();
+            
+            if (!data.ok) {
+                statusEl.textContent = 'Save failed: ' + (data.error || 'Unknown error');
+                statusEl.className = 'fs-5 fw-bold mb-3 text-danger';
+                if (spinnerEl) spinnerEl.style.display = 'none';
+                continueBtn.disabled = false;
+                continueBtn.textContent = 'Retry';
+                continueBtn.onclick = () => showNextLocationAndSubmit(formId);
+                return;
+            }
+            
+            // Saved successfully - navigate immediately
+            window.location.href = data.next_url;
+            
+        } catch (err) {
+            statusEl.textContent = 'Network error. Tap to retry.';
+            statusEl.className = 'fs-5 fw-bold mb-3 text-danger';
+            if (spinnerEl) spinnerEl.style.display = 'none';
+            continueBtn.disabled = false;
+            continueBtn.textContent = 'Retry';
+            continueBtn.onclick = () => showNextLocationAndSubmit(formId);
+        }
+    }
+    
+    // Confirm button shows the confirmation modal or submits directly based on settings
+    document.getElementById('confirmPickBtn').addEventListener('click', function() {
+        {% if confirm_picking == 'true' %}
+        // Show confirmation modal when confirmation is enabled
+        confirmPickModal.show();
+        {% else %}
+        // Skip confirmation and show next location
+        showNextLocationAndSubmit('pickForm');
+        {% endif %}
+    });
+    
+    // Skip button in the main interface
+    var skipButton = document.getElementById('skipBtn');
+    if (skipButton) {
+        skipButton.addEventListener('click', function() {
+            // Show skip modal directly
+            skipModal.show();
+        });
+    }
+    
+    // Handle the skip reason select change for showing "Other" text input
+    var skipReasonSelect = document.getElementById('skip_reason');
+    if (skipReasonSelect) {
+        skipReasonSelect.addEventListener('change', function() {
+            const otherReasonDiv = document.getElementById('otherReasonDiv');
+            if (this.value === 'Other') {
+                otherReasonDiv.style.display = 'block';
+            } else {
+                otherReasonDiv.style.display = 'none';
+            }
+        });
+    }
+    
+    // Handle the skip submit button
+    var submitSkipBtn = document.getElementById('submitSkipBtn');
+    if (submitSkipBtn) {
+        submitSkipBtn.addEventListener('click', function() {
+            var form = document.getElementById('skipForm');
+            
+            {% if require_skip_reason == 'true' %}
+            const skipReasonSelect = document.getElementById('skip_reason');
+            const otherReasonInput = document.getElementById('other_skip_reason');
+            
+            // Validate the form when reason is required
+            if (skipReasonSelect.value === '') {
+                alert('Please select a reason for skipping this item.');
+                return;
+            }
+            
+            if (skipReasonSelect.value === 'Other' && otherReasonInput.value.trim() === '') {
+                alert('Please specify the reason for skipping this item.');
+                return;
+            }
+            {% endif %}
+            
+            // Hide the skip modal
+            skipModal.hide();
+            
+            // Show the next location modal to indicate processing
+            nextLocationModal.show();
+            
+            // Submit the form
+            form.submit();
+        });
+    }
+    
+    // Report issue button shows the issue modal
+    var reportIssueBtn = document.getElementById('reportIssueBtn');
+    if (reportIssueBtn) {
+        reportIssueBtn.addEventListener('click', function() {
+            issueModal.show();
+        });
+    }
+    
+    // Auto-focus and validation for issue modal quantity input
+    var issueQuantityInput = document.getElementById('issue_picked_qty');
+    var submitIssueButton = document.getElementById('submitIssueBtn');
+    
+    if (issueQuantityInput && submitIssueButton) {
+        // Get expected quantity from the main screen
+        const expectedQty = parseInt(document.getElementById('expectedQuantity').innerText);
+        
+        // Validation logic for issue modal - only allow quantities less than expected
+        issueQuantityInput.addEventListener('input', function() {
+            const enteredQuantity = parseInt(issueQuantityInput.value);
+            
+            // Enable submit only if quantity is valid and LESS than expected (since it's an exception)
+            if (!isNaN(enteredQuantity) && enteredQuantity >= 0 && enteredQuantity < expectedQty) {
+                submitIssueButton.disabled = false;
+            } else {
+                submitIssueButton.disabled = true;
+            }
+        });
+        
+        // Enhanced mobile keyboard auto-focus for issue modal
+        document.getElementById('issueModal').addEventListener('shown.bs.modal', function() {
+            // Disable submit button initially and clear input field
+            submitIssueButton.disabled = true;
+            issueQuantityInput.value = '';
+            
+            // Multiple attempts for reliable mobile keyboard activation
+            setTimeout(function() {
+                issueQuantityInput.focus();
+            }, 50);
+            
+            setTimeout(function() {
+                issueQuantityInput.click();
+                issueQuantityInput.focus();
+            }, 150);
+            
+            setTimeout(function() {
+                // Force selection for iOS
+                issueQuantityInput.select();
+                issueQuantityInput.setSelectionRange(0, issueQuantityInput.value.length);
+            }, 250);
+        });
+        
+        // Also trigger on modal opening event
+        document.getElementById('issueModal').addEventListener('show.bs.modal', function() {
+            setTimeout(function() {
+                issueQuantityInput.focus();
+            }, 10);
+        });
+        
+        // Handle close button to return to confirmation screen
+        var closeIssueBtn = document.getElementById('closeIssueBtn');
+        if (closeIssueBtn) {
+            closeIssueBtn.addEventListener('click', function() {
+                var issueModal = bootstrap.Modal.getInstance(document.getElementById('issueModal'));
+                issueModal.hide();
+                
+                // Return to the confirmation screen
+                setTimeout(function() {
+                    confirmPickModal.show();
+                }, 100);
+            });
+        }
+        
+        // Handle cancel button in confirmation screen - force close modal
+        var cancelConfirmBtn = document.getElementById('cancelConfirmBtn');
+        if (cancelConfirmBtn) {
+            cancelConfirmBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Force hide the modal by removing the show class and backdrop
+                var modalElement = document.getElementById('confirmPickModal');
+                modalElement.classList.remove('show');
+                modalElement.style.display = 'none';
+                modalElement.setAttribute('aria-hidden', 'true');
+                
+                // Remove backdrop
+                var backdrop = document.querySelector('.modal-backdrop');
+                if (backdrop) {
+                    backdrop.remove();
+                }
+                
+                // Remove modal-open class from body
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+                
+                // Don't dispose the modal instance, just reset its state
+                try {
+                    var modalInstance = bootstrap.Modal.getInstance(modalElement);
+                    if (modalInstance) {
+                        modalInstance._isShown = false;
+                        modalInstance._isTransitioning = false;
+                    }
+                } catch (e) {
+                    console.log('Modal instance reset:', e);
+                }
+            });
+        }
+
+    }
+    
+    // Quantity validation logic for items > 1
+    const expectedQuantity = parseInt(document.getElementById('expectedQuantity').innerText);
+    const pickedInput = document.getElementById('picked_quantity_input');
+    const confirmButton = document.getElementById('confirmYesBtn');
+    const warningMessage = document.getElementById('warningMessage');
+    const pickedQtyHidden = document.getElementById('picked_qty');
+
+    if (pickedInput) {
+        pickedInput.addEventListener('input', function() {
+            const enteredQuantity = parseInt(pickedInput.value);
+
+            if (enteredQuantity === expectedQuantity) {
+                confirmButton.disabled = false;
+                warningMessage.style.display = 'none';
+                pickedQtyHidden.value = enteredQuantity;
+            } else {
+                confirmButton.disabled = true;
+                if (!isNaN(enteredQuantity) && enteredQuantity !== expectedQuantity) {
+                    warningMessage.style.display = 'block';
+                } else {
+                    warningMessage.style.display = 'none';
+                }
+            }
+        });
+
+        // Enhanced mobile keyboard auto-focus
+        document.getElementById('confirmPickModal').addEventListener('shown.bs.modal', function() {
+            if (pickedInput) {
+                // Multiple attempts for reliable mobile keyboard activation
+                setTimeout(function() {
+                    pickedInput.focus();
+                }, 50);
+                
+                setTimeout(function() {
+                    pickedInput.click();
+                    pickedInput.focus();
+                }, 150);
+                
+                setTimeout(function() {
+                    // Force selection for iOS
+                    pickedInput.select();
+                    pickedInput.setSelectionRange(0, pickedInput.value.length);
+                }, 250);
+            }
+        });
+        
+        // Also trigger on modal opening event
+        document.getElementById('confirmPickModal').addEventListener('show.bs.modal', function() {
+            if (pickedInput) {
+                setTimeout(function() {
+                    pickedInput.focus();
+                }, 10);
+            }
+        });
+    }
+
+    // Yes button in confirmation modal shows next location and submits the form
+    var confirmYesBtn = document.getElementById('confirmYesBtn');
+    if (confirmYesBtn) {
+        confirmYesBtn.addEventListener('click', function() {
+            // Update the picked quantity in the hidden field
+            if (pickedInput) {
+                pickedQtyHidden.value = pickedInput.value || expectedQuantity;
+            }
+            
+            // Close the confirmation modal and immediately show next location modal without delay
+            confirmPickModal.hide();
+            showNextLocationAndSubmit('pickForm');
+        });
+    }
+    
+    // Remove event listener for confirmNoBtn since it's now removed from the modal
+    
+    // Submit button in issue modal shows next location and submits the issue form
+    var submitIssueBtn = document.getElementById('submitIssueBtn');
+    if (submitIssueBtn) {
+        submitIssueBtn.addEventListener('click', function() {
+            issueModal.hide();
+            showNextLocationAndSubmit('issueForm');
+        });
+    }
+    
+    // Handle close/cancel buttons on modals
+    document.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            // Get the modal element and its ID
+            var modalElement = this.closest('.modal');
+            var modalId = modalElement ? modalElement.id : '';
+            var modalInstance = bootstrap.Modal.getInstance(modalElement);
+            
+            if (modalInstance) {
+                modalInstance.hide();
+                
+                // Only reload the page for certain modals (not during the picking confirmation flow)
+                if (modalId !== 'confirmPickModal' && modalId !== 'nextLocationModal') {
+                    // Force page reload after modal is hidden for other modals
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 300);
+                }
+            }
+        });
+    });
+});
+</script>
+{% endblock %}
+{% endblock %}

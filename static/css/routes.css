@@ -1,0 +1,373 @@
+/* Routes Detail Page Styling */
+
+/* Sticky Summary Bar */
+.route-summary.sticky {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bs-body-bg, #1a1a2e);
+    padding: 1rem;
+    margin: -1rem -0.75rem 1rem -0.75rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.route-summary h4 {
+    margin-bottom: 0;
+    font-weight: 600;
+}
+
+.route-meta {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.7);
+    margin-top: 0.25rem;
+}
+
+/* KPI Row */
+.kpi-row {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.kpi-block {
+    text-align: center;
+    padding: 0.5rem 1rem;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    min-width: 80px;
+}
+
+.kpi-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 0.25rem;
+}
+
+.kpi-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.status-badge-row {
+    display: flex;
+    align-items: center;
+    padding-top: 0.5rem;
+}
+
+/* Exceptions Panel */
+.exceptions-panel {
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 8px;
+    margin-top: 1rem;
+    overflow: hidden;
+}
+
+.exceptions-header {
+    background: rgba(255, 193, 7, 0.2);
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    color: #ffc107;
+}
+
+.exceptions-body {
+    padding: 0.75rem 1rem;
+}
+
+.exception-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.exception-item:last-child {
+    border-bottom: none;
+}
+
+.exception-icon {
+    width: 24px;
+    text-align: center;
+}
+
+.exception-message {
+    flex: 1;
+}
+
+/* Stops List */
+.stops-section {
+    margin-top: 1.5rem;
+}
+
+.stops-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* Stop Row */
+.stop-row {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.2s;
+}
+
+.stop-row:hover {
+    background: rgba(255,255,255,0.05);
+    border-color: rgba(255,255,255,0.2);
+}
+
+.stop-row.delivered {
+    border-left: 4px solid #198754;
+}
+
+.stop-row.failed {
+    border-left: 4px solid #dc3545;
+}
+
+.stop-row.issue {
+    border-left: 4px solid #ffc107;
+}
+
+/* Stop Row Main (clickable) */
+.stop-row-main {
+    display: grid;
+    grid-template-columns: 60px 1fr 150px 100px 80px 100px 40px;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    gap: 0.5rem;
+}
+
+@media (max-width: 992px) {
+    .stop-row-main {
+        grid-template-columns: 50px 1fr 100px 80px 80px 40px;
+    }
+    .stop-invoice-col {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .stop-row-main {
+        grid-template-columns: 40px 1fr 70px 70px 30px;
+    }
+    .stop-payment-col {
+        display: none;
+    }
+}
+
+/* Stop Sequence */
+.stop-seq-col {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.stop-seq {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: #0d6efd;
+    color: #fff;
+    border-radius: 50%;
+    font-weight: bold;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.stop-seq:hover {
+    transform: scale(1.1);
+}
+
+.seq-input {
+    width: 60px !important;
+}
+
+/* Customer Column */
+.stop-customer-col {
+    overflow: hidden;
+}
+
+.stop-customer-col strong {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stop-city {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.5);
+}
+
+/* Invoice Badge */
+.invoice-badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.1);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: monospace;
+    margin-right: 0.25rem;
+}
+
+/* Amount Column */
+.stop-amount-col {
+    text-align: right;
+    font-size: 0.95rem;
+}
+
+/* Expand Icon */
+.stop-expand-col {
+    text-align: center;
+}
+
+.expand-icon {
+    color: rgba(255,255,255,0.4);
+    transition: transform 0.2s;
+}
+
+/* Stop Details (expanded) */
+.stop-details {
+    background: rgba(0,0,0,0.2);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding: 1rem;
+}
+
+.details-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.detail-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.metric-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: rgba(255,255,255,0.1);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.notes-item {
+    background: rgba(255, 193, 7, 0.1);
+    padding: 0.5rem;
+    border-radius: 4px;
+    border-left: 3px solid #ffc107;
+}
+
+.invoice-details {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.invoice-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.detail-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Status Badge Enhancements with vibrant colors - using !important to override defaults */
+.badge-status-planned { background: #6c757d !important; color: white !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+.badge-status-dispatched { background: #0dcaf0 !important; color: white !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+.badge-status-in_transit { background: #ffc107 !important; color: black !important; border: 1px solid rgba(0,0,0,0.1) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+.badge-status-completed { background: #198754 !important; color: white !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+.badge-status-cancelled { background: #dc3545 !important; color: white !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+
+.badge-recon-not_ready { background: #e9ecef !important; color: #6c757d !important; border: 1px solid #dee2e6 !important; }
+.badge-recon-pending { background: #fd7e14 !important; color: white !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+.badge-recon-in_review { background: #0d6efd !important; color: white !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+.badge-recon-reconciled { background: #198754 !important; color: white !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
+
+.status-icon {
+    width: 1.2rem;
+    text-align: center;
+    margin-right: 0.3rem;
+    font-size: 0.9rem;
+}
+
+.badge {
+    padding: 0.5em 0.8em;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    border-radius: 6px;
+}
+
+/* Dashboard Card Enhancements */
+.route-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: none;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    background: #1a1a2e !important;
+}
+
+.route-card .card-header {
+    border-bottom: none;
+    padding: 1rem;
+    background: #2d2d44 !important;
+    color: white !important;
+}
+
+.route-card .card-body {
+    padding: 1.25rem;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 576px) {
+    .route-summary.sticky {
+        padding: 0.75rem;
+    }
+    
+    .kpi-row {
+        gap: 0.5rem;
+    }
+    
+    .kpi-block {
+        padding: 0.25rem 0.5rem;
+        min-width: 60px;
+    }
+    
+    .kpi-value {
+        font-size: 1rem;
+    }
+    
+    .stop-row-main {
+        grid-template-columns: 35px 1fr 60px 30px;
+        padding: 0.5rem;
+    }
+    
+    .stop-status-col,
+    .stop-invoice-col,
+    .stop-payment-col {
+        display: none;
+    }
+}

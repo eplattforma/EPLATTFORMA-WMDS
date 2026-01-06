@@ -1,0 +1,137 @@
+2025-11-26 12:03:17,020 - datawarehouse_sync - INFO - 
+================================================================================
+2025-11-26 12:03:17,020 - datawarehouse_sync - INFO - STARTING INVOICE SYNC FROM 2025-11-18
+2025-11-26 12:03:17,021 - datawarehouse_sync - INFO - Log file: logs/sync_invoices_20251126_120317.log
+2025-11-26 12:03:17,021 - datawarehouse_sync - INFO - ================================================================================
+
+2025-11-26 12:03:17,021 - datawarehouse_sync - INFO - Syncing invoice headers from 2025-11-18 00:00:00 to 2025-12-18 00:00:00
+2025-11-26 12:03:38,522 - datawarehouse_sync - INFO - No more invoices on page 4
+2025-11-26 12:03:38,522 - datawarehouse_sync - INFO - Invoice headers synced: 177 inserted, total 204
+2025-11-26 12:03:38,522 - datawarehouse_sync - INFO - Syncing invoice lines from 2025-11-18 00:00:00 to 2025-12-18 00:00:00
+2025-11-26 12:07:22,477 - datawarehouse_sync - ERROR - Error on page 3: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+(psycopg2.errors.ForeignKeyViolation) insert or update on table "dw_invoice_line" violates foreign key constraint "dw_invoice_line_invoice_no_365_fkey"
+DETAIL:  Key (invoice_no_365)=(CR10007001) is not present in table "dw_invoice_header".
+
+[SQL: INSERT INTO dw_invoice_line (invoice_no_365, line_number, item_code_365, quantity, price_excl, price_incl, discount_percent, vat_code_365, vat_percent, line_total_excl, line_total_discount, line_total_vat, line_total_incl, attr_hash, last_sync_at) VALUES (%(invoice_no_365)s, %(line_number)s, %(item_code_365)s, %(quantity)s, %(price_excl)s, %(price_incl)s, %(discount_percent)s, %(vat_code_365)s, %(vat_percent)s, %(line_total_excl)s, %(line_total_discount)s, %(line_total_vat)s, %(line_total_incl)s, %(attr_hash)s, %(last_sync_at)s) RETURNING dw_invoice_line.id]
+[parameters: {'invoice_no_365': 'CR10007001', 'line_number': 1, 'item_code_365': 'COF-0004', 'quantity': 0.33, 'price_excl': 9.8, 'price_incl': 10.29, 'discount_percent': 0.0, 'vat_code_365': '005', 'vat_percent': 0.05, 'line_total_excl': 3.23, 'line_total_discount': 0.0, 'line_total_vat': 0.16, 'line_total_incl': 3.39, 'attr_hash': '8a78c6fcc8d97e1caa7d1fc42b0eeff8', 'last_sync_at': datetime.datetime(2025, 11, 26, 12, 7, 22, 387509)}]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1963, in _exec_single_context
+    self.dialect.do_execute(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 943, in do_execute
+    cursor.execute(statement, parameters)
+psycopg2.errors.ForeignKeyViolation: insert or update on table "dw_invoice_line" violates foreign key constraint "dw_invoice_line_invoice_no_365_fkey"
+DETAIL:  Key (invoice_no_365)=(CR10007001) is not present in table "dw_invoice_header".
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/runner/workspace/datawarehouse_sync.py", line 809, in sync_invoice_lines_from_date
+    ).first()
+      ^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2230, in _execute_internal
+    ) = compile_state_cls.orm_pre_session_exec(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 577, in orm_pre_session_exec
+    session._autoflush()
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 3065, in _autoflush
+    raise e.with_traceback(sys.exc_info()[2])
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 3054, in _autoflush
+    self.flush()
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4345, in flush
+    self._flush(objects)
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4480, in _flush
+    with util.safe_reraise():
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4441, in _flush
+    flush_context.execute()
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 466, in execute
+    rec.execute(self)
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 642, in execute
+    util.preloaded.orm_persistence.save_obj(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 93, in save_obj
+    _emit_insert_statements(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 1233, in _emit_insert_statements
+    result = connection.execute(
+             ^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1415, in execute
+    return meth(
+           ^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 523, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1637, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1842, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1982, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2351, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1963, in _exec_single_context
+    self.dialect.do_execute(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 943, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.IntegrityError: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+(psycopg2.errors.ForeignKeyViolation) insert or update on table "dw_invoice_line" violates foreign key constraint "dw_invoice_line_invoice_no_365_fkey"
+DETAIL:  Key (invoice_no_365)=(CR10007001) is not present in table "dw_invoice_header".
+
+[SQL: INSERT INTO dw_invoice_line (invoice_no_365, line_number, item_code_365, quantity, price_excl, price_incl, discount_percent, vat_code_365, vat_percent, line_total_excl, line_total_discount, line_total_vat, line_total_incl, attr_hash, last_sync_at) VALUES (%(invoice_no_365)s, %(line_number)s, %(item_code_365)s, %(quantity)s, %(price_excl)s, %(price_incl)s, %(discount_percent)s, %(vat_code_365)s, %(vat_percent)s, %(line_total_excl)s, %(line_total_discount)s, %(line_total_vat)s, %(line_total_incl)s, %(attr_hash)s, %(last_sync_at)s) RETURNING dw_invoice_line.id]
+[parameters: {'invoice_no_365': 'CR10007001', 'line_number': 1, 'item_code_365': 'COF-0004', 'quantity': 0.33, 'price_excl': 9.8, 'price_incl': 10.29, 'discount_percent': 0.0, 'vat_code_365': '005', 'vat_percent': 0.05, 'line_total_excl': 3.23, 'line_total_discount': 0.0, 'line_total_vat': 0.16, 'line_total_incl': 3.39, 'attr_hash': '8a78c6fcc8d97e1caa7d1fc42b0eeff8', 'last_sync_at': datetime.datetime(2025, 11, 26, 12, 7, 22, 387509)}]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-11-26 12:07:22,499 - datawarehouse_sync - INFO - Invoice lines synced: 2193 inserted, total 2613
+2025-11-26 12:07:22,499 - datawarehouse_sync - INFO - Syncing invoice stores from headers
+2025-11-26 12:07:22,500 - datawarehouse_sync - ERROR - Invoice sync failed: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+(psycopg2.errors.ForeignKeyViolation) insert or update on table "dw_invoice_line" violates foreign key constraint "dw_invoice_line_invoice_no_365_fkey"
+DETAIL:  Key (invoice_no_365)=(CR10007001) is not present in table "dw_invoice_header".
+
+[SQL: INSERT INTO dw_invoice_line (invoice_no_365, line_number, item_code_365, quantity, price_excl, price_incl, discount_percent, vat_code_365, vat_percent, line_total_excl, line_total_discount, line_total_vat, line_total_incl, attr_hash, last_sync_at) VALUES (%(invoice_no_365)s, %(line_number)s, %(item_code_365)s, %(quantity)s, %(price_excl)s, %(price_incl)s, %(discount_percent)s, %(vat_code_365)s, %(vat_percent)s, %(line_total_excl)s, %(line_total_discount)s, %(line_total_vat)s, %(line_total_incl)s, %(attr_hash)s, %(last_sync_at)s) RETURNING dw_invoice_line.id]
+[parameters: {'invoice_no_365': 'CR10007001', 'line_number': 1, 'item_code_365': 'COF-0004', 'quantity': 0.33, 'price_excl': 9.8, 'price_incl': 10.29, 'discount_percent': 0.0, 'vat_code_365': '005', 'vat_percent': 0.05, 'line_total_excl': 3.23, 'line_total_discount': 0.0, 'line_total_vat': 0.16, 'line_total_incl': 3.39, 'attr_hash': '8a78c6fcc8d97e1caa7d1fc42b0eeff8', 'last_sync_at': datetime.datetime(2025, 11, 26, 12, 7, 22, 387509)}]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+Traceback (most recent call last):
+  File "/home/runner/workspace/datawarehouse_sync.py", line 951, in sync_invoices_from_date
+    s_ins, s_upd = sync_invoice_stores(session)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/datawarehouse_sync.py", line 867, in sync_invoice_stores
+    headers = session.query(DwInvoiceHeader.store_code_365).distinct().all()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2704, in all
+    return self._iter().all()  # type: ignore
+           ^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2241, in _execute_internal
+    conn = self._connection_for_bind(bind)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2110, in _connection_for_bind
+    return trans._connection_for_bind(engine, execution_options)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 2, in _connection_for_bind
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/state_changes.py", line 103, in _go
+    self._raise_for_prerequisite_state(fn.__name__, current_state)
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 973, in _raise_for_prerequisite_state
+    raise sa_exc.PendingRollbackError(
+sqlalchemy.exc.PendingRollbackError: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+(psycopg2.errors.ForeignKeyViolation) insert or update on table "dw_invoice_line" violates foreign key constraint "dw_invoice_line_invoice_no_365_fkey"
+DETAIL:  Key (invoice_no_365)=(CR10007001) is not present in table "dw_invoice_header".
+
+[SQL: INSERT INTO dw_invoice_line (invoice_no_365, line_number, item_code_365, quantity, price_excl, price_incl, discount_percent, vat_code_365, vat_percent, line_total_excl, line_total_discount, line_total_vat, line_total_incl, attr_hash, last_sync_at) VALUES (%(invoice_no_365)s, %(line_number)s, %(item_code_365)s, %(quantity)s, %(price_excl)s, %(price_incl)s, %(discount_percent)s, %(vat_code_365)s, %(vat_percent)s, %(line_total_excl)s, %(line_total_discount)s, %(line_total_vat)s, %(line_total_incl)s, %(attr_hash)s, %(last_sync_at)s) RETURNING dw_invoice_line.id]
+[parameters: {'invoice_no_365': 'CR10007001', 'line_number': 1, 'item_code_365': 'COF-0004', 'quantity': 0.33, 'price_excl': 9.8, 'price_incl': 10.29, 'discount_percent': 0.0, 'vat_code_365': '005', 'vat_percent': 0.05, 'line_total_excl': 3.23, 'line_total_discount': 0.0, 'line_total_vat': 0.16, 'line_total_incl': 3.39, 'attr_hash': '8a78c6fcc8d97e1caa7d1fc42b0eeff8', 'last_sync_at': datetime.datetime(2025, 11, 26, 12, 7, 22, 387509)}]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)

@@ -1,0 +1,272 @@
+What’s going on
+
+From the docs you sent:
+
+“page_size – The number of rows to return. Maximum allowed is 100 rows.”
+
+Your DW sync code was almost certainly using PAGE_SIZE = 500 (or similar), which:
+
+Works in your small test when you forced page_size = 1
+
+But when the normal full sync runs with page_size > 100, PS365 returns response_code = 306 (their custom “invalid data” / “page too big” error)
+
+So the 306 error isn’t about only_counted anymore – it’s simply “page size over 100”.
+
+We just need to:
+
+Obey the max page size of 100
+
+Make sure the payload matches the POST examples exactly
+
+Optionally use display_fields to only return the 7 fields you care about
+
+1. Fix PAGE_SIZE and the payload in datawarehouse_sync.py
+
+In datawarehouse_sync.py, do this:
+
+a) Set the page size constant to 100
+
+At the top of the file, make sure you have:
+
+PAGE_SIZE = 100  # PS365 docs: maximum allowed is 100 rows
+
+b) Use the POST format exactly as in docs
+
+In your full items sync block inside full_dw_update(session), replace the call_ps365("list_items", {...}) part with this:
+
+response = call_ps365("list_items", {
+    "filter_define": {
+        "only_counted": "N",            # we want the list, not just the count
+        "page_number": page,
+        "page_size": PAGE_SIZE,
+        "active_type": "all",           # all items
+        "ecommerce_type": "all",        # ecommerce + non-ecommerce
+
+        # no filtering – bring everything
+        "categories_selection": "",
+        "departments_selection": "",
+        "items_supplier_selection": "",
+        "brands_selection": "",
+        "seasons_selection": "",
+        "models_selection": "",
+        "items_selection": "",
+        "colours_selection": "",
+        "sizes_selection": "",
+        "sizes_group_selection": "",
+        "attributes_1_selection": "",
+        "attributes_2_selection": "",
+        "attributes_3_selection": "",
+        "attributes_4_selection": "",
+        "attributes_5_selection": "",
+        "attributes_6_selection": "",
+        "keyword_search_item_code_365": "",
+        "keyword_search_item_name": "",
+        "text_field_value_1_selection": "",
+        "text_field_value_2_selection": "",
+        "text_field_value_3_selection": "",
+        "text_field_value_4_selection": "",
+        "text_field_value_5_selection": "",
+        "number_field_value_1_selection": "",
+        "number_field_value_2_selection": "",
+        "number_field_value_3_selection": "",
+        "number_field_value_4_selection": "",
+        "number_field_value_5_selection": "",
+        "date_field_value_1_selection": "",
+        "date_field_value_2_selection": "",
+        "date_field_value_3_selection": "",
+        "date_field_value_4_selection": "",
+        "date_field_value_5_selection": "",
+        "boolean_field_value_1": "",
+        "boolean_field_value_2": "",
+        "boolean_field_value_3": "",
+        "boolean_field_value_4": "",
+        "boolean_field_value_5": "",
+        "date_field_1_value_from": "",
+        "date_field_1_value_to": "",
+        "date_field_2_value_from": "",
+        "date_field_2_value_to": "",
+        "date_field_3_value_from": "",
+        "date_field_3_value_to": "",
+        "date_field_4_value_from": "",
+        "date_field_4_value_to": "",
+        "date_field_5_value_from": "",
+        "date_field_5_value_to": "",
+        "last_modified_from": "",
+        "last_modified_to": "",
+        "creation_date_from": "",
+        "creattion_date_to": "",        # they have a typo in docs; just send ""
+        # NEW: only the fields you care about, to slim down responses
+        "display_fields": (
+            "item_code_365,item_name,active,"
+            "category_code_365,brand_code_365,"
+            "season_code_365,attribute_6_code_365"
+        ),
+    }
+})
+
+
+Then keep the processing logic as you already had:
+
+items = response.get("list_items", [])
+if not items:
+    break
+
+for i in items:
+    core = {
+        "item_code_365": i["item_code_365"],
+        "item_name": i.get("item_name", ""),
+        "active": bool(i.get("active", True)),
+        "category_code_365": i.get("category_code_365"),
+        "brand_code_365": i.get("brand_code_365"),
+        "season_code_365": i.get("season_code_365"),
+        "attribute_6_code_365": i.get("attribute_6_code_365"),
+    }
+    # hash + upsert, etc…
+
+
+Key points:
+
+page_size is now 100, within the allowed limit.
+
+only_counted is "N" and inside filter_define.
+
+We use the full POST “multiple search criteria” format, just with all filters empty and display_fields set.
+
+2. (Optional but good practice) First call with only_counted = "Y"
+
+Docs say:
+
+Use this method with only_counted = 'Y' FIRST to determine how many total records there are…
+
+You don’t have to, but if you like, add a small helper:
+
+def get_items_total_count(session) -> int:
+    resp = call_ps365("list_items", {
+        "filter_define": {
+            "only_counted": "Y",
+            "page_number": 0,
+            "page_size": 0,
+            "active_type": "all",
+            "ecommerce_type": "all",
+            # all other filters empty as above...
+            "categories_selection": "",
+            # ...
+            "display_fields": "",
+        }
+    })
+    return int(resp.get("total_count_list_items", 0) or 0)
+
+
+Then in full_dw_update, you can log how many items you expect:
+
+total = get_items_total_count(session)
+print(f"Total items to sync (DW): {total}")
+
+
+But it’s optional – your paging loop works fine just stopping when list_items is empty.
+
+3. Tiny test to be sure
+
+Before running the full DW sync again, you can re-run a one-page test from Replit (like you/agent did before), but now with page_size = 100:
+
+# /tmp/test_list_items_dw.py
+import sys, os
+sys.path.insert(0, '/home/runner/workspace')
+os.chdir('/home/runner/workspace')
+
+from ps365_client import call_ps365
+
+resp = call_ps365("list_items", {
+    "filter_define": {
+        "only_counted": "N",
+        "page_number": 1,
+        "page_size": 100,
+        "active_type": "all",
+        "ecommerce_type": "all",
+        "categories_selection": "",
+        "departments_selection": "",
+        "items_supplier_selection": "",
+        "brands_selection": "",
+        "seasons_selection": "",
+        "models_selection": "",
+        "items_selection": "",
+        "colours_selection": "",
+        "sizes_selection": "",
+        "sizes_group_selection": "",
+        "attributes_1_selection": "",
+        "attributes_2_selection": "",
+        "attributes_3_selection": "",
+        "attributes_4_selection": "",
+        "attributes_5_selection": "",
+        "attributes_6_selection": "",
+        "keyword_search_item_code_365": "",
+        "keyword_search_item_name": "",
+        "text_field_value_1_selection": "",
+        "text_field_value_2_selection": "",
+        "text_field_value_3_selection": "",
+        "text_field_value_4_selection": "",
+        "text_field_value_5_selection": "",
+        "number_field_value_1_selection": "",
+        "number_field_value_2_selection": "",
+        "number_field_value_3_selection": "",
+        "number_field_value_4_selection": "",
+        "number_field_value_5_selection": "",
+        "date_field_value_1_selection": "",
+        "date_field_value_2_selection": "",
+        "date_field_value_3_selection": "",
+        "date_field_value_4_selection": "",
+        "date_field_value_5_selection": "",
+        "boolean_field_value_1": "",
+        "boolean_field_value_2": "",
+        "boolean_field_value_3": "",
+        "boolean_field_value_4": "",
+        "boolean_field_value_5": "",
+        "date_field_1_value_from": "",
+        "date_field_1_value_to": "",
+        "date_field_2_value_from": "",
+        "date_field_2_value_to": "",
+        "date_field_3_value_from": "",
+        "date_field_3_value_to": "",
+        "date_field_4_value_from": "",
+        "date_field_4_value_to": "",
+        "date_field_5_value_from": "",
+        "date_field_5_value_to": "",
+        "last_modified_from": "",
+        "last_modified_to": "",
+        "creation_date_from": "",
+        "creattion_date_to": "",
+        "display_fields": (
+            "item_code_365,item_name,active,"
+            "category_code_365,brand_code_365,"
+            "season_code_365,attribute_6_code_365"
+        ),
+    }
+})
+
+print(resp.get("api_response"))
+print("Items returned:", len(resp.get("list_items") or []))
+print("Sample item:", (resp.get("list_items") or [None])[0])
+
+
+You should see:
+
+response_code: "1"
+
+Items returned: 100 (or fewer, depending on data)
+
+And a valid sample item with just your requested fields.
+
+4. Then run the full DW sync
+
+After updating:
+
+PAGE_SIZE = 100
+
+payload as above
+
+Run your full DW sync again (via the Datawarehouse menu or the helper script), and then check:
+
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM ps_items_dw;"
+
+
+You should start seeing thousands of rows.

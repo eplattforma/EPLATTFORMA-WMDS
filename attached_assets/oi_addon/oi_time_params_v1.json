@@ -1,0 +1,75 @@
+{
+  "version": "v1",
+  "store_units": {
+    "line_exp_time": "minutes",
+    "invoice_total_exp_time": "minutes"
+  },
+  "location": {
+    "regex": "^(?P<corridor>\\d{2})-(?P<bay>\\d{2})-(?P<level>[A-Z])(?P<pos>\\d{2})$",
+    "upper_corridors": [
+      "70",
+      "80",
+      "90"
+    ],
+    "ladder_levels": [
+      "C",
+      "D"
+    ]
+  },
+  "overhead": {
+    "start_seconds": 45,
+    "end_seconds": 45
+  },
+  "travel": {
+    "sec_align_per_stop": 2,
+    "sec_per_corridor_change": 14,
+    "sec_per_corridor_step": 4,
+    "sec_per_bay_step": 2.5,
+    "sec_per_pos_step": 0.6,
+    "sec_stairs_up": 25,
+    "sec_stairs_down": 20,
+    "upper_walk_multiplier": 1.05,
+    "zone_switch_seconds": 4
+  },
+  "pick": {
+    "base_by_unit_type": {
+      "item": 6,
+      "pack": 8,
+      "box": 10,
+      "case": 13,
+      "virtual_pack": 6
+    },
+    "per_qty_by_unit_type": {
+      "item": 1.1,
+      "pack": 1.6,
+      "box": 2.0,
+      "case": 3.0,
+      "virtual_pack": 1.1
+    },
+    "level_seconds": {
+      "A": 0,
+      "B": 2,
+      "C": 12,
+      "D": 14
+    },
+    "difficulty_seconds": {
+      "1": 0,
+      "2": 2,
+      "3": 6,
+      "4": 12,
+      "5": 20
+    },
+    "handling_seconds": {
+      "fragility_yes": 6,
+      "fragility_semi": 3,
+      "spill_true": 5,
+      "pressure_high": 4,
+      "heat_sensitive_summer": 8
+    }
+  },
+  "pack": {
+    "base_seconds": 45,
+    "per_line_seconds": 3,
+    "special_group_seconds": 20
+  }
+}

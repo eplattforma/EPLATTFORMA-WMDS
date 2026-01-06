@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-3">
+        <div class="col-md-8">
+            <h2><i class="fas fa-boxes me-2"></i>Stock Dashboard 
+                <small class="text-muted" style="font-size: 0.6em;">
+                    {% if stats.last_updated_obj %}
+                        Last: {{ stats.last_updated_obj | local_time('%d/%m/%Y %H:%M:%S') }}
+                    {% else %}
+                        Last: {{ stats.last_updated }}
+                    {% endif %}
+                </small>
+            </h2>
+        </div>
+        <div class="col-md-4 text-end">
+            <button id="refreshBtn" class="btn btn-primary">
+                <i class="fas fa-sync me-1"></i>Refresh Exp Dates
+            </button>
+            <a href="{{ url_for('item_scanner.scan_item_page') }}" class="btn btn-success ms-2">
+                <i class="fas fa-search me-1"></i>Find Item
+            </a>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary ms-2">
+                <i class="fas fa-arrow-left me-1"></i>Back
+            </a>
+        </div>
+    </div>
+
+
+    <!-- Filters -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Search Item Code/Description</label>
+                    <input type="text" id="searchText" class="form-control" placeholder="Type to search...">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Filter by Stock</label>
+                    <select id="filterStock" class="form-select">
+                        <option value="">All Stock</option>
+                        <option value="positive">Positive Only</option>
+                        <option value="negative">Negative Only</option>
+                        <option value="zero">Zero Only</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-12">
+                    <button class="btn btn-secondary" onclick="clearFilters()">
+                        <i class="fas fa-times me-1"></i>Clear Filters
+                    </button>
+                    <span class="ms-3 text-muted" id="recordCount">Showing {{ "{:,}".format(stats.total_records) }} records</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" id="stockTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Item Code</th>
+                            <th>Item Description</th>
+                            <th>Earliest Exp Date</th>
+                            <th style="text-align: right;">Total Stock</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stockTableBody">
+                        {% for item in grouped_items %}
+                        <tr class="item-row" data-item-code="{{ item['Item Code'] }}" 
+                            data-item-desc="{{ item['Item Description'] }}" 
+                            data-stock="{{ item['total_stock'] }}">
+                            <td style="text-align: center;">
+                                {% if item['record_count'] > 1 %}
+                                <button class="btn btn-sm btn-link" onclick="toggleDetails(this)" style="padding: 0;">
+                                    <i class="fas fa-chevron-right"></i>
+                                </button>
+                                {% endif %}
+                            </td>
+                            <td><strong>{{ item['Item Code'] }}</strong></td>
+                            <td>{{ item['Item Description'] }}</td>
+                            <td>
+                                {% if item['earliest_date'] %}
+                                    <strong>{{ item['earliest_date'].strftime('%d-%m-%y') }}</strong>
+                                    {% if item['days_to_expire'] is not none %}
+                                        {% if item['days_to_expire'] < 0 %}
+                                            <span class="text-danger ms-2"><i class="fas fa-exclamation-circle"></i> EXPIRED</span>
+                                        {% else %}
+                                            <span class="ms-2">({{ item['days_to_expire'] }}d)</span>
+                                        {% endif %}
+                                    {% endif %}
+                                    <span class="badge ms-2" style="background-color: {{ item['expiry_color'] }}; color: {% if item['expiry_color'] == '#FFEF00' %}black{% else %}white{% endif %};">
+                                        {% if item['earliest_date_stock'] == item['earliest_date_stock']|int %}
+                                            {{ item['earliest_date_stock']|int }}
+                                        {% else %}
+                                            {{ "%.2f"|format(item['earliest_date_stock']) }}
+                                        {% endif %}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">No date</span>
+                                {% endif %}
+                            </td>
+                            <td style="text-align: right;">
+                                {% if item['total_stock'] == item['total_stock']|int %}
+                                    {{ item['total_stock']|int }}
+                                {% else %}
+                                    {{ "%.2f"|format(item['total_stock']) }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <!-- Detail rows (hidden by default) -->
+                        {% for row in item['records'] %}
+                        <tr class="detail-row" style="display: none; background-color: #f8f9fa;">
+                            <td></td>
+                            <td colspan="5">
+                                <div class="ps-3">
+                                    <small class="text-muted">
+                                        <strong>Store:</strong> {{ row['Store Code'] }} - {{ row['Store Name'] }} | 
+                                        <strong>Exp Date:</strong> {{ row['Exp Date'] }} | 
+                                        <strong>Stock:</strong>
+                                        <span class="badge" style="background-color: {{ row['color'] }}; color: {% if row['color'] == '#FFEF00' %}black{% else %}white{% endif %};">
+                                            {% if row['Stock'] == row['Stock']|int %}
+                                                {{ row['Stock']|int }}
+                                            {% else %}
+                                                {{ "%.2f"|format(row['Stock']) }}
+                                            {% endif %}
+                                        </span>
+                                    </small>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Refresh Instructions Modal -->
+<div class="modal fade" id="refreshInstructionsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-lightbulb me-2"></i>Refresh Expiration Dates</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><strong>Before refreshing, please follow these steps:</strong></p>
+                <ol>
+                    <li class="mb-2">Export the <strong>Serials Report</strong> from Powersoft</li>
+                    <li class="mb-2">Place the file in Dropbox at:<br>
+                        <code>\EPLATTFORMA SHARED FILES\EPLATTFORMA BI\EPLATTFORMA NEW DW\DATA</code>
+                    </li>
+                    <li>File must be named: <strong>SerialsStockPositionReport1.xlsx</strong></li>
+                </ol>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button id="uploadModalBtn" type="button" class="btn btn-info" onclick="document.getElementById('fileInput').click()">
+                    <i class="fas fa-upload me-1"></i>Upload File
+                </button>
+                <input type="file" id="fileInput" style="display: none;" accept=".xlsx,.xls" onchange="uploadFile(this)">
+                <button type="button" class="btn btn-primary" onclick="proceedWithRefresh()">Continue</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Toggle detail rows
+window.toggleDetails = function(button) {
+    const row = button.closest('tr');
+    const detailRows = [];
+    let currentRow = row.nextElementSibling;
+    
+    while (currentRow && currentRow.classList.contains('detail-row')) {
+        detailRows.push(currentRow);
+        currentRow = currentRow.nextElementSibling;
+    }
+    
+    const isExpanded = button.querySelector('i').classList.contains('fa-chevron-down');
+    
+    detailRows.forEach(r => {
+        r.style.display = isExpanded ? 'none' : 'table-row';
+    });
+    
+    button.querySelector('i').classList.toggle('fa-chevron-right');
+    button.querySelector('i').classList.toggle('fa-chevron-down');
+};
+
+// Filter functionality
+window.applyFilters = function() {
+    const searchText = document.getElementById('searchText').value.toLowerCase();
+    const filterStock = document.getElementById('filterStock').value;
+    
+    const itemRows = document.querySelectorAll('#stockTableBody tr.item-row');
+    let visibleCount = 0;
+    
+    itemRows.forEach(row => {
+        const itemCode = row.dataset.itemCode.toLowerCase();
+        const itemDesc = row.dataset.itemDesc.toLowerCase();
+        const stock = parseFloat(row.dataset.stock);
+        
+        let show = true;
+        
+        // Search text filter
+        if (searchText && !itemCode.includes(searchText) && !itemDesc.includes(searchText)) {
+            show = false;
+        }
+        
+        // Stock filter
+        if (filterStock) {
+            if (filterStock === 'positive' && stock <= 0) show = false;
+            if (filterStock === 'negative' && stock >= 0) show = false;
+            if (filterStock === 'zero' && stock !== 0) show = false;
+        }
+        
+        row.style.display = show ? '' : 'none';
+        
+        // Hide detail rows when filtering (only for multi-record items)
+        const button = row.querySelector('button');
+        if (button) {
+            let detailRow = row.nextElementSibling;
+            while (detailRow && detailRow.classList.contains('detail-row')) {
+                detailRow.style.display = 'none';
+                detailRow = detailRow.nextElementSibling;
+            }
+            
+            // Reset chevron
+            button.querySelector('i').classList.remove('fa-chevron-down');
+            button.querySelector('i').classList.add('fa-chevron-right');
+        }
+        
+        if (show) visibleCount++;
+    });
+    
+    document.getElementById('recordCount').textContent = `Showing ${visibleCount.toLocaleString()} items`;
+};
+
+window.clearFilters = function() {
+    document.getElementById('searchText').value = '';
+    document.getElementById('filterStock').value = '';
+    window.applyFilters();
+};
+
+window.uploadFile = async function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    
+    const btn = document.getElementById('uploadModalBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Uploading...';
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        const response = await fetch('{{ url_for("upload_stock_position") }}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            },
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`✅ Successfully imported ${data.count.toLocaleString()} stock records from file`);
+            const modal = bootstrap.Modal.getInstance(document.getElementById('refreshInstructionsModal'));
+            modal.hide();
+            location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-upload me-1"></i>Upload File';
+        }
+    } catch (error) {
+        alert(`❌ Upload failed: ${error.message}`);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-upload me-1"></i>Upload File';
+    }
+    
+    // Reset file input
+    input.value = '';
+};
+
+window.proceedWithRefresh = async function() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('refreshInstructionsModal'));
+    modal.hide();
+    
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading...';
+    
+    try {
+        const response = await fetch('{{ url_for("refresh_stock_position") }}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`✅ Successfully imported ${data.count.toLocaleString()} stock records`);
+            location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
+        }
+    } catch (error) {
+        alert(`❌ Error: ${error.message}`);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
+    }
+};
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    const searchText = document.getElementById('searchText');
+    const filterStock = document.getElementById('filterStock');
+    const refreshBtn = document.getElementById('refreshBtn');
+    
+    if (searchText) searchText.addEventListener('input', window.applyFilters);
+    if (filterStock) filterStock.addEventListener('change', window.applyFilters);
+    
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            const modal = new bootstrap.Modal(document.getElementById('refreshInstructionsModal'));
+            modal.show();
+        });
+    }
+});
+</script>
+{% endblock %}

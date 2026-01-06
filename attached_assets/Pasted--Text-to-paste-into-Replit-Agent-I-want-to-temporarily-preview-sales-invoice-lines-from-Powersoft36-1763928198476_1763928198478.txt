@@ -1,0 +1,252 @@
+✅ Text to paste into Replit Agent
+I want to temporarily preview sales invoice lines from Powersoft365 (PS365) in a table, without saving anything into our database.
+
+Please do the following:
+
+1. Add a helper function in ps365_client.py (or a new file, e.g. ps365_invoices.py) to call the PS365 invoices API.
+
+   The API is POST /list_invoices (or the sales invoices equivalent in our PS365 docs). It works similarly to list_items:
+   - We send api_credentials.token in the body
+   - We send a filter_define object with paging + date filters
+   - It returns list_invoices, where each entry has invoice_header + invoice_lines.
+
+   Implement a function like:
+
+   ```python
+   # ps365_invoices.py
+
+   from ps365_client import call_ps365
+
+   PAGE_SIZE = 100  # PS365 max
+
+   def fetch_invoice_lines_from_date(invoice_date_from: str):
+       """
+       Fetch invoice lines from PS365 starting from the given invoice date.
+       invoice_date_from must be in 'YYYY-MM-DD HH:MM:SS' format (UTC or as required by PS365).
+       Returns a list of flattened line dicts suitable for tabular display.
+       """
+       page = 1
+       all_lines = []
+
+       while True:
+           payload = {
+               "filter_define": {
+                   "only_counted": "N",
+                   "page_number": page,
+                   "page_size": PAGE_SIZE,
+                   # adjust these names exactly to match our doc4api:
+                   "invoice_date_from": invoice_date_from,
+                   "invoice_date_to": "",
+                   "last_modified_from": "",
+                   "last_modified_to": "",
+                   # keep all other filters empty = no extra filtering
+                   "stores_selection": "",
+                   "customers_selection": "",
+                   "items_selection": "",
+                   "departments_selection": "",
+                   "categories_selection": "",
+                   "brands_selection": "",
+                   # add any other required fields from the docs as ""
+               }
+           }
+
+           response = call_ps365("list_invoices", payload)
+           api_resp = response.get("api_response", {})
+           if api_resp.get("response_code") != "1":
+               # stop on error
+               print("PS365 API Error for list_invoices:", api_resp)
+               break
+
+           invoices = response.get("list_invoices", []) or []
+           if not invoices:
+               break
+
+           for inv in invoices:
+               # response shape usually:
+               # { "invoice": { "invoice_header": {...}, "invoice_lines": [ {...}, ... ] } }
+               inv_obj = inv.get("invoice", inv)  # in case it's not nested
+               header = inv_obj.get("invoice_header", {})
+               lines = inv_obj.get("invoice_lines", []) or []
+
+               for line in lines:
+                   # Build a flattened row for the table
+                   row = {
+                       "invoice_no_365": header.get("invoice_no_365"),
+                       "invoice_date": header.get("invoice_date"),
+                       "store_code_365": header.get("store_code_365"),
+                       "customer_code_365": header.get("customer_code_365"),
+                       "customer_name": header.get("customer_name"),
+                       "item_code_365": line.get("item_code_365"),
+                       "item_name": line.get("item_name"),
+                       "qty": line.get("quantity"),
+                       "price_excl": line.get("price_excl"),
+                       "price_incl": line.get("price_incl"),
+                       "vat_percent": line.get("vat_percent"),
+                       "line_total_excl": line.get("line_total_excl"),
+                       "line_total_incl": line.get("line_total_incl"),
+                   }
+                   all_lines.append(row)
+
+           page += 1
+
+       return all_lines
+
+Make sure the field names (invoice_no_365, invoice_date, quantity, etc.) match the PS365 invoices API documentation exactly.
+
+
+Add a temporary Flask route to display the lines in a simple HTML table without writing to the database.
+In datawarehouse_routes.py (or routes.py), add something like:
+# datawarehouse_routes.py
+
+from flask import Blueprint, render_template, request
+from ps365_invoices import fetch_invoice_lines_from_date
+
+dw_bp = Blueprint("datawarehouse", __name__)
+
+@dw_bp.route("/dw/invoice-lines-preview")
+def invoice_lines_preview():
+    # default from date 2025-11-21 if not provided
+    date_from = request.args.get("from", "2025-11-21 00:00:00")
+
+    lines = fetch_invoice_lines_from_date(date_from)
+
+    # Decide which columns to show in the table
+    columns = [
+        "invoice_no_365",
+        "invoice_date",
+        "store_code_365",
+        "customer_code_365",
+        "customer_name",
+        "item_code_365",
+        "item_name",
+        "qty",
+        "price_excl",
+        "price_incl",
+        "vat_percent",
+        "line_total_excl",
+        "line_total_incl",
+    ]
+
+    return render_template(
+        "dw_invoice_lines_preview.html",
+        columns=columns,
+        lines=lines,
+        date_from=date_from,
+    )
+
+Register dw_bp with the Flask app if it isn’t already.
+
+
+Create a simple template to render the table.
+In templates/dw_invoice_lines_preview.html:
+<!doctype html>
+<html>
+<head>
+    <title>Invoice Lines Preview</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; font-size: 12px; }
+        th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
+        th { background-color: #f0f0f0; }
+        caption { margin-bottom: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Invoice Lines Preview</h1>
+    <p>From date: {{ date_from }}</p>
+
+    <table>
+        <thead>
+            <tr>
+                {% for col in columns %}
+                    <th>{{ col }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in lines %}
+                <tr>
+                    {% for col in columns %}
+                        <td>{{ row[col] }}</td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+
+
+
+After you implement this, restart the app and test it by opening in the browser:
+
+
+/dw/invoice-lines-preview → uses default from date 2025-11-21 00:00:00
+
+
+/dw/invoice-lines-preview?from=2025-11-21 00:00:00 → explicitly set date
+
+
+This must be a pure in-memory preview: no DW tables, no SQLAlchemy models, no writes to the database.
+
+
+
+---
+
+## 🧾 Short explanation of the PS365 invoices API (for you)
+
+The invoices API in Powersoft365 follows the same pattern as the items API:
+
+- **Endpoint:** `POST /list_invoices` (or similar sales invoices endpoint in doc4api)
+- **Body:**
+  - `api_credentials.token` – your PS365 API token
+  - `filter_define` – controls what you get:
+    - `only_counted`:  
+      - `"Y"` → only total_count_list_invoices  
+      - `"N"` → actual invoices list
+    - `page_number`, `page_size` (max 100)
+    - Date filters:
+      - `invoice_date_from` / `invoice_date_to`
+      - `last_modified_from` / `last_modified_to`
+    - Various selection filters: customers, stores, items, etc.
+
+- **Response:**
+  - `api_response.response_code = "1"` → OK
+  - `total_count_list_invoices` – total invoices matching filters
+  - `list_invoices` – an array of invoices, where each entry typically looks like:
+
+    ```json
+    {
+      "invoice": {
+        "invoice_header": {
+          "invoice_no_365": "SI-000123",
+          "invoice_date": "2025-11-21 10:35:00",
+          "store_code_365": "001",
+          "customer_code_365": "C000123",
+          "customer_name": "ABC LTD",
+          "total_amount_incl": 123.45,
+          ...
+        },
+        "invoice_lines": [
+          {
+            "item_code_365": "010",
+            "item_name": "* 010 MAIN ITEM",
+            "quantity": 2,
+            "price_excl": 10.00,
+            "price_incl": 11.90,
+            "vat_percent": 19,
+            "line_total_excl": 20.00,
+            "line_total_incl": 23.80,
+            ...
+          },
+          ...
+        ]
+      }
+    }
+    ```
+
+For your **data warehouse preview**, we don’t store anything; we just:
+
+1. Call `list_invoices` with `invoice_date_from = '2025-11-21 00:00:00'`
+2. Page through results (page_size=100)
+3. Flatten header + lines into simple rows
+4. Render them as an HTML table so you can visually inspect them.

@@ -1,0 +1,643 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Invoice #{{ invoice.invoice_no }} - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_corrections') }}">Picking Corrections</a></li>
+                    <li class="breadcrumb-item active">Invoice #{{ invoice.invoice_no }}</li>
+                </ol>
+            </nav>
+            <h2 class="h4 mb-3">
+                <i class="fas fa-edit me-2"></i>Edit Invoice #{{ invoice.invoice_no }}
+                {{ invoice.status|status_badge|safe }}
+            </h2>
+        </div>
+    </div>
+
+    <!-- Invoice Details -->
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Invoice Details</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-0"><strong>Customer:</strong> {{ invoice.customer_name }}</p>
+                    <p class="mb-0"><strong>Routing:</strong> {{ invoice.routing }}</p>
+                    <p class="mb-0"><strong>Upload Date:</strong> {{ invoice.upload_date }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-0"><strong>Assigned To:</strong> 
+                        {% if invoice.assigned_to %}
+                            {{ invoice.assigned_to }}
+                        {% else %}
+                            <span class="text-muted">Unassigned</span>
+                        {% endif %}
+                    </p>
+                    <p class="mb-0"><strong>Total Items:</strong> {{ invoice.total_items }}</p>
+                    <p class="mb-0"><strong>Total Weight:</strong> {{ invoice.total_weight|round(2) }} kg</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="btn-group">
+                {% if invoice.status in ['picking', 'not_started', 'ready_for_dispatch'] %}
+                <a href="{{ url_for('admin_reset_invoice_progress', invoice_no=invoice.invoice_no) }}" 
+                   class="btn btn-warning" onclick="return confirm('Are you sure you want to reset the progress of this invoice? This will set all items back to Not Picked.')">
+                    <i class="fas fa-undo me-1"></i> Reset Progress
+                </a>
+                {% endif %}
+                <a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-info" target="_blank">
+                    <i class="fas fa-print me-1"></i> Print Label
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Items Table -->
+    <div class="card mb-4">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Items</h5>
+            {% set picked_count = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
+            {% set total_count = invoice.items|length %}
+            <span class="badge bg-primary">{{ picked_count }} / {{ total_count }} picked</span>
+        </div>
+        <div class="card-body p-0">
+            <form method="post" action="{{ url_for('admin_update_invoice_items', invoice_no=invoice.invoice_no) }}">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 120px;">Item Code</th>
+                                <th>Name</th>
+                                <th>Location</th>
+                                <th style="width: 100px;">Expected Qty</th>
+                                <th style="width: 100px;">Picked Qty</th>
+                                <th style="width: 120px;">Status</th>
+                                <th style="width: 200px;">Timestamp</th>
+                                <th style="width: 130px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in invoice.items %}
+                            <tr class="{{ 'table-warning' if item.is_picked and item.picked_qty != item.qty else '' }}">
+                                <td class="align-middle">
+                                    <a href="#" class="fw-bold" data-bs-toggle="modal" data-bs-target="#itemModal{{ loop.index }}">
+                                        {{ item.item_code }}
+                                    </a>
+                                </td>
+                                <td class="align-middle">{{ item.item_name }}</td>
+                                <td class="align-middle">{{ item.location }}</td>
+                                <td class="align-middle">{{ item.qty|int }}</td>
+                                <td class="align-middle">
+                                    <input type="number" class="form-control form-control-sm" 
+                                           name="picked_qty_{{ item.item_code }}" value="{{ item.picked_qty|int if item.picked_qty else 0 }}" 
+                                           min="0" max="{{ item.qty|int }}" {{ '' if item.is_picked else 'disabled' }}>
+                                </td>
+                                <td class="align-middle">
+                                    <select class="form-select form-select-sm" name="is_picked_{{ item.item_code }}">
+                                        <option value="not_picked" {% if item.pick_status == 'not_picked' or (not item.is_picked and not item.pick_status) %}selected{% endif %}>Not Picked</option>
+                                        <option value="picked" {% if item.pick_status == 'picked' or (item.is_picked and item.picked_qty == item.qty and not item.pick_status) %}selected{% endif %}>Picked</option>
+                                        <option value="exception" {% if item.pick_status == 'exception' or (item.is_picked and item.picked_qty != item.qty and not item.pick_status) %}selected{% endif %}>Exception</option>
+                                        <option value="reset" {% if item.pick_status == 'reset' %}selected{% endif %}>Reset (Repick)</option>
+                                    </select>
+                                </td>
+                                <td class="align-middle small text-muted">
+                                    {% if item.is_picked %}
+                                        {% set exception = exceptions|selectattr('item_code', 'equalto', item.item_code)|first %}
+                                        {% if exception %}
+                                            {{ exception.timestamp|local_time('%d/%m/%y %H:%M') }}
+                                        {% else %}
+                                            <span class="text-muted">No timestamp</span>
+                                        {% endif %}
+                                    {% elif item.pick_status == 'reset' %}
+                                        <span class="text-warning">
+                                            <i class="fas fa-undo-alt"></i> Reset by {{ item.reset_by }}
+                                            {% if item.reset_timestamp %}
+                                                on {{ item.reset_timestamp|local_time('%d/%m/%y %H:%M') }}
+                                            {% endif %}
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">Not picked yet</span>
+                                    {% endif %}
+                                </td>
+                                <td class="align-middle">
+                                    {% if invoice.status == 'In Progress' %}
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#itemResetModal{{ loop.index }}">
+                                        <i class="fas fa-redo-alt"></i> Reset
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="p-3 d-flex justify-content-between align-items-center">
+                    <a href="{{ url_for('admin_corrections') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i> Back to List
+                    </a>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-save me-1"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Item Detail Modals (outside table for valid HTML) -->
+    {% for item in invoice.items %}
+                            <!-- Item Detail Modal -->
+                            <div class="modal fade" id="itemModal{{ loop.index }}" tabindex="-1" aria-labelledby="itemModalLabel{{ loop.index }}" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="itemModalLabel{{ loop.index }}">Item Details: {{ item.item_code }}</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="text-center mb-3">
+                                                <img src="{{ url_for('static', filename=get_product_image(item.item_code)) }}" 
+                                                    alt="{{ item.item_name }}" class="img-fluid rounded border" 
+                                                    style="max-height: 200px; object-fit: contain;">
+                                            </div>
+                                            <table class="table table-bordered">
+                                                <tr>
+                                                    <th style="width: 30%;">Item Code</th>
+                                                    <td>{{ item.item_code }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <th>Name</th>
+                                                    <td>{{ item.item_name }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <th>Location</th>
+                                                    <td>{{ item.location }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <th>Zone</th>
+                                                    <td>{{ item.zone or 'N/A' }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <th>Barcode</th>
+                                                    <td>{{ item.barcode or 'N/A' }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <th>Unit Type</th>
+                                                    <td>{{ item.unit_type }}</td>
+                                                </tr>
+                                                {% if item.pack %}
+                                                <tr>
+                                                    <th>Pack</th>
+                                                    <td>{{ item.pack }}</td>
+                                                </tr>
+                                                {% endif %}
+                                                <tr>
+                                                    <th>Weight</th>
+                                                    <td>{{ (item.item_weight or 0)|round(1) }} kg ({{ (item.line_weight or 0)|round(1) }} kg total)</td>
+                                                </tr>
+                                                <tr>
+                                                    <th>Expected Qty</th>
+                                                    <td>{{ item.qty|int }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <th>Picked Qty</th>
+                                                    <td>
+                                                        {% if item.is_picked %}
+                                                            {{ item.picked_qty|int }}
+                                                        {% else %}
+                                                            <span class="text-muted">Not picked yet</span>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                            
+                                            {% if item.pick_status == 'reset' %}
+                                            <div class="alert alert-info mt-3">
+                                                <h6 class="alert-heading">Reset History</h6>
+                                                <p class="mb-1">
+                                                    <strong>Reset by:</strong> {{ item.reset_by }}
+                                                </p>
+                                                <p class="mb-1">
+                                                    <strong>Reset on:</strong> 
+                                                    {% if item.reset_timestamp %}
+                                                        {{ item.reset_timestamp|local_time('%d/%m/%y %H:%M') }}
+                                                    {% else %}
+                                                        Unknown date
+                                                    {% endif %}
+                                                </p>
+                                                {% if item.reset_note %}
+                                                <p class="mb-1">
+                                                    <strong>Note:</strong> {{ item.reset_note }}
+                                                </p>
+                                                {% endif %}
+                                            </div>
+                                            {% endif %}
+                                            
+                                            {% set exception = exceptions|selectattr('item_code', 'equalto', item.item_code)|first %}
+                                            {% if exception %}
+                                            <div class="alert alert-warning mt-3">
+                                                <h6 class="alert-heading">Exception Report</h6>
+                                                <p class="mb-1">
+                                                    <strong>Reported by:</strong> {{ exception.picker_username }}
+                                                </p>
+                                                <p class="mb-1">
+                                                    <strong>Time:</strong> {{ exception.timestamp.strftime('%d/%m/%y %H:%M') }}
+                                                </p>
+                                                <p class="mb-1">
+                                                    <strong>Reason:</strong> {{ exception.reason or 'No reason provided' }}
+                                                </p>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Item Reset Modal -->
+                            {% if invoice.status == 'In Progress' %}
+                            <div class="modal fade" id="itemResetModal{{ loop.index }}" tabindex="-1" aria-labelledby="itemResetModalLabel{{ loop.index }}" aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <div class="modal-header bg-warning text-dark">
+                                            <h5 class="modal-title" id="itemResetModalLabel{{ loop.index }}">Reset Item: {{ item.item_code }}</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>You are about to reset this item in the picking process. This will:</p>
+                                            <ul>
+                                                <li>Mark the item as "Not Picked"</li>
+                                                <li>Reset the picked quantity to 0</li>
+                                                <li>Allow the picker to pick this item again</li>
+                                            </ul>
+                                            
+                                            <div class="form-group">
+                                                <label for="resetNote{{ loop.index }}" class="form-label">Note for Picker (Optional):</label>
+                                                <textarea class="form-control" id="resetNote{{ loop.index }}" name="reset_note_{{ item.item_code }}" rows="3" placeholder="Explain why this item needs to be picked again..."></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <a href="{{ url_for('admin_reset_item', invoice_no=invoice.invoice_no, item_code=item.item_code) }}" class="btn btn-warning">
+                                                Reset Item
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+    {% endfor %}
+
+    <!-- Exception History -->
+    {% if exceptions %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Picking Exception History</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Item Code</th>
+                            <th>Item Name</th>
+                            <th>Expected Qty</th>
+                            <th>Picked Qty</th>
+                            <th>Picker</th>
+                            <th>Timestamp</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for exception in exceptions %}
+                        <tr>
+                            <td>{{ exception.item_code }}</td>
+                            <td>
+                                {% set item = invoice.items|selectattr('item_code', 'equalto', exception.item_code)|first %}
+                                {{ item.item_name if item else 'Unknown Item' }}
+                            </td>
+                            <td>{{ exception.expected_qty|int }}</td>
+                            <td>{{ exception.picked_qty|int }}</td>
+                            <td>{{ exception.picker_username }}</td>
+                            <td>{{ exception.timestamp.strftime('%d/%m/%y %H:%M') }}</td>
+                            <td>{{ exception.reason or 'No reason provided' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Routing History -->
+    {% if routing_history %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-route me-2"></i>Routing History</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>Action</th>
+                            <th>Route</th>
+                            <th>Reason</th>
+                            <th>Notes</th>
+                            <th>By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for history in routing_history %}
+                        <tr>
+                            <td>{{ history.created_at.strftime('%d/%m/%y %H:%M') if history.created_at else '-' }}</td>
+                            <td>
+                                {% if history.action == 'SENT_TO_WAREHOUSE' %}
+                                <span class="badge bg-warning">{{ history.action }}</span>
+                                {% elif history.action == 'REROUTE_QUEUED' %}
+                                <span class="badge bg-info">{{ history.action }}</span>
+                                {% elif history.action == 'RETURN_TO_STOCK' %}
+                                <span class="badge bg-secondary">{{ history.action }}</span>
+                                {% elif history.action == 'CLOSED' %}
+                                <span class="badge bg-success">{{ history.action }}</span>
+                                {% else %}
+                                <span class="badge bg-primary">{{ history.action }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if history.route_id %}
+                                <a href="{{ url_for('routes.detail', shipment_id=history.route_id) }}" target="_blank">Route #{{ history.route_id }}</a>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>{{ history.reason or '-' }}</td>
+                            <td>{{ history.notes or '-' }}</td>
+                            <td>{{ history.actor_username or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Delivery Events -->
+    {% if delivery_events %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-truck me-2"></i>Delivery Events</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>Event</th>
+                            <th>Driver</th>
+                            <th>Route</th>
+                            <th>Notes</th>
+                            <th>Location</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in delivery_events %}
+                        <tr>
+                            <td>{{ event['timestamp'].strftime('%d/%m/%y %H:%M') if event['timestamp'] else '-' }}</td>
+                            <td>
+                                {% if event['action'] == 'DELIVERED' %}
+                                <span class="badge bg-success">{{ event['action'] }}</span>
+                                {% elif event['action'] in ['FAILED', 'DELIVERY_FAILED'] %}
+                                <span class="badge bg-danger">{{ event['action'] }}</span>
+                                {% else %}
+                                <span class="badge bg-info">{{ event['action'] }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ event['actor'] or '-' }}</td>
+                            <td>-</td>
+                            <td>{{ event['reason'] or '-' }}</td>
+                            <td>-</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Delivery Discrepancies (Exceptions) -->
+    {% if delivery_discrepancies %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Delivery Discrepancies</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>Type</th>
+                            <th>Item Code</th>
+                            <th>Qty Affected</th>
+                            <th>Driver</th>
+                            <th>Notes</th>
+                            <th>Resolution</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for disc in delivery_discrepancies %}
+                        <tr>
+                            <td>{{ disc.reported_at.strftime('%d/%m/%y %H:%M') if disc.reported_at else '-' }}</td>
+                            <td>
+                                <span class="badge bg-warning text-dark">{{ disc.discrepancy_type or '-' }}</span>
+                            </td>
+                            <td>{{ disc.item_code_expected or '-' }}</td>
+                            <td>{{ disc.qty_expected or 0 }}</td>
+                            <td>{{ disc.reported_by or '-' }}</td>
+                            <td>{{ disc.note or '-' }}</td>
+                            <td>{{ disc.resolution_action or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- COD/Payment Records -->
+    {% if cod_receipts %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-money-bill-wave me-2"></i>Payment Records (COD)</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>Amount Expected</th>
+                            <th>Amount Collected</th>
+                            <th>Variance</th>
+                            <th>Payment Method</th>
+                            <th>Driver</th>
+                            <th>PS365 Receipt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for receipt in cod_receipts %}
+                        <tr>
+                            <td>{{ receipt.created_at.strftime('%d/%m/%y %H:%M') if receipt.created_at else '-' }}</td>
+                            <td class="text-end">€{{ '%.2f'|format(receipt.expected_amount or 0) }}</td>
+                            <td class="text-end">€{{ '%.2f'|format(receipt.received_amount or 0) }}</td>
+                            <td class="text-end {% if receipt.variance != 0 %}text-warning{% endif %}">
+                                €{{ '%.2f'|format(receipt.variance or 0) }}
+                            </td>
+                            <td>{{ receipt.payment_method or '-' }}</td>
+                            <td>{{ receipt.driver_username or '-' }}</td>
+                            <td>
+                                {% if receipt.ps365_receipt_id %}
+                                <span class="badge bg-success">{{ receipt.ps365_receipt_id }}</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Not Sent</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Proof of Delivery -->
+    {% if pod_records %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-file-signature me-2"></i>Proof of Delivery</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date/Time</th>
+                            <th>Receiver Name</th>
+                            <th>Receiver Phone</th>
+                            <th>Physical Invoice</th>
+                            <th>Driver</th>
+                            <th>Photos</th>
+                            <th>Location</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pod in pod_records %}
+                        <tr>
+                            <td>{{ pod.collected_at.strftime('%d/%m/%y %H:%M') if pod.collected_at else '-' }}</td>
+                            <td>{{ pod.receiver_name or '-' }}</td>
+                            <td>-</td>
+                            <td>
+                                {% if pod.has_physical_signed_invoice %}
+                                <i class="fas fa-check text-success"></i> Yes
+                                {% else %}
+                                <i class="fas fa-times text-danger"></i> No
+                                {% endif %}
+                            </td>
+                            <td>{{ pod.collected_by or '-' }}</td>
+                            <td>
+                                {% if pod.photo_paths %}
+                                <i class="fas fa-image"></i> {{ pod.photo_paths|length if pod.photo_paths is iterable else 1 }} photo(s)
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if pod.gps_lat and pod.gps_lng %}
+                                <a href="https://maps.google.com/?q={{ pod.gps_lat }},{{ pod.gps_lng }}" target="_blank">
+                                    <i class="fas fa-map-marker-alt"></i> View
+                                </a>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Force hide all modals on page load
+        setTimeout(function() {
+            var allModals = document.querySelectorAll('.modal');
+            allModals.forEach(function(modalEl) {
+                // Remove show class if present
+                modalEl.classList.remove('show');
+                modalEl.style.display = 'none';
+                modalEl.setAttribute('aria-hidden', 'true');
+                
+                // Also hide any backdrop
+                var backdrop = document.querySelector('.modal-backdrop');
+                if (backdrop) {
+                    backdrop.remove();
+                }
+            });
+            
+            // Remove body modal-open class
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+        }, 100);
+        
+        // Enable state change on status change
+        document.querySelectorAll('select[name^="is_picked_"]').forEach(function(select) {
+            select.addEventListener('change', function() {
+                const itemCode = this.name.replace('is_picked_', '');
+                const qtyInput = document.querySelector(`input[name="picked_qty_${itemCode}"]`);
+                
+                if (this.value === 'not_picked') {
+                    qtyInput.disabled = true;
+                    qtyInput.value = 0;
+                } else {
+                    qtyInput.disabled = false;
+                    if (this.value === 'picked') {
+                        // Set to expected quantity when status is "Picked"
+                        const row = this.closest('tr');
+                        const expectedQty = parseInt(row.cells[3].textContent);
+                        qtyInput.value = expectedQty;
+                    }
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

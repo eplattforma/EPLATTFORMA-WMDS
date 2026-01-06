@@ -1,0 +1,54 @@
+1) Critical correctness issue: unreachable code in get_grouped_items() (Consolidated mode)
+
+In the Consolidated branch, you build grouped_items and then you return immediately:
+
+return sorted(grouped_items.values(), key=lambda x: (...))
+
+
+Everything after that return (the “Additional verification”, SQL sanity checks, logging, db_count comparison, etc.) will never run. This is not just style—if you believed that verification was protecting you, it currently is not.
+
+Fix
+
+Move the return to the end of the consolidated branch (or delete the dead block entirely). Example structure:
+
+from flask import current_app  # ensure available if you use logging
+
+# ...
+
+if self.picking_mode == 'Consolidated' or not self.picking_mode:
+    all_batch_items = db.session.query(InvoiceItem).filter(and_(*filter_conditions)).all()
+    all_batch_items.sort(key=lambda x: (x.zone or "", x.location or "", x.item_code or ""))
+
+    grouped_items = {}
+    for item in all_batch_items:
+        key = (item.item_code, item.location or "")
+        if key not in grouped_items:
+            grouped_items[key] = {
+                'item_code': item.item_code,
+                'location': item.location,
+                'barcode': item.barcode,
+                'zone': item.zone,
+                'item_name': item.item_name,
+                'unit_type': item.unit_type,
+                'pack': item.pack,
+                'total_qty': 0,
+                'source_items': []
+            }
+
+        qty = item.qty or 0  # <-- important (see next section)
+        grouped_items[key]['total_qty'] += qty
+        grouped_items[key]['source_items'].append({
+            'invoice_no': item.invoice_no,
+            'item_code': item.item_code,
+            'qty': qty,
+            'id': f"{item.invoice_no}-{item.item_code}"
+        })
+
+    result_items = sorted(
+        grouped_items.values(),
+        key=lambda x: (x['zone'] or "", x['location'] or "", x['item_code'] or "")
+    )
+
+    # (Optional) put verification/logging HERE so it actually runs
+
+    return result_items

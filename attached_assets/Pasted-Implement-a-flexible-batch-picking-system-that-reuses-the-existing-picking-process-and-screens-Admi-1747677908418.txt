@@ -1,0 +1,85 @@
+Implement a flexible batch picking system that reuses the existing picking process and screens. Admin should choose the picking mode (Consolidated or Sequential) during batch creation.
+
+---
+
+🧩 1. Batch Creation
+
+- Admin selects:
+  - One or more zones (e.g. A1, B2)
+  - Multiple open invoices (orders) that include items from those zones
+  - A picking mode:
+    - "Consolidated" → combine identical items across orders
+    - "Sequential" → pick items order by order
+
+- Store each batch with:
+  - Unique batch ID
+  - Zone(s)
+  - List of included invoice IDs
+  - Picking mode
+  - Status = “In Progress”
+
+---
+
+📦 2. Picking Flow (Reusing Existing Screens)
+
+- Use the **current item-by-item picking interface and logic**:
+  - Show one item per screen (LOCATION, ITEM CODE, NAME, QTY, etc.)
+  - Allow: ✅ Confirm Picked, ✏️ Adjust Quantity, 🚫 Mark as Not Picked, 🔁 Skip and Pick Later
+
+- Apply the same skip rules: cannot finish batch until all items are either picked or resolved
+
+- The only difference is how the items are **queued and grouped**, based on batch mode:
+
+---
+
+🟢 **If mode = Consolidated**:
+- Use existing picking screens, but show each ITEM CODE only once
+- Total quantity is the **sum across all orders**
+- Picker confirms the full total
+- Allocation logic splits picked quantity back to each order automatically
+
+🟡 **If mode = Sequential**:
+- Queue orders one by one
+- For each order, show only items within the selected zone(s)
+- Picker uses the same item-by-item screen for each order
+- Skip and exception handling applies per order
+
+---
+
+🧾 3. Quantity Allocation (All Modes)
+
+- After picking:
+  - Update picked quantity per item **per order**
+  - Handle partial quantities and exceptions
+  - Prevent duplicate picking
+  - Mark batch as “Completed” only when all items are resolved
+
+---
+
+🖨️ 4. Reports and Printouts
+
+- Generate one picking report per order:
+  - INVOICE NO, CUSTOMER NAME, ROUTING
+  - Picked items with quantities and any exceptions
+
+- Generate batch summary for admin:
+  - Number of orders, total items picked, total exceptions
+  - Optional PDF or print layout
+
+---
+
+⚙️ 5. Admin Interface
+
+- Allow batch creation with:
+  - Zone selection
+  - Invoice filtering
+  - Picking mode toggle (Consolidated / Sequential)
+
+- Add batch history and status tracking
+- Provide reassign/resolve screen for exceptions if needed
+
+---
+
+✅ Reuse:
+- All existing item-picking UI, validations, button behaviors, and skip/exception logic must remain intact
+- Only adjust the **picking queue generator** based on batch and mode

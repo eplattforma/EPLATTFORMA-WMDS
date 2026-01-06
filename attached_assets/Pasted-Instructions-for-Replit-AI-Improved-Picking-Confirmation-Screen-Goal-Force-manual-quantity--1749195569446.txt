@@ -1,0 +1,73 @@
+Instructions for Replit AI — Improved Picking Confirmation Screen
+🎯 Goal
+✅ Force manual quantity entry if expected_quantity > 1
+✅ Automatically bring up numeric keyboard on mobile
+✅ Block progression if entered quantity ≠ expected quantity → show warning and prompt picker to report exception
+✅ If expected_quantity == 1 → allow normal confirm without manual entry
+________________________________________
+🗂 Screen Flow (Screen 2 of Picking)
+1️⃣ Display:
+•	Product image  as is
+•	Text: “Pick X units” in large font  as is 
+•	If expected_quantity > 1:
+o	Show input field with autofocus and numeric keyboard
+o	Require picker to enter quantity picked
+•	If expected_quantity == 1:
+o	Skip input field → show confirm button directly as is
+2️⃣ Logic:
+•	When picker enters quantity:
+o	If entered == expected → enable Confirm button
+o	If entered ≠ expected → disable Confirm button + show message:
+“Quantity mismatch! Please use the 'Report Exception' process to proceed.”
+•	Provide a "Report Exception" button clearly visible.
+________________________________________
+🖥️ Example Code (HTML + JS — easy to adapt)
+html
+CopyEdit
+<h2>Pick <span id="expectedQuantity">5</span> units of Product XYZ</h2>
+
+<div id="quantityEntrySection">
+    <label for="picked_quantity">Enter quantity picked:</label>
+    <input 
+      id="picked_quantity" 
+      type="number" 
+      inputmode="numeric" 
+      pattern="[0-9]*" 
+      autofocus 
+    >
+</div>
+
+<p id="warningMessage" style="color:red; display:none;">Quantity mismatch! Please use the 'Report Exception' process.</p>
+
+<button id="confirmButton" disabled>Confirm</button>
+<button id="reportExceptionButton">Report Exception</button>
+
+<script>
+const expectedQuantity = parseInt(document.getElementById('expectedQuantity').innerText);
+const pickedInput = document.getElementById('picked_quantity');
+const confirmButton = document.getElementById('confirmButton');
+const warningMessage = document.getElementById('warningMessage');
+
+pickedInput.addEventListener('input', () => {
+    const enteredQuantity = parseInt(pickedInput.value);
+
+    if (enteredQuantity === expectedQuantity) {
+        confirmButton.disabled = false;
+        warningMessage.style.display = 'none';
+    } else {
+        confirmButton.disabled = true;
+        if (!isNaN(enteredQuantity)) {
+            warningMessage.style.display = 'block';
+        } else {
+            warningMessage.style.display = 'none';
+        }
+    }
+});
+</script>
+________________________________________
+🔧 Notes for Replit AI / Developer
+✅ Expected Quantity should be passed to this screen from the picking workflow
+✅ Use autofocus and inputmode="numeric" to trigger numeric keyboard on mobile
+✅ Disable Confirm button unless entered quantity matches expected
+✅ Show Report Exception button → this should call your existing exception process
+✅ For expected_quantity == 1, you can skip the quantity input and show Confirm directly

@@ -1,0 +1,266 @@
+ here’s the complete driver app specification, fully consolidated in one place.
+It includes everything we’ve discussed: the route and stop flow, COD & POD handling, settlement process, integration with your existing Delivery Discrepancy system, and the exception-only delivery mode.
+________________________________________
+🚚 DRIVER APP — END-TO-END SPEC (Flask + PostgreSQL + Bootstrap + Vanilla JS)
+Version: v2
+Environment: Replit
+Backend: Flask + SQLAlchemy + PostgreSQL
+Frontend: Jinja2 Templates + Bootstrap 5 + Vanilla JS
+Printing: HTML + optional Web Bluetooth (ESC/POS)
+Offline (future): PWA + IndexedDB
+Date: 2025-10-15
+________________________________________
+0️⃣ Environment Overview
+Runtime: Replit (dev) / Gunicorn (prod)
+Backend: Flask (Python), SQLAlchemy ORM, PostgreSQL
+Frontend: Jinja2 (SSR) + Bootstrap 5 + Vanilla JS (no React/Vue)
+Deployment: Gunicorn + Nginx
+Design goal: mobile-optimized, offline-tolerant driver app
+________________________________________
+1️⃣ System Rules & Roles
+•	Driver: Can view routes, record deliveries/failures, capture COD/POD, and report discrepancies.
+•	Admin/Warehouse: Create routes, assign drivers, validate discrepancies, resolve, and complete routes.
+•	Picker: Can view issues related to their picks and provide self-validation.
+Important business rule:
+A driver may have only one active route (IN_TRANSIT) at a time.
+The Admin finalizes (COMPLETED) only after cash and returns are cleared.
+________________________________________
+2️⃣ Status Reference
+Invoice Statuses
+not_started → picking → ready_for_dispatch → shipped → out_for_delivery → delivered
+Other: delivery_failed, returned_to_warehouse, cancelled
+Route Statuses
+created → PLANNED → DISPATCHED → IN_TRANSIT → COMPLETED
+Other: CANCELLED
+Stop Invoice Statuses
+ASSIGNED → READY_TO_DISPATCH → DISPATCHED → DELIVERED → FAILED
+When a route starts (IN_TRANSIT), all invoices become out_for_delivery.
+________________________________________
+3️⃣ Route Flow
+1.	Admin dispatches route → status DISPATCHED.
+2.	Driver starts → IN_TRANSIT.
+3.	Each stop is completed (Delivered / Failed).
+4.	Driver submits route after last stop.
+5.	Admin completes route after clearing cash & returns.
+________________________________________
+4️⃣ Routes Dashboard
+Shown to driver:
+•	Route #, Date, Description
+•	Progress bar (Delivered / Total)
+•	Total items, weight
+•	Buttons: View Stops, Run Sheet
+•	IN_TRANSIT routes appear first, then DISPATCHED
+Guards:
+•	Only one active route allowed per driver (backend enforced with 409 conflict).
+________________________________________
+5️⃣ Stops List Screen
+Header:
+•	Route #, status chip (DISPATCHED / IN_TRANSIT / Paused)
+•	Progress (delivered/total)
+•	Buttons:
+o	DISPATCHED → Start Route
+o	IN_TRANSIT → Pause/Resume
+o	All stops done → Finish Route
+o	Overflow → Return to Depot, Notes, Call Dispatcher
+List row:
+[Seq]  Customer Name           Items  Weight   Status
+12     Coffee Co. Ltd          3      18.4kg   ◻ Pending
+13     FinServe Offices        1      2.2kg    ▶ Delivering
+14     BluePrint Studios       5      31.0kg   ✓ Delivered
+Gestures:
+•	Swipe left → Deliver
+•	Swipe right → Navigate (Google Maps / Waze)
+•	Long-press → Fail / Skip
+________________________________________
+6️⃣ Stop Detail Screen
+Top Block:
+•	Customer: customer_name
+•	Address: website (if URL) or address
+•	Contact: sms field (used for call and message)
+•	COD due: (placeholder for now)
+•	Notes: notes
+Quick actions:
+Navigate • Call • SMS • Chat/WhatsApp (optional)
+Invoices list:
+INV-XXXX • items N • weight W • status
+(Selectable checkboxes per invoice)
+________________________________________
+7️⃣ Exception-Only Delivery Mode (Updated Step 1)
+Concept
+•	Everything is assumed delivered by default.
+•	Driver records only exceptions for items that have problems.
+•	Common cases:
+o	Short: less than ordered
+o	Damaged: customer rejected or accepted
+o	Wrong / Extra: delivered item doesn’t match invoice
+Driver UI
+•	Table shows Item | Ordered | Delivered | Exceptions.
+•	“Add Exception” button per item.
+•	Modal fields:
+o	Type (Short / Damaged / Wrong)
+o	Qty (required)
+o	For Damaged → toggle Accepted by customer
+o	Notes (optional)
+o	Photos (optional)
+•	Exceptions panel lists all recorded issues (editable/removable).
+•	Totals auto-update: Ordered / Delivered / Not Delivered.
+Delivery logic
+For each item:
+delivered = ordered - short_qty - damaged_rejected_qty
+•	Damaged(accepted) counts as delivered.
+•	Damaged(rejected) reduces delivered.
+________________________________________
+8️⃣ Delivery Discrepancy Integration
+We reuse your current system:
+•	Tables: delivery_discrepancies, delivery_discrepancy_events, discrepancy_types
+•	Lifecycles: reported → validated → resolved → review → closed
+•	Roles:
+o	Driver = create (reported)
+o	Admin/Warehouse = validate / resolve / close
+o	Picker = self-validation
+When driver submits an exception
+Creates:
+•	delivery_discrepancy with:
+o	status='reported'
+o	reported_source='driver'
+o	reported_by=<driver>
+o	discrepancy_type (short_pick, damaged, wrong_item, extra_item, etc.)
+o	Photos + notes
+•	delivery_discrepancy_event (event_type='created')
+Admin workflow (unchanged)
+•	Validate: confirm issue, notes
+•	Resolve: credit, restock, write-off, supplier return
+•	Close: final archive
+•	Picker can later mark cause (e.g., wrong location, picker error)
+________________________________________
+9️⃣ Backend Flow (Deliver Endpoint)
+POST /stops/<stop_id>/deliver
+{
+  "invoice_ids": [123],
+  "exceptions": [
+    { "item_id": "1001", "type": "SHORT", "qty": 2, "notes": "missing in box" },
+    { "item_id": "1002", "type": "DAMAGED", "qty": 1, "damagedAccepted": false, "notes": "crushed corner" },
+    { "item_id": null, "type": "WRONG", "qty": 1, "notes": "unexpected SKU X" }
+  ],
+  "cod": { "received": 73.50, "method": "cash", "note": "shorts credited" },
+  "pod": { "has_physical_signed_invoice": true, "photos": [] },
+  "gps": { "lat": 35.17, "lng": 33.36 }
+}
+Server actions
+1.	Load ordered items.
+2.	Derive delivered quantities.
+3.	Write:
+o	delivery_lines (with qty_delivered)
+o	delivery_discrepancies (reported_source='driver')
+o	delivery_discrepancy_events (created)
+4.	Compute COD expected from delivered quantities.
+5.	Generate COD receipt → push to PS365 → optional print.
+6.	Store POD data.
+7.	Update invoice statuses → delivered or failed.
+________________________________________
+🔟 COD Collection & Printing
+•	Expected: Sum(price × delivered qty)
+•	Received: driver input (numeric)
+•	If variance ≠ 0 → note required.
+Receipt printing
+•	Route: GET /receipts/<id>/print
+•	Output: 58mm HTML with @media print styles.
+•	Optional: Web Bluetooth ESC/POS for thermal printers.
+Integration
+•	Store ps365_receipt_id in cod_receipts
+•	Printable via Android/iOS system print
+________________________________________
+1️⃣1️⃣ POD (Proof of Delivery)
+•	Primary: Physical signed invoice
+•	Optional: Photo (especially for “leave at reception”)
+•	Store in pod_records
+•	Fields:
+o	has_physical_signed_invoice
+o	receiver_name
+o	photos[]
+o	gps_lat, gps_lng
+o	collected_at
+o	notes
+If no physical copy → require receiver name + optional photo.
+________________________________________
+1️⃣2️⃣ Fail / Skip Flow
+•	Modal: reason (Closed / No Answer / Refused / Wrong address / Other)
+•	Optional photos and notes
+•	Sets invoice → delivery_failed
+•	Records GPS and timestamp
+________________________________________
+1️⃣3️⃣ Return to Depot / Early Finish
+Driver confirms early return.
+All undelivered invoices → returned_to_warehouse
+Route flagged completion_reason='returned'
+Next screen → Submit to Office (Settlement).
+________________________________________
+1️⃣4️⃣ Settlement Flow (Driver Submission)
+After finishing:
+•	Show expected COD total
+•	Input cash handed in
+•	Variance auto-calculated (requires note if not zero)
+•	Return summary (count, weight, optional crate photos)
+•	Notes (damage, incident, comments)
+→ Marks settlement_status='DRIVER_SUBMITTED'
+Route locked for editing until Admin clearance.
+________________________________________
+1️⃣5️⃣ Admin Completion
+Admin confirms:
+•	Cash cleared
+•	Returns received
+→ Sets settlement_status='SETTLED'
+→ Route → COMPLETED
+________________________________________
+1️⃣6️⃣ Guards & Safeguards
+•	One IN_TRANSIT route per driver.
+•	Must resolve all invoices before finishing.
+•	Supervisor PIN required to undo deliveries.
+•	Offline queue for unsynced events.
+•	Location check (optional geofence near stop).
+________________________________________
+1️⃣7️⃣ Database Models (Key Entities)
+•	Route: driver_id, status, settlement_status, totals, timestamps
+•	RouteStop: customer_id, name, address, website, sms, notes
+•	RouteStopInvoice: stop_id, invoice_id, items_count, weight, status
+•	Invoice: id, number, status, cod_amount
+•	DeliveryEvent: id, type, payload, gps, actor
+•	DeliveryLine: invoice_id, item_id, qty_ordered, qty_delivered
+•	DeliveryDiscrepancy: linked to invoice/item, type, qty_expected/actual, status, source, notes, photos
+•	DeliveryDiscrepancyEvent: event_type, actor, timestamp, notes
+•	CODReceipt / PODRecord as per specs above
+________________________________________
+1️⃣8️⃣ Frontend (Jinja Templates)
+•	routes.html → dashboard list
+•	stops.html → list + gestures
+•	stop_detail.html → customer info + invoices
+•	deliver_wizard.html → Exception entry + COD + POD
+•	fail_modal.html → reason + photo
+•	submission.html → cash/returns summary
+•	run_sheet.html → printable manifest
+JS modules:
+•	gestures.js → swipes/long-press
+•	deliver_exceptions.js → add/edit/remove exceptions
+•	cod.js → receipt input + print
+•	pod.js → signature/photo
+•	settlement.js → driver submission
+________________________________________
+1️⃣9️⃣ Audit & Security
+•	Every action writes a DeliveryEvent.
+•	Each discrepancy adds a DeliveryDiscrepancyEvent.
+•	Supervisor PIN for undo or forced status.
+•	File validation + EXIF strip.
+•	Role-based access enforcement (JWT).
+________________________________________
+2️⃣0️⃣ Future Enhancements
+•	Full PWA (offline, sync retries, photo caching)
+•	Signature pad on-screen
+•	Reconciliation PDF: route summary + COD + POD + discrepancies
+•	Live operations dashboard (WebSocket updates)
+________________________________________
+✅ In summary:
+•	Driver only records exceptions, not full scans.
+•	Each exception creates a proper discrepancy record with event tracking.
+•	COD and POD remain consistent with your accounting.
+•	Admin control over completion ensures proper clearance.
+•	Fully compatible with your existing delivery_discrepancies system.

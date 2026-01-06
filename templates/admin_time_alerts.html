@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Time Tracking Alerts{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1><i class="fas fa-clock text-warning"></i> Time Tracking Alerts</h1>
+            <p class="text-muted">Monitor orders that are exceeding expected completion times</p>
+        </div>
+    </div>
+
+    <!-- Alert Settings Summary -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-info">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-cog"></i> Current Alert Settings</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Status:</strong> 
+                            <span class="badge badge-{{ 'success' if alert_settings.enabled else 'secondary' }}">
+                                {{ 'Enabled' if alert_settings.enabled else 'Disabled' }}
+                            </span>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Warning Threshold:</strong> {{ alert_settings.warning_threshold }}%
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Critical Threshold:</strong> {{ alert_settings.critical_threshold }}%
+                        </div>
+                        <div class="col-md-3">
+                            <a href="{{ url_for('admin_settings') }}" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-edit"></i> Configure Settings
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Alerts -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-warning">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="fas fa-exclamation-triangle"></i> Active Alerts 
+                        <span class="badge badge-dark">{{ active_alerts|length }}</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if active_alerts %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Alert Type</th>
+                                    <th>Order</th>
+                                    <th>Picker</th>
+                                    <th>Expected</th>
+                                    <th>Actual</th>
+                                    <th>Over %</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alert in active_alerts %}
+                                <tr class="table-{{ 'danger' if alert.alert_type == 'critical' else 'warning' }}">
+                                    <td>
+                                        <span class="badge badge-{{ 'danger' if alert.alert_type == 'critical' else 'warning' }}">
+                                            {{ alert.alert_type.title() }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('admin_view_invoice', invoice_no=alert.invoice_no) }}" 
+                                           class="text-decoration-none">{{ alert.invoice_no }}</a>
+                                    </td>
+                                    <td>{{ alert.picker_username }}</td>
+                                    <td>{{ "%.1f"|format(alert.expected_duration) }}min</td>
+                                    <td>{{ "%.1f"|format(alert.actual_duration) }}min</td>
+                                    <td>{{ "%.0f"|format(alert.threshold_percentage) }}%</td>
+                                    <td>{{ alert.created_at.strftime('%H:%M') }}</td>
+                                    <td>
+                                        <form method="POST" action="{{ url_for('resolve_time_alert', alert_id=alert.id) }}" 
+                                              class="d-inline">
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" name="notes" class="form-control" 
+                                                       placeholder="Resolution notes..." maxlength="200">
+                                                <div class="input-group-append">
+                                                    <button type="submit" class="btn btn-sm btn-success">
+                                                        <i class="fas fa-check"></i> Resolve
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i> No active alerts - all orders are within expected time limits!
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recently Resolved Alerts -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card border-success">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-check-circle"></i> Recently Resolved Alerts (Last 7 Days)
+                        <span class="badge badge-light text-dark">{{ resolved_alerts|length }}</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if resolved_alerts %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Order</th>
+                                    <th>Picker</th>
+                                    <th>Alert Type</th>
+                                    <th>Expected</th>
+                                    <th>Actual</th>
+                                    <th>Resolved By</th>
+                                    <th>Resolved At</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alert in resolved_alerts %}
+                                <tr>
+                                    <td>{{ alert.invoice_no }}</td>
+                                    <td>{{ alert.picker_username }}</td>
+                                    <td>
+                                        <span class="badge badge-secondary">{{ alert.alert_type.title() }}</span>
+                                    </td>
+                                    <td>{{ "%.1f"|format(alert.expected_duration) }}min</td>
+                                    <td>{{ "%.1f"|format(alert.actual_duration) }}min</td>
+                                    <td>{{ alert.resolved_by or 'System' }}</td>
+                                    <td>{{ alert.resolved_at.strftime('%d/%m/%y %H:%M') if alert.resolved_at else '' }}</td>
+                                    <td>{{ alert.notes or '' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> No resolved alerts in the last 7 days.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.table-warning {
+    background-color: rgba(255, 193, 7, 0.1);
+}
+.table-danger {
+    background-color: rgba(220, 53, 69, 0.1);
+}
+</style>
+{% endblock %}

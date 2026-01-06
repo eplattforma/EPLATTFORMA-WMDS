@@ -1,0 +1,93 @@
+✅ 🧠 Instructions for Replit AI
+“Revamp the admin dashboard order list to use a global sorting system instead of individual column-based sorting. The new system should allow default sorting configuration based on multiple fields.”
+
+✅ 1. Disable Column Sorting
+Remove all per-column sorting buttons from the admin table UI.
+
+Columns like “Customer Name” or “Invoice Number” should not be clickable for sorting anymore.
+
+✅ 2. Add Default Sorting Settings Panel
+Add a simple panel (or modal) where the admin can configure sorting preferences:
+
+🎛️ Sorting Preferences UI:
+Primary Sorting Field (dropdown):
+
+status
+
+routing
+
+customer_name
+
+invoice_number
+
+Secondary Sorting Field (optional dropdown)
+
+same options as above
+
+Sort Direction (per field):
+
+Ascending (A → Z)
+
+Descending (Z → A)
+
+✅ 3. Custom Status Sorting Logic
+When sorting by status, use a predefined manual order (not alphabetical):
+
+The status should be ordered as:
+
+markdown
+Copy code
+1. Not Started
+2. In Progress
+3. Ready for Packing
+4. Completed
+In your code, map status like this:
+
+js
+Copy code
+const statusOrder = {
+  "Not Started": 1,
+  "In Progress": 2,
+  "Ready for Packing": 3,
+  "Completed": 4
+};
+Use this order when sorting status, regardless of string name.
+
+✅ 4. Store Sorting Settings
+Save the admin’s sorting preferences in localStorage or database (optional).
+
+Apply them as the default order every time the page loads.
+
+Example settings object:
+
+json
+Copy code
+{
+  "primary_sort": "status",
+  "primary_direction": "asc",
+  "secondary_sort": "routing",
+  "secondary_direction": "desc"
+}
+✅ 5. Apply Sorting Logic to Backend Query or Frontend Sort
+If backend-driven: pass sorting config as query parameters:
+
+http
+Copy code
+GET /orders?sort=status&direction=asc&secondary=routing&secondary_direction=desc
+If frontend-driven: sort the already-fetched data using JS
+
+✅ Example Flow
+Admin opens order dashboard
+
+Dashboard applies:
+
+Primary sort: status (custom order)
+
+Secondary sort: routing (ascending)
+
+Column headers are no longer sortable
+
+Admin can open a “Sorting Settings” modal to change logic
+
+✅ Summary Prompt to Give Replit AI
+“In the admin order dashboard, remove all per-column sorting. Instead, create a default sorting settings interface. Admin should be able to choose a primary and optional secondary sort field (status, routing, customer, invoice number) and direction (asc/desc). Status sorting must follow a fixed custom order: Not Started → In Progress → Ready for Packing → Completed. Store this config and apply it automatically on load. Do not allow column-click sorting anymore.”

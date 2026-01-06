@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Logs / temp
+*.log
+
+# Local databases (if any)
+*.sqlite
+*.db
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+
+# Local export archives (do not commit)
+warehouse-system-export.tar.gz
+warehouse-system-export.zip

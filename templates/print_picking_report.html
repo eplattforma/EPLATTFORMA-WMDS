@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picking Report - {{ invoice.invoice_no }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
+    <style>
+        @page {
+            size: A4;
+            margin: 5mm; /* Further reduced to minimize top spacing */
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #000000;
+        }
+        
+        .container {
+            max-width: 210mm; /* A4 width */
+            margin: 0 auto;
+            padding: 2px; /* Further reduced to minimize top spacing */
+        }
+        
+        .header-section {
+            display: table;
+            width: 100%;
+            margin-bottom: 8px; /* Further reduced */
+            margin-top: 0; /* Ensure no top margin */
+            border: 2px solid #000;
+        }
+        
+        .header-row {
+            display: table-row;
+        }
+        
+        .routing-cell {
+            display: table-cell;
+            width: 40%;
+            padding: 3px; /* Reduced from 5px */
+            border-right: 2px solid #000; /* Reduced from 3px */
+            vertical-align: middle;
+            text-align: center;
+        }
+        
+        .customer-cell {
+            display: table-cell;
+            width: 60%;
+            vertical-align: middle;
+            text-align: center;
+            padding: 3px; /* Reduced from 5px */
+        }
+        
+        .routing-number {
+            font-size: 72px; /* Restored to original large size */
+            font-weight: bold;
+            color: #000;
+            line-height: 1.1;
+        }
+        
+        .customer-name {
+            font-size: 22px; /* Restored to original large size */
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 5px;
+        }
+        
+        .invoice-number {
+            font-size: 18px; /* Kept reasonably large for readability */
+            font-weight: bold;
+        }
+        
+        .section-title {
+            font-size: 10px; /* Set to 10px as requested */
+            font-weight: bold;
+            margin-top: 15px;
+            margin-bottom: 6px;
+            color: #000;
+            border-bottom: 1px solid #000;
+            padding-bottom: 3px;
+        }
+        
+        .picking-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 5px;
+            table-layout: fixed;
+        }
+        
+        .picking-table th {
+            background-color: #e3e3e3;
+            color: #000;
+            font-weight: bold;
+            padding: 2px;
+            border: 1px solid #000;
+            text-align: left;
+            font-size: 10px;
+            line-height: 1.1;
+            height: 12px;
+        }
+        
+        .picking-table td {
+            padding: 2px;
+            border: 1px solid #000;
+            color: #000;
+            font-size: 12px;
+            line-height: 1.1;
+            height: 12px;
+            vertical-align: top;
+        }
+        
+        .exception-row {
+            background-color: #fff3cd;
+            font-weight: bold;
+        }
+        
+        .summary-box {
+            margin-top: 15px; /* Reduced from 25px */
+            padding: 8px; /* Reduced from 15px */
+            border: 1px solid #000; /* Reduced from 2px */
+            background-color: #f8f9fa;
+        }
+        
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 10px; /* Set to 10px as requested */
+            font-weight: bold;
+        }
+        
+        .summary-item:last-child {
+            margin-bottom: 0;
+            padding-top: 4px; /* Reduced from 8px */
+            border-top: 1px solid #000;
+        }
+        
+        .timestamp {
+            font-size: 10px; /* Set to 10px as requested */
+            color: #666;
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        .no-print {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        @media print {
+            body {
+                font-size: 12px;
+                color: #000000;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            
+            .picking-table tr {
+                height: 12px !important;
+            }
+            
+            .picking-table td, .picking-table th {
+                padding: 2px !important;
+                line-height: 1.1 !important;
+            }
+            
+            .no-print {
+                display: none !important;
+            }
+            
+            .exception-row {
+                background-color: #fff3cd !important;
+                border: 2px solid #000;
+            }
+            
+            .summary-box {
+                background-color: #f8f9fa !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Print Button (screen-only) -->
+        <div class="no-print">
+            <button onclick="window.print()" class="btn btn-primary">
+                <i class="fas fa-print"></i> Print Picking Report
+            </button>
+            <a href="{{ url_for('ready_for_packing', invoice_no=invoice.invoice_no) }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Packing
+            </a>
+        </div>
+        
+        <!-- Report Header with Routing Info -->
+        <div class="header-section">
+            <div class="header-row">
+                <div class="routing-cell">
+                    {% if invoice.routing %}
+                    <div class="routing-number">
+                        {% if invoice.routing == "6.0" %}
+                            201.0
+                        {% else %}
+                            {{ invoice.routing }}
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="customer-cell">
+                    <div class="customer-name">{{ invoice.customer_name }}</div>
+                    <div class="invoice-number">*{{ invoice.invoice_no }}*</div>
+                    {% if invoice.assigned_to %}
+                    <div style="font-size: 14px; font-weight: bold; margin-top: 5px; color: #666;">
+                        Picker: {{ invoice.assigned_to }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Summary Statistics -->
+        <div class="summary-stats mb-2" style="padding: 4px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 3px;">
+            <div style="display: flex; justify-content: space-between; flex-wrap: wrap; font-size: 10px;">
+                <div style="padding: 2px 6px;">
+                    <strong>Total Items:</strong> {{ total_count }}
+                </div>
+                <div style="padding: 2px 6px;">
+                    <strong>Manual Zones:</strong> {{ manually_picked_by_zone|length if manually_picked_by_zone else 0 }}
+                </div>
+                <div style="padding: 2px 6px;">
+                    <strong>Manually Picked:</strong> {{ manual_count }}
+                </div>
+                <div style="padding: 2px 6px;">
+                    <strong>Batch Zones:</strong> {{ batch_items_by_zone|length if batch_items_by_zone else 0 }}
+                </div>
+                <div style="padding: 2px 6px;">
+                    <strong>Batch Picked:</strong> {{ batch_count }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Manually Picked Items by Zone -->
+        <div class="section-title">
+            <div style="display: flex; align-items: center;">
+                <div style="background-color: #28a745; width: 20px; height: 20px; margin-right: 10px;"></div>
+                MANUALLY PICKED ITEMS BY ZONE
+            </div>
+        </div>
+        
+        {% if manually_picked_by_zone %}
+            {% for zone, zone_items in manually_picked_by_zone.items() %}
+            <div class="zone-section" style="margin-bottom: 20px;">
+                <!-- Zone Header -->
+                <div class="zone-header">
+                    <i class="fas fa-map-marker-alt" style="margin-right: 8px;"></i>ZONE {{ zone }}
+                    <span style="float: right;">{{ zone_items|length }} items</span>
+                </div>
+                
+                <!-- Zone Items Table -->
+                <table class="picking-table">
+            <style>
+                .picking-table th.location-col { width: 60px; max-width: 60px; overflow: hidden; font-size: 10px; height: 12px; }
+                .picking-table th.item-code-col { width: 65px; max-width: 65px; overflow: hidden; font-size: 10px; height: 12px; }
+                .picking-table th.item-name-col { width: 200px; max-width: 200px; overflow: hidden; font-size: 10px; height: 12px; }
+                .picking-table th.unit-col { width: 80px; max-width: 80px; overflow: hidden; font-size: 10px; height: 12px; }
+                .picking-table th.qty-col { width: 30px; max-width: 30px; overflow: hidden; font-size: 10px; height: 12px; }
+                .picking-table td { 
+                    word-break: break-word; 
+                    font-size: 12px !important; 
+                    line-height: 1.1 !important; 
+                    padding: 2px !important;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    height: 12px !important;
+                    vertical-align: top;
+                }
+                .picking-table td.item-name { 
+                    white-space: normal; 
+                    word-wrap: break-word;
+                    max-width: 200px;
+                    font-size: 12px !important;
+                    line-height: 1.1 !important;
+                    height: auto !important;
+                }
+                .manually-picked { border-left: 3px solid #28a745; }
+                .batch-picked { border-left: 3px solid #007bff; }
+                .batch-header { background-color: #e7f1ff; font-weight: bold; }
+        .zone-section { 
+            border: 2px solid #ddd; 
+            border-radius: 8px; 
+            padding: 10px; 
+            margin-bottom: 20px; 
+            page-break-inside: avoid; 
+        }
+        .zone-header { 
+            background-color: #007bff; 
+            color: white; 
+            padding: 8px; 
+            font-weight: bold; 
+            font-size: 14px; 
+            margin-bottom: 5px; 
+            border-radius: 3px;
+            page-break-after: avoid;
+        }
+        .zone-header.batch-zone { 
+            background-color: #6f42c1; 
+        }
+        @media print {
+            .zone-section { 
+                border: 2px solid #000 !important; 
+                page-break-inside: avoid !important;
+            }
+            .zone-header { 
+                background-color: #007bff !important; 
+                color: white !important;
+                page-break-after: avoid !important;
+            }
+            .zone-header.batch-zone { 
+                background-color: #6f42c1 !important; 
+            }
+        }
+            </style>
+            <thead>
+                <tr>
+                    <th class="item-code-col">ITEM CODE</th>
+                    <th class="item-name-col">ITEM NAME</th>
+                    <th class="location-col">LOCATION</th>
+                    <th class="unit-col">UNIT</th>
+                    <th class="qty-col">QTY REQ</th>
+                    <th class="qty-col">QTY PIC</th>
+                </tr>
+            </thead>
+                <tbody>
+                    {% for item in zone_items %}
+                    <tr class="manually-picked {% if item.picked_qty != (item.expected_pick_pieces or item.qty) %}exception-row{% endif %}">
+                        <td>{{ item.item_code }}</td>
+                        <td class="item-name">{{ item.item_name }}</td>
+                        <td>{{ item.location }}</td>
+                        <td>{% if item.unit_type|lower in ['virtual pack', 'item'] %}{{ item.unit_type }}{% else %}{{ item.unit_type }}{% if item.pack %}({{ item.pack }}){% endif %}{% endif %}</td>
+                        <td>{{ (item.expected_pick_pieces or item.qty)|int }}</td>
+                        <td>
+                            {% if item.picked_qty != (item.expected_pick_pieces or item.qty) %}
+                            <strong>{{ item.picked_qty|int }}</strong>
+                            {% else %}
+                            {{ item.picked_qty|int }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                </table>
+            </div>
+            {% endfor %}
+        {% else %}
+            <table class="picking-table">
+                <thead>
+                    <tr>
+                        <th class="item-code-col">ITEM CODE</th>
+                        <th class="item-name-col">ITEM NAME</th>
+                        <th class="location-col">LOCATION</th>
+                        <th class="unit-col">UNIT</th>
+                        <th class="qty-col">QTY REQ</th>
+                        <th class="qty-col">QTY PIC</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="7" class="text-center py-3">
+                            <em>No items were manually picked for this order.</em>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        {% endif %}
+        
+        <!-- Batch Picked Items by Zone -->
+        {% if batch_items_by_zone %}
+        <div class="section-title">
+            <div style="display: flex; align-items: center;">
+                <div style="background-color: #007bff; width: 20px; height: 20px; margin-right: 10px;"></div>
+                ITEMS PICKED VIA BATCH BY ZONE
+            </div>
+        </div>
+        
+        {% for zone, zone_batches in batch_items_by_zone.items() %}
+        <div class="zone-section" style="margin-bottom: 20px;">
+            <!-- Zone Header for Batch Items -->
+            <div class="zone-header batch-zone">
+                <i class="fas fa-map-marker-alt" style="margin-right: 8px;"></i>ZONE {{ zone }} - BATCH ITEMS
+                <span style="float: right;">{{ zone_batches.values()|map('length')|sum }} items</span>
+            </div>
+            
+            {% for batch_id, items in zone_batches.items() %}
+            <div class="batch-section mb-3">
+                <div class="batch-header p-2" style="background-color: #e7f1ff; border: 1px solid #b8daff; border-radius: 5px 5px 0 0; font-weight: bold;">
+                    Batch {{ batch_id }}
+                </div>
+                <table class="picking-table">
+                    <thead>
+                        <tr>
+                            <th class="item-code-col">ITEM CODE</th>
+                            <th class="item-name-col">ITEM NAME</th>
+                            <th class="location-col">LOCATION</th>
+                            <th class="unit-col">UNIT</th>
+                            <th class="qty-col">QTY REQ</th>
+                            <th class="qty-col">QTY PIC</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr class="batch-picked {% if item.get('status') == 'not_picked' %}exception-row{% endif %}" {% if item.get('status') == 'not_picked' %}style="background-color: #fff3cd;"{% endif %}>
+                            <td>{{ item.item_code }}</td>
+                            <td class="item-name">{{ item.item_name }}</td>
+                            <td>{{ item.location }}</td>
+                            <td>{% if item.unit_type|lower in ['virtual pack', 'item'] %}{{ item.unit_type }}{% else %}{{ item.unit_type }}{% if item.get('pack') %}({{ item.pack }}){% endif %}{% endif %}</td>
+                            <td>{{ item.requested_qty|int }}</td>
+                            <td>
+                                {% if item.get('status') == 'not_picked' %}
+                                    <span style="color: #856404; font-weight: bold;">Not Picked</span>
+                                {% elif item.qty != item.requested_qty %}
+                                    <strong>{{ item.qty|int }}</strong>
+                                {% else %}
+                                    {{ item.qty|int }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+        {% elif not manually_picked %}
+        <div class="alert alert-info mt-3">
+            <i class="fas fa-info-circle me-2"></i> This order doesn't have any picked items yet.
+        </div>
+        {% endif %}
+        
+        <!-- Exceptions (if any) -->
+        {% if exceptions %}
+        <div class="section-title">PICKING EXCEPTIONS</div>
+        <table class="picking-table">
+            <thead>
+                <tr>
+                    <th>ITEM CODE</th>
+                    <th>EXPECTED QTY</th>
+                    <th>PICKED QTY</th>
+                    <th>REASON</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for exception in exceptions %}
+                <tr class="exception-row">
+                    <td>{{ exception.item_code }}</td>
+                    <td>{{ exception.expected_qty|int }}</td>
+                    <td>{{ exception.picked_qty|int }}</td>
+                    <td>{{ exception.reason }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        
+        <!-- Order Summary -->
+        <div class="summary-box">
+            <div class="summary-item">
+                <span>TOTAL LINES:</span>
+                <span>{{ invoice.total_lines }}</span>
+            </div>
+            <div class="summary-item">
+                <span>TOTAL ITEMS:</span>
+                <span>{{ invoice.total_items|int }}</span>
+            </div>
+            <div class="summary-item">
+                <span>TOTAL WEIGHT:</span>
+                <span>{{ "%.2f"|format(invoice.total_weight) }} kg</span>
+            </div>
+            <div class="summary-item">
+                <span>PICKED BY:</span>
+                <span>{{ current_user.username }}</span>
+            </div>
+        </div>
+        
+        <!-- Timestamp -->
+        <div class="timestamp">
+            Printed on {{ now.strftime('%d/%m/%y %H:%M') }}
+        </div>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        // Auto-print when the page loads if in query param
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.location.search.includes('autoprint=true')) {
+                window.print();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Category Defaults{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-layer-group me-2"></i>Category Defaults</h2>
+        <a href="{{ url_for('oi_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
+        </a>
+    </div>
+
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>
+        Set default classification values for entire categories. Leave fields blank to not set a default.
+        After saving, run <strong>Reclassify Items</strong> to apply changes.
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 120px;">Code</th>
+                            <th style="width: 180px;">Name</th>
+                            <th class="text-center" style="width: 60px;">SKUs</th>
+                            <th class="text-center" style="width: 60px;">Review</th>
+                            <th>Fragility</th>
+                            <th>Spill</th>
+                            <th>Pressure</th>
+                            <th>Temp</th>
+                            <th>Box Fit</th>
+                            <th>Zone</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cat, sku_count, needs_review in categories %}
+                        {% set default = defaults.get(cat.category_code_365) %}
+                        <tr>
+                            <form action="{{ url_for('oi_category_defaults', category_code_365=cat.category_code_365) }}" method="POST">
+                            <td><strong>{{ cat.category_code_365 }}</strong></td>
+                            <td><small>{{ cat.category_name[:25] }}{% if cat.category_name|length > 25 %}...{% endif %}</small></td>
+                            <td class="text-center">{{ sku_count }}</td>
+                            <td class="text-center">
+                                {% if needs_review %}
+                                <span class="badge bg-warning text-dark">{{ needs_review }}</span>
+                                {% else %}
+                                <span class="text-muted">0</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="default_fragility" style="width: 80px;">
+                                    <option value="">-</option>
+                                    <option value="YES" {% if default and default.default_fragility == 'YES' %}selected{% endif %}>YES</option>
+                                    <option value="SEMI" {% if default and default.default_fragility == 'SEMI' %}selected{% endif %}>SEMI</option>
+                                    <option value="NO" {% if default and default.default_fragility == 'NO' %}selected{% endif %}>NO</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="default_spill_risk" style="width: 70px;">
+                                    <option value="">-</option>
+                                    <option value="true" {% if default and default.default_spill_risk == true %}selected{% endif %}>Yes</option>
+                                    <option value="false" {% if default and default.default_spill_risk == false %}selected{% endif %}>No</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="default_pressure_sensitivity" style="width: 80px;">
+                                    <option value="">-</option>
+                                    <option value="high" {% if default and default.default_pressure_sensitivity == 'high' %}selected{% endif %}>high</option>
+                                    <option value="medium" {% if default and default.default_pressure_sensitivity == 'medium' %}selected{% endif %}>med</option>
+                                    <option value="low" {% if default and default.default_pressure_sensitivity == 'low' %}selected{% endif %}>low</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="default_temperature_sensitivity" style="width: 85px;">
+                                    <option value="">-</option>
+                                    <option value="normal" {% if default and default.default_temperature_sensitivity == 'normal' %}selected{% endif %}>normal</option>
+                                    <option value="heat_sensitive" {% if default and default.default_temperature_sensitivity == 'heat_sensitive' %}selected{% endif %}>heat</option>
+                                    <option value="cool_required" {% if default and default.default_temperature_sensitivity == 'cool_required' %}selected{% endif %}>cool</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="default_box_fit_rule" style="width: 85px;">
+                                    <option value="">-</option>
+                                    <option value="BOTTOM" {% if default and default.default_box_fit_rule == 'BOTTOM' %}selected{% endif %}>BTM</option>
+                                    <option value="MIDDLE" {% if default and default.default_box_fit_rule == 'MIDDLE' %}selected{% endif %}>MID</option>
+                                    <option value="TOP" {% if default and default.default_box_fit_rule == 'TOP' %}selected{% endif %}>TOP</option>
+                                    <option value="COOLER_BAG" {% if default and default.default_box_fit_rule == 'COOLER_BAG' %}selected{% endif %}>COOL</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="default_zone" style="width: 90px;">
+                                    <option value="">-</option>
+                                    <option value="MAIN" {% if default and default.default_zone == 'MAIN' %}selected{% endif %}>MAIN</option>
+                                    <option value="SENSITIVE" {% if default and default.default_zone == 'SENSITIVE' %}selected{% endif %}>SENS</option>
+                                    <option value="SNACKS" {% if default and default.default_zone == 'SNACKS' %}selected{% endif %}>SNACK</option>
+                                </select>
+                            </td>
+                            <td>
+                                <button type="submit" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-save"></i>
+                                </button>
+                            </td>
+                            </form>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="11" class="text-center py-4 text-muted">
+                                No categories found
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

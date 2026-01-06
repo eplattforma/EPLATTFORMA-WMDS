@@ -1,0 +1,106 @@
+STEP-BY-STEP INSTRUCTIONS — Retrieve ALL Customers
+1️⃣ First request — Get total number of customers
+
+Call the POST /list_customers method with only_counted = "Y".
+
+🔹 Body example:
+
+{
+  "api_credentials": { "token": "XXXXX" },
+  "filter_define": {
+    "only_counted": "Y",
+    "active_type": "all"
+  }
+}
+
+
+🔹 Response example:
+
+{
+  "api_response": { "response_code": "1", "response_msg": "OK" },
+  "total_count_list_customers": 257,
+  "list_customers": null
+}
+
+
+➡️ Save the value of total_count_list_customers — you will need it for paging.
+
+2️⃣ Second request — Retrieve customers in batches
+
+Call again POST /list_customers but with only_counted = "N" plus page_number and page_size.
+
+🔹 Body template:
+
+{
+  "api_credentials": { "token": "XXXXX" },
+  "filter_define": {
+    "only_counted": "N",
+    "page_number": 1,
+    "page_size": 200,
+    "active_type": "all",
+    "display_fields": "",
+    "display_b2b_fields": true
+  }
+}
+
+
+📌 Notes
+
+page_size can be any value supported (commonly 100–500).
+
+If you need b2b_fields, set display_b2b_fields = true.
+
+3️⃣ Loop through pages
+
+Formula:
+
+total_pages = ceil(total_count / page_size)
+
+
+For each page:
+
+page_number = 1 → 2 → 3 → … → total_pages
+
+
+Collect all returned list_customers[] into your storage (array, database, etc.).
+
+✔️ Example in pseudocode
+page_size = 200
+
+# STEP 1 - get total
+total = get_total_count(token)
+
+total_pages = ceil(total / page_size)
+all_customers = []
+
+for page in range(1, total_pages + 1):
+    response = get_customers(token, page, page_size)
+    all_customers.extend(response["list_customers"])
+
+🔎 Optional filtering
+
+If you want only B2B customers:
+
+"b2b_type": "onlyB2B"
+
+
+If you want customers with a positive balance:
+
+"balance_selection": true,
+"balance_comparison_operator": "IsGreater",
+"balance_from": 0
+
+❗ Common mistakes to avoid
+Mistake	Correct
+Using GET instead of POST when filtering	Use POST for all advanced filtering & count
+Requesting without paging	API returns a limited page only
+Forgetting only_counted = "Y" first	Required to know how many pages to loop
+display_b2b_fields = false while expecting b2b data	Set true or include b2b_fields in display_fields
+
+If you'd like, I can provide ready-to-use code for:
+🔸 Python requests
+🔸 Replit/Flask
+🔸 NodeJS
+🔸 Postman collection
+
+Just tell me your preference. 🚀

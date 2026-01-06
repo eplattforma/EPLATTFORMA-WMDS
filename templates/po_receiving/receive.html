@@ -1,0 +1,1073 @@
+{% extends "base.html" %}
+
+{% block title %}Receive - {{ po.code_365 or po.shopping_cart_code }}{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<style>
+/* Scanner styles */
+#scannerViewport {
+    position: relative;
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+}
+#scannerViewport video {
+    width: 100%;
+    border-radius: 8px;
+}
+#scannerViewport canvas.drawingBuffer {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+.scanner-off {
+    display: none;
+}
+/* Remove number input arrows */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type=number] {
+    -moz-appearance: textfield;
+}
+/* Force red background on received cells - override dark theme overlay */
+.table .received-cell {
+    background: #FF4433 !important;
+    box-shadow: none !important;
+    background-image: none !important;
+}
+/* Light blue highlight for lines with qty mismatch */
+.table .mismatch-row td {
+    background-color: #87CEEB !important;
+    color: #000 !important;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{{ url_for('po_receiving.index') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+        <div class="text-center">
+            <h6 class="mb-0">{{ po.code_365 or po.shopping_cart_code }}</h6>
+            {% if po.status_code == 'GRN' %}
+            <span class="badge bg-success"><i class="fas fa-check-circle"></i> Goods Received</span>
+            {% elif po.status_name %}
+            <span class="badge bg-secondary">{{ po.status_name }}</span>
+            {% endif %}
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <span class="badge bg-info">{{ session.receipt_code }}</span>
+        </div>
+    </div>
+
+    <!-- Scanner Section -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div id="scannerViewport" class="scanner-off mb-3"></div>
+            
+            <div class="d-flex gap-2" style="min-height: 120px;">
+                <!-- Left side: Barcode input and Use/Select buttons -->
+                <div style="flex: 0 0 250px; display: flex; flex-direction: column; justify-content: space-between;">
+                    <div>
+                        <input type="text" id="manualCode" class="form-control form-control-lg" 
+                               placeholder="123456789012345" autofocus maxlength="15" style="width: 100%; font-family: monospace;">
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-secondary btn-lg" onclick="useManual()" style="flex: 1;">
+                            <i class="fas fa-keyboard"></i> Use
+                        </button>
+                        <button class="btn btn-success btn-lg" onclick="selectLine()" style="flex: 1;">
+                            <i class="fas fa-hand-pointer"></i> Select
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Right side: Scan button (fills remaining space) -->
+                <div style="flex: 1;">
+                    <button class="btn btn-outline-primary w-100 h-100 d-flex align-items-center justify-content-center flex-column" 
+                            onclick="toggleScanner()" id="scannerBtn">
+                        <i class="fas fa-barcode fa-3x mb-2"></i>
+                        <span style="font-size: 1.2rem;">Scan</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Selected Item Display -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div id="selectedItemDisplay" class="text-muted" style="font-size: 1.1rem; line-height: 1.6;">
+                <div>No item selected</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Hidden select for backend compatibility -->
+    <select id="lineSelect" style="display: none;">
+        <option value="">-- Select line --</option>
+        {% for line in po.lines %}
+        <option value="{{ line.id }}" 
+                data-item="{{ line.item_code_365 }}" 
+                data-name="{{ line.item_name }}" 
+                data-qty="{{ line.line_quantity }}"
+                data-requires-expiry="{{ 'true' if line.item_has_expiration_date else 'false' }}">
+            #{{ line.line_number }} - {{ line.item_code_365 }} - {{ line.item_name }}
+        </option>
+        {% endfor %}
+    </select>
+
+    <!-- Enter Quantity & Expiry Section -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex gap-2" style="min-height: 180px;">
+                <!-- Left side: Qty, Expiry, and Notes inputs -->
+                <div style="flex: 0 0 250px; display: flex; flex-direction: column; gap: 8px;">
+                    <div>
+                        <input type="number" id="qtyInput" class="form-control form-control-lg" 
+                               placeholder="Quantity" step="0.0001" min="0">
+                    </div>
+                    <div id="expiryInputWrapper" style="display: none;">
+                        <input type="date" id="expiryInput" class="form-control form-control-lg" 
+                               placeholder="Expiry Date (Required)">
+                        <small class="text-warning"><i class="fas fa-exclamation-triangle"></i> Required for this item</small>
+                    </div>
+                    <div>
+                        <select id="noteSelect" class="form-select">
+                            <option value="">-- No Note --</option>
+                            {% for note in receiving_notes %}
+                            <option value="{{ note }}">{{ note }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">Optional note</small>
+                    </div>
+                </div>
+                
+                <!-- Right side: Add button (fills remaining space) -->
+                <div style="flex: 1;">
+                    <button class="btn btn-warning w-100 h-100 d-flex align-items-center justify-content-center flex-column" 
+                            onclick="addLot()">
+                        <i class="fas fa-plus fa-3x mb-2"></i>
+                        <span style="font-size: 1.2rem;">Add</span>
+                    </button>
+                </div>
+            </div>
+            <div id="addMsg" class="mt-2"></div>
+        </div>
+    </div>
+
+    <!-- Order Lines Table -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <strong><i class="fas fa-clipboard-list"></i> Order Lines</strong>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>Item</th>
+                            <th>Shelf Location</th>
+                            <th>Ordered</th>
+                            <th>Received</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for line in po.lines %}
+                        {% set received = received_by_line.get(line.id, 0) %}
+                        {% set shelf_data = (line.shelf_locations|from_json) if line.shelf_locations else [] %}
+                        <tr id="row-{{ line.id }}">
+                            <td class="{% if received > 0 %}received-cell{% endif %}">{{ line.line_number }}</td>
+                            <td class="{% if received > 0 %}received-cell{% endif %}">
+                                <strong>{{ line.item_code_365 }}</strong>
+                                {% if line.item_barcode %}
+                                <span class="text-muted" style="font-family: monospace; margin-left: 8px;">{{ line.item_barcode }}</span>
+                                {% endif %}
+                                <br>
+                                <small class="text-muted">{{ line.item_name }}</small>
+                            </td>
+                            <td class="{% if received > 0 %}received-cell{% endif %}">
+                                {% if shelf_data %}
+                                    {% for shelf in shelf_data %}
+                                    <div>
+                                        {% if shelf.shelf_name %}
+                                        <strong>{{ shelf.shelf_name }}</strong>
+                                        {% else %}
+                                        <strong>{{ shelf.shelf_code_365 }}</strong>
+                                        {% endif %}
+                                        {% if shelf.stock %}
+                                        <br><small class="text-success">Stock: {{ shelf.stock }}</small>
+                                        {% endif %}
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                <small class="text-muted">-</small>
+                                {% endif %}
+                            </td>
+                            <td class="{% if received > 0 %}received-cell{% endif %}">{{ line.line_quantity|int }}</td>
+                            <td class="{% if received > 0 %}received-cell{% endif %}">
+                                {% if received >= line.line_quantity and received > 0 and line.line_quantity > 0 %}
+                                <div><i class="fas fa-check-circle text-success"></i></div>
+                                {% else %}
+                                <div class="received-qty" data-line-id="{{ line.id }}">
+                                    {{ received|int }}
+                                </div>
+                                {% endif %}
+                                <div class="lots-display" data-line-id="{{ line.id }}">
+                                    <small class="text-muted"></small>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Finish Section -->
+    <div class="card mb-3">
+        <div class="card-header bg-dark text-white">
+            <strong><i class="fas fa-check-circle"></i> 4. Finish</strong>
+        </div>
+        <div class="card-body">
+            <div class="d-grid gap-2">
+                <button class="btn btn-primary btn-lg" onclick="sendToPS365()">
+                    <i class="fas fa-cloud-upload-alt"></i> Send to PS365
+                </button>
+                <button class="btn btn-info btn-lg" onclick="refreshShelfLocations()">
+                    <i class="fas fa-sync-alt"></i> Refresh Stock & Locations
+                </button>
+                <a href="{{ url_for('po_receiving.print_po', po_id=po.id) }}" target="_blank" class="btn btn-secondary btn-lg">
+                    <i class="fas fa-print"></i> Print PO
+                </a>
+            </div>
+            <div id="ps365Status" class="mt-3"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Discrepancy Confirmation Modal -->
+<div class="modal fade" id="discrepancyModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: 90vw; margin: 1.75rem auto;">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Order Discrepancies</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2"><strong>The following items have discrepancies:</strong></p>
+                <div id="discrepancyList" class="list-group" style="max-height: 50vh; overflow-y: auto;"></div>
+                <div class="mt-3 p-2 bg-light border rounded">
+                    <p class="mb-0"><small><i class="fas fa-info-circle"></i> Items with received quantity different from ordered quantity will be sent to PS365 with the received amount.</small></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-warning btn-sm" onclick="proceedWithSendToPS365()">
+                    <i class="fas fa-check"></i> Proceed Anyway
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Item Selection Modal -->
+<div class="modal fade" id="itemSelectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-list"></i> Select Item to Receive</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="list-group list-group-flush">
+                    {% for line in po.lines %}
+                    {% set received = received_by_line.get(line.id, 0) %}
+                    {% set is_fully_received = received >= line.line_quantity and received > 0 and line.line_quantity > 0 %}
+                    <button type="button" class="list-group-item list-group-item-action py-2" 
+                            style="{% if is_fully_received %}background-color: #28a745 !important; color: white;{% elif received > 0 %}background-color: #ffc107 !important;{% endif %}"
+                            onclick="chooseItem({{ line.id }}, '{{ line.item_code_365 }}', '{{ line.item_name }}', {{ line.line_quantity }})"
+                            data-bs-dismiss="modal">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="flex-grow-1 me-3">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="fw-bold">#{{ line.line_number }}</span>
+                                    {% if line.item_barcode %}
+                                    <span class="fw-bold" style="font-family: monospace; font-size: 1.1rem; {% if is_fully_received %}color: white;{% endif %}">
+                                        {{ line.item_barcode }}
+                                    </span>
+                                    <span class="{% if is_fully_received %}text-white-50{% else %}text-muted{% endif %}" style="font-size: 0.9rem;">
+                                        ({{ line.item_code_365 }})
+                                    </span>
+                                    {% else %}
+                                    <span class="fw-bold" style="font-family: monospace; font-size: 1.1rem; {% if is_fully_received %}color: white;{% else %}color: #ffc107;{% endif %}">
+                                        {{ line.item_code_365 }}
+                                    </span>
+                                    {% endif %}
+                                    {% if is_fully_received %}
+                                    <i class="fas fa-check-circle" style="color: white;"></i>
+                                    {% endif %}
+                                </div>
+                                <div class="{% if is_fully_received %}text-white-50{% else %}text-muted{% endif %} small mt-1" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    {{ line.item_name }}
+                                </div>
+                            </div>
+                            <div class="text-end" style="min-width: 80px;">
+                                <div class="small">Ord: <strong>{{ line.line_quantity|int }}</strong></div>
+                                <div class="small {% if is_fully_received %}text-white{% elif received > 0 %}text-dark{% else %}text-muted{% endif %}">
+                                    Rec: <strong>{{ received|int }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const SESSION_ID = {{ session.id }};
+let scannerOn = false;
+let lastScanned = null;
+
+// Toggle scanner
+function toggleScanner() {
+    const viewport = document.getElementById('scannerViewport');
+    const btn = document.getElementById('scannerBtn');
+    
+    if (scannerOn) {
+        Quagga.stop();
+        viewport.classList.add('scanner-off');
+        btn.innerHTML = '<i class="fas fa-barcode fa-3x mb-2"></i><span>Scan</span>';
+        scannerOn = false;
+    } else {
+        viewport.classList.remove('scanner-off');
+        startScanner();
+        btn.innerHTML = '<i class="fas fa-stop fa-3x mb-2"></i><span>Stop</span>';
+        scannerOn = true;
+    }
+}
+
+// Close scanner (called after successful scan)
+function closeScanner() {
+    if (scannerOn) {
+        Quagga.stop();
+        const viewport = document.getElementById('scannerViewport');
+        const btn = document.getElementById('scannerBtn');
+        viewport.classList.add('scanner-off');
+        btn.innerHTML = '<i class="fas fa-barcode fa-3x mb-2"></i><span>Scan</span>';
+        scannerOn = false;
+    }
+}
+
+// Start barcode scanner
+function startScanner() {
+    Quagga.init({
+        inputStream: {
+            name: "Live",
+            type: "LiveStream",
+            constraints: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            },
+            target: document.querySelector('#scannerViewport')
+        },
+        decoder: {
+            readers: [
+                "code_128_reader",
+                "ean_reader",
+                "ean_8_reader",
+                "upc_reader",
+                "upc_e_reader",
+                "code_39_reader",
+                "codabar_reader"
+            ]
+        },
+        locate: true,
+        debug: {
+            drawBoundingBox: true,
+            showFrequency: true,
+            showPattern: true
+        }
+    }, function(err) {
+        if (err) {
+            console.error("Camera init failed:", err);
+            alert("Unable to access camera. Try refreshing or check permissions.");
+            closeScanner();
+            return;
+        }
+        Quagga.start();
+        scannerOn = true;
+    });
+
+    Quagga.onDetected(function(result) {
+        const code = result.codeResult.code;
+        if (code !== lastScanned) {
+            lastScanned = code;
+            document.getElementById('manualCode').value = code;
+            
+            // Close scanner automatically
+            closeScanner();
+            
+            // Process the scanned code
+            useManual();
+            
+            // Beep or vibrate for feedback
+            if (navigator.vibrate) navigator.vibrate(200);
+        }
+    });
+}
+
+// Show item selection modal
+function selectLine() {
+    const modal = new bootstrap.Modal(document.getElementById('itemSelectModal'));
+    modal.show();
+}
+
+// Choose item from modal
+function chooseItem(lineId, itemCode, itemName, orderedQty) {
+    // Update hidden select
+    const select = document.getElementById('lineSelect');
+    select.value = lineId;
+    
+    // Update display
+    const display = document.getElementById('selectedItemDisplay');
+    display.innerHTML = `
+        <div><strong>${itemCode}</strong> - ${itemName}</div>
+        <div class="text-muted">Ordered Quantity: ${orderedQty}</div>
+    `;
+    
+    // Update expiration field visibility
+    updateExpiryFieldVisibility();
+    
+    // Focus on quantity input
+    document.getElementById('qtyInput').focus();
+}
+
+// Toggle expiry field visibility based on selected item requirements
+function updateExpiryFieldVisibility() {
+    const select = document.getElementById('lineSelect');
+    const selectedOption = select.options[select.selectedIndex];
+    const expiryWrapper = document.getElementById('expiryInputWrapper');
+    const expiryInput = document.getElementById('expiryInput');
+    
+    if (selectedOption && selectedOption.value) {
+        const requiresExpiry = selectedOption.dataset.requiresExpiry === 'true';
+        
+        if (requiresExpiry) {
+            expiryWrapper.style.display = 'block';
+            expiryInput.required = true;
+        } else {
+            expiryWrapper.style.display = 'none';
+            expiryInput.required = false;
+            expiryInput.value = ''; // Clear value if not required
+        }
+    } else {
+        expiryWrapper.style.display = 'none';
+        expiryInput.required = false;
+    }
+}
+
+// Use manual code entry
+async function useManual() {
+    const code = document.getElementById('manualCode').value.trim();
+    if (!code) return;
+    
+    const select = document.getElementById('lineSelect');
+    
+    // First, try direct match with item code
+    let found = false;
+    for (let i = 0; i < select.options.length; i++) {
+        const option = select.options[i];
+        if (option.dataset.item === code) {
+            select.selectedIndex = i;
+            // Update display
+            const display = document.getElementById('selectedItemDisplay');
+            display.innerHTML = `
+                <div><strong>${option.dataset.item}</strong> - ${option.dataset.name}</div>
+                <div class="text-muted">Ordered Quantity: ${option.dataset.qty}</div>
+            `;
+            // Update expiration field visibility
+            updateExpiryFieldVisibility();
+            document.getElementById('qtyInput').focus();
+            found = true;
+            return;
+        }
+    }
+    
+    if (found) {
+        return;
+    }
+    
+    // If no direct match, lookup barcode via PS365
+    try {
+        const resp = await fetch('{{ url_for("po_receiving.api_lookup_barcode") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({barcode: code})
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok && data.item_code_365) {
+            // Try to match the returned item code to a line
+            for (let i = 0; i < select.options.length; i++) {
+                const option = select.options[i];
+                if (option.dataset.item === data.item_code_365) {
+                    select.selectedIndex = i;
+                    // Update display
+                    const display = document.getElementById('selectedItemDisplay');
+                    display.innerHTML = `
+                        <div><strong>${option.dataset.item}</strong> - ${option.dataset.name}</div>
+                        <div class="text-muted">Ordered Quantity: ${option.dataset.qty}</div>
+                    `;
+                    // Update expiration field visibility
+                    updateExpiryFieldVisibility();
+                    document.getElementById('qtyInput').focus();
+                    return;
+                }
+            }
+            
+            // Not found in PO - offer to add it
+            if (confirm('Item found in PS365:\n' + data.item_code_365 + ': ' + data.item_name + '\n\nThis item is not on the original order.\nAdd it to the order with ordered quantity 0?')) {
+                await addItemToPO(data.item_code_365, data.item_name);
+            }
+        } else {
+            alert('No matching item found for: ' + code);
+        }
+    } catch (err) {
+        console.error('Barcode lookup error:', err);
+        alert('No matching line found for: ' + code);
+    }
+}
+
+// Add item to PO (for items not originally on the order)
+async function addItemToPO(itemCode, itemName) {
+    try {
+        const resp = await fetch('{{ url_for("po_receiving.api_add_po_line") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                po_id: {{ po.id }},
+                item_code_365: itemCode,
+                item_name: itemName
+            })
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok && data.line) {
+            const line = data.line;
+            const select = document.getElementById('lineSelect');
+            
+            // Only add to UI if it's a new line (not already exists)
+            if (!data.already_exists) {
+                // Add to dropdown
+                const option = document.createElement('option');
+                option.value = line.id;
+                option.dataset.item = line.item_code_365;
+                option.dataset.name = line.item_name;
+                option.dataset.qty = 0;
+                // Note: API response should include tracking requirements - default to false if not provided
+                option.dataset.requiresExpiry = line.item_has_expiration_date ? 'true' : 'false';
+                option.textContent = '#' + line.line_number + ' - ' + line.item_code_365 + ' - ' + line.item_name;
+                select.appendChild(option);
+                
+                // Add to table
+                const tbody = document.querySelector('table tbody');
+                const row = document.createElement('tr');
+                row.id = 'row-' + line.id;
+                row.className = '';  // Clear any background classes
+                row.innerHTML = `
+                    <td>${line.line_number}</td>
+                    <td>
+                        <strong>${line.item_code_365}</strong><br>
+                        <small class="text-muted">${line.item_name}</small>
+                    </td>
+                    <td><small class="text-muted">-</small></td>
+                    <td>0</td>
+                    <td>
+                        <div class="received-qty" data-line-id="${line.id}">0</div>
+                        <div class="expiry-dates" data-line-id="${line.id}">
+                            <small class="text-muted"></small>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            } else {
+                alert('Item was already added to this order previously.');
+            }
+            
+            // Select the line (whether new or existing) and update display
+            select.value = line.id;
+            const display = document.getElementById('selectedItemDisplay');
+            display.innerHTML = `
+                <div><strong>${line.item_code_365}</strong> - ${line.item_name}</div>
+                <div class="text-muted">Ordered Quantity: 0</div>
+            `;
+            // Update expiration field visibility
+            updateExpiryFieldVisibility();
+            document.getElementById('qtyInput').focus();
+        } else {
+            alert('Error adding item to order: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Error adding item to PO:', err);
+        alert('Error adding item to order: ' + err.message);
+    }
+}
+
+// Refresh all received quantities and display lots with expiry dates
+async function refreshAllReceivedQuantities() {
+    try {
+        const resp = await fetch('{{ url_for("po_receiving.api_get_received_quantities") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_id: SESSION_ID})
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok && data.received_by_line) {
+            // Update each line's received quantities and lots display
+            for (const [lineId, lineData] of Object.entries(data.received_by_line)) {
+                const row = document.getElementById(`row-${lineId}`);
+                if (!row) continue;
+                
+                const receivedCell = row.querySelector('td:nth-child(5)');
+                const orderedCell = row.querySelector('td:nth-child(4)');
+                const ordered = parseInt(orderedCell.textContent) || 0;
+                const received = lineData.received;
+                const lots = lineData.lots || [];
+                
+                // Build lots display HTML
+                let lotsHtml = '';
+                if (lots.length > 0) {
+                    lotsHtml = '<div style="margin-top: 5px;">';
+                    lots.forEach(lot => {
+                        lotsHtml += '<div style="display: flex; align-items: center; gap: 5px; margin-bottom: 3px; font-size: 0.85rem;">';
+                        lotsHtml += `<span class="badge bg-secondary">Qty: ${lot.qty}</span>`;
+                        if (lot.expiry_date) {
+                            lotsHtml += `<span class="badge bg-info">Exp: ${lot.expiry_date}</span>`;
+                        }
+                        if (lot.lot_note) {
+                            lotsHtml += `<span class="badge bg-warning text-dark" title="${lot.lot_note}"><i class="fas fa-sticky-note"></i> ${lot.lot_note}</span>`;
+                        }
+                        lotsHtml += `<button class="btn btn-danger btn-sm py-0 px-1" style="font-size: 0.7rem;" onclick="resetLot(${lot.id})" title="Reset this lot"><i class="fas fa-undo"></i></button>`;
+                        lotsHtml += '</div>';
+                    });
+                    lotsHtml += '</div>';
+                }
+                
+                // Update the cell content
+                if (received >= ordered && received > 0 && ordered > 0) {
+                    receivedCell.innerHTML = `
+                        <div><i class="fas fa-check-circle text-success"></i></div>
+                        ${lotsHtml}
+                    `;
+                } else {
+                    receivedCell.innerHTML = `
+                        <div class="received-qty" data-line-id="${lineId}">${Math.round(received)}</div>
+                        ${lotsHtml}
+                    `;
+                }
+                
+                // Add or remove highlighting based on fulfillment status
+                const cells = row.querySelectorAll('td');
+                const isMismatch = received > 0 && received !== ordered;
+                const isFullyReceived = received >= ordered && received > 0 && ordered > 0;
+                
+                // Only apply red for fully received items, grey for mismatches
+                if (isFullyReceived) {
+                    cells.forEach(cell => {
+                        cell.classList.add('received-cell');
+                        cell.classList.remove('mismatch-row');
+                    });
+                    row.classList.remove('mismatch-row');
+                } else if (isMismatch) {
+                    cells.forEach(cell => cell.classList.remove('received-cell'));
+                    row.classList.add('mismatch-row');
+                } else {
+                    cells.forEach(cell => cell.classList.remove('received-cell'));
+                    row.classList.remove('mismatch-row');
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Error refreshing quantities:', err);
+    }
+}
+
+// Reset a lot (delete a receiving line)
+async function resetLot(lotId) {
+    if (!confirm('Are you sure you want to reset this lot? This will remove the received quantity.')) {
+        return;
+    }
+    
+    try {
+        const resp = await fetch(`{{ url_for('po_receiving.api_reset_receiving_line', line_id=0) }}`.replace('/0', `/${lotId}`), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok) {
+            // Refresh all quantities
+            await refreshAllReceivedQuantities();
+            await refreshItemSelectionModal();
+        } else {
+            alert('Error resetting lot: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Error resetting lot:', err);
+        alert('Error resetting lot: ' + err.message);
+    }
+}
+
+// Refresh item selection modal with updated received quantities
+async function refreshItemSelectionModal() {
+    try {
+        const resp = await fetch('{{ url_for("po_receiving.api_get_received_quantities") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_id: SESSION_ID})
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok && data.received_by_line) {
+            // Update modal items
+            const modal = document.getElementById('itemSelectModal');
+            const items = modal.querySelectorAll('.list-group-item');
+            
+            items.forEach(item => {
+                const onclick = item.getAttribute('onclick');
+                const lineIdMatch = onclick.match(/chooseItem\((\d+)/);
+                
+                if (lineIdMatch) {
+                    const lineId = parseInt(lineIdMatch[1]);
+                    const lineData = data.received_by_line[lineId];
+                    
+                    if (lineData) {
+                        const isFullyReceived = lineData.is_fully_received;
+                        const received = lineData.received;
+                        
+                        // Update background color
+                        if (isFullyReceived) {
+                            item.style.backgroundColor = '#28a745';
+                            item.style.color = 'white';
+                        } else if (received > 0) {
+                            item.style.backgroundColor = '#ffc107';
+                            item.style.color = '';
+                        } else {
+                            item.style.backgroundColor = '';
+                            item.style.color = '';
+                        }
+                        
+                        // Update received quantity display
+                        const recDisplay = item.querySelector('div.text-end .small:nth-child(2) strong');
+                        if (recDisplay) {
+                            recDisplay.textContent = Math.round(received);
+                        }
+                    }
+                }
+            });
+        }
+    } catch (err) {
+        console.error('Error refreshing modal:', err);
+    }
+}
+
+// Move a table row to the top of the main order table
+function moveRowToTop(lineId) {
+    const row = document.getElementById('row-' + lineId);
+    if (!row) return;
+    
+    const tbody = row.parentElement;
+    if (tbody.firstChild !== row) {
+        tbody.removeChild(row);
+        tbody.insertBefore(row, tbody.firstChild);
+    }
+}
+
+// Add lot
+async function addLot() {
+    const lineId = document.getElementById('lineSelect').value;
+    const qty = document.getElementById('qtyInput').value;
+    const expiry = document.getElementById('expiryInput').value;
+    const scanned = document.getElementById('manualCode').value;
+    const note = document.getElementById('noteSelect').value;
+    
+    if (!lineId) {
+        alert('Please select a line');
+        return;
+    }
+    
+    if (!qty || parseFloat(qty) <= 0) {
+        alert('Please enter a valid quantity');
+        return;
+    }
+    
+    const msgDiv = document.getElementById('addMsg');
+    msgDiv.innerHTML = '<div class="text-info"><i class="fas fa-spinner fa-spin"></i> Adding...</div>';
+    
+    try {
+        const resp = await fetch('{{ url_for("po_receiving.api_add_lot") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: SESSION_ID,
+                po_line_id: parseInt(lineId),
+                qty_received: parseFloat(qty),
+                expiry_date: expiry || null,
+                lot_note: note || null,
+                barcode_scanned: scanned || null
+            })
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok) {
+            msgDiv.innerHTML = '<div class="alert alert-success"><i class="fas fa-check"></i> Lot added successfully!</div>';
+            
+            // Refresh all received quantities and lot details from server
+            await refreshAllReceivedQuantities();
+            
+            // Refresh the item selection modal
+            await refreshItemSelectionModal();
+            
+            // Move the just-received item to the top of the main order table
+            moveRowToTop(parseInt(lineId));
+            
+            // Clear inputs
+            document.getElementById('qtyInput').value = '';
+            document.getElementById('expiryInput').value = '';
+            document.getElementById('manualCode').value = '';
+            document.getElementById('noteSelect').selectedIndex = 0;
+            document.getElementById('lineSelect').selectedIndex = 0;
+            
+            // Clear selected item display
+            const display = document.getElementById('selectedItemDisplay');
+            display.innerHTML = '<div class="text-muted">No item selected</div>';
+            
+            setTimeout(() => msgDiv.innerHTML = '', 3000);
+        } else {
+            msgDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        }
+    } catch (err) {
+        msgDiv.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+    }
+}
+
+// Check for discrepancies and show modal if needed
+async function sendToPS365() {
+    try {
+        const resp = await fetch('{{ url_for("po_receiving.api_get_received_quantities") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_id: SESSION_ID})
+        });
+        
+        const data = await resp.json();
+        
+        if (!data.ok) {
+            alert('Error checking quantities: ' + data.error);
+            return;
+        }
+        
+        // Check for discrepancies
+        const discrepancies = [];
+        let allFullyReceived = true;
+        
+        for (const [lineId, lineData] of Object.entries(data.received_by_line)) {
+            const ordered = lineData.ordered;
+            const received = lineData.received;
+            
+            if (received === 0 && ordered > 0) {
+                // Item not received at all
+                discrepancies.push({
+                    lineId: lineId,
+                    ordered: ordered,
+                    received: 0,
+                    status: 'Not Received'
+                });
+                allFullyReceived = false;
+            } else if (received > 0 && received !== ordered) {
+                // Quantity mismatch
+                discrepancies.push({
+                    lineId: lineId,
+                    ordered: ordered,
+                    received: received,
+                    status: `Partial: ${received}/${ordered}`
+                });
+                allFullyReceived = false;
+            }
+        }
+        
+        // If all items are fully received, proceed directly
+        if (allFullyReceived) {
+            await proceedWithSendToPS365();
+            return;
+        }
+        
+        // Show discrepancy modal
+        buildDiscrepancyList(discrepancies, data.received_by_line);
+        const modal = new bootstrap.Modal(document.getElementById('discrepancyModal'));
+        modal.show();
+        
+    } catch (err) {
+        console.error('Error checking discrepancies:', err);
+        alert('Error: ' + err.message);
+    }
+}
+
+// Build the discrepancy list for the modal
+function buildDiscrepancyList(discrepancies, receivedByLine) {
+    const list = document.getElementById('discrepancyList');
+    list.innerHTML = '';
+    
+    discrepancies.forEach(disc => {
+        const lineData = receivedByLine[disc.lineId];
+        const row = document.getElementById(`row-${disc.lineId}`);
+        let itemInfo = '';
+        
+        if (row) {
+            const itemCell = row.querySelector('td:nth-child(2)');
+            if (itemCell) {
+                itemInfo = itemCell.textContent.trim();
+            }
+        }
+        
+        const item = document.createElement('div');
+        item.className = 'list-group-item py-2 px-3';
+        item.style.fontSize = '0.9rem';
+        item.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start gap-2" style="flex-wrap: wrap;">
+                <div class="flex-grow-1" style="min-width: 0;">
+                    <div class="fw-bold" style="word-wrap: break-word; white-space: normal; font-size: 0.95rem;">${itemInfo || 'Item'}</div>
+                    <small class="text-muted">${disc.status}</small>
+                </div>
+                <div class="text-end flex-shrink-0" style="min-width: fit-content;">
+                    <div><span class="badge bg-light text-dark" style="font-size: 0.8rem;">Ord: ${Math.round(disc.ordered)}</span></div>
+                    <div><span class="badge bg-warning text-dark" style="font-size: 0.8rem;">Rec: ${Math.round(disc.received)}</span></div>
+                </div>
+            </div>
+        `;
+        list.appendChild(item);
+    });
+}
+
+// Proceed with sending to PS365
+async function proceedWithSendToPS365() {
+    // Close modal if open
+    const modal = bootstrap.Modal.getInstance(document.getElementById('discrepancyModal'));
+    if (modal) {
+        modal.hide();
+    }
+    
+    const statusDiv = document.getElementById('ps365Status');
+    statusDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Sending to PS365...</div>';
+    
+    try {
+        const resp = await fetch('{{ url_for("po_receiving.api_send_to_ps365") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_id: SESSION_ID})
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok && data.ps365) {
+            const ps365 = data.ps365;
+            
+            if (ps365.success) {
+                let html = '<div class="alert alert-success">';
+                html += '<h5><i class="fas fa-check-circle"></i> Successfully sent to PS365!</h5>';
+                html += `<p><strong>Lines sent:</strong> ${ps365.lines_sent}</p>`;
+                if (ps365.pick_list_code) {
+                    html += `<p><strong>Pick List Code:</strong> ${ps365.pick_list_code}</p>`;
+                }
+                
+                if (ps365.skipped_lines && ps365.skipped_lines.length > 0) {
+                    html += '<div class="alert alert-warning mt-2 mb-0">';
+                    html += `<strong>⚠️ Warning:</strong> ${ps365.skipped_lines.length} manually added items were not sent:<br>`;
+                    ps365.skipped_lines.forEach(line => {
+                        html += `<small>• ${line.item_code}: ${line.qty_received} units - ${line.reason}</small><br>`;
+                    });
+                    html += '</div>';
+                }
+                
+                html += '</div>';
+                statusDiv.innerHTML = html;
+            } else {
+                let html = '<div class="alert alert-danger">';
+                html += '<h5><i class="fas fa-exclamation-circle"></i> Failed to send to PS365</h5>';
+                html += `<p>${ps365.error}</p>`;
+                
+                if (ps365.skipped_lines && ps365.skipped_lines.length > 0) {
+                    html += `<p><small>${ps365.skipped_lines.length} lines were skipped (manually added items)</small></p>`;
+                }
+                
+                html += '</div>';
+                statusDiv.innerHTML = html;
+            }
+        } else {
+            statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${data.error || 'Unknown error'}</div>`;
+        }
+    } catch (err) {
+        statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+    }
+}
+
+// Refresh shelf locations and stock
+async function refreshShelfLocations() {
+    if (!confirm('Refresh shelf locations and stock levels from PS365?\n\nThis will update stock quantities and shelf locations for all items in this purchase order.')) {
+        return;
+    }
+    
+    const statusDiv = document.getElementById('ps365Status');
+    statusDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Refreshing shelf locations and stock from PS365...</div>';
+    
+    try {
+        const resp = await fetch('/po-receiving/api/refresh-shelf-locations/{{ po.id }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok) {
+            statusDiv.innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle"></i> ${data.message}</div>`;
+            
+            // Reload the page to show updated stock and shelf locations
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            statusDiv.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Error: ${data.error}</div>`;
+        }
+    } catch (err) {
+        statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+    }
+}
+
+// Load lots data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    refreshAllReceivedQuantities();
+});
+</script>
+{% endblock %}

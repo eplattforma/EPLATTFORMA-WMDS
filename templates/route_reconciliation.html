@@ -1,0 +1,432 @@
+{% extends "base.html" %}
+
+{% block title %}Route Reconciliation - {{ route.route_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2>Route Reconciliation Report</h2>
+            <p class="text-muted mb-0">Route #{{ route.id }}: {{ route.route_name }} - {{ route.driver_name }}</p>
+        </div>
+        <div>
+            <a href="{{ url_for('routes.detail', shipment_id=route.id) }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Route
+            </a>
+        </div>
+    </div>
+
+    <!-- Route Overview -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Route Overview</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tr>
+                            <th width="35%">Driver:</th>
+                            <td>{{ route.driver_name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Date:</th>
+                            <td>{{ route.delivery_date }}</td>
+                        </tr>
+                        <tr>
+                            <th>Status:</th>
+                            <td><span class="badge bg-{{ 'success' if route.status == 'COMPLETED' else 'warning' }}">{{ route.status }}</span></td>
+                        </tr>
+                        <tr>
+                            <th>Started At:</th>
+                            <td>{{ route.started_at.strftime('%H:%M:%S') if route.started_at else 'Not started' }}</td>
+                        </tr>
+                        {% if route.completed_at %}
+                        <tr>
+                            <th>Completed At:</th>
+                            <td>{{ route.completed_at.strftime('%H:%M:%S') }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Settlement Summary</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tr>
+                            <th width="35%">Expected COD:</th>
+                            <td class="text-end">€{{ "%.2f"|format(total_expected) }}</td>
+                        </tr>
+                        <tr>
+                            <th>Received COD:</th>
+                            <td class="text-end">€{{ "%.2f"|format(total_received) }}</td>
+                        </tr>
+                        <tr>
+                            <th>Variance:</th>
+                            <td class="text-end {% if total_variance != 0 %}text-danger{% endif %}">
+                                €{{ "%.2f"|format(total_variance) }}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Settlement Status:</th>
+                            <td>
+                                {% if settlement_info.cleared %}
+                                    <span class="badge bg-success">SETTLED</span>
+                                {% elif settlement_info.submitted %}
+                                    <span class="badge bg-warning">DRIVER SUBMITTED</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">PENDING</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% if settlement_info.submitted %}
+                        <tr>
+                            <th>Cash Handed In:</th>
+                            <td class="text-end">€{{ "%.2f"|format(settlement_info.submitted_amount) if settlement_info.submitted_amount else '0.00' }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+
+                    {% if settlement_info.submitted and not settlement_info.cleared %}
+                    <div class="mt-3">
+                        <button class="btn btn-success w-100" onclick="clearSettlement()">
+                            <i class="bi bi-check-circle"></i> Clear Settlement
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delivery Events Audit Trail -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white" role="button" data-bs-toggle="collapse" data-bs-target="#deliveryEventsCollapse" aria-expanded="false" aria-controls="deliveryEventsCollapse" style="cursor: pointer;">
+            <h5 class="mb-0">
+                <i class="bi bi-chevron-right me-2" id="auditTrailChevron"></i>Delivery Events (Audit Trail)
+            </h5>
+        </div>
+        <div id="deliveryEventsCollapse" class="collapse card-body" data-bs-parent=".mb-4">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Event</th>
+                            <th>Stop</th>
+                            <th>Details</th>
+                            <th>GPS</th>
+                            <th>Actor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in delivery_events %}
+                        <tr>
+                            <td>{{ event.created_at.strftime('%H:%M:%S') }}</td>
+                            <td><span class="badge bg-secondary">{{ event.event_type }}</span></td>
+                            <td>
+                                {% if event.route_stop_id and stop_lookup.get(event.route_stop_id) %}
+                                    {% set stop_info = stop_lookup[event.route_stop_id] %}
+                                    Stop #{{ stop_info['seq_no'] }}: {{ stop_info['stop_name'] or stop_info['customer_code'] }}
+                                {% elif event.route_stop_id %}
+                                    Stop #{{ event.route_stop_id }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if event.payload %}
+                                    <small>
+                                        {% if event.payload.invoice_nos %}
+                                            Invoices: {{ event.payload.invoice_nos|join(', ') }}<br>
+                                        {% endif %}
+                                        {% if event.payload.exceptions_count is defined %}
+                                            Exceptions: {{ event.payload.exceptions_count }}<br>
+                                        {% endif %}
+                                        {% if event.payload.cod_received %}
+                                            COD: €{{ event.payload.cod_received }}
+                                        {% endif %}
+                                    </small>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if event.gps_lat and event.gps_lng %}
+                                    <small>{{ "%.6f"|format(event.gps_lat|float) }}, {{ "%.6f"|format(event.gps_lng|float) }}</small>
+                                    <a href="https://www.google.com/maps?q={{ event.gps_lat }},{{ event.gps_lng }}" target="_blank" class="btn btn-sm btn-link p-0 ms-1" title="View on Google Maps">
+                                        📍
+                                    </a>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ event.actor_username }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.getElementById('deliveryEventsCollapse').addEventListener('show.bs.collapse', function() {
+    document.getElementById('auditTrailChevron').classList.remove('bi-chevron-right');
+    document.getElementById('auditTrailChevron').classList.add('bi-chevron-down');
+});
+document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.collapse', function() {
+    document.getElementById('auditTrailChevron').classList.remove('bi-chevron-down');
+    document.getElementById('auditTrailChevron').classList.add('bi-chevron-right');
+});
+</script>
+
+    <!-- Stops Details -->
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+            <h5 class="mb-0">Stop-by-Stop Details</h5>
+        </div>
+        <div class="card-body">
+            {% for stop_data in stops_data %}
+            <div class="card mb-3 border-primary">
+                <div class="card-header bg-light text-dark">
+                    <h6 class="mb-0">
+                        Stop #{{ stop_data.stop.seq_no }}: {{ stop_data.stop.stop_name or stop_data.stop.customer_code }}
+                        {% if stop_data.stop.delivered_at %}
+                            <span class="badge bg-success">Delivered</span>
+                        {% else %}
+                            <span class="badge bg-warning">Pending</span>
+                        {% endif %}
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- Invoices -->
+                        <div class="col-md-6">
+                            <h6 class="text-primary">Invoices</h6>
+                            <ul class="list-unstyled mb-3">
+                                {% for invoice in stop_data.invoices %}
+                                <li>
+                                    <strong>{{ invoice.invoice_no }}</strong>
+                                    {% if invoice.total_grand %}
+                                        - €{{ "%.2f"|format(invoice.total_grand|float) }}
+                                    {% endif %}
+                                    <span class="badge bg-{{ 'success' if invoice.status == 'delivered' else 'secondary' }}">
+                                        {{ invoice.status }}
+                                    </span>
+                                </li>
+                                {% endfor %}
+                            </ul>
+
+                            <!-- Delivery Lines (Exceptions Only) -->
+                            {% set exception_lines = [] %}
+                            {% for line in stop_data.delivery_lines %}
+                                {% if line.qty_delivered != line.qty_ordered %}
+                                    {% set _ = exception_lines.append(line) %}
+                                {% endif %}
+                            {% endfor %}
+                            {% if exception_lines %}
+                            <h6 class="text-warning">Delivery Exceptions</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Ordered</th>
+                                            <th>Delivered</th>
+                                            <th>Difference</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for line in exception_lines %}
+                                        <tr class="table-warning">
+                                            <td>{{ line.item_code }}</td>
+                                            <td>{{ line.qty_ordered }}</td>
+                                            <td>{{ line.qty_delivered }}</td>
+                                            <td class="{% if line.qty_delivered < line.qty_ordered %}text-danger{% else %}text-success{% endif %}">
+                                                {{ line.qty_delivered - line.qty_ordered }}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% endif %}
+
+                            <!-- Discrepancies -->
+                            {% if stop_data.discrepancies %}
+                            <h6 class="text-danger">Discrepancies</h6>
+                            <ul class="list-unstyled">
+                                {% for disc in stop_data.discrepancies %}
+                                <li class="mb-2">
+                                    <span class="badge bg-danger">{{ disc.discrepancy_type }}</span>
+                                    {{ disc.item_name }} ({{ disc.item_code_expected }})
+                                    - Qty: {{ disc.qty_actual }}
+                                    {% if disc.note %}<br><small>Note: {{ disc.note }}</small>{% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            {% endif %}
+                        </div>
+
+                        <!-- COD & POD -->
+                        <div class="col-md-6">
+                            <!-- Payment Info -->
+                            {% if stop_data.cod_receipt %}
+                            <h6 class="text-success"><i class="bi bi-check-circle-fill me-1"></i>RECEIPT ISSUED</h6>
+                            <table class="table table-sm table-bordered mb-3">
+                                <tr>
+                                    <th width="40%">Method:</th>
+                                    <td><strong>{{ stop_data.cod_receipt.payment_method|upper }}</strong></td>
+                                </tr>
+                                <tr>
+                                    <th>Amount Received:</th>
+                                    <td>€{{ "%.2f"|format(stop_data.cod_receipt.received_amount|float) }}</td>
+                                </tr>
+                                {% if stop_data.cod_receipt.variance and stop_data.cod_receipt.variance != 0 %}
+                                <tr>
+                                    <th>Variance:</th>
+                                    <td class="text-danger fw-bold">
+                                        €{{ "%.2f"|format(stop_data.cod_receipt.variance|float) }}
+                                        (Expected: €{{ "%.2f"|format(stop_data.cod_receipt.expected_amount|float) }})
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% if stop_data.cod_receipt.note %}
+                                <tr>
+                                    <th>Note:</th>
+                                    <td>{{ stop_data.cod_receipt.note }}</td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th>PS365 Receipt:</th>
+                                    <td>
+                                        {% if stop_data.ps365_receipt %}
+                                            <span class="badge bg-success">{{ stop_data.ps365_receipt.reference_number }}</span>
+                                        {% else %}
+                                            <button class="btn btn-sm btn-primary" onclick="sendReceipt({{ stop_data.cod_receipt.id }})">
+                                                <i class="bi bi-receipt"></i> Send Receipt
+                                            </button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            </table>
+                            {% else %}
+                            <h6 class="text-info"><i class="bi bi-credit-card me-1"></i>Credit / Online Payment</h6>
+                            <p class="text-muted mb-3">No COD receipt - payment on account or online.</p>
+                            {% endif %}
+
+                            <!-- POD Record -->
+                            {% if stop_data.pod_record %}
+                            <h6 class="text-info">Proof of Delivery</h6>
+                            <table class="table table-sm table-bordered">
+                                <tr>
+                                    <th width="40%">Physical Invoice:</th>
+                                    <td>
+                                        {% if stop_data.pod_record.has_physical_signed_invoice %}
+                                            <i class="bi bi-check-circle text-success"></i> Yes
+                                        {% else %}
+                                            <i class="bi bi-x-circle text-danger"></i> No
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% if stop_data.pod_record.receiver_name %}
+                                <tr>
+                                    <th>Receiver:</th>
+                                    <td>{{ stop_data.pod_record.receiver_name }} ({{ stop_data.pod_record.receiver_relationship }})</td>
+                                </tr>
+                                {% endif %}
+                                <tr>
+                                    <th>Collected At:</th>
+                                    <td>{{ stop_data.pod_record.collected_at.strftime('%H:%M:%S') if stop_data.pod_record.collected_at else '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>GPS:</th>
+                                    <td>
+                                        {% if stop_data.pod_record.gps_lat and stop_data.pod_record.gps_lng %}
+                                            {{ "%.6f"|format(stop_data.pod_record.gps_lat|float) }}, {{ "%.6f"|format(stop_data.pod_record.gps_lng|float) }}
+                                            <a href="https://www.google.com/maps?q={{ stop_data.pod_record.gps_lat }},{{ stop_data.pod_record.gps_lng }}" target="_blank" class="btn btn-sm btn-primary ms-2" title="View on Google Maps">
+                                                📍 Map
+                                            </a>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% if stop_data.pod_record.notes %}
+                                <tr>
+                                    <th>Notes:</th>
+                                    <td>{{ stop_data.pod_record.notes }}</td>
+                                </tr>
+                                {% endif %}
+                                {% if stop_data.pod_record.photo_paths and stop_data.pod_record.photo_paths|length > 0 %}
+                                <tr>
+                                    <th>Photos:</th>
+                                    <td>{{ stop_data.pod_record.photo_paths|length }} photo(s)</td>
+                                </tr>
+                                {% endif %}
+                            </table>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+function sendReceipt(codReceiptId) {
+    if (!confirm('Send this COD receipt to Powersoft365?')) return;
+    
+    fetch(`/cod_receipts/${codReceiptId}/send`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Receipt sent successfully! Reference: ${data.reference_number}`);
+            location.reload();
+        } else {
+            alert(`Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert(`Error: ${error.message}`);
+    });
+}
+
+function clearSettlement() {
+    if (!confirm('Clear this settlement and mark route as complete?')) return;
+    
+    fetch(`/driver/routes/{{ route.id }}/settlement/clear`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Settlement cleared successfully!');
+            location.reload();
+        } else {
+            alert(`Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert(`Error: ${error.message}`);
+    });
+}
+</script>
+{% endblock %}

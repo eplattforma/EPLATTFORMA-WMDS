@@ -1,0 +1,98 @@
+📦 Picking System App Requirements for Replit AI
+________________________________________
+Section 1: Import and Database Setup
+I have an Excel file called Picking System Import.xlsx. I want to build a Python app that does the following:
+
+1. Load the Excel file using pandas and openpyxl.
+
+2. Separate the data into two tables:
+   • Invoices table: contains the unique header data for each invoice.
+     Fields:
+     - INVOICE NO (TEXT, primary key)
+     - ROUTING (TEXT)
+     - CUSTOMER NAME (TEXT)
+     - UPLOAD DATE (TEXT in YYYY-MM-DD format; added automatically during import)
+
+   • Invoice Items table: contains the line items for each invoice.
+     Fields:
+     - INVOICE NO (TEXT, foreign key)
+     - LOCATION (TEXT)
+     - ITEM CODE (TEXT)
+     - BARCODE (TEXT)
+     - ZONE (TEXT)
+     - Items.Weight (REAL)
+     - ITEM NAME (TEXT)
+     - UNIT TYPE (TEXT)
+     - Pack (INTEGER)
+     - QTY (REAL)
+     - Line Weight (REAL) — calculated as Items.Weight × QTY
+     - EXP TIME (TEXT or REAL)
+
+3. Use SQLite as the database.
+
+4. Table rules:
+   - The invoices table should use INVOICE NO as the primary key.
+   - The invoice_items table should use a composite primary key of (INVOICE NO, ITEM CODE), and reference INVOICE NO as a foreign key.
+
+5. During import:
+   - Automatically calculate Line Weight as Items.Weight × QTY
+   - Automatically set the current date as UPLOAD DATE
+   - Ignore and log duplicate invoices based on INVOICE NO
+   - Ignore and log duplicate invoice items based on INVOICE NO + ITEM CODE
+
+6. Save the database as picking.db
+
+
+📋 Section 2: User Management Instructions for Replit AI
+I want to add a simple user management system to my picking system app using SQLite.
+
+1. Create a new table called `users` with the following columns:
+   - `username` (TEXT, PRIMARY KEY)
+   - `password` (TEXT, not hashed for now)
+   - `role` (TEXT) — must be either 'admin' or 'picker'
+
+2. Insert two default users into the `users` table:
+   - ('administrator', 'admin123', 'admin')
+   - ('picker1', 'picker123', 'picker')
+
+3. Create a Python function called `create_user(conn, username, password, role)` that:
+   - Checks if `role` is either 'admin' or 'picker'
+   - Inserts the user into the `users` table
+   - Catches duplicates and prints a message like "User already exists."
+
+4. Example usage:
+   ```python
+   conn = sqlite3.connect("picking.db")
+   create_user(conn, "picker2", "picker456", "picker")
+
+📋 ✅ Section 3: Admin Dashboard – View & Assign Orders
+I want to build an admin dashboard screen where the administrator can view all imported orders and assign them to pickers.
+
+1. Extend the `invoices` table to include the following columns if they don’t already exist:
+   - `upload_date` (TEXT, YYYY-MM-DD)
+   - `assigned_to` (TEXT, optional; references `users.username`)
+   - `total_lines` (INTEGER) → total number of line items
+   - `total_items` (INTEGER) → sum of QTY across all items in the invoice
+   - `total_weight` (REAL) → sum of Line Weight
+   - `total_exp_time` (REAL or TEXT) → sum of EXP TIME values in minutes
+
+2. The administrator screen should show a list of invoices with these fields:
+   - INVOICE NO
+   - ROUTING
+   - CUSTOMER NAME
+   - LINES (line item count)
+   - CASE / BOX / PACK / ITEM (you can combine these as summary or calculate from unit types)
+   - TOTAL WEIGHT (in kg)
+   - TOTAL EXPECTED TIME (in minutes)
+   - ASSIGNED TO (username of picker or "Unassigned")
+
+3. Administrator should be able to:
+   - Select an invoice from the list
+   - Click a button to assign a picker (from a dropdown list of users with role='picker')
+   - Click a button to unassign the invoice
+
+4. When assigned, the `assigned_to` column should be updated with the picker's username.
+
+5. The list view should always reflect the current assignment status. Use either a console table, or a basic web UI (e.g. Flask + Jinja2 + SQLite).
+
+Only administrators should have access to this dashboard.

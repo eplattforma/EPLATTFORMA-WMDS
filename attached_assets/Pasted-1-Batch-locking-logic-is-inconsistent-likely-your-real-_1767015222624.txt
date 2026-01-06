@@ -1,0 +1,150 @@
+1) Batch locking logic is inconsistent (likely your real bug)
+What you have now
+
+get_filtered_item_count() counts items that are unlocked OR locked by this batch:
+
+or_(
+    InvoiceItem.locked_by_batch_id.is_(None),
+    InvoiceItem.locked_by_batch_id == self.id
+)
+
+
+get_filtered_items() and get_grouped_items() return items that are locked by this batch only:
+
+InvoiceItem.locked_by_batch_id == self.id
+
+Why it matters
+
+If items are not locked yet (or some are still NULL), your count can be non-zero while your item list is empty or incomplete. This creates confusing UI states and “missing items” symptoms.
+
+Fix pattern (recommended)
+
+Centralize filter building and decide explicitly whether you want “preview” (include unlocked) vs “work set” (only locked):
+
+from sqlalchemy import and_, or_
+
+def _batch_item_filters(self, invoice_nos, zones_list, corridors_list, unit_types_list,
+                        include_picked: bool, allow_unlocked: bool):
+    filters = [
+        InvoiceItem.invoice_no.in_(invoice_nos),
+        InvoiceItem.zone.in_(zones_list),
+    ]
+
+    if allow_unlocked:
+        filters.append(or_(
+            InvoiceItem.locked_by_batch_id.is_(None),
+            InvoiceItem.locked_by_batch_id == self.id
+        ))
+    else:
+        filters.append(InvoiceItem.locked_by_batch_id == self.id)
+
+    if not include_picked:
+        filters.extend([
+            InvoiceItem.is_picked.is_(False),
+            InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+        ])
+
+    if corridors_list:
+        filters.append(InvoiceItem.corridor.in_(corridors_list))
+
+    if unit_types_list:
+        filters.append(InvoiceItem.unit_type.in_(unit_types_list))
+
+    return filters
+
+
+Then:
+
+get_filtered_item_count() uses allow_unlocked=True only if you truly want “what could be picked if locked”.
+
+get_filtered_items() uses allow_unlocked=False if you only want what the batch has locked.
+
+If your operational intent is “batch only works on locked items”, then both methods should use locked_by_batch_id == self.id to stay consistent.
+
+2) Mixed timestamp column types (UTCDateTime vs DateTime(timezone=True))
+
+Most of your timestamps use UTCDateTime(), but a few use db.DateTime(timezone=True):
+
+InvoiceRouteHistory.created_at
+
+RerouteRequest.created_at, RerouteRequest.completed_at
+
+This is a classic source of “naive vs aware” surprises and inconsistent serialization.
+
+Recommendation
+
+Standardize all operational timestamps on your UTCDateTime() custom type:
+
+created_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
+completed_at = db.Column(UTCDateTime(), nullable=True)
+
+
+Also, your utc_now() wrapper is fine, but if get_utc_now() is already the canonical source, use it everywhere to avoid drift.
+
+3) Boolean comparisons: use .is_(False) / .is_(None) in filters
+
+You have several filters like:
+
+InvoiceItem.is_picked == False
+InvoiceItem.locked_by_batch_id.is_(None)
+
+
+SQLAlchemy will usually translate == False, but .is_(False) is the correct/consistent approach and avoids subtle issues (and warnings) across backends:
+
+InvoiceItem.is_picked.is_(False)
+
+4) Consolidated grouping can merge items that live in different locations
+
+In consolidated mode you group by:
+
+key = item.item_code
+
+
+…but you keep one location/zone/barcode from the first encountered item. If the same SKU can appear in different locations (or zone differs across invoices), you will present misleading pick guidance.
+
+Safer options
+
+Group by (item_code, location) (or (item_code, zone, location)), OR
+
+Keep grouping by item_code but detect divergence and surface it:
+
+if grouped_items[key]['location'] != item.location:
+    current_app.logger.warning(
+        f"Item {key} appears in multiple locations: "
+        f"{grouped_items[key]['location']} vs {item.location}"
+    )
+
+5) InvoiceItem.display_qty / display_unit_type is an N+1 query trap
+
+Each property does:
+
+DwItem.query.filter_by(item_code_365=self.item_code).first()
+
+
+If you render a list of 200 items, you can easily execute 200 additional queries.
+
+Better patterns
+
+Join DwItem when you query InvoiceItems (preferred), or
+
+Cache a lookup dict for the current request/batch, or
+
+Add a relationship if feasible (even if not FK-enforced).
+
+At minimum: replace bare except: with logging so you don’t silently hide real failures.
+
+6) The “verification SQL” in consolidated mode doesn’t match your actual filters
+
+Your safe_sql verification query ignores corridor/unit_type filters (and also ignores include_picked=True cases), so it can falsely report “missing items” when corridors/unit types are applied.
+
+If you keep that check, ensure it mirrors the same filters you used to build all_batch_items.
+
+7) Model method commits: Setting.set() commits inside the model
+
+This is not “wrong”, but it often causes transactional problems (nested operations, partial commits, harder rollback). Prefer:
+
+session.flush() in the model
+
+Let the route/service layer commit() once
+
+If you keep it, be aware it can commit unrelated work in the same sessio

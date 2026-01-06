@@ -1,0 +1,290 @@
+{% extends 'base.html' %}
+
+{% block title %}Picker Dashboard - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<!-- Shift Status Card -->
+{% if active_shift %}
+<div class="card border-0 shadow-sm mb-4" style="background: linear-gradient(135deg, #2d3436 0%, #000000 100%); color: #ffff00;">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-1 text-white"><i class="fas fa-user-clock me-2"></i>Shift Active</h5>
+                <div class="fs-5">Check-in time: <strong class="text-white">{{ check_in_time_formatted }}</strong> ({{ shift_duration_minutes }} minutes)</div>
+                {% if on_break %}
+                <div class="mt-1"><span class="badge bg-info text-dark">On Break</span> since {{ on_break_start_time_formatted }}</div>
+                {% endif %}
+            </div>
+        <div>
+            <div class="btn-group">
+                {% if on_break %}
+                <form action="{{ url_for('end_break_route') }}" method="post">
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check me-1"></i>End Break
+                    </button>
+                </form>
+                {% else %}
+                <a href="{{ url_for('manage_break') }}" class="btn btn-info">
+                    <i class="fas fa-coffee me-1"></i>Break
+                </a>
+                {% endif %}
+                <a href="{{ url_for('shift_check_out') }}" class="btn btn-outline-danger">
+                    <i class="fas fa-sign-out-alt me-1"></i>Check Out
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<!-- Shift warning disabled -->
+{% endif %}
+
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5">
+            <i class="fas fa-clipboard-list me-2"></i>My Picking Tasks
+        </h1>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end">
+        {% if picker_unvalidated_issues_count > 0 %}
+        <a href="{{ url_for('delivery_issues.picker_review_issues') }}" 
+           class="btn btn-warning d-flex flex-column align-items-center justify-content-center position-relative" 
+           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
+            <i class="fas fa-exclamation-circle mb-1"></i>
+            <span>Review</span>
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger text-white d-flex align-items-center justify-content-center" 
+                  style="font-size: 1rem; font-weight: 700; min-width: 24px; height: 24px; padding: 0;">
+                {{ picker_unvalidated_issues_count }}
+            </span>
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Individual Orders assigned to the picker -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-box me-2"></i>My Individual Orders</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if invoices %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Order ID</th>
+                        <th>Last Updated</th>
+                        <th>Routing</th>
+                        <th>Customer</th>
+                        <th>Lines</th>
+                        <th>Items</th>
+                        <th>Weight (kg)</th>
+                        <th>Time (min)</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for invoice in invoices %}
+                    <tr class="{% if invoice.status == 'ready_for_dispatch' %}table-success{% elif invoice.status == 'picking' %}table-warning{% elif invoice.status == 'awaiting_batch_items' %}table-info{% elif invoice.status == 'shipped' %}table-info{% endif %}">
+                        <td><strong class="text-primary">{{ invoice.invoice_no.split('IN')[-1] if invoice.invoice_no.startswith('IN') else invoice.invoice_no }}</strong></td>
+                        <td>
+                            <small class="text-dark fw-bold">{{ invoice.status_updated_at|local_time('%d/%m/%y') if invoice.status_updated_at else '-' }}</small>
+                        </td>
+                        <td>{{ invoice.routing or '-' }}</td>
+                        <td>{{ invoice.customer_name or '-' }}</td>
+                        <td>{{ invoice.total_lines }}</td>
+                        <td>{{ invoice.total_items|int }}</td>
+                        <td>{{ invoice.total_weight|round(1) }}</td>
+                        <td>{{ invoice.total_exp_time|round(1) }}</td>
+                        <td>
+                            {% if invoice.status == 'not_started' %}
+                            <span class="badge bg-secondary">Not Started</span>
+                            {% elif invoice.status == 'picking' %}
+                            <div>
+                                <span class="badge bg-warning text-dark mb-1">Picking</span>
+                                {% if invoice.total_lines > 0 %}
+                                    {% set picked_items = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
+                                    {% set progress_percent = (picked_items / invoice.total_lines * 100)|round|int %}
+                                    <div class="progress" style="height: 6px;">
+                                        <div class="progress-bar bg-warning" role="progressbar" 
+                                             style="width: {{ progress_percent }}%;" 
+                                             aria-valuenow="{{ progress_percent }}" 
+                                             aria-valuemin="0" 
+                                             aria-valuemax="100"></div>
+                                    </div>
+                                    <small class="d-block mt-1">{{ picked_items }} of {{ invoice.total_lines }} items</small>
+                                {% endif %}
+                            </div>
+                            {% elif invoice.status == 'awaiting_batch_items' %}
+                            <div>
+                                <span class="badge text-white mb-1" style="background-color: #7B68EE;">Awaiting Batch Items</span>
+                                {% if invoice.total_lines > 0 %}
+                                    {% set picked_items = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
+                                    {% set progress_percent = (picked_items / invoice.total_lines * 100)|round|int %}
+                                    <div class="progress" style="height: 6px;">
+                                        <div class="progress-bar" style="background-color: #7B68EE;" role="progressbar" 
+                                             style="width: {{ progress_percent }}%;" 
+                                             aria-valuenow="{{ progress_percent }}" 
+                                             aria-valuemin="0" 
+                                             aria-valuemax="100"></div>
+                                    </div>
+                                    <small class="d-block mt-1">{{ picked_items }} of {{ invoice.total_lines }} items (remaining in batch)</small>
+                                {% endif %}
+                            </div>
+                            {% elif invoice.status == 'ready_for_dispatch' %}
+                            <div>
+                                <span class="badge bg-info text-dark mb-1">Ready for Dispatch</span>
+                                <small class="d-block mt-1">Items picked, waiting for dispatch</small>
+                            </div>
+                            {% elif invoice.status == 'awaiting_packing' %}
+                            <div>
+                                <span class="badge bg-warning text-dark mb-1">Awaiting Packing</span>
+                                <small class="d-block mt-1">Picking complete, please pack the order</small>
+                            </div>
+                            {% elif invoice.status == 'shipped' %}
+                            <span class="badge bg-success">Shipped</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if invoice.status == 'not_started' %}
+                            <a href="{{ url_for('start_picking', invoice_no=invoice.invoice_no) }}" class="btn btn-primary btn-sm">
+                                <i class="fas fa-play me-1"></i> Start Picking
+                            </a>
+                            {% elif invoice.status == 'picking' %}
+                            <a href="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}" class="btn btn-warning btn-sm">
+                                <i class="fas fa-sync-alt me-1"></i> Continue
+                            </a>
+                            {% elif invoice.status == 'awaiting_batch_items' %}
+                            <div class="text-center">
+                                <small class="text-muted d-block mb-1">
+                                    <i class="fas fa-layer-group me-1"></i>Remaining items in batch above
+                                </small>
+                                <span class="badge bg-info">See batch sessions</span>
+                            </div>
+                            {% elif invoice.status == 'ready_for_dispatch' %}
+                            <a href="{{ url_for('ready_for_packing', invoice_no=invoice.invoice_no) }}" class="btn btn-info btn-sm">
+                                <i class="fas fa-box me-1"></i> Pack Order
+                            </a>
+                            {% elif invoice.status == 'awaiting_packing' %}
+                            <a href="{{ url_for('ready_for_packing', invoice_no=invoice.invoice_no) }}" class="btn btn-warning btn-sm">
+                                <i class="fas fa-box-open me-1"></i> Pack Order
+                            </a>
+                            {% elif invoice.status == 'shipped' %}
+                            <a href="{{ url_for('picking_completed', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm">
+                                <i class="fas fa-check me-1"></i> View Details
+                            </a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            {% if not batch_sessions %}
+            <div class="text-center p-5">
+                <div class="mb-3">
+                    <i class="fas fa-inbox fa-4x text-muted"></i>
+                </div>
+                <h4>No tasks assigned to you</h4>
+                <p class="text-muted">You don't have any orders or batch picking sessions assigned for picking at the moment.</p>
+            </div>
+            {% else %}
+            <div class="text-center p-3">
+                <div class="text-muted">
+                    <i class="fas fa-info-circle me-2"></i>No individual orders assigned
+                </div>
+            </div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<!-- Active Batch Picking Sessions -->
+{% if batch_sessions %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <h5 class="mb-0"><i class="fas fa-layer-group me-2"></i>Active Batch Picking Sessions</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Batch ID</th>
+                        <th>Created</th>
+                        <th>Name</th>
+                        <th>Orders</th>
+                        <th>Items Progress</th>
+                        <th>Zones/Corridors</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch_data in batch_sessions %}
+                    {% set batch = batch_data.session %}
+                    <tr class="table-primary border-start border-4 border-primary">
+                        <td>
+                            <strong class="text-primary">{{ batch.id }}</strong>
+                        </td>
+                        <td>
+                            <small class="text-dark fw-bold">{{ batch.created_at|local_time('%d/%m/%y') }}</small>
+                        </td>
+                        <td>{{ batch.name }}</td>
+                        <td>
+                            <span class="badge bg-primary">{{ batch_data.invoice_count }} orders</span>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <span class="me-2 fw-bold text-dark">{{ batch_data.completed_items }}/{{ batch_data.total_items }}</span>
+                                <div class="progress flex-grow-1" style="height: 8px;">
+                                    <div class="progress-bar bg-primary" style="width: {{ batch_data.progress_percent }}%"></div>
+                                </div>
+                                <small class="ms-2 fw-bold text-dark">{{ "%.0f"|format(batch_data.progress_percent) }}%</small>
+                            </div>
+                        </td>
+                        <td>
+                            {% if batch.zones %}
+                                {% set zone_count = batch.zones.split(',')|length %}
+                                {% if zone_count >= 5 %}
+                                    <span class="badge bg-warning text-dark">ALL Zones</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">{{ batch.zones }} Zone</span>
+                                {% endif %}
+                                <br><small class="text-dark fw-bold"><i class="fas fa-filter me-1"></i>Zone filtered batch</small>
+                            {% endif %}
+                            {% if batch.corridors %}
+                                <br><small class="text-dark fw-bold">Corridors: {{ batch.corridors }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-{% if batch.status == 'Active' %}success{% elif batch.status == 'Paused' %}warning{% elif batch.status == 'Completed' %}primary{% else %}secondary{% endif %}">
+                                {{ batch.status }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if batch.status == 'Active' %}
+                            <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-primary btn-sm">
+                                <i class="fas fa-play me-1"></i> Continue Batch
+                            </a>
+                            {% elif batch.status == 'Paused' %}
+                            <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-warning btn-sm">
+                                <i class="fas fa-play me-1"></i> Resume Batch
+                            </a>
+                            {% elif batch.status == 'Completed' %}
+                            <a href="{{ url_for('batch.batch_print_reports', batch_id=batch.id) }}" class="btn btn-success btn-sm">
+                                <i class="fas fa-print me-1"></i> Print Report
+                            </a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

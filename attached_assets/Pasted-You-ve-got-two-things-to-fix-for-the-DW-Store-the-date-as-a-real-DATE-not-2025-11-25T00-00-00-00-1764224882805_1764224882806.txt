@@ -1,0 +1,162 @@
+You’ve got two things to fix for the DW:
+
+Store the date as a real DATE (not "2025-11-25T00:00:00.000Z" string)
+
+Make returns negative in the invoice lines fact table.
+
+I’ll assume: Python + Flask + SQLAlchemy + SQLite/Postgres.
+
+1. SQLAlchemy models for the DW
+Invoice header (fact header / dim document)
+from datetime import datetime, date
+from your_app import db  # wherever your db is defined
+
+class DwInvoiceHeader(db.Model):
+    __tablename__ = "dw_invoice_header"
+
+    invoice_no_365 = db.Column(db.String, primary_key=True)
+    invoice_type = db.Column(db.String(20), nullable=False)  # SALE / RETURN / CREDIT_NOTE...
+    customer_code_365 = db.Column(db.String, nullable=False)
+    store_code_365 = db.Column(db.String, nullable=False)
+    user_code_365 = db.Column(db.String, nullable=True)
+
+    total_sub = db.Column(db.Float, nullable=False)
+    total_discount = db.Column(db.Float, nullable=False)
+    total_vat = db.Column(db.Float, nullable=False)
+    total_grand = db.Column(db.Float, nullable=False)
+
+    # NEW: store as DATE (local DW date)
+    invoice_date = db.Column(db.Date, nullable=False)
+
+
+You can drop invoice_date_utc0 in the DW and just keep invoice_date.
+
+Invoice line (fact table)
+class DwInvoiceLine(db.Model):
+    __tablename__ = "dw_invoice_line"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    invoice_no_365 = db.Column(
+        db.String,
+        db.ForeignKey("dw_invoice_header.invoice_no_365"),
+        nullable=False,
+    )
+    line_number = db.Column(db.Integer, nullable=False)
+    item_code_365 = db.Column(db.String, nullable=False)
+
+    # Measures – these will already be signed (negative for returns)
+    quantity = db.Column(db.Float, nullable=False)
+    price_excl = db.Column(db.Float, nullable=False)
+    price_incl = db.Column(db.Float, nullable=False)
+    line_total_excl = db.Column(db.Float, nullable=False)
+    line_total_discount = db.Column(db.Float, nullable=False)
+    line_total_vat = db.Column(db.Float, nullable=False)
+    line_total_incl = db.Column(db.Float, nullable=False)
+
+
+Then recreate tables if you can:
+
+with app.app_context():
+    db.drop_all()
+    db.create_all()
+
+
+(run once, then remove)
+
+2. ETL in Replit: convert ISO date → DATE
+
+Your header source has "invoice_date_utc0": "2025-11-03T00:00:00.000Z".
+
+In your ETL:
+
+def parse_date_from_iso(iso_str: str) -> date:
+    # '2025-11-03T00:00:00.000Z' → '2025-11-03'
+    d = iso_str[:10]  # first 10 chars are always YYYY-MM-DD
+    return datetime.strptime(d, "%Y-%m-%d").date()
+
+
+Usage when loading each header row:
+
+src = header_row  # dict from API/Excel/whatever
+
+invoice_date = parse_date_from_iso(src["invoice_date_utc0"])
+
+hdr = DwInvoiceHeader(
+    invoice_no_365=src["invoice_no_365"],
+    invoice_type=src["invoice_type"],
+    customer_code_365=src["customer_code_365"],
+    store_code_365=src["store_code_365"],
+    user_code_365=src["user_code_365"],
+    total_sub=src["total_sub"],
+    total_discount=src["total_discount"],
+    total_vat=src["total_vat"],
+    total_grand=src["total_grand"],
+    invoice_date=invoice_date,
+)
+
+db.session.add(hdr)
+
+3. ETL in Replit: make returns negative on lines
+
+Header has invoice_type; lines don’t.
+So during ETL:
+
+Load headers into a dict invoice_no → sign.
+
+Use that sign to adjust each line.
+
+def sign_from_invoice_type(invoice_type: str) -> int:
+    invoice_type = (invoice_type or "").upper()
+    # adjust these values to your real types
+    if invoice_type in ("RETURN", "CREDIT_NOTE", "SALES_RETURN"):
+        return -1
+    return 1  # SALE, INVOICE, etc.
+
+
+Build the map:
+
+# After you load headers from source
+sign_by_invoice = {}
+for h in headers_source_rows:
+    inv_no = h["invoice_no_365"]
+    sign_by_invoice[inv_no] = sign_from_invoice_type(h["invoice_type"])
+
+
+Now when loading lines:
+
+for src in lines_source_rows:
+    inv_no = src["invoice_no_365"]
+    sign = sign_by_invoice.get(inv_no, 1)
+
+    qty = float(src["quantity"]) * sign
+    price_excl = float(src["price_excl"])
+    price_incl = float(src["price_incl"])
+    line_total_excl = float(src["line_total_excl"]) * sign
+    line_total_discount = float(src["line_total_discount"]) * sign
+    line_total_vat = float(src["line_total_vat"]) * sign
+    line_total_incl = float(src["line_total_incl"]) * sign
+
+    line = DwInvoiceLine(
+        invoice_no_365=inv_no,
+        line_number=src["line_number"],
+        item_code_365=src["item_code_365"],
+        quantity=qty,
+        price_excl=price_excl,
+        price_incl=price_incl,
+        line_total_excl=line_total_excl,
+        line_total_discount=line_total_discount,
+        line_total_vat=line_total_vat,
+        line_total_incl=line_total_incl,
+    )
+    db.session.add(line)
+
+db.session.commit()
+
+
+Result in DW:
+
+Sales lines: positive quantity and totals
+
+Return / credit lines: negative quantity and totals
+
+SUM(line_total_excl) or SUM(quantity) automatically gives net value.

@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block title %}Shift Check-In - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-6 offset-md-3">
+            <div class="card border-primary shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-sign-in-alt me-2"></i>Shift Check-In</h4>
+                </div>
+                <div class="card-body">
+                    {% if active_shift %}
+                    <div class="alert alert-info">
+                        <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Already Checked In</h5>
+                        <p>You are already checked in for your shift today.</p>
+                        <hr>
+                        <p class="mb-0">Check-in time: <strong>{{ check_in_time_formatted }}</strong></p>
+                    </div>
+                    
+                    <div class="text-center mt-4">
+                        <a href="{{ url_for('picker_dashboard') }}" class="btn btn-primary">
+                            <i class="fas fa-home me-2"></i>Go to Dashboard
+                        </a>
+                    </div>
+                    {% else %}
+                    <form method="post" action="{{ url_for('shift_check_in') }}">
+                        <input type="hidden" id="coordinates" name="coordinates" value="">
+                        
+                        <div class="mb-4">
+                            <div class="alert alert-info">
+                                <p class="mb-2"><i class="fas fa-map-marker-alt me-2"></i>Location Recording</p>
+                                <p class="mb-0" id="location-status">
+                                    <small><i class="fas fa-spinner fa-spin me-1"></i>Capturing your location...</small>
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-sign-in-alt me-2"></i>Check In Now
+                            </button>
+                        </div>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if not active_shift %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const locationStatus = document.getElementById('location-status');
+        
+        // Get location for check-in if available
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(position) {
+                const coordinates = position.coords.latitude + ',' + position.coords.longitude;
+                document.getElementById('coordinates').value = coordinates;
+                locationStatus.innerHTML = `<small><i class="fas fa-check-circle text-success me-1"></i>Location captured: ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}</small>`;
+            }, function(error) {
+                console.log('Error getting location:', error);
+                locationStatus.innerHTML = '<small><i class="fas fa-exclamation-circle text-warning me-1"></i>Location access denied (optional)</small>';
+            });
+        } else {
+            locationStatus.innerHTML = '<small><i class="fas fa-exclamation-circle text-warning me-1"></i>Geolocation not available</small>';
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}

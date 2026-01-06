@@ -1,0 +1,2026 @@
+{% extends 'base.html' %}
+
+{% block title %}Picking Dashboard - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<style>
+    /* Responsive table improvements */
+    #ordersTable {
+        font-size: 0.875rem;
+    }
+    
+    #ordersTable th, #ordersTable td {
+        padding: 0.5rem 0.3rem;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    
+    #ordersTable .btn-group .btn {
+        padding: 0.25rem 0.4rem;
+        font-size: 0.75rem;
+    }
+    
+    #ordersTable .badge {
+        font-size: 0.7rem;
+        padding: 0.25rem 0.4rem;
+    }
+    
+    /* Ensure table never overflows */
+    .table-responsive {
+        overflow-x: auto;
+    }
+    
+    /* Compact button group */
+    .btn-group-sm > .btn, .btn-sm {
+        padding: 0.125rem 0.25rem;
+        font-size: 0.7rem;
+    }
+    
+    /* Mobile optimizations */
+    @media (max-width: 768px) {
+        #ordersTable {
+            font-size: 0.75rem;
+        }
+        
+        #ordersTable th, #ordersTable td {
+            padding: 0.25rem 0.15rem;
+        }
+    }
+    
+    .active-pickers-table {
+        font-size: 0.875rem;
+    }
+    
+    .active-pickers-table th, .active-pickers-table td {
+        padding: 0.4rem;
+        vertical-align: middle;
+    }
+    
+    .order-summary-card h5 {
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    
+    .order-summary-card h3 {
+        font-size: 1.25rem;
+    }
+    
+    .order-summary-card {
+        height: 120px;
+    }
+    
+    .active-pickers-card {
+        display: flex;
+        flex-direction: column;
+        height: 165px;
+    }
+    
+    .active-pickers-table-container {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .active-pickers-table-body {
+        flex-grow: 1;
+        overflow-y: auto;
+        max-height: 120px;
+    }
+</style>
+<!-- Order Summary & Active Pickers -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>Order Summary</h5>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="text-align: center;">
+                        <div id="clock-time" style="font-size: 0.9rem; font-weight: bold; font-family: 'Courier New', monospace; color: #fff;">--:--</div>
+                        <div id="clock-date" style="font-size: 0.65rem; color: #e0e0e0;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 mb-3 mb-md-0">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Total Items</h5>
+                            <h3 class="mb-1">{{ (invoices|map(attribute='total_items')|select|sum)|round|int }}</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3 mb-md-0">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Total Weight</h5>
+                            <h3 class="mb-1">{{ (invoices|map(attribute='total_weight')|select|sum)|round|int }} kg</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3 mb-md-0">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Total Time</h5>
+                            <h3 class="mb-0">{{ (invoices|map(attribute='total_exp_time')|select|sum)|round|int }} min</h3>
+                            <small class="text-muted" style="font-size: 0.7rem;">({{ (invoices|map(attribute='total_exp_time')|select|sum/60)|round|int }} hrs)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-2 d-flex flex-column justify-content-center order-summary-card">
+                            <h5 class="text-muted mb-1">Remaining</h5>
+                            <h3 class="mb-0 text-warning">{{ total_remaining_time|round|int }} min</h3>
+                            <small class="text-muted" style="font-size: 0.7rem;">({{ (total_remaining_time/60)|round|int }} hrs)</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-success active-pickers-card" style="height: 165px;">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="fas fa-user-check me-2"></i>Active Pickers ({{ active_pickers_data|length }})</h5>
+            </div>
+            <div class="card-body p-0 active-pickers-table-container">
+                {% if active_pickers_data %}
+                <div class="table-responsive active-pickers-table-body">
+                    <table class="table table-sm table-hover mb-0 active-pickers-table">
+                        <tbody>
+                            {% for picker in active_pickers_data %}
+                            <tr>
+                                <td><strong>{{ picker.username }}</strong></td>
+                                <td>{{ picker.check_in_time }}</td>
+                                <td>{{ picker.elapsed_minutes }}m</td>
+                                <td style="color: #ff9800;"><strong>{{ picker.idle_time|round|int }}m</strong></td>
+                                <td>
+                                    {% if picker.on_break %}
+                                    <span class="badge bg-warning text-dark" title="On Break"><i class="fas fa-pause-circle"></i></span>
+                                    {% else %}
+                                    <span class="badge bg-success" title="Working"><i class="fas fa-play-circle"></i></span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-3 text-center text-muted d-flex align-items-center justify-content-center" style="flex-grow: 1;">
+                    <small>No active pickers</small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5">
+            <i class="fas fa-tachometer-alt me-2"></i>Picking Dashboard
+        </h1>
+        <p class="text-muted">Manage orders and assign tasks to pickers</p>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end mt-3 mt-md-0 gap-2">
+
+        <a href="{{ url_for('batch.batch_picking_manage') }}" 
+           class="btn btn-secondary me-2 d-flex flex-column align-items-center justify-content-center" 
+           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
+            <i class="fas fa-layer-group mb-1"></i>
+            <span>Manage<br>Batches</span>
+        </a>
+        {% if use_shipments %}
+        <a href="{{ url_for('shipments.shipments_dashboard') }}" 
+           class="btn btn-info me-2 d-flex flex-column align-items-center justify-content-center" 
+           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
+            <i class="fas fa-shipping-fast mb-1"></i>
+            <span>Shipments</span>
+        </a>
+        {% endif %}
+        <button onclick="openCorrections()" 
+           class="btn btn-primary me-2 d-flex flex-column align-items-center justify-content-center" 
+           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
+            <i class="fas fa-edit mb-1"></i>
+            <span>Corrections</span>
+        </button>
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('delivery_issues.review_issues', status='review') }}" 
+           class="btn btn-warning me-2 d-flex flex-column align-items-center justify-content-center position-relative" 
+           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
+            <i class="fas fa-clipboard-list mb-1"></i>
+            <span>Delivery<br>Issues</span>
+            {% if review_issues_count > 0 %}
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger text-white d-flex align-items-center justify-content-center" 
+                  style="font-size: 1rem; font-weight: 700; min-width: 24px; height: 24px; padding: 0;">
+                {{ review_issues_count }}
+            </span>
+            {% endif %}
+        </a>
+        {% endif %}
+        {% if current_user.role == 'warehouse_manager' and unresolved_issues_count > 0 %}
+        <a href="{{ url_for('delivery_issues.review_issues', filter='unresolved') }}" 
+           class="btn btn-danger me-2 d-flex flex-column align-items-center justify-content-center position-relative" 
+           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
+            <i class="fas fa-exclamation-triangle mb-1"></i>
+            <span>Unresolved<br>Issues</span>
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger text-white d-flex align-items-center justify-content-center" 
+                  style="font-size: 1rem; font-weight: 700; min-width: 24px; height: 24px; padding: 0;">
+                {{ unresolved_issues_count }}
+            </span>
+        </a>
+        {% endif %}
+        <a href="{{ url_for('import_excel') }}" 
+           class="btn btn-success d-flex flex-column align-items-center justify-content-center" 
+           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
+            <i class="fas fa-file-invoice mb-1"></i>
+            <span>Import<br>Invoices</span>
+        </a>
+    </div>
+</div>
+
+<!-- All Orders Card -->
+<div class="card shadow mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
+        <h5 class="mb-0">
+            <i class="fas fa-clipboard-list me-2"></i>Order Management
+        </h5>
+    </div>
+    <div class="card-body">
+        {% if invoices %}
+        <!-- Selection Info Bar -->
+        <div class="row mb-2" id="selectionInfoBar" style="display: none;">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <span id="selectedOrdersCount">0</span> orders selected
+                    </small>
+                    <div class="btn-group">
+                        <button class="btn btn-success btn-sm" onclick="openAssignToRouteModal()">
+                            <i class="fas fa-truck me-1"></i>Assign to Route
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="printSelectedOrders()">
+                            <i class="fas fa-print me-1"></i>Print Selected
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="clearSelection()">
+                            <i class="fas fa-times me-1"></i>Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-hover table-sm" id="ordersTable">
+                <thead class="table-light">
+                    <tr>
+                        <th class="text-center" style="width: 40px;">
+                            <input type="checkbox" id="selectAll" onchange="toggleAllOrders()">
+                        </th>
+                        <th style="min-width: 120px;">Invoice No</th>
+                        <th style="width: 80px;">Updated</th>
+                        <th style="min-width: 150px;">Customer</th>
+                        <th style="width: 80px;">Routing</th>
+                        <th style="min-width: 120px;">Status</th>
+                        <th class="text-center" style="width: 60px;">Lines</th>
+                        <th class="text-center" style="width: 70px;">Qty</th>
+                        <th class="text-center" style="width: 70px;">Weight</th>
+                        <th class="text-center" style="width: 80px;">Est. Time</th>
+                        <th class="text-center" style="width: 60px;">Actual</th>
+                        <th class="text-center" style="width: 90px;">Remaining</th>
+                        <th style="min-width: 100px;">Assigned</th>
+                        <th style="min-width: 120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for invoice in invoices %}
+                    
+                    {# Display route header when route changes or transitioning to unassigned #}
+                    {% if loop.first %}
+                        {# First invoice - show appropriate header #}
+                        {% if invoice.route_id %}
+                            {% set route = route_info.get(invoice.route_id) %}
+                            {% if route %}
+                            <tr class="table-primary">
+                                <td colspan="14" class="fw-bold">
+                                    <i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }}
+                                    {% if route.route_name %}({{ route.route_name }}){% endif %}
+                                    <span class="badge bg-info ms-2">{{ route.status }}</span>
+                                </td>
+                            </tr>
+                            {% endif %}
+                        {% else %}
+                            <tr class="table-secondary">
+                                <td colspan="14" class="fw-bold">
+                                    <i class="fas fa-box me-2"></i>Unassigned
+                                </td>
+                            </tr>
+                        {% endif %}
+                    {% elif loop.previtem %}
+                        {# Check if route changed from previous invoice #}
+                        {% if invoice.route_id and invoice.route_id != loop.previtem.route_id %}
+                            {# Route changed - show new route header #}
+                            {% set route = route_info.get(invoice.route_id) %}
+                            {% if route %}
+                            <tr class="table-primary">
+                                <td colspan="14" class="fw-bold">
+                                    <i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }}
+                                    {% if route.route_name %}({{ route.route_name }}){% endif %}
+                                    <span class="badge bg-info ms-2">{{ route.status }}</span>
+                                </td>
+                            </tr>
+                            {% endif %}
+                        {% elif not invoice.route_id and loop.previtem.route_id %}
+                            {# Transitioning from route to unassigned #}
+                            <tr class="table-secondary">
+                                <td colspan="14" class="fw-bold">
+                                    <i class="fas fa-box me-2"></i>Unassigned
+                                </td>
+                            </tr>
+                        {% endif %}
+                    {% endif %}
+                    
+                    <tr {% if invoice_exceptions[invoice.invoice_no] > 0 %}class="table-danger"{% endif %}>
+                        <td class="text-center">
+                            <input type="checkbox" class="order-checkbox" value="{{ invoice.invoice_no }}" onchange="updateSelectedCount()">
+                        </td>
+                        <td>
+                            {% if stop_sequences.get(invoice.invoice_no) %}
+                            <div class="d-flex align-items-center">
+                                <span id="seq-display-{{ invoice.invoice_no }}" class="badge bg-primary me-1" style="cursor: pointer;" 
+                                      onclick="editSequence('{{ invoice.invoice_no }}', {{ stop_sequences[invoice.invoice_no] }})"
+                                      title="Stop sequence - click to edit">
+                                    {{ stop_sequences[invoice.invoice_no] }}
+                                </span>
+                                <strong>{{ invoice.invoice_no }}</strong>
+                            </div>
+                            {% else %}
+                            <strong>{{ invoice.invoice_no }}</strong>
+                            {% endif %}
+                            {% if invoice_exceptions[invoice.invoice_no] > 0 %}
+                            <span class="badge bg-danger ms-1" data-bs-toggle="tooltip" title="{{ invoice_exceptions[invoice.invoice_no] }} picking exceptions">
+                                <i class="fas fa-exclamation-triangle"></i> {{ invoice_exceptions[invoice.invoice_no] }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ invoice.status_updated_at|local_time('%d/%m') if invoice.status_updated_at else '-' }}</small>
+                        </td>
+                        <td>
+                            <div class="text-truncate" style="max-width: 150px;" title="{{ invoice.customer_name }}">
+                                {{ invoice.customer_name }}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <span id="routing-display-{{ invoice.invoice_no }}" class="me-1 small">{{ invoice.routing }}</span>
+                                <button class="btn btn-sm btn-outline-secondary p-1" 
+                                        onclick="editRouting('{{ invoice.invoice_no }}', '{{ invoice.routing }}')"
+                                        title="Edit routing number">
+                                    <i class="fas fa-edit" style="font-size: 0.7rem;"></i>
+                                </button>
+                            </div>
+                        </td>
+                        <td>
+                            {% if invoice.status == 'Completed' %}
+                            <span class="badge bg-success">Completed</span>
+                            {% elif invoice.status == 'ready_for_dispatch' %}
+                            <span class="badge bg-primary">Ready for Dispatch</span>
+                            {% elif invoice.status == 'picking' %}
+                                {% if invoice.invoice_no in batch_picked_info %}
+                                <span class="badge bg-info">Partially Picked (Batch)</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">Picking</span>
+                                {% endif %}
+                            {% elif invoice.status == 'not_started' %}
+                            <span class="badge bg-secondary">Not Started</span>
+                            {% elif invoice.status == 'shipped' %}
+                            <span class="badge bg-success">Shipped</span>
+                            {% elif invoice.status == 'delivered' %}
+                            <span class="badge bg-info">Delivered</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ invoice.status|title }}</span>
+                            {% endif %}
+                            
+                            {% if invoice.invoice_no in batch_picked_info %}
+                            <a href="#" data-bs-toggle="popover" data-bs-placement="left" title="Batch Info" 
+                               data-bs-content="{% for batch_id, batch in batch_picked_info[invoice.invoice_no].items() %}{{ batch.batch_number or 'BATCH-' ~ batch_id }}: {{ batch.count }} items<br>{% endfor %}"
+                               data-bs-html="true">
+                                <i class="fas fa-layer-group text-info ms-1" data-bs-toggle="tooltip" title="Batch picked"></i>
+                            </a>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if invoice.invoice_no in picked_lines_count %}
+                                <span class="{% if picked_lines_count[invoice.invoice_no] < total_lines_count[invoice.invoice_no] %}text-warning{% else %}text-success{% endif %}">
+                                    {{ picked_lines_count[invoice.invoice_no] }}/{{ total_lines_count[invoice.invoice_no] }}
+                                </span>
+                            {% else %}
+                                {{ invoice.total_lines }}
+                            {% endif %}
+                        </td>
+                        <td class="text-center">{{ (invoice.total_items or 0)|round(0) }}</td>
+                        <td class="text-center">{{ (invoice.total_weight or 0)|round(0) }}</td>
+                        <td class="text-center">{{ (invoice.total_exp_time or 0)|round(0) }}</td>
+                        <td class="text-center">
+                            {% if picking_times and invoice.invoice_no in picking_times %}
+                                <span class="badge bg-info">{{ picking_times[invoice.invoice_no] }}</span>
+                            {% elif invoice.status in ['picking', 'ready_for_dispatch'] and invoice.picking_start_time %}
+                                {% set elapsed_minutes = ((current_time - invoice.picking_start_time).total_seconds() / 60)|round(0) %}
+                                <span class="badge bg-warning text-dark">{{ elapsed_minutes }}m</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if invoice.status == 'picking' and invoice.assigned_to %}
+                                {% set picked_items = picked_lines_count.get(invoice.invoice_no, 0) %}
+                                {% set total_items = total_lines_count.get(invoice.invoice_no, invoice.total_lines) %}
+                                {% set remaining_percentage = ((total_items - picked_items) / total_items * 100) if total_items > 0 else 0 %}
+                                {% set remaining_time = ((invoice.total_exp_time or 0) * remaining_percentage / 100)|round(0) %}
+                                {% if remaining_time > 0 %}
+                                    <span class="badge bg-warning text-dark">{{ remaining_time }}m</span>
+                                {% else %}
+                                    <span class="badge bg-success">Done</span>
+                                {% endif %}
+                            {% elif invoice.status == 'not_started' %}
+                                <span class="badge bg-secondary">{{ (invoice.total_exp_time or 0)|round(0) }}m</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if invoice.assigned_to %}
+                            <span class="badge bg-success">{{ invoice.assigned_to }}</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Unassigned</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm" title="Print">
+                                    <i class="fas fa-print"></i>
+                                </a>
+                                <button class="btn btn-outline-primary btn-sm" 
+                                        onclick="showSingleOrderQuickView('{{ invoice.invoice_no }}')"
+                                        title="Quick View">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                {% if invoice.status not in ['ready_for_dispatch', 'shipped', 'delivered'] %}
+                                <button class="btn btn-primary btn-sm assign-btn" data-invoice-no="{{ invoice.invoice_no }}" data-bs-toggle="modal" data-bs-target="#assignModal" title="Assign">
+                                    <i class="fas fa-user-plus"></i>
+                                </button>
+                                {% if invoice.assigned_to %}
+                                <form method="post" action="{{ url_for('unassign_picker') }}" class="d-inline">
+                                    <input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+                                    <button type="submit" class="btn btn-danger btn-sm" title="Unassign">
+                                        <i class="fas fa-user-minus"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                                
+                                {% if invoice.status in ['not_started', 'picking'] %}
+                                <form method="post" action="{{ url_for('autocomplete_order') }}" class="d-inline" 
+                                      onsubmit="return confirm('Autocomplete order {{ invoice.invoice_no }}?')">
+                                    <input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+                                    <button type="submit" class="btn btn-warning btn-sm" title="Complete">
+                                        <i class="fas fa-magic"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% endif %}
+                                
+                                {% if invoice_exceptions[invoice.invoice_no] > 0 %}
+                                <a href="{{ url_for('admin_view_exceptions', invoice_no=invoice.invoice_no) }}" class="btn btn-danger btn-sm" title="Exceptions">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+
+            </table>
+            
+            <!-- Total Summary Card -->
+            <div class="card mt-4 border-primary">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-calculator me-2"></i>Order Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-4">
+                            <h4>Total Items</h4>
+                            <h2 class="display-6">{{ invoices|map(attribute='total_items')|select|sum|int }}</h2>
+                        </div>
+                        <div class="col-md-4">
+                            <h4>Total Weight</h4>
+                            <h2 class="display-6">{{ invoices|map(attribute='total_weight')|select|sum|round(1) }} kg</h2>
+                        </div>
+                        <div class="col-md-4">
+                            <h4>Total Time</h4>
+                            <h2 class="display-6">{{ invoices|map(attribute='total_exp_time')|select|sum|round(1) }} min</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>No orders have been imported yet. Use the Import Invoices button to add orders.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+
+
+
+
+<!-- Quick View Modal -->
+<div class="modal fade" id="quickViewModal" tabindex="-1" aria-labelledby="quickViewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="quickViewModalLabel">
+                    <i class="fas fa-eye me-2"></i>Quick View - Unit Breakdown
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="quickViewLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading unit breakdown...</p>
+                </div>
+                <div id="quickViewContent" style="display: none;">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sorting Settings Modal -->
+<div class="modal fade" id="sortingModal" tabindex="-1" aria-labelledby="sortingModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="sortingModalLabel">
+                    <i class="fas fa-sort me-2"></i>Order Sorting Settings
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="sortingForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="primarySort" class="form-label">
+                                    <i class="fas fa-star me-1"></i>Primary Sort Field
+                                </label>
+                                <select class="form-select" id="primarySort" required>
+                                    <option value="status">Status</option>
+                                    <option value="routing">Routing Number</option>
+                                    <option value="customer_name">Customer Name</option>
+                                    <option value="invoice_no">Invoice Number</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="primaryDirection" class="form-label">Direction</label>
+                                <select class="form-select" id="primaryDirection" required>
+                                    <option value="asc">Ascending (A → Z)</option>
+                                    <option value="desc">Descending (Z → A)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="secondarySort" class="form-label">
+                                    <i class="fas fa-star-half-alt me-1"></i>Secondary Sort Field (Optional)
+                                </label>
+                                <select class="form-select" id="secondarySort">
+                                    <option value="">None</option>
+                                    <option value="status">Status</option>
+                                    <option value="routing">Routing Number</option>
+                                    <option value="customer_name">Customer Name</option>
+                                    <option value="invoice_no">Invoice Number</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="secondaryDirection" class="form-label">Direction</label>
+                                <select class="form-select" id="secondaryDirection">
+                                    <option value="asc">Ascending (A → Z)</option>
+                                    <option value="desc">Descending (Z → A)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Status Sorting:</strong> Uses custom priority sequence (drag to reorder):
+                        <div id="statusSequence" class="mt-2">
+                            <!-- Status sequence will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="resetToDefaults()">
+                    <i class="fas fa-undo me-1"></i>Reset to Default
+                </button>
+                <button type="button" class="btn btn-primary" onclick="applySorting()">
+                    <i class="fas fa-check me-1"></i>Apply Sorting
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Modal -->
+<div class="modal fade" id="assignModal" tabindex="-1" aria-labelledby="assignModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="assignModalLabel">
+                    <i class="fas fa-user-plus me-2"></i>Assign Order to Picker
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{{ url_for('assign_picker') }}">
+                <div class="modal-body">
+                    <input type="hidden" name="invoice_no" id="modalInvoiceNo">
+                    <div class="mb-3">
+                        <label for="picker_username" class="form-label">Select Picker</label>
+                        <select class="form-select" name="picker_username" id="picker_username" required>
+                            <option value="" selected disabled>-- Select a Picker --</option>
+                            {% for picker in pickers %}
+                            <option value="{{ picker.username }}">{{ picker.username }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Assign</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+<script>
+    // Initialize tooltips and popovers
+    document.addEventListener('DOMContentLoaded', function() {
+        // Enable all tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+        
+        // Enable all popovers
+        var popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'))
+        var popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
+            return new bootstrap.Popover(popoverTriggerEl, {
+                html: true,
+                container: 'body'
+            });
+        });
+        
+        // Force clear old preferences and reset to new status system
+        localStorage.removeItem('adminSortingConfig');
+        
+        // Load sorting preferences (will use defaults now)
+        loadSortingPreferences();
+        
+        // Force save new preferences
+        saveSortingPreferences();
+        
+        // Disable all client-side sorting - server handles everything
+        console.log('Client-side sorting completely disabled');
+        
+        // Initialize modal when opened
+        const sortingModal = document.getElementById('sortingModal');
+        if (sortingModal) {
+            sortingModal.addEventListener('show.bs.modal', function() {
+                updateModalFields();
+                updateStatusSequenceDisplay();
+            });
+        }
+        
+        // Also update status display on page load
+        updateStatusSequenceDisplay();
+        
+        // Handle assign picker button clicks
+        document.querySelectorAll('.assign-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const invoiceNo = this.getAttribute('data-invoice-no');
+                document.getElementById('modalInvoiceNo').value = invoiceNo;
+            });
+        });
+        
+        // Track modal state for refresh control
+        window.isModalOpen = false;
+        
+        // Listen for ALL modals to track open/close state
+        const allModals = document.querySelectorAll('.modal');
+        allModals.forEach(modal => {
+            modal.addEventListener('show.bs.modal', function() {
+                window.isModalOpen = true;
+                console.log('Modal opened - disabling refresh');
+            });
+            modal.addEventListener('hide.bs.modal', function() {
+                window.isModalOpen = false;
+                console.log('Modal closed - enabling refresh');
+            });
+        });
+    });
+    
+    // Global sorting configuration
+    let sortingConfig = {
+        primarySort: 'status',
+        primaryDirection: 'asc',
+        secondarySort: 'routing',
+        secondaryDirection: 'asc',
+        statusSequence: ["not_started", "picking", "ready_for_dispatch", "shipped", "delivered"]
+    };
+
+    // Dynamic status ordering based on custom sequence
+    function getStatusOrder() {
+        // Map both database values AND display names to order indices
+        const statusDisplayMap = {
+            // Display names (what appears in badges)
+            'Not Started': 0,
+            'Picking': 1, 
+            'Ready for Dispatch': 2,
+            'Shipped': 3,
+            'Delivered': 4,
+            // Database values (just in case)
+            'not_started': 0,
+            'picking': 1,
+            'ready_for_dispatch': 2,
+            'shipped': 3,
+            'delivered': 4
+        };
+        
+        return statusDisplayMap;
+    }
+    
+    // Load sorting preferences from localStorage
+    function loadSortingPreferences() {
+        const saved = localStorage.getItem('adminSortingConfig');
+        if (saved) {
+            sortingConfig = JSON.parse(saved);
+        }
+    }
+    
+    // Save sorting preferences to localStorage
+    function saveSortingPreferences() {
+        localStorage.setItem('adminSortingConfig', JSON.stringify(sortingConfig));
+    }
+    
+    // Remove old applySorting function - using sortTableNow instead
+    
+    // Compare two table rows by a specific field
+    function compareByField(rowA, rowB, field, direction) {
+        let valueA, valueB;
+        
+        // Get values based on field type
+        switch (field) {
+            case 'invoice_no':
+                valueA = rowA.cells[0].textContent.trim();
+                valueB = rowB.cells[0].textContent.trim();
+                break;
+            case 'customer_name':
+                valueA = rowA.cells[1].textContent.trim();
+                valueB = rowB.cells[1].textContent.trim();
+                break;
+            case 'routing':
+                valueA = rowA.cells[2].textContent.trim() || '';
+                valueB = rowB.cells[2].textContent.trim() || '';
+                // Handle numeric routing
+                const numA = parseInt(valueA) || 0;
+                const numB = parseInt(valueB) || 0;
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    valueA = numA;
+                    valueB = numB;
+                }
+                break;
+            case 'status':
+                // Get the actual status badge text, not the whole cell
+                const statusBadgeA = rowA.cells[3].querySelector('.badge')?.textContent?.trim() || rowA.cells[3].textContent.trim();
+                const statusBadgeB = rowB.cells[3].querySelector('.badge')?.textContent?.trim() || rowB.cells[3].textContent.trim();
+                const statusOrder = getStatusOrder();
+                
+                // Debug: Check specific rows
+                const invoiceA = rowA.cells[0].textContent.trim();
+                const invoiceB = rowB.cells[0].textContent.trim();
+                if (invoiceA === 'IN10048816' || invoiceB === 'IN10048816') {
+                    console.log(`DEBUG: Comparing ${invoiceA} (status: "${statusBadgeA}") vs ${invoiceB} (status: "${statusBadgeB}")`);
+                    console.log(`DEBUG: Status values: ${statusOrder[statusBadgeA]} vs ${statusOrder[statusBadgeB]}`);
+                }
+                
+                valueA = statusOrder[statusBadgeA] !== undefined ? statusOrder[statusBadgeA] : 999;
+                valueB = statusOrder[statusBadgeB] !== undefined ? statusOrder[statusBadgeB] : 999;
+                break;
+            default:
+                return 0;
+        }
+        
+        // Compare values
+        let comparison;
+        if (typeof valueA === 'number' && typeof valueB === 'number') {
+            comparison = valueA - valueB;
+        } else {
+            comparison = String(valueA).localeCompare(String(valueB));
+        }
+        
+        // Apply direction
+        return direction === 'desc' ? -comparison : comparison;
+    }
+    
+    // Update modal fields with current configuration
+    function updateModalFields() {
+        const primarySort = document.getElementById('primarySort');
+        const primaryDirection = document.getElementById('primaryDirection');
+        const secondarySort = document.getElementById('secondarySort');
+        const secondaryDirection = document.getElementById('secondaryDirection');
+        
+        if (primarySort) primarySort.value = sortingConfig.primarySort;
+        if (primaryDirection) primaryDirection.value = sortingConfig.primaryDirection;
+        if (secondarySort) secondarySort.value = sortingConfig.secondarySort || '';
+        if (secondaryDirection) secondaryDirection.value = sortingConfig.secondaryDirection;
+    }
+    
+    // Redirect to server-side sorting instead of client-side
+    function applySortingFromModal() {
+        // Get values from modal
+        const primary = document.getElementById('primarySort')?.value || 'status';
+        const primaryDir = document.getElementById('primaryDirection')?.value || 'asc';
+        
+        // Save preferences
+        sortingConfig.primarySort = primary;
+        sortingConfig.primaryDirection = primaryDir;
+        saveSortingPreferences();
+        
+        // Redirect to server-side sorting
+        window.location.href = `/admin/dashboard?sort=${primary}&dir=${primaryDir}`;
+        
+        // Close modal
+        const modalEl = document.getElementById('sortingModal');
+        if (modalEl && bootstrap.Modal.getInstance(modalEl)) {
+            bootstrap.Modal.getInstance(modalEl).hide();
+        }
+    }
+    
+    // Perform the actual table sorting
+    function performTableSort() {
+        console.log('Starting table sort with config:', sortingConfig);
+        
+        const table = document.getElementById('ordersTable');
+        const tbody = table?.querySelector('tbody');
+        if (!tbody) {
+            console.log('No table body found');
+            return;
+        }
+        
+        const rows = [...tbody.querySelectorAll('tr')];
+        if (rows.length === 0) {
+            console.log('No rows found');
+            return;
+        }
+        
+        console.log(`Found ${rows.length} rows to sort`);
+        
+        rows.sort((a, b) => {
+            // Get primary comparison
+            let result = getFieldComparison(a, b, sortingConfig.primarySort, sortingConfig.primaryDirection);
+            
+            // If equal and secondary sort exists, use secondary
+            if (result === 0 && sortingConfig.secondarySort) {
+                result = getFieldComparison(a, b, sortingConfig.secondarySort, sortingConfig.secondaryDirection);
+            }
+            
+            return result;
+        });
+        
+        console.log('Sorting complete, rebuilding table');
+        
+        // Clear and rebuild table
+        tbody.innerHTML = '';
+        rows.forEach(row => tbody.appendChild(row));
+        
+        console.log('Table rebuilt successfully');
+    }
+    
+    // Simple field comparison function
+    function getFieldComparison(rowA, rowB, field, direction) {
+        let valA, valB;
+        
+        // Extract values based on field type - fixed column indexes
+        if (field === 'invoice') {
+            valA = rowA.cells[0].textContent.trim();
+            valB = rowB.cells[0].textContent.trim();
+        } else if (field === 'customer') {
+            valA = rowA.cells[1].textContent.trim().toLowerCase();
+            valB = rowB.cells[1].textContent.trim().toLowerCase();
+        } else if (field === 'status') {
+            // Extract status from badge text - handle complex status formats
+            const statusCellA = rowA.cells[3];
+            const statusCellB = rowB.cells[3];
+            
+            // Get full text content
+            let textA = statusCellA.textContent.trim();
+            let textB = statusCellB.textContent.trim();
+            
+            // Extract base status from complex text
+            if (textA.includes('Completed') || textA.toLowerCase().includes('completed')) {
+                valA = 'Completed';
+            } else if (textA.includes('Ready for Packing')) {
+                valA = 'Ready for Packing';
+            } else if (textA.includes('In Progress') || textA.includes('Partially Picked')) {
+                valA = 'In Progress';
+            } else if (textA.includes('Not Started')) {
+                valA = 'Not Started';
+            } else {
+                valA = 'Not Started'; // Default
+            }
+            
+            if (textB.includes('Completed') || textB.toLowerCase().includes('completed')) {
+                valB = 'Completed';
+            } else if (textB.includes('Ready for Packing')) {
+                valB = 'Ready for Packing';
+            } else if (textB.includes('In Progress') || textB.includes('Partially Picked')) {
+                valB = 'In Progress';
+            } else if (textB.includes('Not Started')) {
+                valB = 'Not Started';
+            } else {
+                valB = 'Not Started'; // Default
+            }
+            
+            // Status priority order - exact sequence as requested
+            const statusPriority = {
+                "Not Started": 1,
+                "In Progress": 2, 
+                "Ready for Packing": 3,
+                "Completed": 4
+            };
+            
+            valA = statusPriority[valA] || 999;
+            valB = statusPriority[valB] || 999;
+        } else if (field === 'routing') {
+            const routA = rowA.cells[2].textContent.trim();
+            const routB = rowB.cells[2].textContent.trim();
+            
+            // Empty routing numbers go last
+            if (!routA && !routB) return 0;
+            if (!routA) return 1;
+            if (!routB) return -1;
+            
+            // Parse as numbers if possible
+            const numA = parseInt(routA);
+            const numB = parseInt(routB);
+            
+            if (!isNaN(numA) && !isNaN(numB)) {
+                valA = numA;
+                valB = numB;
+            } else {
+                valA = routA;
+                valB = routB;
+            }
+        } else {
+            return 0;
+        }
+        
+        // Compare values
+        let result = 0;
+        if (typeof valA === 'number' && typeof valB === 'number') {
+            result = valA - valB;
+        } else {
+            result = valA.toString().localeCompare(valB.toString());
+        }
+        
+        // Apply direction
+        return direction === 'desc' ? -result : result;
+    }
+    
+    // Reset to default settings
+    function resetToDefaults() {
+        sortingConfig = {
+            primarySort: 'status',
+            primaryDirection: 'asc',
+            secondarySort: 'routing',
+            secondaryDirection: 'asc',
+            statusSequence: ["not_started", "picking", "ready_for_dispatch", "shipped", "delivered"]
+        };
+        
+        updateModalFields();
+        updateStatusSequenceDisplay();
+        saveSortingPreferences();
+        performTableSort();
+    }
+    
+    // Update status sequence display in modal
+    function updateStatusSequenceDisplay() {
+        const container = document.getElementById('statusSequence');
+        if (!container) return;
+        
+        // Show actual database field names (what the server expects)
+        container.innerHTML = '';
+        sortingConfig.statusSequence.forEach((status, index) => {
+            const div = document.createElement('div');
+            div.className = 'status-item bg-light border rounded p-2 mb-1';
+            div.setAttribute('data-status', status);
+            div.style.cursor = 'move';
+            div.innerHTML = `<i class="fas fa-grip-vertical me-2"></i>${index + 1}. ${status}`;
+            container.appendChild(div);
+        });
+    }
+    
+    // Make functions globally available
+    window.applySorting = applySortingFromModal;
+    window.resetToDefaults = resetToDefaults;
+    window.performTableSort = performTableSort;
+    
+    function assignOrder(invoiceNo) {
+        document.getElementById('modalInvoiceNo').value = invoiceNo;
+    }
+
+    // Quick View functionality
+    function toggleAllOrders() {
+        const selectAll = document.getElementById('selectAll');
+        const checkboxes = document.querySelectorAll('.order-checkbox');
+        
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = selectAll.checked;
+        });
+        
+        updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+        const checkboxes = document.querySelectorAll('.order-checkbox:checked');
+        const count = checkboxes.length;
+        const selectionInfoBar = document.getElementById('selectionInfoBar');
+        const selectedCountSpan = document.getElementById('selectedOrdersCount');
+        
+        selectedCountSpan.textContent = count;
+        
+        if (count > 0) {
+            selectionInfoBar.style.display = 'block';
+        } else {
+            selectionInfoBar.style.display = 'none';
+        }
+        
+        // Update select all checkbox state
+        const allCheckboxes = document.querySelectorAll('.order-checkbox');
+        const selectAllCheckbox = document.getElementById('selectAll');
+        
+        if (count === 0) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = false;
+        } else if (count === allCheckboxes.length) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = true;
+        } else {
+            selectAllCheckbox.indeterminate = true;
+        }
+    }
+
+    function clearSelection() {
+        const checkboxes = document.querySelectorAll('.order-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        document.getElementById('selectAll').checked = false;
+        updateSelectedCount();
+    }
+
+    function showQuickView() {
+        const selectedCheckboxes = document.querySelectorAll('.order-checkbox:checked');
+        const selectedInvoices = Array.from(selectedCheckboxes).map(cb => cb.value);
+        
+        if (selectedInvoices.length === 0) {
+            alert('Please select at least one order to view.');
+            return;
+        }
+        
+        // Initial modal title for multiple orders
+        document.getElementById('quickViewModalLabel').innerHTML = 
+            `<i class="fas fa-eye me-2"></i>Quick View - ${selectedInvoices.length} Orders`;
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('quickViewModal'));
+        modal.show();
+        
+        // Show loading state
+        document.getElementById('quickViewLoading').style.display = 'block';
+        document.getElementById('quickViewContent').style.display = 'none';
+        
+        // Fetch unit breakdown data
+        fetchUnitBreakdown(selectedInvoices);
+    }
+
+    function fetchUnitBreakdown(invoiceNos) {
+        fetch('/admin/quick-view-breakdown', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                invoice_nos: invoiceNos
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayUnitBreakdown(data);
+        })
+        .catch(error => {
+            console.error('Error fetching unit breakdown:', error);
+            document.getElementById('quickViewLoading').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Error loading unit breakdown. Please try again.
+                </div>
+            `;
+        });
+    }
+
+    function displayUnitBreakdown(data) {
+        document.getElementById('quickViewLoading').style.display = 'none';
+        document.getElementById('quickViewContent').style.display = 'block';
+        
+        const content = document.getElementById('quickViewContent');
+        
+        // Update modal title with summary information
+        const customers = [...new Set(data.orders.map(order => order.customer_name))];
+        const customerText = customers.length === 1 ? customers[0] : `${customers.length} customers`;
+        const headerInfo = `Items: ${data.summary.total_items} | Weight: ${data.summary.total_weight}kg | ${customerText}`;
+        
+        document.getElementById('quickViewModalLabel').innerHTML = 
+            `<i class="fas fa-eye me-2"></i>Quick View - ${headerInfo}`;
+        
+        let html = `
+            <div class="row">
+                <!-- Left Side: Unit Type Breakdown (1/4 width) -->
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white">
+                            <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Unit Breakdown</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Type</th>
+                                            <th class="text-end">Qty</th>
+                                            <th class="text-end">%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>`;
+        
+        // Add unit type rows
+        data.unit_breakdown.forEach(unit => {
+            html += `
+                <tr>
+                    <td><strong>${unit.unit_type}</strong></td>
+                    <td class="text-end">${unit.quantity}</td>
+                    <td class="text-end">${unit.percentage}%</td>
+                </tr>`;
+        });
+        
+        html += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Side: Case Items (3/4 width) -->
+                <div class="col-md-9">`;
+        
+        // Add Case Items Review Section
+        if (data.case_items && data.case_items.length > 0) {
+            html += `
+                    <div class="card border-danger">
+                        <div class="card-header bg-danger text-white">
+                            <h6 class="mb-0"><i class="fas fa-boxes me-2"></i>Case Items for Admin Review (${data.case_items.length})</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Location</th>
+                                            <th>Item Name</th>
+                                            <th>Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>`;
+            
+            data.case_items.forEach(item => {
+                html += `
+                        <tr>
+                            <td><small class="text-muted">${item.location}</small></td>
+                            <td>${item.item_name}</td>
+                            <td><span class="badge bg-warning text-white fs-6">${item.quantity}</span></td>
+                        </tr>`;
+            });
+            
+            html += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>`;
+        }
+        
+        html += `
+                </div>
+            </div>`;
+        
+        content.innerHTML = html;
+        
+        // Store data for export
+        window.quickViewData = data;
+    }
+
+    function showSingleOrderQuickView(invoiceNo) {
+        // Show modal for single order
+        const modal = new bootstrap.Modal(document.getElementById('quickViewModal'));
+        
+        // Update modal title for single order
+        document.getElementById('quickViewModalLabel').innerHTML = 
+            `<i class="fas fa-eye me-2"></i>Quick View - ${invoiceNo}`;
+        
+        modal.show();
+        
+        // Show loading state
+        document.getElementById('quickViewLoading').style.display = 'block';
+        document.getElementById('quickViewContent').style.display = 'none';
+        
+        // Fetch unit breakdown data for single order
+        fetchUnitBreakdown([invoiceNo]);
+    }
+
+    function exportQuickView() {
+        if (!window.quickViewData) {
+            alert('No data available for export.');
+            return;
+        }
+        
+        // Create CSV content
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Unit Type Breakdown\n";
+        csvContent += "Unit Type,Quantity,Percentage\n";
+        
+        window.quickViewData.unit_breakdown.forEach(unit => {
+            csvContent += `${unit.unit_type},${unit.quantity},${unit.percentage}%\n`;
+        });
+        
+        csvContent += "\n\nOrder Details\n";
+        csvContent += "Order,Customer,Items,Weight (kg)\n";
+        
+        window.quickViewData.orders.forEach(order => {
+            csvContent += `${order.invoice_no},"${order.customer_name}",${order.total_items},${order.total_weight}\n`;
+        });
+        
+        // Add case items section if available
+        if (window.quickViewData.case_items && window.quickViewData.case_items.length > 0) {
+            csvContent += "\n\nCase Items for Admin Review\n";
+            csvContent += "Order,Item Code,Item Name,Quantity,Unit Type,Location\n";
+            
+            window.quickViewData.case_items.forEach(item => {
+                csvContent += `${item.invoice_no},"${item.item_code}","${item.item_name}",${item.quantity},"${item.unit_type}","${item.location}"\n`;
+            });
+        }
+        
+        // Create download link
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `quick_view_breakdown_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    // Routing number editing functionality
+    function editRouting(invoiceNo, currentRouting) {
+        const displaySpan = document.getElementById(`routing-display-${invoiceNo}`);
+        const currentValue = currentRouting || '';
+        
+        // Create input element
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentValue;
+        input.className = 'form-control form-control-sm me-2';
+        input.style.width = '100px';
+        input.style.display = 'inline-block';
+        input.id = `routing-input-${invoiceNo}`;
+        
+        // Create save button
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-sm btn-success me-1';
+        saveBtn.innerHTML = '<i class="fas fa-check"></i>';
+        saveBtn.onclick = () => saveRouting(invoiceNo, input.value);
+        
+        // Create cancel button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-sm btn-secondary';
+        cancelBtn.innerHTML = '<i class="fas fa-times"></i>';
+        cancelBtn.onclick = () => cancelRoutingEdit(invoiceNo, currentValue);
+        
+        // Replace the display with edit interface
+        displaySpan.innerHTML = '';
+        displaySpan.appendChild(input);
+        displaySpan.appendChild(saveBtn);
+        displaySpan.appendChild(cancelBtn);
+        
+        // Focus the input
+        input.focus();
+        input.select();
+        
+        // Handle Enter key
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                saveRouting(invoiceNo, input.value);
+            } else if (e.key === 'Escape') {
+                cancelRoutingEdit(invoiceNo, currentValue);
+            }
+        });
+    }
+    
+    function saveRouting(invoiceNo, newRouting) {
+        // Show loading state
+        const displaySpan = document.getElementById(`routing-display-${invoiceNo}`);
+        displaySpan.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        // Send update to server
+        fetch('/admin/update-routing-number', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                invoice_no: invoiceNo,
+                routing_number: newRouting
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update the display with new value
+                displaySpan.innerHTML = `<span class="me-2">${newRouting}</span>`;
+                
+                // Show success message
+                showAlert('Routing number updated successfully', 'success');
+            } else {
+                throw new Error(data.message || 'Failed to update routing number');
+            }
+        })
+        .catch(error => {
+            console.error('Error updating routing:', error);
+            
+            // Restore original value
+            const originalValue = displaySpan.getAttribute('data-original') || '';
+            displaySpan.innerHTML = `<span class="me-2">${originalValue}</span>`;
+            
+            // Show error message
+            showAlert('Error updating routing number: ' + error.message, 'danger');
+        });
+    }
+    
+    function cancelRoutingEdit(invoiceNo, originalValue) {
+        const displaySpan = document.getElementById(`routing-display-${invoiceNo}`);
+        displaySpan.innerHTML = `<span class="me-2">${originalValue}</span>`;
+    }
+    
+    // Stop sequence editing functionality
+    function editSequence(invoiceNo, currentSeq) {
+        const displayBadge = document.getElementById(`seq-display-${invoiceNo}`);
+        const currentValue = currentSeq || '';
+        
+        // Create input element
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = currentValue;
+        input.className = 'form-control form-control-sm';
+        input.style.width = '60px';
+        input.style.display = 'inline-block';
+        input.id = `seq-input-${invoiceNo}`;
+        input.min = '0.01';
+        input.step = '0.01';
+        
+        // Create container
+        const container = document.createElement('div');
+        container.className = 'd-flex align-items-center gap-1';
+        container.style.display = 'inline-flex';
+        
+        // Create save button
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-sm btn-success';
+        saveBtn.innerHTML = '<i class="fas fa-check"></i>';
+        saveBtn.onclick = () => saveSequence(invoiceNo, input.value, currentValue);
+        
+        // Create cancel button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-sm btn-secondary';
+        cancelBtn.innerHTML = '<i class="fas fa-times"></i>';
+        cancelBtn.onclick = () => cancelSequenceEdit(invoiceNo, currentValue);
+        
+        // Build container
+        container.appendChild(input);
+        container.appendChild(saveBtn);
+        container.appendChild(cancelBtn);
+        
+        // Replace the badge
+        displayBadge.replaceWith(container);
+        container.id = `seq-display-${invoiceNo}`;
+        
+        // Focus the input
+        input.focus();
+        input.select();
+        
+        // Handle Enter key
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                saveSequence(invoiceNo, input.value, currentValue);
+            } else if (e.key === 'Escape') {
+                cancelSequenceEdit(invoiceNo, currentValue);
+            }
+        });
+    }
+    
+    function saveSequence(invoiceNo, newSeq, originalSeq) {
+        const container = document.getElementById(`seq-display-${invoiceNo}`);
+        container.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        
+        // Send update to server
+        fetch('/admin/update-stop-sequence', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                invoice_no: invoiceNo,
+                sequence: parseFloat(newSeq)
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Show success message
+                showAlert('Stop sequence updated successfully - refreshing...', 'success');
+                
+                // Refresh page after short delay to show all updated sequences
+                setTimeout(() => {
+                    window.location.reload();
+                }, 800);
+            } else {
+                throw new Error(data.message || 'Failed to update stop sequence');
+            }
+        })
+        .catch(error => {
+            console.error('Error updating sequence:', error);
+            
+            // Restore original value
+            container.outerHTML = `<span id="seq-display-${invoiceNo}" class="badge bg-primary me-1" style="cursor: pointer;" 
+                      onclick="editSequence('${invoiceNo}', ${originalSeq})"
+                      title="Stop sequence - click to edit">
+                    ${originalSeq}
+                </span>`;
+            
+            // Show error message
+            showAlert('Error updating stop sequence: ' + error.message, 'danger');
+        });
+    }
+    
+    function cancelSequenceEdit(invoiceNo, originalSeq) {
+        const container = document.getElementById(`seq-display-${invoiceNo}`);
+        container.outerHTML = `<span id="seq-display-${invoiceNo}" class="badge bg-primary me-1" style="cursor: pointer;" 
+                  onclick="editSequence('${invoiceNo}', ${originalSeq})"
+                  title="Stop sequence - click to edit">
+            ${originalSeq}
+        </span>`;
+    }
+    
+    // Open Corrections page with selected invoices
+    window.openCorrections = function() {
+        const selectedCheckboxes = document.querySelectorAll('.order-checkbox:checked');
+        
+        if (selectedCheckboxes.length === 0) {
+            // No selection - go to corrections page without filter
+            window.location.href = '{{ url_for("admin_corrections") }}';
+            return;
+        }
+        
+        // Collect selected invoice numbers
+        const selectedInvoices = Array.from(selectedCheckboxes).map(cb => cb.value);
+        
+        // Create a form and submit it to the corrections route
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("admin_corrections") }}';
+        
+        // Add invoice numbers as hidden inputs
+        selectedInvoices.forEach(invoice => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'invoice_nos[]';
+            input.value = invoice;
+            form.appendChild(input);
+        });
+        
+        // Add form to body, submit, then remove
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
+    };
+    
+    function showAlert(message, type) {
+        // Create alert element
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        alertDiv.style.top = '20px';
+        alertDiv.style.right = '20px';
+        alertDiv.style.zIndex = '9999';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        // Add to page
+        document.body.appendChild(alertDiv);
+        
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 3000);
+    }
+    
+    // Multi-order selection functionality
+    function toggleAllOrders() {
+        const selectAll = document.getElementById('selectAll');
+        const checkboxes = document.querySelectorAll('.order-checkbox');
+        
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = selectAll.checked;
+        });
+        
+        updateSelectedCount();
+    }
+    
+    function updateSelectedCount() {
+        const checkboxes = document.querySelectorAll('.order-checkbox:checked');
+        const count = checkboxes.length;
+        const countSpan = document.getElementById('selectedOrdersCount');
+        const infoBar = document.getElementById('selectionInfoBar');
+        
+        countSpan.textContent = count;
+        
+        if (count > 0) {
+            infoBar.style.display = 'block';
+        } else {
+            infoBar.style.display = 'none';
+        }
+        
+        // Update select all checkbox state
+        const allCheckboxes = document.querySelectorAll('.order-checkbox');
+        const selectAll = document.getElementById('selectAll');
+        selectAll.indeterminate = count > 0 && count < allCheckboxes.length;
+        selectAll.checked = count === allCheckboxes.length;
+    }
+    
+    function clearSelection() {
+        document.querySelectorAll('.order-checkbox').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        document.getElementById('selectAll').checked = false;
+        updateSelectedCount();
+    }
+    
+    function printSelectedOrders() {
+        const selectedCheckboxes = document.querySelectorAll('.order-checkbox:checked');
+        
+        if (selectedCheckboxes.length === 0) {
+            showAlert('Please select at least one order to print', 'warning');
+            return;
+        }
+        
+        // Collect selected invoice numbers
+        const selectedInvoices = Array.from(selectedCheckboxes).map(cb => cb.value);
+        
+        // Create a form and submit it to the print route
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("print_selected_orders") }}';
+        form.target = '_blank'; // Open in new tab
+        
+        // Add CSRF token if available
+        const csrfToken = document.querySelector('meta[name="csrf-token"]');
+        if (csrfToken) {
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = csrfToken.getAttribute('content');
+            form.appendChild(csrfInput);
+        }
+        
+        // Add selected invoices as hidden inputs
+        selectedInvoices.forEach(invoice => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'selected_invoices';
+            input.value = invoice;
+            form.appendChild(input);
+        });
+        
+        // Add form to page, submit, then remove
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
+        
+        showAlert(`Printing ${selectedInvoices.length} selected orders...`, 'info');
+    }
+    
+    // Route assignment functionality
+    function openAssignToRouteModal() {
+        const selectedCheckboxes = document.querySelectorAll('.order-checkbox:checked');
+        
+        if (selectedCheckboxes.length === 0) {
+            showAlert('Please select at least one order to assign', 'warning');
+            return;
+        }
+        
+        // Show the modal
+        const modal = new bootstrap.Modal(document.getElementById('assignRouteModal'));
+        modal.show();
+    }
+    
+    function toggleRouteOption() {
+        const isExisting = document.getElementById('existingRouteOption').checked;
+        const isNew = document.getElementById('newRouteOption').checked;
+        const isWarehouse = document.getElementById('warehouseCollectionOption').checked;
+        const existingSection = document.getElementById('existingRouteSection');
+        const newSection = document.getElementById('newRouteSection');
+        const helpText = document.getElementById('routeOptionHelp');
+        
+        if (isExisting) {
+            existingSection.style.display = 'block';
+            newSection.style.display = 'none';
+            helpText.textContent = 'Select an existing route or remove from route';
+        } else if (isNew) {
+            existingSection.style.display = 'none';
+            newSection.style.display = 'block';
+            helpText.textContent = 'Create a new delivery route';
+        } else if (isWarehouse) {
+            existingSection.style.display = 'none';
+            newSection.style.display = 'none';
+            helpText.textContent = 'Mark orders as delivered (customer warehouse pickup)';
+        }
+    }
+    
+    async function assignToRoute() {
+        const selectedCheckboxes = document.querySelectorAll('.order-checkbox:checked');
+        const isExisting = document.getElementById('existingRouteOption').checked;
+        const isNew = document.getElementById('newRouteOption').checked;
+        const isWarehouse = document.getElementById('warehouseCollectionOption').checked;
+        
+        // Collect selected invoice numbers
+        const invoiceNos = Array.from(selectedCheckboxes).map(cb => cb.value);
+        
+        // Show loading state
+        const assignBtn = document.getElementById('assignRouteBtn');
+        const originalBtnText = assignBtn.innerHTML;
+        assignBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+        assignBtn.disabled = true;
+        
+        try {
+            // Handle warehouse collection
+            if (isWarehouse) {
+                // Mark all selected orders as delivered
+                for (const invoiceNo of invoiceNos) {
+                    const response = await fetch('/warehouse/assign-to-route', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            invoice_no: invoiceNo,
+                            warehouse_collection: true
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (!response.ok) {
+                        throw new Error(result.error || `Failed to process ${invoiceNo}`);
+                    }
+                }
+                
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('assignRouteModal'));
+                modal.hide();
+                
+                // Clear selection
+                clearSelection();
+                
+                // Show success message and reload
+                showAlert(`${invoiceNos.length} order(s) marked as delivered (warehouse pickup)`, 'success');
+                setTimeout(() => window.location.reload(), 1500);
+                return;
+            }
+            
+            // Handle existing or new route assignment
+            let driverName, deliveryDate, routeId;
+            
+            if (isExisting) {
+                // Using existing route
+                const existingRouteSelect = document.getElementById('existingRoute');
+                routeId = existingRouteSelect.value;
+                
+                if (!routeId) {
+                    showAlert('Please select a route', 'warning');
+                    return;
+                }
+                
+                // Check if unassigning
+                if (routeId === 'unassigned') {
+                    await unassignFromRoute(selectedCheckboxes);
+                    return;
+                }
+                
+                // Get driver and date from selected option
+                const selectedOption = existingRouteSelect.options[existingRouteSelect.selectedIndex];
+                driverName = selectedOption.getAttribute('data-driver');
+                deliveryDate = selectedOption.getAttribute('data-date');
+            } else if (isNew) {
+                // Creating new route
+                driverName = document.getElementById('routeDriver').value;
+                deliveryDate = document.getElementById('routeDate').value;
+                
+                if (!driverName) {
+                    showAlert('Please select a driver', 'warning');
+                    return;
+                }
+                
+                if (!deliveryDate) {
+                    showAlert('Please select a delivery date', 'warning');
+                    return;
+                }
+            }
+            
+            // Prepare request body
+            const requestBody = {
+                driver_name: driverName,
+                delivery_date: deliveryDate,
+                invoice_nos: invoiceNos
+            };
+            
+            // Add route name if creating new route
+            if (isNew) {
+                const routeName = document.getElementById('routeName').value.trim();
+                if (routeName) {
+                    requestBody.route_name = routeName;
+                }
+            }
+            
+            // Include route_id if using existing route
+            if (isExisting && routeId) {
+                requestBody.route_id = parseInt(routeId);
+            }
+            
+            // Call the auto-assign API
+            const response = await fetch('/routes/auto-assign', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
+            
+            const result = await response.json();
+            
+            if (result.ok) {
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('assignRouteModal'));
+                modal.hide();
+                
+                // Clear selection
+                clearSelection();
+                
+                // Show success message
+                const message = `✓ Route assigned! ${result.created_stops} stop(s) created for ${result.total_invoices} invoice(s) (Route ID: ${result.route_id})`;
+                showAlert(message, 'success');
+                
+                // Reload page after a short delay to show updated data
+                setTimeout(() => {
+                    location.reload();
+                }, 1500);
+            } else {
+                throw new Error(result.message || 'Failed to assign route');
+            }
+        } catch (error) {
+            console.error('Error assigning route:', error);
+            showAlert('Error: ' + error.message, 'danger');
+        } finally {
+            // Restore button state
+            assignBtn.innerHTML = originalBtnText;
+            assignBtn.disabled = false;
+        }
+    }
+    
+    async function unassignFromRoute(selectedCheckboxes) {
+        // Collect selected invoice numbers
+        const invoiceNos = Array.from(selectedCheckboxes).map(cb => cb.value);
+        
+        // Show loading state
+        const assignBtn = document.getElementById('assignRouteBtn');
+        const originalBtnText = assignBtn.innerHTML;
+        assignBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Unassigning...';
+        assignBtn.disabled = true;
+        
+        try {
+            // Call the unassign API
+            const response = await fetch('/routes/unassign-from-route', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    invoice_nos: invoiceNos
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.ok) {
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('assignRouteModal'));
+                modal.hide();
+                
+                // Clear selection
+                clearSelection();
+                
+                // Show success message
+                const message = `✓ ${result.total_invoices} invoice(s) removed from route`;
+                showAlert(message, 'success');
+                
+                // Reload page after a short delay to show updated data
+                setTimeout(() => {
+                    location.reload();
+                }, 1500);
+            } else {
+                throw new Error(result.message || 'Failed to unassign from route');
+            }
+        } catch (error) {
+            console.error('Error unassigning from route:', error);
+            showAlert('Error: ' + error.message, 'danger');
+        } finally {
+            // Restore button state
+            assignBtn.innerHTML = originalBtnText;
+            assignBtn.disabled = false;
+        }
+    }
+</script>
+
+<!-- Assign to Route Modal -->
+<div class="modal fade" id="assignRouteModal" tabindex="-1" aria-labelledby="assignRouteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="assignRouteModalLabel">
+                    <i class="fas fa-truck me-2"></i>Assign Orders to Delivery Route
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Route Assignment Option</label>
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="routeOption" id="existingRouteOption" value="existing" {% if planned_routes %}checked{% endif %} onchange="toggleRouteOption()">
+                        <label class="btn btn-outline-primary" for="existingRouteOption">
+                            <i class="fas fa-list me-1"></i>Existing Route
+                        </label>
+                        <input type="radio" class="btn-check" name="routeOption" id="newRouteOption" value="new" {% if not planned_routes %}checked{% endif %} onchange="toggleRouteOption()">
+                        <label class="btn btn-outline-primary" for="newRouteOption">
+                            <i class="fas fa-plus me-1"></i>Create New
+                        </label>
+                        <input type="radio" class="btn-check" name="routeOption" id="warehouseCollectionOption" value="warehouse" onchange="toggleRouteOption()">
+                        <label class="btn btn-outline-success" for="warehouseCollectionOption">
+                            <i class="fas fa-warehouse me-1"></i>Warehouse Pickup
+                        </label>
+                    </div>
+                    <small class="form-text text-muted d-block mt-1">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <span id="routeOptionHelp">
+                            {% if planned_routes %}Select existing route or create new{% else %}Create new route or mark for warehouse pickup{% endif %}
+                        </span>
+                    </small>
+                </div>
+                
+                <!-- Existing Route Selection -->
+                <div id="existingRouteSection" style="display: {% if planned_routes %}block{% else %}none{% endif %};">
+                    <div class="mb-3">
+                        <label for="existingRoute" class="form-label">Select Route</label>
+                        <select class="form-select" id="existingRoute">
+                            <option value="">-- Select Existing Route --</option>
+                            <option value="unassigned" class="text-danger">✖ Unassigned (Remove from route)</option>
+                            {% for route in planned_routes %}
+                            <option value="{{ route.id }}" data-driver="{{ route.driver_name }}" data-date="{{ route.delivery_date.strftime('%Y-%m-%d') }}">
+                                {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }} 
+                                {% if route.route_name %}({{ route.route_name }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Choose from planned routes or unassign invoices</div>
+                    </div>
+                </div>
+                
+                <!-- New Route Creation -->
+                <div id="newRouteSection" style="display: {% if not planned_routes %}block{% else %}none{% endif %};">
+                    <div class="mb-3">
+                        <label for="routeDriver" class="form-label">Driver</label>
+                        <select class="form-select" id="routeDriver">
+                            <option value="">-- Select Driver --</option>
+                            {% for driver in drivers %}
+                            <option value="{{ driver.username }}">{{ driver.username }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Select the driver for this route</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="routeName" class="form-label">Route Name <span class="text-muted">(Optional)</span></label>
+                        <input type="text" class="form-control" id="routeName" placeholder="e.g., Downtown Route A">
+                        <div class="form-text">Give this route a descriptive name</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="routeDate" class="form-label">Delivery Date</label>
+                        <input type="date" class="form-control" id="routeDate">
+                        <div class="form-text">Select the delivery date for this route</div>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Auto-Grouping:</strong> Orders will be automatically grouped by customer. Each customer will appear only once as a stop on the route, with all their invoices combined.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="assignRouteBtn" onclick="assignToRoute()">
+                    <i class="fas fa-check me-1"></i>Assign to Route
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateClock() {
+    const now = new Date();
+    const athensTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Athens' }));
+    const hours = String(athensTime.getHours()).padStart(2, '0');
+    const minutes = String(athensTime.getMinutes()).padStart(2, '0');
+    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+    const dateStr = athensTime.toLocaleDateString('en-US', options);
+    
+    const timeEl = document.getElementById('clock-time');
+    const dateEl = document.getElementById('clock-date');
+    if (timeEl) timeEl.textContent = `${hours}:${minutes}`;
+    if (dateEl) dateEl.textContent = dateStr;
+}
+
+updateClock();
+setInterval(updateClock, 60000);
+
+// Auto-refresh the dashboard every 30 seconds, but ONLY if no modals are open
+setInterval(function() {
+    // Check if any modal is currently open
+    if (window.isModalOpen === false) {
+        location.reload();
+    } else {
+        console.log('Modal is open - skipping refresh');
+    }
+}, 30000);
+</script>
+
+{% endblock %}

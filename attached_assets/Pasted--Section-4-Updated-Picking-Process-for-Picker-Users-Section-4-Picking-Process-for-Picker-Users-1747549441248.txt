@@ -1,0 +1,45 @@
+✅ Section 4 (Updated): Picking Process for Picker Users
+Section 4: Picking Process for Picker Users
+
+I want to build the picking workflow for users with role = 'picker'.
+
+1. After login, the picker should see a list of orders (invoices) assigned to them only.
+   - Display the following fields:
+     - INVOICE NO, ROUTING, CUSTOMER NAME
+     - LINES, ITEMS, TOTAL WEIGHT, EXP TIME
+     - STATUS: Not Started / In Progress / Completed
+   - This screen should be mobile-friendly and allow the picker to click "Start Picking" for any assigned order.
+
+2. When picking starts, present one item at a time on its own screen.
+
+3. The item screen should include:
+   - LOCATION (e.g., 10-02-A01) – displayed prominently with Aisle/Shelf/Level/Bin labels
+   - ITEM NAME, ITEM CODE, BARCODE, ZONE
+   - Quantity display as a single bold line:
+     - If Pack is present and non-zero: `[QTY] [UNIT TYPE] [Pack]X` (e.g., `2 PACK 4X`)
+     - If Pack is missing or zero: `[QTY] [UNIT TYPE]` (e.g., `1 CASE`)
+
+4. Default behavior:
+   - Picker confirms item by pressing a “Confirm Picked” button
+   - The default picked quantity is the expected quantity
+
+➡️  **4A. After pressing "Confirm Picked":**
+   - A window (modal or overlay) should appear showing:
+     - Product image (if available)
+     - Product description
+     - Barcode
+     - Quantity to be picked
+   - Picker is asked: **“Is this the correct product and quantity?”**
+   - If confirmed: proceed to next item
+   - If not confirmed: allow the picker to adjust quantity or report an issue
+
+5. Exception handling:
+   - If picker enters a smaller quantity than expected, this is logged as an **exception**
+   - The exception log should include:
+     - Invoice No, Item Code, Expected QTY, Picked QTY, Picker Username, Timestamp
+   - These exceptions must appear in the final picking report for admin
+
+6. After all items are picked:
+   - Mark the invoice status as Completed
+   - Redirect the picker to a completion screen
+

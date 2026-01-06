@@ -1,0 +1,315 @@
+{% extends 'base.html' %}
+
+{% block title %}Picking Sort Settings - EPLATTFORMA Picking System{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .sort-card {
+        transition: all 0.3s ease;
+        border-left: 4px solid #ccc;
+    }
+    .sort-card.enabled {
+        border-left-color: #0d6efd;
+    }
+    .sort-card.disabled {
+        opacity: 0.7;
+    }
+    .direction-toggle .btn {
+        min-width: 120px;
+    }
+    .priority-badge {
+        font-size: 1.2rem;
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background-color: #f8f9fa;
+        margin-right: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5">
+            <i class="fas fa-sort me-2"></i>Picking Sort Settings
+        </h1>
+        <p class="text-muted">Configure how items are sorted during the picking process</p>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end mt-3 mt-md-0">
+        <a href="{{ url_for('admin_settings') }}" class="btn btn-secondary me-2">
+            <i class="fas fa-cogs me-2"></i>General Settings
+        </a>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-primary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+        </a>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary">
+        <h5 class="mb-0 text-dark"><i class="fas fa-sliders-h me-2"></i>Picking Sort Configuration</h5>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info mb-4">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>How it works:</strong> Configure which location parameters to sort by and in what order. 
+            Items will be sorted based on the enabled parameters in the priority order you specify (1 being highest priority).
+        </div>
+        
+        <form method="post" action="{{ url_for('admin_sorting_settings') }}">
+            <!-- Sorting Fields -->
+            <div class="row mb-4">
+                <!-- ZONE -->
+                <div class="col-md-6 mb-4">
+                    <div class="card sort-card {{ 'enabled' if sorting_config.zone.enabled else 'disabled' }}">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="priority-badge">{{ sorting_config.zone.order }}</span>
+                                <h5 class="mb-0 d-inline text-dark">ZONE</h5>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="zone_enabled" name="zone_enabled" 
+                                       {{ 'checked' if sorting_config.zone.enabled else '' }}>
+                                <label class="form-check-label" for="zone_enabled">Enable</label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="zone_order" class="form-label">Priority</label>
+                                    <input type="number" class="form-control" id="zone_order" name="zone_order" 
+                                           min="1" max="5" value="{{ sorting_config.zone.order }}">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Direction</label>
+                                    <div class="btn-group direction-toggle w-100">
+                                        <input type="radio" class="btn-check" name="zone_direction" id="zone_asc" value="asc" 
+                                               {{ 'checked' if sorting_config.zone.direction == 'asc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="zone_asc">
+                                            <i class="fas fa-arrow-up me-1"></i>Ascending
+                                        </label>
+                                        
+                                        <input type="radio" class="btn-check" name="zone_direction" id="zone_desc" value="desc" 
+                                               {{ 'checked' if sorting_config.zone.direction == 'desc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="zone_desc">
+                                            <i class="fas fa-arrow-down me-1"></i>Descending
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="zone_manual_priority" class="form-label">Manual Priority Order (comma-separated)</label>
+                                <input type="text" class="form-control" id="zone_manual_priority" name="zone_manual_priority" 
+                                       placeholder="A1, B2, C3" value="{{ manual_priority_str }}">
+                                <div class="form-text">
+                                    Optional: Define a custom order for zones (e.g., "A1, B2, C3"). Leave empty to use standard sorting.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- CORRIDOR -->
+                <div class="col-md-6 mb-4">
+                    <div class="card sort-card {{ 'enabled' if sorting_config.corridor.enabled else 'disabled' }}">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="priority-badge">{{ sorting_config.corridor.order }}</span>
+                                <h5 class="mb-0 d-inline text-dark">CORRIDOR</h5>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="corridor_enabled" name="corridor_enabled" 
+                                       {{ 'checked' if sorting_config.corridor.enabled else '' }}>
+                                <label class="form-check-label" for="corridor_enabled">Enable</label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="corridor_order" class="form-label">Priority</label>
+                                    <input type="number" class="form-control" id="corridor_order" name="corridor_order" 
+                                           min="1" max="5" value="{{ sorting_config.corridor.order }}">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Direction</label>
+                                    <div class="btn-group direction-toggle w-100">
+                                        <input type="radio" class="btn-check" name="corridor_direction" id="corridor_asc" value="asc" 
+                                               {{ 'checked' if sorting_config.corridor.direction == 'asc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="corridor_asc">
+                                            <i class="fas fa-arrow-up me-1"></i>Ascending
+                                        </label>
+                                        
+                                        <input type="radio" class="btn-check" name="corridor_direction" id="corridor_desc" value="desc" 
+                                               {{ 'checked' if sorting_config.corridor.direction == 'desc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="corridor_desc">
+                                            <i class="fas fa-arrow-down me-1"></i>Descending
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- SHELF -->
+                <div class="col-md-6 mb-4">
+                    <div class="card sort-card {{ 'enabled' if sorting_config.shelf.enabled else 'disabled' }}">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="priority-badge">{{ sorting_config.shelf.order }}</span>
+                                <h5 class="mb-0 d-inline text-dark">SHELF</h5>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="shelf_enabled" name="shelf_enabled" 
+                                       {{ 'checked' if sorting_config.shelf.enabled else '' }}>
+                                <label class="form-check-label" for="shelf_enabled">Enable</label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="shelf_order" class="form-label">Priority</label>
+                                    <input type="number" class="form-control" id="shelf_order" name="shelf_order" 
+                                           min="1" max="5" value="{{ sorting_config.shelf.order }}">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Direction</label>
+                                    <div class="btn-group direction-toggle w-100">
+                                        <input type="radio" class="btn-check" name="shelf_direction" id="shelf_asc" value="asc" 
+                                               {{ 'checked' if sorting_config.shelf.direction == 'asc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="shelf_asc">
+                                            <i class="fas fa-arrow-up me-1"></i>Ascending
+                                        </label>
+                                        
+                                        <input type="radio" class="btn-check" name="shelf_direction" id="shelf_desc" value="desc" 
+                                               {{ 'checked' if sorting_config.shelf.direction == 'desc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="shelf_desc">
+                                            <i class="fas fa-arrow-down me-1"></i>Descending
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- LEVEL -->
+                <div class="col-md-6 mb-4">
+                    <div class="card sort-card {{ 'enabled' if sorting_config.level.enabled else 'disabled' }}">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="priority-badge">{{ sorting_config.level.order }}</span>
+                                <h5 class="mb-0 d-inline text-dark">LEVEL</h5>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="level_enabled" name="level_enabled" 
+                                       {{ 'checked' if sorting_config.level.enabled else '' }}>
+                                <label class="form-check-label" for="level_enabled">Enable</label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="level_order" class="form-label">Priority</label>
+                                    <input type="number" class="form-control" id="level_order" name="level_order" 
+                                           min="1" max="5" value="{{ sorting_config.level.order }}">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Direction</label>
+                                    <div class="btn-group direction-toggle w-100">
+                                        <input type="radio" class="btn-check" name="level_direction" id="level_asc" value="asc" 
+                                               {{ 'checked' if sorting_config.level.direction == 'asc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="level_asc">
+                                            <i class="fas fa-arrow-up me-1"></i>Ascending
+                                        </label>
+                                        
+                                        <input type="radio" class="btn-check" name="level_direction" id="level_desc" value="desc" 
+                                               {{ 'checked' if sorting_config.level.direction == 'desc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="level_desc">
+                                            <i class="fas fa-arrow-down me-1"></i>Descending
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- BIN -->
+                <div class="col-md-6 mb-4">
+                    <div class="card sort-card {{ 'enabled' if sorting_config.bin.enabled else 'disabled' }}">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="priority-badge">{{ sorting_config.bin.order }}</span>
+                                <h5 class="mb-0 d-inline text-dark">BIN</h5>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="bin_enabled" name="bin_enabled" 
+                                       {{ 'checked' if sorting_config.bin.enabled else '' }}>
+                                <label class="form-check-label" for="bin_enabled">Enable</label>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="bin_order" class="form-label">Priority</label>
+                                    <input type="number" class="form-control" id="bin_order" name="bin_order" 
+                                           min="1" max="5" value="{{ sorting_config.bin.order }}">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Direction</label>
+                                    <div class="btn-group direction-toggle w-100">
+                                        <input type="radio" class="btn-check" name="bin_direction" id="bin_asc" value="asc" 
+                                               {{ 'checked' if sorting_config.bin.direction == 'asc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="bin_asc">
+                                            <i class="fas fa-arrow-up me-1"></i>Ascending
+                                        </label>
+                                        
+                                        <input type="radio" class="btn-check" name="bin_direction" id="bin_desc" value="desc" 
+                                               {{ 'checked' if sorting_config.bin.direction == 'desc' else '' }}>
+                                        <label class="btn btn-outline-primary" for="bin_desc">
+                                            <i class="fas fa-arrow-down me-1"></i>Descending
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-2"></i>Save Sorting Settings
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Toggle card appearance based on enabled status
+    const toggles = document.querySelectorAll('.form-check-input[type="checkbox"]');
+    toggles.forEach(toggle => {
+        toggle.addEventListener('change', function() {
+            const card = this.closest('.sort-card');
+            if (this.checked) {
+                card.classList.add('enabled');
+                card.classList.remove('disabled');
+            } else {
+                card.classList.remove('enabled');
+                card.classList.add('disabled');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

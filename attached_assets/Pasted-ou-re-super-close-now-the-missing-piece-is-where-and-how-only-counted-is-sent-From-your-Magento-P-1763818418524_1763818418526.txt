@@ -1,0 +1,175 @@
+ou’re super close now – the missing piece is where and how only_counted is sent.
+From your Magento PHP importer (AllProducts20251119.php), the working call to list_items looks like this:
+'filter_define' => array(
+    'only_counted' => 'N',
+    'page_number' => $pageNum,
+    'page_size' => $pageSize,
+    'active_type' => 'all',
+    'ecommerce_type' => 'all',
+    'categories_selection' => '',
+    'departments_selection' => '',
+    'items_supplier_selection' => '',
+    'brands_selection' => '',
+    'seasons_selection' => '',
+    'models_selection' => '',
+    'colours_selection' => '',
+    'sizes_selection' => '',
+    'sizes_group_selection' => '',
+    'attributes_1_selection' => '',
+    'attributes_2_selection' => '',
+    'attributes_3_selection' => '',
+    'attributes_4_selection' => '',
+    'attributes_5_selection' => '',
+),
+
+So:
+
+
+only_counted must be inside filter_define,
+
+
+and it must be the string "N" (not boolean, not "false"),
+
+
+and page_number/page_size also go inside filter_define.
+
+
+Right now your Replit agent clearly added only_counted, but it’s almost certainly either:
+
+
+at the top level of the payload, or
+
+
+as a boolean, or
+
+
+in the wrong structure.
+
+
+Let’s fix it precisely.
+
+1. Fix full_dw_update items block
+In datawarehouse_sync.py, inside full_dw_update(session) find the items part that looks like this (something close to):
+response = call_ps365("list_items", {
+    "page_number": page,
+    "page_size": PAGE_SIZE,
+    "filter_define": {
+        "active_type": "all",
+        "ecommerce_type": "all",
+        # maybe other fields...
+    }
+})
+
+or maybe:
+response = call_ps365("list_items", {
+    "only_counted": "false",  # or False
+    "page_number": page,
+    "page_size": PAGE_SIZE,
+    ...
+})
+
+Change that whole payload to mirror the PHP version exactly:
+response = call_ps365("list_items", {
+    "filter_define": {
+        "only_counted": "N",          # REQUIRED, string
+        "page_number": page,
+        "page_size": PAGE_SIZE,
+        "active_type": "all",         # all OR active OR inactive
+        "ecommerce_type": "all",      # all OR eCommerceOnly
+
+        # keep selections empty to get everything
+        "categories_selection": "",
+        "departments_selection": "",
+        "items_supplier_selection": "",
+        "brands_selection": "",
+        "seasons_selection": "",
+        "models_selection": "",
+        "colours_selection": "",
+        "sizes_selection": "",
+        "sizes_group_selection": "",
+        "attributes_1_selection": "",
+        "attributes_2_selection": "",
+        "attributes_3_selection": "",
+        "attributes_4_selection": "",
+        "attributes_5_selection": "",
+    }
+})
+
+Important:
+
+
+Remove any only_counted that’s at the root of the payload.
+
+
+Remove page_number / page_size from the root as well – they belong inside filter_define for this endpoint, exactly like your PHP code.
+
+
+
+2. Quick sanity test script (optional but helpful)
+If you want to be 100% sure before running a full DW sync, you can run a tiny test script in Replit:
+# /tmp/test_list_items.py
+import sys, os
+sys.path.insert(0, '/home/runner/workspace')
+os.chdir('/home/runner/workspace')
+
+from ps365_client import call_ps365
+
+from datawarehouse_sync import PAGE_SIZE  # or just set PAGE_SIZE = 1
+
+resp = call_ps365("list_items", {
+    "filter_define": {
+        "only_counted": "N",
+        "page_number": 1,
+        "page_size": 1,
+        "active_type": "all",
+        "ecommerce_type": "all",
+        "categories_selection": "",
+        "departments_selection": "",
+        "items_supplier_selection": "",
+        "brands_selection": "",
+        "seasons_selection": "",
+        "models_selection": "",
+        "colours_selection": "",
+        "sizes_selection": "",
+        "sizes_group_selection": "",
+        "attributes_1_selection": "",
+        "attributes_2_selection": "",
+        "attributes_3_selection": "",
+        "attributes_4_selection": "",
+        "attributes_5_selection": "",
+    }
+})
+
+print(resp.get("api_response"))
+print("Sample item:", (resp.get("list_items") or [None])[0])
+
+Run:
+python /tmp/test_list_items.py
+
+You should see:
+
+
+response_code: "1"
+
+
+And a non-empty list_items with at least 1 item.
+
+
+If you still see 302 Invalid Data. Required: only_counted, then the JSON shape still differs from the PHP one; but given we literally copied the working PHP call, it should pass.
+
+3. Then rerun the full DW sync
+Once the payload is fixed:
+
+
+Run your DW sync script again (either via menu or the /tmp/trigger_dw_sync.py the agent used).
+
+
+Check the table:
+
+
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM ps_items_dw;"
+
+(or whatever the actual table name is – ps_items_dw or ps_items depending on your model).
+You should now see thousands of rows.
+
+If you paste the current call_ps365("list_items", { ... }) block from datawarehouse_sync.py, I can rewrite it line-by-line so you don’t have to think about it at all.

@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{% block title %}Delivery Issue #{{ discrepancy.id }}{% endblock %}
+
+{% block head %}
+<style>
+    .detail-card {
+        background: #2d3748;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .detail-section {
+        margin-bottom: 25px;
+    }
+    .detail-row {
+        display: flex;
+        padding: 10px 0;
+        border-bottom: 1px solid #4a5568;
+    }
+    .detail-row:last-child {
+        border-bottom: none;
+    }
+    .detail-label {
+        font-weight: 600;
+        width: 200px;
+        color: #a0aec0;
+    }
+    .detail-value {
+        flex: 1;
+    }
+    .status-badge {
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        display: inline-block;
+    }
+    .status-reported { background-color: #f56565; color: white; }
+    .status-validated { background-color: #ed8936; color: white; }
+    .status-resolved { background-color: #48bb78; color: white; }
+    .timeline {
+        margin-top: 20px;
+    }
+    .timeline-item {
+        padding: 15px;
+        background: #1a202c;
+        border-left: 3px solid #4a5568;
+        margin-bottom: 15px;
+        border-radius: 4px;
+    }
+    .timeline-item.created { border-left-color: #4299e1; }
+    .timeline-item.status_changed { border-left-color: #ed8936; }
+    .timeline-item.resolved { border-left-color: #48bb78; }
+    .photo-gallery img {
+        max-width: 300px;
+        margin: 10px;
+        border: 2px solid #4a5568;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="fas fa-exclamation-triangle me-2"></i>Delivery Issue #{{ discrepancy.id }}</h2>
+                <div>
+                    <a href="{{ url_for('delivery_issues.review_issues') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to List
+                    </a>
+                </div>
+            </div>
+
+            <div class="detail-card">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <h4>Issue Details</h4>
+                    <span class="status-badge status-{{ discrepancy.status }}">
+                        {{ discrepancy.status.upper() }}
+                    </span>
+                </div>
+
+                <div class="detail-section">
+                    <h5 class="mb-3">Order Information</h5>
+                    <div class="detail-row">
+                        <div class="detail-label">Invoice Number</div>
+                        <div class="detail-value">{{ discrepancy.invoice_no }}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Customer</div>
+                        <div class="detail-value">{{ discrepancy.invoice.customer_name }}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Routing</div>
+                        <div class="detail-value">{{ discrepancy.invoice.routing }}</div>
+                    </div>
+                    {% if discrepancy.delivery_date %}
+                    <div class="detail-row">
+                        <div class="detail-label">Delivery Date</div>
+                        <div class="detail-value">{{ discrepancy.delivery_date.strftime('%d/%m/%Y') }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="detail-section">
+                    <h5 class="mb-3">Item Information</h5>
+                    <div class="detail-row">
+                        <div class="detail-label">
+                            {% if discrepancy.discrepancy_type == 'wrong' or discrepancy.discrepancy_type == 'wrong_item' %}
+                                Expected Item Code
+                            {% else %}
+                                Item Code
+                            {% endif %}
+                        </div>
+                        <div class="detail-value">{{ discrepancy.item_code_expected }}</div>
+                    </div>
+                    {% if (discrepancy.discrepancy_type == 'wrong' or discrepancy.discrepancy_type == 'wrong_item') and (discrepancy.actual_item_code or discrepancy.actual_barcode) %}
+                    <div class="detail-row">
+                        <div class="detail-label">Actual Item (Substitution)</div>
+                        <div class="detail-value">
+                            <strong>{{ discrepancy.actual_item_code or discrepancy.actual_barcode }}</strong>
+                            {% if discrepancy.actual_qty %}
+                            <span class="text-muted"> (Qty: {{ discrepancy.actual_qty }})</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="detail-row">
+                        <div class="detail-label">Item Name</div>
+                        <div class="detail-value">{{ discrepancy.item_name or 'N/A' }}</div>
+                    </div>
+                    {% if discrepancy.location %}
+                    <div class="detail-row">
+                        <div class="detail-label">Warehouse Location</div>
+                        <div class="detail-value">{{ discrepancy.location }}</div>
+                    </div>
+                    {% endif %}
+                    {% if discrepancy.shelf_code_365 %}
+                    <div class="detail-row">
+                        <div class="detail-label">PS365 Shelf Code</div>
+                        <div class="detail-value">{{ discrepancy.shelf_code_365 }}</div>
+                    </div>
+                    {% endif %}
+                    <div class="detail-row">
+                        <div class="detail-label">Expected Quantity</div>
+                        <div class="detail-value">{{ discrepancy.qty_expected }}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Actual Quantity</div>
+                        <div class="detail-value">
+                            {% if discrepancy.qty_actual is not none %}
+                                {{ discrepancy.qty_actual }}
+                            {% else %}
+                                <span class="text-muted">Not specified (Missing)</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if discrepancy.picker_username %}
+                    <div class="detail-row">
+                        <div class="detail-label">Picked By</div>
+                        <div class="detail-value">{{ discrepancy.picker_username }}</div>
+                    </div>
+                    {% endif %}
+                    {% if discrepancy.picked_at %}
+                    <div class="detail-row">
+                        <div class="detail-label">Picked At</div>
+                        <div class="detail-value">{{ discrepancy.picked_at|local_time('%d/%m/%Y %H:%M:%S') }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="detail-section">
+                    <h5 class="mb-3">Discrepancy Details</h5>
+                    <div class="detail-row">
+                        <div class="detail-label">Discrepancy Type</div>
+                        <div class="detail-value">
+                            <span class="badge bg-warning">
+                                {{ discrepancy.discrepancy_type.replace('_', ' ').title() }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Reported By</div>
+                        <div class="detail-value">{{ discrepancy.reported_by }}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Reported At</div>
+                        <div class="detail-value">{{ discrepancy.reported_at|local_time('%d/%m/%Y %H:%M:%S') }}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Reported Source</div>
+                        <div class="detail-value">{{ discrepancy.reported_source.title() }}</div>
+                    </div>
+                    {% if discrepancy.validated_by %}
+                    <div class="detail-row">
+                        <div class="detail-label">Validated By</div>
+                        <div class="detail-value">
+                            {{ discrepancy.validated_by }} 
+                            at {{ discrepancy.validated_at|local_time('%d/%m/%Y %H:%M:%S') }}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if discrepancy.resolved_by %}
+                    <div class="detail-row">
+                        <div class="detail-label">Resolved By</div>
+                        <div class="detail-value">
+                            {{ discrepancy.resolved_by }} 
+                            at {{ discrepancy.resolved_at|local_time('%d/%m/%Y %H:%M:%S') }}
+                        </div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Resolution Action</div>
+                        <div class="detail-value">
+                            <span class="badge bg-success">
+                                {{ discrepancy.resolution_action.replace('_', ' ').title() }}
+                            </span>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if discrepancy.note %}
+                <div class="detail-section">
+                    <h5 class="mb-3">Notes</h5>
+                    <div class="alert alert-secondary">
+                        {{ discrepancy.note|replace('\n', '<br>')|safe }}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if photos|length > 0 %}
+                <div class="detail-section">
+                    <h5 class="mb-3">Photos</h5>
+                    <div class="photo-gallery">
+                        {% for photo in photos %}
+                        <img src="/{{ photo }}" alt="Discrepancy Photo" 
+                             onclick="window.open('/{{ photo }}', '_blank')">
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if discrepancy.events|length > 0 %}
+            <div class="detail-card">
+                <h4 class="mb-3">Timeline</h4>
+                <div class="timeline">
+                    {% for event in discrepancy.events %}
+                    <div class="timeline-item {{ event.event_type }}">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <strong>
+                                <i class="fas fa-circle me-2" style="font-size: 0.5rem;"></i>
+                                {{ event.event_type.replace('_', ' ').title() }}
+                            </strong>
+                            <small class="text-muted">
+                                {{ event.timestamp|local_time('%d/%m/%Y %H:%M:%S') }}
+                            </small>
+                        </div>
+                        <div class="ms-4">
+                            <p class="mb-1">Actor: <strong>{{ event.actor }}</strong></p>
+                            {% if event.note %}
+                            <p class="mb-1 text-muted">{{ event.note }}</p>
+                            {% endif %}
+                            {% if event.old_value and event.new_value %}
+                            <p class="mb-0">
+                                <span class="badge bg-secondary">{{ event.old_value }}</span>
+                                <i class="fas fa-arrow-right mx-2"></i>
+                                <span class="badge bg-primary">{{ event.new_value }}</span>
+                            </p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="mt-3">
+                {% if discrepancy.status == 'reported' %}
+                <button type="button" class="btn btn-warning" 
+                        onclick="validateIssue({{ discrepancy.id }})">
+                    <i class="fas fa-check me-1"></i>Validate Issue
+                </button>
+                <button type="button" class="btn btn-success" 
+                        onclick="resolveIssue({{ discrepancy.id }}, '{{ discrepancy.discrepancy_type }}')">
+                    <i class="fas fa-check-double me-1"></i>Resolve Issue
+                </button>
+                {% elif discrepancy.status == 'validated' %}
+                <button type="button" class="btn btn-success" 
+                        onclick="resolveIssue({{ discrepancy.id }}, '{{ discrepancy.discrepancy_type }}')">
+                    <i class="fas fa-check-double me-1"></i>Resolve Issue
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Validate Modal -->
+<div class="modal fade" id="validateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="validateForm">
+                <div class="modal-header">
+                    <h5 class="modal-title">Validate Issue</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="validate_note" class="form-label">Validation Notes</label>
+                        <textarea class="form-control" id="validate_note" name="note" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning">Validate Issue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Resolve Modal -->
+<div class="modal fade" id="resolveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" id="resolveForm">
+                <div class="modal-header">
+                    <h5 class="modal-title">Resolve Issue</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="resolution_action" class="form-label">Resolution Action *</label>
+                        <select class="form-select" id="resolution_action" name="resolution_action" required>
+                            <option value="">Select action...</option>
+                            {% for resolution in resolutions %}
+                            <option value="{{ resolution.resolution_name }}">{{ resolution.resolution_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="resolve_note" class="form-label">Resolution Notes</label>
+                        <textarea class="form-control" id="resolve_note" name="note" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Resolve Issue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function validateIssue(issueId) {
+    const form = document.getElementById('validateForm');
+    form.action = `/admin/delivery-issues/${issueId}/validate`;
+    const modal = new bootstrap.Modal(document.getElementById('validateModal'));
+    modal.show();
+}
+
+function resolveIssue(issueId, discrepancyType) {
+    const form = document.getElementById('resolveForm');
+    form.action = `/admin/delivery-issues/${issueId}/resolve`;
+    const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
+    modal.show();
+}
+</script>
+{% endblock %}

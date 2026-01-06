@@ -1,0 +1,191 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Batch {{ batch.id }} - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5">
+            <i class="fas fa-edit me-2"></i>Edit Batch {{ batch.id }}
+        </h1>
+        <p class="text-muted">Modify batch picking session details</p>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end mt-3 mt-md-0">
+        <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Manage Batches
+        </a>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Edit Batch Details</h5>
+    </div>
+    <div class="card-body">
+        <form method="post">
+            <!-- Batch Name -->
+            <div class="mb-3">
+                <label for="session_name" class="form-label">Batch Session Name</label>
+                <input type="text" class="form-control" id="session_name" name="session_name" 
+                       value="{{ batch.name }}" required>
+                <div class="form-text">Enter a descriptive name for this batch picking session</div>
+            </div>
+
+            <!-- Current Status Display -->
+            <div class="mb-3">
+                <label class="form-label">Current Status</label>
+                <div>
+                    <span class="badge bg-{{ 'success' if batch.status == 'Completed' else 'warning' if batch.status == 'In Progress' else 'secondary' }}">
+                        {{ batch.status }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Zones Selection -->
+            <div class="mb-3">
+                <label for="zones" class="form-label">Zones</label>
+                <div class="row">
+                    {% set selected_zones = batch.zones.split(',') if batch.zones else [] %}
+                    {% for zone in available_zones %}
+                    <div class="col-md-2 col-sm-3 col-4 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="zones" 
+                                   value="{{ zone }}" id="zone_{{ zone }}"
+                                   {% if zone in selected_zones %}checked{% endif %}>
+                            <label class="form-check-label" for="zone_{{ zone }}">
+                                {{ zone }}
+                            </label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="form-text">Select the zones to include in this batch</div>
+            </div>
+
+            <!-- Corridors Selection -->
+            <div class="mb-3">
+                <label for="corridors" class="form-label">Corridors (Optional)</label>
+                <select name="corridors" id="corridors" class="form-select" multiple>
+                    {% set selected_corridors = batch.corridors.split(',') if batch.corridors else [] %}
+                    {% for corridor in available_corridors %}
+                    <option value="{{ corridor }}" {% if corridor in selected_corridors %}selected{% endif %}>
+                        Corridor {{ corridor }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">Hold Ctrl/Cmd to select multiple corridors. Leave empty to include all corridors.</div>
+            </div>
+
+            <!-- Picking Mode -->
+            <div class="mb-3">
+                <label for="picking_mode" class="form-label">Picking Mode</label>
+                <select name="picking_mode" id="picking_mode" class="form-select">
+                    <option value="Sequential" {% if batch.picking_mode == 'Sequential' %}selected{% endif %}>
+                        Sequential - Pick invoices one by one
+                    </option>
+                    <option value="Consolidated" {% if batch.picking_mode == 'Consolidated' %}selected{% endif %}>
+                        Consolidated - Pick all items across all invoices
+                    </option>
+                </select>
+                <div class="form-text">Choose how items should be picked in this batch</div>
+            </div>
+
+            <!-- Assigned Picker -->
+            <div class="mb-3">
+                <label for="assigned_to" class="form-label">Assign to Picker</label>
+                <select name="assigned_to" id="assigned_to" class="form-select">
+                    <option value="none">Not assigned</option>
+                    {% for picker in pickers %}
+                    <option value="{{ picker.username }}" 
+                            {% if batch.assigned_to == picker.username %}selected{% endif %}>
+                        {{ picker.username }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">Assign this batch to a specific picker</div>
+            </div>
+
+            <!-- Batch Creation Info -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6 class="card-title">Creation Details</h6>
+                            <p class="card-text mb-1">
+                                <strong>Created by:</strong> {{ batch.created_by }}
+                            </p>
+                            <p class="card-text mb-1">
+                                <strong>Created:</strong> {{ batch.created_at|local_time('%d/%m/%y %H:%M') }}
+                            </p>
+                            <p class="card-text mb-0">
+                                <strong>Original zones:</strong> {{ batch.zones }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6 class="card-title">Current Assignment</h6>
+                            <p class="card-text mb-1">
+                                <strong>Currently assigned to:</strong> 
+                                {% if batch.assigned_to %}
+                                    <span class="badge bg-success">{{ batch.assigned_to }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Unassigned</span>
+                                {% endif %}
+                            </p>
+                            <p class="card-text mb-0">
+                                <strong>Picking mode:</strong> {{ batch.picking_mode }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="text-center">
+                <button type="submit" class="btn btn-warning btn-lg me-3">
+                    <i class="fas fa-save me-2"></i>Update Batch
+                </button>
+                <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-secondary btn-lg">
+                    <i class="fas fa-times me-2"></i>Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Warning about editing active batches -->
+{% if batch.status in ['In Progress', 'Active'] %}
+<div class="alert alert-warning">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    <strong>Warning:</strong> This batch is currently active. Modifying zones or corridors may affect 
+    items currently being picked. Consider pausing the batch before making significant changes.
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    // Initialize multi-select for corridors
+    $('#corridors').select2({
+        placeholder: 'Select corridors (optional)',
+        allowClear: true,
+        theme: 'bootstrap-5'
+    });
+    
+    // Form validation
+    $('form').on('submit', function(e) {
+        var selectedZones = $('input[name="zones"]:checked').length;
+        if (selectedZones === 0) {
+            e.preventDefault();
+            alert('Please select at least one zone for the batch.');
+            return false;
+        }
+    });
+});
+</script>
+{% endblock %}

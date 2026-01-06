@@ -1,0 +1,208 @@
+Perfect—since your PO endpoint is already working, here’s the smallest, surgical change to enrich the existing PO response with shelf locations using POST /list_shelves. It’s written for your Replit Flask app (per your default stack).
+
+0) One secret to add (if you haven’t already)
+
+In Replit → Tools → Secrets:
+
+PS365_DEFAULT_STORE → e.g. 777
+
+(You already have your token/base URL in place.)
+
+1) Drop-in helper (shelves_service.py)
+
+Create a new file shelves_service.py with this code. It only depends on requests and your existing env vars.
+
+# shelves_service.py
+import os, math, time
+from typing import Dict, List, Any
+import requests
+
+PS365_BASE_URL       = os.getenv("PS365_BASE_URL", "").rstrip("/")
+PS365_TOKEN          = os.getenv("PS365_TOKEN", "")
+SESSION              = requests.Session()
+TIMEOUTS             = (5, 25)
+RETRY_COUNT          = 2
+
+class Ps365Error(Exception):
+    pass
+
+def _ps_post(path: str, json_body: dict) -> dict:
+    url = f"{PS365_BASE_URL}{path}"
+    last = None
+    for attempt in range(RETRY_COUNT + 1):
+        try:
+            r = SESSION.post(url, json=json_body, timeout=TIMEOUTS)
+            r.raise_for_status()
+            data = r.json()
+            api = data.get("api_response", {})
+            if str(api.get("response_code")) != "1":
+                raise Ps365Error(api.get("response_msg", "Unknown PS365 error"))
+            return data
+        except Exception as e:
+            last = e
+            if attempt < RETRY_COUNT:
+                time.sleep(0.6 * (attempt + 1))
+            else:
+                raise Ps365Error(f"POST {path} failed: {last}") from last
+
+def _list_shelves_count(store_code: str, item_codes_csv: str) -> int:
+    body = {
+        "api_credentials": {"token": PS365_TOKEN},
+        "filter_define": {
+            "page_number": 1,
+            "page_size": 1,
+            "only_counted": "Y",
+            "shelf_code_365_selection": "",
+            "store_code_365_selection": store_code,
+            "item_code_365_selection": item_codes_csv,
+            "only_on_stock": False
+        }
+    }
+    data = _ps_post("/list_shelves", body)
+    return int(data.get("total_count_list_shelves", 0))
+
+def _list_shelves_page(store_code: str, item_codes_csv: str, page_number: int, page_size: int = 200) -> List[dict]:
+    body = {
+        "api_credentials": {"token": PS365_TOKEN},
+        "filter_define": {
+            "page_number": page_number,
+            "page_size": page_size,
+            "only_counted": "N",
+            "shelf_code_365_selection": "",
+            "store_code_365_selection": store_code,
+            "item_code_365_selection": item_codes_csv,
+            "only_on_stock": False
+        }
+    }
+    data = _ps_post("/list_shelves", body)
+    return data.get("list_shelves", []) or []
+
+def fetch_item_shelves(store_code: str, item_codes: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Returns { item_code: [ {shelf_code_365, shelf_name, store_code_365, stock, ...}, ... ] }
+    """
+    item_codes = sorted({(c or "").strip() for c in item_codes if (c or "").strip()})
+    if not item_codes:
+        return {}
+
+    csv_codes = ",".join(item_codes)
+    total = _list_shelves_count(store_code, csv_codes)
+    if total == 0:
+        return {code: [] for code in item_codes}
+
+    page_size = 200
+    pages = math.ceil(total / page_size)
+    result = {code: [] for code in item_codes}
+
+    for p in range(1, pages + 1):
+        for shelf in _list_shelves_page(store_code, csv_codes, p, page_size):
+            shelf_code = shelf.get("shelf_code_365")
+            shelf_name = shelf.get("shelf_name")
+            for it in shelf.get("list_items", []) or []:
+                ic = (it.get("item_code_365") or "").strip()
+                sc = str(it.get("store_code_365"))
+                if ic in result and sc == str(store_code):
+                    result[ic].append({
+                        "shelf_code_365": shelf_code,
+                        "shelf_name": shelf_name,
+                        "store_code_365": sc,
+                        "stock": it.get("stock"),
+                        "stock_on_transfer": it.get("stock_on_transfer"),
+                        "stock_reserved": it.get("stock_reserved"),
+                        "stock_ordered": it.get("stock_ordered"),
+                        "mininum_stock": it.get("mininum_stock"),
+                        "required_stock": it.get("required_stock"),
+                    })
+    return result
+
+2) Minimal integration into your existing PO route
+
+In your existing file (where you fetch and return the PO), import the helper and add the enrichment before responding.
+
+# wherever your Flask route/controller is:
+import os
+from shelves_service import fetch_item_shelves
+
+PS365_DEFAULT_STORE = os.getenv("PS365_DEFAULT_STORE", "777")
+
+def _extract_po_lines(po_payload):
+    """
+    Adapt to your existing structure. Two common shapes shown:
+    """
+    # A) Most common: po_payload["purchase_order"]["lines"]
+    if isinstance(po_payload, dict):
+        try:
+            lines = po_payload["purchase_order"]["lines"]
+            if isinstance(lines, list):
+                return lines
+        except Exception:
+            pass
+        # B) Or sometimes just po_payload["lines"]
+        if isinstance(po_payload.get("lines"), list):
+            return po_payload["lines"]
+    return []
+
+def enrich_po_with_shelves(po_payload, store_code: str = None):
+    store_code = store_code or PS365_DEFAULT_STORE
+    lines = _extract_po_lines(po_payload)
+    if not lines:
+        return po_payload  # nothing to enrich
+
+    # Collect distinct item codes
+    item_codes = []
+    for ln in lines:
+        code = (ln.get("item_code_365") or ln.get("item_code") or "").strip()
+        if code:
+            item_codes.append(code)
+
+    shelves_map = fetch_item_shelves(store_code, item_codes)
+
+    # Attach back to each line
+    for ln in lines:
+        code = (ln.get("item_code_365") or ln.get("item_code") or "").strip()
+        ln["shelf_locations"] = shelves_map.get(code, [])
+
+    # (Optional) also attach a top-level quick lookup for your UI
+    po_payload["shelf_map"] = shelves_map
+    return po_payload
+
+
+Now, in your existing PO endpoint, add a single line right after you fetch the PO:
+
+@app.get("/purchase-order/<po_code>")
+def get_purchase_order(po_code):
+    # 1) you already do this:
+    po_payload = fetch_purchase_order_from_ps365(po_code)  # <-- your existing function
+
+    # 2) NEW: enrich with shelves (default store or override via ?store=777)
+    from flask import request
+    store_code = request.args.get("store", PS365_DEFAULT_STORE)
+    po_payload = enrich_po_with_shelves(po_payload, store_code)
+
+    # 3) return as before
+    return jsonify(po_payload)
+
+
+That’s it. Your existing route now returns the original PO plus:
+
+line.shelf_locations: [{shelf_code_365, shelf_name, store_code_365, stock, ...}]
+
+(optional) shelf_map: { "<item_code>": [ ... ] }
+
+3) Quick test (from the Replit shell)
+curl "http://localhost:8080/purchase-order/PO123?store=777" | jq .
+
+
+You should see each PO line now containing a shelf_locations array. If the item is placed in multiple shelves, you’ll see multiple entries.
+
+Tips / gotchas
+
+Store code formatting must match Powersoft exactly ("777" vs "0777"). Use whatever your PS data uses.
+
+If you only want in-stock shelves, flip the helper to set "only_on_stock": True.
+
+If your PO lines use a different key than item_code_365, update the small extraction logic accordingly.
+
+The helper does the required count → paged fetch flow for /list_shelves and merges results.
+
+If you paste one sample PO JSON (anonymized), I’ll tailor _extract_po_lines precisely so you don’t touch anything else.

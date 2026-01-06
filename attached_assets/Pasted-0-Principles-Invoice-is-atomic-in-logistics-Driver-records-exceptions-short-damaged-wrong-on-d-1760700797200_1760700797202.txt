@@ -1,0 +1,392 @@
+0) Principles
+
+Invoice is atomic in logistics:
+
+Driver records exceptions (short/damaged/wrong) on delivery.
+
+Regardless of how many items were delivered, the invoice object goes to Warehouse Intake if not fully satisfied.
+
+Warehouse decides:
+
+REROUTE the invoice (deliver remainder later), or
+
+RETURN_TO_STOCK the remainder (end the obligation; finance handles credit/void).
+
+No line splitting. Remainder quantities are derived from discrepancies and delivery lines (but we don’t create child invoices).
+
+History is mandatory: store every hop: failed/partial → sent to warehouse → reroute/return → closed.
+
+1) Database changes (Alecmbic SQL)
+1.1 Invoice post-delivery case (queue)
+
+Tracks invoices that need warehouse action as a whole.
+
+CREATE TABLE IF NOT EXISTS invoice_post_delivery_cases (
+  id                BIGSERIAL PRIMARY KEY,
+  invoice_id        BIGINT NOT NULL,
+  route_id          BIGINT,
+  route_stop_id     BIGINT,
+  status            TEXT NOT NULL,   -- OPEN | INTAKE_RECEIVED | REROUTE_QUEUED | RETURN_TO_STOCK | CLOSED
+  reason            TEXT,            -- e.g. "Partial delivery", "Failed stop"
+  notes             TEXT,
+  created_by        BIGINT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ipdc_status ON invoice_post_delivery_cases(status);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ipdc_invoice_open
+  ON invoice_post_delivery_cases(invoice_id)
+  WHERE status IN ('OPEN','INTAKE_RECEIVED','REROUTE_QUEUED');
+
+1.2 Invoice movement history (if not already)
+
+Keeps the immutable breadcrumb.
+
+CREATE TABLE IF NOT EXISTS invoice_route_history (
+  id            BIGSERIAL PRIMARY KEY,
+  invoice_id    BIGINT NOT NULL,
+  route_id      BIGINT,
+  route_stop_id BIGINT,
+  action        TEXT NOT NULL,  -- PARTIAL_DELIVERED | FAILED | SENT_TO_WAREHOUSE | INTAKE_RECEIVED | REROUTE_QUEUED | REROUTED | RETURN_TO_STOCK | CLOSED
+  reason        TEXT,
+  notes         TEXT,
+  actor_id      BIGINT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_irh_invoice ON invoice_route_history(invoice_id, created_at DESC);
+
+1.3 Repick request (for REROUTE) – at invoice level
+
+(Not splitting lines, just a flag/task for planners.)
+
+CREATE TABLE IF NOT EXISTS reroute_requests (
+  id            BIGSERIAL PRIMARY KEY,
+  invoice_id    BIGINT NOT NULL,
+  requested_by  BIGINT,
+  status        TEXT NOT NULL DEFAULT 'OPEN', -- OPEN | ASSIGNED | DONE | CANCELLED
+  notes         TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+We won’t make line tables — warehouse can reprint a partial pick slip by deriving remainder from discrepancies when picking, but the invoice stays one unit.
+
+2) Server logic (Flask)
+2.1 Helper to compute remainder (derived — no splitting)
+
+Uses your delivery_lines + invoice_lines only to compute, not to mutate.
+
+# helpers.py
+from decimal import Decimal
+from collections import defaultdict
+
+def compute_invoice_remainder(session, invoice_id: int):
+    """
+    Compute if invoice is fully satisfied. Returns:
+      dict: { 'has_remainder': bool, 'summary': {ordered, delivered, remainder} }
+    Uses delivery_lines (what was actually delivered) vs invoice_lines (ordered).
+    """
+    ordered = Decimal("0")
+    delivered = Decimal("0")
+
+    # Sum ordered
+    for r in session.execute("""
+        SELECT COALESCE(SUM(qty_ordered),0)::numeric AS qty
+        FROM invoice_lines WHERE invoice_id=:iid
+    """, {"iid": invoice_id}).mappings():
+        ordered += r["qty"]
+
+    # Sum delivered (effective). Your deliver handler already excludes damaged_rejected.
+    for r in session.execute("""
+        SELECT COALESCE(SUM(qty_delivered),0)::numeric AS qty
+        FROM delivery_lines WHERE invoice_id=:iid
+    """, {"iid": invoice_id}).mappings():
+        delivered += r["qty"]
+
+    remainder = ordered - delivered
+    if remainder < 0: remainder = Decimal("0")
+    return {
+        "has_remainder": remainder > 0,
+        "summary": {
+            "ordered": str(ordered),
+            "delivered": str(delivered),
+            "remainder": str(remainder)
+        }
+    }
+
+2.2 When driver submits delivery (partial or failed)
+
+Create/ensure a post-delivery case for warehouse and log history.
+(This happens from your existing /stops/<id>/deliver and /stops/<id>/fail handlers.)
+
+def open_post_delivery_case_if_needed(session, invoice_id, route_id, route_stop_id, reason, notes):
+    from sqlalchemy import text
+    rem = compute_invoice_remainder(session, invoice_id)
+    if not rem["has_remainder"]:
+        # fully satisfied; nothing to open
+        return None
+
+    # idempotent upsert: only one OPEN/INTAKE/REROUTE per invoice
+    case_id = session.execute(text("""
+        INSERT INTO invoice_post_delivery_cases (invoice_id, route_id, route_stop_id, status, reason, notes, created_by)
+        VALUES (:iid, :rid, :sid, 'OPEN', :reason, :notes, :actor)
+        ON CONFLICT (invoice_id) WHERE status IN ('OPEN','INTAKE_RECEIVED','REROUTE_QUEUED')
+        DO UPDATE SET reason = EXCLUDED.reason, notes = EXCLUDED.notes, updated_at = NOW()
+        RETURNING id
+    """), dict(iid=invoice_id, rid=route_id, sid=route_stop_id,
+               reason=reason, notes=notes, actor=current_driver_id())).scalar_one()
+
+    # History: PARTIAL_DELIVERED or FAILED already logged in your DeliveryEvent; add SENT_TO_WAREHOUSE
+    session.execute(text("""
+      INSERT INTO invoice_route_history (invoice_id, route_id, route_stop_id, action, reason, notes, actor_id)
+      VALUES (:iid, :rid, :sid, 'SENT_TO_WAREHOUSE', :reason, :notes, :actor)
+    """), dict(iid=invoice_id, rid=route_id, sid=route_stop_id, reason=reason, notes=notes, actor=current_driver_id()))
+    return case_id
+
+
+Call this after each invoice processed in the deliver/fail handlers:
+
+case_id = open_post_delivery_case_if_needed(s, inv.id, route.id, stop.id,
+                                            reason="Partial delivery" or "Failed stop",
+                                            notes=driver_notes)
+
+
+The invoice status itself remains what you already set (delivered or delivery_failed) — we won’t split it. The case drives the warehouse workflow next.
+
+2.3 Warehouse Intake (back-office)
+
+Mark physical remainder received and choose the path: REROUTE or RETURN_TO_STOCK.
+
+Endpoint: Intake receive (no stock move yet)
+@app.post("/warehouse/cases/<int:case_id>/intake")
+def warehouse_intake(case_id):
+    data = request.get_json(force=True)
+    notes = data.get("notes", "")
+
+    with Session(engine) as s:
+        case = s.get(InvoicePostDeliveryCase, case_id) or abort(404)
+        if case.status not in ("OPEN",):
+            abort(409, description="Case not open")
+
+        case.status = "INTAKE_RECEIVED"
+        case.notes = (case.notes or "") + (("\n" + notes) if notes else "")
+        case.updated_at = now()
+
+        s.execute(sa.text("""
+          INSERT INTO invoice_route_history (invoice_id, route_id, route_stop_id, action, notes, actor_id)
+          VALUES (:iid, :rid, :sid, 'INTAKE_RECEIVED', :notes, :actor)
+        """), dict(iid=case.invoice_id, rid=case.route_id, sid=case.route_stop_id,
+                   notes="Warehouse intake received. "+(notes or ""),
+                   actor=current_admin_id()))
+        s.commit()
+        return jsonify({"ok": True})
+
+Endpoint: Decide REROUTE (invoice stays whole)
+
+Set reroute request OPEN (invoice will be dispatched again later).
+
+Update invoice status to ready_for_dispatch (so planners can add it to a future route).
+
+History entries: REROUTE_QUEUED.
+
+@app.post("/warehouse/cases/<int:case_id>/reroute")
+def warehouse_reroute(case_id):
+    data = request.get_json(force=True)
+    notes = data.get("notes", "")
+
+    with Session(engine) as s:
+        case = s.get(InvoicePostDeliveryCase, case_id) or abort(404)
+        if case.status not in ("OPEN", "INTAKE_RECEIVED"):
+            abort(409, description="Case not in reroutable state")
+
+        # Make invoice available to dispatch again
+        inv = s.get(Invoice, case.invoice_id)
+        inv.status = InvoiceStatus.ready_for_dispatch
+
+        # Create a reroute request (invoice-level)
+        rr_id = s.execute(sa.text("""
+          INSERT INTO reroute_requests (invoice_id, requested_by, notes)
+          VALUES (:iid, :actor, :notes) RETURNING id
+        """), dict(iid=inv.id, actor=current_admin_id(), notes=notes)).scalar_one()
+
+        # Update case
+        case.status = "REROUTE_QUEUED"
+        case.updated_at = now()
+
+        # History
+        s.execute(sa.text("""
+          INSERT INTO invoice_route_history (invoice_id, route_id, route_stop_id, action, notes, actor_id)
+          VALUES (:iid, :rid, :sid, 'REROUTE_QUEUED', :notes, :actor)
+        """), dict(iid=inv.id, rid=case.route_id, sid=case.route_stop_id,
+                   notes=f"Reroute request #{rr_id}. {notes}", actor=current_admin_id()))
+
+        s.commit()
+        return jsonify({"ok": True, "reroute_request_id": rr_id})
+
+Endpoint: Decide RETURN_TO_STOCK (close obligation)
+
+Business chooses to return remainder to stock and close the obligation.
+
+Update invoice to returned_to_warehouse (or keep as delivered and finance issues credit/cancel — choose one policy and stick to it).
+
+History entries: RETURN_TO_STOCK, then CLOSED.
+
+@app.post("/warehouse/cases/<int:case_id>/return-to-stock")
+def warehouse_return_to_stock(case_id):
+    data = request.get_json(force=True)
+    notes = data.get("notes", "")
+
+    with Session(engine) as s:
+        case = s.get(InvoicePostDeliveryCase, case_id) or abort(404)
+        if case.status not in ("OPEN", "INTAKE_RECEIVED"):
+            abort(409, description="Case not in returnable state")
+
+        inv = s.get(Invoice, case.invoice_id)
+        # Pick ONE consistent policy:
+        inv.status = InvoiceStatus.returned_to_warehouse  # <- ends logistics; finance credits remainder outside
+
+        case.status = "RETURN_TO_STOCK"
+        case.updated_at = now()
+
+        s.execute(sa.text("""
+          INSERT INTO invoice_route_history (invoice_id, route_id, route_stop_id, action, notes, actor_id)
+          VALUES (:iid, :rid, :sid, 'RETURN_TO_STOCK', :notes, :actor)
+        """), dict(iid=inv.id, rid=case.route_id, sid=case.route_stop_id,
+                   notes=notes, actor=current_admin_id()))
+
+        # Optional: immediately close the case
+        s.execute(sa.text("""
+          INSERT INTO invoice_route_history (invoice_id, route_id, route_stop_id, action, notes, actor_id)
+          VALUES (:iid, :rid, :sid, 'CLOSED', 'Case closed after return to stock', :actor)
+        """), dict(iid=inv.id, rid=case.route_id, sid=case.route_stop_id, actor=current_admin_id()))
+        case.status = "CLOSED"
+
+        s.commit()
+        return jsonify({"ok": True})
+
+
+Stock quantity moves (ERP/WMS) are handled by your warehouse process; this routes the invoice and preserves history without splitting it.
+
+3) UI
+3.1 Route view /routes/<id> — manage invoice as a whole
+
+Per invoice row (in the route view), show:
+
+Status chip (Delivered / Failed / Partial — derived)
+
+Warehouse actions (if remainder exists or failed):
+
+Send to Warehouse Intake (if not automatically opened when driver submitted)
+
+Mark Intake Received
+
+Reroute Invoice
+
+Return Remainder to Stock
+
+History button → modal timeline for that invoice.
+
+Buttons (Jinja)
+<td class="text-end">
+  <div class="btn-group">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+      Manage Invoice
+    </button>
+    <div class="dropdown-menu dropdown-menu-end">
+      <button class="dropdown-item" data-act="intake" data-invoice-id="{{ inv.id }}" data-route-id="{{ route.id }}" data-stop-id="{{ stop.id }}">
+        Mark Warehouse Intake
+      </button>
+      <button class="dropdown-item" data-act="reroute" data-invoice-id="{{ inv.id }}" data-route-id="{{ route.id }}" data-stop-id="{{ stop.id }}">
+        Reroute Invoice
+      </button>
+      <button class="dropdown-item text-danger" data-act="return" data-invoice-id="{{ inv.id }}" data-route-id="{{ route.id }}" data-stop-id="{{ stop.id }}">
+        Return Remainder to Stock
+      </button>
+      <button class="dropdown-item" data-act="history" data-invoice-id="{{ inv.id }}">View History</button>
+    </div>
+  </div>
+</td>
+
+JS wiring (vanilla)
+<script>
+(() => {
+  async function api(url, body){ 
+    const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+    const j = await r.json(); if(!r.ok || !j.ok) throw new Error(j.error || 'Failed'); return j;
+  }
+  document.querySelectorAll('[data-act]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const act = btn.dataset.act;
+      const invoiceId = btn.dataset.invoiceId;
+      const routeId = btn.dataset.routeId;
+      const stopId = btn.dataset.stopId;
+
+      try {
+        if (act === 'intake') {
+          await api(`/warehouse/cases/by-invoice/${invoiceId}/ensure-open`, {route_id:routeId, route_stop_id:stopId});
+          await api(`/warehouse/cases/by-invoice/${invoiceId}/intake`, {notes: 'Received at warehouse'});
+          location.reload();
+        }
+        if (act === 'reroute') {
+          await api(`/warehouse/cases/by-invoice/${invoiceId}/ensure-open`, {route_id:routeId, route_stop_id:stopId});
+          await api(`/warehouse/cases/by-invoice/${invoiceId}/reroute`, {notes: 'Reroute requested'});
+          location.reload();
+        }
+        if (act === 'return') {
+          if (!confirm('Return remainder to stock and close?')) return;
+          await api(`/warehouse/cases/by-invoice/${invoiceId}/ensure-open`, {route_id:routeId, route_stop_id:stopId});
+          await api(`/warehouse/cases/by-invoice/${invoiceId}/return-to-stock`, {notes: 'Returned to stock'});
+          location.reload();
+        }
+        if (act === 'history') {
+          window.open(`/invoices/${invoiceId}/history`, '_blank');
+        }
+      } catch(e){ alert(e.message); }
+    });
+  });
+})();
+</script>
+
+
+You can implement /warehouse/cases/by-invoice/<invoice_id>/* as thin wrappers that find/create the case by invoice and then forward to the main endpoints above.
+
+3.2 Invoice History modal/page
+
+Render from invoice_route_history:
+
+[2025-10-17 12:01] PARTIAL_DELIVERED • Route R-131 • Stop #9
+[2025-10-17 12:02] SENT_TO_WAREHOUSE
+[2025-10-17 14:10] INTAKE_RECEIVED
+[2025-10-17 14:22] REROUTE_QUEUED  (Req #77)
+
+4) Business rules (explicit)
+
+Driver never decides reroute/return. They only record exceptions and submit.
+
+Warehouse Intake is the single gate:
+
+If customer still wants the remainder → REROUTE → set invoice = ready_for_dispatch, create reroute_request, case→REROUTE_QUEUED.
+
+If no longer needed (cancel/refusal/damage outcome) → RETURN_TO_STOCK → set invoice = returned_to_warehouse (or leave as delivered-with-credit policy; pick one), case→CLOSED.
+
+No line splitting at any point. Derive remainder for operational tasks; keep invoice number constant for traceability.
+
+History must be written for: PARTIAL_DELIVERED (or FAILED), SENT_TO_WAREHOUSE, INTAKE_RECEIVED, REROUTE_QUEUED or RETURN_TO_STOCK, and CLOSED.
+
+5) QA checklist
+
+Partial delivery recorded → post-delivery case OPEN created.
+
+Route page shows Manage Invoice actions.
+
+Intake marks case and writes history.
+
+Reroute sets invoice ready_for_dispatch and creates reroute_request.
+
+Return to stock sets invoice returned_to_warehouse (or your chosen terminal status) and closes case.
+
+History timeline shows complete breadcrumb with route/stop/date/actor.
+
+No line splitting; invoice number stays the same.

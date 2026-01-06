@@ -1,0 +1,207 @@
+Columns
+Add column
+invoice_no
+VARCHAR(50)
+item_code
+VARCHAR(50)
+location
+VARCHAR(100)
+barcode
+VARCHAR(100)
+zone
+VARCHAR(50)
+item_weight
+DOUBLE PRECISION
+item_name
+VARCHAR(200)
+unit_type
+VARCHAR(50)
+pack
+VARCHAR(50)
+qty
+INTEGER
+line_weight
+DOUBLE PRECISION
+exp_time
+DOUBLE PRECISION
+picked_qty
+INTEGER
+is_picked
+BOOLEAN
+pick_status
+VARCHAR(20)
+DEFAULT'not_picked'
+reset_by
+VARCHAR(64)
+reset_timestamp
+TIMESTAMP
+reset_note
+VARCHAR(500)
+skip_reason
+TEXT
+skip_timestamp
+TIMESTAMP
+skip_count
+INTEGER
+DEFAULT0
+corridor
+VARCHAR(10)
+locked_by_batch_id
+INTEGER
+pieces_per_unit_snapshot
+INTEGER
+expected_pick_pieces
+INTEGER
+Constraints
+Add constraint
+CONSTRAINT
+fk_locked_by_batch_id
+FOREIGN KEY
+(locked_by_batch_id)
+REFERENCES
+public.batch_picking_sessions
+(id)
+ON DELETESET NULL
+CONSTRAINT
+invoice_items_invoice_no_fkey
+FOREIGN KEY
+(invoice_no)
+REFERENCES
+public.invoices
+(invoice_no)
+CONSTRAINT
+invoice_items_pkey
+PRIMARY KEY
+(invoice_no, item_code)
+Indexes
+Add index
+INDEX
+idx_invoice_items_batch_lock
+…
+USING
+BTREE
+(locked_by_batch_id)
+INDEX
+idx_invoice_items_batch_zone
+…
+USING
+BTREE
+(zone, corridor, locked_by_batch_id)
+INDEX
+idx_invoice_items_corridor
+…
+USING
+BTREE
+(corridor)
+INDEX
+idx_invoice_items_invoice_no
+…
+USING
+BTREE
+(invoice_no)
+INDEX
+idx_invoice_items_invoice_picked
+…
+USING
+BTREE
+(invoice_no, is_picked)
+INDEX
+idx_invoice_items_invoice_status
+…
+USING
+BTREE
+(invoice_no, pick_status)
+INDEX
+idx_invoice_items_is_picked
+…
+USING
+BTREE
+(is_picked)
+INDEX
+idx_invoice_items_location
+…
+USING
+BTREE
+(zone, corridor, location)
+INDEX
+idx_invoice_items_location_sort
+…
+USING
+BTREE
+(invoice_no, zone, corridor, location)
+INDEX
+idx_invoice_items_pick_status
+…
+USING
+BTREE
+(pick_status)
+INDEX
+idx_invoice_items_picked
+…
+USING
+BTREE
+(is_picked, picked_qty)
+INDEX
+idx_invoice_items_picking_performance
+…
+USING
+BTREE
+(invoice_no, is_picked, pick_status, locked_by_batch_id)
+INDEX
+idx_invoice_items_zone
+…
+USING
+BTREE
+(zone)
+INDEX
+idx_invoice_items_zone_corridor
+…
+USING
+BTREE
+(zone, corridor)
+INDEX
+idx_items_batch_eligible
+…
+USING
+BTREE
+(zone, corridor, is_picked, pick_status)
+INDEX
+idx_items_batch_locking
+…
+USING
+BTREE
+(zone, corridor, is_picked, pick_status, locked_by_batch_id, unit_type)
+INDEX
+idx_items_corridor_zone
+…
+USING
+BTREE
+(corridor, zone)
+INDEX
+idx_items_invoice_picked_status
+…
+USING
+BTREE
+(invoice_no, is_picked, pick_status)
+INDEX
+idx_items_zone_status_picked
+…
+USING
+BTREE
+(zone, pick_status, is_picked)
+UNIQUE
+INDEX
+invoice_items_pkey
+…
+USING
+BTREE
+(invoice_no, item_code)
+UNIQUE
+INDEX
+uq_invoice_items_invoice_no_item_code
+…
+USING
+BTREE
+(invoice_no, item_code)
+Policies
+Add policy

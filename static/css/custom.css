@@ -1,0 +1,74 @@
+/* Custom styles for the Warehouse Picking System */
+
+/* Override primary color if needed */
+:root {
+    --custom-primary: var(--bs-primary);
+}
+
+/* Main content area */
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Footer styling */
+.footer {
+    margin-top: auto;
+}
+
+/* Card shadows and hover effects */
+.card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Table row hover effect */
+.table-hover tbody tr:hover {
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+}
+
+/* Badge styling */
+.badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+}
+
+/* Make buttons more visible on hover */
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Improve form control focus states */
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--custom-primary);
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.25);
+}
+
+/* Navbar brand styling */
+.navbar-brand {
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+
+/* Improve modal appearance */
+.modal-content {
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+/* Custom alert styling */
+.alert {
+    border-radius: 0.5rem;
+}
+
+/* Make icons consistent */
+i.fas, i.far, i.fab {
+    width: 1.25em;
+    text-align: center;
+}

@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+
+{% block title %}Confirm Batch Pick - EPLATTFORMA Picking System{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .location-display {
+        min-width: 80%;
+    }
+    .location-labels {
+        display: flex;
+        justify-content: space-around;
+        text-transform: uppercase;
+        color: #6c757d;
+    }
+    
+    /* Batch specific styles */
+    .batch-info-card {
+        margin-bottom: 15px;
+    }
+    
+    .batch-progress {
+        margin-bottom: 10px;
+    }
+    
+    .progress {
+        height: 20px;
+    }
+    
+    /* Smooth transitions */
+    .modal-backdrop {
+        opacity: 0.8 !important;
+    }
+    
+    .modal-content {
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Loading indicator */
+    .loader {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 9999;
+        text-align: center;
+        padding-top: 30vh;
+    }
+    
+    .loader img {
+        width: 100px;
+        height: 100px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Loading indicator -->
+<div class="loader" id="loading-indicator">
+    <img src="{{ url_for('static', filename='images/loading-spinner.svg') }}" alt="Loading...">
+    <p class="text-white mt-3">Processing...</p>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-8">
+        <h1 class="h3">
+            <i class="fas fa-clipboard-check me-2"></i>Confirm Batch Pick
+            <span class="badge bg-dark ms-2">{{ batch_session.batch_number or 'BATCH-' ~ batch_session.id }}</span>
+        </h1>
+        <p class="text-muted">{{ batch_session.name }} - {{ batch_session.zones }}</p>
+    </div>
+    <div class="col-md-4 text-md-end">
+        <button onclick="window.history.back()" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back
+        </button>
+    </div>
+</div>
+
+<!-- Batch progress information -->
+<div class="card mb-3 batch-info-card">
+    <div class="card-body py-2">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-dark me-2">{{ batch_session.batch_number or 'BATCH-' ~ batch_session.id }}</span>
+                    {% if batch_session.picking_mode == 'Consolidated' %}
+                    <span class="badge bg-info me-2">Consolidated</span>
+                    {% else %}
+                    <span class="badge bg-primary me-2">Sequential</span>
+                    {% endif %}
+                    {% if batch_session.picking_mode == 'Sequential' %}
+                    <small class="text-muted ms-2">Invoice: {{ item.source_items[0].invoice_no }}</small>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-6 text-md-end">
+                <span class="badge bg-primary">{{ current_index + 1 }} of {{ total_items }} items</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="text-center">
+    <h2 class="mb-4">Please confirm this item</h2>
+</div>
+
+{% if show_product_image and show_product_image_confirmation %}
+<div class="text-center mb-4">
+    <img src="https://powersoft365customers.blob.core.windows.net/he353264-step-eplattforma/Items/{{ item.item_code }}.jpg" 
+         alt="{{ item.item_name }}" 
+         class="img-fluid rounded border" 
+         style="max-height: 250px; object-fit: contain;"
+         onerror="this.style.display='none'">
+</div>
+{% endif %}
+
+<!-- Location Block with Yellow Text on Black Background -->
+<div class="row mt-2 mb-3">
+    <div class="col-12">
+        <div class="card border-0" style="background-color: #000;">
+            <div class="card-body p-2 text-center">
+                <div class="d-flex justify-content-center">
+                    <div class="location-display">
+                        <h1 class="display-4 mb-0 fw-bold" style="color: #ffff00;">
+                            {{ item.location or 'NO LOCATION' }}
+                        </h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Item Details -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card bg-dark text-white border-0">
+            <div class="card-body">
+                <!-- Centered Product Name -->
+                <h3 class="text-center text-uppercase fw-bold mb-2">{{ item.item_name }}</h3>
+                
+                <!-- Quantity in Yellow and Same Size as Location -->
+                <h1 class="display-4 text-center fw-bold mb-3" style="color: #ffff00;">
+                    {% if item.pack and item.pack != '0' %}
+                        {{ picked_qty|int }} {{ item.unit_type }} {{ item.pack }}X
+                    {% else %}
+                        {{ picked_qty|int }} {{ item.unit_type }}
+                    {% endif %}
+                </h1>
+                
+                <!-- Item Details in a Single Line -->
+                <div class="text-center text-white">
+                    {{ item.item_code }} 
+                    {% if item.barcode %} | {{ item.barcode }}{% endif %}
+                    {% if item.zone %} | {{ item.zone }}{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Action Buttons -->
+<div class="row">
+    <div class="col-12">
+        <form method="post" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" id="confirmForm">
+            <input type="hidden" name="picked_qty" value="{{ picked_qty }}">
+            <input type="hidden" name="confirmed" value="true">
+            
+            <div class="d-flex" style="gap: 10px;">
+                <button type="button" class="btn btn-danger flex-grow-1 py-3" onclick="window.history.back()">
+                    <i class="fas fa-times-circle me-2"></i> Cancel
+                </button>
+                <button type="submit" class="btn btn-success flex-grow-2 py-3" style="flex: 2;" onclick="showLoading()">
+                    <i class="fas fa-check-circle me-2"></i> Yes, Correct
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function showLoading() {
+        document.getElementById('loading-indicator').style.display = 'block';
+    }
+</script>
+{% endblock %}

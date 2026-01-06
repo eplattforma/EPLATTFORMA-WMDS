@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ help_data.title }} - Help{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('help.help_dashboard') }}">Help</a></li>
+                    <li class="breadcrumb-item active">{{ help_data.title }}</li>
+                </ol>
+            </nav>
+            <div class="d-flex justify-content-between align-items-center">
+                <h2 class="h4 mb-0">
+                    <i class="fas fa-question-circle me-2"></i>{{ help_data.title }}
+                </h2>
+                <div>
+                    {% if current_user.role == 'admin' %}
+                    <a href="{{ url_for('help.admin_help_manage') }}" class="btn btn-outline-primary btn-sm me-2">
+                        <i class="fas fa-edit me-1"></i>Edit
+                    </a>
+                    {% endif %}
+                    <a href="{{ url_for('help.help_dashboard') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Help
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Content -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    {% if help_data.content %}
+                        <div class="help-content">
+                            {{ help_data.content|safe }}
+                        </div>
+                        {% if help_data.last_updated %}
+                        <hr>
+                        <small class="text-muted">
+                            <i class="fas fa-clock me-1"></i>{{ help_data.last_updated }}
+                        </small>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-file-alt fa-3x text-muted mb-3"></i>
+                            <h5>No Content Available</h5>
+                            <p class="text-muted">This help section doesn't have any content yet.</p>
+                            {% if current_user.role == 'admin' %}
+                            <a href="{{ url_for('help.admin_help_manage') }}" class="btn btn-primary">
+                                <i class="fas fa-plus me-2"></i>Add Content
+                            </a>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.help-content {
+    line-height: 1.6;
+    font-size: 1.1rem;
+}
+
+.help-content h3 {
+    color: #495057;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid #e9ecef;
+    padding-bottom: 0.5rem;
+}
+
+.help-content h4 {
+    color: #6c757d;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.help-content ul, .help-content ol {
+    margin-bottom: 1rem;
+}
+
+.help-content li {
+    margin-bottom: 0.5rem;
+}
+
+.help-content code {
+    background-color: #f8f9fa;
+    padding: 0.2rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.9rem;
+}
+
+.help-content .alert {
+    margin: 1rem 0;
+}
+</style>
+{% endblock %}

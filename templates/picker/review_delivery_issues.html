@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}Review Delivery Issues{% endblock %}
+
+{% block head %}
+<style>
+    .issue-card {
+        background: #1a202c;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        padding: 15px;
+        border: 1px solid #2d3748;
+    }
+    
+    .issue-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 10px;
+    }
+    
+    .issue-id {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #4299e1;
+    }
+    
+    .status-badge {
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    
+    .status-unvalidated { background-color: #4a5568; color: #cbd5e0; }
+    .status-validated { background-color: #48bb78; color: white; }
+    
+    .issue-detail {
+        margin-bottom: 8px;
+        font-size: 0.9rem;
+    }
+    
+    .issue-label {
+        color: #a0aec0;
+        font-weight: 600;
+        display: inline-block;
+        min-width: 100px;
+    }
+    
+    .issue-value {
+        color: #e2e8f0;
+    }
+    
+    .discrepancy-type {
+        background: #2d3748;
+        padding: 8px 12px;
+        border-radius: 4px;
+        margin-top: 10px;
+        border-left: 3px solid #f56565;
+    }
+    
+    .filter-tabs {
+        margin-bottom: 20px;
+    }
+    
+    .filter-tabs .nav-link {
+        color: #a0aec0;
+        border-color: transparent;
+    }
+    
+    .filter-tabs .nav-link.active {
+        background-color: #2d3748;
+        color: #fff;
+        border-color: #4299e1;
+    }
+    
+    .mobile-optimized {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+    
+    @media (max-width: 768px) {
+        .issue-header {
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .issue-label {
+            min-width: 80px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mobile-optimized">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="fas fa-clipboard-check me-2"></i>My Delivery Issues
+                    {% if validated_filter == 'unvalidated' %}
+                    <span class="badge bg-warning text-dark ms-2">Not Validated</span>
+                    {% endif %}
+                </h2>
+                <a href="{{ url_for('picker_dashboard') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left me-1"></i>Back
+                </a>
+            </div>
+
+            <div class="filter-tabs">
+                <ul class="nav nav-pills">
+                    <li class="nav-item">
+                        <a class="nav-link {% if validated_filter == 'unvalidated' %}active{% endif %}" 
+                           href="{{ url_for('delivery_issues.picker_review_issues', filter='unvalidated') }}">
+                            Not Validated
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if validated_filter == 'validated' %}active{% endif %}" 
+                           href="{{ url_for('delivery_issues.picker_review_issues', filter='validated') }}">
+                            Validated
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if validated_filter == 'all' %}active{% endif %}" 
+                           href="{{ url_for('delivery_issues.picker_review_issues', filter='all') }}">
+                            All Issues
+                        </a>
+                    </li>
+                </ul>
+            </div>
+
+            {% if issues|length == 0 %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                No delivery issues found for the selected filter.
+            </div>
+            {% else %}
+
+            {% for issue in issues %}
+            <div class="issue-card">
+                <div class="issue-header">
+                    <div class="issue-id">Issue #{{ issue.id }}</div>
+                    <span class="status-badge {% if issue.is_validated %}status-validated{% else %}status-unvalidated{% endif %}">
+                        {% if issue.is_validated %}
+                            <i class="fas fa-check-circle me-1"></i>Validated
+                        {% else %}
+                            <i class="fas fa-clock me-1"></i>Not Validated
+                        {% endif %}
+                    </span>
+                </div>
+                
+                <div class="issue-detail">
+                    <span class="issue-label">Picking Date:</span>
+                    <span class="issue-value">{{ issue.picked_at.strftime('%d/%m/%Y %H:%M') if issue.picked_at else '-' }}</span>
+                </div>
+                
+                <div class="issue-detail">
+                    <span class="issue-value">{{ issue.location or '-' }}</span>
+                </div>
+                
+                <div class="issue-detail">
+                    <span class="issue-value">{{ issue.item_code_expected }} - {{ issue.item_name or '-' }}</span>
+                </div>
+                
+                <div class="issue-detail text-muted small">
+                    {{ issue.invoice_no }} - {{ issue.invoice.customer_name if issue.invoice else '-' }}
+                </div>
+                
+                {% if issue.photo_paths %}
+                <div class="mt-3">
+                    {% set photos = issue.photo_paths %}
+                    {% if photos.startswith('[') %}
+                        {% set photo_list = photos[2:-2].split('", "') %}
+                        {% set photo_url = photo_list[0] %}
+                    {% else %}
+                        {% set photo_url = photos %}
+                    {% endif %}
+                    <img src="/{{ photo_url }}" 
+                         onclick="document.getElementById('photo-modal-{{ issue.id }}').style.display='block'" 
+                         style="max-width: 100%; height: auto; border-radius: 8px; cursor: pointer; border: 2px solid #4299e1;">
+                    <div id="photo-modal-{{ issue.id }}" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9999; padding:20px;" onclick="this.style.display='none'">
+                        <div style="text-align:center; max-width:90%; margin:auto; position:relative; padding-top: 40px;">
+                            <button onclick="event.stopPropagation(); this.parentElement.parentElement.style.display='none'" style="position:absolute; top:10px; right:10px; background:white; border:none; color:#000; font-size:30px; cursor:pointer; width:40px; height:40px; border-radius:50%;">&times;</button>
+                            <img src="/{{ photo_url }}" style="max-width:100%; max-height:85vh; border-radius:8px;">
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                
+                <div class="discrepancy-type" style="background-color: #dc3545; color: white; padding: 16px; border-radius: 8px; margin-top: 12px;">
+                    <strong style="display: block; margin-bottom: 12px; font-size: 1.5rem; text-align: center;">{{ issue.discrepancy_type }}</strong>
+                    <div style="display: flex; justify-content: space-around; align-items: center;">
+                        <div style="text-align: center;">
+                            <span style="color: #000; font-size: 0.9rem;">Expected</span>
+                            <div style="color: white; font-weight: bold; font-size: 1.8rem; margin-top: 4px;">{{ issue.qty_expected }}</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <span style="color: #000; font-size: 0.9rem;">Actual</span>
+                            <div style="color: white; font-weight: bold; font-size: 1.8rem; margin-top: 4px;">{{ issue.qty_actual if issue.qty_actual is not none else '-' }}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                {% if issue.note %}
+                <div class="mt-2" style="background: #2d3748; padding: 8px 12px; border-radius: 4px;">
+                    <div id="note-preview-{{ issue.id }}" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e0;">
+                        {{ issue.note }}
+                    </div>
+                    <div id="note-full-{{ issue.id }}" style="display: none; color: #cbd5e0; white-space: pre-wrap;">
+                        {{ issue.note }}
+                    </div>
+                    <a href="#" class="text-primary mt-1 d-inline-block" style="font-size: 0.85rem;" onclick="event.preventDefault(); var preview = document.getElementById('note-preview-{{ issue.id }}'); var full = document.getElementById('note-full-{{ issue.id }}'); if (full.style.display === 'none') { preview.style.display = 'none'; full.style.display = 'block'; this.textContent = 'Show less'; } else { preview.style.display = 'block'; full.style.display = 'none'; this.textContent = 'View all'; }">
+                        View all
+                    </a>
+                </div>
+                {% endif %}
+                
+                {% if issue.is_resolved %}
+                <div class="mt-2">
+                    <small class="text-info">
+                        <i class="fas fa-tools me-1"></i>
+                        Resolved: {{ issue.resolution_action }}
+                    </small>
+                </div>
+                {% endif %}
+                
+                {% if not issue.is_validated %}
+                <div class="mt-3">
+                    <a href="{{ url_for('delivery_issues.picker_validate_form', issue_id=issue.id) }}" class="btn btn-success w-100">
+                        <i class="fas fa-check me-2"></i>Validate
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

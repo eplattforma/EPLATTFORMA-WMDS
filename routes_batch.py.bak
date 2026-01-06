@@ -1,0 +1,1831 @@
+"""
+Route handlers for the batch picking system
+"""
+from datetime import datetime
+from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, session, current_app
+from sqlalchemy import text
+from flask_login import login_required, current_user
+from sqlalchemy import and_, func, desc, asc
+
+from app import db
+from models import User, Invoice, InvoiceItem, PickingException, BatchPickingSession, BatchSessionInvoice, BatchPickedItem, Setting, ActivityLog
+
+# Create a blueprint for batch picking routes
+batch_bp = Blueprint('batch', __name__)
+
+@batch_bp.route('/admin/batch/manage')
+@login_required
+def batch_picking_manage():
+    """Admin page to manage batch picking sessions"""
+    # Only admin users can access this page
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get active batch sessions
+    active_sessions = BatchPickingSession.query.filter(
+        BatchPickingSession.status.in_(['Created', 'In Progress'])
+    ).order_by(BatchPickingSession.created_at.desc()).all()
+
+    # Get completed batch sessions
+    completed_sessions = BatchPickingSession.query.filter_by(
+        status='Completed'
+    ).order_by(BatchPickingSession.created_at.desc()).limit(10).all()
+
+    # Get pickers for the assign dropdown
+    pickers = User.query.filter_by(role='picker').all()
+
+    return render_template('batch_picking_manage.html',
+                          active_sessions=active_sessions,
+                          completed_sessions=completed_sessions,
+                          pickers=pickers)
+
+@batch_bp.route('/admin/batch/simple', methods=['GET', 'POST'])
+@login_required
+def batch_picking_create_simple():
+    """Simple admin page to create a new batch picking session"""
+    # Only admin users can access this page
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Handle POST request (form submission)
+    if request.method == 'POST':
+        # Get form data
+        session_name = request.form.get('session_name')
+        picking_mode = request.form.get('picking_mode', 'Sequential')
+        assigned_picker = request.form.get('assigned_picker')
+        selected_zones = request.form.getlist('zones')
+        selected_invoices = request.form.getlist('invoices')
+
+        # Validate form data
+        if not session_name:
+            flash('Please enter a session name.', 'danger')
+            return redirect(url_for('batch.batch_picking_create_simple'))
+
+        if not selected_zones:
+            flash('Please select at least one zone.', 'danger')
+            return redirect(url_for('batch.batch_picking_create_simple'))
+
+        if not selected_invoices:
+            flash('Please select at least one invoice.', 'danger')
+            return redirect(url_for('batch.batch_picking_create_simple'))
+
+        try:
+            # Create a new batch picking session
+            batch = BatchPickingSession(
+                name=session_name,
+                zones=','.join(selected_zones),
+                created_by=current_user.username,
+                assigned_to=assigned_picker,
+                status='Created',
+                picking_mode=picking_mode,
+                current_invoice_index=0,
+                current_item_index=0
+            )
+            db.session.add(batch)
+            db.session.flush()  # Get the ID before committing
+
+            # Add the selected invoices to the batch
+            for invoice_no in selected_invoices:
+                invoice_link = BatchSessionInvoice(
+                    batch_session_id=batch.id,
+                    invoice_no=invoice_no
+                )
+                db.session.add(invoice_link)
+
+            # Commit all changes
+            db.session.commit()
+            flash(f'Batch picking session "{session_name}" created successfully.', 'success')
+            return redirect(url_for('batch.batch_picking_manage'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error creating batch: {str(e)}', 'danger')
+            return redirect(url_for('batch.batch_picking_create_simple'))
+
+    # Handle GET request (display form)
+    # Get available zones from invoice items (unique values)
+    available_zones = db.session.query(
+        InvoiceItem.zone
+    ).filter(
+        InvoiceItem.zone.isnot(None),
+        InvoiceItem.zone != ''
+    ).distinct().order_by(InvoiceItem.zone).all()
+    available_zones = [zone[0] for zone in available_zones if zone[0]]
+
+    # Default session name based on date
+    today = datetime.now().strftime('%Y-%m-%d')
+    session_name = f'Batch {today}'
+
+    # Initial picking mode
+    picking_mode = 'Sequential'
+
+    # Get pickers for the assign dropdown
+    pickers = User.query.filter_by(role='picker').all()
+    
+    # Get available invoices that are not completed
+    available_invoices = Invoice.query.filter(
+        Invoice.status.in_(['Not Started', 'In Progress'])
+    ).order_by(Invoice.invoice_no).all()
+
+    return render_template('batch_picking_simple.html',
+                          available_zones=available_zones,
+                          session_name=session_name,
+                          picking_mode=picking_mode,
+                          pickers=pickers,
+                          available_invoices=available_invoices)
+
+@batch_bp.route('/admin/batch/filter', methods=['GET', 'POST'])
+@login_required
+def batch_picking_filter():
+    """Admin page to filter invoices for a batch"""
+    # Only admin users can access this page
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+        
+    # Get available zones from invoice items (unique values)
+    available_zones = db.session.query(
+        InvoiceItem.zone
+    ).filter(
+        InvoiceItem.zone.isnot(None),
+        InvoiceItem.zone != ''
+    ).distinct().order_by(InvoiceItem.zone).all()
+    available_zones = [zone[0] for zone in available_zones if zone[0]]
+
+    # Generate default session name with timestamp format
+    now = datetime.now()
+    today_with_time = now.strftime('%Y-%m-%d_%H:%M')
+    
+    # Set default values - include_partially_picked is TRUE by default
+    include_partially_picked = True
+    picking_mode = 'Sequential'
+    
+    # Default generic batch name - will be updated when zones are selected
+    session_name = f"Batch_{today_with_time}"
+    selected_zones = []
+    filtered_invoices = []
+    
+    # Check if this is a POST request (Apply Filter was clicked)
+    if request.method == 'POST':
+        # Get form data
+        picking_mode = request.form.get('picking_mode', picking_mode)
+        # Default to True even if not provided in the form
+        include_partially_picked = request.form.get('include_partially_picked') != None
+        selected_zones = request.form.getlist('zones')
+        
+        # Generate zone-based session name in the format ZoneName_Batch_<YYYY-MM-DD_HH:mm>
+        if selected_zones:
+            if len(selected_zones) == 1:
+                # Single zone - use zone name directly
+                zone_prefix = selected_zones[0]
+            else:
+                # Multiple zones - use first zone with + indicator
+                zone_prefix = f"{selected_zones[0]}+"
+            
+            # Create session name with zone prefix
+            session_name = f"{zone_prefix}_Batch_{today_with_time}"
+        
+        # Get user-provided session name if it exists and override the auto-generated one
+        user_session_name = request.form.get('session_name')
+        if user_session_name and user_session_name.strip():
+            session_name = user_session_name
+            
+        # Log for debugging
+        current_app.logger.info(f"Form data: session_name={session_name}, picking_mode={picking_mode}, zones={selected_zones}")
+        
+        # If zones are selected, get filtered invoices
+        if selected_zones:
+            # Query to get eligible invoices with items in the selected zones
+            query = db.session.query(
+                InvoiceItem.invoice_no,
+                func.count(InvoiceItem.item_code).label('item_count')
+            ).filter(
+                InvoiceItem.zone.in_(selected_zones),
+                InvoiceItem.is_picked == False,
+                InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+            )
+            
+            # Add status filter if we're not including partially picked invoices
+            if not include_partially_picked:
+                query = query.join(Invoice).filter(Invoice.status == 'Not Started')
+            else:
+                query = query.join(Invoice).filter(Invoice.status.in_(['Not Started', 'In Progress']))
+                
+            # Group by invoice and get the count
+            invoice_counts = query.group_by(InvoiceItem.invoice_no).all()
+            
+            # Store the counts for each invoice
+            invoice_item_counts = {}
+            for inv_no, count in invoice_counts:
+                invoice_item_counts[inv_no] = count
+                
+            # Get the invoices with full details
+            if invoice_counts:
+                invoice_nos = [inv_no for inv_no, _ in invoice_counts]
+                invoices_query = Invoice.query.filter(Invoice.invoice_no.in_(invoice_nos))
+                
+                if not include_partially_picked:
+                    invoices_query = invoices_query.filter(Invoice.status == 'Not Started')
+                else:
+                    invoices_query = invoices_query.filter(Invoice.status.in_(['Not Started', 'In Progress']))
+                    
+                inv_list = invoices_query.all()
+                
+                # Add the item count to each invoice
+                for inv in inv_list:
+                    inv.item_count = invoice_item_counts.get(inv.invoice_no, 0)
+                    
+                # Sort by item count (descending)
+                filtered_invoices = sorted(inv_list, key=lambda x: x.item_count, reverse=True)
+            
+            if not filtered_invoices:
+                flash('No invoices found matching the selected criteria.', 'warning')
+    else:
+        # GET request - pull values from query parameters
+        session_name = request.args.get('session_name', session_name)
+        picking_mode = request.args.get('picking_mode', picking_mode)
+        include_partially_picked = request.args.get('include_partially_picked', 'false') == 'true'
+        selected_zones = request.args.getlist('zones')
+
+    # Get pickers for the assign dropdown
+    pickers = User.query.filter_by(role='picker').all()
+
+    return render_template('batch_picking_create_with_filter.html',
+                          available_zones=available_zones,
+                          selected_zones=selected_zones,
+                          session_name=session_name,
+                          picking_mode=picking_mode,
+                          include_partially_picked=include_partially_picked,
+                          pickers=pickers,
+                          invoices=filtered_invoices,
+                          assigned_picker=request.form.get('assigned_picker', ''))
+
+@batch_bp.route('/admin/batch/filter_invoices', methods=['POST'])
+@login_required
+def filter_invoices_for_batch():
+    """Filter invoices for batch picking and show selection interface"""
+    # Only admin users can access this page
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+        
+    # Get form data
+    session_name = request.form.get('session_name', '')
+    picking_mode = request.form.get('picking_mode', 'Sequential')
+    assigned_picker = request.form.get('assigned_picker', '')
+    include_partially_picked = request.form.get('include_partially_picked') != None
+    selected_zones = request.form.getlist('zones')
+    
+    # Log the form data for debugging
+    current_app.logger.info(f"Form data: session_name={session_name}, picking_mode={picking_mode}, assigned_picker={assigned_picker}, zones={selected_zones}")
+    
+    # Validate form data
+    if not selected_zones:
+        flash('Please select at least one zone.', 'danger')
+        return redirect(url_for('batch.batch_picking_filter'))
+        
+    # Get available zones from invoice items (unique values)
+    available_zones = db.session.query(
+        InvoiceItem.zone
+    ).filter(
+        InvoiceItem.zone.isnot(None),
+        InvoiceItem.zone != ''
+    ).distinct().order_by(InvoiceItem.zone).all()
+    available_zones = [zone[0] for zone in available_zones if zone[0]]
+    
+    # Get pickers for the assign dropdown
+    pickers = User.query.filter_by(role='picker').all()
+    
+    # Get invoices filtered by selected zones
+    # Count items in each invoice that match the selected zones
+    invoice_item_counts = {}
+    
+    # Query to get eligible invoices with items in the selected zones
+    query = db.session.query(
+        InvoiceItem.invoice_no,
+        func.count(InvoiceItem.item_code).label('item_count')
+    ).filter(
+        InvoiceItem.zone.in_(selected_zones),
+        InvoiceItem.is_picked == False,
+        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+    )
+    
+    # Add status filter if we're not including partially picked invoices
+    if not include_partially_picked:
+        query = query.join(Invoice).filter(Invoice.status == 'Not Started')
+    else:
+        query = query.join(Invoice).filter(Invoice.status.in_(['Not Started', 'In Progress']))
+        
+    # Group by invoice and get the count
+    invoice_counts = query.group_by(InvoiceItem.invoice_no).all()
+    
+    # Store the counts for each invoice
+    for inv_no, count in invoice_counts:
+        invoice_item_counts[inv_no] = count
+        
+    # Get the invoices with full details
+    invoices = []
+    if invoice_counts:
+        invoice_nos = [inv_no for inv_no, _ in invoice_counts]
+        invoices_query = Invoice.query.filter(Invoice.invoice_no.in_(invoice_nos))
+        
+        if not include_partially_picked:
+            invoices_query = invoices_query.filter(Invoice.status == 'Not Started')
+        else:
+            invoices_query = invoices_query.filter(Invoice.status.in_(['Not Started', 'In Progress']))
+            
+        inv_list = invoices_query.all()
+        
+        # Add the item count to each invoice
+        for inv in inv_list:
+            inv.item_count = invoice_item_counts.get(inv.invoice_no, 0)
+            
+        # Sort by item count (descending)
+        invoices = sorted(inv_list, key=lambda x: x.item_count, reverse=True)
+    
+    return render_template('batch_picking_create.html',
+                          available_zones=available_zones,
+                          selected_zones=selected_zones,
+                          session_name=session_name,
+                          picking_mode=picking_mode,
+                          include_partially_picked=include_partially_picked,
+                          pickers=pickers,
+                          assigned_picker=assigned_picker,
+                          invoices=invoices,
+                          selected_invoices=[])
+
+@batch_bp.route('/admin/batch/create', methods=['POST'])
+@login_required
+def batch_picking_create():
+    """Create a new batch picking session from selected invoices"""
+    # Only admin users can access this page
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+        
+    # Get form data
+    session_name = request.form.get('session_name')
+    picking_mode = request.form.get('picking_mode', 'Sequential')
+    assigned_picker = request.form.get('assigned_picker')
+    selected_invoices = request.form.getlist('selected_invoices')
+    selected_zones = request.form.getlist('zones')
+    
+    # Validate form data
+    if not session_name:
+        flash('Please enter a session name.', 'danger')
+        return redirect(url_for('batch.batch_picking_filter'))
+        
+    if not selected_zones:
+        flash('Please select at least one zone.', 'danger')
+        return redirect(url_for('batch.batch_picking_filter'))
+        
+    if not selected_invoices:
+        flash('Please select at least one invoice.', 'danger')
+        return redirect(url_for('batch.batch_picking_filter'))
+    
+    try:
+        # Import the batch number generator
+        from batch_utils import generate_batch_number
+        
+        # Generate a unique batch number
+        batch_number = generate_batch_number()
+        
+        # Create a new batch picking session
+        batch = BatchPickingSession(
+            name=session_name,
+            batch_number=batch_number,
+            zones=','.join(selected_zones),
+            created_by=current_user.username,
+            assigned_to=None if not assigned_picker else assigned_picker,
+            status='Created',
+            picking_mode=picking_mode,
+            current_invoice_index=0,
+            current_item_index=0
+        )
+        db.session.add(batch)
+        db.session.flush()  # Get the ID before committing
+        
+        # Add the selected invoices to the batch
+        for invoice_no in selected_invoices:
+            try:
+                # Use raw SQL to avoid ORM issues with is_completed column
+                db.session.execute(
+                    text("INSERT INTO batch_session_invoices (batch_session_id, invoice_no) VALUES (:batch_id, :invoice_no)"),
+                    {"batch_id": batch.id, "invoice_no": invoice_no}
+                )
+            except Exception as e:
+                current_app.logger.error(f"Error adding invoice {invoice_no} to batch: {str(e)}")
+                
+        # Commit all changes
+        db.session.commit()
+        flash(f'Batch picking session "{session_name}" created successfully with {len(selected_invoices)} invoices.', 'success')
+        return redirect(url_for('batch.batch_picking_manage'))
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error creating batch picking session: {str(e)}', 'danger')
+        return redirect(url_for('batch.batch_picking_filter'))
+
+
+
+@batch_bp.route('/api/filter_invoices_by_zone', methods=['GET', 'POST'])
+@login_required
+def filter_invoices_by_zone():
+    """API endpoint to filter invoices by zone"""
+    # Only admin users can access this endpoint
+    if current_user.role != 'admin':
+        return jsonify({"error": "Access denied. Admin privileges required."}), 403
+
+    # Get selected zones from different request types
+    if request.method == 'POST':
+        if request.is_json:
+            # JSON data (from fetch API)
+            data = request.get_json()
+            selected_zones = data.get('zones', [])
+            include_partially_picked = data.get('include_partially_picked', False)
+        else:
+            # Form data (from traditional form submit)
+            selected_zones = request.form.getlist('zones')
+            include_partially_picked = request.form.get('include_partially_picked', 'false') == 'true'
+    else:
+        # GET method (query parameters)
+        selected_zones = request.args.getlist('zones')
+        include_partially_picked = request.args.get('include_partially_picked', 'false') == 'true'
+    
+    # Log the request data
+    current_app.logger.info(f"API Filter - Zones: {selected_zones}, Include Partial: {include_partially_picked}")
+
+    if not selected_zones:
+        return jsonify({"invoices": [], "message": "No zones selected."})
+
+    # Count items in each invoice that match the selected zones
+    invoice_item_counts = {}
+    
+    # Query to get eligible invoices with items in the selected zones
+    query = db.session.query(
+        InvoiceItem.invoice_no,
+        func.count(InvoiceItem.item_code).label('item_count')
+    ).filter(
+        InvoiceItem.zone.in_(selected_zones),
+        InvoiceItem.is_picked == False,
+        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+    )
+    
+    # Add status filter if we're not including partially picked invoices
+    if not include_partially_picked:
+        query = query.join(Invoice).filter(Invoice.status == 'Not Started')
+    else:
+        query = query.join(Invoice).filter(Invoice.status.in_(['Not Started', 'In Progress']))
+        
+    # Group by invoice and get the count
+    invoice_counts = query.group_by(InvoiceItem.invoice_no).all()
+    
+    # Store the counts for each invoice
+    for inv_no, count in invoice_counts:
+        invoice_item_counts[inv_no] = count
+        
+    # Get the invoices with full details
+    result_invoices = []
+    if invoice_counts:
+        invoice_nos = [inv_no for inv_no, _ in invoice_counts]
+        invoices_query = Invoice.query.filter(Invoice.invoice_no.in_(invoice_nos))
+        
+        if not include_partially_picked:
+            invoices_query = invoices_query.filter(Invoice.status == 'Not Started')
+        else:
+            invoices_query = invoices_query.filter(Invoice.status.in_(['Not Started', 'In Progress']))
+            
+        invoices = invoices_query.all()
+        
+        # Format the invoices for JSON response
+        for invoice in invoices:
+            result_invoices.append({
+                'invoice_no': invoice.invoice_no,
+                'customer_name': invoice.customer_name,
+                'routing': invoice.routing,
+                'status': invoice.status,
+                'item_count': invoice_item_counts.get(invoice.invoice_no, 0)
+            })
+        
+        # Sort by item count (descending)
+        result_invoices = sorted(result_invoices, key=lambda x: x['item_count'], reverse=True)
+
+    return jsonify({"invoices": result_invoices})
+
+@batch_bp.route('/admin/batch/view/<int:batch_id>')
+@login_required
+def batch_picking_view(batch_id):
+    """Admin page to view a batch picking session"""
+    # Only admin users can access this page
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+        
+    # Get the batch picking session
+    batch = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Get the invoices in this batch
+    batch_invoices = db.session.query(
+        BatchSessionInvoice, Invoice
+    ).join(
+        Invoice, BatchSessionInvoice.invoice_no == Invoice.invoice_no
+    ).filter(
+        BatchSessionInvoice.batch_session_id == batch_id
+    ).all()
+    
+    # Get picker information if assigned
+    picker = None
+    if batch.assigned_to:
+        picker = User.query.filter_by(username=batch.assigned_to).first()
+    
+    # Calculate batch statistics
+    total_invoices = len(batch_invoices)
+    completed_invoices = sum(1 for bi, _ in batch_invoices if bi.is_completed)
+    total_items = 0
+    picked_items = 0
+    
+    # Get items for each invoice and calculate total/picked count
+    invoice_items = {}
+    for bi, invoice in batch_invoices:
+        # Get items for this invoice in the selected zones
+        items = InvoiceItem.query.filter(
+            InvoiceItem.invoice_no == invoice.invoice_no,
+            InvoiceItem.zone.in_(batch.zones.split(','))
+        ).all()
+        
+        invoice_items[invoice.invoice_no] = items
+        total_items += len(items)
+        picked_items += sum(1 for item in items if item.is_picked)
+    
+    # Check if there are any batch picked items
+    batch_picked_items = BatchPickedItem.query.filter_by(batch_session_id=batch_id).all()
+    
+    # Calculate completion percentage
+    completion_percentage = (picked_items / total_items * 100) if total_items > 0 else 0
+    invoice_completion_percentage = (completed_invoices / total_invoices * 100) if total_invoices > 0 else 0
+    
+    # Get pickers for the assign dropdown
+    pickers = User.query.filter_by(role='picker').all()
+    
+    return render_template('batch_picking_view.html',
+                          batch=batch,
+                          batch_invoices=batch_invoices,
+                          picker=picker,
+                          pickers=pickers,
+                          total_invoices=total_invoices,
+                          completed_invoices=completed_invoices,
+                          total_items=total_items,
+                          picked_items=picked_items,
+                          batch_picked_items=batch_picked_items,
+                          completion_percentage=completion_percentage,
+                          invoice_completion_percentage=invoice_completion_percentage,
+                          invoice_items=invoice_items)
+
+@batch_bp.route('/admin/batch/assign/<int:batch_id>', methods=['POST'])
+@login_required
+def batch_picking_assign(batch_id):
+    """Assign a picker to a batch picking session"""
+    # Only admin users can access this endpoint
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Get the picker username from the form
+    picker_username = request.form.get('assigned_picker')
+    
+    if not picker_username:
+        flash('Please select a picker.', 'danger')
+        return redirect(url_for('batch.batch_picking_manage'))
+    
+    # Update the batch session
+    batch_session.assigned_to = picker_username
+    db.session.commit()
+    
+    flash(f'Batch session assigned to {picker_username} successfully.', 'success')
+    return redirect(url_for('batch.batch_picking_manage'))
+
+@batch_bp.route('/admin/batch/unassign/<int:batch_id>', methods=['POST'])
+@login_required
+def batch_picking_unassign(batch_id):
+    """Unassign a picker from a batch picking session"""
+    # Only admin users can access this endpoint
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Update the batch session
+    previous_picker = batch_session.assigned_to
+    batch_session.assigned_to = None
+    db.session.commit()
+    
+    flash(f'Batch session unassigned from {previous_picker} successfully.', 'success')
+    return redirect(url_for('batch.batch_picking_manage'))
+
+@batch_bp.route('/picker/batches')
+@login_required
+def picker_batch_list():
+    """Picker page to view assigned batch picking sessions"""
+    # Only picker users can access this page
+    if current_user.role != 'admin' and current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get batch sessions assigned to this picker
+    if current_user.role == 'admin':
+        # Admins can see all batch sessions
+        assigned_batches = BatchPickingSession.query.filter(
+            BatchPickingSession.status.in_(['Created', 'In Progress'])
+        ).order_by(BatchPickingSession.created_at.desc()).all()
+    else:
+        # Pickers can only see their assigned batches
+        assigned_batches = BatchPickingSession.query.filter_by(
+            assigned_to=current_user.username,
+            status='Created'
+        ).order_by(BatchPickingSession.created_at.desc()).all()
+        
+        # Also get in-progress batches
+        in_progress_batches = BatchPickingSession.query.filter_by(
+            assigned_to=current_user.username,
+            status='In Progress'
+        ).order_by(BatchPickingSession.created_at.desc()).all()
+        
+        # Combine the lists
+        assigned_batches = in_progress_batches + assigned_batches
+
+    # Get completed batch sessions by this picker
+    completed_batches = BatchPickingSession.query.filter_by(
+        assigned_to=current_user.username,
+        status='Completed'
+    ).order_by(BatchPickingSession.created_at.desc()).limit(5).all()
+
+    return render_template('picker_batch_list.html',
+                          assigned_batches=assigned_batches,
+                          completed_batches=completed_batches)
+
+@batch_bp.route('/picker/batch/start/<int:batch_id>')
+@login_required
+def start_batch_picking(batch_id):
+    """Start picking a batch"""
+    # Only picker users can access this page
+    if current_user.role != 'admin' and current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Check if this picker is assigned to this batch
+    if current_user.role != 'admin' and batch_session.assigned_to != current_user.username:
+        flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Update the batch session status
+    batch_session.status = 'In Progress'
+    
+    # 🔐 FUNDAMENTAL FIX: Create a full, fixed list of ALL items in the batch at the start
+    # This ensures we can reliably traverse the entire list without items disappearing
+    all_batch_items = batch_session.get_grouped_items()
+    
+    # Store this complete list as JSON in the session
+    # This prevents the list from being regenerated/filtered after each pick
+    if all_batch_items:
+        # Serialize the batch items list to store in the session
+        serialized_items = []
+        for item in all_batch_items:
+            # Extract only the necessary data to keep the session size manageable
+            serialized_item = {
+                'item_code': item['item_code'],
+                'location': item['location'],
+                'zone': item['zone'],
+                'total_qty': item['total_qty'],
+                'source_items': [
+                    {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']} 
+                    for s in item['source_items']
+                ]
+            }
+            serialized_items.append(serialized_item)
+        
+        session['batch_items_' + str(batch_id)] = serialized_items
+        session['batch_total_items'] = len(serialized_items)
+        current_app.logger.warning(f"📋 FIXED BATCH: Created fixed list with {len(serialized_items)} items")
+    
+    # Reset the current index to 0 to start from the beginning
+    batch_session.current_item_index = 0
+    
+    # For sequential mode, also reset invoice index
+    if batch_session.picking_mode == 'Sequential':
+        batch_session.current_invoice_index = 0
+        
+    # Set a flag to indicate we're starting a new batch
+    # This ensures the batch_picking_item route uses our fixed item list
+    session['batch_start_' + str(batch_id)] = True
+    
+    current_app.logger.warning(f"🚀 COMPLETE BATCH FIX: Starting batch {batch_id} with fixed list of {len(all_batch_items) if all_batch_items else 0} items at index 0")
+    
+    db.session.commit()
+    
+    # Store the batch id in the session
+    session['current_batch_id'] = batch_id
+    
+    # Redirect to the batch picking page
+    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+
+@batch_bp.route('/picker/batch/item/<int:batch_id>')
+@login_required
+def batch_picking_item(batch_id):
+    """Display the current item to pick in a batch"""
+    # Only picker users can access this page
+    if current_user.role != 'admin' and current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Check if this picker is assigned to this batch
+    if current_user.role != 'admin' and batch_session.assigned_to != current_user.username:
+        flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Reset item index if requested (for debugging)
+    if request.args.get('reset') == 'true' and current_user.role == 'admin':
+        batch_session.current_item_index = 0
+        db.session.commit()
+        current_app.logger.info(f"Reset batch item index to 0 for debugging")
+        
+    # COMPLETE BATCH PICKING FIX - USE A FIXED LIST THROUGHOUT THE ENTIRE PROCESS
+    # Check if we already have a fixed items list for this batch in the session
+    fixed_batch_key = 'batch_items_' + str(batch_id)
+    
+    # If we don't have a fixed list yet, or if we're restarting the batch, create one
+    if fixed_batch_key not in session or session.pop('batch_start_' + str(batch_id), False):
+        # Generate the complete list of ALL items in the batch
+        all_batch_items = batch_session.get_grouped_items()
+        
+        # Save these items in the session
+        if all_batch_items:
+            # Serialize the batch items for session storage
+            serialized_items = []
+            for item in all_batch_items:
+                # Include ALL necessary data fields needed for display
+                serialized_item = {
+                    'item_code': item['item_code'],
+                    'item_name': item.get('item_name', 'Unknown Item'),
+                    'location': item['location'],
+                    'zone': item['zone'],
+                    'barcode': item.get('barcode', ''),
+                    'unit_type': item.get('unit_type', ''),
+                    'pack': item.get('pack', ''),
+                    'total_qty': item['total_qty'],
+                    'source_items': [
+                        {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']} 
+                        for s in item['source_items']
+                    ]
+                }
+                serialized_items.append(serialized_item)
+            
+            # Store in session
+            session[fixed_batch_key] = serialized_items
+            current_app.logger.warning(f"📋 FIXED LIST CREATED: {len(serialized_items)} items for batch {batch_id}")
+            
+            # Always start at the beginning 
+            batch_session.current_item_index = 0
+            db.session.commit()
+    
+    # Get the items from our fixed list instead of querying database again
+    if fixed_batch_key in session:
+        items = session[fixed_batch_key]
+        current_app.logger.warning(f"📋 USING FIXED LIST: {len(items)} items, current index: {batch_session.current_item_index}")
+    else:
+        # Fallback to database query if session data is missing
+        items = batch_session.get_grouped_items()
+        current_app.logger.warning(f"⚠️ FALLBACK: Using database query for items, found {len(items)}")
+        
+    # Ensure index is valid, reset if needed
+    if not items:
+        # No items in batch
+        current_app.logger.warning(f"⚠️ No items found for batch {batch_id}")
+    elif batch_session.current_item_index >= len(items) or batch_session.current_item_index < 0:
+        # Invalid index - reset to beginning
+        current_app.logger.warning(f"⚠️ Invalid index {batch_session.current_item_index} for {len(items)} items - resetting")
+        batch_session.current_item_index = 0
+        db.session.commit()
+    
+    # If items is None or empty, try a more aggressive approach
+    if not items and batch_session.picking_mode == 'Consolidated':
+        current_app.logger.warning("No items returned from get_grouped_items, attempting alternative query")
+        
+        # Get all invoices in this batch
+        batch_invoices = BatchSessionInvoice.query.filter_by(
+            batch_session_id=batch_id,
+            is_completed=False
+        ).all()
+        
+        invoice_nos = [bi.invoice_no for bi in batch_invoices]
+        zones_list = batch_session.zones.split(',')
+        
+        # Manual query for all unpicked items matching our criteria
+        from sqlalchemy import and_, or_
+        unpicked_items = db.session.query(InvoiceItem).filter(
+            InvoiceItem.invoice_no.in_(invoice_nos),
+            InvoiceItem.zone.in_(zones_list),
+            InvoiceItem.is_picked == False,
+            InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+        ).all()
+        
+        # Log what we found
+        current_app.logger.warning(f"Direct query found {len(unpicked_items)} unpicked items. Manually building item queue")
+        
+        # Manually build the grouped items
+        grouped_items = {}
+        for item in unpicked_items:
+            key = item.item_code
+            if key not in grouped_items:
+                grouped_items[key] = {
+                    'item_code': item.item_code,
+                    'location': item.location,
+                    'barcode': item.barcode,
+                    'zone': item.zone,
+                    'item_name': item.item_name,
+                    'unit_type': item.unit_type,
+                    'pack': item.pack,
+                    'total_qty': 0,
+                    'source_items': []
+                }
+            
+            # Add this item's quantity to the total and track the source
+            grouped_items[key]['total_qty'] += item.qty
+            grouped_items[key]['source_items'].append({
+                'invoice_no': item.invoice_no,
+                'item_code': item.item_code,
+                'qty': item.qty,
+                'id': item.invoice_no + '-' + item.item_code
+            })
+        
+        # Convert to a list and replace the empty items list
+        if grouped_items:
+            items = list(grouped_items.values())
+            current_app.logger.info(f"Emergency recovery found {len(items)} items")
+    
+    # IMPORTANT DEBUG: Log complete item data for the specific problematic items
+    problematic_items = ["SNA-0095", "SNA-0083", "GRO-0073"]
+    current_app.logger.warning(f"CHECKING FOR PROBLEMATIC ITEMS: {', '.join(problematic_items)}")
+    
+    # Get the raw query results for these specific items
+    raw_query = text("""
+        SELECT item_code, invoice_no, zone, location, is_picked, pick_status
+        FROM invoice_items
+        WHERE item_code IN :item_codes
+        AND zone IN :zones
+    """)
+    raw_results = db.session.execute(
+        raw_query,
+        {"item_codes": tuple(problematic_items), "zones": tuple(batch_session.zones.split(','))}
+    ).fetchall()
+    
+    # Check if we need to force include missing items
+    if request.args.get('force_include') == 'true' and current_user.role == 'admin':
+        current_app.logger.warning("FORCE INCLUDING MISSING ITEMS")
+        
+        # Find all items that were specified to be included but aren't in the current items list
+        item_codes_in_result = [item['item_code'] for item in items]
+        
+        # For each problematic item that's missing, manually add it to the items list
+        items_added = 0
+        
+        for row in raw_results:
+            item_code, invoice_no, zone, location, is_picked, status = row
+            # Only process items that aren't picked and aren't in the current items list
+            if not is_picked and item_code not in item_codes_in_result:
+                # Get the full item data
+                full_item = InvoiceItem.query.filter_by(
+                    invoice_no=invoice_no,
+                    item_code=item_code
+                ).first()
+                
+                if full_item:
+                    current_app.logger.warning(f"FORCE ADDING: {item_code} from invoice {invoice_no}")
+                    
+                    # Add this item to the items list
+                    new_item = {
+                        'item_code': full_item.item_code,
+                        'location': full_item.location,
+                        'barcode': full_item.barcode,
+                        'zone': full_item.zone,
+                        'item_name': full_item.item_name,
+                        'unit_type': full_item.unit_type,
+                        'pack': full_item.pack,
+                        'total_qty': full_item.qty,
+                        'source_items': [{
+                            'invoice_no': full_item.invoice_no,
+                            'item_code': full_item.item_code,
+                            'qty': full_item.qty,
+                            'id': full_item.invoice_no + '-' + full_item.item_code
+                        }],
+                        'batch_index': len(items) + items_added,
+                        'original_indexes': [1000 + items_added]  # High index to sort at end
+                    }
+                    
+                    items.append(new_item)
+                    items_added += 1
+        
+        if items_added > 0:
+            current_app.logger.warning(f"FORCE ADDED {items_added} MISSING ITEMS TO BATCH")
+            flash(f"Successfully force-added {items_added} missing items to the batch.", "success")
+        else:
+            flash("No missing items could be added to the batch.", "warning")
+    
+    # Log all instances of these items regardless of status
+    for row in raw_results:
+        item_code, invoice_no, zone, location, is_picked, status = row
+        current_app.logger.warning(f"DB STATE: {item_code} in invoice {invoice_no}: picked={is_picked}, status={status}")
+    
+    # Check if these items are in the current result list
+    problem_items_found = []
+    for item in items:
+        if item['item_code'] in problematic_items:
+            problem_items_found.append(item['item_code'])
+            current_app.logger.warning(f"FOUND IN RESULT LIST: {item['item_code']} at position {len(problem_items_found)-1}")
+    
+    missing_items = [code for code in problematic_items if code not in problem_items_found]
+    if missing_items:
+        current_app.logger.error(f"CRITICAL MISSING ITEMS: {', '.join(missing_items)}")
+    
+    # Show debug view if requested (for administrators only)
+    if request.args.get('debug') == 'true' and current_user.role == 'admin':
+        return render_template('batch_picking_debug.html',
+                              batch_session=batch_session,
+                              items=items,
+                              current_index=batch_session.current_item_index,
+                              problematic_items=problematic_items,
+                              problem_items_found=problem_items_found)
+    
+    if not items:
+        # Get a list of all invoices in this batch that aren't completed
+        batch_invoices = BatchSessionInvoice.query.filter_by(
+            batch_session_id=batch_id,
+            is_completed=False
+        ).all()
+        
+        current_app.logger.info(f"Found {len(batch_invoices)} uncompleted invoices in batch")
+        
+        if not batch_invoices:
+            # All invoices are completed, mark the batch as completed
+            batch_session.status = 'Completed'
+            db.session.commit()
+            
+            flash('Batch picking session completed successfully.', 'success')
+            return redirect(url_for('batch.batch_print_reports', batch_id=batch_id))
+            
+        # If we have uncompleted invoices but no items, we need to double-check for unpicked items
+        has_unpicked_items = False
+        first_invoice_with_items = None
+        
+        # Loop through all invoices to find any with unpicked items
+        for i, batch_invoice in enumerate(batch_invoices):
+            # Check for unpicked items in this invoice in the specified zones
+            unpicked_items = db.session.query(InvoiceItem).filter(
+                InvoiceItem.invoice_no == batch_invoice.invoice_no,
+                InvoiceItem.is_picked == False,
+                InvoiceItem.zone.in_(batch_session.zones.split(',')),
+                InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+            ).all()
+            
+            if unpicked_items:
+                has_unpicked_items = True
+                if first_invoice_with_items is None:
+                    first_invoice_with_items = i
+                current_app.logger.info(f"Found {len(unpicked_items)} unpicked items in invoice {batch_invoice.invoice_no}")
+        
+        if has_unpicked_items:
+            # We found unpicked items, but our grouping logic isn't catching them
+            # Update the current invoice index to the first invoice with items
+            if batch_session.picking_mode == 'Sequential' and first_invoice_with_items is not None:
+                current_app.logger.info(f"Setting current_invoice_index to {first_invoice_with_items}")
+                batch_session.current_invoice_index = first_invoice_with_items
+                batch_session.current_item_index = 0
+                db.session.commit()
+                
+                # Try to get items again with the updated index
+                items = batch_session.get_grouped_items()
+                current_app.logger.info(f"Found {len(items)} items after updating invoice index")
+                
+                if not items:
+                    # As a last resort, mark the batch as ready for reports with a warning
+                    flash('Not all items could be picked. Please check the batch report.', 'warning')
+                    return redirect(url_for('batch.batch_print_reports', batch_id=batch_id))
+            else:
+                # For consolidated mode or if we couldn't fix sequential mode
+                flash('Not all items could be picked. Please check the batch report.', 'warning')
+                return redirect(url_for('batch.batch_print_reports', batch_id=batch_id))
+        else:
+            # No unpicked items found despite having uncompleted invoices
+            # Mark all invoices as completed
+            for batch_invoice in batch_invoices:
+                batch_invoice.is_completed = True
+            
+            # Mark the batch as completed
+            batch_session.status = 'Completed'
+            db.session.commit()
+            
+            flash('Batch picking session completed.', 'success')
+            return redirect(url_for('batch.batch_print_reports', batch_id=batch_id))
+    
+    # Verify the batch session index is in range
+    if batch_session.current_item_index >= len(items):
+        current_app.logger.error(f"Index out of bounds: current_item_index {batch_session.current_item_index} >= items length {len(items)}")
+        batch_session.current_item_index = 0
+        db.session.commit()
+        current_app.logger.info(f"Reset index to 0 due to out-of-bounds condition")
+    
+    # Log the FULL item list for complete debugging
+    current_app.logger.info(f"BATCH PICKING QUEUE DUMP FOR BATCH {batch_id}:")
+    for i, item in enumerate(items):
+        status = "CURRENT" if i == batch_session.current_item_index else "PENDING"
+        current_app.logger.info(f"  Item #{i}: {item['item_code']} (Location: {item['location']}) - {status}")
+        
+    # Get the current item with safety checks
+    current_item = items[batch_session.current_item_index] if (items and batch_session.current_item_index < len(items)) else None
+    
+    if not current_item:
+        flash('No more items to pick in this batch session.', 'info')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Get all available skip reasons
+    require_skip_reason = True  # default to requiring a reason
+    skip_reasons = ["Out of Stock", "Damaged", "Location Empty", "Other"]
+    
+    # INDEXING DEBUGGING: Log the session state for debugging
+    current_app.logger.warning(f"🔍 BEFORE PICK: Batch {batch_id} item index is {batch_session.current_item_index}/{len(items)}")
+    current_app.logger.warning(f"🔍 Item code at current index: {current_item['item_code'] if current_item else 'None'}")
+    
+    try:
+        # Use the Setting model's get method for cleaner code and safer access
+        require_skip_reason = Setting.get(db.session, 'require_skip_reason', 'true').lower() == 'true'
+        
+        # Get custom skip reasons
+        skip_reasons_setting = Setting.get_json(db.session, 'skip_reasons', None)
+        if skip_reasons_setting:
+            skip_reasons = skip_reasons_setting
+    except Exception as e:
+        # Log the error but continue with defaults
+        current_app.logger.error(f"Error loading skip settings: {str(e)}")
+        # Use defaults if settings don't exist
+    
+    # Check if we need to show the next item's location
+    show_next_location = False
+    next_location = ""
+    
+    if batch_session.current_item_index + 1 < len(items):
+        next_item = items[batch_session.current_item_index + 1]
+        next_location = next_item['location']
+        show_next_location = True
+    
+    # For batch picking, we'll use the existing picking interface but with some modifications
+    return render_template('batch_picking_item.html',
+                          batch_session=batch_session,
+                          item=current_item,
+                          show_next_location=show_next_location,
+                          next_location=next_location,
+                          require_skip_reason=require_skip_reason,
+                          skip_reasons=skip_reasons,
+                          total_items=len(items),
+                          current_index=batch_session.current_item_index)
+
+@batch_bp.route('/picker/batch/confirm/<int:batch_id>', methods=['POST'])
+@login_required
+def confirm_batch_item(batch_id):
+    """Confirm a picked item in a batch - redirects to confirmation screen"""
+    # Only picker users can access this endpoint
+    if current_user.role != 'admin' and current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Check if this picker is assigned to this batch
+    if current_user.role != 'admin' and batch_session.assigned_to != current_user.username:
+        flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+
+    # CRUCIAL FIX: Use our fixed item list from the session
+    # This prevents the list from changing during the batch picking process
+    fixed_batch_key = 'batch_items_' + str(batch_id)
+    
+    # Get the items from our fixed list instead of recalculating
+    if fixed_batch_key in session:
+        items = session[fixed_batch_key]
+        current_app.logger.warning(f"📋 CONFIRM USING FIXED LIST: {len(items)} items, current index: {batch_session.current_item_index}")
+    else:
+        # Fallback to database query if session data is missing
+        items = batch_session.get_grouped_items()
+        
+        # Store for future access
+        if items:
+            # Create a fully detailed serialized list for session storage
+            serialized_items = []
+            for item in items:
+                serialized_item = {
+                    'item_code': item['item_code'],
+                    'item_name': item.get('item_name', 'Unknown Item'),
+                    'location': item['location'],
+                    'zone': item['zone'],
+                    'barcode': item.get('barcode', ''),
+                    'unit_type': item.get('unit_type', ''),
+                    'pack': item.get('pack', ''),
+                    'total_qty': item['total_qty'],
+                    'source_items': [
+                        {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']} 
+                        for s in item['source_items']
+                    ]
+                }
+                serialized_items.append(serialized_item)
+            
+            # Store in session to prevent further recalculation
+            session[fixed_batch_key] = serialized_items
+            items = serialized_items
+            
+        current_app.logger.warning(f"⚠️ FALLBACK IN CONFIRM: Using database query, found {len(items if items else [])} items")
+    
+    # CRITICAL DEBUG INFO
+    current_app.logger.warning(f"🔄 CONFIRM: Processing item at index {batch_session.current_item_index} of {len(items)} total")
+    
+    if not items or batch_session.current_item_index >= len(items):
+        flash('No more items to pick in this batch session.', 'info')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Get the current item
+    current_item = items[batch_session.current_item_index]
+    
+    # Get the picked quantity from the form
+    try:
+        picked_qty = int(request.form.get('picked_qty', 0))
+    except ValueError:
+        picked_qty = 0
+    
+    if picked_qty <= 0:
+        flash('Please enter a valid picked quantity.', 'danger')
+        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+    
+    # Get the source items for this batch item
+    source_items = current_item['source_items']
+    total_required = current_item['total_qty']
+    
+    # Check the setting for showing product images on the confirmation screen
+    try:
+        show_product_image = Setting.get_json(db.session, 'show_product_image_confirmation', default=False)
+    except Exception as e:
+        current_app.logger.error(f"Error loading product image settings: {str(e)}")
+        show_product_image = False
+    
+    # Redirect to the confirmation screen
+    return render_template('batch_picking_confirm.html',
+                          batch_session=batch_session,
+                          item=current_item,
+                          picked_qty=picked_qty,
+                          total_items=len(items),
+                          current_index=batch_session.current_item_index,
+                          show_product_image=show_product_image)
+
+@batch_bp.route('/picker/batch/complete-confirm/<int:batch_id>', methods=['POST'])
+@login_required
+def complete_batch_confirm(batch_id):
+    """Process the confirmation of a picked item and complete the database updates"""
+    # Only picker users can access this endpoint
+    if current_user.role != 'admin' and current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Check if this picker is assigned to this batch
+    if current_user.role != 'admin' and batch_session.assigned_to != current_user.username:
+        flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+
+    # CRUCIAL FIX: Use our fixed item list from the session
+    fixed_batch_key = 'batch_items_' + str(batch_id)
+    
+    if fixed_batch_key in session:
+        items = session[fixed_batch_key]
+        current_app.logger.warning(f"📋 COMPLETE CONFIRM USING FIXED LIST: {len(items)} items, current index: {batch_session.current_item_index}")
+    else:
+        # Fallback to database query if session data is missing
+        items = batch_session.get_grouped_items()
+        current_app.logger.warning(f"⚠️ FALLBACK IN COMPLETE CONFIRM: Using database query, found {len(items if items else [])} items")
+    
+    if not items or batch_session.current_item_index >= len(items):
+        flash('No more items to pick in this batch session.', 'info')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Get the current item
+    current_item = items[batch_session.current_item_index]
+    
+    # Get the picked quantity from the form
+    try:
+        picked_qty = int(request.form.get('picked_qty', 0))
+    except ValueError:
+        picked_qty = 0
+    
+    if picked_qty <= 0:
+        flash('Please enter a valid picked quantity.', 'danger')
+        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+    
+    # Get the source items for this batch item
+    source_items = current_item['source_items']
+    total_required = current_item['total_qty']
+    
+    try:
+        # Process the picked items
+        if batch_session.picking_mode == 'Sequential':
+            # Sequential mode - one invoice at a time
+            invoice_no = source_items[0]['invoice_no']
+            item_code = source_items[0]['item_code']
+            required_qty = source_items[0]['qty']
+            
+            # Update the invoice item
+            invoice_item = InvoiceItem.query.filter_by(
+                invoice_no=invoice_no,
+                item_code=item_code
+            ).first()
+            
+            if invoice_item:
+                # Record any exceptions if there's a discrepancy
+                if picked_qty != required_qty:
+                    exception = PickingException(
+                        invoice_no=invoice_no,
+                        item_code=item_code,
+                        expected_qty=required_qty,
+                        picked_qty=picked_qty,
+                        picker_username=current_user.username,
+                        reason=f"Batch picking: {picked_qty} picked, {required_qty} required"
+                    )
+                    db.session.add(exception)
+                
+                # Update the invoice item
+                invoice_item.picked_qty = picked_qty
+                invoice_item.is_picked = True
+                invoice_item.pick_status = 'picked'
+                
+                # Record the batch picked item
+                batch_picked = BatchPickedItem(
+                    batch_session_id=batch_id,
+                    invoice_no=invoice_no,
+                    item_code=item_code,
+                    picked_qty=picked_qty
+                )
+                db.session.add(batch_picked)
+            
+            # Check if all items for this invoice in the batch are picked
+            zones = batch_session.zones.split(',')
+            unpicked_count = InvoiceItem.query.filter(
+                InvoiceItem.invoice_no == invoice_no,
+                InvoiceItem.zone.in_(zones),
+                InvoiceItem.is_picked == False,
+                InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+            ).count()
+            
+            if unpicked_count == 0:
+                # Mark this invoice as completed in the batch
+                batch_invoice = BatchSessionInvoice.query.filter_by(
+                    batch_session_id=batch_id,
+                    invoice_no=invoice_no
+                ).first()
+                
+                if batch_invoice:
+                    batch_invoice.is_completed = True
+        
+        else:  # Consolidated mode
+            # Need to allocate the picked quantity across invoices
+            # We'll prioritize allocating to the earliest invoices first
+            
+            # Sort source items by invoice number (assuming invoice numbers are chronological)
+            sorted_sources = sorted(source_items, key=lambda x: x['invoice_no'])
+            
+            remaining_qty = picked_qty
+            
+            for source in sorted_sources:
+                invoice_no = source['invoice_no']
+                item_code = source['item_code']
+                required_qty = source['qty']
+                
+                # Allocate as much as possible to this invoice
+                allocated_qty = min(remaining_qty, required_qty)
+                
+                if allocated_qty > 0:
+                    # Update the invoice item
+                    invoice_item = InvoiceItem.query.filter_by(
+                        invoice_no=invoice_no,
+                        item_code=item_code
+                    ).first()
+                    
+                    if invoice_item:
+                        # Record any exceptions if there's a discrepancy
+                        if allocated_qty != required_qty:
+                            exception = PickingException(
+                                invoice_no=invoice_no,
+                                item_code=item_code,
+                                expected_qty=required_qty,
+                                picked_qty=allocated_qty,
+                                picker_username=current_user.username,
+                                reason=f"Batch picking (consolidated): {allocated_qty} allocated, {required_qty} required"
+                            )
+                            db.session.add(exception)
+                        
+                        # Update the invoice item
+                        invoice_item.picked_qty = allocated_qty
+                        invoice_item.is_picked = True
+                        invoice_item.pick_status = 'picked'
+                        
+                        # Record the batch picked item
+                        batch_picked = BatchPickedItem(
+                            batch_session_id=batch_id,
+                            invoice_no=invoice_no,
+                            item_code=item_code,
+                            picked_qty=allocated_qty
+                        )
+                        db.session.add(batch_picked)
+                        
+                        # Reduce the remaining quantity
+                        remaining_qty -= allocated_qty
+                        
+                        if remaining_qty <= 0:
+                            break  # No more quantity to allocate
+        
+        # Log the current state before making any changes
+        current_app.logger.warning(f"🔄 CRITICAL FIX (confirm_batch_item): Before processing - index: {batch_session.current_item_index}, item: {current_item['item_code']}")
+        current_app.logger.warning(f"🔄 Total items in batch: {len(items)}")
+        
+        # Only increment after processing the current item completely
+        # This is the ONLY place where the index should be incremented
+        batch_session.current_item_index += 1
+        
+        current_app.logger.warning(f"🔄 CRITICAL FIX: After incrementing - new index: {batch_session.current_item_index}")
+        if batch_session.current_item_index < len(items):
+            current_app.logger.warning(f"🔄 Next item will be: {items[batch_session.current_item_index]['item_code']}")
+        
+        # Record an activity
+        activity = ActivityLog(
+            picker_username=current_user.username,
+            activity_type='batch_item_pick',
+            details=f"Batch {batch_id}: Picked {picked_qty} of {current_item['item_code']} (total required: {total_required})"
+        )
+        db.session.add(activity)
+        
+        # Check if all items are picked
+        if batch_session.current_item_index >= len(items):
+            # All items have been picked, update the status
+            batch_session.status = 'Completed'
+            flash('All items in this batch have been picked!', 'success')
+            db.session.commit()
+            return redirect(url_for('batch.picker_batch_list'))
+        
+        # Save changes to database
+        db.session.commit()
+        
+        # Flash success message
+        flash(f'Item {current_item["item_code"]} successfully picked!', 'success')
+        
+        # Redirect to the next item
+        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        
+    except Exception as e:
+        # Roll back the transaction
+        db.session.rollback()
+        flash(f'Error processing this item: {str(e)}', 'danger')
+        current_app.logger.error(f"Error processing batch item: {str(e)}")
+        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+    
+@batch_bp.route('/picker/batch/skip/<int:batch_id>', methods=['POST'])
+@login_required
+def skip_batch_item(batch_id):
+    """Skip an item in a batch for later picking"""
+    # Only picker users can access this endpoint
+    if current_user.role != 'admin' and current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Check if this picker is assigned to this batch
+    if current_user.role != 'admin' and batch_session.assigned_to != current_user.username:
+        flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # CRUCIAL FIX: Use our fixed item list from the session
+    fixed_batch_key = 'batch_items_' + str(batch_id)
+    
+    if fixed_batch_key in session:
+        items = session[fixed_batch_key]
+        # Log the state
+        current_app.logger.warning(f"🔄 SKIP: Using fixed list with {len(items)} items, current index: {batch_session.current_item_index}")
+    else:
+        # Fallback to database query if session data is missing
+        items = batch_session.get_grouped_items()
+        current_app.logger.warning(f"⚠️ FALLBACK IN SKIP: Using database query, found {len(items if items else [])} items")
+    
+    if not items or batch_session.current_item_index >= len(items):
+        flash('No more items to pick in this batch session.', 'info')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Get the current item
+    current_item = items[batch_session.current_item_index]
+    
+    # Get the skip reason, if provided
+    skip_reason = request.form.get('skip_reason', 'Item skipped')
+    
+    # If "Other" was selected and a custom reason provided, use that
+    if skip_reason == 'Other' and request.form.get('other_skip_reason'):
+        skip_reason = request.form.get('other_skip_reason')
+    
+    try:
+        # Process all source items
+        for source in current_item['source_items']:
+            invoice_no = source['invoice_no']
+            item_code = source['item_code']
+            
+            # Mark the invoice item as skipped_pending
+            invoice_item = InvoiceItem.query.filter_by(
+                invoice_no=invoice_no,
+                item_code=item_code
+            ).first()
+            
+            if invoice_item:
+                invoice_item.pick_status = 'skipped_pending'
+                invoice_item.skip_reason = skip_reason
+                invoice_item.skip_timestamp = datetime.now()
+                invoice_item.skip_count += 1
+        
+        # Move to the next item
+        batch_session.current_item_index += 1
+        
+        # Save changes to database
+        db.session.commit()
+        
+        # Flash success message
+        flash(f'Item {current_item["item_code"]} skipped and will be picked later.', 'info')
+        
+        # Redirect to the next item or completion
+        if batch_session.current_item_index >= len(items):
+            flash('All other items have been processed. Please resolve the skipped items.', 'warning')
+            # TODO: Create a dedicated "resolve skipped items" interface
+            return redirect(url_for('batch.batch_picking_view', batch_id=batch_id))
+        
+        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        
+    except Exception as e:
+        # Roll back the transaction
+        db.session.rollback()
+        flash(f'Error skipping this item: {str(e)}', 'danger')
+        current_app.logger.error(f"Error skipping batch item: {str(e)}")
+        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        db.session.commit()
+        
+        flash('Batch picking session completed successfully.', 'success')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Continue picking
+    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+
+@batch_bp.route('/picker/batch/skip/<int:batch_id>', methods=['POST'])
+@login_required
+def skip_batch_item(batch_id):
+    """Skip an item in a batch for later picking"""
+    # Only picker users can access this endpoint
+    if current_user.role != 'admin' and current_user.role != 'picker':
+        flash('Access denied. Picker privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Check if this picker is assigned to this batch
+    if current_user.role != 'admin' and batch_session.assigned_to != current_user.username:
+        flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # BATCH FIX: Use fixed item list from session for consistent traversal
+    fixed_batch_key = 'batch_items_' + str(batch_id)
+    
+    # Get items from our fixed session list
+    if fixed_batch_key in session:
+        items = session[fixed_batch_key]
+        current_app.logger.warning(f"📋 SKIP USING FIXED LIST: {len(items)} items at index {batch_session.current_item_index}")
+    else:
+        # Fallback to database query
+        items = batch_session.get_grouped_items()
+        
+        # Store for future access 
+        if items:
+            # Create a fully detailed serialized list for session storage
+            serialized_items = []
+            for item in items:
+                serialized_item = {
+                    'item_code': item['item_code'],
+                    'item_name': item.get('item_name', 'Unknown Item'),
+                    'location': item['location'],
+                    'zone': item['zone'],
+                    'barcode': item.get('barcode', ''),
+                    'unit_type': item.get('unit_type', ''),
+                    'pack': item.get('pack', ''),
+                    'total_qty': item['total_qty'],
+                    'source_items': [
+                        {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']} 
+                        for s in item['source_items']
+                    ]
+                }
+                serialized_items.append(serialized_item)
+            
+            # Store in session to prevent further recalculation
+            session[fixed_batch_key] = serialized_items
+            items = serialized_items
+            
+        current_app.logger.warning(f"⚠️ FALLBACK IN SKIP: Using database query, found {len(items if items else [])} items")
+    
+    # Safety check
+    if not items or batch_session.current_item_index >= len(items):
+        flash('No more items to pick in this batch session.', 'info')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Get the current item
+    current_item = items[batch_session.current_item_index]
+    
+    # Get the skip reason from the form
+    skip_reason = request.form.get('skip_reason', 'No reason provided')
+    
+    # In batch picking, we need to mark all source items as skipped
+    for source in current_item['source_items']:
+        invoice_no = source['invoice_no']
+        item_code = source['item_code']
+        
+        # Update the invoice item
+        invoice_item = InvoiceItem.query.filter_by(
+            invoice_no=invoice_no,
+            item_code=item_code
+        ).first()
+        
+        if invoice_item:
+            # Mark as skipped_pending
+            invoice_item.pick_status = 'skipped_pending'
+            invoice_item.skip_reason = skip_reason
+            invoice_item.skip_timestamp = datetime.now()
+            invoice_item.skip_count += 1
+    
+    # FIXED BATCH PICKING: We must use the same fixed item list for the entire batch
+    # Move to the next item in our sequence
+    batch_session.current_item_index += 1
+    current_app.logger.warning(f"📏 SKIP INCREMENTING INDEX: {batch_session.current_item_index - 1} → {batch_session.current_item_index}")
+    
+    # Check if we've reached the end using our fixed item list
+    if batch_session.current_item_index >= len(items):
+        current_app.logger.warning(f"🏁 SKIP COMPLETED BATCH: Final index {batch_session.current_item_index}/{len(items)}")
+        batch_session.status = 'Completed'
+    
+    db.session.commit()
+    
+    # Log this activity
+    try:
+        activity = ActivityLog(
+            picker_username=current_user.username,
+            activity_type='batch_item_skip',
+            details=f"Batch {batch_id}: {current_item['item_code']} - Skipped: {skip_reason}"
+        )
+        db.session.add(activity)
+        db.session.commit()
+    except:
+        # Don't let activity logging failures stop the picking process
+        db.session.rollback()
+    
+    # CRITICAL FIX: Log the status after skipping to trace the item progression
+    current_app.logger.warning(f"⏭️ SKIP STATUS: Original item count: {len(items)}, Current index: {batch_session.current_item_index}")
+    
+    # List all remaining items to verify progression
+    if batch_session.current_item_index < len(items):
+        next_item = items[batch_session.current_item_index]['item_code']
+        current_app.logger.warning(f"⏭️ Next item will be: {next_item}")
+    
+    # Use the ORIGINAL items list to check if we're done
+    # NOT re-fetching the items list prevents index misalignment and skipped items
+    if batch_session.current_item_index >= len(items):
+        if batch_session.picking_mode == 'Sequential':
+            # Check if we can move to the next invoice
+            batch_session.current_invoice_index += 1
+            batch_session.current_item_index = 0
+            db.session.commit()
+            
+            # Check if there are more invoices
+            next_items = batch_session.get_grouped_items()
+            if next_items:
+                return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+        
+        flash('All items processed. Please resolve any skipped items before completing the batch.', 'info')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Continue picking
+    return redirect(url_for('batch.batch_picking_item', batch_id=batch_id))
+
+@batch_bp.route('/batch/manual_verify/<int:batch_id>', methods=['POST'])
+@login_required
+def manual_verify_batch(batch_id):
+    """Manually verify specific items are included in a batch"""
+    # Only admin users can access this endpoint
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+    
+    # Get the batch session
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Get the item codes to verify
+    item_codes_str = request.form.get('item_codes', '')
+    if not item_codes_str.strip():
+        flash('Please enter at least one item code to verify.', 'warning')
+        return redirect(url_for('batch.batch_picking_item', batch_id=batch_id, debug='true'))
+    
+    # Parse the item codes
+    item_codes = [code.strip() for code in item_codes_str.split(',') if code.strip()]
+    
+    # Get all invoices in this batch
+    batch_invoices = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).all()
+    invoice_nos = [bi.invoice_no for bi in batch_invoices]
+    
+    # Zones for this batch
+    zones_list = batch_session.zones.split(',')
+    
+    # Query for these specific items
+    from sqlalchemy import text
+    verification_query = text("""
+        SELECT item_code, invoice_no, zone, location, is_picked, pick_status
+        FROM invoice_items
+        WHERE item_code IN :item_codes
+        AND invoice_no IN :invoice_nos
+        AND zone IN :zones
+        ORDER BY item_code, invoice_no
+    """)
+    
+    verification_results = db.session.execute(
+        verification_query, 
+        {
+            "item_codes": tuple(item_codes), 
+            "invoice_nos": tuple(invoice_nos),
+            "zones": tuple(zones_list)
+        }
+    ).fetchall()
+    
+    # Format the results for display
+    verification_data = []
+    for row in verification_results:
+        item_code, invoice_no, zone, location, is_picked, status = row
+        verification_data.append({
+            'item_code': item_code,
+            'invoice_no': invoice_no,
+            'zone': zone,
+            'location': location,
+            'is_picked': is_picked,
+            'status': status
+        })
+    
+    # BATCH PICKING FIX: Use our fixed item list approach for verification too
+    # Check if we have a fixed list in the session
+    fixed_batch_key = 'batch_items_' + str(batch_id)
+    
+    if fixed_batch_key in session:
+        items = session[fixed_batch_key]
+        current_app.logger.warning(f"📋 VERIFY USING FIXED LIST: {len(items)} items")
+    else:
+        # Otherwise get a fresh list
+        items = batch_session.get_grouped_items()
+        
+        # Store this list in the session for future use
+        if items:
+            # Serialize the batch items list
+            serialized_items = []
+            for item in items:
+                serialized_item = {
+                    'item_code': item['item_code'],
+                    'item_name': item.get('item_name', 'Unknown Item'),
+                    'location': item['location'],
+                    'zone': item['zone'],
+                    'barcode': item.get('barcode', ''),
+                    'unit_type': item.get('unit_type', ''),
+                    'pack': item.get('pack', ''),
+                    'total_qty': item['total_qty'],
+                    'source_items': [
+                        {'invoice_no': s['invoice_no'], 'item_code': s['item_code'], 'qty': s['qty']} 
+                        for s in item['source_items']
+                    ]
+                }
+                serialized_items.append(serialized_item)
+            
+            # Store in session
+            session[fixed_batch_key] = serialized_items
+            current_app.logger.warning(f"📋 CREATED FIXED LIST FOR VERIFY: {len(serialized_items)} items")
+    
+    # Extract item codes from our consistent list
+    item_codes_in_queue = [item['item_code'] for item in items]
+    
+    # Render the verification results
+    return render_template('batch_verification_results.html',
+                          batch_session=batch_session,
+                          verification_data=verification_data,
+                          item_codes=item_codes,
+                          item_codes_in_queue=item_codes_in_queue)
+
+@batch_bp.route('/batch/print_reports/<int:batch_id>')
+@login_required
+def batch_print_reports(batch_id):
+    """Print reports for a batch picking session"""
+    # Check authorization
+    if current_user.role != 'admin' and (not current_user.username or current_user.role != 'picker'):
+        flash('Access denied. You do not have permission to print reports for this batch.', 'danger')
+        return redirect(url_for('index'))
+    
+    # Get the batch session
+    batch = BatchPickingSession.query.get_or_404(batch_id)
+    
+    # Check if this picker is assigned to this batch (if not admin)
+    if current_user.role == 'picker' and batch.assigned_to != current_user.username:
+        flash('You are not assigned to this batch picking session.', 'danger')
+        return redirect(url_for('batch.picker_batch_list'))
+    
+    # Get the invoices in this batch
+    batch_invoices = db.session.query(
+        BatchSessionInvoice, Invoice
+    ).join(
+        Invoice, BatchSessionInvoice.invoice_no == Invoice.invoice_no
+    ).filter(
+        BatchSessionInvoice.batch_session_id == batch_id
+    ).all()
+    
+    # Get items for each invoice
+    invoice_items = {}
+    for bi, invoice in batch_invoices:
+        # Get items for this invoice in the selected zones
+        zones = batch.zones.split(',')
+        items = InvoiceItem.query.filter(
+            InvoiceItem.invoice_no == invoice.invoice_no,
+            InvoiceItem.zone.in_(zones)
+        ).all()
+        
+        invoice_items[invoice.invoice_no] = items
+    
+    # Current datetime for the report
+    now = datetime.now()
+    
+    return render_template('batch_print_reports.html',
+                          batch=batch,
+                          batch_invoices=batch_invoices,
+                          invoice_items=invoice_items,
+                          now=now)
+    if current_user.role != 'admin' and batch_session.assigned_to != current_user.username:
+        flash('Access denied. You do not have permission to print reports for this batch.', 'danger')
+        return redirect(url_for('index'))
+    
+    # Get all invoices in this batch
+    batch_invoices = BatchSessionInvoice.query.filter_by(batch_session_id=batch_id).all()
+    
+    # Get details for each invoice
+    invoice_details = []
+    for bi in batch_invoices:
+        invoice = Invoice.query.get(bi.invoice_no)
+        if invoice:
+            # Get the zones for this batch
+            zones = batch_session.zones.split(',')
+            
+            # Get all items in this invoice that are in the selected zones
+            items = InvoiceItem.query.filter(
+                InvoiceItem.invoice_no == bi.invoice_no,
+                InvoiceItem.zone.in_(zones)
+            ).all()
+            
+            # Count picked items
+            picked_count = sum(1 for item in items if item.is_picked)
+            
+            invoice_details.append({
+                'invoice': invoice,
+                'is_completed': bi.is_completed,
+                'item_count': len(items),
+                'picked_count': picked_count,
+                'items': items
+            })
+    
+    # Get the current date/time for the report
+    now = datetime.now()
+    
+    return render_template(
+        'batch_print_reports.html',
+        batch_session=batch_session,
+        invoice_details=invoice_details,
+        now=now
+    )

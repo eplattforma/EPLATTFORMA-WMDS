@@ -1,0 +1,512 @@
+I’ll assume:
+
+Python app on Replit
+
+SQLAlchemy for DB
+
+You already have a PS365 client somewhere (if not, I include a simple one)
+
+We’ll:
+
+Adjust ps_items table to the new DW schema
+
+Create the 4 dimension tables (category, brand, season, attribute6) + a small sync-state table
+
+Create two scripts:
+
+full_dw_update() – full refresh of items + dimensions
+
+incremental_dw_update() – only changed items
+
+Add a “Datawarehouse” menu in the existing app and stop using any old DW scripts.
+
+1. Adjust the ps_items table → new DwItem model
+
+Instruction to Replit Agent:
+
+Open the file where SQLAlchemy models are defined (for example models.py).
+
+Delete any existing PsItem / PSItem / “items for DW” models you find – we will replace them.
+
+Add / replace with this model (you can keep the table name ps_items if you want, or rename to dw_items; I’ll keep ps_items to match your current DB):
+
+# models.py
+from datetime import datetime
+from sqlalchemy import Column, String, Boolean, DateTime, CHAR
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
+
+class DwItem(Base):
+    __tablename__ = "ps_items"   # keep existing table name
+
+    item_code_365 = Column(String(64), primary_key=True)
+    item_name = Column(String(255), nullable=False)
+    active = Column(Boolean, nullable=False)
+
+    category_code_365 = Column(String(64), nullable=True)
+    brand_code_365 = Column(String(64), nullable=True)
+    season_code_365 = Column(String(64), nullable=True)
+    attribute_6_code_365 = Column(String(64), nullable=True)
+
+    # DW control fields
+    attr_hash = Column(CHAR(32), nullable=False)
+    last_sync_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<DwItem {self.item_code_365} - {self.item_name}>"
+
+
+If you’re using Alembic, generate a migration to add/remove columns accordingly.
+If not, you can let SQLAlchemy create the new columns with:
+
+# somewhere in your app startup
+Base.metadata.create_all(engine)
+
+
+(Existing data in ps_items can be dropped if you don’t care – this is a new DW design.)
+
+2. Create the dimension & sync-state models
+
+Instruction to Replit Agent:
+
+In the same models.py, add:
+
+from sqlalchemy import Integer
+
+class DwItemCategory(Base):
+    __tablename__ = "dw_item_categories"
+
+    category_code_365 = Column(String(64), primary_key=True)
+    category_name = Column(String(255), nullable=False)
+    parent_category_code = Column(String(64), nullable=True)
+
+    attr_hash = Column(CHAR(32), nullable=False)
+    last_sync_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class DwBrand(Base):
+    __tablename__ = "dw_brands"
+
+    brand_code_365 = Column(String(64), primary_key=True)
+    brand_name = Column(String(255), nullable=False)
+
+    attr_hash = Column(CHAR(32), nullable=False)
+    last_sync_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class DwSeason(Base):
+    __tablename__ = "dw_seasons"
+
+    season_code_365 = Column(String(64), primary_key=True)
+    season_name = Column(String(255), nullable=False)
+
+    attr_hash = Column(CHAR(32), nullable=False)
+    last_sync_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class DwAttribute6(Base):
+    __tablename__ = "dw_attribute6"
+
+    attribute_6_code_365 = Column(String(64), primary_key=True)
+    attribute_6_name = Column(String(255), nullable=False)
+    attribute_6_secondary_code = Column(String(64), nullable=True)
+
+    attr_hash = Column(CHAR(32), nullable=False)
+    last_sync_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class SyncState(Base):
+    """
+    Generic key/value sync state table.
+    We'll use it for incremental item sync (last_change_id_365).
+    """
+    __tablename__ = "sync_state"
+
+    key = Column(String(64), primary_key=True)
+    value = Column(String(255), nullable=False)
+
+
+Then also ensure:
+
+Base.metadata.create_all(engine)
+
+
+is called somewhere during startup so these tables are created.
+
+3. Create a small PS365 client (if you don’t already have one)
+
+Instruction to Replit Agent:
+
+Create ps365_client.py:
+
+# ps365_client.py
+import os
+import requests
+
+PS365_BASE_URL = os.getenv("PS365_BASE_URL", "https://doc4api.powersoft365.com")  # adjust if different
+PS365_TOKEN = os.getenv("PS365_TOKEN")  # put your token in Replit Secrets
+
+def call_ps365(endpoint: str, payload: dict):
+    """
+    Generic POST JSON call to Powersoft365.
+    'endpoint' is e.g. 'list_items', 'list_item_categories', etc.
+    """
+    url = f"{PS365_BASE_URL}/{endpoint}"
+    data = {
+        "api_credentials": {
+            "token": PS365_TOKEN
+        }
+    }
+    data.update(payload or {})
+
+    resp = requests.post(url, json=data, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
+
+
+If your real base URL / structure is slightly different (e.g. /api/list_items), adjust url accordingly – follow what you already use in the existing app.
+
+4. Create datawarehouse_sync.py with 2 main functions
+
+Instruction to Replit Agent:
+
+Create a new file datawarehouse_sync.py and add:
+
+# datawarehouse_sync.py
+import json
+from datetime import datetime
+
+from sqlalchemy.orm import Session
+
+from models import (
+    DwItem, DwItemCategory, DwBrand, DwSeason, DwAttribute6, SyncState
+)
+from ps365_client import call_ps365
+
+
+PAGE_SIZE = 500  # you can safely keep 400–500 for 4k–6k items
+
+
+def _compute_hash(data: dict) -> str:
+    # stable, unicode-safe hash
+    return __import__("hashlib").md5(
+        json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _upsert_dimension(session: Session, model, key_field: str, data: dict):
+    """
+    Generic upsert for dimension tables with attr_hash + last_sync_at.
+    'data' must already contain 'attr_hash'.
+    """
+    key_value = data[key_field]
+    existing = session.get(model, key_value)
+
+    if existing and existing.attr_hash == data["attr_hash"]:
+        # nothing changed
+        return
+
+    now = datetime.utcnow()
+    if existing:
+        for k, v in data.items():
+            setattr(existing, k, v)
+        existing.last_sync_at = now
+    else:
+        obj = model(**data, last_sync_at=now)
+        session.add(obj)
+
+
+# ----------------------
+# FULL UPDATE
+# ----------------------
+
+def full_dw_update(session: Session):
+    """Full refresh of items + all dimensions. Called from menu option."""
+
+    # 1) Categories
+    page = 1
+    while True:
+        response = call_ps365("list_item_categories", {
+            "page_number": page,
+            "page_size": PAGE_SIZE,
+        })
+        items = response.get("list_item_categories", [])
+        if not items:
+            break
+
+        for c in items:
+            payload = {
+                "category_code_365": c["item_category_code_365"],
+                "category_name": c.get("item_category_name", ""),
+                "parent_category_code": c.get("parent_item_category_code_365"),
+            }
+            payload["attr_hash"] = _compute_hash(payload)
+            _upsert_dimension(session, DwItemCategory, "category_code_365", payload)
+
+        session.commit()
+        page += 1
+
+    # 2) Brands
+    page = 1
+    while True:
+        response = call_ps365("list_brands", {
+            "page_number": page,
+            "page_size": PAGE_SIZE,
+        })
+        brands = response.get("list_brands", [])
+        if not brands:
+            break
+
+        for b in brands:
+            payload = {
+                "brand_code_365": b["brand_code_365"],
+                "brand_name": b.get("brand_name", ""),
+            }
+            payload["attr_hash"] = _compute_hash(payload)
+            _upsert_dimension(session, DwBrand, "brand_code_365", payload)
+
+        session.commit()
+        page += 1
+
+    # 3) Seasons
+    page = 1
+    while True:
+        response = call_ps365("list_seasons", {
+            "page_number": page,
+            "page_size": PAGE_SIZE,
+        })
+        seasons = response.get("list_seasons", [])
+        if not seasons:
+            break
+
+        for s in seasons:
+            payload = {
+                "season_code_365": s["season_code_365"],
+                "season_name": s.get("season_name", ""),
+            }
+            payload["attr_hash"] = _compute_hash(payload)
+            _upsert_dimension(session, DwSeason, "season_code_365", payload)
+
+        session.commit()
+        page += 1
+
+    # 4) Attribute 6
+    page = 1
+    while True:
+        response = call_ps365("list_attributes", {
+            "attributeNo": 6,
+            "page_number": page,
+            "page_size": PAGE_SIZE,
+        })
+        attrs = response.get("list_attributes", [])
+        if not attrs:
+            break
+
+        for a in attrs:
+            payload = {
+                "attribute_6_code_365": a["attribute_code_365"],
+                "attribute_6_name": a.get("attribute_name", ""),
+                "attribute_6_secondary_code": a.get("attribute_secondary_code"),
+            }
+            payload["attr_hash"] = _compute_hash(payload)
+            _upsert_dimension(session, DwAttribute6, "attribute_6_code_365", payload)
+
+        session.commit()
+        page += 1
+
+    # 5) Items – ALL items, no active/ecommerce filtering
+    page = 1
+    while True:
+        response = call_ps365("list_items", {
+            "page_number": page,
+            "page_size": PAGE_SIZE,
+            "filter_define": {
+                "active_type": "all",
+                "ecommerce_type": "all",
+            },
+        })
+        items = response.get("list_items", [])
+        if not items:
+            break
+
+        for i in items:
+            core = {
+                "item_code_365": i["item_code_365"],
+                "item_name": i.get("item_name", ""),
+                "active": bool(i.get("active", True)),
+                "category_code_365": i.get("category_code_365"),
+                "brand_code_365": i.get("brand_code_365"),
+                "season_code_365": i.get("season_code_365"),
+                "attribute_6_code_365": i.get("attribute_6_code_365"),
+            }
+            attr_hash = _compute_hash(core)
+
+            existing = session.get(DwItem, core["item_code_365"])
+            if existing and existing.attr_hash == attr_hash:
+                continue  # no change
+
+            now = datetime.utcnow()
+            if existing:
+                for k, v in core.items():
+                    setattr(existing, k, v)
+                existing.attr_hash = attr_hash
+                existing.last_sync_at = now
+            else:
+                obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=now)
+                session.add(obj)
+
+        session.commit()
+        page += 1
+
+5. Incremental update script (items only)
+
+This uses list_sync_items and a simple SyncState record.
+
+Instruction to Replit Agent:
+
+In datawarehouse_sync.py, below the previous code, add:
+
+def _get_last_change_id(session: Session) -> int | None:
+    state = session.get(SyncState, "items_last_change_id")
+    if not state:
+        return None
+    try:
+        return int(state.value)
+    except ValueError:
+        return None
+
+
+def _set_last_change_id(session: Session, change_id: int):
+    state = session.get(SyncState, "items_last_change_id")
+    if not state:
+        state = SyncState(key="items_last_change_id", value=str(change_id))
+        session.add(state)
+    else:
+        state.value = str(change_id)
+    session.commit()
+
+
+def incremental_dw_update(session: Session):
+    """
+    Incremental update for items using list_sync_items.
+    Dimensions (categories/brands/seasons/attribute6) are not incrementally updated,
+    you can schedule occasional full_dw_update() for them.
+    """
+    last_change_id = _get_last_change_id(session)
+    highest_change_id = last_change_id or 0
+
+    while True:
+        payload = {
+            "records": PAGE_SIZE,
+            "ascending_order": True,
+        }
+        # If the API supports something like from_change_id, add it here:
+        # if last_change_id is not None:
+        #     payload["from_change_id"] = last_change_id
+
+        response = call_ps365("list_sync_items", payload)
+        sync_items = response.get("list_sync_items", [])
+        if not sync_items:
+            break
+
+        for item in sync_items:
+            i = item["list_item"]  # adjust if structure is slightly different
+            change_id = int(item.get("change_id_365", 0))
+            if change_id > highest_change_id:
+                highest_change_id = change_id
+
+            core = {
+                "item_code_365": i["item_code_365"],
+                "item_name": i.get("item_name", ""),
+                "active": bool(i.get("active", True)),
+                "category_code_365": i.get("category_code_365"),
+                "brand_code_365": i.get("brand_code_365"),
+                "season_code_365": i.get("season_code_365"),
+                "attribute_6_code_365": i.get("attribute_6_code_365"),
+            }
+            attr_hash = _compute_hash(core)
+
+            existing = session.get(DwItem, core["item_code_365"])
+            if existing and existing.attr_hash == attr_hash:
+                continue
+
+            now = datetime.utcnow()
+            if existing:
+                for k, v in core.items():
+                    setattr(existing, k, v)
+                existing.attr_hash = attr_hash
+                existing.last_sync_at = now
+            else:
+                obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=now)
+                session.add(obj)
+
+        session.commit()
+
+    if highest_change_id and highest_change_id != last_change_id:
+        _set_last_change_id(session, highest_change_id)
+
+
+If the real structure of list_sync_items in your response is slightly different, adjust the i = item["list_item"] part accordingly.
+
+6. Add a “Datawarehouse” menu in the existing app
+
+Assuming you have a CLI-style main menu (e.g. in main.py or menu.py) and an SQLAlchemy SessionLocal factory:
+
+Instruction to Replit Agent:
+
+Open your main menu file (where you display the top-level options).
+
+Add a new entry to the main menu text:
+
+def main_menu():
+    while True:
+        print("===== MAIN MENU =====")
+        print("1. ...")
+        print("2. ...")
+        # ...
+        print("D. Datawarehouse")  # new
+        print("Q. Quit")
+
+        choice = input("Select option: ").strip().upper()
+
+        if choice == "D":
+            show_datawarehouse_menu()
+        elif choice == "Q":
+            break
+        # other options...
+
+
+Create a new submenu function in the same file:
+
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from datawarehouse_sync import full_dw_update, incremental_dw_update
+from models import Base
+
+engine = create_engine("sqlite:///app.db")  # or your real DB
+SessionLocal = sessionmaker(bind=engine)
+
+def show_datawarehouse_menu():
+    while True:
+        print("\n=== Datawarehouse Menu ===")
+        print("1. Full DW update (items + dimensions)")
+        print("2. Incremental item update (changes only)")
+        print("B. Back to main menu")
+
+        choice = input("Select option: ").strip().upper()
+
+        if choice == "1":
+            with SessionLocal() as session:
+                print("Running FULL DW update...")
+                full_dw_update(session)
+                print("Full DW update completed.")
+        elif choice == "2":
+            with SessionLocal() as session:
+                print("Running INCREMENTAL DW update...")
+                incremental_dw_update(session)
+                print("Incremental DW update completed.")
+        elif choice == "B":
+            break
+        else:
+            print("Invalid option.")

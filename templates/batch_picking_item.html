@@ -1,0 +1,689 @@
+{% extends 'base.html' %}
+
+{% block title %}Batch Picking - EPLATTFORMA Picking System{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .location-display {
+        min-width: 80%;
+    }
+    .location-labels {
+        display: flex;
+        justify-content: space-around;
+        text-transform: uppercase;
+        color: #6c757d;
+    }
+    
+    /* Batch specific styles */
+    .batch-info-card {
+        margin-bottom: 15px;
+    }
+    
+    .batch-progress {
+        margin-bottom: 10px;
+    }
+    
+    .progress {
+        height: 20px;
+    }
+    
+    /* Add styling for smooth transitions */
+    .modal-backdrop {
+        opacity: 0.8 !important;
+    }
+    
+    .modal-content {
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    
+    .next-location {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 15px;
+        border-radius: 5px;
+        margin-top: 20px;
+        animation: fadeInUp 0.4s ease-out;
+    }
+    
+    .next-location-label {
+        font-weight: bold;
+        color: #6c757d;
+    }
+    
+    .next-location-value {
+        font-weight: bold;
+        color: #212529;
+    }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    /* Ensure no flashing happens */
+    body {
+        transition: background-color 0.3s ease;
+    }
+    
+    /* Make modal transitions immediate */
+    .modal.fade .modal-dialog {
+        transition: transform .1s ease-out !important;
+    }
+    
+    /* Loading indicator */
+    .loader {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 9999;
+        text-align: center;
+        padding-top: 30vh;
+    }
+    
+    .loader img {
+        width: 100px;
+        height: 100px;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .location-display h1 {
+            font-size: 40px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Loading indicator -->
+<div class="loader" id="loading-indicator">
+    <img src="{{ url_for('static', filename='images/loading-spinner.svg') }}" alt="Loading...">
+    <p class="text-white mt-3">Processing...</p>
+</div>
+
+<!-- New Order Notification for Sequential Mode -->
+{% if batch_session.picking_mode == 'Sequential' and item.is_new_order %}
+<div class="alert alert-info alert-dismissible fade show mb-3" role="alert" style="border-left: 5px solid #007bff; background-color: #e7f3ff;">
+    <div class="row align-items-center">
+        <div class="col-auto">
+            <i class="fas fa-clipboard-list fa-2x text-primary"></i>
+        </div>
+        <div class="col">
+            <h4 class="alert-heading mb-2">Starting New Order</h4>
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-1"><strong>Invoice:</strong> {{ item.current_invoice }}</p>
+                    <p class="mb-1"><strong>Customer:</strong> {{ item.customer_name or 'N/A' }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-1"><strong>Items:</strong> {{ item.order_total_items or 'N/A' }}</p>
+                    <p class="mb-1"><strong>Weight:</strong> {{ "%.1f"|format(item.order_total_weight or 0) }} kg</p>
+                </div>
+            </div>
+            <p class="mb-0 text-muted"><small>Order {{ item.invoice_position }} in this batch</small></p>
+        </div>
+    </div>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+<!-- Batch ID and Progress -->
+<div class="card mb-3 batch-info-card">
+    <div class="card-body py-2">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-dark me-2">{{ batch_session.batch_number or 'BATCH-' ~ batch_session.id }}</span>
+                    {% if batch_session.zones %}
+                        <span class="badge bg-warning text-dark me-2">{{ batch_session.zones }} Zone Only</span>
+                    {% endif %}
+                    {% if batch_session.picking_mode == 'Sequential' %}
+                        <span class="badge bg-info me-2">{{ item.current_invoice }}</span>
+                    {% endif %}
+                    <a href="{{ url_for('batch.picker_batch_list') }}" class="btn btn-outline-secondary btn-sm ms-3">
+                        <i class="fas fa-arrow-left me-1"></i>Back
+                    </a>
+                </div>
+            </div>
+            <div class="col-md-6 text-md-end">
+                <span class="badge bg-primary">{{ current_index + 1 }} of {{ total_items }} items</span>
+                {% if batch_session.picking_mode == 'Sequential' %}
+                    <span class="badge bg-secondary ms-1">Order {{ item.invoice_position }}</span>
+                {% endif %}
+            </div>
+        </div>
+        {% if batch_session.zones %}
+        <div class="row mt-2">
+            <div class="col-12">
+                <div class="alert alert-info py-2 mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <small><strong>Zone Filter Active:</strong> This batch only includes items from {{ batch_session.zones }} zone(s). Items from other zones in the same orders are not included in this batch.</small>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Order Details Card -->
+{% if item.current_invoice %}
+<div class="card mb-3 border-info">
+    <div class="card-body py-2 text-center">
+        {% if batch_session.picking_mode == 'Sequential' %}
+            <h5 class="mb-0">
+                {% if item.routing %}{{ item.routing }} - {% endif %}<strong>{{ item.current_invoice }}</strong> - {{ item.customer_name or 'N/A' }}
+            </h5>
+        {% else %}
+            <h5 class="mb-0"><strong>Consolidated Batch</strong></h5>
+            <small class="text-muted">Item from {{ item.current_invoice }}</small>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Location Block with Yellow Text on Black Background -->
+<div class="row mt-2 mb-3">
+    <div class="col-12">
+        <div class="card border-0" style="background-color: #000;">
+            <div class="card-body p-2 text-center">
+                <div class="d-flex justify-content-center">
+                    <div class="location-display">
+                        <h1 class="display-4 mb-0 fw-bold" style="color: #ffff00;">
+                            {{ item.location or 'NO LOCATION' }}
+                        </h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Item Details -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card bg-dark text-white border-0">
+            <div class="card-body">
+                <!-- Centered Product Name -->
+                <h3 class="text-center text-uppercase fw-bold mb-2">{{ item.item_name }}</h3>
+                
+                <!-- Quantity in Yellow and Same Size as Location -->
+                <h1 class="display-4 text-center fw-bold mb-3" style="color: #ffff00;">
+                    <div class="d-flex align-items-center justify-content-center">
+                        {% if show_multi_qty_warning == 'true' and item.total_qty|int != 1 %}
+                        <img src="{{ url_for('static', filename='images/warning.gif') }}" alt="Warning" style="width: 25px; height: auto; margin-right: 15px;">
+                        {% endif %}
+                        <span>
+                            {% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' %}
+                                {% if item.display_unit_type == 'Pieces' %}
+                                    {{ item.display_qty|int }} {{ item.display_unit_type }}
+                                {% elif item.unit_type|lower not in ['piece', 'item'] %}
+                                    {{ item.display_qty|int }} {{ item.unit_type }} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>
+                                {% else %}
+                                    {{ item.display_qty|int }} {{ item.unit_type }}
+                                {% endif %}
+                            {% else %}
+                                {{ item.display_qty|int }} {{ item.display_unit_type }}
+                            {% endif %}
+                        </span>
+                    </div>
+                </h1>
+                
+                <!-- Item Details in a Single Line -->
+                <div class="text-center text-white">
+                    {{ item.item_code }} 
+                    {% if item.barcode %} | {{ item.barcode }}{% endif %}
+                    {% if item.zone %} | {{ item.zone }}{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+        
+<!-- Action Buttons and Form -->
+<div class="row">
+    <div class="col-12">
+        <button id="confirmPickBtn" class="btn btn-success btn-lg w-100 py-3 mb-2">
+            <i class="fas fa-check-circle me-2"></i> Proceed to Pick
+        </button>
+
+        <div class="row mb-2">
+            <div class="col-12">
+                <a href="{{ url_for('batch.batch_picking_summary', batch_id=batch_session.id) }}" class="btn btn-info btn-lg w-100 py-2">
+                    <i class="fas fa-list-ul me-2"></i> View Summary
+                </a>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-6">
+                <a href="{{ url_for('batch.picker_batch_list') }}" class="btn btn-outline-secondary w-100">
+                    <i class="fas fa-times-circle me-1"></i> Exit Batch
+                </a>
+            </div>
+            <div class="col-6">
+                <button id="skipBtn" class="btn btn-outline-warning w-100">
+                    <i class="fas fa-forward me-1"></i> Skip
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Modal for confirming the picked item and quantity -->
+<div class="modal fade" id="confirmPickModal" tabindex="-1" aria-labelledby="confirmPickModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="confirmPickModalLabel">Confirm Item</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3">
+                    <!-- Product Image Only -->
+                    <div class="mb-3">
+                        {% set product_image_path = 'images/' + item.item_code + '.webp' %}
+                        <img src="{{ url_for('static', filename=product_image_path) }}" 
+                             alt="{{ item.item_name }}" 
+                             class="img-fluid rounded border" 
+                             style="max-height: 250px; object-fit: contain;"
+                             onerror="this.style.display='none'">
+                    </div>
+                </div>
+                
+                <div class="text-center mb-3">
+                    <!-- Quantity Display - Large, Bold and Yellow -->
+                    <h2 class="display-5 fw-bold mb-3">Pick <span id="expectedQuantity" style="color: #ffff00; background-color: #000; padding: 5px 10px; border-radius: 5px;">{{ item.display_qty|int }}</span> {{ item.display_unit_type }}{% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' and item.display_unit_type != 'Pieces' and item.unit_type|lower not in ['piece', 'item'] %} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>{% endif %}</h2>
+                </div>
+                
+                <!-- Quantity Entry Section for items > 1 -->
+                {% if item.total_qty|int > 1 %}
+                <div id="quantityEntrySection" class="mb-4">
+                    <div class="form-group">
+                        <label for="picked_quantity_input" class="form-label fs-5 fw-bold text-center d-block mb-2">Enter quantity picked:</label>
+                        <input 
+                            id="picked_quantity_input" 
+                            type="tel" 
+                            class="form-control form-control-lg text-center fs-3" 
+                            inputmode="numeric" 
+                            pattern="[0-9]*" 
+                            min="0"
+                            max="{{ item.total_qty|int }}"
+                            placeholder="{{ item.total_qty|int }}"
+                            autofocus 
+                            autocomplete="off"
+                            style="font-size: 2rem; height: 70px;"
+                        >
+                    </div>
+                    <p id="warningMessage" class="text-danger text-center mt-2 fs-6 fw-bold" style="display:none;">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        Quantity mismatch! Please use the 'Report Exception' process to proceed.
+                    </p>
+                </div>
+                {% endif %}
+                
+                <form id="pickForm" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" method="POST">
+                    <input type="hidden" name="picked_qty" id="picked_qty" value="{{ item.total_qty|int }}">
+                    <input type="hidden" name="quantity_adjusted" id="quantity_adjusted" value="false">
+                </form>
+            </div>
+            <div class="modal-footer" style="display: flex; padding: 1rem; gap: 10px;">
+                <button type="button" id="cancelConfirmBtn" class="btn btn-outline-secondary" style="flex: 1; font-size: 1.1rem; padding: 0.75rem 0;" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="reportExceptionButton" class="btn btn-warning" style="flex: 1; font-size: 1.1rem; padding: 0.75rem 0;" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#issueModal">Report Exception</button>
+                <button type="button" id="confirmYesBtn" class="btn btn-success" style="flex: 2; font-size: 1.2rem; padding: 0.75rem 0;" {% if item.total_qty|int > 1 %}disabled{% endif %}>Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal with Next Location -->
+<div class="modal fade" id="nextLocationModal" tabindex="-1" aria-labelledby="nextLocationModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="nextLocationModalLabel">Processing...</h5>
+            </div>
+            <div class="modal-body text-center p-5">
+                <img src="{{ url_for('static', filename='images/loading-spinner.svg') }}" alt="Processing" class="mb-4" style="width: 120px; height: 120px;">
+                <div class="fs-5 fw-bold mb-3 text-primary">Processing your request...</div>
+                
+                {% if show_next_location %}
+                <div class="next-location-container mt-3">
+                    <h3 class="text-success mb-2">Next Location:</h3>
+                    <h1 class="display-4 fw-bold text-primary">{{ next_location }}</h1>
+                    <p class="fs-5 mt-3">Start moving while we save your current pick...</p>
+                </div>
+                {% else %}
+                <div class="next-location-container mt-3">
+                    <h3 class="text-success mb-2">Last Item!</h3>
+                    <p class="fs-5 mt-3">Processing your final pick for this batch...</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for reporting an issue or quantity discrepancy -->
+<div class="modal fade" id="issueModal" tabindex="-1" aria-labelledby="issueModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="issueModalLabel">Report Issue</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="issueForm" action="{{ url_for('batch.complete_batch_confirm', batch_id=batch_session.id) }}" method="POST">
+                    <input type="hidden" name="confirm" value="true">
+                    
+                    <div class="mb-3">
+                        <label for="issue_picked_qty" class="form-label fs-5 fw-bold">Actual Quantity Picked:</label>
+                        <input 
+                            type="tel" 
+                            class="form-control form-control-lg text-center fs-3" 
+                            id="issue_picked_qty" 
+                            name="picked_qty" 
+                            placeholder="0" 
+                            inputmode="numeric" 
+                            pattern="[0-9]*" 
+                            min="0" 
+                            max="{{ (item.total_qty|int) - 1 }}" 
+                            autocomplete="off"
+                            style="font-size: 2rem; height: 70px;"
+                            required>
+                        <div class="form-text">Enter the actual quantity you were able to pick (whole numbers only, must be less than {{ item.total_qty|int }} for exception reports)</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="issue_reason" class="form-label">Reason for Exception:</label>
+                        <select class="form-select" id="issue_reason" name="reason">
+                            {% for reason in exception_reasons_list %}
+                            <option value="{{ reason }}">{{ reason }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="closeIssueBtn">Close</button>
+                <button type="button" id="submitIssueBtn" class="btn btn-danger" disabled>Submit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Skip Modal -->
+<div class="modal fade" id="skipModal" tabindex="-1" aria-labelledby="skipModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title" id="skipModalLabel">Skip This Item</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{{ url_for('batch.skip_batch_item', batch_id=batch_session.id) }}" id="skipForm">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        This item will be moved to the end of your picking queue. You'll need to resolve it before completing the batch.
+                    </div>
+                    
+                    {% if require_skip_reason %}
+                    <div class="mb-3">
+                        <label for="skip_reason" class="form-label">Why are you skipping this item?</label>
+                        <select class="form-select" id="skip_reason" name="skip_reason" required>
+                            <option value="">Select a reason...</option>
+                            {% for reason in skip_reasons %}
+                                <option value="{{ reason }}">{{ reason }}</option>
+                            {% endfor %}
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3" id="otherReasonDiv" style="display: none;">
+                        <label for="other_skip_reason" class="form-label">Please specify:</label>
+                        <input type="text" class="form-control" id="other_skip_reason" name="other_skip_reason">
+                    </div>
+                    {% else %}
+                    <input type="hidden" name="skip_reason" value="Item skipped">
+                    <p class="text-muted mb-0">Item will be skipped without requiring a reason.</p>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" id="submitSkipBtn" class="btn btn-warning">Skip Item</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Report Issue Modal -->
+<div class="modal fade" id="reportIssueModal" tabindex="-1" aria-labelledby="reportIssueModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="reportIssueModalLabel">Report Issue</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="reportIssueForm" action="{{ url_for('batch.batch_report_issue', batch_id=batch_session.id) }}" method="POST">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Issue Type:</label>
+                        <div class="row">
+                            <div class="col-6 mb-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="issueType" id="notFound" value="Not Found">
+                                    <label class="form-check-label" for="notFound">Not Found</label>
+                                </div>
+                            </div>
+                            <div class="col-6 mb-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="issueType" id="damaged" value="Damaged">
+                                    <label class="form-check-label" for="damaged">Damaged</label>
+                                </div>
+                            </div>
+                            <div class="col-6 mb-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="issueType" id="wrongLabel" value="Wrong Label">
+                                    <label class="form-check-label" for="wrongLabel">Wrong Label</label>
+                                </div>
+                            </div>
+                            <div class="col-6 mb-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="issueType" id="other" value="Other">
+                                    <label class="form-check-label" for="other">Other</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="pickedQuantity" class="form-label fw-bold">Actual Picked Quantity:</label>
+                        <input type="number" class="form-control" id="pickedQuantity" name="pickedQuantity" value="0" min="0" max="{{ item.total_qty }}" placeholder="Enter quantity actually picked">
+                        <small class="text-muted">Expected: {{ item.total_qty }} {{ item.unit_type }}</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="issueNotes" class="form-label">Notes (Optional):</label>
+                        <textarea class="form-control" id="issueNotes" name="issueNotes" rows="3" placeholder="Additional details about the issue..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="submitIssueBtn">Submit Issue</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize modals
+        var confirmPickModal = new bootstrap.Modal(document.getElementById('confirmPickModal'));
+        var skipModal = new bootstrap.Modal(document.getElementById('skipModal'));
+        var nextLocationModal = new bootstrap.Modal(document.getElementById('nextLocationModal'));
+        
+        // Handle confirm pick button click
+        const confirmPickBtn = document.getElementById('confirmPickBtn');
+        if (confirmPickBtn) {
+            confirmPickBtn.addEventListener('click', function() {
+                confirmPickModal.show();
+            });
+        }
+        
+        // Handle confirm yes button click in modal
+        // Quantity input validation logic
+        const pickedQuantityInput = document.getElementById('picked_quantity_input');
+        const confirmBtn = document.getElementById('confirmYesBtn');
+        const warningMessage = document.getElementById('warningMessage');
+        const pickedQtyHidden = document.getElementById('picked_qty');
+        const expectedQuantity = {{ item.total_qty|int }};
+        
+        if (pickedQuantityInput) {
+            // Enable confirm button when quantity is entered and valid
+            pickedQuantityInput.addEventListener('input', function() {
+                const enteredQty = parseInt(this.value) || 0;
+                
+                if (enteredQty > 0 && enteredQty <= expectedQuantity) {
+                    confirmBtn.disabled = false;
+                    warningMessage.style.display = 'none';
+                    pickedQtyHidden.value = enteredQty;
+                    
+                    if (enteredQty !== expectedQuantity) {
+                        document.getElementById('quantity_adjusted').value = 'true';
+                    } else {
+                        document.getElementById('quantity_adjusted').value = 'false';
+                    }
+                } else if (enteredQty > expectedQuantity) {
+                    confirmBtn.disabled = true;
+                    warningMessage.style.display = 'block';
+                } else {
+                    confirmBtn.disabled = true;
+                    warningMessage.style.display = 'none';
+                }
+            });
+            
+            // Set focus on the input when modal is shown
+            const confirmModal = document.getElementById('confirmPickModal');
+            confirmModal.addEventListener('shown.bs.modal', function() {
+                pickedQuantityInput.focus();
+            });
+        }
+
+        document.getElementById('confirmYesBtn').addEventListener('click', function() {
+            // Show the next location modal
+            confirmPickModal.hide();
+            nextLocationModal.show();
+            
+            // Submit the form
+            document.getElementById('pickForm').submit();
+        });
+        
+        // Handle skip button click
+        const skipBtn = document.getElementById('skipBtn');
+        if (skipBtn) {
+            skipBtn.addEventListener('click', function() {
+                skipModal.show();
+            });
+        }
+        
+        // Handle submit skip button click
+        const submitSkipBtn = document.getElementById('submitSkipBtn');
+        if (submitSkipBtn) {
+            submitSkipBtn.addEventListener('click', function() {
+                nextLocationModal.show();
+                document.getElementById('skipForm').submit();
+            });
+        }
+        
+        // Check if there's an "Other" option in the skip reason select
+        var skipReasonSelect = document.getElementById('skip_reason');
+        if (skipReasonSelect) {
+            skipReasonSelect.addEventListener('change', function() {
+                var otherReasonDiv = document.getElementById('otherReasonDiv');
+                if (this.value === 'Other' && otherReasonDiv) {
+                    otherReasonDiv.style.display = 'block';
+                    document.getElementById('other_skip_reason').required = true;
+                } else if (otherReasonDiv) {
+                    otherReasonDiv.style.display = 'none';
+                    document.getElementById('other_skip_reason').required = false;
+                }
+            });
+        }
+        
+        // Issue modal functionality
+        const issueModal = new bootstrap.Modal(document.getElementById('issueModal'));
+        const issuePickedQtyInput = document.getElementById('issue_picked_qty');
+        const submitIssueBtn = document.getElementById('submitIssueBtn');
+        const closeIssueBtn = document.getElementById('closeIssueBtn');
+        
+        if (issuePickedQtyInput && submitIssueBtn) {
+            // Enable submit button when quantity is entered and less than expected
+            issuePickedQtyInput.addEventListener('input', function() {
+                const enteredQty = parseInt(this.value) || 0;
+                const expectedQty = {{ item.total_qty|int }};
+                
+                // Only allow quantities less than expected for exception reports
+                if (enteredQty >= 0 && enteredQty < expectedQty) {
+                    submitIssueBtn.disabled = false;
+                } else {
+                    submitIssueBtn.disabled = true;
+                }
+            });
+        }
+        
+        if (closeIssueBtn) {
+            closeIssueBtn.addEventListener('click', function() {
+                issueModal.hide();
+            });
+        }
+        
+        if (submitIssueBtn) {
+            submitIssueBtn.addEventListener('click', function() {
+                const pickedQty = document.getElementById('issue_picked_qty').value;
+                const reason = document.getElementById('issue_reason').value;
+                
+                if (!pickedQty || pickedQty === '') {
+                    alert('Please enter the actual picked quantity.');
+                    return;
+                }
+                
+                if (!reason) {
+                    alert('Please select a reason for the exception.');
+                    return;
+                }
+                
+                // Set the values and submit
+                document.getElementById('picked_qty').value = pickedQty;
+                document.getElementById('quantity_adjusted').value = 'true';
+                
+                // Show loading modal and submit
+                issueModal.hide();
+                nextLocationModal.show();
+                document.getElementById('issueForm').submit();
+            });
+        }
+
+        // Legacy function for backward compatibility
+        window.showLoading = function() {
+            document.getElementById('loading-indicator').style.display = 'block';
+        };
+    });
+</script>
+{% endblock %}

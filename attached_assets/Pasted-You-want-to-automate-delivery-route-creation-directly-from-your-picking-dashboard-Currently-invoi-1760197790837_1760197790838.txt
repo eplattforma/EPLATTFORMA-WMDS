@@ -1,0 +1,225 @@
+You want to automate delivery route creation directly from your picking dashboard.
+
+Currently, invoices come into your system once picking is complete. Each invoice belongs to a customer and will be delivered by a driver on a given date. Some customers may have multiple invoices on the same day.
+
+The goal is to:
+
+Assign invoices to delivery routes (per driver/day).
+
+Automatically group invoices by customer, so that:
+
+Each customer appears only once per route (one stop).
+
+All their invoices are combined under that stop.
+
+Auto-generate a stop sequence number for each customer on that route.
+
+Example: Stop 1 → “BROTHERS TWIN & L...”, Stop 2 → “PETROLINA HOLDINGS LTD”, etc.
+
+Keep everything trackable in the database so you can later see:
+
+Which driver and route each invoice belongs to.
+
+How many stops per route.
+
+Which invoices belong to each stop.
+
+Sequence and delivery order.
+
+The result is a simple, controlled system where:
+
+Each driver’s daily delivery route is clearly structured.
+
+Each stop represents one customer, even if they have multiple invoices.
+
+You can visualize or print delivery manifests per driver or per stop.
+
+🧩 The Data Flow (Step by Step)
+1. Invoices arrive from picking
+
+When invoices are “ready for delivery,” they appear on your admin dashboard (like the one you uploaded).
+
+Each record has:
+
+invoice_no
+
+customer_name
+
+assigned_to (driver)
+
+routing (route)
+
+status
+
+etc.
+
+Now you want to assign these invoices to routes.
+
+2. Select invoices and assign to a route
+
+From the dashboard, you can:
+
+Select multiple invoices (checkboxes).
+
+Choose a driver and date.
+
+Click “Assign to Route”.
+
+At this moment, the system will either:
+
+Find an existing route (if that driver already has one for the same day),
+or
+
+Create a new route (record in shipments).
+
+3. System groups by customer
+
+Once the invoices are selected and the route chosen:
+
+The backend groups them by customer code (not just customer name).
+
+The customer code is pulled from your ps_customers table.
+
+Example:
+
+Invoice	Customer Name	Customer Code
+INV001	BROTHERS TWIN	00100010
+INV002	BROTHERS TWIN	00100010
+INV003	PETROLINA	00100020
+
+The system sees that both INV001 and INV002 belong to 00100010, so they go into the same stop.
+
+4. One stop per customer per route
+
+For each unique customer in that route:
+
+The system checks if there’s already a stop for that customer on that route.
+
+If yes → it attaches the new invoices to that existing stop.
+
+If no → it creates a new stop.
+
+Each stop gets:
+
+A unique ID (route_stops.id)
+
+A sequence number (stop_seq) — automatically increasing (1, 2, 3…)
+
+A link to the shipment/route (shipment_id)
+
+The customer code and optional address snapshot (from ps_customers)
+
+5. Link invoices to stops
+
+Then, for every invoice:
+
+It’s linked to the stop (stop_id) and route (route_id).
+
+The stop knows how many invoices it has (total_invoices).
+
+This is stored in a linking table (route_stop_invoices):
+
+stop_id	invoice_no
+10	INV001
+10	INV002
+11	INV003
+6. Sequence and delivery management
+
+Now you have a fully structured delivery plan:
+
+Each route (shipment) = one driver + one day.
+
+Each stop (route_stops) = one customer on that route.
+
+Each invoice = attached to a stop.
+
+You can later use this data to:
+
+Display the driver’s delivery sequence in order (1 → 2 → 3).
+
+Track total invoices, weight, or volume per stop.
+
+Update status when a stop is completed or partially delivered.
+
+🗄️ Database Relationships (simplified)
+shipments (routes)
+│
+├── route_stops (stops per route, one per customer)
+│     ├── stop_seq (auto)
+│     └── customer_code (from ps_customers)
+│
+└── route_stop_invoices (links)
+      └── invoice_no → invoices
+
+
+invoices
+↳ belong to one route (route_id) and one stop (stop_id)
+↳ carry the customer_code
+
+ps_customers
+↳ master data (address, contact, etc.) used for stop creation.
+
+⚙️ Workflow in Replit
+
+Your Replit backend will:
+
+Create/Update the tables (route_stops, route_stop_invoices, and extra columns in invoices).
+
+Expose APIs:
+
+POST /routes/upsert → create/find route (by driver/date).
+
+POST /routes/<route_id>/assign → group invoices by customer and assign stops.
+
+Frontend (your dashboard JS) will:
+
+Collect selected invoices.
+
+Ask for driver/date.
+
+Call these APIs.
+
+💡 Real-World Example
+
+You select these invoices on the dashboard:
+
+INV10001 - Coffeeheouse Agiou - driver: Andreas
+INV10002 - Coffeeheouse Agiou - driver: Andreas
+INV10003 - Petrolina Holdings - driver: Andreas
+
+
+Then:
+
+System finds/creates Andreas’s route for that date.
+
+Groups:
+
+COFFEEHOUSE AGIOU → customer_code 00100010
+
+PETROLINA HOLDINGS → customer_code 00100020
+
+Creates stops:
+
+Stop 1 (customer 00100010) with INV10001, INV10002
+
+Stop 2 (customer 00100020) with INV10003
+
+Sets sequence: 1, 2.
+
+Updates invoice table with route_id and stop_id.
+
+Result:
+
+Driver “Andreas” has 2 stops on his route.
+
+Stop 1 includes both Coffeehouse invoices.
+
+Stop 2 includes Petrolina’s invoice.
+
+🧭 Benefits
+
+✅ Fast, minimal-click route creation from the dashboard.
+✅ Automatic customer grouping — avoids duplicate stops.
+✅ One-stop-per-customer structure — cleaner delivery management.
+✅ Each stop is trackable, reorderable, and printable.
+✅ Compatible with your existing PostgreSQL + Flask system.

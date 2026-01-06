@@ -1,0 +1,110 @@
+Goal
+Build or refactor the order management dashboard to support a structured workflow with three separate operational views:
+
+Open Orders
+
+On Shipment
+
+Archive
+
+✅ ORDER STATUSES AND VIEWS
+Implement the following statuses with associated view assignments:
+
+Status	Purpose	Assigned View
+not_started	Order received, not yet picked	Open Orders
+picking	Items are being picked	Open Orders
+ready_for_dispatch	Fully picked and packed, waiting for courier pickup	Open Orders
+shipped	Left warehouse, in transit	On Shipment
+delivery_failed	Courier could not deliver	On Shipment
+returned_to_warehouse	Returned due to failed delivery or customer return	Open Orders
+delivered	Order successfully delivered	Archive
+cancelled	Cancelled after shipping or return	Archive
+
+🔹 VIEW 1: Open Orders
+Purpose: Display all warehouse-stage orders (statuses: not_started, picking, ready_for_dispatch, returned_to_warehouse).
+
+Layout:
+
+Use the existing layout (e.g., Kanban columns or cards per status)
+
+Group orders by their current status
+
+Enable drag-and-drop (optional) or action buttons to change status
+
+🔹 VIEW 2: On Shipment
+Purpose: Show orders that are in transit or failed delivery.
+
+Statuses: shipped, delivery_failed
+
+Layout (table-based):
+
+sql
+Copy
+Edit
+Header:  [Courier Filters] [Search Bar] [Bulk Actions Dropdown]
+
+Columns:
+| Order ID | Customer     | Status          | Courier | Ship Date | Actions            |
+|----------|--------------|-----------------|---------|-----------|--------------------|
+Actions:
+
+Mark as Delivered
+
+Resend
+
+Cancel
+
+Track (if courier APIs available)
+
+UI Notes:
+
+Use color codes or icons for shipped (blue) and delivery_failed (red)
+
+🔹 VIEW 3: Archive
+Purpose: Administrative/customer service access to finalized orders.
+
+Statuses: delivered, cancelled
+
+Layout:
+
+sql
+Copy
+Edit
+Header: [Search Bar] [Filter Dropdowns: Status, Date, Customer]
+
+Columns:
+| Order ID | Customer     | Status     | Ship Date | Delivery Date | Total  |
+|----------|--------------|------------|-----------|----------------|--------|
+Features:
+
+Export to Excel or PDF
+
+Click to view full timeline (audit trail)
+
+Date and status filters
+
+🛠️ ADDITIONAL UI/UX REQUIREMENTS
+Use badges or chips for statuses (e.g., green for delivered, red for delivery_failed)
+
+Add icons for couriers and warnings
+
+Implement tab or segmented control navigation between views:
+[Open Orders] | [On Shipment] | [Archive]
+
+Make the UI mobile-responsive:
+
+Use collapsible sections
+
+Ensure swipe-friendly status changes if using cards
+
+📦 OPTIONAL FEATURES
+Status Age Highlighting:
+
+Warn if ready_for_dispatch > 24 hours
+
+Alert if delivery_failed is unresolved after 48 hours
+
+Bulk Actions:
+
+Allow multi-select for status changes in the "On Shipment" and "Archive" views
+

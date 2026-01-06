@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Ready to Ship - EPLATTFORMA Picking System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.5rem;
+        }
+        .table-responsive {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        .action-buttons {
+            white-space: nowrap;
+        }
+        .bulk-actions {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .order-row:hover {
+            background-color: #f1f3f4;
+        }
+        .order-checkbox {
+            transform: scale(1.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2><i class="fas fa-shipping-fast text-success me-2"></i>Ready to Ship</h2>
+                        <p class="text-muted mb-0">Orders ready for immediate shipping</p>
+                    </div>
+                    <div>
+                        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Actions Bar -->
+        {% if orders %}
+        <div class="bulk-actions" id="bulkActionsBar" style="display: none;">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h5 class="mb-0">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <span id="selectedCount">0</span> orders selected
+                    </h5>
+                    <small class="opacity-75">Selected orders will be shipped directly</small>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button type="button" class="btn btn-success btn-lg me-2" id="bulkShipBtn">
+                        <i class="fas fa-truck me-2"></i>Ship Selected Orders
+                    </button>
+                    <button type="button" class="btn btn-outline-light" id="deselectAllBtn">
+                        <i class="fas fa-times me-1"></i>Clear Selection
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Orders Table -->
+        <div class="card shadow">
+            <div class="card-header bg-white">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            Orders Ready for Shipping ({{ orders|length }})
+                        </h5>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        {% if orders %}
+                        <button type="button" class="btn btn-outline-primary btn-sm me-2" id="selectAllBtn">
+                            <i class="fas fa-check-square me-1"></i>Select All
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="location.reload()">
+                            <i class="fas fa-refresh me-1"></i>Refresh
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if orders %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="ordersTable">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th width="50">
+                                    <input type="checkbox" class="form-check-input" id="masterCheckbox">
+                                </th>
+                                <th>Order No.</th>
+                                <th>Customer</th>
+                                <th>Routing</th>
+                                <th>Items</th>
+                                <th>Weight</th>
+                                <th>Completed</th>
+                                <th width="200">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in orders %}
+                            <tr class="order-row" data-invoice-no="{{ order.invoice_no }}">
+                                <td>
+                                    <input type="checkbox" class="form-check-input order-checkbox" 
+                                           value="{{ order.invoice_no }}" data-customer="{{ order.customer_name }}">
+                                </td>
+                                <td>
+                                    <strong>{{ order.invoice_no }}</strong>
+                                </td>
+                                <td>
+                                    <span class="text-truncate d-inline-block" style="max-width: 200px;" 
+                                          title="{{ order.customer_name }}">
+                                        {{ order.customer_name }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">
+                                        {{ order.routing if order.routing else 'N/A' }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">
+                                        {{ order.total_lines }} items
+                                    </span>
+                                </td>
+                                <td>
+                                    {{ "%.1f"|format(order.total_weight if order.total_weight else 0) }} kg
+                                </td>
+                                <td>
+                                    <small class="text-muted">
+                                        {{ order.picking_complete_time|local_time('%d/%m %H:%M') if order.picking_complete_time else 'N/A' }}
+                                    </small>
+                                </td>
+                                <td class="action-buttons">
+                                    <button type="button" class="btn btn-success btn-sm ship-single-btn" 
+                                            data-invoice-no="{{ order.invoice_no }}" 
+                                            data-customer="{{ order.customer_name }}">
+                                        <i class="fas fa-shipping-fast me-1"></i>Ship Now
+                                    </button>
+                                    <a href="{{ url_for('print_invoice', invoice_no=order.invoice_no) }}" 
+                                       class="btn btn-outline-primary btn-sm" target="_blank">
+                                        <i class="fas fa-print me-1"></i>Print
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <div class="mb-4">
+                        <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
+                    </div>
+                    <h4>All Caught Up!</h4>
+                    <p class="text-muted">No orders are currently ready to ship.</p>
+                    <p class="small text-muted">Orders will appear here when their status is "ready_for_dispatch"</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal fade" id="shipConfirmModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-shipping-fast me-2"></i>Confirm Shipping
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="singleShipContent" style="display: none;">
+                        <p>Are you sure you want to ship this order?</p>
+                        <div class="alert alert-info">
+                            <strong>Order:</strong> <span id="singleOrderNo"></span><br>
+                            <strong>Customer:</strong> <span id="singleCustomer"></span>
+                        </div>
+                    </div>
+                    <div id="bulkShipContent" style="display: none;">
+                        <p>Are you sure you want to ship the selected orders?</p>
+                        <div class="alert alert-info">
+                            <strong><span id="bulkOrderCount"></span> orders selected</strong>
+                            <div id="bulkOrdersList" class="mt-2 small"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="confirmShipBtn">
+                        <i class="fas fa-truck me-2"></i>Ship Orders
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global variables
+        let selectedOrders = new Set();
+        let isShipping = false;
+        
+        // DOM elements
+        const masterCheckbox = document.getElementById('masterCheckbox');
+        const bulkActionsBar = document.getElementById('bulkActionsBar');
+        const selectedCountSpan = document.getElementById('selectedCount');
+        const shipModal = new bootstrap.Modal(document.getElementById('shipConfirmModal'));
+        
+        // Initialize event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Master checkbox
+            masterCheckbox?.addEventListener('change', toggleAllCheckboxes);
+            
+            // Individual checkboxes
+            document.querySelectorAll('.order-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', handleCheckboxChange);
+            });
+            
+            // Bulk actions
+            document.getElementById('selectAllBtn')?.addEventListener('click', selectAll);
+            document.getElementById('deselectAllBtn')?.addEventListener('click', deselectAll);
+            document.getElementById('bulkShipBtn')?.addEventListener('click', showBulkShipConfirmation);
+            
+            // Single ship buttons
+            document.querySelectorAll('.ship-single-btn').forEach(btn => {
+                btn.addEventListener('click', showSingleShipConfirmation);
+            });
+            
+            // Confirm shipping
+            document.getElementById('confirmShipBtn')?.addEventListener('click', confirmShipping);
+        });
+        
+        function toggleAllCheckboxes() {
+            const checkboxes = document.querySelectorAll('.order-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = masterCheckbox.checked;
+                if (masterCheckbox.checked) {
+                    selectedOrders.add(cb.value);
+                } else {
+                    selectedOrders.delete(cb.value);
+                }
+            });
+            updateBulkActions();
+        }
+        
+        function handleCheckboxChange(event) {
+            const invoiceNo = event.target.value;
+            if (event.target.checked) {
+                selectedOrders.add(invoiceNo);
+            } else {
+                selectedOrders.delete(invoiceNo);
+            }
+            
+            // Update master checkbox state
+            const allCheckboxes = document.querySelectorAll('.order-checkbox');
+            const checkedCount = document.querySelectorAll('.order-checkbox:checked').length;
+            masterCheckbox.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+            masterCheckbox.checked = checkedCount === allCheckboxes.length;
+            
+            updateBulkActions();
+        }
+        
+        function updateBulkActions() {
+            selectedCountSpan.textContent = selectedOrders.size;
+            bulkActionsBar.style.display = selectedOrders.size > 0 ? 'block' : 'none';
+        }
+        
+        function selectAll() {
+            document.querySelectorAll('.order-checkbox').forEach(cb => {
+                cb.checked = true;
+                selectedOrders.add(cb.value);
+            });
+            masterCheckbox.checked = true;
+            updateBulkActions();
+        }
+        
+        function deselectAll() {
+            document.querySelectorAll('.order-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+            selectedOrders.clear();
+            masterCheckbox.checked = false;
+            masterCheckbox.indeterminate = false;
+            updateBulkActions();
+        }
+        
+        function showSingleShipConfirmation(event) {
+            const btn = event.target.closest('.ship-single-btn');
+            const invoiceNo = btn.dataset.invoiceNo;
+            const customer = btn.dataset.customer;
+            
+            // Prepare single ship modal
+            document.getElementById('singleOrderNo').textContent = invoiceNo;
+            document.getElementById('singleCustomer').textContent = customer;
+            document.getElementById('singleShipContent').style.display = 'block';
+            document.getElementById('bulkShipContent').style.display = 'none';
+            
+            // Set up confirmation button
+            document.getElementById('confirmShipBtn').onclick = () => shipOrders([invoiceNo]);
+            
+            shipModal.show();
+        }
+        
+        function showBulkShipConfirmation() {
+            const ordersList = Array.from(selectedOrders).map(invoiceNo => {
+                const row = document.querySelector(`[data-invoice-no="${invoiceNo}"]`);
+                const customer = row.querySelector('.order-checkbox').dataset.customer;
+                return `<div class="mb-1"><strong>${invoiceNo}</strong> - ${customer}</div>`;
+            }).join('');
+            
+            // Prepare bulk ship modal
+            document.getElementById('bulkOrderCount').textContent = selectedOrders.size;
+            document.getElementById('bulkOrdersList').innerHTML = ordersList;
+            document.getElementById('singleShipContent').style.display = 'none';
+            document.getElementById('bulkShipContent').style.display = 'block';
+            
+            // Set up confirmation button
+            document.getElementById('confirmShipBtn').onclick = () => shipOrders(Array.from(selectedOrders));
+            
+            shipModal.show();
+        }
+        
+        function confirmShipping() {
+            // This will be overridden by the specific shipping function
+            console.error('confirmShipping called without proper setup');
+        }
+        
+        // Get CSRF token
+        function getCsrfToken() {
+            const metaTag = document.querySelector('meta[name="csrf-token"]');
+            return metaTag ? metaTag.getAttribute('content') : '';
+        }
+
+        async function shipOrders(invoiceNumbers) {
+            if (isShipping || invoiceNumbers.length === 0) return;
+            
+            isShipping = true;
+            const confirmBtn = document.getElementById('confirmShipBtn');
+            const originalText = confirmBtn.innerHTML;
+            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Shipping...';
+            confirmBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/orders/ship-bulk', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: JSON.stringify({
+                        invoice_numbers: invoiceNumbers
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    // Success - show results and refresh page
+                    shipModal.hide();
+                    
+                    let message = '';
+                    if (result.shipped.length > 0) {
+                        message += `✅ ${result.shipped.length} orders shipped successfully`;
+                    }
+                    if (result.skipped.length > 0) {
+                        message += `\n⚠️ ${result.skipped.length} orders skipped (not ready)`;
+                    }
+                    if (result.failed.length > 0) {
+                        message += `\n❌ ${result.failed.length} orders failed`;
+                    }
+                    
+                    alert(message);
+                    
+                    // Refresh the page to show updated status
+                    location.reload();
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to ship orders'));
+                }
+            } catch (error) {
+                console.error('Shipping error:', error);
+                alert('Network error occurred while shipping orders');
+            } finally {
+                isShipping = false;
+                confirmBtn.innerHTML = originalText;
+                confirmBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

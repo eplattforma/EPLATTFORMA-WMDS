@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Picking Report - EPLATTFORMA</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .report-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        .stats-card {
+            border: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        .stats-card:hover {
+            transform: translateY(-2px);
+        }
+        .efficiency-good { color: #28a745; }
+        .efficiency-average { color: #ffc107; }
+        .efficiency-poor { color: #dc3545; }
+        .table-responsive {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .sticky-header th {
+            position: sticky;
+            top: 0;
+            background: #f8f9fa;
+            z-index: 10;
+        }
+        .date-section {
+            background: #f8f9fa;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 8px;
+        }
+        .picker-badge {
+            font-size: 0.8em;
+            padding: 0.25rem 0.5rem;
+        }
+        .progress-custom {
+            height: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <div class="report-header">
+            <div class="container">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h1><i class="fas fa-chart-line me-3"></i>Daily Picking Report</h1>
+                        <p class="mb-0">Comprehensive analysis of picking performance and time tracking</p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <a href="/" class="btn btn-light me-2">
+                            <i class="fas fa-home"></i> Dashboard
+                        </a>
+                        <a href="{{ url_for('export_daily_picking_report') }}?start_date={{ start_date }}&end_date={{ end_date }}&picker={{ picker_filter }}" 
+                           class="btn btn-success">
+                            <i class="fas fa-download"></i> Export Excel
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <!-- Filters -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-filter me-2"></i>Report Filters</h5>
+                </div>
+                <div class="card-body">
+                    <form method="GET" class="row g-3">
+                        <div class="col-md-3">
+                            <label for="start_date" class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="start_date" name="start_date" value="{{ start_date }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="end_date" class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="end_date" name="end_date" value="{{ end_date }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="picker" class="form-label">Picker</label>
+                            <select class="form-select" id="picker" name="picker">
+                                <option value="all" {% if picker_filter == 'all' %}selected{% endif %}>All Pickers</option>
+                                {% for picker in pickers %}
+                                <option value="{{ picker }}" {% if picker_filter == picker %}selected{% endif %}>{{ picker }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary me-2">
+                                <i class="fas fa-search"></i> Filter
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="refreshData()">
+                                <i class="fas fa-sync"></i> Refresh
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Summary Statistics -->
+            <div class="row mb-4">
+                <div class="col-md-2">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <h3 class="text-primary">{{ daily_data.total_stats.total_orders }}</h3>
+                            <p class="mb-0">Total Orders</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <h3 class="text-info">{{ daily_data.total_stats.total_items }}</h3>
+                            <p class="mb-0">Total Items</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <h3 class="text-success">{{ daily_data.total_stats.total_picked }}</h3>
+                            <p class="mb-0">Picked Items</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <h3 class="text-warning">{{ (daily_data.total_stats.total_estimated_time / 3600) | round(1) }}h</h3>
+                            <p class="mb-0">Est. Time</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <h3 class="text-danger">{{ (daily_data.total_stats.total_actual_time / 3600) | round(1) }}h</h3>
+                            <p class="mb-0">Actual Time</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <h3 class="text-secondary">{{ daily_data.total_stats.unique_pickers }}</h3>
+                            <p class="mb-0">Active Pickers</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Overall Efficiency -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-tachometer-alt me-2"></i>Overall Efficiency</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            {% set completion_rate = (daily_data.total_stats.total_picked / daily_data.total_stats.total_items * 100) if daily_data.total_stats.total_items > 0 else 0 %}
+                            <div class="mb-3">
+                                <label class="form-label">Completion Rate</label>
+                                <div class="progress progress-custom">
+                                    <div class="progress-bar {% if completion_rate >= 95 %}bg-success{% elif completion_rate >= 80 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                         style="width: {{ completion_rate }}%"></div>
+                                </div>
+                                <small class="text-muted">{{ completion_rate | round(1) }}%</small>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            {% set efficiency_ratio = (daily_data.total_stats.total_estimated_time / daily_data.total_stats.total_actual_time) if daily_data.total_stats.total_actual_time > 0 else 0 %}
+                            <div class="mb-3">
+                                <label class="form-label">Time Efficiency</label>
+                                <div class="progress progress-custom">
+                                    <div class="progress-bar {% if efficiency_ratio >= 1.2 %}bg-success{% elif efficiency_ratio >= 0.8 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                         style="width: {{ (efficiency_ratio * 50) | round(0) }}%"></div>
+                                </div>
+                                <small class="text-muted">{{ efficiency_ratio | round(2) }}x efficiency</small>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            {% set avg_time_per_item = (daily_data.total_stats.total_actual_time / daily_data.total_stats.total_picked) if daily_data.total_stats.total_picked > 0 else 0 %}
+                            <div class="mb-3">
+                                <label class="form-label">Avg Time per Item</label>
+                                <h4 class="{% if avg_time_per_item <= 30 %}efficiency-good{% elif avg_time_per_item <= 60 %}efficiency-average{% else %}efficiency-poor{% endif %}">
+                                    {{ avg_time_per_item | round(0) }} seconds
+                                </h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily Breakdown -->
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-calendar-day me-2"></i>Daily Breakdown</h5>
+                </div>
+                <div class="card-body">
+                    {% for date_str, date_data in daily_data.daily_data.items() %}
+                    <div class="date-section">
+                        <div class="row align-items-center mb-3">
+                            <div class="col-md-3">
+                                <h5><i class="fas fa-calendar me-2"></i>{{ date_str }}</h5>
+                            </div>
+                            <div class="col-md-9">
+                                <div class="row text-center">
+                                    <div class="col">
+                                        <strong>{{ date_data.daily_totals.orders }}</strong><br>
+                                        <small class="text-muted">Orders</small>
+                                    </div>
+                                    <div class="col">
+                                        <strong>{{ date_data.daily_totals.items }}</strong><br>
+                                        <small class="text-muted">Items</small>
+                                    </div>
+                                    <div class="col">
+                                        <strong>{{ date_data.daily_totals.picked_items }}</strong><br>
+                                        <small class="text-muted">Picked</small>
+                                    </div>
+                                    <div class="col">
+                                        <strong>{{ (date_data.daily_totals.estimated_time / 3600) | round(1) }}h</strong><br>
+                                        <small class="text-muted">Est. Time</small>
+                                    </div>
+                                    <div class="col">
+                                        <strong>{{ (date_data.daily_totals.actual_time / 3600) | round(1) }}h</strong><br>
+                                        <small class="text-muted">Actual Time</small>
+                                    </div>
+                                    <div class="col">
+                                        <strong>{{ date_data.daily_totals.unique_pickers }}</strong><br>
+                                        <small class="text-muted">Pickers</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Orders Table -->
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover">
+                                <thead class="sticky-header">
+                                    <tr>
+                                        <th>Invoice No</th>
+                                        <th>Customer</th>
+                                        <th>Picker</th>
+                                        <th>Items</th>
+                                        <th>Completion</th>
+                                        <th>Est. Time</th>
+                                        <th>Actual Time</th>
+                                        <th>Efficiency</th>
+                                        <th>Batches</th>
+                                        <th>Zones</th>
+                                        <th>Pick Period</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for order in date_data.orders %}
+                                    <tr>
+                                        <td>
+                                            <a href="/invoice/{{ order.invoice_no }}" class="text-decoration-none">
+                                                {{ order.invoice_no }}
+                                            </a>
+                                        </td>
+                                        <td>{{ order.customer_name | truncate(25) }}</td>
+                                        <td>
+                                            {% if order.picker != 'Unassigned' %}
+                                                <span class="badge bg-primary picker-badge">{{ order.picker }}</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary picker-badge">Unassigned</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-info">{{ order.picked_items }}/{{ order.total_items }}</span>
+                                            <br><small>Qty: {{ order.picked_quantity }}/{{ order.total_quantity }}</small>
+                                        </td>
+                                        <td>
+                                            <div class="progress progress-custom">
+                                                <div class="progress-bar {% if order.completion_rate >= 100 %}bg-success{% elif order.completion_rate >= 80 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                                     style="width: {{ order.completion_rate }}%"></div>
+                                            </div>
+                                            <small>{{ order.completion_rate | round(1) }}%</small>
+                                        </td>
+                                        <td>{{ (order.estimated_seconds / 60) | round(1) }}m</td>
+                                        <td>
+                                            {% if order.actual_seconds > 0 %}
+                                                {{ (order.actual_seconds / 60) | round(1) }}m
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if order.efficiency_ratio > 0 %}
+                                                <span class="{% if order.efficiency_ratio >= 1.2 %}efficiency-good{% elif order.efficiency_ratio >= 0.8 %}efficiency-average{% else %}efficiency-poor{% endif %}">
+                                                    {{ order.efficiency_ratio | round(2) }}x
+                                                </span>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if order.batch_picking %}
+                                                <div class="d-flex flex-column">
+                                                    {% if order.batch_numbers %}
+                                                        <span class="badge bg-info mb-1" style="font-size: 0.7em;">
+                                                            <i class="fas fa-layer-group me-1"></i>{{ order.batch_numbers | truncate(15) }}
+                                                        </span>
+                                                    {% endif %}
+                                                    {% if order.batch_statuses %}
+                                                        <span class="badge {% if 'Completed' in order.batch_statuses %}bg-success{% elif 'Active' in order.batch_statuses %}bg-warning{% else %}bg-secondary{% endif %}" style="font-size: 0.65em;">
+                                                            {{ order.batch_statuses | truncate(12) }}
+                                                        </span>
+                                                    {% endif %}
+                                                </div>
+                                            {% else %}
+                                                <span class="badge bg-light text-dark" style="font-size: 0.7em;">
+                                                    <i class="fas fa-hand-paper me-1"></i>Manual
+                                                </span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <small>{{ order.zones_picked | truncate(15) }}</small>
+                                        </td>
+                                        <td>
+                                            {% if order.first_pick_time and order.last_pick_time %}
+                                                <small>
+                                                    {{ order.first_pick_time | local_time('%H:%M') }} - 
+                                                    {{ order.last_pick_time | local_time('%H:%M') }}
+                                                </small>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function refreshData() {
+            window.location.reload();
+        }
+
+        // Auto-refresh every 5 minutes
+        setInterval(refreshData, 300000);
+
+        // Initialize tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    </script>
+</body>
+</html>

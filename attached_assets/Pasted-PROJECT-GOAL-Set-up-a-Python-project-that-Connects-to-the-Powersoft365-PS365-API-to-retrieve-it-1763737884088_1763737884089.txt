@@ -1,0 +1,381 @@
+PROJECT GOAL
+
+Set up a Python project that:
+
+Connects to the Powersoft365 (PS365) API to retrieve items.
+
+Stores item_code_365 and item_name in a local SQLite table called ps_items.
+
+Has a sync script that:
+
+fetches the total number of items (via only_counted = "Y")
+
+fetches items page by page
+
+upserts them into ps_items
+
+Is easily expandable to include more item fields later by editing a single mapping dictionary.
+
+Use Python + SQLAlchemy (no Flask needed right now, but keep it compatible).
+
+1️⃣ Environment & Dependencies
+
+Create a new Python Replit.
+
+Install dependencies:
+
+pip install requests SQLAlchemy
+
+
+Make sure these packages are listed in poetry/requirements if needed.
+
+2️⃣ Create config.py
+
+Create a file config.py with the following content:
+
+# config.py
+
+# === PS365 API CONFIG ===
+# These are placeholders and will be filled with real values later.
+
+PS365_BASE_URL = "https://your-ps365-url.com"  # TODO: replace with real PS365 base URL
+PS365_TOKEN = "XXXXX"                           # TODO: replace with real token
+
+# Page size for paging through items from PS365
+PS365_PAGE_SIZE = 200
+
+3️⃣ Create db.py (SQLAlchemy setup + ps_items model)
+
+Create a file db.py with:
+
+# db.py
+
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Numeric,
+    DateTime,
+    create_engine,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import datetime
+
+# Use a local SQLite database
+DATABASE_URL = "sqlite:///ps_data.db"
+
+engine = create_engine(DATABASE_URL, echo=False)
+SessionLocal = sessionmaker(bind=engine)
+
+Base = declarative_base()
+
+
+class PSItem(Base):
+    """
+    Table to store PS365 items.
+
+    Core fields for now:
+      - item_code_365
+      - item_name
+
+    Extra fields are already defined for future expansion (barcode, default_price, etc.)
+    """
+
+    __tablename__ = "ps_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Core fields used now
+    item_code_365 = Column(String(50), nullable=False)
+    item_name = Column(String(255), nullable=False)
+
+    # Extra fields for future expansion
+    barcode = Column(String(100), nullable=True)
+    default_price = Column(Numeric(18, 4), nullable=True)
+    vat_code_365 = Column(String(20), nullable=True)
+    last_modified_utc = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("item_code_365", name="uq_ps_items_item_code_365"),
+    )
+
+
+def init_db():
+    """
+    Create all tables in the database.
+    Run this once at startup or before first sync.
+    """
+    Base.metadata.create_all(bind=engine)
+
+4️⃣ Create sync_ps_items.py (main sync logic, expandable)
+
+Create a file sync_ps_items.py with the following content.
+
+IMPORTANT: The PS365 items API details (endpoint name & field names) are still placeholders. Keep them clearly marked so they’re easy to adjust once we have the real documentation.
+
+# sync_ps_items.py
+
+import math
+import requests
+from datetime import datetime
+
+from db import SessionLocal, PSItem, init_db
+from config import PS365_BASE_URL, PS365_TOKEN, PS365_PAGE_SIZE
+
+# ----------------- FIELD MAP (EXPAND HERE LATER) ----------------- #
+"""
+FIELD_MAP defines how to map PS365 JSON fields to our PSItem columns.
+
+Key   = PSItem ORM column name
+Value = Field name coming from PS365 JSON
+
+To add more fields later:
+  1. Add a column in PSItem (db.py)
+  2. Add an entry here mapping that column to the PS365 JSON field name
+"""
+FIELD_MAP = {
+    "item_code_365": "item_code_365",   # required
+    "item_name": "item_name",           # required
+
+    # Optional / for later:
+    "barcode": "barcode",
+    "default_price": "default_price",
+    "vat_code_365": "vat_code_365",
+    "last_modified_utc": "last_modified_utc",  # string → datetime
+}
+
+
+# ------------- PS365 API CALLS (PLACEHOLDERS TO ADJUST) ------------- #
+
+def fetch_items_total_count():
+    """
+    Get the TOTAL COUNT of items from PS365.
+
+    This assumes:
+      - POST {PS365_BASE_URL}/list_items
+      - 'only_counted': 'Y' in filter_define
+      - Response contains 'total_count_list_items' or 'total_count_list_products'
+
+    Adjust endpoint name and keys once we have the real PS365 docs.
+    """
+    url = f"{PS365_BASE_URL}/list_items"  # TODO: adjust endpoint if needed
+
+    payload = {
+        "api_credentials": {"token": PS365_TOKEN},
+        "filter_define": {
+            "only_counted": "Y",
+            # Add filters here if needed, e.g. "active_type": "active"
+        }
+    }
+
+    resp = requests.post(url, json=payload)
+    resp.raise_for_status()
+    data = resp.json()
+
+    api_resp = data.get("api_response", {})
+    if api_resp.get("response_code") != "1":
+        raise RuntimeError(
+            f"PS365 error in fetch_items_total_count: {api_resp.get('response_msg')}"
+        )
+
+    # Try multiple possible total count keys, adjusted later if needed
+    total = (
+        data.get("total_count_list_items")
+        or data.get("total_count_list_products")
+        or 0
+    )
+    return int(total)
+
+
+def fetch_items_page(page_number: int, page_size: int):
+    """
+    Fetch a single page of items from PS365.
+
+    This assumes:
+      - POST {PS365_BASE_URL}/list_items
+      - 'only_counted': 'N'
+      - Response contains 'list_items' or 'list_products'
+
+    Adjust endpoint name, list key & field names once we have real docs.
+    """
+    url = f"{PS365_BASE_URL}/list_items"  # TODO: adjust endpoint if needed
+
+    payload = {
+        "api_credentials": {"token": PS365_TOKEN},
+        "filter_define": {
+            "only_counted": "N",
+            "page_number": page_number,
+            "page_size": page_size,
+            # Example: add filters if necessary
+            # "active_type": "active",
+            # "display_fields": "item_code_365,item_name,barcode,default_price,vat_code_365,last_modified_utc",
+        }
+    }
+
+    resp = requests.post(url, json=payload)
+    resp.raise_for_status()
+    data = resp.json()
+
+    api_resp = data.get("api_response", {})
+    if api_resp.get("response_code") != "1":
+        raise RuntimeError(
+            f"PS365 error in fetch_items_page: {api_resp.get('response_msg')}"
+        )
+
+    # Try multiple possible list keys, adjusted later if needed
+    items = data.get("list_items", []) or data.get("list_products", [])
+    mapped_items = []
+
+    for raw in items:
+        mapped = map_ps_item(raw)
+        # Skip if mandatory fields are missing
+        if not mapped.get("item_code_365") or not mapped.get("item_name"):
+            continue
+        mapped_items.append(mapped)
+
+    return mapped_items
+
+
+def map_ps_item(raw: dict) -> dict:
+    """
+    Map a single PS365 item JSON object to a dict compatible with PSItem.
+
+    Uses the FIELD_MAP so it is easy to expand later.
+    Handles special conversion for last_modified_utc (string → datetime).
+    """
+    row = {}
+
+    for column_name, api_field in FIELD_MAP.items():
+        value = raw.get(api_field)
+
+        # Custom handling for last_modified_utc
+        if column_name == "last_modified_utc":
+            # If PS365 returns an ISO string like "2025-01-01T12:34:56Z"
+            if isinstance(value, str) and value:
+                try:
+                    value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except Exception:
+                    value = None
+
+        row[column_name] = value
+
+    return row
+
+
+# ------------- DB SYNC LOGIC ------------- #
+
+def sync_ps_items():
+    """
+    Main sync function:
+      1. Ensures DB tables exist.
+      2. Gets total item count from PS365.
+      3. Calculates number of pages.
+      4. Loops through pages, upserting items into ps_items.
+    """
+    init_db()
+    db = SessionLocal()
+
+    try:
+        print("Getting total item count from PS365...")
+        total_count = fetch_items_total_count()
+        print(f"Total items reported by PS365: {total_count}")
+
+        if total_count == 0:
+            print("No items found in PS365 (or the endpoint/filters are incorrect).")
+            return
+
+        total_pages = math.ceil(total_count / PS365_PAGE_SIZE)
+        print(f"Will sync in {total_pages} page(s) of up to {PS365_PAGE_SIZE} items.")
+
+        synced = 0
+
+        for page in range(1, total_pages + 1):
+            print(f"Fetching page {page}/{total_pages}...")
+            items = fetch_items_page(page, PS365_PAGE_SIZE)
+
+            for item_data in items:
+                upsert_ps_item(db, item_data)
+                synced += 1
+
+            db.commit()
+            print(f"Committed page {page} with {len(items)} items.")
+
+        print(f"Done! Total items synced/updated: {synced}")
+
+    except Exception as e:
+        db.rollback()
+        print(f"Error during sync: {e}")
+    finally:
+        db.close()
+
+
+def upsert_ps_item(db, item_data: dict):
+    """
+    Upsert an item based on item_code_365.
+
+    If the item_code_365 exists, update its fields from item_data.
+    If not, insert a new row.
+    """
+    from db import PSItem  # local import to avoid circular import in some contexts
+
+    item_code = item_data.get("item_code_365")
+    if not item_code:
+        return
+
+    existing = (
+        db.query(PSItem)
+        .filter(PSItem.item_code_365 == item_code)
+        .one_or_none()
+    )
+
+    if existing:
+        # Update mapped fields
+        for column_name in FIELD_MAP.keys():
+            if column_name == "item_code_365":
+                continue  # do not modify the unique key
+            setattr(existing, column_name, item_data.get(column_name))
+    else:
+        new_item = PSItem(**item_data)
+        db.add(new_item)
+
+
+if __name__ == "__main__":
+    sync_ps_items()
+
+5️⃣ How to run the sync
+
+Add these instructions so it’s runnable from Replit:
+
+Ensure ps_data.db is created automatically by init_db() when sync_ps_items.py runs.
+
+To run the sync from the Replit shell:
+
+python sync_ps_items.py
+
+
+The script should log:
+
+total items
+
+number of pages
+
+progress per page
+
+final count of synced items
+
+6️⃣ Make it easy to expand later
+
+Add a short comment block for future me:
+
+To add a new field from PS365:
+
+Add the column to PSItem in db.py.
+
+Add a mapping entry in FIELD_MAP in sync_ps_items.py.
+
+(Dev-only on SQLite) delete ps_data.db and rerun the sync, or use a migration if in production.
+
+No other sync logic needs to change; the new fields will automatically be filled.
+
+That’s all. Please create all files, ensure they run without syntax errors, and leave clear TODO comments where the real PS365 endpoint name and JSON field names must be adjusted once we have the official “items” API documentation.

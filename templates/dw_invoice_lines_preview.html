@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Invoice Preview{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h1 class="mb-3">
+                <i class="fas fa-file-invoice me-2"></i>Invoice Preview
+            </h1>
+            <p class="text-muted">
+                <strong>From Date:</strong> {{ date_from }} (+ 30 days)
+            </p>
+            <p class="text-info">
+                <i class="fas fa-info-circle me-2"></i>
+                This is a temporary preview from Powersoft365. No data is saved to the database.
+                {% if headers %}
+                    Found <strong>{{ header_count }}</strong> invoice headers and <strong>{{ line_count }}</strong> invoice lines.
+                {% else %}
+                    No invoices found for the date range.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if headers %}
+    <!-- Invoice Headers Section -->
+    <div class="row mb-5">
+        <div class="col-md-12">
+            <h3 class="mb-3">
+                <i class="fas fa-list me-2"></i>Invoice Headers
+            </h3>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            {% for col in header_columns %}
+                                <th>{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for header in headers %}
+                            <tr>
+                                {% for col in header_columns %}
+                                    <td>{{ header[col] or '' }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invoice Lines Section -->
+    {% if lines %}
+    <div class="row mb-5">
+        <div class="col-md-12">
+            <h3 class="mb-3">
+                <i class="fas fa-bars me-2"></i>Invoice Lines Details
+            </h3>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            {% for col in line_columns %}
+                                <th>{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for line in lines %}
+                            <tr>
+                                {% for col in line_columns %}
+                                    <td>{{ line[col] or '' }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="row">
+        <div class="col-md-12">
+            <div class="alert alert-info">
+                <i class="fas fa-search me-2"></i>
+                No invoices found for the date <strong>{{ date_from }}</strong> and 30 days after.
+                <br><br>
+                Try adjusting the date parameter by visiting:
+                <br>
+                <code>/datawarehouse/invoice-lines-preview?from=2025-11-20</code>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <a href="{{ url_for('datawarehouse.dw_menu') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-2"></i>Back to Data Warehouse
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

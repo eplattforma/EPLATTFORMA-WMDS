@@ -1,0 +1,658 @@
+{% extends "base.html" %}
+
+{% block title %}Scan Item{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<style>
+/* Scanner styles */
+#scannerViewport {
+    position: relative;
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+}
+#scannerViewport video {
+    width: 100%;
+    border-radius: 8px;
+}
+#scannerViewport canvas.drawingBuffer {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+.scanner-off {
+    display: none;
+}
+/* Remove number input arrows */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type=number] {
+    -moz-appearance: textfield;
+}
+.info-label {
+    font-weight: 600;
+    color: #6c757d;
+    margin-bottom: 0.25rem;
+}
+.info-value {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+}
+.barcode-badge {
+    font-family: monospace;
+    font-size: 0.9rem;
+    padding: 0.25rem 0.5rem;
+    margin-right: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+.search-results {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+.search-result-item {
+    padding: 8px 12px;
+    border-bottom: 1px solid #dee2e6;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+    background-color: #000;
+    color: #fff;
+}
+.search-result-item:hover {
+    background-color: #000;
+    color: #888;
+}
+.search-result-item:last-child {
+    border-bottom: none;
+}
+.tab-content {
+    display: none;
+}
+.tab-content.active {
+    display: block;
+}
+.nav-tabs .nav-link {
+    cursor: pointer;
+}
+.stock-location {
+    padding: 10px;
+    margin-bottom: 8px;
+    background-color: #f8f9fa;
+    border-left: 4px solid #007bff;
+    border-radius: 4px;
+    color: #212529;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+        <h5 class="mb-0"><i class="fas fa-barcode"></i> Item Scanner</h5>
+        <div></div>
+    </div>
+
+    <!-- Tabs for different scanning modes -->
+    <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item">
+            <a class="nav-link active" data-tab="barcode-tab" onclick="switchTab('barcode-tab')">
+                <i class="fas fa-barcode me-1"></i>Barcode
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-tab="search-tab" onclick="switchTab('search-tab')">
+                <i class="fas fa-search me-1"></i>Search Items
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-tab="shelf-tab" onclick="switchTab('shelf-tab')">
+                <i class="fas fa-cubes me-1"></i>Shelf Items
+            </a>
+        </li>
+    </ul>
+
+    <!-- TAB 1: Barcode Scanner -->
+    <div id="barcode-tab" class="tab-content active">
+        <div class="card mb-3">
+            <div class="card-header bg-primary text-white">
+                <strong><i class="fas fa-camera"></i> Barcode Scanner</strong>
+            </div>
+            <div class="card-body">
+                <div id="scannerViewport" class="scanner-off mb-3"></div>
+                
+                <div class="d-flex gap-2" style="min-height: 120px;">
+                    <div style="flex: 0 0 250px; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div>
+                            <input type="text" id="manualCode" class="form-control form-control-lg" 
+                                   placeholder="Enter barcode..." autofocus maxlength="20" style="width: 100%; font-family: monospace;">
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-secondary btn-lg w-100" onclick="lookupBarcode()">
+                                <i class="fas fa-search"></i> Lookup
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div style="flex: 1;">
+                        <button class="btn btn-outline-primary w-100 h-100 d-flex align-items-center justify-content-center flex-column" 
+                                onclick="toggleScanner()" id="scannerBtn">
+                            <i class="fas fa-barcode fa-3x mb-2"></i>
+                            <span style="font-size: 1.2rem;">Scan</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 2: Search Items -->
+    <div id="search-tab" class="tab-content">
+        <div class="card mb-3">
+            <div class="card-header bg-info text-white">
+                <strong><i class="fas fa-search"></i> Search Items</strong>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <input type="text" id="searchQuery" class="form-control form-control-lg" 
+                               placeholder="Search by item name, code, or barcode..." 
+                               onkeyup="debounceSearch()">
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-info w-100" onclick="searchItems()">
+                            <i class="fas fa-search"></i> Search
+                        </button>
+                    </div>
+                </div>
+                <div id="searchResults" class="search-results" style="display: none;"></div>
+                <div id="searchMessage"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 3: Shelf Items -->
+    <div id="shelf-tab" class="tab-content">
+        <div class="card mb-3">
+            <div class="card-header bg-warning text-dark">
+                <strong><i class="fas fa-cubes"></i> Shelf Items Lookup</strong>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <input type="text" id="shelfCode" class="form-control form-control-lg" 
+                               placeholder="Enter shelf code (e.g., 10-01-C03)..." 
+                               onkeyup="if(event.key==='Enter') lookupShelfItems()">
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-warning w-100" onclick="lookupShelfItems()">
+                            <i class="fas fa-search"></i> Lookup
+                        </button>
+                    </div>
+                </div>
+                <div id="shelfResults" style="display: none;"></div>
+                <div id="shelfMessage"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Item Information Display -->
+    <div class="card mb-3" id="itemInfoCard" style="display: none;">
+        <div class="card-header bg-success text-white">
+            <strong><i class="fas fa-info-circle"></i> Item Information</strong>
+        </div>
+        <div class="card-body">
+            <div id="itemInfoDisplay"></div>
+        </div>
+    </div>
+
+    <!-- Stock Position Display -->
+    <div class="card mb-3" id="stockPositionCard" style="display: none;">
+        <div class="card-header bg-secondary text-white">
+            <strong><i class="fas fa-boxes"></i> Stock Position (Database)</strong>
+        </div>
+        <div class="card-body">
+            <div id="stockPositionDisplay"></div>
+        </div>
+    </div>
+
+    <!-- Error/Status Messages -->
+    <div id="statusMessage"></div>
+</div>
+
+<script>
+let scannerOn = false;
+let lastScanned = null;
+let currentItemCode = null;
+
+// Switch tabs
+function switchTab(tabName) {
+    const tabs = document.querySelectorAll('.tab-content');
+    tabs.forEach(tab => tab.classList.remove('active'));
+    document.getElementById(tabName).classList.add('active');
+    
+    const navLinks = document.querySelectorAll('.nav-link');
+    navLinks.forEach(link => link.classList.remove('active'));
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    
+    if (tabName === 'barcode-tab') {
+        document.getElementById('manualCode').focus();
+    }
+}
+
+// Toggle scanner
+function toggleScanner() {
+    const viewport = document.getElementById('scannerViewport');
+    const btn = document.getElementById('scannerBtn');
+    
+    if (scannerOn) {
+        Quagga.stop();
+        viewport.classList.add('scanner-off');
+        btn.innerHTML = '<i class="fas fa-barcode fa-3x mb-2"></i><span style="font-size: 1.2rem;">Scan</span>';
+        scannerOn = false;
+    } else {
+        viewport.classList.remove('scanner-off');
+        startScanner();
+        btn.innerHTML = '<i class="fas fa-stop fa-3x mb-2"></i><span style="font-size: 1.2rem;">Stop</span>';
+        scannerOn = true;
+    }
+}
+
+// Close scanner
+function closeScanner() {
+    if (scannerOn) {
+        Quagga.stop();
+        const viewport = document.getElementById('scannerViewport');
+        const btn = document.getElementById('scannerBtn');
+        viewport.classList.add('scanner-off');
+        btn.innerHTML = '<i class="fas fa-barcode fa-3x mb-2"></i><span style="font-size: 1.2rem;">Scan</span>';
+        scannerOn = false;
+    }
+}
+
+// Start barcode scanner
+function startScanner() {
+    Quagga.init({
+        inputStream: {
+            name: "Live",
+            type: "LiveStream",
+            constraints: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            },
+            target: document.querySelector('#scannerViewport')
+        },
+        decoder: {
+            readers: [
+                "code_128_reader",
+                "ean_reader",
+                "ean_8_reader",
+                "upc_reader",
+                "upc_e_reader",
+                "code_39_reader",
+                "codabar_reader"
+            ]
+        },
+        locate: true,
+        debug: {
+            drawBoundingBox: true,
+            showFrequency: false,
+            showPattern: false
+        }
+    }, function(err) {
+        if (err) {
+            console.error("Camera init failed:", err);
+            showStatus('Unable to access camera. Try refreshing or check permissions.', 'danger');
+            closeScanner();
+            return;
+        }
+        Quagga.start();
+        scannerOn = true;
+    });
+
+    Quagga.onDetected(function(result) {
+        const code = result.codeResult.code;
+        if (code !== lastScanned) {
+            lastScanned = code;
+            document.getElementById('manualCode').value = code;
+            closeScanner();
+            lookupBarcode();
+            if (navigator.vibrate) navigator.vibrate(200);
+        }
+    });
+}
+
+// Look up barcode
+async function lookupBarcode() {
+    const barcode = document.getElementById('manualCode').value.trim();
+    if (!barcode) {
+        showStatus('Please enter or scan a barcode', 'warning');
+        return;
+    }
+    
+    showStatus('<i class="fas fa-spinner fa-spin"></i> Looking up item...', 'info');
+    document.getElementById('itemInfoCard').style.display = 'none';
+    document.getElementById('stockPositionCard').style.display = 'none';
+    
+    try {
+        const resp = await fetch('{{ url_for("item_scanner.api_lookup_item") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({barcode: barcode})
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok) {
+            currentItemCode = data.item_code;
+            displayItemInfo(data);
+            await fetchStockPosition(data.item_code);
+            showStatus('', '');
+        } else {
+            showStatus(data.error || 'Item not found', 'danger');
+        }
+    } catch (err) {
+        console.error('Lookup error:', err);
+        showStatus('Error looking up item: ' + err.message, 'danger');
+    }
+}
+
+// Debounce search to avoid excessive API calls
+let searchTimeout;
+function debounceSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(searchItems, 600);
+}
+
+// Search items
+async function searchItems() {
+    const query = document.getElementById('searchQuery').value.trim();
+    const resultsDiv = document.getElementById('searchResults');
+    const messageDiv = document.getElementById('searchMessage');
+    
+    if (!query) {
+        resultsDiv.style.display = 'none';
+        messageDiv.innerHTML = '';
+        return;
+    }
+    
+    if (query.length < 4) {
+        resultsDiv.style.display = 'none';
+        messageDiv.innerHTML = '<div class="alert alert-info">Type at least 4 characters to search</div>';
+        return;
+    }
+    
+    messageDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Searching...</div>';
+    resultsDiv.style.display = 'none';
+    
+    try {
+        const resp = await fetch('{{ url_for("item_scanner.api_search_items") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query: query})
+        });
+        
+        const data = await resp.json();
+        
+        if (data.ok && data.results.length > 0) {
+            let html = '';
+            data.results.forEach(item => {
+                html += `
+                    <div class="search-result-item" onclick="selectSearchResult('${item.item_code}', '${item.barcode || item.item_code}')">
+                        <strong>${item.item_code}</strong> - ${item.item_name}
+                        ${item.barcode ? `<br><small class="text-muted">${item.barcode}</small>` : ''}
+                    </div>
+                `;
+            });
+            resultsDiv.innerHTML = html;
+            resultsDiv.style.display = 'block';
+            messageDiv.innerHTML = '';
+        } else {
+            resultsDiv.style.display = 'none';
+            messageDiv.innerHTML = '<div class="alert alert-warning">No items found matching your search</div>';
+        }
+    } catch (err) {
+        resultsDiv.style.display = 'none';
+        messageDiv.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+    }
+}
+
+// Select from search results
+async function selectSearchResult(itemCode, barcode) {
+    document.getElementById('manualCode').value = barcode;
+    await lookupBarcode();
+    // Scroll to item information
+    setTimeout(() => {
+        document.getElementById('itemInfoCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
+}
+
+// Lookup shelf items
+async function lookupShelfItems() {
+    const shelfCode = document.getElementById('shelfCode').value.trim();
+    const resultsDiv = document.getElementById('shelfResults');
+    const messageDiv = document.getElementById('shelfMessage');
+    
+    if (!shelfCode) {
+        messageDiv.innerHTML = '<div class="alert alert-warning">Enter a shelf code</div>';
+        resultsDiv.style.display = 'none';
+        return;
+    }
+    
+    messageDiv.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Loading shelf items...</div>';
+    resultsDiv.style.display = 'none';
+    
+    try {
+        const resp = await fetch(`{{ url_for("item_scanner.api_shelf_items", shelf_code="PLACEHOLDER") }}`.replace('PLACEHOLDER', encodeURIComponent(shelfCode)));
+        const data = await resp.json();
+        
+        if (data.ok && data.items.length > 0) {
+            let html = `<h6>Shelf: <strong>${data.shelf_code}</strong> (${data.count} items)</h6>`;
+            data.items.forEach(item => {
+                const stockClass = item.stock > 0 ? 'text-success' : 'text-danger';
+                html += `
+                    <div class="stock-location">
+                        <strong>${item.item_code}</strong> - ${item.item_name}
+                        <br><span class="${stockClass}">Stock: ${item.stock}</span>
+                        <button class="btn btn-sm btn-outline-primary float-end" onclick="useItemFromShelf('${item.item_code}')">
+                            <i class="fas fa-search"></i> Details
+                        </button>
+                    </div>
+                `;
+            });
+            resultsDiv.innerHTML = html;
+            resultsDiv.style.display = 'block';
+            messageDiv.innerHTML = '';
+            
+            // Automatically show details of first item
+            if (data.items.length > 0) {
+                setTimeout(() => {
+                    useItemFromShelf(data.items[0].item_code);
+                }, 300);
+            }
+        } else {
+            resultsDiv.style.display = 'none';
+            messageDiv.innerHTML = '<div class="alert alert-warning">No items found on this shelf</div>';
+        }
+    } catch (err) {
+        resultsDiv.style.display = 'none';
+        messageDiv.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+    }
+}
+
+// Use item from shelf
+async function useItemFromShelf(itemCode) {
+    try {
+        // Search for the item to get its barcode
+        const searchResp = await fetch('{{ url_for("item_scanner.api_search_items") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query: itemCode})
+        });
+        
+        const searchData = await searchResp.json();
+        
+        if (searchData.ok && searchData.results.length > 0) {
+            const item = searchData.results[0];
+            const barcode = item.barcode || item.item_code;
+            document.getElementById('manualCode').value = barcode;
+            await lookupBarcode();
+            // Scroll to item information
+            setTimeout(() => {
+                document.getElementById('itemInfoCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 300);
+        } else {
+            showStatus('Could not find item details', 'warning');
+        }
+    } catch (err) {
+        showStatus('Error loading item: ' + err.message, 'danger');
+    }
+}
+
+// Fetch stock position from database
+async function fetchStockPosition(itemCode) {
+    if (!itemCode) return;
+    
+    try {
+        const resp = await fetch(`{{ url_for("item_scanner.api_stock_position", item_code="PLACEHOLDER") }}`.replace('PLACEHOLDER', encodeURIComponent(itemCode)));
+        const data = await resp.json();
+        
+        if (data.ok && data.count > 0) {
+            displayStockPosition(data);
+        }
+    } catch (err) {
+        console.error('Stock position error:', err);
+    }
+}
+
+// Display stock position
+function displayStockPosition(data) {
+    const card = document.getElementById('stockPositionCard');
+    const display = document.getElementById('stockPositionDisplay');
+    
+    let html = `<h6 style="color: #212529;">Total Stock: <strong>${data.total_stock.toFixed(2)}</strong> (${data.count} records)</h6>`;
+    
+    data.stores.forEach(store => {
+        html += `
+            <div class="stock-location" style="color: #212529;">
+                <strong>${store.store}</strong>
+                <br>Total: <strong>${store.total.toFixed(2)}</strong>
+                <div style="margin-top: 8px; margin-left: 0; border-left: none; color: #212529;">
+        `;
+        
+        store.locations.forEach(loc => {
+            html += `
+                <div style="font-size: 0.9rem; margin-bottom: 4px; color: #495057;">
+                    Expiry: ${loc.expiry_date || 'N/A'} | Qty: <strong>${loc.quantity.toFixed(2)}</strong>
+                </div>
+            `;
+        });
+        
+        html += `</div></div>`;
+    });
+    
+    display.innerHTML = html;
+    card.style.display = 'block';
+}
+
+// Display item information
+function displayItemInfo(data) {
+    const card = document.getElementById('itemInfoCard');
+    const display = document.getElementById('itemInfoDisplay');
+    
+    let stockDisplay = '';
+    let combinedStockDisplay = '';
+    if (data.stock_qty !== null && data.stock_qty !== undefined) {
+        const stockQty = parseFloat(data.stock_qty);
+        const stockClass = stockQty > 0 ? 'text-success' : 'text-danger';
+        
+        // Format stock qty - show decimal only if not .00
+        const formattedQty = stockQty % 1 === 0 ? stockQty.toString() : stockQty.toFixed(2);
+        
+        // Combine stock, attribute_6_name, and number_field_1_value into one line
+        let combinedText = formattedQty;
+        if (data.attribute_6_name) {
+            combinedText += ` ${data.attribute_6_name}`;
+        }
+        if (data.number_field_1_value) {
+            combinedText += ` (${data.number_field_1_value})`;
+        }
+        
+        combinedStockDisplay = `<span class="${stockClass}"><strong>${combinedText}</strong></span>`;
+    }
+    
+    let barcodesDisplay = '';
+    if (data.all_barcodes && data.all_barcodes.length > 0) {
+        const barcodes = data.all_barcodes.map(bc => {
+            const badgeClass = bc.is_label ? 'bg-primary' : 'bg-secondary';
+            const labelText = bc.is_label ? ' <i class="fas fa-tag" title="Label barcode"></i>' : '';
+            return `<span class="badge ${badgeClass} barcode-badge">${bc.barcode}${labelText}</span>`;
+        }).join('');
+        barcodesDisplay = `<div>${barcodes}</div>`;
+    }
+    
+    let statusBadge = '';
+    if (data.is_active === false) {
+        statusBadge = '<span class="badge bg-danger ms-2">Inactive</span>';
+    } else if (data.is_active === true) {
+        statusBadge = '<span class="badge bg-success ms-2">Active</span>';
+    }
+    
+    display.innerHTML = `
+        <div style="font-size: 0.95rem; line-height: 1.6;">
+            <div><strong>${data.item_code}</strong> ${statusBadge}</div>
+            <div>${data.item_name || 'N/A'}</div>
+            <div>${data.shelf_location ? '<span class="badge bg-warning text-dark" style="font-size: 1.1rem; padding: 0.5rem 0.75rem;">' + data.shelf_location + '</span>' : '<span class="text-muted">-</span>'}</div>
+            ${combinedStockDisplay ? '<div>' + combinedStockDisplay + '</div>' : ''}
+            ${barcodesDisplay}
+        </div>
+        ${data.warning ? '<div class="alert alert-warning mt-2 mb-0"><i class="fas fa-exclamation-triangle"></i> ' + data.warning + '</div>' : ''}
+    `;
+    
+    card.style.display = 'block';
+    document.getElementById('manualCode').value = '';
+    document.getElementById('manualCode').focus();
+}
+
+// Show status message
+function showStatus(message, type) {
+    const statusDiv = document.getElementById('statusMessage');
+    if (!message) {
+        statusDiv.innerHTML = '';
+        return;
+    }
+    
+    statusDiv.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+}
+
+// Auto-focus on input when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('manualCode').focus();
+    
+    document.getElementById('manualCode').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            lookupBarcode();
+        }
+    });
+    
+    document.getElementById('searchQuery').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchItems();
+        }
+    });
+});
+</script>
+{% endblock %}

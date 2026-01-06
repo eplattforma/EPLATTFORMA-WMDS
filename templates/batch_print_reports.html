@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Picking Report - Batch {{ batch_session.id }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @media print {
+            /* Hide buttons and navigation */
+            .no-print, .btn, .navbar, nav {
+                display: none !important;
+            }
+            
+            /* Full width for print */
+            .container-fluid {
+                max-width: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            
+            /* Page breaks */
+            .page-break {
+                page-break-before: always;
+            }
+            
+            /* Better text contrast */
+            body {
+                color: #000 !important;
+                background: white !important;
+            }
+            
+            /* Table styling for print */
+            .table {
+                border-collapse: collapse !important;
+            }
+            
+            .table td, .table th {
+                border: 1px solid #000 !important;
+                padding: 4px 6px !important;
+                font-size: 11px !important;
+            }
+            
+            /* Header styling */
+            .print-header {
+                font-size: 14px !important;
+                font-weight: bold !important;
+                border-bottom: 2px solid #000 !important;
+                margin-bottom: 10px !important;
+                padding-bottom: 5px !important;
+            }
+            
+            /* Routing number large */
+            .routing-large {
+                font-size: 72px !important;
+                font-weight: bold !important;
+                line-height: 1 !important;
+                margin: 0 !important;
+            }
+            
+            /* Status badges */
+            .badge {
+                border: 1px solid #000 !important;
+                color: #000 !important;
+                background: white !important;
+                padding: 2px 4px !important;
+            }
+        }
+        
+        /* Screen styles */
+        .routing-large {
+            font-size: 48px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .report-section {
+            margin-bottom: 2rem;
+        }
+        
+        .status-picked { color: #28a745; }
+        .status-skipped { color: #ffc107; }
+        .status-exception { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Print Button (Screen Only) -->
+        <div class="no-print text-center mb-4">
+            <button class="btn btn-primary btn-lg" onclick="window.print()">
+                <i class="fas fa-print me-2"></i>Print Report
+            </button>
+            <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-secondary btn-lg ms-2">
+                <i class="fas fa-arrow-left me-2"></i>Back to Batch Management
+            </a>
+        </div>
+
+        <!-- Report Content -->
+        {% for invoice_data in invoices_data %}
+        <div class="{% if not loop.first %}page-break{% endif %}">
+            <!-- Header with Routing Number -->
+            <div class="row mb-3">
+                <div class="col-6">
+                    <div class="routing-large">{{ invoice_data.invoice.routing or 'NO-ROUTING' }}</div>
+                </div>
+                <div class="col-6 text-end">
+                    <div class="print-header">
+                        <div>BATCH PICKING REPORT</div>
+                        <div>Batch {{ batch_session.id }}</div>
+                        <div style="font-size: 12px; margin-top: 5px;">
+                            <strong>Batch ID:</strong> {{ batch_session.id }}<br>
+                            <strong>Zones:</strong> {{ batch_session.zones }}<br>
+                            {% if batch_session.corridors %}
+                            <strong>Corridors:</strong> {{ batch_session.corridors }}<br>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Invoice Details -->
+            <div class="report-section">
+                <div class="row">
+                    <div class="col-4">
+                        <strong>INVOICE NO:</strong><br>
+                        <span style="font-size: 18px;">{{ invoice_data.invoice.invoice_no }}</span>
+                    </div>
+                    <div class="col-4">
+                        <strong>CUSTOMER:</strong><br>
+                        <span style="font-size: 14px;">{{ invoice_data.invoice.customer_name or 'Unknown Customer' }}</span>
+                    </div>
+                    <div class="col-4">
+                        <strong>BATCH MODE:</strong><br>
+                        <span class="badge bg-info">{{ batch_session.picking_mode }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Picked Items -->
+            {% if invoice_data.batch_picked %}
+            <div class="report-section">
+                <h6 class="print-header">PICKED ITEMS</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">Item Code</th>
+                            <th style="width: 20%;">Location</th>
+                            <th style="width: 35%;">Description</th>
+                            <th style="width: 15%;">Required</th>
+                            <th style="width: 15%;">Picked</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item_data in invoice_data.batch_picked %}
+                        <tr class="status-picked">
+                            <td>{{ item_data.item.item_code }}</td>
+                            <td>{{ item_data.item.location or 'N/A' }}</td>
+                            <td>{{ item_data.item.item_name or 'No description' }}</td>
+                            <td class="text-center">{{ item_data.item.qty or 0 }}</td>
+                            <td class="text-center"><strong>{{ item_data.picked_qty or 0 }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            <!-- Exception/Skipped Items -->
+            {% if invoice_data.unpicked %}
+            <div class="report-section">
+                <h6 class="print-header text-danger">UNPICKED ITEMS</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">Item Code</th>
+                            <th style="width: 20%;">Location</th>
+                            <th style="width: 25%;">Description</th>
+                            <th style="width: 10%;">Required</th>
+                            <th style="width: 10%;">Picked</th>
+                            <th style="width: 20%;">Status/Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in invoice_data.unpicked %}
+                        <tr class="{% if item.pick_status == 'skipped_pending' %}status-skipped{% else %}status-exception{% endif %}">
+                            <td>{{ item.item_code }}</td>
+                            <td>{{ item.location or 'N/A' }}</td>
+                            <td>{{ item.item_name or 'No description' }}</td>
+                            <td class="text-center">{{ item.qty or 0 }}</td>
+                            <td class="text-center">{{ item.picked_qty or 0 }}</td>
+                            <td>
+                                {% if item.pick_status == 'skipped_pending' %}
+                                    <span class="badge bg-warning">SKIPPED</span>
+                                    {% if item.skip_reason %}<br><small>{{ item.skip_reason }}</small>{% endif %}
+                                {% else %}
+                                    <span class="badge bg-secondary">NOT PICKED</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            <!-- Summary Totals -->
+            <div class="report-section">
+                <div class="row">
+                    <div class="col-3">
+                        <strong>TOTAL LINES:</strong><br>
+                        <span style="font-size: 16px;">{{ (invoice_data.batch_picked|length) + (invoice_data.manually_picked|length) + (invoice_data.unpicked|length) }}</span>
+                    </div>
+                    <div class="col-3">
+                        <strong>TOTAL UNITS:</strong><br>
+                        <span style="font-size: 16px;">{{ invoice_data.invoice.items|sum(attribute='qty') or 0 }}</span>
+                    </div>
+                    <div class="col-3">
+                        <strong>TOTAL WEIGHT:</strong><br>
+                        <span style="font-size: 16px;">{{ "%.1f"|format(invoice_data.invoice.weight_kg or 0) }} kg</span>
+                    </div>
+                    <div class="col-3">
+                        <strong>COMPLETION:</strong><br>
+                        {% set total_items = (invoice_data.batch_picked|length) + (invoice_data.manually_picked|length) + (invoice_data.unpicked|length) %}
+                        {% set picked_items = (invoice_data.batch_picked|length) + (invoice_data.manually_picked|length) %}
+                        {% set completion = (picked_items / total_items * 100) if total_items > 0 else 0 %}
+                        <span style="font-size: 16px;">{{ "%.1f"|format(completion) }}%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="text-center mt-4" style="border-top: 1px solid #ccc; padding-top: 10px;">
+                <small>Generated: {{ now.strftime('%Y-%m-%d %H:%M:%S') }} | Picker: {{ batch_session.assigned_to or 'Unassigned' }}</small>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>

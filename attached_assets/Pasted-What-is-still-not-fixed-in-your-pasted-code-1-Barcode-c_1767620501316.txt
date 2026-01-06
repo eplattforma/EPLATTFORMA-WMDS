@@ -1,0 +1,294 @@
+What is still not fixed (in your pasted code)
+1) Barcode can still be wiped or never found due to key mismatch
+
+You still do:
+
+barcode = barcodes_map.get(item_code)
+...
+existing_item.barcode = barcode
+
+
+Two problems remain:
+
+Key mismatch: item_code and the keys in barcodes_map may differ by whitespace/type (' 123' vs 123), so .get() returns None.
+
+Null overwrite: if barcode is None, you still assign it to existing_item.barcode, which can wipe existing barcodes.
+
+2) You still commit per item
+
+You still do:
+
+db.session.commit()
+
+
+inside the for line in enumerate(lines) loop. This causes partial invoice imports and makes debugging “missing barcode” very difficult.
+
+3) You still have N+1 queries inside the loop
+
+Per line you still run:
+
+DwItem.query.filter_by(...).first()
+
+DwAttribute1.query.filter_by(...).first()
+
+DwAttribute3.query.filter_by(...).first()
+
+InvoiceItem.query.filter_by(...).first()
+
+This will be slow and can time out on bigger invoices/dates.
+
+4) You still log the full PS365 response (PII + heavy logs)
+
+You still have:
+
+logging.info(f"PS365 response: {response}")
+
+
+This can include customer data and will blow up logs.
+
+5) You still use amount as qty fallback
+
+This is still present:
+
+quantity = ... or line.get("amount", 0)
+
+
+If amount is monetary, you can import wrong quantities.
+
+6) You still merge() queried objects
+
+You still have:
+
+db.session.merge(existing_item)
+
+
+Not needed and can cause confusing behavior. If you queried it in the same session, just mutate it.
+
+7) Totals recalculation commits inside itself
+
+recalculate_invoice_totals() calls db.session.commit() internally. If you later fix invoice sync to use a single transaction per invoice, this internal commit breaks the transaction boundaries.
+
+Replit instructions to actually fix it
+A) Add normalization + safe qty parsing helpers (top of file)
+
+Add:
+
+from typing import Optional
+
+def _norm_code(v) -> Optional[str]:
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+def _norm_barcode(v) -> Optional[str]:
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+def _parse_qty_int(v) -> int:
+    if v is None or v == "":
+        return 0
+    try:
+        return int(float(v))
+    except (ValueError, TypeError):
+        return 0
+
+B) Normalize all_item_codes, barcodes_map, and shelf_locations_map
+
+When building all_item_codes:
+
+all_item_codes = []
+for line in lines:
+    code = _norm_code(line.get("item_code_365") or line.get("item_code") or line.get("product_code"))
+    if code:
+        all_item_codes.append(code)
+
+
+After barcode batch call:
+
+barcodes_map = { _norm_code(k): _norm_barcode(v) for k, v in (barcodes_map or {}).items() if _norm_code(k) }
+
+
+After shelf batch call (normalize keys):
+
+shelf_locations_map = { _norm_code(k): v for k, v in shelf_locations_map.items() if _norm_code(k) }
+
+C) Prefetch DW and existing invoice items once per invoice (remove N+1)
+
+Right before processing lines, add:
+
+existing_items = InvoiceItem.query.filter(
+    InvoiceItem.invoice_no == invoice_no_ps365,
+    InvoiceItem.item_code.in_(all_item_codes)
+).all()
+existing_map = {it.item_code: it for it in existing_items}
+
+dw_items = DwItem.query.filter(DwItem.item_code_365.in_(all_item_codes)).all()
+dw_map = {d.item_code_365: d for d in dw_items}
+
+attr1_map = {a.attribute_1_code_365: a.attribute_1_name for a in DwAttribute1.query.all()}
+attr3_map = {a.attribute_3_code_365: a.attribute_3_name for a in DwAttribute3.query.all()}
+
+D) Replace the entire per-line loop with a “single path” update/insert that preserves barcode
+
+Replace your current for line_index, line in enumerate(lines): ... block with:
+
+items_created = 0
+items_updated = 0
+
+for line_index, line in enumerate(lines):
+    item_code = _norm_code(line.get("item_code_365") or line.get("item_code") or line.get("product_code"))
+    if not item_code:
+        continue
+
+    # IMPORTANT: remove `amount` fallback
+    qty_raw = line.get("line_quantity") or line.get("qty") or line.get("quantity")
+    qty_int = _parse_qty_int(qty_raw)
+
+    shelf_location = shelf_locations_map.get(item_code)
+
+    # barcode from cache then fallback
+    barcode = barcodes_map.get(item_code)
+    if not barcode:
+        try:
+            barcode = _norm_barcode(find_barcode_for_item_ps365(item_code, timeout=30))
+        except Exception:
+            barcode = None
+
+    dw = dw_map.get(item_code)
+    item_name = dw.item_name if dw else None
+    item_weight = float(dw.item_weight) if (dw and dw.item_weight) else None
+    selling_qty = int(dw.selling_qty) if (dw and dw.selling_qty) else None
+    number_of_pieces = int(dw.number_of_pieces) if (dw and dw.number_of_pieces) else None
+    attribute_1_code = dw.attribute_1_code_365 if dw else None
+
+    zone = attr3_map.get(dw.attribute_3_code_365) if (dw and dw.attribute_3_code_365) else None
+    unit_type = attr1_map.get(dw.attribute_1_code_365) if (dw and dw.attribute_1_code_365) else None
+
+    if attribute_1_code == "VPACK" and number_of_pieces:
+        expected_pieces = qty_int * number_of_pieces
+    else:
+        expected_pieces = qty_int
+
+    # exp_time: keep your logic, but consider removing the *10 unless intentional
+    try:
+        from models import Setting
+        oi_params = Setting.get_json(db.session, "oi_time_params_v1", {})
+
+        pick_config = oi_params.get("pick", {})
+        base_pick_seconds = pick_config.get("base_by_unit_type", {}).get(unit_type.lower() if unit_type else "item", 3)
+        per_qty_seconds = pick_config.get("per_qty_by_unit_type", {}).get(unit_type.lower() if unit_type else "item", 1.6)
+
+        travel_config = oi_params.get("travel", {})
+        align_seconds = travel_config.get("sec_align_per_stop", 2)
+
+        total_seconds = align_seconds + base_pick_seconds + (per_qty_seconds * qty_int)  # remove *10 unless required
+        exp_time_minutes = total_seconds / 60
+    except Exception:
+        exp_time_minutes = (15 + 16 * qty_int) / 60
+
+    line_weight = (item_weight * qty_int) if (item_weight and qty_int) else 0
+    pack_val = f"{selling_qty}" if selling_qty else None
+
+    existing_item = existing_map.get(item_code)
+    if existing_item:
+        existing_item.qty = qty_int
+
+        if shelf_location:
+            existing_item.location = shelf_location
+        if item_name:
+            existing_item.item_name = item_name
+        if item_weight is not None:
+            existing_item.item_weight = item_weight
+        if zone:
+            existing_item.zone = zone
+        if unit_type:
+            existing_item.unit_type = unit_type
+
+        # CRITICAL: do not overwrite with None
+        if barcode:
+            existing_item.barcode = barcode
+
+        existing_item.pack = pack_val or existing_item.pack
+        existing_item.line_weight = line_weight
+        existing_item.exp_time = exp_time_minutes
+        existing_item.pieces_per_unit_snapshot = number_of_pieces
+        existing_item.expected_pick_pieces = expected_pieces
+
+        items_updated += 1
+    else:
+        new_item = InvoiceItem(
+            invoice_no=invoice_no_ps365,
+            item_code=item_code,
+            qty=qty_int,
+            location=shelf_location,
+            item_name=item_name,
+            item_weight=item_weight,
+            zone=zone,
+            unit_type=unit_type,
+            barcode=barcode,
+            pack=pack_val,
+            line_weight=line_weight,
+            exp_time=exp_time_minutes,
+            pieces_per_unit_snapshot=number_of_pieces,
+            expected_pick_pieces=expected_pieces
+        )
+        db.session.add(new_item)
+        existing_map[item_code] = new_item
+        items_created += 1
+
+
+Also remove:
+
+db.session.merge(existing_item)
+
+the per-item db.session.commit()
+
+E) Commit once per invoice (not per item)
+
+After the loop (and after totals update), do:
+
+# Update totals (prefer inline calculation or recalc without committing)
+invoice_items = InvoiceItem.query.filter_by(invoice_no=invoice_no_ps365).all()
+invoice_record = Invoice.query.filter_by(invoice_no=invoice_no_ps365).first()
+if invoice_record:
+    invoice_record.total_lines = len(invoice_items)
+    invoice_record.total_items = sum(i.qty or 0 for i in invoice_items)
+    invoice_record.total_weight = sum((i.item_weight or 0) * (i.qty or 0) for i in invoice_items)
+    invoice_record.total_exp_time = sum(i.exp_time or 0 for i in invoice_items)
+
+db.session.commit()
+
+logging.info(f"Invoice {invoice_no_ps365}: items_created={items_created}, items_updated={items_updated}, lines={len(lines)}")
+
+
+Important: if you keep calling recalculate_invoice_totals(), modify it first so it does not commit internally (or you’ll still commit mid-invoice).
+
+F) Stop logging the full PS365 response
+
+Replace:
+
+logging.info(f"PS365 response: {response}")
+
+
+with something safe:
+
+logging.info(f"PS365 list_loyalty_invoices page={page} response_code={api_resp.get('response_code')} invoices={len(invoices)}")
+
+Bottom line
+
+Your pasted version is not fixed. To fix it, you must implement the changes above, specifically:
+
+normalize item codes + barcode map keys
+
+preserve barcode (don’t assign None)
+
+remove per-item commit + merge
+
+prefetch DW and existing items
+
+remove amount as qty fallback
+
+reduce logging / PII

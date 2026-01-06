@@ -1,0 +1,189 @@
+{% extends 'base.html' %}
+
+{% block title %}Order Time Analysis - {{ invoice.invoice_no }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-chart-line me-2"></i>Order Time Analysis: {{ invoice.invoice_no }}</h2>
+        <a href="{{ url_for('time_analysis_dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+
+    <!-- Order Summary -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Order Information</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Invoice:</strong> {{ invoice.invoice_no }}</p>
+                    <p><strong>Customer:</strong> {{ invoice.customer_name or 'N/A' }}</p>
+                    <p><strong>Total Items:</strong> {{ invoice.total_lines }} lines, {{ invoice.total_items }} items</p>
+                    <p><strong>Total Weight:</strong> {{ invoice.total_weight }} kg</p>
+                    <p><strong>Status:</strong> <span class="badge bg-info">{{ invoice.status }}</span></p>
+                    <p><strong>Assigned to:</strong> {{ invoice.assigned_to or 'Unassigned' }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-stopwatch me-2"></i>Actual Time (from button clicks)</h5>
+                </div>
+                <div class="card-body">
+                    {% if actual_times %}
+                        <p><strong>Total Picking Time:</strong> <span class="text-success fs-5">{{ actual_times.wall_clock_minutes }} min</span></p>
+                        <p><strong>Packing Time:</strong> {{ actual_times.packing_minutes }} min</p>
+                        <hr>
+                        <p><strong>Total Time:</strong> <span class="fw-bold fs-4">{{ actual_times.total_minutes }} min</span></p>
+                        <p><small class="text-muted">Items tracked: {{ actual_times.items_tracked }}</small></p>
+                        {% if actual_times.picking_started and actual_times.picking_completed %}
+                            <small class="text-muted">
+                                Started: {{ actual_times.picking_started.strftime('%H:%M:%S') }} | 
+                                Completed: {{ actual_times.picking_completed.strftime('%H:%M:%S') }}
+                            </small>
+                        {% endif %}
+                    {% elif time_breakdown %}
+                        <p class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Showing estimated times (no actual tracking data)</p>
+                        <p><strong>Walking Time:</strong> {{ "%.1f"|format(time_breakdown.total_walking_time or 0) }} min</p>
+                        <p><strong>Picking Time:</strong> {{ "%.1f"|format(time_breakdown.total_picking_time or 0) }} min</p>
+                        <p><strong>Packing Time:</strong> {{ "%.1f"|format(time_breakdown.total_packing_time or 0) }} min</p>
+                        <hr>
+                        <p><strong>Total Time:</strong> {{ "%.1f"|format((time_breakdown.total_walking_time or 0) + (time_breakdown.total_picking_time or 0) + (time_breakdown.total_packing_time or 0)) }} min</p>
+                    {% else %}
+                        <p class="text-muted">No time tracking data available</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Combined Item Time Tracking Table -->
+    {% if actual_times and actual_times.per_item_times %}
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="fas fa-list-ol me-2"></i>Item-by-Item Picking Times (Europe/Athens)</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Location</th>
+                            <th>Item Code</th>
+                            <th>Item Name</th>
+                            <th>Qty</th>
+                            <th>Zone</th>
+                            <th>Started</th>
+                            <th>Completed</th>
+                            <th>Actual (sec)</th>
+                            <th>Est. (sec)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in actual_times.per_item_times %}
+                        <tr>
+                            <td><span class="badge bg-secondary">{{ item.location or '-' }}</span></td>
+                            <td>{{ item.item_code }}</td>
+                            <td>{{ item.item_name or '-' }}</td>
+                            <td>{{ item.qty or 0 }}</td>
+                            <td>{{ item.zone or '-' }}</td>
+                            <td>{% if item.started %}{{ item.started.strftime('%H:%M:%S') }}{% else %}-{% endif %}</td>
+                            <td>{% if item.completed %}{{ item.completed.strftime('%H:%M:%S') }}{% else %}-{% endif %}</td>
+                            <td><strong>{{ "%.0f"|format(item.time_seconds or 0) }}</strong></td>
+                            <td>
+                                {% if item.estimated_seconds %}
+                                    {% if item.time_seconds and item.time_seconds < item.estimated_seconds %}
+                                        <span class="text-success">{{ "%.0f"|format(item.estimated_seconds) }}</span>
+                                    {% elif item.time_seconds and item.time_seconds > item.estimated_seconds %}
+                                        <span class="text-danger">{{ "%.0f"|format(item.estimated_seconds) }}</span>
+                                    {% else %}
+                                        {{ "%.0f"|format(item.estimated_seconds) }}
+                                    {% endif %}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% elif items %}
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-list-ol me-2"></i>Items in Order (no time tracking data)</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Location</th>
+                            <th>Item Code</th>
+                            <th>Item Name</th>
+                            <th>Qty</th>
+                            <th>Zone</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td><span class="badge bg-secondary">{{ item.location or '-' }}</span></td>
+                            <td>{{ item.item_code }}</td>
+                            <td>{{ item.item_name or '-' }}</td>
+                            <td>{{ item.qty or 0 }}</td>
+                            <td>{{ item.zone or '-' }}</td>
+                            <td>
+                                {% if item.is_picked %}
+                                    <span class="badge bg-success">Picked</span>
+                                {% else %}
+                                    <span class="badge bg-warning">Not Picked</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Activity Logs -->
+    {% if activity_logs %}
+    <div class="card">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Activity Timeline</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Activity Type</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in activity_logs %}
+                        <tr>
+                            <td>{{ log.timestamp.strftime('%H:%M:%S') }}</td>
+                            <td><span class="badge bg-info">{{ log.activity_type }}</span></td>
+                            <td>{{ log.details or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

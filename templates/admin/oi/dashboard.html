@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}Operational Intelligence Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-brain me-2"></i>Operational Intelligence</h2>
+        <div class="d-flex gap-2">
+            <form action="{{ url_for('oi_reclassify') }}" method="POST" class="d-inline">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="summer_mode" id="summerMode">
+                    <label class="form-check-label" for="summerMode">Summer Mode</label>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-sync-alt me-1"></i> Reclassify Items
+                </button>
+            </form>
+            <a href="{{ url_for('oi_items', needs_review='true') }}" class="btn btn-warning">
+                <i class="fas fa-exclamation-triangle me-1"></i> View Needs Review
+            </a>
+            <a href="{{ url_for('oi_manual') }}" class="btn btn-outline-light">
+                <i class="fas fa-book me-1"></i> Manual
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 opacity-75">Active Items</h6>
+                    <h2 class="card-title mb-0">{{ "{:,}".format(active_count) }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 opacity-75">Classified</h6>
+                    <h2 class="card-title mb-0">{{ "{:,}".format(classified_count) }}</h2>
+                    <small>{{ "%.1f"|format(classified_count / active_count * 100 if active_count > 0 else 0) }}% of active</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-dark h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2">Needs Review</h6>
+                    <h2 class="card-title mb-0">{{ "{:,}".format(needs_review_count) }}</h2>
+                    <small>Missing critical data or low confidence</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 opacity-75">Last Run</h6>
+                    {% if last_run %}
+                    <h5 class="card-title mb-0">{{ last_run.started_at.strftime('%d/%m %H:%M') }}</h5>
+                    <small>by {{ last_run.run_by }}</small>
+                    {% else %}
+                    <h5 class="card-title mb-0">Never</h5>
+                    <small>Run classification to start</small>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Critical Attribute Coverage</h5>
+                </div>
+                <div class="card-body">
+                    {% for attr, pct in coverage_stats.items() %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>{{ attr.replace('_', ' ').title() }}</span>
+                            <span class="fw-bold">{{ pct }}%</span>
+                        </div>
+                        <div class="progress" style="height: 10px;">
+                            <div class="progress-bar {% if pct >= 80 %}bg-success{% elif pct >= 50 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                 role="progressbar" style="width: {{ pct }}%"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-exclamation-circle me-2"></i>Top Ambiguous Categories</h5>
+                    <a href="{{ url_for('oi_categories') }}" class="btn btn-sm btn-outline-primary">Manage Defaults</a>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th class="text-end">SKUs</th>
+                                <th class="text-end">Needs Review</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cat in ambiguous_categories %}
+                            <tr>
+                                <td>
+                                    <strong>{{ cat.category_code_365 }}</strong>
+                                    <br><small class="text-muted">{{ category_names.get(cat.category_code_365, '') }}</small>
+                                </td>
+                                <td class="text-end">{{ cat.total }}</td>
+                                <td class="text-end">
+                                    <span class="badge bg-warning text-dark">{{ cat.needs_review or 0 }}</span>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('oi_items', category=cat.category_code_365) }}" 
+                                       class="btn btn-sm btn-outline-secondary">View</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Order Time Estimation (ETC)</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text mb-3">
+                        Uses OI attributes from <code>ps_items_dw</code> and warehouse location rules (corridors, ladder, stairs) to estimate minutes per order.
+                    </p>
+                    <a href="{{ url_for('oi_time_admin.oi_time_params') }}" class="btn btn-primary">
+                        <i class="fas fa-cog me-1"></i> Manage ETC Parameters
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Overrides</h5>
+                    <a href="{{ url_for('oi_overrides') }}" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>Item Name</th>
+                                <th>Overridden Fields</th>
+                                <th>Reason</th>
+                                <th>Updated By</th>
+                                <th>Updated At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for override in recent_overrides %}
+                            {% set item = override_items.get(override.item_code_365) %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for('oi_item_detail', item_code_365=override.item_code_365) }}">
+                                        {{ override.item_code_365 }}
+                                    </a>
+                                </td>
+                                <td>{{ item.item_name if item else 'N/A' }}</td>
+                                <td>
+                                    {% if override.fragility_override %}<span class="badge bg-secondary">fragility</span>{% endif %}
+                                    {% if override.spill_risk_override is not none %}<span class="badge bg-secondary">spill</span>{% endif %}
+                                    {% if override.pressure_sensitivity_override %}<span class="badge bg-secondary">pressure</span>{% endif %}
+                                    {% if override.box_fit_rule_override %}<span class="badge bg-secondary">box-fit</span>{% endif %}
+                                    {% if override.zone_override %}<span class="badge bg-secondary">zone</span>{% endif %}
+                                </td>
+                                <td>{{ override.override_reason[:50] }}{% if override.override_reason|length > 50 %}...{% endif %}</td>
+                                <td>{{ override.updated_by }}</td>
+                                <td>{{ override.updated_at.strftime('%d/%m %H:%M') if override.updated_at else 'N/A' }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-3">No overrides yet</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

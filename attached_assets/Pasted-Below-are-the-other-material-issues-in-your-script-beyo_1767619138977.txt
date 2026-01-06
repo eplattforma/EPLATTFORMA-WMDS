@@ -1,0 +1,170 @@
+Below are the other material issues in your script (beyond barcode) and exact Replit instructions to address them. I’m ordering them by impact: P0 (correctness/data integrity), P1 (performance), P2 (maintainability/operational hygiene).
+
+P0 — Correctness / Data Integrity
+1) Remove per-item commits; use one transaction per invoice
+
+Problem: db.session.commit() inside the item loop causes partial invoices, inconsistent totals, and poor rollback behavior.
+Fix (Replit instruction): Wrap each invoice import in a transaction and commit once.
+
+Implement:
+
+Remove all db.session.commit() calls inside for line in lines:
+
+Use:
+
+from sqlalchemy.exc import SQLAlchemyError
+
+try:
+    with db.session.begin():
+        # create/update invoice
+        # create/update items
+        recalculate_invoice_totals(invoice_no_ps365)
+except SQLAlchemyError:
+    db.session.rollback()
+    raise
+
+
+If you prefer not to use begin(), then commit once after items + totals, and rollback on exception.
+
+2) Stop using “amount” as a quantity fallback
+
+Problem: quantity = ... or line.get("amount", 0) is risky; “amount” often means money, not units. This can silently corrupt quantities.
+Fix: Restrict quantity fields to known qty keys and skip lines without qty.
+
+Implement:
+
+qty_raw = line.get("line_quantity") or line.get("qty") or line.get("quantity")
+qty_int = _parse_qty_int(qty_raw)
+if qty_int <= 0:
+    # decide: skip or keep zero; for picking typically skip
+    continue
+
+3) Fix totals counters and messaging (currently misleading)
+
+Problem: total_items is used inconsistently and logged as if it is per-invoice.
+Fix: Track:
+
+items_created_this_invoice
+
+items_updated_this_invoice
+
+total_items_created_global, total_items_updated_global
+
+Return/print those, not the ambiguous total_items.
+
+4) Ensure (invoice_no, item_code) uniqueness at the DB level
+
+Problem: Even with code fixes, duplicates can still occur if a bug returns or concurrent imports happen.
+Fix: Add a unique index/constraint on invoice items.
+
+Migration SQL:
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_items_invoice_no_item_code
+ON invoice_items (invoice_no, item_code);
+
+5) Don’t merge() objects you already loaded from the session
+
+Problem: db.session.merge(existing_item) is unnecessary (and can behave unexpectedly) when existing_item was queried in the same session.
+Fix: Remove merge() calls; just mutate fields.
+
+P1 — Performance (your current import will be slow at scale)
+6) Prefetch everything you can; eliminate N+1 queries
+
+Problem: Inside the item loop you do repeated queries to DwItem, DwAttribute1, DwAttribute3, and repeated InvoiceItem.query...first().
+Fix: Prefetch in bulk per invoice:
+
+existing invoice items → dict
+
+DwItem rows for all codes → dict
+
+attribute tables → dicts (or cache globally)
+
+You already batch shelves and barcodes; extend batching to DW and existing invoice items.
+
+7) Stop committing per line; also stop flushing unnecessarily
+
+Once you commit per invoice, DB overhead collapses.
+
+8) Optional: bulk upsert invoice items (best long-term)
+
+If you have the unique constraint above, replace per-row ORM add/update with a single PostgreSQL INSERT .. ON CONFLICT DO UPDATE per invoice. This matches your customer sync pattern and is the fastest approach.
+
+If you want, I can provide a clean upsert_invoice_item_batch() similar to your upsert_customer_batch().
+
+P2 — Maintainability / Operational Hygiene
+9) Remove logging of full PS365 responses (PII + huge logs)
+
+Problem:
+
+logging.info(f"PS365 response: {response}")
+
+
+This may include customer names, phone numbers, VAT numbers, etc., and can blow up log size.
+
+Fix: Log only:
+
+response_code
+
+count of invoices
+
+invoice numbers (optional)
+
+page number
+
+Example:
+
+logging.info(f"PS365 list_loyalty_invoices page={page} response_code={api_resp.get('response_code')} invoices={len(invoices)}")
+
+10) Normalize all codes and map keys consistently
+
+You should normalize:
+
+invoice_no_ps365
+
+item_code
+
+store_code_365
+
+Use a helper like _norm_code() and apply it everywhere you use dict maps and DB filters.
+
+11) Make exp_time logic explicit (your * 10 multiplier)
+
+You currently have:
+
+total_seconds = align_seconds + base_pick_seconds + (per_qty_seconds * 10 * qty_int)
+
+
+That * 10 is likely inflating times. If intentional, define a named constant:
+
+QTY_MULTIPLIER = 10  # explain why
+total_seconds = align_seconds + base_pick_seconds + (per_qty_seconds * QTY_MULTIPLIER * qty_int)
+
+
+If not intentional, remove it.
+
+12) Split this module into services
+
+Right now “Customer Sync Service” also contains invoice logic and invoice totals.
+Fix: Move invoice-related functions into ps365_invoices_service.py. Keep customer sync in ps365_customers_service.py.
+
+Concrete “Replit to-do list” summary
+
+Delete the first invoice item upsert block (duplicate logic).
+
+Preserve barcode and other optional fields: only set if non-null.
+
+Normalize item codes (strip(), str()), normalize barcodes_map keys.
+
+Remove per-line commits; commit once per invoice (transaction).
+
+Remove amount as qty fallback.
+
+Prefetch existing invoice items + DwItem + attributes in bulk.
+
+Fix totals counters to be per-invoice and global totals separately.
+
+Add unique constraint on (invoice_no, item_code).
+
+Stop logging full API payloads/responses (PII).
+
+Review exp_time multiplier and document or correct it.

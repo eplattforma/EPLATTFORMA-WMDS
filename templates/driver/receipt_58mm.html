@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COD Receipt #{{ receipt.id }}</title>
+    <style>
+        @media print {
+            @page {
+                size: 58mm auto;
+                margin: 2mm;
+            }
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+
+        body {
+            width: 54mm;
+            font-family: 'Courier New', monospace;
+            font-size: 9pt;
+            line-height: 1.3;
+            margin: 0 auto;
+            padding: 2mm;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
+        .large {
+            font-size: 11pt;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px dashed #000;
+            margin: 3mm 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        td {
+            padding: 1mm 0;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .total-row {
+            border-top: 1px solid #000;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="center bold large">COD RECEIPT</div>
+    <div class="center">{{ stop.customer_name }}</div>
+    <hr>
+    
+    <table>
+        <tr>
+            <td>Receipt #:</td>
+            <td class="right bold">{{ receipt.id }}</td>
+        </tr>
+        <tr>
+            <td>Route #:</td>
+            <td class="right">{{ route.id }}</td>
+        </tr>
+        <tr>
+            <td>Date:</td>
+            <td class="right">{{ receipt.created_at|local_time }}</td>
+        </tr>
+        <tr>
+            <td>Driver:</td>
+            <td class="right">{{ receipt.driver_username }}</td>
+        </tr>
+    </table>
+    
+    <hr>
+    
+    <div class="bold">INVOICES:</div>
+    {% for invoice in invoices %}
+    <div>{{ invoice.invoice_no }}</div>
+    {% endfor %}
+    
+    <hr>
+    
+    <table>
+        <tr>
+            <td>Expected Amount:</td>
+            <td class="right">€{{ "%.2f"|format(receipt.expected_amount) }}</td>
+        </tr>
+        <tr class="total-row">
+            <td>Received Amount:</td>
+            <td class="right">€{{ "%.2f"|format(receipt.received_amount) }}</td>
+        </tr>
+        {% if receipt.variance != 0 %}
+        <tr>
+            <td>Variance:</td>
+            <td class="right">€{{ "%.2f"|format(receipt.variance) }}</td>
+        </tr>
+        {% endif %}
+    </table>
+    
+    <hr>
+    
+    <table>
+        <tr>
+            <td>Payment Method:</td>
+            <td class="right">{{ receipt.payment_method|upper }}</td>
+        </tr>
+    </table>
+    
+    {% if receipt.note %}
+    <hr>
+    <div class="bold">Notes:</div>
+    <div>{{ receipt.note }}</div>
+    {% endif %}
+    
+    <hr>
+    
+    <div class="center" style="margin-top: 5mm;">
+        <div>Thank you for your business!</div>
+        <div style="font-size: 8pt; margin-top: 3mm;">
+            {{ stop.address }}
+        </div>
+    </div>
+
+    <div class="no-print" style="margin-top: 10mm; text-align: center;">
+        <button onclick="window.print()" style="padding: 10px 20px; font-size: 14pt;">
+            🖨️ Print Receipt
+        </button>
+        <button onclick="window.close()" style="padding: 10px 20px; font-size: 14pt; margin-left: 10px;">
+            Close
+        </button>
+    </div>
+
+    <script>
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                window.print();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

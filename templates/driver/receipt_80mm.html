@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COD Receipt #{{ receipt.id }}</title>
+    <style>
+        @media print {
+            @page {
+                size: 80mm auto;
+                margin: 2mm;
+            }
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+
+        body {
+            width: 76mm;
+            font-family: 'Courier New', monospace;
+            font-size: 10pt;
+            line-height: 1.4;
+            margin: 0 auto;
+            padding: 3mm;
+            color: #000;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
+        .large {
+            font-size: 13pt;
+        }
+
+        .medium {
+            font-size: 11pt;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px dashed #000;
+            margin: 4mm 0;
+        }
+
+        .separator {
+            border-top: 2px solid #000;
+            margin: 4mm 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        td {
+            padding: 1.5mm 0;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .total-row {
+            border-top: 2px solid #000;
+            padding-top: 3mm;
+            font-weight: bold;
+            font-size: 11pt;
+        }
+
+        .company-header {
+            margin-bottom: 5mm;
+        }
+
+        .invoice-list {
+            margin: 3mm 0;
+        }
+
+        .amount-section {
+            margin: 4mm 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Company Header -->
+    <div class="company-header">
+        <div class="center bold large">STEP EPLATTFORMA LTD</div>
+        <div class="center" style="font-size: 9pt;">Digeni Akrita 13BC, 1055 Lefkosia</div>
+        <div class="center" style="font-size: 9pt;">Tel: 7000 0394</div>
+        <div class="center" style="font-size: 9pt;">VAT Reg No: CY10353264O</div>
+    </div>
+    
+    <div class="separator"></div>
+    
+    <div class="center bold large">CASH SALES RECEIPT</div>
+    
+    <hr>
+    
+    <!-- Receipt Details -->
+    <table>
+        <tr>
+            <td class="bold">Receipt #:</td>
+            <td class="right bold">{{ receipt.id }}</td>
+        </tr>
+        <tr>
+            <td>Route #:</td>
+            <td class="right">{{ route.id }}</td>
+        </tr>
+        <tr>
+            <td>Date:</td>
+            <td class="right">{{ receipt.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        </tr>
+        <tr>
+            <td>Driver:</td>
+            <td class="right">{{ receipt.driver_username }}</td>
+        </tr>
+    </table>
+    
+    <hr>
+    
+    <!-- Customer Info -->
+    <div class="bold">CUSTOMER:</div>
+    <div>{{ stop.stop_name }}</div>
+    {% if stop.stop_addr %}
+    <div style="font-size: 9pt;">{{ stop.stop_addr }}</div>
+    {% endif %}
+    
+    <hr>
+    
+    <!-- Invoices -->
+    <div class="bold">INVOICE REFERENCES:</div>
+    <div class="invoice-list">
+        {% for invoice in invoices %}
+        <div style="margin-left: 3mm;">{{ invoice.invoice_no }}</div>
+        {% endfor %}
+    </div>
+    
+    <div class="separator"></div>
+    
+    <!-- Payment Information -->
+    <div class="amount-section">
+        <table>
+            <tr>
+                <td>Expected Amount:</td>
+                <td class="right">€{{ "%.2f"|format(receipt.expected_amount) }}</td>
+            </tr>
+            <tr>
+                <td>Payment Method:</td>
+                <td class="right bold">{{ receipt.payment_method.replace('_', ' ').upper() }}</td>
+            </tr>
+        </table>
+    </div>
+    
+    <table>
+        <tr class="total-row">
+            <td>AMOUNT COLLECTED:</td>
+            <td class="right">€{{ "%.2f"|format(receipt.received_amount) }}</td>
+        </tr>
+        {% if receipt.variance != 0 %}
+        <tr>
+            <td>Variance:</td>
+            <td class="right">€{{ "%.2f"|format(receipt.variance) }}</td>
+        </tr>
+        {% endif %}
+    </table>
+    
+    {% if receipt.note %}
+    <hr>
+    <div class="bold">Notes:</div>
+    <div style="margin-left: 3mm;">{{ receipt.note }}</div>
+    {% endif %}
+    
+    {% if exceptions %}
+    <div class="separator"></div>
+    
+    <!-- Delivery Exceptions -->
+    <div class="bold">DELIVERY EXCEPTIONS:</div>
+    <div style="font-size: 9pt; margin-top: 2mm;">
+        {% for exc in exceptions %}
+        <div style="margin: 2mm 0; padding: 2mm; border: 1px solid #000;">
+            <div><strong>{{ exc.discrepancy_type }}</strong></div>
+            <div>Item: {{ exc.item_name }}</div>
+            <div>Expected: {{ exc.qty_expected }} | Actual: {{ exc.qty_actual }}</div>
+            {% if exc.note %}
+            <div style="font-size: 8pt;">Note: {{ exc.note }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class="separator"></div>
+    
+    <!-- Footer -->
+    <div class="center" style="margin-top: 5mm;">
+        <div class="bold">Thank you for your business!</div>
+        <div style="font-size: 9pt; margin-top: 4mm;">
+            This receipt confirms delivery and payment collection.
+        </div>
+    </div>
+    
+    <hr>
+    
+    <div class="center" style="font-size: 8pt; margin-top: 5mm;">
+        <div>Customer Signature: ___________________</div>
+        <div style="margin-top: 3mm;">Driver Signature: ___________________</div>
+    </div>
+
+    <!-- Print Controls (not printed) -->
+    <div class="no-print" style="margin-top: 10mm; text-align: center;">
+        <button onclick="window.print()" style="padding: 10px 20px; font-size: 14pt; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            🖨️ Print Receipt
+        </button>
+        <button onclick="window.close()" style="padding: 10px 20px; font-size: 14pt; margin-left: 10px; background-color: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            ✖ Close
+        </button>
+    </div>
+
+    <script>
+        window.addEventListener('load', function() {
+            // Auto-print after page loads
+            setTimeout(function() {
+                window.print();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

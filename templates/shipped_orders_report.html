@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Shipped Orders Report{% endblock %}
+
+{% block content %}
+<style>
+.detail-table th, .detail-table td {
+    font-size: 12px;
+    padding: 6px 8px;
+}
+.item-details {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    padding: 10px;
+    margin-bottom: 15px;
+}
+.picking-stats {
+    background-color: #e8f4fd;
+    border-left: 4px solid #007bff;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    border-radius: 3px;
+}
+.batch-item {
+    background-color: #fff3cd;
+    border-left: 3px solid #ffc107;
+    padding: 5px 10px;
+    margin: 2px 0;
+    border-radius: 3px;
+}
+.exception-item {
+    background-color: #f8d7da;
+    border-left: 3px solid #dc3545;
+    padding: 5px 10px;
+    margin: 2px 0;
+    border-radius: 3px;
+}
+.order-card {
+    border-left: 4px solid #28a745;
+    margin-bottom: 20px;
+}
+.order-card.delivered { border-left-color: #28a745; }
+.order-card.shipped { border-left-color: #007bff; }
+.order-card.cancelled { border-left-color: #dc3545; }
+.order-card.delivery_failed { border-left-color: #fd7e14; }
+.order-card.returned_to_warehouse { border-left-color: #6c757d; }
+</style>
+
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2><i class="fas fa-truck-loading me-2"></i>Shipped Orders Report</h2>
+                <div class="btn-group">
+                    <a href="{{ url_for('on_shipment') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-truck me-1"></i>Ship Orders
+                    </a>
+                    <a href="{{ url_for('archive') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-archive me-1"></i>View Shipped Orders
+                    </a>
+                    <a href="{{ url_for('shipped_orders_report') }}" class="btn btn-primary">
+                        <i class="fas fa-truck-loading me-1"></i>Shipped Report
+                    </a>
+                    {% if orders_data %}
+                    <a href="{{ url_for('shipped_orders_report_csv', 
+                        status=filters.status, 
+                        customer=filters.customer, 
+                        picker=filters.picker,
+                        date_from=filters.date_from,
+                        date_to=filters.date_to) }}" 
+                       class="btn btn-success">
+                        <i class="fas fa-download me-1"></i>Export CSV (29 Fields)
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <p class="text-muted">Detailed picking information for completed orders - who picked what and when</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filters</h5>
+        </div>
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <div class="col-md-2">
+                    <label for="status" class="form-label">Status</label>
+                    <select class="form-select" id="status" name="status">
+                        <option value="">All Statuses</option>
+                        {% for status in shipped_statuses %}
+                        <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>
+                            {{ status.replace('_', ' ').title() }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="customer" class="form-label">Customer</label>
+                    <select class="form-select" id="customer" name="customer">
+                        <option value="">All Customers</option>
+                        {% for customer in customers %}
+                        <option value="{{ customer }}" {% if filters.customer == customer %}selected{% endif %}>
+                            {{ customer }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="picker" class="form-label">Picker</label>
+                    <select class="form-select" id="picker" name="picker">
+                        <option value="">All Pickers</option>
+                        {% for picker in pickers %}
+                        <option value="{{ picker }}" {% if filters.picker == picker %}selected{% endif %}>
+                            {{ picker }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="date_from" class="form-label">From Date</label>
+                    <input type="date" class="form-control" id="date_from" name="date_from" value="{{ filters.date_from }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="date_to" class="form-label">To Date</label>
+                    <input type="date" class="form-control" id="date_to" name="date_to" value="{{ filters.date_to }}">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="submit" class="btn btn-primary form-control">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                Showing {{ orders_data|length }} shipped orders. Data includes detailed picking information, exceptions, and picker activity.
+            </div>
+        </div>
+    </div>
+
+    <!-- Orders List -->
+    <div class="row">
+        {% for order in orders_data %}
+        <div class="col-12">
+            <div class="card order-card {{ order.invoice.status }}">
+                <div class="card-header">
+                    <div class="row align-items-center">
+                        <div class="col-md-3">
+                            <h5 class="mb-0">
+                                <strong>{{ order.invoice.invoice_no }}</strong>
+                            </h5>
+                            <small class="text-muted">Routing: {{ order.invoice.routing or 'N/A' }}</small>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>{{ order.invoice.customer_name or 'Unknown Customer' }}</strong>
+                            {% if order.invoice.customer_code_365 %}
+                            <br><small class="text-muted">Code: {{ order.invoice.customer_code_365 }}</small>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-2">
+                            <span class="badge bg-{{ 'success' if order.invoice.status == 'delivered' else 'primary' if order.invoice.status == 'shipped' else 'danger' if order.invoice.status in ['cancelled', 'delivery_failed'] else 'secondary' }}">
+                                {{ order.invoice.status.replace('_', ' ').title() }}
+                            </span>
+                        </div>
+                        <div class="col-md-3 text-end">
+                            <div class="mb-1">
+                                <strong>Picker: {{ order.invoice.assigned_to or 'Not Assigned' }}</strong>
+                            </div>
+                            {% if current_user.role == 'admin' and order.invoice.status in ['shipped', 'delivery_failed'] %}
+                            <button type="button" class="btn btn-danger btn-sm" 
+                                    onclick="showCancelModal('{{ order.invoice.invoice_no }}', '{{ order.invoice.customer_name }}')">
+                                <i class="fas fa-undo me-1"></i>Cancel Shipment
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Picking Statistics -->
+                    <div class="picking-stats">
+                        <div class="row">
+                            <div class="col-md-2">
+                                <strong>Items:</strong> {{ order.stats.picked_items }}/{{ order.stats.total_items }}
+                            </div>
+                            <div class="col-md-2">
+                                <strong>Completion:</strong> {{ order.stats.completion_rate }}%
+                            </div>
+                            <div class="col-md-2">
+                                <strong>Exceptions:</strong> {{ order.stats.total_exceptions }}
+                            </div>
+                            <div class="col-md-3">
+                                <strong>Weight:</strong> {{ "%.1f"|format(order.invoice.total_weight) }} kg
+                            </div>
+                            <div class="col-md-3">
+                                <strong>Upload Date:</strong> {{ order.invoice.upload_date }}
+                            </div>
+                        </div>
+                        
+                        <!-- Enhanced Time Tracking Information -->
+                        {% if order.stats.time_tracking.items_tracked > 0 %}
+                        <div class="row mt-2 pt-2 border-top">
+                            <div class="col-md-12">
+                                <h6 class="text-primary"><i class="fas fa-clock me-1"></i>Time Tracking Details</h6>
+                            </div>
+                            <div class="col-md-2">
+                                <small><strong>Walking:</strong> {{ "%.1f"|format(order.stats.time_tracking.total_walking_time) }}s (Avg: {{ "%.1f"|format(order.stats.time_tracking.avg_walking_time) }}s)</small>
+                            </div>
+                            <div class="col-md-2">
+                                <small><strong>Picking:</strong> {{ "%.1f"|format(order.stats.time_tracking.total_picking_time) }}s (Avg: {{ "%.1f"|format(order.stats.time_tracking.avg_picking_time) }}s)</small>
+                            </div>
+                            <div class="col-md-2">
+                                <small><strong>Confirmation:</strong> {{ "%.1f"|format(order.stats.time_tracking.total_confirmation_time) }}s (Avg: {{ "%.1f"|format(order.stats.time_tracking.avg_confirmation_time) }}s)</small>
+                            </div>
+                            <div class="col-md-2">
+                                <small><strong>Total Time:</strong> {{ "%.1f"|format(order.stats.time_tracking.total_item_time) }}s (Avg: {{ "%.1f"|format(order.stats.time_tracking.avg_total_time) }}s)</small>
+                            </div>
+                            <div class="col-md-2">
+                                <small><strong>Tracked Items:</strong> {{ order.stats.time_tracking.items_tracked }}/{{ order.stats.total_items }}</small>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        <!-- Batch Information -->
+                        {% if order.batch_sessions %}
+                        <div class="row mt-2 pt-2 border-top">
+                            <div class="col-md-12">
+                                <h6 class="text-warning"><i class="fas fa-layer-group me-1"></i>Batch Processing Details</h6>
+                            </div>
+                            {% for batch in order.batch_sessions %}
+                            <div class="col-md-4">
+                                <small>
+                                    <strong>Batch {{ batch.id }}:</strong> {{ batch.status }}<br>
+                                    <span class="text-muted">Items: {{ batch.total_items }}, Started: {{ batch.created_at|local_time('%m/%d %H:%M') if batch.created_at }}</span>
+                                </small>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="mt-3">
+                        <a href="/operations/order-picking-details/{{ order.invoice.invoice_no }}" 
+                           class="btn btn-info btn-sm me-2" target="_blank">
+                            <i class="fas fa-eye me-1"></i>View Detailed Report
+                        </a>
+                        {% if order.exceptions %}
+                        <span class="badge bg-warning">{{ order.exceptions|length }} Exception{{ 's' if order.exceptions|length != 1 else '' }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12">
+            <div class="alert alert-warning">
+                <i class="fas fa-search me-2"></i>
+                No shipped orders found matching your filter criteria.
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Cancel Shipment Modal -->
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cancelModalLabel">
+                    <i class="fas fa-undo me-2"></i>Cancel Shipment
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="cancelShipmentForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" id="cancelInvoiceNo" name="invoice_no" value="">
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> This will return the order to "Ready for Dispatch" status.
+                    </div>
+                    <p><strong>Order:</strong> <span id="cancelOrderInfo"></span></p>
+                    <div class="mb-3">
+                        <label for="cancelReason" class="form-label">Cancellation Reason *</label>
+                        <textarea class="form-control" id="cancelReason" name="reason" rows="3" 
+                                  placeholder="Please provide a reason for cancelling this shipment..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-undo me-1"></i>Cancel Shipment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function showCancelModal(invoiceNo, customerName) {
+    document.getElementById('cancelInvoiceNo').value = invoiceNo;
+    document.getElementById('cancelOrderInfo').textContent = invoiceNo + ' - ' + customerName;
+    document.getElementById('cancelReason').value = '';
+    new bootstrap.Modal(document.getElementById('cancelModal')).show();
+}
+
+document.getElementById('cancelShipmentForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const submitBtn = this.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+    submitBtn.disabled = true;
+    
+    fetch('/operations/cancel-shipment', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success message and reload page
+            alert('✅ ' + data.message);
+            location.reload();
+        } else {
+            // Show error message
+            alert('❌ Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('❌ An error occurred while cancelling the shipment.');
+    })
+    .finally(() => {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+        bootstrap.Modal.getInstance(document.getElementById('cancelModal')).hide();
+    });
+});
+</script>
+
+<!-- Server-side CSV export with fixed 29-column schema now available via Export CSV button -->
+{% endblock %}

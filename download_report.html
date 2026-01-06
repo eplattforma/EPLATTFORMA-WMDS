@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Download Picking Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .download-box {
+            background: #f0f0f0;
+            border: 2px solid #4472C4;
+            border-radius: 10px;
+            padding: 30px;
+            margin: 20px 0;
+        }
+        .download-btn {
+            background: #4472C4;
+            color: white;
+            padding: 15px 30px;
+            font-size: 18px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+        .download-btn:hover {
+            background: #365a99;
+        }
+        .info {
+            margin: 20px 0;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 Picking Report - 30/09/2025</h1>
+    
+    <div class="download-box">
+        <h2>Report Ready!</h2>
+        <div class="info">
+            <p><strong>Total Items:</strong> 621</p>
+            <p><strong>Pickers:</strong> 4</p>
+            <p><strong>Orders:</strong> 39</p>
+        </div>
+        
+        <a href="/Picking_Report_30_Sep_2025.xlsx" download class="download-btn">
+            ⬇️ Download Excel Report
+        </a>
+    </div>
+    
+    <div class="info">
+        <p>The report includes:</p>
+        <ul style="text-align: left; display: inline-block;">
+            <li>Order numbers and item details</li>
+            <li>Picker names and timestamps</li>
+            <li>Location and zone information</li>
+            <li>Time breakdown (walking, picking, confirmation)</li>
+            <li>Efficiency metrics</li>
+        </ul>
+    </div>
+</body>
+</html>

@@ -1,0 +1,56 @@
+Below are clear, implementation-ready instructions you can paste to Replit. They focus only on the immediate fixes needed to make time alerts fully UTC-consistent and avoid naive/aware datetime errors.
+
+Implement immediate UTC fixes in time alert utilities.
+
+Context:
+- Our DB timestamps are stored in UTC (columns use UTCDateTime and defaults use get_utc_now).
+- The alert utilities still use datetime.now() which is local + naive, and can cause:
+  (a) TypeError when subtracting aware vs naive datetimes, or
+  (b) wrong elapsed minutes if server time is local but DB timestamps are UTC.
+
+Immediate changes (minimum scope):
+
+1) In time_tracking_alert utilities (file that defines check_order_time_alerts / resolve_alert):
+   - Replace ALL datetime.now() usage with timezone_utils.get_utc_now() (or naive UTC variant, depending on UTCDateTime behavior).
+
+A) check_order_time_alerts():
+   Current:
+      now = datetime.now()
+      elapsed_time = (now - start_log.timestamp).total_seconds() / 60
+   Change to:
+      from timezone_utils import get_utc_now
+      now = get_utc_now()
+
+   Then compute elapsed_time using now and start_log.timestamp.
+
+   IMPORTANT: If UTCDateTime returns naive UTC datetimes from the DB, then use:
+      now = get_utc_now().replace(tzinfo=None)
+   so subtraction is between naive UTC and naive UTC.
+
+B) resolve_alert():
+   Current:
+      alert.resolved_at = datetime.now()
+   Change to:
+      from timezone_utils import get_utc_now
+      alert.resolved_at = get_utc_now()
+   (or .replace(tzinfo=None) if UTCDateTime yields naive UTC)
+
+2) Add a small helper inside the alert file to standardize “now” consistently:
+
+   from timezone_utils import get_utc_now
+
+   def _utc_now_for_db():
+       n = get_utc_now()
+       # If UTCDateTime stores/returns naive UTC in Python, strip tzinfo:
+       # return n.replace(tzinfo=None)
+       return n
+
+   Use _utc_now_for_db() everywhere instead of datetime.now().
+
+3) Quick safety test:
+   - Run check_order_time_alerts() for an invoice that has a picking_started ActivityLog.
+   - Confirm no exceptions and that elapsed_time increases correctly over time.
+   - Resolve an alert and confirm resolved_at is populated and consistent with other UTC fields.
+
+Deliverable:
+- Commit code changes that remove datetime.now() from alert utilities and replac

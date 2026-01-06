@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}Ship Orders - Operations{% endblock %}
+
+{% block content %}
+<!-- CSRF Token for JavaScript -->
+<input type="hidden" id="csrf-token" value="{{ csrf_token() }}" />
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2><i class="fas fa-truck me-2"></i>Ship Orders</h2>
+                <div class="btn-group">
+                    <a href="{{ url_for('on_shipment') }}" class="btn btn-primary">
+                        <i class="fas fa-truck me-1"></i>Ship Orders
+                    </a>
+                    <a href="{{ url_for('archive') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-archive me-1"></i>View Shipped Orders
+                    </a>
+                    <a href="{{ url_for('shipped_orders_report') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-truck-loading me-1"></i>Shipped Report
+                    </a>
+                </div>
+            </div>
+            <p class="text-muted">Logistics tracking: orders in transit or requiring delivery action</p>
+        </div>
+    </div>
+
+    <!-- Filters and Actions -->
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <div class="input-group">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text" class="form-control" id="searchInput" placeholder="Search orders, customers, tracking numbers...">
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="btn-group">
+                <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="fas fa-filter me-1"></i>Filter by Status
+                </button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#" onclick="filterByStatus('all')">All Statuses</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="filterByStatus('shipped')">Shipped</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="filterByStatus('delivery_failed')">Delivery Failed</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Orders Table -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Shipment Orders</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="shipmentsTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Customer</th>
+                            <th>Status</th>
+                            <th>Courier</th>
+                            <th>Ship Date</th>
+                            <th>Tracking</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in shipment_orders %}
+                        <tr data-status="{{ order.status }}">
+                            <td>
+                                <strong>{{ order.invoice_no }}</strong>
+                                <br><small class="text-muted">Route: {{ order.routing or 'N/A' }}</small>
+                            </td>
+                            <td>
+                                {{ order.customer_name }}
+                                <br><small class="text-muted">{{ order.total_items|round(0) }} items, {{ order.total_weight|round(1) }} kg</small>
+                            </td>
+                            <td>
+                                {% if order.status == 'shipped' %}
+                                <span class="badge bg-success">
+                                    <i class="fas fa-truck me-1"></i>Shipped
+                                </span>
+                                {% elif order.status == 'delivery_failed' %}
+                                <span class="badge bg-danger">
+                                    <i class="fas fa-exclamation-triangle me-1"></i>Delivery Failed
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.invoice_no in shipments_info %}
+                                    {% set info = shipments_info[order.invoice_no] %}
+                                    <span class="badge bg-info">{{ info.courier }}</span>
+                                {% else %}
+                                    <span class="text-muted">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.invoice_no in shipments_info %}
+                                    {% set info = shipments_info[order.invoice_no] %}
+                                    {{ info.ship_date.strftime('%d/%m/%y') if info.ship_date else 'N/A' }}
+                                {% else %}
+                                    <span class="text-muted">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.invoice_no in shipments_info %}
+                                    {% set info = shipments_info[order.invoice_no] %}
+                                    {% if info.tracking_number %}
+                                        <code>{{ info.tracking_number }}</code>
+                                        <br><button class="btn btn-sm btn-outline-primary mt-1" onclick="trackPackage('{{ info.tracking_number }}')">
+                                            <i class="fas fa-external-link-alt me-1"></i>Track
+                                        </button>
+                                    {% else %}
+                                        <span class="text-muted">No tracking</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    {% if order.status == 'shipped' %}
+                                    <button class="btn btn-sm btn-success" onclick="updateStatus('{{ order.invoice_no }}', 'delivered')" title="Mark as Delivered">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-warning" onclick="updateStatus('{{ order.invoice_no }}', 'delivery_failed')" title="Mark as Failed">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary" onclick="cancelShipment('{{ order.invoice_no }}')" title="Cancel Shipment">
+                                        <i class="fas fa-undo"></i>
+                                    </button>
+                                    {% elif order.status == 'delivery_failed' %}
+                                    <button class="btn btn-sm btn-primary" onclick="updateStatus('{{ order.invoice_no }}', 'shipped')" title="Resend">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-info" onclick="updateStatus('{{ order.invoice_no }}', 'returned_to_warehouse')" title="Return to Warehouse">
+                                        <i class="fas fa-warehouse"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary" onclick="cancelShipment('{{ order.invoice_no }}')" title="Cancel Shipment">
+                                        <i class="fas fa-undo"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="updateStatus('{{ order.invoice_no }}', 'cancelled')" title="Cancel Order">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                    {% endif %}
+                                    <a href="/operations/shipped-orders-report?customer={{ order.customer_name }}" class="btn btn-sm btn-outline-info" title="View Details">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                
+                {% if not shipment_orders %}
+                <div class="text-center py-5">
+                    <i class="fas fa-truck fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No orders on shipment</h5>
+                    <p class="text-muted">All orders are either in the warehouse or have been delivered.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h5>Shipped Orders</h5>
+                            <h3>{{ shipment_orders|selectattr('status', 'equalto', 'shipped')|list|length }}</h3>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-truck fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card bg-danger text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h5>Delivery Failed</h5>
+                            <h3>{{ shipment_orders|selectattr('status', 'equalto', 'delivery_failed')|list|length }}</h3>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-exclamation-triangle fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateStatus(invoiceNo, newStatus) {
+    const statusNames = {
+        'delivered': 'Delivered',
+        'delivery_failed': 'Delivery Failed',
+        'shipped': 'Shipped (Resend)',
+        'returned_to_warehouse': 'Return to Warehouse',
+        'cancelled': 'Cancelled'
+    };
+    
+    if (!confirm(`Are you sure you want to mark order ${invoiceNo} as: ${statusNames[newStatus]}?`)) {
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('invoice_no', invoiceNo);
+    formData.append('new_status', newStatus);
+    
+    fetch('/operations/update-status', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error updating status: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating status');
+    });
+}
+
+function trackPackage(trackingNumber) {
+    // This can be enhanced to open courier-specific tracking URLs
+    alert(`Tracking number: ${trackingNumber}\n\nCopy this number to track on the courier's website.`);
+}
+
+function cancelShipment(invoiceNo) {
+    const reason = prompt(`Please enter the reason for cancelling shipment for order ${invoiceNo}:`, '');
+    
+    if (!reason || reason.trim() === '') {
+        alert('Cancellation reason is required');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to cancel shipment for order ${invoiceNo}?\n\nThis will return the order to "Ready for Dispatch" status.\n\nReason: ${reason}`)) {
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('invoice_no', invoiceNo);
+    formData.append('reason', reason.trim());
+    
+    // Add CSRF token
+    const csrfToken = document.querySelector('#csrf-token')?.value;
+    if (csrfToken) {
+        formData.append('csrf_token', csrfToken);
+    }
+    
+    fetch('/operations/cancel-shipment', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error cancelling shipment: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error cancelling shipment: Network error');
+    });
+}
+
+function filterByStatus(status) {
+    const rows = document.querySelectorAll('#shipmentsTable tbody tr');
+    rows.forEach(row => {
+        if (status === 'all' || row.dataset.status === status) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+// Search functionality
+document.getElementById('searchInput').addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const rows = document.querySelectorAll('#shipmentsTable tbody tr');
+    
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %}

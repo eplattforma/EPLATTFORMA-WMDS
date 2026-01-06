@@ -1,0 +1,112 @@
+Below are copy/paste guidelines for Replit to change ladder handling from “levels only” to (corridor + level), with your rule:
+
+Ladder applies only to corridors 11 and 13 on level C.
+
+1) Update the parameter schema (JSON)
+Replace
+
+location.ladder_levels
+
+With
+
+pick.ladder_rules
+
+Example to insert into oi_time_params_v1:
+
+"pick": {
+  "...": "...",
+  "ladder_rules": [
+    { "corridors": ["11", "13"], "levels": ["C"], "ladder_seconds": 15 }
+  ]
+}
+
+
+Notes:
+
+Keep pick.level_seconds for general “height effort”.
+
+Ladder becomes an extra penalty only when a ladder is truly required.
+
+2) Update the estimator logic
+
+In services/oi_time_estimator.py (or wherever pick seconds are calculated):
+
+Add a helper
+def ladder_seconds_for(corridor: str, level: str, params: dict) -> float:
+    rules = ((params.get("pick") or {}).get("ladder_rules") or [])
+    corridor = (corridor or "").zfill(2)
+    level = (level or "").upper()
+    for r in rules:
+        corridors = [str(x).zfill(2) for x in (r.get("corridors") or [])]
+        levels = [str(x).upper() for x in (r.get("levels") or [])]
+        if corridor in corridors and level in levels:
+            return float(r.get("ladder_seconds") or 0)
+    return 0.0
+
+Apply it in per-line pick time
+
+Where you currently do something like:
+
+pick_seconds += level_seconds[level]
+
+Change to:
+
+pick_seconds += level_seconds[level]
+
+pick_seconds += ladder_seconds_for(corridor, level, params)
+
+So ladder is conditional.
+
+3) Update the Admin UI (remove “Ladder Levels” field)
+
+In the ETC parameters UI page:
+
+Remove
+
+“Ladder Levels (comma-separated)”
+
+Add a “Ladder Rules” section (repeatable rows)
+
+Each row contains:
+
+Corridors (text input): 11,13
+
+Levels (text input): C
+
+Ladder Seconds (number input): 15
+
+Buttons: Add row / Remove row
+
+The UI should save this into:
+
+params["pick"]["ladder_rules"]
+
+4) Validation rules (server-side)
+
+When saving params:
+
+Corridors: each must be 2 digits after zero-padding (11, 13 etc.)
+
+Levels: letters A-Z, store uppercase
+
+ladder_seconds: numeric ≥ 0
+
+If invalid, reject save with a clear message.
+
+5) Backward compatibility / migration
+
+If you already have location.ladder_levels in stored JSON:
+
+On load, you can ignore it.
+
+Or optionally migrate it into one rule (but in your case you should not auto-migrate since it’s corridor-specific).
+
+6) Default config to set now (your warehouse)
+
+Set one ladder rule only:
+
+Corridors: 11, 13
+
+Level: C
+
+Ladder seconds: start with 15 (then calibrate using actuals)

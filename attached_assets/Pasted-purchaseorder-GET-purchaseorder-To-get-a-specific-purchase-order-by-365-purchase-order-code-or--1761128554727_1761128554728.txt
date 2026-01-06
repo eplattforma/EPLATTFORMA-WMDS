@@ -1,0 +1,289 @@
+purchaseorder
+
+GET /purchaseorder
+To get a specific purchase order by 365 purchase order code or by shopping cart code.
+
+
+/purchaseorder?token=XXXXX&purchase_order_code=CART192&&is_shopping_cart_code=Y
+field	description
+token	Credentials provided by Powersoft that allow access to the API
+purchase_order_code	365 purchase order code or shopping cart code
+is_shopping_cart_code	'Y'= purchase order code provided is shopping cart code. 'N' = purchase order code provided is the one registered in 365.
+Returns
+
+             {
+                "api_response": {
+                    "response_code": "1",
+                    "response_msg": "OK",
+                    "response_id": ""
+                },
+                "order": {
+                    "purchase_order_header": {
+                        "purchase_order_code_365": null,
+                        "shopping_cart_code": "CART192",
+                        "order_date_local": "2014-12-17 10:00:00",
+                        "order_date_utc0": "2014-12-17 08:00:00",
+                        "order_date_deliverby_utc0": "2014-12-24 08:00:00",
+                        "supplier_code_365": "10000006",
+                        "agent_code_365": "AG1",
+                        "order_status_code_365": "APPROVED",
+                        "order_status_name": "Approved"
+                        "total_sub": 42.01,
+                        "total_discount": 2.52,
+                        "total_vat": 7.5,
+                        "total_grand": 46.99,
+                        "comments": "special instructions"
+                    },
+                    "list_purchase_order_details": [
+                        {
+                            "line_number": 1,
+                            "item_code_365": "ARTICLE01-AZURE-240",
+                            "item_name": "ARTICLE 01",
+                            "line_quantity": 3,
+                            "line_price_excl_vat": 8.4,
+                            "line_total_sub": 25.2,
+                            "line_total_discount": 2.52,
+                            "line_total_discount_percentage": 10,
+                            "line_vat_code_365": "019",
+                            "line_total_vat": 4.31,
+                            "line_total_vat_percentage": 19,
+                            "line_total_grand": 26.99
+                        },
+                        {
+                            "line_number": 2,
+                            "item_code_365": "ARTICLE01-BLK-290",
+                            "item_name": "ARTICLE 01",
+                            "line_quantity": 1,
+                            "line_price_excl_vat": 16.81,
+                            "line_total_sub": 16.81,
+                            "line_total_discount": 0,
+                            "line_total_discount_percentage": 0,
+                            "line_vat_code_365": "019",
+                            "line_total_vat": 3.19,
+                            "line_total_vat_percentage": 19,
+                            "line_total_grand": 20
+                        }
+                    ]
+                }
+            }
+        
+
+POST /purchaseorder
+To create a new purchase order WITHOUT discount at the end of the order.
+
+
+        {
+          "api_credentials": {
+            "token": "XXXX"
+          },
+          "order": {
+            "purchase_order_header": {
+              "shopping_cart_code": "CART192",
+              "order_date_local": "2014-12-17 10:00:00",
+              "order_date_utc0": "2014-12-17 08:00:00",
+              "order_date_deliverby_utc0": "2014-12-24 08:00:00",
+              "supplier_code_365": "10000006",
+              "agent_code_365": "AG1",
+			  "user_code_365":"API",
+              "total_sub": 42.01,
+              "total_discount": 2.52,
+              "total_vat": 7.50,
+              "total_grand": 46.99,
+              "comments": "special instructions",
+              "search_additional_barcodes": true
+            },
+            "list_purchase_order_details": [
+              {
+                "line_number": "1",
+                "item_code_365": "ARTICLE01-AZURE-240",
+                "line_quantity": "3",
+                "line_price_excl_vat": 8.40,
+                "line_total_sub": 25.20,
+                "line_total_discount": 2.52,
+                "line_total_discount_percentage": 10.00,
+                "line_total_vat": 4.31,
+                "line_vat_code_365": "019",
+                "line_total_vat_percentage": 19.00,
+                "line_total_grand": 26.99
+              },
+              {
+                "line_number": "1",
+                "item_code_365": "ARTICLE01-BLK-290",
+                "line_quantity": "1",
+                "line_price_excl_vat": 16.81,
+                "line_total_sub": 16.81,
+                "line_total_discount": 0.00,
+                "line_total_discount_percentage": 0.00,
+                "line_vat_code_365": "019",
+                "line_total_vat": 3.19,
+                "line_total_vat_percentage": 19.00,
+                "line_total_grand": 20.00
+              }
+            ]
+          }
+        }
+       
+
+field	type	description
+api_credentials
+token	string	Credentials provided by Powersoft that allow access to the API
+order
+purchase_order_header
+shopping_cart_code	string	The unique number of the order in your system
+order_date_local	datetime	The local data time. This depends on the timezone. eg. Cyprus is in time zone UTC +2, but it also changes for daylight savings time
+order_date_utc0	datetime	This is the Coordinated Universal Time (UTC). ie at time zone +0
+order_date_deliverby_utc0	datetime	The date by which this order needs to be delivered in UTC0
+supplier_code_365	string	The code of the supplier in 365.
+agent_code_365	string	The code of the agent in 365. Pass "" if none.
+total_sub	decimal	The total amount of the entire purchase order before vat, and before any discount
+total_discount	decimal	The total discount amount applied to this purchase order. If there is no discount, pass 0.00
+total_vat	decimal	The total vat amount of the entire purchase order
+total_grand	decimal	The grand total of the purchase order. total_grand = total_sub - total_discount + total_vat
+comments	string	Any notes about the purchase order, eg special requirements. Pass "" if none.
+search_additional_barcodes	boolean	If search the item based on code and additional barcodes. If yes in the details can be passed an additional barcode of the item, otherwise item code as is registered in 365 must be provided.
+list_purchase_order_details
+line_number	int	The position of this line in the purchase order list. eg 1
+item_code_365. If search_additional_barcodes is true then an additional barcode of the item can be provided.	string	The code of the item in 365
+line_quantity	decimal	The number of pieces of the item for this purchase order line
+line_price_excl_vat	decimal	The price excluding VAT of the item for this purchase order line
+line_total_sub	decimal	The total amount of this line of the purchase order before vat, and before any discount. line_total_sub = round(line_price_excl_vat *line_quantity, 2)
+line_total_discount	decimal	The total discount amount of this line of the purchase order. If there is no discount, pass 0.00. line_total_discount =round(line_total_sub* line_total_discount_percentage/100, 2)
+line_total_discount_percentage	decimal	The total discount percentage of this line of the purchase order. eg. If the discount is 10%, pass 10.00 If there is no discount, pass 0.00
+line_total_vat	decimal	The total vat amount of this line of the purchase order. line_total_vat = round((line_total_sub - line_total_discount)*line_total_vat_percentage, 2)
+line_vat_code_365	string	The code of the vat in 365
+line_total_vat_percentage	decimal	The total vat percentage of this line of the purchase order. eg. If the vat is 19%, pass 19.00
+line_total_grand	decimal	The total amount for this line of the order. line_total_grand = line_total_sub - line_total_discount + line_total_vat
+To create a new order WITH discount at the end of the order.
+
+
+			{
+			"api_credentials": {
+				"token": "XXXX"
+			},
+			"order": {
+			"purchase_order_header": {
+				"purchase_order_code_365": null,	
+				"shopping_cart_code": "CART10012018002",
+				"order_date_local": "2018-01-10 10:00:00",
+				"order_date_utc0": "2018-01-10 08:00:00",
+				"order_date_deliverby_utc0": "2018-03-10 08:00:00",
+				"supplier_code_365": "9920000137",
+				"agent_code_365": "CT",
+			    "user_code_365": "API",
+				"total_sub": 11000.00,
+				"total_discount": 850.00,
+				"total_vat": 1928.50,
+				"total_grand": 12078.50,
+				"order_additional_discount_type": "percentage",
+				"order_additional_discount_percentage": 30,
+				"order_additional_discount_amount":3623.55,
+				"order_total_value_after_additional_discount": 8454.95,
+				"comments": "special instructions",
+                "search_additional_barcodes": true
+			},
+			"list_purchase_order_details": [
+				{
+				"line_number": "1",
+				"item_code_365": "HHT-TC20",
+				"item_name": "TC20 HHT ZEBRA FOR FASHION/REST",
+				"line_quantity": "20",
+				"line_price_excl_vat":300.00,
+				"line_total_sub": 6000.00,
+				"line_total_discount": 600.00,
+				"line_total_discount_percentage": 10.00,
+				"line_vat_code_365": "019",
+				"line_total_vat": 1026.00,
+				"line_total_vat_percentage": 19.00,
+				"line_total_grand": 6426.00
+				},
+				{
+				"line_number": "2",
+				"item_code_365": "HHT-SCAN-TC8000",
+				"item_name": "TC8000 STD 2D SE4750SR 1/4GB ADR-KK INT",
+				"line_quantity": "10",
+				"line_price_excl_vat":500.00,
+				"line_total_sub": 5000.00,
+				"line_total_discount": 250.00,
+				"line_total_discount_percentage": 5.00,
+				"line_vat_code_365": "019",
+				"line_total_vat": 902.50,
+				"line_total_vat_percentage": 19.00,
+				"line_total_grand": 5652.50
+				}
+			]
+			}
+		}
+		
+To create a new order WITH ZERO VALUES.
+
+
+            {
+            "api_credentials": {
+                "token": "XXX"
+            },
+            "order": {
+                "purchase_order_header": {
+                    "shopping_cart_code": "C161020211811",
+                    "order_date_local": "2021-10-16 18:11:00",
+                    "order_date_utc0": "2021-10-16 15:11:00",
+                    "order_date_deliverby_utc0": "2021-12-24 08:00:00",
+                    "supplier_code_365": "10000006",
+                    "agent_code_365": "",
+                    "user_code_365": "API",
+                    "comments": "special instructions",
+                    "search_additional_barcodes": true
+                },
+                "list_purchase_order_details": [
+                    {
+                        "line_number": "1",
+                        "item_code_365": "22354",
+                        "line_quantity": "3"
+                    },
+                    {
+                        "line_number": "1",
+                        "item_code_365": "25616",
+                        "line_quantity": "1"
+                    }
+                ]
+            }
+        }
+        
+
+field	type	description
+api_credentials
+token	string	Credentials provided by Powersoft that allow access to the API
+order
+purchase_order_header
+shopping_cart_code	string	The unique number of the order in your system
+order_date_local	datetime	The local data time. This depends on the timezone. eg. Cyprus is in time zone UTC +2, but it also changes for daylight savings time
+order_date_utc0	datetime	This is the Coordinated Universal Time (UTC). ie at time zone +0
+order_date_deliverby_utc0	datetime	The date by which this order needs to be delivered in UTC0
+supplier_code_365	string	The code of the supplier in 365.
+agent_code_365	string	The code of the agent in 365. Pass "" if none.
+user_code_365	string	The user code. Not Required
+total_sub	decimal	The total amount of the entire purchase order before vat, and before any discount
+total_discount	decimal	The total discount amount applied to this purchase order. If there is no discount, pass 0.00
+total_vat	decimal	The total vat amount of the entire purchase order
+total_grand	decimal	The grand total of the purchase order. total_grand = total_sub - total_discount + total_vat
+order_additional_discount_type	string	The discount type applied at the end of the order, if there is one. The accepted values are "amount" or "percentage". In case there is no discount at the end of the order pass empty string "" or do not pass this field. It is not required.
+order_additional_discount_percentage	decimal	The additional discount percentage applied at the end of the order. The value must be between 0 and 100. If there is no additional discount at the end of the order you don't need to pass it. It is not required. If the discount applied is type amount the percentage value must be calculated as round(order_additional_discount_amount/total_grand * 100,2)
+order_additional_discount_amount	decimal	The additional discount amount applied at the end of the order. The value must be less than total_grand. If there is no additional discount at the end of the order you don't need to pass it. It is not required. If the discount applied is type percentage the value must be calculated as round(total_grand*order_additional_discount_percentage/100,2)
+order_total_value_after_additional_discount	decimal	The total the buyer is charged after the additional discount. If there is no additional discount at the end of the order you don't need to pass it. It is not required. order_total_value_after_additional_discount = total_grand - order_additional_discount_amount
+comments	string	Any notes about the purchase order, eg special requirements. Pass "" if none.
+search_additional_barcodes	boolean	If search the item based on code and additional barcodes. If yes in the details can be passed an additional barcode of the item, otherwise item code as is registered in 365 must be provided.
+list_purchase_order_details
+line_number	int	The position of this line in the purchase order list. eg 1
+item_code_365	string	The code of the item in 365. If search_additional_barcodes is true then an additional barcode of the item can be provided.
+line_quantity	decimal	The number of pieces of the item for this purchase order line
+line_price_excl_vat	decimal	The price excluding VAT of the item for this purchase order line
+line_total_sub	decimal	The total amount of this line of the purchase order before vat, and before any discount. line_total_sub = round(line_price_excl_vat *line_quantity, 2)
+line_total_discount	decimal	The total discount amount of this line of the purchase order. If there is no discount, pass 0.00. line_total_discount =round(line_total_sub* line_total_discount_percentage/100, 2)
+line_total_discount_percentage	decimal	The total discount percentage of this line of the purchase order. eg. If the discount is 10%, pass 10.00 If there is no discount, pass 0.00
+line_total_vat	decimal	The total vat amount of this line of the purchase order. line_total_vat = round((line_total_sub - line_total_discount)*line_total_vat_percentage, 2)
+line_vat_code_365	string	The code of the vat in 365
+line_total_vat_percentage	decimal	The total vat percentage of this line of the purchase order. eg. If the vat is 19%, pass 19.00
+line_total_grand	decimal	The total amount for this line of the order. line_total_grand = line_total_sub - line_total_discount + line_total_vat
+Order with zero values can be created only if the application in 365 is configured to allow orders with zero totals.
+
+Returns
+Returns the standard api_response object. The Powersoft365 purchase order code is returned in the response_id field.

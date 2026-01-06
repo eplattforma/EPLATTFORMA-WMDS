@@ -1,0 +1,112 @@
+EPLATTFORMA Picking System
+
+Order Summary
+Total Items
+810
+Total Weight
+1272 kg
+Total Time
+236 min
+(4 hrs)
+Remaining
+227 min
+(4 hrs)
+Active Pickers (1)
+Polis	10:24	301m	175m	
+Picking Dashboard
+Manage orders and assign tasks to pickers
+
+Order Management
+	Invoice No	Updated	Customer	Routing	Status	Lines	Qty	Weight	Est. Time	Actual	Remaining	Assigned	Actions
+#177 - Route: Ricardo - 03/12/2025 (nicosia west) PLANNED
+	
+1.00
+IN10052135
+27/11	
+NICOLAS DALITIS
+1.0
+Not Started	0/12	31	60.0	11.0	-	11.0m	Unassigned	
+	
+2.00
+IN10052138
+27/11	
+EKO CYPRUS LIMITED -RAMOIL CYPRUS LTD SKARINOU
+2.0
+Not Started	0/15	35	61.0	10.0	-	10.0m	Unassigned	
+Unassigned
+	IN10052137	27/11	
+AN & SOTHRIOY EPIXEIR. LTD
+3.0
+Not Started	0/28	154	109.0	32.0	-	32.0m	Unassigned	
+	IN10052131	27/11	
+PANIKOS KWSTA KIOSK
+5.0
+Not Started	0/50	117	202.0	34.0	-	34.0m	Unassigned	
+	IN10052149	27/11	
+DOROS CHR.CONSTRUCTIONS LIMITED
+5.5
+Not Started	0/13	31	6.0	9.0	-	9.0m	Unassigned	
+	IN10052132	27/11	
+JR.TURAEV MINI MARKET LTD(GUINNESS)
+6.0
+Not Started	0/7	8	42.0	4.0	-	4.0m	Unassigned	
+	IN10052141	27/11	
+EKO CYPRUS LIMITED -RAMOIL GLADSTONOS
+8.0
+Not Started	0/26	64	108.0	19.0	-	19.0m	Unassigned	
+	IN10052136	27/11	
+D. & N. MUSICAL WAY LIMITED
+10.0
+Not Started	0/21	53	88.0	15.0	-	15.0m	Unassigned	
+	IN10052133	27/11	
+VENDI LTD
+11.0
+Not Started	0/15	27	38.0	9.0	-	9.0m	Unassigned	
+	IN10052147	27/11	
+EKO CYPRUS LTD - Kyriakos P. Poiitis Ltd
+201.0
+Not Started	0/10	11	51.0	6.0	-	6.0m	Unassigned	
+	IN10052143	27/11	
+E&S SKOYROYMOYNH
+202.0
+Not Started	0/17	77	59.0	16.0	-	16.0m	Unassigned	
+	IN10052142	27/11	
+CP&GT LTD
+203.0
+Not Started	0/9	24	53.0	6.0	-	6.0m	Unassigned	
+	IN10052148	27/11	
+EKO CYPRUS LIMITED -RAM OIL - GRIVA DIGENI LARNACA S/S
+203.5
+Not Started	0/10	19	77.0	6.0	-	6.0m	Unassigned	
+	IN10052146	27/11	
+PETROLINA HOLDINGS PUBLIC LTD - S/S LARNACA AIRPORT
+204.0
+Not Started	0/28	47	14.0	16.0	-	16.0m	Unassigned	
+	IN10052144	27/11	
+MAYRIDHS ANESTIS
+205.0
+Not Started	0/29	69	104.0	22.0	-	22.0m	Unassigned	
+	IN10052145	27/11	
+EKO CYPRUS LIMITED -RAMOIL KITI
+206.0
+Not Started	0/10	12	88.0	6.0	-	6.0m	Unassigned	
+	IN10052140	27/11	
+EKO CYPRUS LIMITED -RAM OIL - MAKARIOS 162 SERVICE STATION
+7.0
+Picking	3/11	14	35.0	6.0	-	4.0m	Thierno	
+	IN10052139	30/11	
+PETROLINA HOLDINGS PUBLIC LTD - S/S AYIA FYLA
+4.0
+Ready for Dispatch	8/8	10	9.0	4.0	1min (Actual)	-	Polis	
+	IN10052134	30/11	
+ONOYFRIOY EYAGGELOS
+9.0
+Ready for Dispatch	3/3	7	65.0	3.0	23sec (Actual)	-	Polis	
+Order Summary
+Total Items
+810
+Total Weight
+1271.9 kg
+Total Time
+236.3 min
+EPLATTFORMA Picking System © 2025

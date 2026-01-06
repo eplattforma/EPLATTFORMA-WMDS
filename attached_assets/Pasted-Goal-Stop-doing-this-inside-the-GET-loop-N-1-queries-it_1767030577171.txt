@@ -1,0 +1,138 @@
+Goal
+
+Stop doing this inside the GET loop (N+1 queries):
+
+item = InvoiceItem.query.filter_by(invoice_no=row.invoice_no, item_code=row.item_code).first()
+
+
+Replace it with a single bulk fetch of all invoice items, then map by item_code.
+
+Replit instructions (step-by-step)
+1) Open the file and find the GET section
+
+In Replit, open routes.py.
+
+Find the route:
+
+@app.route('/picker/invoice/<invoice_no>/item', methods=['GET', 'POST'])
+def pick_item(invoice_no):
+
+
+Inside that function, locate the GET path where you run this raw SQL:
+
+result = db.session.execute(query, {'invoice_no': invoice_no})
+raw_items = result.fetchall()
+
+
+Immediately after that, you currently have the loop that does InvoiceItem.query.filter_by(...).first() for each row. That is what you will replace.
+
+2) Replace the N+1 loop with a bulk fetch + dictionary
+
+Delete or comment out this block (or the equivalent in your file):
+
+for row in raw_items:
+    item = InvoiceItem.query.filter_by(
+        invoice_no=row.invoice_no, 
+        item_code=row.item_code
+    ).first()
+    ...
+
+
+Replace it with the code below.
+
+Drop-in replacement code (recommended)
+
+Use .mappings() so you can access row fields by name reliably:
+
+# Run the optimized raw SQL query
+raw_rows = db.session.execute(query, {'invoice_no': invoice_no}).mappings().all()
+
+if not raw_rows:
+    flash('No items found for this invoice.', 'warning')
+    return redirect(url_for('picker_dashboard'))
+
+# BULK FETCH: load all invoice items once (eliminates N+1)
+invoice_items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
+items_by_code = {i.item_code: i for i in invoice_items}
+
+all_items = []
+items_to_pick = []
+locked_by_batches = []
+
+for r in raw_rows:
+    item_code = r.get('item_code')
+    if not item_code:
+        continue
+
+    item = items_by_code.get(item_code)
+    if not item:
+        continue
+
+    all_items.append(item)
+
+    item_status = r.get('item_status')
+
+    # Correct classification (no impossible checks)
+    if item_status == 'batch_locked':
+        locked_by_batches.append(item)
+        continue
+
+    if item_status in ('available', 'reset', 'skipped_pending'):
+        items_to_pick.append(item)
+
+
+This change reduces “next item” page load from 1 + N queries to 2 queries total (the raw SQL + the bulk ORM fetch).
+
+3) Remove the redundant “locked_by_batches” bug
+
+Your current code structure makes this condition impossible:
+
+if row.item_status in ['available', 'reset', 'skipped_pending']:
+    if row.item_status != 'batch_locked':
+        items_to_pick.append(item)
+    else:
+        locked_by_batches.append(item)
+
+
+After applying the replacement above, that bug is gone because batch_locked is handled explicitly.
+
+4) Confirm you did not break later logic
+
+After the replacement:
+
+all_items, items_to_pick, and locked_by_batches still exist.
+
+sorted_items_to_pick = items_to_pick still works.
+
+Your “if all remaining items are locked by batches” block remains valid.
+
+5) (Optional but strongly recommended) Remove repeated imports and extra queries
+
+You currently do:
+
+from sqlalchemy import text
+
+
+inside the function. You can leave it, but it’s cleaner to keep imports at top-level. This is not the performance issue; it’s just maintenance.
+
+Quick verification in Replit
+A) Use logs to confirm query count dropped
+
+Add one temporary log right after the bulk fetch:
+
+current_app.logger.info(
+    f"pick_item GET: raw_rows={len(raw_rows)} invoice_items={len(invoice_items)}"
+)
+
+
+Reload the picking screen and confirm it logs once per GET, without errors.
+
+B) Check that the next item advances faster
+
+After this change, confirm should feel noticeably quicker because the redirect GET is no longer doing dozens of queries.
+
+If you want an even cleaner implementation (optional)
+
+Instead of raw SQL + ORM fetch, you can do only one query using SQLAlchemy ORM with outerjoin to BatchPickingSession. But the bulk-fetch mapping above is the fastest, lowest-risk change with minimal refactor.
+
+If you paste the exact block currently in your GET loop (the section building all_items/items_to_pick/locked_by_batches), I can rewrite it precisely to match your variable names and row access style (tuple vs mapping) so it is guaranteed to drop in without adjustment.

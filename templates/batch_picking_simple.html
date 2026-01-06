@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+
+{% block title %}Create Simple Batch Picking Session - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1 class="display-5">
+            <i class="fas fa-layer-group me-2"></i>Create Simple Batch Picking Session
+        </h1>
+        <p class="text-muted">Quickly create a batch picking session</p>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end mt-3 mt-md-0">
+        <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Batches
+        </a>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>Create Batch Picking Session</h5>
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('batch.batch_picking_create_simple') }}">
+            <!-- Batch Name -->
+            <div class="mb-3">
+                <label for="session_name" class="form-label">Batch Session Name</label>
+                <input type="text" class="form-control" id="session_name" name="session_name" value="{{ session_name }}" required>
+                <div class="form-text">Enter a descriptive name for this batch picking session</div>
+            </div>
+            
+            <!-- Picking Mode Selection -->
+            <div class="mb-3">
+                <label for="picking_mode" class="form-label">Picking Mode</label>
+                <select class="form-select" id="picking_mode" name="picking_mode" required>
+                    <option value="Sequential" {% if picking_mode == 'Sequential' %}selected{% endif %}>
+                        Sequential - Pick one order at a time
+                    </option>
+                    <option value="Consolidated" {% if picking_mode == 'Consolidated' %}selected{% endif %}>
+                        Consolidated - Combine identical items across orders
+                    </option>
+                </select>
+                <div class="form-text">
+                    <strong>Sequential:</strong> Pickers will work through each order one at a time.<br>
+                    <strong>Consolidated:</strong> Identical items across multiple orders will be combined for more efficient picking.
+                </div>
+            </div>
+            
+            <!-- Assigned Picker -->
+            <div class="mb-3">
+                <label for="assigned_picker" class="form-label">Assign to Picker (Optional)</label>
+                <select class="form-select" id="assigned_picker" name="assigned_picker">
+                    <option value="">-- Select a Picker (Optional) --</option>
+                    {% for picker in pickers %}
+                    <option value="{{ picker.username }}">{{ picker.username }}</option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">Optionally assign this batch to a specific picker</div>
+            </div>
+            
+            <!-- Zone Selection -->
+            <div class="mb-3">
+                <label class="form-label">Select Zones to Include</label>
+                <div class="row" style="max-height: 300px; overflow-y: auto; border: 1px solid #dee2e6; padding: 10px; border-radius: 5px;">
+                    {% for zone in available_zones %}
+                    <div class="col-md-3 col-6 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" 
+                                   name="zones" value="{{ zone }}" id="zone_{{ zone }}">
+                            <label class="form-check-label" for="zone_{{ zone }}">
+                                {{ zone }}
+                            </label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="selectAllZones">
+                        <i class="fas fa-check-square me-1"></i>Select All
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="deselectAllZones">
+                        <i class="fas fa-square me-1"></i>Deselect All
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Invoice Selection -->
+            <div class="mb-3">
+                <label class="form-label">Select Invoices to Include (up to 5)</label>
+                <div class="row" style="max-height: 300px; overflow-y: auto; border: 1px solid #dee2e6; padding: 10px; border-radius: 5px;">
+                    {% for invoice in available_invoices %}
+                    <div class="col-md-6 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input invoice-checkbox" type="checkbox" 
+                                   name="invoices" value="{{ invoice.invoice_no }}" 
+                                   id="invoice_{{ invoice.invoice_no }}">
+                            <label class="form-check-label" for="invoice_{{ invoice.invoice_no }}">
+                                {{ invoice.invoice_no }} - {{ invoice.customer_name }}
+                            </label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="mt-2">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Only invoices in "Not Started" status are available for batch picking.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center mt-4">
+                <button type="submit" class="btn btn-lg btn-success">
+                    <i class="fas fa-plus-circle me-2"></i>Create Batch Picking Session
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Select all zones
+    document.getElementById('selectAllZones').addEventListener('click', function() {
+        var checkboxes = document.querySelectorAll('input[name="zones"]');
+        checkboxes.forEach(function(checkbox) {
+            checkbox.checked = true;
+        });
+    });
+    
+    // Deselect all zones
+    document.getElementById('deselectAllZones').addEventListener('click', function() {
+        var checkboxes = document.querySelectorAll('input[name="zones"]');
+        checkboxes.forEach(function(checkbox) {
+            checkbox.checked = false;
+        });
+    });
+    
+    // Count selected invoices and limit to 5
+    var invoiceCheckboxes = document.querySelectorAll('.invoice-checkbox');
+    invoiceCheckboxes.forEach(function(checkbox) {
+        checkbox.addEventListener('change', function() {
+            var checked = document.querySelectorAll('.invoice-checkbox:checked');
+            if (checked.length > 5) {
+                this.checked = false;
+                alert('You can only select up to 5 invoices for a batch picking session');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

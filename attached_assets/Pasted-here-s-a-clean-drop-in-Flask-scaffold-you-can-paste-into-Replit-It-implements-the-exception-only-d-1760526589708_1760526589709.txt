@@ -1,0 +1,797 @@
+here’s a clean, drop-in Flask scaffold you can paste into Replit. It implements the exception-only delivery wizard, creates discrepancies using your existing system, recalculates COD, stores POD, and exposes a printable receipt.
+
+📁 Project layout (suggested)
+.
+├─ app.py
+├─ models.py
+├─ services/
+│  ├─ ps365_client.py
+│  └─ cod.py
+├─ templates/
+│  ├─ stop_detail.html
+│  └─ deliver_wizard.html
+└─ static/
+   ├─ js/
+   │  ├─ deliver_exceptions.js
+   │  ├─ cod.js
+   │  └─ pod.js
+   └─ css/app.css
+
+app.py (routes & handlers)
+# app.py
+from flask import Flask, render_template, request, jsonify, abort, url_for, redirect
+from decimal import Decimal
+from datetime import datetime, timezone
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+import os
+
+from models import (
+    Route, RouteStop, Invoice, InvoiceLine, DeliveryEvent,
+    DeliveryLine, DeliveryDiscrepancy, DeliveryDiscrepancyEvent,
+    CODReceipt, PODRecord, RouteStatus, InvoiceStatus
+)
+from services.ps365_client import push_cash_receipt
+
+app = Flask(__name__)
+engine = create_engine(os.getenv("DATABASE_URL"), pool_pre_ping=True, future=True)
+
+# ---- Utilities ---------------------------------------------------------------
+
+def now():
+    return datetime.now(timezone.utc)
+
+def current_driver_id():
+    # replace with your auth (JWT/session). For now, a stub:
+    return 1001
+
+def require_in_transit_route(route):
+    if route.status != RouteStatus.IN_TRANSIT:
+        abort(409, description="Route not IN_TRANSIT")
+
+# ---- UI: Stop detail (links to Deliver wizard) ------------------------------
+
+@app.get("/stops/<int:stop_id>")
+def stop_detail(stop_id):
+    with Session(engine) as s:
+        stop = s.get(RouteStop, stop_id) or abort(404)
+        route = s.get(Route, stop.route_id)
+        # gather invoices & lines for display
+        invoices = (
+            s.query(Invoice).join(Invoice.route_stop_invoices)
+            .filter_by(route_stop_id=stop_id).all()
+        )
+        return render_template("stop_detail.html", stop=stop, route=route, invoices=invoices)
+
+# ---- UI: Deliver wizard (exception-only) ------------------------------------
+
+@app.get("/stops/<int:stop_id>/deliver")
+def deliver_wizard(stop_id):
+    with Session(engine) as s:
+        stop = s.get(RouteStop, stop_id) or abort(404)
+        route = s.get(Route, stop.route_id)
+        require_in_transit_route(route)
+        # Build flattened invoice lines payload for UI table
+        invoice_lines = (
+            s.query(InvoiceLine)
+            .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
+            .filter(Invoice.route_stop_id == stop_id)
+            .all()
+        )
+        # Minimal shape for template
+        lines = [{
+            "invoice_id": il.invoice_id,
+            "item_id": il.item_id,
+            "item_code": il.item_code,
+            "item_name": il.item_name,
+            "qty_ordered": float(il.qty_ordered),
+            "unit_price": float(il.unit_price or 0),
+        } for il in invoice_lines]
+
+        return render_template("deliver_wizard.html",
+                               stop=stop, route=route, lines=lines)
+
+# ---- POST: Deliver submit (exception-only payload) ---------------------------
+
+@app.post("/stops/<int:stop_id>/deliver")
+def submit_delivery(stop_id):
+    payload = request.get_json(force=True, silent=False)
+    exceptions = payload.get("exceptions", [])
+    invoice_ids = payload.get("invoice_ids", [])
+    cod = payload.get("cod", {}) or {}
+    pod = payload.get("pod", {}) or {}
+    gps = payload.get("gps", {}) or {}
+
+    with Session(engine) as s:
+        stop = s.get(RouteStop, stop_id) or abort(404)
+        route = s.get(Route, stop.route_id)
+        require_in_transit_route(route)
+
+        # Load ordered lines keyed by (invoice_id, item_id)
+        inv_lines = (
+            s.query(InvoiceLine)
+            .filter(InvoiceLine.invoice_id.in(invoice_ids))
+            .all()
+        )
+        by_key = {}
+        for il in inv_lines:
+            key = (il.invoice_id, il.item_id)
+            by_key[key] = {
+                "invoice_line": il,
+                "ordered": Decimal(il.qty_ordered),
+                "delivered": Decimal(il.qty_ordered),  # assume full
+                "short": Decimal("0"),
+                "dam_rej": Decimal("0"),
+            }
+
+        # Aggregate exceptions
+        discrepancy_records = []
+        for ex in exceptions:
+            ex_type = (ex.get("type") or "").upper()
+            item_id = ex.get("item_id")
+            qty = Decimal(str(ex.get("qty", 0) or 0))
+            notes = ex.get("notes") or ""
+            damaged_accepted = bool(ex.get("damagedAccepted", False))
+
+            # WRONG/EXTRA may have null item_id (unknown)
+            if item_id is not None:
+                # attach to known line if present
+                # pick any invoice_id from payload for key search
+                # better: include invoice_id per exception; for now we locate by first match
+                key = next((k for k in by_key.keys() if str(k[1]) == str(item_id)), None)
+            else:
+                key = None
+
+            # Store discrepancy record (driver reported)
+            disc = DeliveryDiscrepancy(
+                route_id=route.id,
+                route_stop_id=stop.id,
+                invoice_id=key[0] if key else None,
+                item_id=item_id,
+                discrepancy_type=ex_type,
+                qty=qty,
+                notes=notes,
+                reported_by=current_driver_id(),
+                reported_source="driver",
+                status="reported",
+                created_at=now()
+            )
+            s.add(disc)
+            s.flush()
+            s.add(DeliveryDiscrepancyEvent(
+                discrepancy_id=disc.id,
+                event_type="created",
+                actor_id=current_driver_id(),
+                notes="reported from driver app",
+                created_at=now(),
+            ))
+            discrepancy_records.append(disc)
+
+            # Adjust delivered derivation only for SHORT and DAMAGED(rejected)
+            if key in by_key:
+                if ex_type == "SHORT":
+                    by_key[key]["short"] += qty
+                elif ex_type == "DAMAGED" and not damaged_accepted:
+                    by_key[key]["dam_rej"] += qty
+                # WRONG/EXTRA does not reduce this line's delivered
+
+        # Clamp and compute delivered
+        delivery_lines = []
+        for key, agg in by_key.items():
+            ordered = agg["ordered"]
+            not_del = min(ordered, agg["short"] + agg["dam_rej"])
+            delivered = max(Decimal("0"), ordered - not_del)
+            agg["delivered"] = delivered
+
+            il = agg["invoice_line"]
+            dl = DeliveryLine(
+                route_id=route.id,
+                route_stop_id=stop.id,
+                invoice_id=il.invoice_id,
+                item_id=il.item_id,
+                qty_ordered=ordered,
+                qty_delivered=delivered,
+                created_at=now()
+            )
+            s.add(dl)
+            delivery_lines.append(dl)
+
+        # Compute COD expected from delivered
+        # (Unit prices from InvoiceLine; if you use invoice-level COD, replace policy accordingly)
+        cod_expected = Decimal("0.00")
+        for key, agg in by_key.items():
+            il = agg["invoice_line"]
+            price = Decimal(il.unit_price or 0)
+            cod_expected += price * agg["delivered"]
+
+        received = Decimal(str(cod.get("received", 0) or 0))
+        cod_method = (cod.get("method") or "cash").lower()
+        cod_note = cod.get("note") or ""
+        cod_variance = received - cod_expected
+
+        cod_receipt = None
+        if cod_expected > 0 or received > 0:
+            cod_receipt = CODReceipt(
+                route_id=route.id,
+                route_stop_id=stop.id,
+                driver_id=current_driver_id(),
+                invoice_ids=invoice_ids,
+                expected_amount=cod_expected,
+                received_amount=received,
+                method=cod_method,
+                note=cod_note,
+                created_at=now()
+            )
+            s.add(cod_receipt)
+            s.flush()
+            # Push to PS365 (safe-guard your client if offline)
+            try:
+                ps_ref = push_cash_receipt(cod_receipt, s)
+                cod_receipt.ps365_receipt_id = ps_ref
+            except Exception:
+                # log; allow later retry in back-office
+                pass
+
+        # Store POD
+        pod_rec = PODRecord(
+            route_id=route.id, route_stop_id=stop.id,
+            invoice_ids=invoice_ids,
+            has_physical_signed_invoice=bool(pod.get("has_physical_signed_invoice", True)),
+            receiver_name=pod.get("receiver_name", ""),
+            photos=pod.get("photos", []),
+            gps_lat=gps.get("lat"), gps_lng=gps.get("lng"),
+            collected_at=now(), collected_by=current_driver_id(),
+            notes=pod.get("notes", "")
+        )
+        s.add(pod_rec)
+
+        # Delivery event (aggregate)
+        s.add(DeliveryEvent(
+            route_id=route.id, route_stop_id=stop.id,
+            event_type="deliver",
+            payload={
+                "invoice_ids": invoice_ids,
+                "lines": [{"invoice_id": dl.invoice_id, "item_id": dl.item_id,
+                           "ordered": str(dl.qty_ordered), "delivered": str(dl.qty_delivered)} for dl in delivery_lines],
+                "exceptions": [{"id": d.id, "type": d.discrepancy_type, "qty": str(d.qty)} for d in discrepancy_records],
+                "cod": {"expected": str(cod_expected), "received": str(received), "variance": str(cod_variance)},
+                "pod_id": None  # set after flush if you need
+            },
+            gps=gps, created_at=now(), actor_id=current_driver_id()
+        ))
+
+        # Update invoices statuses to delivered (or keep failed elsewhere)
+        invs = s.query(Invoice).filter(Invoice.id.in_(invoice_ids)).all()
+        for inv in invs:
+            inv.status = InvoiceStatus.delivered
+
+        s.commit()
+
+        return jsonify({
+            "ok": True,
+            "cod": {"expected": float(cod_expected), "received": float(received), "variance": float(cod_variance)},
+            "print_url": url_for("print_receipt", receipt_id=cod_receipt.id, _external=False) if cod_receipt else None
+        })
+
+# ---- Printable COD receipt ---------------------------------------------------
+
+@app.get("/receipts/<int:receipt_id>/print")
+def print_receipt(receipt_id):
+    with Session(engine) as s:
+        rec = s.get(CODReceipt, receipt_id) or abort(404)
+        stop = s.get(RouteStop, rec.route_stop_id)
+        route = s.get(Route, rec.route_id)
+        invs = s.query(Invoice).filter(Invoice.id.in_(rec.invoice_ids)).all()
+        return render_template("receipt_58mm.html", receipt=rec, route=route, stop=stop, invoices=invs)
+
+# ---- Minimal health ----------------------------------------------------------
+
+@app.get("/")
+def root():
+    return redirect("/stops/1")  # adjust for your app
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=True)
+
+models.py (lean SQLAlchemy models / enums)
+
+Map these to your existing tables/columns. If names differ, adjust the class/table __tablename__ and columns accordingly.
+
+# models.py
+import enum
+from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
+from sqlalchemy import Integer, String, Enum, ForeignKey, DateTime, Numeric, JSON, Boolean, ARRAY
+
+Base = declarative_base()
+
+class RouteStatus(enum.Enum):
+    created="created"; PLANNED="PLANNED"; DISPATCHED="DISPATCHED"; IN_TRANSIT="IN_TRANSIT"; COMPLETED="COMPLETED"; CANCELLED="CANCELLED"
+
+class InvoiceStatus(enum.Enum):
+    not_started="not_started"; picking="picking"; awaiting_batch_items="awaiting_batch_items"; ready_for_dispatch="ready_for_dispatch"; shipped="shipped"; out_for_delivery="out_for_delivery"; delivered="delivered"; delivery_failed="delivery_failed"; returned_to_warehouse="returned_to_warehouse"; cancelled="cancelled"
+
+class Route(Base):
+    __tablename__ = "routes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String)
+    status: Mapped[RouteStatus] = mapped_column(Enum(RouteStatus))
+    driver_id: Mapped[int] = mapped_column(Integer)
+    started_at: Mapped[DateTime] = mapped_column(DateTime, nullable=True)
+
+class RouteStop(Base):
+    __tablename__ = "route_stops"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    route_id: Mapped[int] = mapped_column(ForeignKey("routes.id"))
+    customer_name: Mapped[str] = mapped_column(String)
+    address: Mapped[str] = mapped_column(String, nullable=True)
+    website: Mapped[str] = mapped_column(String, nullable=True)
+    sms: Mapped[str] = mapped_column(String, nullable=True)
+    notes: Mapped[str] = mapped_column(String, nullable=True)
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    number: Mapped[str] = mapped_column(String)
+    route_stop_id: Mapped[int] = mapped_column(ForeignKey("route_stops.id"))
+    status: Mapped[InvoiceStatus] = mapped_column(Enum(InvoiceStatus))
+    cod_amount: Mapped[Numeric] = mapped_column(Numeric(12,2), nullable=True)
+
+class InvoiceLine(Base):
+    __tablename__ = "invoice_lines"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"))
+    item_id: Mapped[int] = mapped_column(Integer)
+    item_code: Mapped[str] = mapped_column(String)
+    item_name: Mapped[str] = mapped_column(String)
+    qty_ordered: Mapped[Numeric] = mapped_column(Numeric(12,3))
+    unit_price: Mapped[Numeric] = mapped_column(Numeric(12,2), nullable=True)
+
+class DeliveryLine(Base):
+    __tablename__ = "delivery_lines"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    route_id: Mapped[int] = mapped_column(Integer)
+    route_stop_id: Mapped[int] = mapped_column(Integer)
+    invoice_id: Mapped[int] = mapped_column(Integer)
+    item_id: Mapped[int] = mapped_column(Integer)
+    qty_ordered: Mapped[Numeric] = mapped_column(Numeric(12,3))
+    qty_delivered: Mapped[Numeric] = mapped_column(Numeric(12,3))
+    created_at: Mapped[DateTime] = mapped_column(DateTime)
+
+class DeliveryDiscrepancy(Base):
+    __tablename__ = "delivery_discrepancies"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    route_id: Mapped[int] = mapped_column(Integer)
+    route_stop_id: Mapped[int] = mapped_column(Integer)
+    invoice_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    item_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    discrepancy_type: Mapped[str] = mapped_column(String)  # e.g. 'short_pick','damaged','wrong_item','extra_item'
+    qty: Mapped[Numeric] = mapped_column(Numeric(12,3))
+    notes: Mapped[str] = mapped_column(String, nullable=True)
+    photo_paths: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    reported_by: Mapped[int] = mapped_column(Integer)
+    reported_source: Mapped[str] = mapped_column(String)  # 'driver' | 'admin' | 'customer' | 'warehouse'
+    status: Mapped[str] = mapped_column(String)  # 'reported' | ...
+    created_at: Mapped[DateTime] = mapped_column(DateTime)
+
+class DeliveryDiscrepancyEvent(Base):
+    __tablename__ = "delivery_discrepancy_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    discrepancy_id: Mapped[int] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String)  # created|validated|resolved|closed
+    actor_id: Mapped[int] = mapped_column(Integer)
+    notes: Mapped[str] = mapped_column(String, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime)
+
+class CODReceipt(Base):
+    __tablename__ = "cod_receipts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    route_id: Mapped[int] = mapped_column(Integer)
+    route_stop_id: Mapped[int] = mapped_column(Integer)
+    driver_id: Mapped[int] = mapped_column(Integer)
+    invoice_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer))
+    expected_amount: Mapped[Numeric] = mapped_column(Numeric(12,2))
+    received_amount: Mapped[Numeric] = mapped_column(Numeric(12,2))
+    method: Mapped[str] = mapped_column(String)  # cash|card|mixed|bank
+    note: Mapped[str] = mapped_column(String, nullable=True)
+    ps365_receipt_id: Mapped[str] = mapped_column(String, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime)
+
+class PODRecord(Base):
+    __tablename__ = "pod_records"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    route_id: Mapped[int] = mapped_column(Integer)
+    route_stop_id: Mapped[int] = mapped_column(Integer)
+    invoice_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer))
+    has_physical_signed_invoice: Mapped[bool] = mapped_column(Boolean, default=True)
+    receiver_name: Mapped[str] = mapped_column(String, nullable=True)
+    photos: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    gps_lat: Mapped[float | None] = mapped_column()
+    gps_lng: Mapped[float | None] = mapped_column()
+    collected_at: Mapped[DateTime] = mapped_column(DateTime)
+    collected_by: Mapped[int] = mapped_column(Integer)
+    notes: Mapped[str] = mapped_column(String, nullable=True)
+
+class DeliveryEvent(Base):
+    __tablename__ = "delivery_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    route_id: Mapped[int] = mapped_column(Integer)
+    route_stop_id: Mapped[int] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String)  # deliver|fail|pause|resume|start|finish|return
+    payload: Mapped[dict] = mapped_column(JSON)
+    gps: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime)
+    actor_id: Mapped[int] = mapped_column(Integer)
+
+services/ps365_client.py (stub you can wire to your API)
+# services/ps365_client.py
+def push_cash_receipt(cod_receipt, session):
+    """
+    Call your PS365 API to register a cash receipt.
+    Return the PS365 receipt reference/string.
+    """
+    # TODO: implement actual HTTP call to PS365; for now return fake ref
+    return f"PSR-{cod_receipt.id:06d}"
+
+templates/stop_detail.html (top block + link to deliver)
+<!-- templates/stop_detail.html -->
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-3">
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="card-title">{{ stop.customer_name }}</h5>
+      {% set map_url = stop.website if stop.website else 'https://www.google.com/maps/dir/?api=1&destination=' + (stop.address|urlencode) %}
+      <a class="d-block" href="{{ map_url }}" target="_blank" rel="noopener">📍 {{ stop.address or 'Open in Maps' }}</a>
+      {% if stop.sms %}
+      <div class="mt-2 d-flex gap-2">
+        <a class="btn btn-sm btn-primary" href="tel:{{ stop.sms }}">Call</a>
+        <a class="btn btn-sm btn-outline-secondary" href="sms:{{ stop.sms }}">SMS</a>
+      </div>
+      {% endif %}
+      {% if stop.notes %}
+      <div class="mt-2 small text-muted">Notes: {{ stop.notes }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <a class="btn btn-success w-100" href="{{ url_for('deliver_wizard', stop_id=stop.id) }}">Deliver</a>
+</div>
+{% endblock %}
+
+templates/deliver_wizard.html (exception-only + COD + POD)
+<!-- templates/deliver_wizard.html -->
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-3" id="deliverApp"
+     data-stop-id="{{ stop.id }}"
+     data-invoice-ids="{{ lines|map(attribute='invoice_id')|list|unique|join(',') }}">
+
+  <h5 class="mb-2">{{ route.code }} — {{ stop.customer_name }}</h5>
+
+  <!-- Items table -->
+  <div class="card">
+    <div class="card-body">
+      <table class="table table-sm align-middle" id="itemsTable">
+        <thead>
+          <tr><th>Item</th><th class="text-end">Ordered</th><th class="text-end">Delivered</th><th class="text-end">Exceptions</th></tr>
+        </thead>
+        <tbody>
+          {% for l in lines %}
+          <tr data-item-id="{{ l.item_id }}" data-ordered="{{ l.qty_ordered|round(3) }}" data-price="{{ l.unit_price|round(2) }}">
+            <td>
+              <div class="fw-semibold">{{ l.item_code }}</div>
+              <small class="text-muted">{{ l.item_name }}</small>
+            </td>
+            <td class="text-end ord">{{ '%.3f'|format(l.qty_ordered) }}</td>
+            <td class="text-end del">{{ '%.3f'|format(l.qty_ordered) }}</td>
+            <td class="text-end">
+              <button type="button" class="btn btn-outline-warning btn-sm add-exc">Add Exception</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="small text-muted">
+        Totals: Ordered <span id="tOrd">0</span> • Delivered <span id="tDel">0</span> • Not delivered <span id="tNot">0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Exceptions list -->
+  <div class="card mt-3" id="excList" hidden>
+    <div class="card-header py-2">Exceptions</div>
+    <div class="list-group list-group-flush" id="excItems"></div>
+  </div>
+
+  <!-- COD + POD controls -->
+  <div class="card mt-3">
+    <div class="card-body">
+      <h6 class="mb-2">COD Collection (if any)</h6>
+      <div>Expected: € <strong id="codExpected">0.00</strong></div>
+      <div class="row g-2 mt-1">
+        <div class="col-6">
+          <label class="form-label">Received</label>
+          <input id="codReceived" type="number" step="0.01" inputmode="decimal" class="form-control" placeholder="0.00">
+        </div>
+        <div class="col-6">
+          <label class="form-label">Method</label>
+          <select id="codMethod" class="form-select">
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="mixed">Mixed</option>
+            <option value="bank">Bank</option>
+          </select>
+        </div>
+      </div>
+      <div class="mt-1">Variance: <span id="codVariance" class="fw-semibold">€ 0.00</span></div>
+      <div class="mt-2">
+        <label class="form-label">COD note (required if variance ≠ 0)</label>
+        <textarea id="codNote" class="form-control" rows="2"></textarea>
+      </div>
+
+      <hr>
+      <h6 class="mb-2">POD</h6>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="podSigned" checked>
+        <label class="form-check-label" for="podSigned">Signed invoice collected</label>
+      </div>
+      <div class="mt-2">
+        <label class="form-label">Receiver name (required if no signature)</label>
+        <input id="podReceiver" type="text" class="form-control" placeholder="">
+      </div>
+      <div class="mt-2">
+        <label class="form-label">Photo (optional)</label>
+        <input id="podPhotos" class="form-control" type="file" multiple accept="image/*;capture=camera,application/pdf">
+      </div>
+    </div>
+  </div>
+
+  <button id="submitDelivery" class="btn btn-primary w-100 mt-3">Confirm Delivery</button>
+
+</div>
+
+<!-- Add Exception Modal -->
+<div class="modal" id="excModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Add Exception</h5></div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Type</label>
+          <select id="excType" class="form-select">
+            <option value="SHORT">Short</option>
+            <option value="DAMAGED">Damaged</option>
+            <option value="WRONG">Wrong / Extra</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Quantity</label>
+          <input type="number" min="1" step="1" class="form-control" id="excQty" />
+        </div>
+        <div class="mb-2" id="damagedGroup" hidden>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="damAccepted" checked>
+            <label class="form-check-label" for="damAccepted">Accepted by customer (counts as delivered)</label>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Notes</label>
+          <textarea class="form-control" id="excNotes" rows="2"></textarea>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Photos (optional)</label>
+          <input class="form-control" id="excPhotos" type="file" multiple accept="image/*;capture=camera,application/pdf">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="saveExc">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/deliver_exceptions.js') }}"></script>
+<script src="{{ url_for('static', filename='js/cod.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pod.js') }}"></script>
+{% endblock %}
+
+static/js/deliver_exceptions.js (exception logic + submit)
+(() => {
+  const $app = document.getElementById('deliverApp');
+  const stopId = $app.dataset.stopId;
+  const invoiceIds = $app.dataset.invoiceIds.split(',').filter(Boolean).map(x=>parseInt(x,10));
+  const excModal = new bootstrap.Modal('#excModal');
+  const exceptions = []; // {item_id, type, qty, notes, damagedAccepted, photos[]}
+
+  function money(n){ return (Math.round(n*100)/100).toFixed(2); }
+
+  function recompute() {
+    let tOrd=0, tDel=0, tNot=0, codExp=0;
+    document.querySelectorAll('#itemsTable tbody tr').forEach(tr => {
+      const itemId = tr.dataset.itemId;
+      const ordered = parseFloat(tr.dataset.ordered);
+      const price = parseFloat(tr.dataset.price || '0');
+
+      const itemExc = exceptions.filter(x => String(x.item_id) === String(itemId));
+      const shortQty = itemExc.filter(e => e.type==='SHORT').reduce((s,e)=>s+(+e.qty||0),0);
+      const damRej  = itemExc.filter(e => e.type==='DAMAGED' && !e.damagedAccepted).reduce((s,e)=>s+(+e.qty||0),0);
+      const notDelivered = Math.min(ordered, shortQty + damRej);
+      const delivered = Math.max(0, ordered - notDelivered);
+      tr.querySelector('.del').textContent = delivered.toFixed(3);
+
+      tOrd += ordered; tDel += delivered; tNot += (ordered - delivered);
+      codExp += delivered * price;
+    });
+    document.getElementById('tOrd').textContent = tOrd.toFixed(3);
+    document.getElementById('tDel').textContent = tDel.toFixed(3);
+    document.getElementById('tNot').textContent = tNot.toFixed(3);
+
+    const ce = document.getElementById('codExpected');
+    if (ce) ce.textContent = money(codExp);
+
+    // render exceptions list
+    const list = document.getElementById('excItems');
+    list.innerHTML = '';
+    exceptions.forEach((e, idx) => {
+      const row = document.querySelector(`#itemsTable tr[data-item-id="${e.item_id}"]`);
+      const code = row?.querySelector('td .fw-semibold')?.textContent ?? '(unknown item)';
+      const meta = e.type==='DAMAGED' ? (e.damagedAccepted?' (accepted)':' (rejected)') : '';
+      const li = document.createElement('div');
+      li.className = 'list-group-item d-flex justify-content-between align-items-center';
+      li.innerHTML = `<div><strong>${e.type}</strong> • ${code} • qty ${e.qty}${meta}<br><small class="text-muted">${e.notes||''}</small></div>
+                      <button class="btn btn-sm btn-outline-danger" data-del="${idx}">Remove</button>`;
+      list.appendChild(li);
+    });
+    document.getElementById('excList').hidden = exceptions.length===0;
+    list.querySelectorAll('button[data-del]').forEach(btn => {
+      btn.onclick = () => { exceptions.splice(parseInt(btn.dataset.del),1); recompute(); };
+    });
+    recomputeVariance();
+  }
+
+  function recomputeVariance(){
+    const expected = parseFloat(document.getElementById('codExpected').textContent || '0');
+    const received = parseFloat(document.getElementById('codReceived').value || '0');
+    const variance = received - expected;
+    document.getElementById('codVariance').textContent = `€ ${money(variance)}`;
+  }
+
+  // add exception modal
+  let currentItemId = null;
+  document.querySelectorAll('.add-exc').forEach(btn => {
+    btn.addEventListener('click', e => {
+      currentItemId = e.target.closest('tr').dataset.itemId;
+      document.getElementById('excType').value = 'SHORT';
+      document.getElementById('excQty').value = '';
+      document.getElementById('excNotes').value = '';
+      document.getElementById('damagedGroup').hidden = true;
+      document.getElementById('damAccepted').checked = true;
+      excModal.show();
+    });
+  });
+
+  document.getElementById('excType').addEventListener('change', (e)=>{
+    document.getElementById('damagedGroup').hidden = (e.target.value !== 'DAMAGED');
+  });
+
+  document.getElementById('saveExc').addEventListener('click', ()=>{
+    const type = document.getElementById('excType').value;
+    const qty  = parseFloat(document.getElementById('excQty').value||'0');
+    if (!qty || qty < 0) return;
+    const notes = document.getElementById('excNotes').value.trim();
+    const damagedAccepted = document.getElementById('damAccepted').checked;
+    exceptions.push({ item_id: currentItemId, type, qty, notes, damagedAccepted, photos: [] });
+    excModal.hide();
+    recompute();
+  });
+
+  // COD interactions
+  ['input','change'].forEach(evt=>{
+    document.getElementById('codReceived').addEventListener(evt, recomputeVariance);
+    document.getElementById('codMethod').addEventListener(evt, ()=>{});
+  });
+
+  // POD minimal validation hook
+  document.getElementById('podSigned').addEventListener('change', (e)=>{
+    const signed = e.target.checked;
+    document.getElementById('podReceiver').required = !signed;
+  });
+
+  // Submit payload
+  document.getElementById('submitDelivery').addEventListener('click', async ()=>{
+    const codExpected = parseFloat(document.getElementById('codExpected').textContent || '0');
+    const codReceived = parseFloat(document.getElementById('codReceived').value || '0');
+    const codNote = document.getElementById('codNote').value.trim();
+    const variance = Math.abs(codReceived - codExpected);
+    if (variance > 0.0001 && !codNote){
+      alert('Variance note is required.');
+      return;
+    }
+
+    const payload = {
+      invoice_ids: invoiceIds,
+      exceptions: exceptions,
+      cod: { received: codReceived, method: document.getElementById('codMethod').value, note: codNote },
+      pod: {
+        has_physical_signed_invoice: document.getElementById('podSigned').checked,
+        receiver_name: document.getElementById('podReceiver').value,
+        photos: [] // you can attach uploaded files after uploading to server (multi-part)
+      },
+      gps: {} // plug in geolocation if you capture it
+    };
+
+    const res = await fetch(`/stops/${stopId}/deliver`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok){ alert(data.error || 'Failed'); return; }
+
+    if (data.print_url) window.open(data.print_url, '_blank');
+    // Go back to Stop detail or Stops list
+    window.location.href = `/stops/${stopId}`;
+  });
+
+  // Initial compute
+  recompute();
+})();
+
+static/js/cod.js (small helper – already integrated via deliver_exceptions.js)
+
+(You may leave this empty for now or move COD logic here later.)
+
+// reserved for future split/mixed methods, receipts preview, etc.
+
+static/js/pod.js (small helper – optional enhancements)
+// Optional: client-side image compression before upload.
+// For now, the example submits metadata only. You can implement multipart upload if required.
+
+templates/receipt_58mm.html (printable 58mm receipt)
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COD Receipt</title>
+<style>
+  @page { size: 58mm auto; margin: 4mm; }
+  body { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .line { display:flex; justify-content:space-between; }
+  .hr { border-top:1px dashed #000; margin:4px 0; }
+  .center { text-align:center; }
+</style>
+</head>
+<body onload="window.print()">
+  <div class="center">OfficeDepot.com.cy</div>
+  <div class="line"><span>Receipt</span><span>#{{ receipt.id }}</span></div>
+  <div class="line"><span>Date</span><span>{{ receipt.created_at }}</span></div>
+  <div class="line"><span>Route</span><span>{{ route.code }}</span></div>
+  <div class="line"><span>Customer</span><span>{{ stop.customer_name }}</span></div>
+  <div class="hr"></div>
+  <div class="line"><span>Expected</span><span>€ {{ "%.2f"|format(receipt.expected_amount) }}</span></div>
+  <div class="line"><span>Received</span><span>€ {{ "%.2f"|format(receipt.received_amount) }}</span></div>
+  <div class="line"><span>Method</span><span>{{ receipt.method }}</span></div>
+  {% if receipt.ps365_receipt_id %}
+  <div class="line"><span>PS365</span><span>{{ receipt.ps365_receipt_id }}</span></div>
+  {% endif %}
+  <div class="hr"></div>
+  <div>Invoices:</div>
+  {% for inv in invoices %}
+    <div class="line"><span>{{ inv.number }}</span><span>€ {{ "%.2f"|format(inv.cod_amount or 0) }}</span></div>
+  {% endfor %}
+  <div class="hr"></div>
+  <div class="center">Thank you</div>
+</body>
+</html>
+
+⚙️ Notes & wiring tips
+
+Map models to your real tables (column names may differ). Keep the logic intact.
+
+POD photos: if you need file uploads now, create /upload endpoint to receive multipart/form-data, save to uploads/, return URLs, and push into pod.photos.
+
+Wrong/Extra: if you need to capture barcode for unknown items, add barcode to the exception object and store it in DeliveryDiscrepancy (e.g., extra_meta JSON).
+
+Security: replace current_driver_id() with your auth (JWT/session).
+
+Guards: add checks to ensure exceptions qty ≤ ordered for SHORT & DAMAGED(rejected); the UI avoids it but back-end should enforce.

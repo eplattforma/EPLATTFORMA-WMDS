@@ -1,0 +1,91 @@
+Please do an audit pass to ensure ALL timestamps persisted to the DB are stored in UTC (consistent with UTCDateTime + get_utc_now). The goal is: “UTC in DB, local only for display”.
+
+1) Codebase audit (search/grep)
+   Search for the following patterns and list matches with file+line:
+   - get_local_time(
+   - get_local_now(
+   - datetime.now(
+   - astimezone(
+   - pytz.timezone('Europe/Athens') used in persistence paths
+   - tzinfo=None assignments near DB writes
+
+   (This quickly finds the remaining non-UTC writes and naive-now usage.)
+
+2) Replace local-time writes with UTC writes (highest priority)
+   For any DB field assignment that represents “event time / audit time / created_at / updated_at / started_at / completed_at / timestamp”:
+   - Replace get_local_time() with get_utc_now().
+   - Replace datetime.now() with get_utc_now().
+
+   IMPORTANT: Standardize “now for DB” to one helper so we don’t reintroduce naive/aware mismatches.
+   Add a helper in a central place (timezone_utils or a small time_helpers module), then use it everywhere:
+
+      from timezone_utils import get_utc_now
+
+      def utc_now_for_db():
+          n = get_utc_now()
+          # If UTCDateTime stores/returns naive UTC, use:
+          # return n.replace(tzinfo=None)
+          return n
+
+   Then update all writes to use utc_now_for_db().
+
+3) Known offender: item_tracking.py
+   Earlier you identified lines where ItemTimeTracking uses get_local_time():
+     item_started = get_local_time()
+     tracking.item_completed = get_local_time()
+
+   Change both to:
+     item_started = utc_now_for_db()
+     tracking.item_completed = utc_now_for_db()
+
+   Keep Athens conversion only when rendering.
+
+4) Fix duration calculations to use UTC (not local)
+   Any elapsed/delta calculations should be done in UTC to avoid DST surprises.
+   Example: ItemTimeTracking.calculate_metrics()
+   Current behavior converts to Athens then subtracts.
+   Adjust to:
+   - Compute delta in UTC:
+       start = self.item_started
+       end = self.item_completed
+       # normalize both to same “UTC naive or UTC aware” convention as utc_now_for_db()
+       delta = end - start
+       self.total_item_time = delta.total_seconds()
+   - Convert to Athens only for “time_of_day / day_of_week / peak_hours”:
+       local_start = format/localize start to Athens
+       hour = local_start.hour
+       day = local_start.strftime(...)
+
+5) Ensure display conversion is the ONLY place local timezone appears
+   For templates / JSON responses / admin pages:
+   - Use format_utc_datetime_to_local(dt) for display strings.
+   - Or localize_datetime(dt) if you need a datetime object.
+
+   Avoid persisting any result of localize_datetime()/get_local_time() into the DB.
+
+6) Treat get_local_now() as display-only (or remove/rename)
+   get_local_now() returns a naive local datetime, which is a footgun.
+   Either:
+   - Remove it if not needed, OR
+   - Rename to get_local_now_for_display_only() and confirm no DB writes use it.
+
+7) Data consistency check (optional but recommended)
+   If there are already rows written as Athens time:
+   - Identify affected tables/columns (e.g., item_time_tracking.item_started/item_completed, activity_logs.timestamp if previously written wrong, etc.)
+   - Run a one-off migration script to convert “stored Athens” -> UTC.
+
+   Conversion rules:
+   - If a stored datetime is tz-aware Athens: utc = dt.astimezone(pytz.UTC)
+   - If a stored datetime is naive but represents Athens local: utc = athens.localize(dt).astimezone(pytz.UTC)
+   - If DB expects naive UTC, strip tzinfo at the end.
+
+8) Verification
+   - Run one order through picking flow and verify:
+     - All newly written timestamps are UTC-consistent (same convention across tables).
+     - Alerts, idle timers, and durations increase correctly.
+     - UI displays Athens times correctly using formatter utilities.
+   - Specifically confirm no “offset-naive/offset-aware” TypeErrors occur.
+
+Deliverable:
+- PR/commit that removes ALL datetime.now() and get_local_time() usage from DB persistence paths, replacing with utc_now_for_db().
+- A short list of grep matches before/after, showing the cleanup.

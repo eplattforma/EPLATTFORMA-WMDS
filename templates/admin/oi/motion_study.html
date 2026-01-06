@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Time and Motion Study - {{ invoice.invoice_no }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="d-print-none mb-4 d-flex justify-content-between align-items-center">
+        <a href="{{ url_for('oi_time_admin.oi_time_params') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Parameters
+        </a>
+        <button onclick="window.print();" class="btn btn-primary">
+            <i class="fas fa-print"></i> Print Report
+        </button>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white p-4">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1 class="h3 mb-1">Time and Motion Study</h1>
+                    <p class="mb-0 opacity-75">Order: <strong>{{ invoice.invoice_no }}</strong> | Customer: {{ invoice.customer_name }}</p>
+                </div>
+                <div class="col-md-4 text-md-end">
+                    <div class="h2 mb-0">{{ (analysis.total_minutes)|round(1) }}</div>
+                    <div class="small text-uppercase opacity-75">Total Estimated Minutes</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-body p-4">
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="p-3 border rounded text-center bg-white shadow-sm">
+                        <div class="small text-black-50 text-uppercase fw-bold mb-1">Overhead</div>
+                        <div class="h4 mb-0 text-dark">{{ analysis.breakdown.overhead_seconds|round }}s</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="p-3 border rounded text-center bg-white shadow-sm">
+                        <div class="small text-black-50 text-uppercase fw-bold mb-1">Travel</div>
+                        <div class="h4 mb-0 text-dark">{{ analysis.breakdown.travel_seconds|round }}s</div>
+                        <div class="mt-2 small text-dark text-start border-top pt-2">
+                            <div class="d-flex justify-content-between">
+                                <span class="text-black-50">Walking:</span>
+                                <span class="fw-bold">{{ analysis.breakdown.travel_details.get('walking_seconds', 0)|round(1) }}s</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-black-50">Change:</span>
+                                <span class="fw-bold">{{ analysis.breakdown.travel_details.get('corridor_change_seconds', 0)|round(1) }}s</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-black-50">Align:</span>
+                                <span class="fw-bold">{{ analysis.breakdown.travel_details.get('align_seconds', 0)|round(1) }}s</span>
+                            </div>
+                            {% if analysis.breakdown.travel_details.get('stairs_seconds', 0) > 0 %}
+                            <div class="d-flex justify-content-between">
+                                <span class="text-black-50">Stairs:</span>
+                                <span class="fw-bold">{{ analysis.breakdown.travel_details.get('stairs_seconds', 0)|round(1) }}s</span>
+                            </div>
+                            {% endif %}
+                            {% if analysis.breakdown.travel_details.get('zone_switch_seconds', 0) > 0 %}
+                            <div class="d-flex justify-content-between">
+                                <span class="text-black-50">Zone:</span>
+                                <span class="fw-bold">{{ analysis.breakdown.travel_details.get('zone_switch_seconds', 0)|round(1) }}s</span>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="p-3 border rounded text-center bg-white shadow-sm">
+                        <div class="small text-black-50 text-uppercase fw-bold mb-1">Picking</div>
+                        <div class="h4 mb-0 text-dark">{{ analysis.breakdown.pick_seconds|round }}s</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="p-3 border rounded text-center bg-white shadow-sm">
+                        <div class="small text-black-50 text-uppercase fw-bold mb-1">Packing</div>
+                        <div class="h4 mb-0 text-dark">{{ analysis.breakdown.pack_seconds|round }}s</div>
+                    </div>
+                </div>
+            </div>
+
+            <h4 class="mb-3">Step-by-Step Activity Log</h4>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle border">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 50px;">#</th>
+                            <th>Activity / Step</th>
+                            <th>Description</th>
+                            <th>Location</th>
+                            <th class="text-end">Est. Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for action in actions %}
+                        <tr class="{% if action.type == 'overhead' %}table-info{% elif action.type == 'travel' %}table-light text-muted italic{% endif %}">
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <span class="badge {% if action.type == 'pick' %}bg-success{% elif action.type == 'travel' %}bg-secondary{% elif action.type == 'pack' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %} me-2">
+                                    {{ action.type|upper }}
+                                </span>
+                                <strong>{{ action.step }}</strong>
+                            </td>
+                            <td>
+                                <div>{{ action.description }}</div>
+                                {% if action.type == 'travel' and action.travel_details %}
+                                <div class="mt-1 x-small opacity-75 d-flex flex-wrap gap-2">
+                                    {% if action.travel_details.get('walking_seconds', 0) > 0 %}
+                                    <span><i class="fas fa-walking me-1"></i>Walk: {{ action.travel_details.get('walking_seconds', 0)|round(1) }}s</span>
+                                    {% endif %}
+                                    {% if action.travel_details.get('corridor_change_seconds', 0) > 0 %}
+                                    <span><i class="fas fa-exchange-alt me-1"></i>Corridor: {{ action.travel_details.get('corridor_change_seconds', 0)|round(1) }}s</span>
+                                    {% endif %}
+                                    {% if action.travel_details.get('stairs_seconds', 0) > 0 %}
+                                    <span><i class="fas fa-stairs me-1"></i>Stairs: {{ action.travel_details.get('stairs_seconds', 0)|round(1) }}s</span>
+                                    {% endif %}
+                                    {% if action.travel_details.get('align_seconds', 0) > 0 %}
+                                    <span><i class="fas fa-bullseye me-1"></i>Align: {{ action.travel_details.get('align_seconds', 0)|round(1) }}s</span>
+                                    {% endif %}
+                                    {% if action.travel_details.get('zone_switch_seconds', 0) > 0 %}
+                                    <span><i class="fas fa-layer-group me-1"></i>Zone: {{ action.travel_details.get('zone_switch_seconds', 0)|round(1) }}s</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td class="font-monospace">{{ action.location or '-' }}</td>
+                            <td class="text-end">
+                                {% if action.duration_sec == 'Variable' %}
+                                    <span class="text-muted small">Calculated</span>
+                                {% else %}
+                                    {{ action.duration_sec|round(1) }}s
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-5 pt-4 border-top">
+                <div class="row text-muted small">
+                    <div class="col-md-6">
+                        <p><strong>Parameters Version:</strong> {{ analysis.params_version }}</p>
+                        <p><strong>Methodology:</strong> Standard time and motion study based on warehouse layout metrics (v1).</p>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <p>Generated on: {{ current_athens_time() }}</p>
+                        <p>Authorized Signature: __________________________</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style type="text/css">
+    @media print {
+        body { background: white !important; }
+        .container { max-width: 100% !important; margin: 0 !important; padding: 0 !important; }
+        .card { border: none !important; box-shadow: none !important; }
+        .card-header { background: #333 !important; color: white !important; -webkit-print-color-adjust: exact; }
+        .table-light { background-color: #f8f9fa !important; -webkit-print-color-adjust: exact; }
+        .table-info { background-color: #cff4fc !important; -webkit-print-color-adjust: exact; }
+        .badge { border: 1px solid #333; color: black !important; background: transparent !important; }
+    }
+</style>
+{% endblock %}

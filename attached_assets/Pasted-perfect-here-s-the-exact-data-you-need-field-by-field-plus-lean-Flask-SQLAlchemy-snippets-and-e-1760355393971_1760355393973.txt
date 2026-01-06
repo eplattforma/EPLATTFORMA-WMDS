@@ -1,0 +1,233 @@
+perfect — here’s the exact data you need (field-by-field), plus lean Flask/SQLAlchemy snippets and example payloads so you can wire the screen immediately.
+
+Data needed
+A) Result row (list view)
+
+Shown in the right table (like /delivery-dashboard, no actions):
+
+IDs
+
+invoice_id (int, internal)
+
+order_number (string)
+
+invoice_number (string, shown & used for view)
+
+Dates
+
+completed_at (datetime — invoice completion)
+
+delivered_at (datetime — actual POD/delivery completion, optional)
+
+Customer
+
+customer_code (string)
+
+customer_name (string)
+
+Route / Driver
+
+route_code (string)
+
+driver_name (string)
+
+Totals
+
+total_ex_vat (decimal)
+
+vat_total (decimal)
+
+total_inc_vat (decimal, shown)
+
+Attachments / Flags
+
+has_invoice_pdf (bool)
+
+invoice_pdf_url (string)
+
+has_pod (bool, optional if you track POD)
+
+pod_url (string, optional)
+
+B) Detail (view button → modal)
+
+Header: all of the list-row fields above
+
+Line Items (array)
+
+sku (string)
+
+name (string)
+
+qty (decimal)
+
+price_ex_vat (decimal)
+
+vat_rate (decimal)
+
+line_total_ex_vat (decimal)
+
+line_vat (decimal)
+
+line_total_inc_vat (decimal)
+
+Query parameters (filters)
+
+q (free text: order/invoice/customer/route)
+
+invoice_from, invoice_to (YYYY-MM-DD)
+
+delivery_from, delivery_to (YYYY-MM-DD)
+
+customer_code
+
+route_code
+
+driver
+
+preset = today|yesterday|last7|this_month|last_month (applies to invoice dates)
+
+page (default 1), size (default 50, max 200)
+
+sort = completed_at_desc|completed_at_asc|total_desc|total_asc
+
+Minimal models
+class Invoice(db.Model):
+    __tablename__ = "invoices"
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_number = db.Column(db.String(40), index=True, nullable=False, unique=True)
+    order_number   = db.Column(db.String(40), index=True)
+
+    completed_at = db.Column(db.DateTime, index=True)
+    delivered_at = db.Column(db.DateTime, index=True)
+
+    customer_code = db.Column(db.String(32), index=True)
+    customer_name = db.Column(db.String(128), index=True)
+
+    route_code   = db.Column(db.String(32), index=True)
+    driver_name  = db.Column(db.String(64), index=True)
+
+    total_ex_vat  = db.Column(db.Numeric(12,2))
+    vat_total     = db.Column(db.Numeric(12,2))
+    total_inc_vat = db.Column(db.Numeric(12,2), index=True)
+
+    has_invoice_pdf = db.Column(db.Boolean, default=False, index=True)
+    invoice_pdf_url = db.Column(db.String(512))
+
+    # optional POD fields if you show them
+    has_pod   = db.Column(db.Boolean, default=False, index=True)
+    pod_url   = db.Column(db.String(512))
+
+    items = db.relationship("InvoiceItem", backref="invoice", lazy="select")
+
+class InvoiceItem(db.Model):
+    __tablename__ = "invoice_items"
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), index=True, nullable=False)
+    sku  = db.Column(db.String(60), index=True)
+    name = db.Column(db.String(255))
+    qty  = db.Column(db.Numeric(12,3))
+    price_ex_vat = db.Column(db.Numeric(12,4))
+    vat_rate     = db.Column(db.Numeric(5,2))
+    line_total_ex_vat  = db.Column(db.Numeric(12,2))
+    line_vat           = db.Column(db.Numeric(12,2))
+    line_total_inc_vat = db.Column(db.Numeric(12,2))
+
+Indexes to add
+CREATE INDEX idx_invoices_completed_route ON invoices (completed_at DESC, route_code);
+CREATE INDEX idx_invoices_customer_combo  ON invoices (customer_code, completed_at DESC);
+CREATE INDEX idx_invoices_driver_combo    ON invoices (driver_name, completed_at DESC);
+CREATE INDEX idx_items_invoice_sku        ON invoice_items (invoice_id, sku);
+
+API (concise)
+GET /reports/completed
+
+Returns: paginated rows + totals (ex VAT, VAT, inc VAT)
+
+def serialize_row(inv):
+    return {
+        "invoice_id": inv.id,
+        "invoice_number": inv.invoice_number,
+        "order_number": inv.order_number,
+        "completed_at": inv.completed_at.isoformat() if inv.completed_at else None,
+        "delivered_at": inv.delivered_at.isoformat() if inv.delivered_at else None,
+        "customer": {"code": inv.customer_code, "name": inv.customer_name},
+        "route_code": inv.route_code,
+        "driver": inv.driver_name,
+        "totals": {
+            "ex_vat": str(inv.total_ex_vat or 0),
+            "vat":    str(inv.vat_total or 0),
+            "inc_vat":str(inv.total_inc_vat or 0),
+        },
+        "has_invoice_pdf": inv.has_invoice_pdf,
+        "invoice_pdf_url": inv.invoice_pdf_url,
+    }
+
+
+Example response
+
+{
+  "page": 1,
+  "size": 50,
+  "count": 324,
+  "totals": { "ex_vat": "48210.00", "vat": "9159.90", "inc_vat": "57369.90" },
+  "items": [
+    {
+      "invoice_id": 10234,
+      "invoice_number": "INV-2025-000123",
+      "order_number": "SO-77541",
+      "completed_at": "2025-10-10T14:22:03",
+      "delivered_at": "2025-10-10T16:05:10",
+      "customer": { "code": "C001245", "name": "Acme Ltd" },
+      "route_code": "NICO-02",
+      "driver": "Andreas P.",
+      "totals": { "ex_vat": "120.00", "vat": "22.80", "inc_vat": "142.80" },
+      "has_invoice_pdf": true,
+      "invoice_pdf_url": "https://files…/INV-2025-000123.pdf"
+    }
+  ]
+}
+
+GET /reports/completed/<invoice_id>
+
+Returns header + line items for the modal.
+
+Example response
+
+{
+  "invoice_id": 10234,
+  "invoice_number": "INV-2025-000123",
+  "order_number": "SO-77541",
+  "completed_at": "2025-10-10T14:22:03",
+  "delivered_at": "2025-10-10T16:05:10",
+  "customer": { "code": "C001245", "name": "Acme Ltd" },
+  "route_code": "NICO-02",
+  "driver": "Andreas P.",
+  "totals": { "ex_vat": "120.00", "vat": "22.80", "inc_vat": "142.80" },
+  "has_invoice_pdf": true,
+  "invoice_pdf_url": "https://files…/INV-2025-000123.pdf",
+  "items": [
+    {
+      "sku": "HP-201A",
+      "name": "HP 201A Black Toner",
+      "qty": "2.000",
+      "price_ex_vat": "48.0000",
+      "vat_rate": "19.00",
+      "line_total_ex_vat": "96.00",
+      "line_vat": "18.24",
+      "line_total_inc_vat": "114.24"
+    }
+  ]
+}
+
+UI wiring notes
+
+Left filter panel posts the query params above to /reports/completed.
+
+Right table renders items[]; each row’s View button calls /reports/completed/<invoice_id> and shows the modal with line items.
+
+Re-use your /delivery-dashboard table component; hide action buttons via a prop/flag.
+
+Show header KPIs from totals (ex VAT / VAT / inc VAT).
+
+If you want, I can also provide a tiny front-end fetch/render snippet (vanilla JS) to pl

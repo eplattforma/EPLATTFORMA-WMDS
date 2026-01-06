@@ -1,0 +1,102 @@
+1) Your safe_sql verification query is likely broken (IN parameters)
+
+This block is very likely to error (or behave incorrectly) in SQLAlchemy:
+
+safe_sql = text("""
+    ...
+    WHERE invoice_no IN :invoice_nos
+    AND zone IN :zones
+    ...
+""")
+
+db.session.execute(safe_sql, {"invoice_nos": tuple(invoice_nos), "zones": tuple(zones_list), ...})
+
+
+In SQLAlchemy, IN :param does not expand tuples automatically unless you use bindparam(..., expanding=True) (and the SQL must be written as IN (:param) in most patterns). Without expansion, many DBs will treat the tuple as a single value, or raise a syntax/binding error.
+
+Fix (recommended)
+
+Either remove the raw SQL verification entirely (you already have ORM counts), or implement proper expanding bind params:
+
+from sqlalchemy import text, bindparam
+
+safe_sql = text("""
+    SELECT DISTINCT item_code, invoice_no, zone, location
+    FROM invoice_items
+    WHERE invoice_no IN :invoice_nos
+      AND zone IN :zones
+      AND is_picked = false
+      AND pick_status IN ('not_picked', 'reset', 'skipped_pending')
+      AND locked_by_batch_id = :batch_id
+    ORDER BY zone, location, item_code
+""").bindparams(
+    bindparam("invoice_nos", expanding=True),
+    bindparam("zones", expanding=True),
+)
+
+sql_result = db.session.execute(
+    safe_sql,
+    {"invoice_nos": invoice_nos, "zones": zones_list, "batch_id": self.id}
+).fetchall()
+
+
+If this “verification” block ever throws at runtime, it can break consolidated picking unexpectedly (depending on how errors are handled upstream).
+
+2) Your “sanity check” db_count ignores corridor/unit_type filters
+
+At the end of consolidated mode you compute:
+
+db_count = db.session.query(func.count(func.distinct(InvoiceItem.item_code))).filter(
+    InvoiceItem.invoice_no.in_(invoice_nos),
+    InvoiceItem.zone.in_(zones_list),
+    InvoiceItem.is_picked == False,
+    InvoiceItem.pick_status.in_([...]),
+    InvoiceItem.locked_by_batch_id == self.id
+).scalar()
+
+
+But earlier you optionally filter by corridors_list and unit_types_list. If those were set, this sanity check can falsely log “Count mismatch” even when everything is correct.
+
+Fix
+
+Include the same optional filters:
+
+filters = [
+    InvoiceItem.invoice_no.in_(invoice_nos),
+    InvoiceItem.zone.in_(zones_list),
+    InvoiceItem.is_picked == False,
+    InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending']),
+    InvoiceItem.locked_by_batch_id == self.id
+]
+
+if corridors_list:
+    filters.append(InvoiceItem.corridor.in_(corridors_list))
+
+if unit_types_list:
+    filters.append(InvoiceItem.unit_type.in_(unit_types_list))
+
+db_count = db.session.query(func.count(func.distinct(InvoiceItem.item_code))).filter(*filters).scalar()
+
+Smaller but important reliability notes
+A) zones.split(',') / corridors.split(',') should strip spaces
+
+If values can be stored like "A, B", your filters won’t match.
+
+zones_list = [z.strip() for z in self.zones.split(',') if z.strip()]
+corridors_list = [c.strip() for c in self.corridors.split(',') if c.strip()] if self.corridors else []
+unit_types_list = [u.strip() for u in self.unit_types.split(',') if u.strip()] if self.unit_types else []
+
+B) db.session.commit() inside a “getter” can cause side effects
+
+Your sequential advancement commits inside get_grouped_items(). If the calling route already manages a transaction, this can introduce partial commits or unexpected state.
+
+If you keep it, at least ensure it only runs within a request context and that you’re comfortable with “getter causes write”.
+
+C) Using Flask session inside a model method can crash outside request context
+
+This line can throw if invoked outside a request:
+
+from flask import session
+
+
+If any background job or CLI call hits it, it will fail.

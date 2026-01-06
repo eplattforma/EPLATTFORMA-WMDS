@@ -1,0 +1,171 @@
+Totally—let’s add a small, reusable utility function you can call from anywhere. We’ll keep it self-contained and read your existing Replit secrets.
+
+What we’ll create
+
+File: ps365_util.py
+
+Function: find_shelf_for_item_ps365(store: str, item: str, *, base_url: str | None = None, token: str | None = None) -> str | None
+
+Behavior: Uses POST /list_shelves (count → page) to find the first shelf that contains the given item in store. Reads PS365_BASE_URL and PS365_TOKEN from Replit Secrets if not passed.
+
+Quick CLI test so you can run it right away in the Replit Shell.
+
+1) Add the file
+
+Create ps365_util.py with this code:
+
+# ps365_util.py
+import os
+import requests
+from math import ceil
+from typing import Optional
+
+DEFAULT_PAGE_SIZE = 200
+DEFAULT_TIMEOUT = 15  # seconds
+
+class Ps365LookupError(RuntimeError):
+    pass
+
+def _require_env(name: str) -> str:
+    v = os.getenv(name, "").strip()
+    if not v:
+        raise Ps365LookupError(f"Missing required environment variable: {name}")
+    return v
+
+def _post_json(base_url: str, path: str, payload: dict, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    url = f"{base_url.rstrip('/')}{path}"
+    try:
+        r = requests.post(url, json=payload, timeout=timeout)
+        r.raise_for_status()
+        return r.json() or {}
+    except requests.RequestException as e:
+        raise Ps365LookupError(f"HTTP error calling {url}: {e}") from e
+    except ValueError as e:
+        raise Ps365LookupError(f"Non-JSON response from {url}") from e
+
+def find_shelf_for_item_ps365(
+    store: str,
+    item: str,
+    *,
+    base_url: Optional[str] = None,
+    token: Optional[str] = None,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    only_on_stock: bool = False,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> Optional[str]:
+    """
+    Returns the first shelf_code_365 that contains `item` in `store`, or None if not found.
+
+    Uses the Powersoft 365 POST /list_shelves endpoint with:
+    - only_counted='Y' to get total
+    - only_counted='N' to page through results
+    """
+    base_url = (base_url or os.getenv("PS365_BASE_URL", "")).strip()
+    token = (token or os.getenv("PS365_TOKEN", "")).strip()
+    if not base_url:
+        raise Ps365LookupError("PS365_BASE_URL not set")
+    if not token:
+        raise Ps365LookupError("PS365_TOKEN not set")
+
+    # 1) Count
+    count_payload = {
+        "api_credentials": {"token": token},
+        "filter_define": {
+            "page_number": 1,
+            "page_size": page_size,
+            "only_counted": "Y",
+            "shelf_code_365_selection": "",
+            "store_code_365_selection": str(store),
+            "item_code_365_selection": str(item),
+            "only_on_stock": bool(only_on_stock),
+        },
+    }
+    data = _post_json(base_url, "/list_shelves", count_payload, timeout=timeout)
+    total = int(data.get("total_count_list_shelves") or 0)
+    if total <= 0:
+        return None
+
+    # 2) Page until found
+    pages = max(1, ceil(total / page_size))
+    for page_number in range(1, pages + 1):
+        payload = {
+            "api_credentials": {"token": token},
+            "filter_define": {
+                "page_number": page_number,
+                "page_size": page_size,
+                "only_counted": "N",
+                "shelf_code_365_selection": "",
+                "store_code_365_selection": str(store),
+                "item_code_365_selection": str(item),
+                "only_on_stock": bool(only_on_stock),
+            },
+        }
+        page = _post_json(base_url, "/list_shelves", payload, timeout=timeout)
+        for shelf in page.get("list_shelves") or []:
+            shelf_code = shelf.get("shelf_code_365")
+            for row in shelf.get("list_items") or []:
+                if str(row.get("store_code_365")) == str(store) and str(row.get("item_code_365")).strip() == str(item).strip():
+                    return shelf_code
+    return None
+
+if __name__ == "__main__":
+    # Quick CLI smoke test:
+    # python ps365_util.py GLT-0027 777
+    import sys
+    if len(sys.argv) < 3:
+        print("Usage: python ps365_util.py <ITEM_CODE> <STORE_CODE>")
+        sys.exit(2)
+    item_code = sys.argv[1]
+    store_code = sys.argv[2]
+    try:
+        shelf = find_shelf_for_item_ps365(store=store_code, item=item_code)
+        if shelf:
+            print(f"Found shelf for item {item_code} in store {store_code}: {shelf}")
+            sys.exit(0)
+        else:
+            print(f"No shelf found for item {item_code} in store {store_code}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(3)
+
+2) Ensure dependency
+
+In requirements.txt (or Replit’s Packages tab), make sure requests is present:
+
+requests
+
+
+(Replit often already has it, but add it if missing.)
+
+3) Use your existing Replit secrets
+
+You said the token is already saved. Ensure these are in Replit → Tools → Secrets:
+
+PS365_BASE_URL → your Powersoft API base (no trailing slash)
+
+PS365_TOKEN → your token
+
+No code changes needed—ps365_util.py reads them automatically.
+
+4) Run a one-off test in the Replit Shell
+python ps365_util.py GLT-0027 777
+
+
+Success example: Found shelf for item GLT-0027 in store 777: 7006C03
+
+Not found: No shelf found for item GLT-0027 in store 777 (exit code 1)
+
+Config / network error: prints the error (exit code 3)
+
+5) How to call this from your app (integration later)
+
+Anywhere in your Flask code:
+
+from ps365_util import find_shelf_for_item_ps365
+
+shelf = find_shelf_for_item_ps365(store="777", item="GLT-0027")
+# -> e.g., "7006C03" or None
+
+
+That’s it. Once you confirm the test works, we’ll wire this function into your “Record Issue” save flow to store the shelf into delivery_discrepancies.shelf_code_365 and (optionally) upsert your local cache.

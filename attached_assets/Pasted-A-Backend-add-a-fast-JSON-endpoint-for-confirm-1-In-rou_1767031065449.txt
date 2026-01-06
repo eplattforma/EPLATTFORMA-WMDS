@@ -1,0 +1,201 @@
+A) Backend: add a fast JSON endpoint for confirm
+1) In routes.py, add a new route (near the picker routes)
+
+Add this endpoint (it reuses your existing confirm logic; keep it simple and safe):
+
+@app.route('/api/picker/invoice/<invoice_no>/confirm-pick', methods=['POST'])
+@login_required
+def api_confirm_pick(invoice_no):
+    if current_user.role != 'picker':
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    # Optional but recommended if you use CSRF site-wide:
+    # if not validate_csrf_token():
+    #     return jsonify({'ok': False, 'error': 'CSRF failed'}), 403
+
+    invoice = Invoice.query.get_or_404(invoice_no)
+
+    if invoice.assigned_to != current_user.username:
+        return jsonify({'ok': False, 'error': 'Not assigned to this invoice'}), 403
+
+    item_code = request.form.get('item_code')
+    if not item_code:
+        return jsonify({'ok': False, 'error': 'Missing item_code'}), 400
+
+    current_item = InvoiceItem.query.filter_by(invoice_no=invoice_no, item_code=item_code).first()
+    if not current_item:
+        return jsonify({'ok': False, 'error': 'Item not found'}), 404
+
+    if current_item.locked_by_batch_id is not None:
+        return jsonify({'ok': False, 'error': 'Item locked by batch picking'}), 409
+
+    try:
+        picked_qty = int(request.form.get('picked_qty', current_item.expected_pick_pieces or current_item.qty or 0))
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Invalid picked_qty'}), 400
+
+    expected_qty = current_item.expected_pick_pieces if current_item.expected_pick_pieces else current_item.qty
+    if expected_qty is not None and picked_qty > expected_qty:
+        return jsonify({'ok': False, 'error': 'Picked qty cannot exceed expected'}), 400
+
+    # --- Confirm logic (same as your existing confirm=true block) ---
+    current_item.is_picked = True
+    current_item.picked_qty = picked_qty
+
+    if expected_qty is not None and picked_qty == expected_qty:
+        current_item.pick_status = 'picked'
+    else:
+        current_item.pick_status = 'exception'
+
+    # Sync batch record if exists
+    from models import BatchPickedItem
+    batch_record = BatchPickedItem.query.filter_by(invoice_no=invoice_no, item_code=item_code).first()
+    if batch_record:
+        batch_record.picked_qty = picked_qty
+        db.session.add(batch_record)
+
+    # Create exception record if mismatch
+    if expected_qty is not None and picked_qty != expected_qty:
+        exception = PickingException()
+        exception.invoice_no = invoice_no
+        exception.item_code = item_code
+        exception.expected_qty = expected_qty
+        exception.picked_qty = picked_qty
+        exception.picker_username = current_user.username
+        exception.reason = request.form.get('reason')
+        db.session.add(exception)
+
+    db.session.commit()
+
+    # Status update (can stay here; it runs “in the background” from the picker’s perspective)
+    from batch_aware_order_status import update_order_status_batch_aware
+    status_summary = update_order_status_batch_aware(invoice_no)
+
+    # Decide where “Continue” should go
+    # If order is complete, send them to ready_for_packing, else next pick_item
+    # (We keep this simple—your GET already selects next available item)
+    next_url = url_for('pick_item', invoice_no=invoice_no)
+
+    # If your status_summary returns new_status, use it; otherwise check if any items remain quickly:
+    # (Optional optimization: a single EXISTS query is better than loading all items)
+    remaining = db.session.query(InvoiceItem.id).filter(
+        InvoiceItem.invoice_no == invoice_no,
+        InvoiceItem.is_picked == False,
+        (InvoiceItem.locked_by_batch_id.is_(None))
+    ).first()
+
+    if not remaining:
+        next_url = url_for('ready_for_packing', invoice_no=invoice_no)
+
+    return jsonify({'ok': True, 'next_url': next_url})
+
+
+Key point: this endpoint returns JSON quickly and does not redirect.
+
+B) Frontend: change showNextLocationAndSubmit() to use fetch (no normal submit)
+2) In templates/picking.html, locate showNextLocationAndSubmit()
+
+Replace the “submit the form” part with an async background POST.
+
+Example implementation:
+
+<script>
+async function showNextLocationAndSubmit() {
+  const modal = document.getElementById('nextLocationModal');
+  const statusEl = document.getElementById('nextLocationStatus');   // add this in modal
+  const continueBtn = document.getElementById('nextLocationContinue'); // add this in modal
+
+  // 1) Show modal immediately (so picker can start walking)
+  statusEl.textContent = 'Saving pick...';
+  continueBtn.disabled = true;
+  modal.classList.add('show');
+
+  // Allow the browser to paint the modal before starting network work
+  await new Promise(r => setTimeout(r, 0));
+
+  const form = document.getElementById('pickForm');
+  const formData = new FormData(form);
+
+  // 2) Background save
+  try {
+    const invoiceNo = formData.get('invoice_no'); // ensure you have this field; if not, embed invoice in JS
+    const url = `/api/picker/invoice/${encodeURIComponent(invoiceNo)}/confirm-pick`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'fetch'
+      },
+      // keepalive helps if the user navigates away quickly
+      keepalive: true
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      statusEl.textContent = 'Save failed: ' + (data.error || 'Unknown error');
+      continueBtn.disabled = false;
+      continueBtn.textContent = 'Retry';
+      continueBtn.onclick = () => showNextLocationAndSubmit();
+      return;
+    }
+
+    // 3) Saved successfully -> enable Continue navigation
+    statusEl.textContent = 'Saved. Continue when ready.';
+    continueBtn.disabled = false;
+    continueBtn.textContent = 'Continue';
+    continueBtn.onclick = () => {
+      window.location.href = data.next_url;
+    };
+
+    // Optional: auto-continue after a short delay
+    // setTimeout(() => window.location.href = data.next_url, 300);
+
+  } catch (err) {
+    statusEl.textContent = 'Network error while saving.';
+    continueBtn.disabled = false;
+    continueBtn.textContent = 'Retry';
+    continueBtn.onclick = () => showNextLocationAndSubmit();
+  }
+}
+</script>
+
+3) Ensure your form includes invoice_no (required by JS)
+
+In the picking form, ensure you have:
+
+<input type="hidden" name="invoice_no" value="{{ invoice.invoice_no }}">
+
+
+(If you already have it, do nothing.)
+
+4) Change the Confirm button to call the function and NOT submit normally
+
+Make Confirm a button that does not submit by default:
+
+<button type="button" class="btn btn-success" onclick="showNextLocationAndSubmit()">
+  Confirm
+</button>
+
+
+If you keep it as type="submit", the browser will still do a normal POST and you lose the benefit.
+
+C) Minimal modal additions (so the picker gets feedback)
+
+Inside nextLocationModal, add:
+
+<div id="nextLocationStatus">Saving pick...</div>
+<button id="nextLocationContinue" type="button" disabled>Continue</button>
+
+What this fixes (in practical terms)
+
+Picker sees Next Location instantly and can start walking.
+
+The confirm save runs without blocking navigation/UI.
+
+When the save completes, you either:
+
+let the picker hit Continue (best UX), or
+
+auto-navigate after a short delay.

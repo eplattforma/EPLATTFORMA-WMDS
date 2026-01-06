@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ batch.batch_number or 'Batch #' ~ batch.id }} - EPLATTFORMA Picking System{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="d-flex align-items-center mb-2">
+            <h1 class="display-5 mb-0">
+                <i class="fas fa-layer-group me-2"></i>{{ batch.name }}
+            </h1>
+            <span class="badge bg-dark ms-3 fs-5">{{ batch.batch_number or 'BATCH-' ~ batch.id }}</span>
+        </div>
+        <p class="text-muted">Created on {{ batch.created_at.strftime('%d/%m/%y %H:%M') }}</p>
+    </div>
+    <div class="col-md-4 text-md-end d-flex align-items-center justify-content-md-end mt-3 mt-md-0">
+        {% if batch.status == 'In Progress' and current_user.role == 'admin' %}
+        <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id, debug='true') }}" class="btn btn-warning me-2">
+            <i class="fas fa-bug me-2"></i>Debug Items
+        </a>
+        {% endif %}
+        <a href="{{ url_for('batch.batch_picking_manage') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Batches
+        </a>
+    </div>
+</div>
+
+<!-- Batch Status Card -->
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Batch Details</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Status:</label>
+                    <div>
+                        <span class="badge bg-{{ 'success' if batch.status == 'Completed' else 'warning' if batch.status == 'In Progress' else 'secondary' }}">
+                            {{ batch.status }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Created By:</label>
+                    <div>{{ batch.created_by }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Assigned To:</label>
+                    <div>{% if batch.assigned_to %}{{ batch.assigned_to }}{% else %}Not assigned{% endif %}</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Zones:</label>
+                    <div>{{ batch.zones }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Picking Mode:</label>
+                    <div>{{ batch.picking_mode }}</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Total Invoices:</label>
+                    <div>{{ total_invoices }}</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Progress Bars -->
+        <div class="row mt-3">
+            <div class="col-md-6">
+                <h6>Item Completion: {{ picked_items }} / {{ total_items }} ({{ completion_percentage|round(1) }}%)</h6>
+                <div class="progress mb-3" style="height: 25px;">
+                    <div class="progress-bar {{ 'bg-success' if completion_percentage == 100 else 'bg-primary' }}" 
+                         role="progressbar" 
+                         style="width: {{ completion_percentage }}%" 
+                         aria-valuenow="{{ completion_percentage }}" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100">
+                        {{ picked_items }} / {{ total_items }} Items
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <h6>Invoice Completion: {{ completed_invoices }} / {{ total_invoices }} ({{ invoice_completion_percentage|round(1) }}%)</h6>
+                <div class="progress mb-3" style="height: 25px;">
+                    <div class="progress-bar {{ 'bg-success' if invoice_completion_percentage == 100 else 'bg-primary' }}" 
+                         role="progressbar" 
+                         style="width: {{ invoice_completion_percentage }}%" 
+                         aria-valuenow="{{ invoice_completion_percentage }}" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100">
+                        {{ completed_invoices }} / {{ total_invoices }} Invoices
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="row mt-3">
+            <div class="col-12">
+                <div class="d-flex gap-2">
+                    {% if batch.status != 'Completed' %}
+                        {% if batch.assigned_to %}
+                            <a href="{{ url_for('batch.batch_picking_unassign', batch_id=batch.id) }}" class="btn btn-warning">
+                                <i class="fas fa-user-minus me-2"></i>Unassign Picker
+                            </a>
+                        {% else %}
+                            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#assignPickerModal">
+                                <i class="fas fa-user-plus me-2"></i>Assign Picker
+                            </button>
+                        {% endif %}
+                    {% endif %}
+                    
+                    <!-- Show Print Picking Report when items are picked but not yet packed -->
+                    {% if picked_items > 0 %}
+                        <a href="{{ url_for('batch.batch_admin_print_report', batch_id=batch.id) }}" class="btn btn-success" target="_blank">
+                            <i class="fas fa-print me-2"></i>Print Picking Report
+                        </a>
+                    {% endif %}
+                    
+                    <a href="{{ url_for('batch.batch_print_reports', batch_id=batch.id) }}" class="btn btn-outline-success">
+                        <i class="fas fa-list me-2"></i>View Reports
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Invoices Card -->
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="fas fa-file-invoice me-2"></i>Invoices in Batch</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Invoice #</th>
+                        <th>Customer</th>
+                        <th>Items</th>
+                        <th>Progress</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bi, invoice in batch_invoices %}
+                    <tr>
+                        <td>{{ invoice.invoice_no }}</td>
+                        <td>{{ invoice.customer_name }}</td>
+                        <td>
+                            {% set items = invoice_items[invoice.invoice_no] %}
+                            {% set item_count = items|length %}
+                            {% set picked_count = items|selectattr('is_picked', 'eq', true)|list|length %}
+                            {{ picked_count }} / {{ item_count }}
+                        </td>
+                        <td style="width: 200px;">
+                            {% set percentage = (picked_count / item_count * 100) if item_count > 0 else 0 %}
+                            <div class="progress">
+                                <div class="progress-bar {{ 'bg-success' if percentage == 100 else 'bg-primary' }}" 
+                                     role="progressbar" 
+                                     style="width: {{ percentage }}%" 
+                                     aria-valuenow="{{ percentage }}" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
+                                    {{ percentage|round }}%
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-{{ 'success' if bi.is_completed else 'warning' if picked_count > 0 else 'secondary' }}">
+                                {{ 'Completed' if bi.is_completed else 'In Progress' if picked_count > 0 else 'Not Started' }}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('admin_view_invoice', invoice_no=invoice.invoice_no) }}" class="btn btn-sm btn-primary">
+                                <i class="fas fa-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Picker Modal -->
+<div class="modal fade" id="assignPickerModal" tabindex="-1" aria-labelledby="assignPickerModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="assignPickerModalLabel">Assign Picker to Batch</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="post" action="{{ url_for('batch.batch_picking_assign', batch_id=batch.id) }}">
+                    <div class="mb-3">
+                        <label for="assignedPicker" class="form-label">Select Picker</label>
+                        <select class="form-select" id="assignedPicker" name="picker" required>
+                            <option value="">-- Select a Picker --</option>
+                            {% for p in pickers %}
+                            <option value="{{ p.username }}">{{ p.username }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Assign Picker</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

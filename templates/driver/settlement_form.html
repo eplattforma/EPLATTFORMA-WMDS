@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Settlement - Route #{{ route.id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{{ url_for('driver.routes_list') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+        <h5 class="mb-0">Settlement - Route #{{ route.id }}</h5>
+        {% if current_user.role == 'admin' %}
+        <a href="{{ url_for('routes.reconciliation_report', shipment_id=route.id) }}" class="btn btn-sm btn-info">
+            <i class="fas fa-file-invoice"></i> Full Reconciliation
+        </a>
+        {% else %}
+        <span></span>
+        {% endif %}
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header bg-info text-white">
+            <strong><i class="fas fa-info-circle"></i> Route Summary</strong>
+        </div>
+        <div class="card-body">
+            <p class="mb-1"><strong>Driver:</strong> {{ route.driver_name }}</p>
+            <p class="mb-1"><strong>Date:</strong> {{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else 'N/A' }}</p>
+            <p class="mb-0"><strong>Status:</strong> <span class="badge bg-{{ 'success' if route.status == 'IN_TRANSIT' else 'secondary' }}">{{ route.status }}</span></p>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header bg-success text-white">
+            <strong><i class="fas fa-money-bill-wave"></i> COD Summary</strong>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Receipt ID</th>
+                        <th>Stop</th>
+                        <th class="text-end">Expected</th>
+                        <th class="text-end">Received</th>
+                        <th class="text-end">Variance</th>
+                        <th>Method</th>
+                        <th class="text-center">Print</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for receipt in cod_receipts %}
+                    <tr>
+                        <td>#{{ receipt.id }}</td>
+                        <td>{{ receipt.stop.customer_name if receipt.stop else 'N/A' }}</td>
+                        <td class="text-end">€{{ "%.2f"|format(receipt.expected_amount) }}</td>
+                        <td class="text-end">€{{ "%.2f"|format(receipt.received_amount) }}</td>
+                        <td class="text-end">
+                            {% if receipt.variance > 0 %}
+                            <span class="text-success">+€{{ "%.2f"|format(receipt.variance) }}</span>
+                            {% elif receipt.variance < 0 %}
+                            <span class="text-danger">€{{ "%.2f"|format(receipt.variance) }}</span>
+                            {% else %}
+                            €0.00
+                            {% endif %}
+                        </td>
+                        <td>{{ receipt.payment_method|upper }}</td>
+                        <td class="text-center">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <a href="{{ url_for('driver.print_receipt_80mm', receipt_id=receipt.id) }}" 
+                                   target="_blank" 
+                                   class="btn btn-outline-primary btn-sm"
+                                   title="Print 80mm Receipt">
+                                    <i class="fas fa-print"></i> 80mm
+                                </a>
+                                <a href="{{ url_for('driver.print_receipt', receipt_id=receipt.id) }}" 
+                                   target="_blank" 
+                                   class="btn btn-outline-secondary btn-sm"
+                                   title="Print 58mm Receipt">
+                                    <i class="fas fa-receipt"></i> 58mm
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="2">TOTAL</td>
+                        <td class="text-end">€{{ "%.2f"|format(total_expected) }}</td>
+                        <td class="text-end">€{{ "%.2f"|format(total_received) }}</td>
+                        <td class="text-end">
+                            {% if total_variance > 0 %}
+                            <span class="text-success">+€{{ "%.2f"|format(total_variance) }}</span>
+                            {% elif total_variance < 0 %}
+                            <span class="text-danger">€{{ "%.2f"|format(total_variance) }}</span>
+                            {% else %}
+                            €0.00
+                            {% endif %}
+                        </td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    {% if settlement_info.submitted %}
+    <div class="card mb-3 border-success">
+        <div class="card-header bg-success text-white">
+            <strong><i class="fas fa-check-circle"></i> Settlement Submitted</strong>
+        </div>
+        <div class="card-body">
+            <p class="mb-1"><strong>Amount Submitted:</strong> €{{ "%.2f"|format(settlement_info.submitted_amount) }}</p>
+            <p class="mb-1"><strong>Submitted At:</strong> {{ settlement_info.submitted_at|local_time }}</p>
+            
+            {% if settlement_info.cleared %}
+            <div class="alert alert-success mt-3 mb-0">
+                <i class="fas fa-check-double"></i> <strong>Cleared</strong> by {{ settlement_info.cleared_by }} at {{ settlement_info.cleared_at|local_time }}
+            </div>
+            {% else %}
+            <div class="alert alert-warning mt-3 mb-0">
+                <i class="fas fa-hourglass-half"></i> Awaiting admin clearance
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="card mb-3">
+        <div class="card-header bg-primary text-white">
+            <strong><i class="fas fa-file-invoice-dollar"></i> Submit Settlement</strong>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> Submit the total amount you're handing over for this route. Admin will verify and complete the settlement.
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Total Amount to Submit</label>
+                <div class="input-group">
+                    <span class="input-group-text">€</span>
+                    <input type="number" step="0.01" class="form-control" id="settlement-amount" 
+                           value="{{ total_received }}" placeholder="0.00">
+                </div>
+                <small class="text-muted">Expected: €{{ "%.2f"|format(total_received) }}</small>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Notes (Optional)</label>
+                <textarea class="form-control" id="settlement-notes" rows="3" 
+                          placeholder="Any notes about the settlement..."></textarea>
+            </div>
+            
+            <div class="d-grid">
+                <button class="btn btn-success btn-lg" onclick="submitSettlement()">
+                    <i class="fas fa-paper-plane"></i> Submit Settlement
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+const routeId = {{ route.id }};
+
+async function submitSettlement() {
+    const amount = parseFloat(document.getElementById('settlement-amount').value) || 0;
+    const notes = document.getElementById('settlement-notes').value;
+    
+    if (amount <= 0) {
+        alert('Please enter a valid amount');
+        return;
+    }
+    
+    if (!confirm(`Submit settlement of €${amount.toFixed(2)}?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/driver/routes/${routeId}/settlement/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, notes })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('Settlement submitted successfully!');
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to submit settlement');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error submitting settlement. Please try again.');
+    }
+}
+</script>
+{% endblock %}

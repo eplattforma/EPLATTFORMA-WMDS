@@ -1,0 +1,129 @@
+Goal
+
+When the dashboard loads:
+
+Show only active / in-progress routes (no completed).
+
+Do not preload invoices for any route group.
+
+When the user clicks or expands a group (e.g. “Route NICO-03”),
+→ then fetch invoices for that route via an API call.
+
+🧠 Step-by-step logic
+1️⃣ Modify your Flask backend query
+
+In your /delivery-dashboard route (or API), update it to only load active routes.
+
+# delivery_dashboard.py
+
+@bp.get("/api/delivery-dashboard")
+def get_dashboard_routes():
+    """Return only routes that are active or pending, not completed."""
+    q = Route.query.filter(Route.status != "Completed")  # adjust if field differs
+    routes = q.order_by(Route.created_at.desc()).all()
+
+    return jsonify([
+        {
+            "id": r.id,
+            "route_code": r.route_code,
+            "driver": r.driver_name,
+            "vehicle": r.vehicle_code,
+            "status": r.status,
+            "stops": r.stop_count,
+            # ❌ Do not include invoices or completed deliveries here
+        }
+        for r in routes
+    ])
+
+
+✅ Result — the dashboard now only shows active routes and basic data.
+No invoices or completed routes are included.
+
+2️⃣ Create a new endpoint for lazy loading invoices per route
+
+When the user expands a group, your frontend should call this:
+
+@bp.get("/api/delivery-dashboard/<int:route_id>/invoices")
+def get_route_invoices(route_id):
+    """Load invoices for a specific route when requested."""
+    route = Route.query.get_or_404(route_id)
+
+    invoices = Invoice.query.filter_by(route_code=route.route_code).all()
+
+    return jsonify([
+        {
+            "id": inv.id,
+            "invoice_number": inv.invoice_number,
+            "order_number": inv.order_number,
+            "customer": inv.customer_name,
+            "total_inc_vat": str(inv.total_inc_vat),
+            "status": inv.status,
+        }
+        for inv in invoices
+    ])
+
+
+✅ This keeps your dashboard lightweight and loads only what the user needs.
+
+3️⃣ Frontend (Replit / Flask template or JS)
+
+If you’re rendering the dashboard in the browser (JS or Jinja):
+
+Initial page load: call /api/delivery-dashboard and render the list of active routes.
+
+Each route row has an expand button:
+
+async function toggleRouteGroup(routeId) {
+  const container = document.querySelector(`#route-${routeId} .invoices`);
+  if (container.dataset.loaded === "true") {
+    container.classList.toggle("hidden");
+    return;
+  }
+
+  const res = await fetch(`/api/delivery-dashboard/${routeId}/invoices`);
+  const data = await res.json();
+
+  container.innerHTML = data.map(i => `
+    <div class="invoice-row">
+      <span>${i.invoice_number}</span>
+      <span>${i.customer}</span>
+      <span>${i.total_inc_vat} €</span>
+    </div>
+  `).join("");
+
+  container.dataset.loaded = "true";
+  container.classList.remove("hidden");
+}
+
+
+✅ When the user opens a route, invoices load dynamically via AJAX/fetch.
+✅ On subsequent toggles, no re-fetch — just show/hide the existing list.
+
+4️⃣ Optional: lazy-load completed routes separately
+
+If you also want a button like “Show completed routes”, add one more endpoint:
+
+@bp.get("/api/delivery-dashboard/completed")
+def get_completed_routes():
+    """Load completed routes on demand (not at initial load)."""
+    routes = Route.query.filter(Route.status == "Completed").order_by(Route.completed_at.desc()).limit(50).all()
+    return jsonify([
+        {"id": r.id, "route_code": r.route_code, "driver": r.driver_name, "completed_at": r.completed_at.isoformat()}
+        for r in routes
+    ])
+
+
+Then on the frontend:
+
+async function loadCompletedRoutes() {
+  const res = await fetch('/api/delivery-dashboard/completed');
+  const data = await res.json();
+  renderCompletedRoutes(data);
+}
+
+✅ Summary of Replit instructions
+File	Change
+delivery_dashboard.py	Modify main endpoint to exclude completed routes
+	Add /api/delivery-dashboard/<route_id>/invoices for on-demand loading
+	(Optional) Add /api/delivery-dashboard/completed for completed routes
+Frontend JS	Don’t preload invoices. Use fetch() when route is expanded. Cache after first load.

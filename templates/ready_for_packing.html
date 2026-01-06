@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+
+{% block title %}Ready for Packing - {{ invoice.invoice_no }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card border-primary">
+                <div class="card-header bg-primary text-white">
+                    <h4>Picking Complete - Ready for Packing</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-success">
+                        <h5><i class="fas fa-check-circle"></i> All items have been picked successfully!</h5>
+                        <p>Please proceed to the packing station to complete the order.</p>
+                    </div>
+                    
+                    <div class="invoice-details mb-4">
+                        <h5 class="border-bottom pb-2">Order Details</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>Invoice #:</strong> {{ invoice.invoice_no }}</p>
+                                <p><strong>Customer:</strong> {{ invoice.customer_name }}</p>
+                                {% if invoice.routing %}
+                                <p><strong>Routing:</strong> {{ invoice.routing }}</p>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Total Lines:</strong> {{ invoice.total_lines }}</p>
+                                <p><strong>Total Items:</strong> {{ invoice.total_items|int }}</p>
+                                <p><strong>Total Weight:</strong> {{ "%.2f"|format(invoice.total_weight) }} kg</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {% if exceptions %}
+                    <div class="exceptions mb-4">
+                        <h5 class="border-bottom pb-2 text-danger">
+                            <i class="fas fa-exclamation-triangle"></i> Picking Exceptions ({{ exceptions|length }})
+                        </h5>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm">
+                                <thead class="table-danger">
+                                    <tr>
+                                        <th>Item Code</th>
+                                        <th>Expected Qty</th>
+                                        <th>Picked Qty</th>
+                                        <th>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for exception in exceptions %}
+                                    <tr>
+                                        <td>{{ exception.item_code }}</td>
+                                        <td>{{ exception.expected_qty|int }}</td>
+                                        <td>{{ exception.picked_qty|int }}</td>
+                                        <td>{{ exception.reason }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="mt-4 mb-4">
+                        <a href="{{ url_for('print_invoice', invoice_no=invoice.invoice_no, from_packing='true') }}" 
+                           class="btn btn-info" target="_blank">
+                            <i class="fas fa-print"></i> Print Picking Report
+                        </a>
+                    </div>
+                    
+                    <div class="packing-confirmation mt-4">
+                        <h5 class="border-bottom pb-2">Packing Confirmation</h5>
+                        <p>Please confirm that you have:</p>
+                        <ul class="list-group mb-3">
+                            <li class="list-group-item"><i class="fas fa-box"></i> Placed all items in appropriate packaging</li>
+                            <li class="list-group-item"><i class="fas fa-tag"></i> Attached shipping labels</li>
+                            <li class="list-group-item"><i class="fas fa-clipboard-check"></i> Verified all items are included</li>
+                            <li class="list-group-item"><i class="fas fa-truck-loading"></i> Moved the package to the shipping area</li>
+                        </ul>
+                        
+                        <div class="d-flex justify-content-between mt-4">
+                            <div>
+                                <a href="{{ url_for('picker_dashboard') }}" class="btn btn-secondary me-2">
+                                    <i class="fas fa-times"></i> Cancel
+                                </a>
+                                <form action="{{ url_for('mark_as_packed', invoice_no=invoice.invoice_no) }}" 
+                                      method="post" class="d-inline">
+                                    <button type="submit" class="btn btn-success">
+                                        <i class="fas fa-check"></i> Confirm Packing Complete
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

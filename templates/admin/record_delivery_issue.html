@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+
+{% block title %}Record Delivery Issue{% endblock %}
+
+{% block head %}
+<style>
+    .card {
+        margin-bottom: 20px;
+    }
+    .form-section {
+        background: #2d3748;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    .item-info {
+        background: #1a202c;
+        padding: 15px;
+        border-radius: 6px;
+        margin-top: 10px;
+    }
+    .photo-preview {
+        max-width: 200px;
+        margin: 10px;
+        border: 2px solid #4a5568;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="fas fa-exclamation-triangle me-2"></i>Record Delivery Discrepancy</h2>
+                <a href="{{ url_for('delivery_issues.review_issues') }}" class="btn btn-secondary">
+                    <i class="fas fa-list me-1"></i>View All Issues
+                </a>
+            </div>
+
+            <form method="POST" enctype="multipart/form-data" id="issueForm">
+                <div class="form-section">
+                    <h4 class="mb-3">Order Information</h4>
+                    
+                    <div class="mb-3">
+                        <label for="invoice_search" class="form-label">Search Invoice *</label>
+                        <input type="text" class="form-control" id="invoice_search" 
+                               placeholder="Enter last 5 digits of invoice or customer name..." 
+                               autocomplete="off">
+                        <small class="text-muted">Search by invoice number (min 5 digits) or customer name</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="invoice_no" class="form-label">Select Invoice *</label>
+                        <select class="form-select" id="invoice_no" name="invoice_no" required size="8">
+                            <option value="">Type to search...</option>
+                            {% for invoice in invoices %}
+                            <option value="{{ invoice.invoice_no }}" 
+                                    data-customer="{{ invoice.customer_name }}" 
+                                    data-routing="{{ invoice.routing }}"
+                                    data-search="{{ invoice.invoice_no }}|{{ invoice.customer_name|lower }}">
+                                {{ invoice.invoice_no }} - {{ invoice.customer_name }} 
+                                (Routing: {{ invoice.routing }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div id="invoiceInfo" class="item-info" style="display: none;">
+                        <p><strong>Customer:</strong> <span id="customerName"></span></p>
+                        <p><strong>Routing:</strong> <span id="routingNumber"></span></p>
+                        <p class="mb-0"><strong>Delivery Date:</strong> <span id="deliveryDate"></span></p>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h4 class="mb-3">Item Information</h4>
+                    
+                    <div class="mb-3">
+                        <label for="item_code" class="form-label">Item *</label>
+                        <select class="form-select" id="item_code" name="item_code" required disabled>
+                            <option value="">Select an invoice first...</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="custom_item_div" style="display: none;">
+                        <label for="custom_item_code" class="form-label">Custom Item Code *</label>
+                        <input type="text" class="form-control" id="custom_item_code" name="custom_item_code" placeholder="Enter item code...">
+                    </div>
+
+                    <div id="itemInfo" class="table-responsive" style="display: none;">
+                        <table class="table table-bordered table-sm mt-2">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Item Name</th>
+                                    <th>Location</th>
+                                    <th>Exp QTY</th>
+                                    <th>Picked Qty</th>
+                                    <th>Unit Type</th>
+                                    <th>Pack</th>
+                                    <th>Picked By</th>
+                                    <th>Picked At</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td id="itemName"></td>
+                                    <td id="itemLocation"></td>
+                                    <td id="itemExpectedQty"></td>
+                                    <td id="itemPickedQty"></td>
+                                    <td id="itemUnitType"></td>
+                                    <td id="itemPack"></td>
+                                    <td id="itemPicker"></td>
+                                    <td id="itemPickedTime"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h4 class="mb-3">Discrepancy Details</h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="discrepancy_type" class="form-label">Discrepancy Type *</label>
+                            <select class="form-select" id="discrepancy_type" name="discrepancy_type" required>
+                                <option value="">Select type...</option>
+                                {% for type in discrepancy_types %}
+                                <option value="{{ type.name }}">{{ type.display_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label for="reported_source" class="form-label">Reported By *</label>
+                            <select class="form-select" id="reported_source" name="reported_source" required>
+                                {% for source in sources %}
+                                <option value="{{ source }}" {% if source == 'admin' %}selected{% endif %}>
+                                    {{ source.title() }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="qty_expected" class="form-label">Expected Quantity *</label>
+                            <input type="number" class="form-control" id="qty_expected" name="qty_expected" 
+                                   min="0" required readonly>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label for="qty_actual" class="form-label">Actual Quantity</label>
+                            <input type="number" class="form-control" id="qty_actual" name="qty_actual" min="0" step="0.01">
+                            <small class="text-muted">Leave empty if item is missing (decimals allowed)</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="note" class="form-label">Notes</label>
+                        <textarea class="form-control" id="note" name="note" rows="3" 
+                                  placeholder="Additional details about the discrepancy..."></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="photos" class="form-label">Photos (Optional)</label>
+                        <input type="file" class="form-control" id="photos" name="photos" 
+                               multiple accept="image/*,.pdf">
+                        <small class="text-muted">You can upload multiple photos or PDF documents</small>
+                        <div id="photoPreview" class="mt-2"></div>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i>Record Issue
+                    </button>
+                    <a href="{{ url_for('delivery_issues.review_issues') }}" class="btn btn-secondary">
+                        <i class="fas fa-times me-1"></i>Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const invoiceSearch = document.getElementById('invoice_search');
+    const invoiceSelect = document.getElementById('invoice_no');
+    const itemSelect = document.getElementById('item_code');
+    const photoInput = document.getElementById('photos');
+    const photoPreview = document.getElementById('photoPreview');
+    
+    // Store all invoice options (initial 40 loaded from server)
+    const allInvoices = Array.from(invoiceSelect.options).slice(1); // Skip first "Type to search..." option
+    
+    // Debounce timer for search
+    let searchDebounceTimer = null;
+    
+    // Invoice search functionality with server-side search
+    invoiceSearch.addEventListener('input', function() {
+        const searchTerm = this.value.trim();
+        
+        // Clear debounce timer
+        clearTimeout(searchDebounceTimer);
+        
+        // If search is empty, restore initial 40 invoices
+        if (searchTerm.length === 0) {
+            invoiceSelect.innerHTML = '<option value="">Type to search...</option>';
+            allInvoices.forEach(option => {
+                invoiceSelect.appendChild(option.cloneNode(true));
+            });
+            return;
+        }
+        
+        // Show loading state
+        invoiceSelect.innerHTML = '<option value="">Searching...</option>';
+        
+        // Debounce API call (300ms)
+        searchDebounceTimer = setTimeout(() => {
+            // Minimum length validation
+            const minLength = searchTerm.match(/^\d+$/) ? 5 : 3; // 5 for invoice numbers, 3 for customer names
+            
+            if (searchTerm.length < minLength) {
+                invoiceSelect.innerHTML = `<option value="">Type at least ${minLength} characters...</option>`;
+                return;
+            }
+            
+            // Call search API
+            fetch(`/api/delivery-issues/search-invoices?q=${encodeURIComponent(searchTerm)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Search failed');
+                    }
+                    return response.json();
+                })
+                .then(invoices => {
+                    // Clear dropdown
+                    invoiceSelect.innerHTML = '<option value="">Select invoice...</option>';
+                    
+                    if (invoices.length === 0) {
+                        const noResults = document.createElement('option');
+                        noResults.textContent = 'No invoices found';
+                        noResults.disabled = true;
+                        invoiceSelect.appendChild(noResults);
+                    } else {
+                        invoices.forEach(invoice => {
+                            const option = document.createElement('option');
+                            option.value = invoice.invoice_no;
+                            option.textContent = `${invoice.invoice_no} - ${invoice.customer_name} (Routing: ${invoice.routing})`;
+                            option.dataset.customer = invoice.customer_name;
+                            option.dataset.routing = invoice.routing;
+                            invoiceSelect.appendChild(option);
+                        });
+                        
+                        // Auto-select if only one result
+                        if (invoices.length === 1) {
+                            invoiceSelect.selectedIndex = 1;
+                            invoiceSelect.dispatchEvent(new Event('change'));
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Search error:', error);
+                    invoiceSelect.innerHTML = '<option value="">Error searching. Try again...</option>';
+                });
+        }, 300);
+    });
+
+    invoiceSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        
+        if (this.value) {
+            document.getElementById('customerName').textContent = selectedOption.dataset.customer;
+            document.getElementById('routingNumber').textContent = selectedOption.dataset.routing;
+            
+            fetch(`/api/invoices/${this.value}/items`)
+                .then(response => response.json())
+                .then(data => {
+                    // Update delivery date
+                    document.getElementById('deliveryDate').textContent = data.delivery_date || 'N/A';
+                    document.getElementById('invoiceInfo').style.display = 'block';
+                    
+                    itemSelect.innerHTML = '<option value="">Select an item...</option>';
+                    data.items.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item.item_code;
+                        option.textContent = `${item.item_code} - ${item.item_name}`;
+                        option.dataset.name = item.item_name;
+                        option.dataset.location = item.location || 'N/A';
+                        option.dataset.qty = item.qty || 0;
+                        option.dataset.picked = item.picked_qty || 0;
+                        option.dataset.picker = item.picker || 'N/A';
+                        option.dataset.pickedTime = item.picked_time || 'N/A';
+                        option.dataset.unitType = item.unit_type || '';
+                        option.dataset.pack = item.pack || '';
+                        itemSelect.appendChild(option);
+                    });
+                    
+                    // Add "Other" option
+                    const otherOption = document.createElement('option');
+                    otherOption.value = 'OTHER';
+                    otherOption.textContent = 'Other (Custom Item)';
+                    itemSelect.appendChild(otherOption);
+                    
+                    itemSelect.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error loading items:', error);
+                    alert('Error loading items for this invoice');
+                });
+        } else {
+            document.getElementById('invoiceInfo').style.display = 'none';
+            itemSelect.innerHTML = '<option value="">Select an invoice first...</option>';
+            itemSelect.disabled = true;
+        }
+    });
+
+    itemSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        const customItemDiv = document.getElementById('custom_item_div');
+        const customItemInput = document.getElementById('custom_item_code');
+        
+        if (this.value === 'OTHER') {
+            // Show custom item code input
+            customItemDiv.style.display = 'block';
+            customItemInput.required = true;
+            document.getElementById('itemInfo').style.display = 'none';
+            document.getElementById('qty_expected').value = '';
+        } else if (this.value) {
+            // Hide custom item code input
+            customItemDiv.style.display = 'none';
+            customItemInput.required = false;
+            customItemInput.value = '';
+            
+            document.getElementById('itemName').textContent = selectedOption.dataset.name;
+            document.getElementById('itemLocation').textContent = selectedOption.dataset.location;
+            document.getElementById('itemExpectedQty').textContent = selectedOption.dataset.qty;
+            document.getElementById('itemPickedQty').textContent = selectedOption.dataset.picked;
+            document.getElementById('itemPicker').textContent = selectedOption.dataset.picker;
+            document.getElementById('itemPickedTime').textContent = selectedOption.dataset.pickedTime;
+            document.getElementById('itemUnitType').textContent = selectedOption.dataset.unitType || 'EACH';
+            document.getElementById('itemPack').textContent = selectedOption.dataset.pack || '1';
+            document.getElementById('qty_expected').value = selectedOption.dataset.qty;
+            
+            document.getElementById('itemInfo').style.display = 'block';
+        } else {
+            customItemDiv.style.display = 'none';
+            customItemInput.required = false;
+            customItemInput.value = '';
+            document.getElementById('itemInfo').style.display = 'none';
+            document.getElementById('qty_expected').value = '';
+        }
+    });
+
+    photoInput.addEventListener('change', function() {
+        photoPreview.innerHTML = '';
+        if (this.files) {
+            Array.from(this.files).forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        img.className = 'photo-preview';
+                        photoPreview.appendChild(img);
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    const div = document.createElement('div');
+                    div.className = 'alert alert-info d-inline-block';
+                    div.textContent = file.name;
+                    photoPreview.appendChild(div);
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}

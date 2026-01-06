@@ -1,0 +1,28 @@
+2025-11-26 12:48:44,560 - datawarehouse_sync - INFO - 
+================================================================================
+2025-11-26 12:48:44,560 - datawarehouse_sync - INFO - STARTING INVOICE SYNC FROM 2025-11-26
+2025-11-26 12:48:44,560 - datawarehouse_sync - INFO - Log file: logs/sync_invoices_20251126_124844.log
+2025-11-26 12:48:44,560 - datawarehouse_sync - INFO - ================================================================================
+
+2025-11-26 12:48:44,560 - datawarehouse_sync - INFO - Syncing invoice headers from 2025-11-26 00:00:00 to 2025-12-26 00:00:00
+2025-11-26 12:48:51,487 - datawarehouse_sync - INFO - No more invoices on page 2
+2025-11-26 12:48:51,487 - datawarehouse_sync - INFO - Invoice headers synced: 2 inserted, total 29
+2025-11-26 12:48:51,487 - datawarehouse_sync - INFO - Syncing invoice lines from 2025-11-26 00:00:00 to 2025-12-26 00:00:00
+2025-11-26 12:48:52,866 - datawarehouse_sync - INFO - Pre-loaded 2278 existing invoice lines for fast lookup
+2025-11-26 12:48:53,564 - datawarehouse_sync - INFO - Pre-loaded 483 existing invoice headers for fast lookup
+2025-11-26 12:48:57,691 - datawarehouse_sync - INFO - No more invoices on page 2
+2025-11-26 12:48:57,692 - datawarehouse_sync - INFO - Invoice lines synced: 16 inserted, total 436
+2025-11-26 12:48:57,692 - datawarehouse_sync - INFO - Syncing invoice stores from headers
+2025-11-26 12:48:58,782 - datawarehouse_sync - INFO - Stores synced: 0 inserted, 0 updated
+2025-11-26 12:48:58,783 - datawarehouse_sync - INFO - Syncing invoice cashiers from headers
+2025-11-26 12:48:59,863 - datawarehouse_sync - INFO - Cashiers synced: 0 inserted, 0 updated
+2025-11-26 12:48:59,863 - datawarehouse_sync - INFO - 
+================================================================================
+2025-11-26 12:48:59,863 - datawarehouse_sync - INFO - INVOICE SYNC COMPLETE
+2025-11-26 12:48:59,863 - datawarehouse_sync - INFO - ================================================================================
+2025-11-26 12:48:59,864 - datawarehouse_sync - INFO - Headers:  2 inserted, 0 updated
+2025-11-26 12:48:59,864 - datawarehouse_sync - INFO - Lines:    16 inserted, 0 updated
+2025-11-26 12:48:59,864 - datawarehouse_sync - INFO - Stores:   0 inserted, 0 updated
+2025-11-26 12:48:59,864 - datawarehouse_sync - INFO - Cashiers: 0 inserted, 0 updated
+2025-11-26 12:48:59,864 - datawarehouse_sync - INFO - Note: Using existing PSCustomer table for customers (not syncing separately)
+2025-11-26 12:48:59,864 - datawarehouse_sync - INFO - 

@@ -1,0 +1,9 @@
+
+/* OI ETC parameter page tweaks */
+textarea.font-monospace {
+  font-size: 0.85rem;
+  line-height: 1.25rem;
+}
+.card-header code {
+  font-size: 0.85em;
+}

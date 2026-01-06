@@ -1,0 +1,542 @@
+{% extends "base.html" %}
+
+{% block title %}Route #{{ route.id }} - {{ route.driver_name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/routes.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Sticky Route Summary Bar -->
+    <div class="route-summary sticky">
+        <div class="row align-items-center">
+            <!-- Left: Route Info -->
+            <div class="col-lg-4 col-md-6 mb-2 mb-lg-0">
+                <div class="d-flex align-items-center gap-2">
+                    <a href="{{ url_for('routes.dashboard') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i>
+                    </a>
+                    <div>
+                        <h4 class="mb-0">Route #{{ route.id }}</h4>
+                        <div class="route-meta">
+                            <span><i class="fas fa-user me-1"></i>{{ route.driver_name }}</span>
+                            <span class="mx-2">|</span>
+                            <span><i class="fas fa-calendar me-1"></i>{{ route.delivery_date.strftime('%d/%m/%Y') }}</span>
+                            {% if route.route_name %}
+                            <span class="mx-2">|</span>
+                            <span class="badge bg-secondary">{{ route.route_name }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Center: KPIs -->
+            <div class="col-lg-5 col-md-6 mb-2 mb-lg-0">
+                <div class="kpi-row">
+                    <div class="kpi-block">
+                        <div class="kpi-label">Stops</div>
+                        <div class="kpi-value">{{ kpis.stops_total }}</div>
+                    </div>
+                    <div class="kpi-block">
+                        <div class="kpi-label">Picked</div>
+                        <div class="kpi-value {% if kpis.picked_count == kpis.invoices_total %}text-success{% endif %}">{{ kpis.picked_count }}/{{ kpis.invoices_total }}</div>
+                    </div>
+                    <div class="kpi-block">
+                        <div class="kpi-label">Ready</div>
+                        <div class="kpi-value {% if kpis.ready_count == kpis.invoices_total %}text-success{% elif kpis.ready_count < kpis.invoices_total %}text-warning{% endif %}">{{ kpis.ready_count }}/{{ kpis.invoices_total }}</div>
+                    </div>
+                    <div class="kpi-block">
+                        <div class="kpi-label">Total Due</div>
+                        <div class="kpi-value text-success">€{{ "%.2f"|format(kpis.total_due) }}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right: Actions -->
+            <div class="col-lg-3 text-lg-end">
+                <div class="d-flex gap-2 justify-content-lg-end flex-wrap">
+                    {% if route.status == 'PLANNED' %}
+                        {% if all_ready_for_dispatch %}
+                        <form method="POST" action="{{ url_for('routes.mark_shipped', shipment_id=route.id) }}" class="d-inline" onsubmit="return confirm('Dispatch this route?')">
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-truck me-1"></i>Dispatch
+                            </button>
+                        </form>
+                        {% else %}
+                        <button type="button" class="btn btn-secondary" disabled title="All invoices must be ready">
+                            <i class="fas fa-truck me-1"></i>Dispatch
+                        </button>
+                        {% endif %}
+                    {% elif route.status in ['IN_TRANSIT', 'COMPLETED'] %}
+                    <a href="{{ url_for('routes.reconciliation_report', shipment_id=route.id) }}" class="btn btn-info">
+                        <i class="fas fa-file-invoice me-1"></i>Reconciliation
+                    </a>
+                    {% endif %}
+                    
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            {% if current_user.role in ['admin', 'warehouse_manager'] %}
+                            <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editRouteModal"><i class="fas fa-edit me-2"></i>Edit Route</a></li>
+                            <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#changeStatusModal"><i class="fas fa-exchange-alt me-2"></i>Change Status</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% endif %}
+                            <li><a class="dropdown-item" href="{{ url_for('routes.run_sheet', shipment_id=route.id) }}" target="_blank"><i class="fas fa-print me-2"></i>Run Sheet</a></li>
+                            {% if current_user.role in ['admin', 'warehouse_manager'] %}
+                            <li>
+                                <form method="POST" action="{{ url_for('routes.sync_ps365_totals', shipment_id=route.id) }}" class="d-inline">
+                                    <button type="submit" class="dropdown-item"><i class="fas fa-sync me-2"></i>Sync PS365 Totals</button>
+                                </form>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Status Badge -->
+        <div class="status-badge-row mt-2">
+            <span class="badge badge-status-{{ route.status|lower }} shadow-sm">
+                {% if route.status == 'PLANNED' %}<i class="fas fa-clipboard-list me-1"></i>
+                {% elif route.status == 'DISPATCHED' %}<i class="fas fa-door-open me-1"></i>
+                {% elif route.status == 'IN_TRANSIT' %}<i class="fas fa-truck-loading me-1"></i>
+                {% elif route.status == 'COMPLETED' %}<i class="fas fa-check-double me-1"></i>
+                {% endif %}
+                {{ route.status }}
+            </span>
+            
+            {% if route.reconciliation_status %}
+            <span class="badge badge-recon-{{ route.reconciliation_status|lower }} ms-2 shadow-sm">
+                <i class="fas fa-file-invoice-dollar me-1"></i>{{ route.reconciliation_status }}
+            </span>
+            {% endif %}
+            
+            {% if show_filter == 'issues' %}
+            <a href="{{ url_for('routes.detail', shipment_id=route.id) }}" class="btn btn-sm btn-outline-secondary ms-2">
+                <i class="fas fa-times me-1"></i>Clear Filter
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Exceptions Panel (only if blockers exist) -->
+    {% if dispatch_blockers and route.status == 'PLANNED' %}
+    <div class="exceptions-panel">
+        <div class="exceptions-header">
+            <i class="fas fa-exclamation-triangle me-2"></i>Exceptions ({{ dispatch_blockers|length }})
+        </div>
+        <div class="exceptions-body">
+            {% for blocker in dispatch_blockers %}
+            <div class="exception-item">
+                <span class="exception-icon">
+                    {% if blocker.type == 'not_picked' %}
+                    <i class="fas fa-box-open text-warning"></i>
+                    {% elif blocker.type == 'awaiting_packing' %}
+                    <i class="fas fa-boxes text-info"></i>
+                    {% elif blocker.type == 'not_synced' %}
+                    <i class="fas fa-sync text-danger"></i>
+                    {% endif %}
+                </span>
+                <span class="exception-message">{{ blocker.message }}</span>
+                {% if blocker.type in ['not_picked', 'awaiting_packing'] %}
+                <a href="{{ url_for('routes.detail', shipment_id=route.id, show='issues') }}" class="btn btn-sm btn-outline-warning ms-2">Show</a>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Stops List -->
+    {% if stops|length == 0 %}
+    <div class="alert alert-info mt-4">
+        <i class="fas fa-info-circle me-2"></i>
+        {% if show_filter == 'issues' %}
+        No stops with issues found.
+        {% else %}
+        No stops on this route yet. Add invoices from the picking dashboard to create stops.
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="stops-section mt-4">
+        <h5 class="mb-3">
+            <i class="fas fa-map-marker-alt me-2"></i>Delivery Stops
+            {% if show_filter == 'issues' %}
+            <span class="badge bg-warning text-dark ms-2">Showing issues only</span>
+            {% endif %}
+        </h5>
+        
+        <div class="stops-list">
+            {% for stop in stops %}
+            {% set ns = namespace(lines=0, items=0, weight=0, value=0, all_ready=true, status='ready') %}
+            {% for rsi in stop.invoices %}
+                {% set ns.lines = ns.lines + (rsi.invoice.items|length if rsi.invoice.items else (rsi.invoice.total_lines or 0)) %}
+                {% set ns.items = ns.items + (rsi.invoice.total_items or 0) %}
+                {% set ns.weight = ns.weight + (rsi.invoice.total_weight or 0) %}
+                {% if rsi.invoice.total_grand %}
+                    {% set ns.value = ns.value + rsi.invoice.total_grand %}
+                {% endif %}
+                {% if rsi.invoice.status != 'ready_for_dispatch' %}
+                    {% set ns.all_ready = false %}
+                    {% if rsi.invoice.status in ['not_started'] %}
+                        {% set ns.status = 'not_picked' %}
+                    {% elif rsi.invoice.status in ['picking'] %}
+                        {% set ns.status = 'picking' %}
+                    {% elif rsi.invoice.status in ['awaiting_packing', 'awaiting_batch_items'] %}
+                        {% set ns.status = 'awaiting' %}
+                    {% elif rsi.invoice.status in ['DELIVERED', 'delivered'] %}
+                        {% set ns.status = 'delivered' %}
+                    {% elif rsi.invoice.status in ['DELIVERY_FAILED', 'RETURNED'] %}
+                        {% set ns.status = 'failed' %}
+                    {% endif %}
+                {% endif %}
+            {% endfor %}
+            
+            <div class="stop-row {% if ns.status == 'delivered' %}delivered{% elif ns.status == 'failed' %}failed{% elif not ns.all_ready %}issue{% endif %}" id="stop-{{ stop.route_stop_id }}">
+                <div class="stop-row-main" onclick="toggleStopDetails({{ stop.route_stop_id }})">
+                    <!-- Sequence -->
+                    <div class="stop-seq-col">
+                        <span class="stop-seq" id="seqDisplay{{ stop.route_stop_id }}" onclick="event.stopPropagation(); editSequence({{ stop.route_stop_id }}, {{ stop.seq_no }})" title="Click to edit">
+                            {{ stop.seq_no|int }}
+                        </span>
+                        <input type="number" id="seqInput{{ stop.route_stop_id }}" class="form-control form-control-sm d-none seq-input" value="{{ stop.seq_no }}" min="0" step="0.01" onclick="event.stopPropagation()">
+                        <button id="seqSave{{ stop.route_stop_id }}" class="btn btn-sm btn-success d-none" onclick="event.stopPropagation(); saveSequence({{ stop.route_stop_id }})"><i class="fas fa-check"></i></button>
+                        <button id="seqCancel{{ stop.route_stop_id }}" class="btn btn-sm btn-secondary d-none" onclick="event.stopPropagation(); cancelSequence({{ stop.route_stop_id }}, {{ stop.seq_no }})"><i class="fas fa-times"></i></button>
+                    </div>
+                    
+                    <!-- Customer -->
+                    <div class="stop-customer-col">
+                        <strong>{{ stop.stop_name or 'Unknown Customer' }}</strong>
+                        {% if stop.stop_city %}
+                        <span class="stop-city">{{ stop.stop_city }}</span>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Invoice(s) -->
+                    <div class="stop-invoice-col">
+                        {% for rsi in stop.invoices %}
+                        <span class="invoice-badge">{{ rsi.invoice_no }}</span>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Status -->
+                    <div class="stop-status-col">
+                        {% if ns.all_ready %}
+                        <span class="badge bg-success">Ready</span>
+                        {% elif ns.status == 'not_picked' %}
+                        <span class="badge bg-secondary">Not Picked</span>
+                        {% elif ns.status == 'picking' %}
+                        <span class="badge bg-info">Picking</span>
+                        {% elif ns.status == 'awaiting' %}
+                        <span class="badge bg-warning text-dark">Awaiting</span>
+                        {% elif ns.status == 'delivered' %}
+                        <span class="badge bg-success">Delivered</span>
+                        {% elif ns.status == 'failed' %}
+                        <span class="badge bg-danger">Failed</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ ns.status }}</span>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Payment -->
+                    <div class="stop-payment-col">
+                        {% if stop.payment_terms %}
+                            {% if stop.payment_terms.is_credit %}
+                            <span class="badge bg-info">Credit</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">COD</span>
+                            {% endif %}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Amount -->
+                    <div class="stop-amount-col">
+                        {% if ns.value > 0 %}
+                        <strong class="text-success">€{{ "%.2f"|format(ns.value) }}</strong>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Expand Icon -->
+                    <div class="stop-expand-col">
+                        <i class="fas fa-chevron-down expand-icon" id="expandIcon{{ stop.route_stop_id }}"></i>
+                    </div>
+                </div>
+                
+                <!-- Expandable Details -->
+                <div class="stop-details" id="stopDetails{{ stop.route_stop_id }}" style="display: none;">
+                    <div class="details-grid">
+                        <!-- Address -->
+                        <div class="detail-item">
+                            <i class="fas fa-map-marker-alt text-muted me-2"></i>
+                            <span>{{ stop.stop_addr or 'No address' }}{% if stop.stop_city %}, {{ stop.stop_city }}{% endif %}</span>
+                            {% if stop.website %}
+                            <a href="{{ stop.website }}" target="_blank" class="btn btn-sm btn-outline-primary ms-2" title="Navigate">
+                                <i class="fas fa-directions"></i> Map
+                            </a>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- Metrics -->
+                        <div class="detail-item">
+                            <span class="metric-chip"><i class="fas fa-list"></i> {{ ns.lines }} lines</span>
+                            <span class="metric-chip"><i class="fas fa-boxes"></i> {{ ns.items|round|int }} items</span>
+                            <span class="metric-chip"><i class="fas fa-weight"></i> {{ ns.weight|round(1) }} kg</span>
+                        </div>
+                        
+                        <!-- Notes -->
+                        {% if stop.notes or (stop.payment_terms and stop.payment_terms.notes_for_driver) %}
+                        <div class="detail-item notes-item">
+                            <i class="fas fa-sticky-note text-warning me-2"></i>
+                            {% if stop.notes %}{{ stop.notes }}{% endif %}
+                            {% if stop.notes and stop.payment_terms and stop.payment_terms.notes_for_driver %}<br>{% endif %}
+                            {% if stop.payment_terms and stop.payment_terms.notes_for_driver %}
+                            <span class="text-info">{{ stop.payment_terms.notes_for_driver }}</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        
+                        <!-- Invoice Details -->
+                        <div class="detail-item invoice-details">
+                            {% for rsi in stop.invoices %}
+                            <div class="invoice-detail-row">
+                                <span class="fw-bold">{{ rsi.invoice_no }}</span>
+                                {% if rsi.invoice.routing %}
+                                <span class="badge bg-warning text-dark" style="font-size: 0.75em;">{{ rsi.invoice.routing }}</span>
+                                {% endif %}
+                                {% if rsi.invoice.status == 'ready_for_dispatch' %}
+                                <span class="badge bg-success">Ready</span>
+                                {% elif rsi.invoice.status == 'not_started' %}
+                                <span class="badge bg-secondary">Not Picked</span>
+                                {% elif rsi.invoice.status == 'picking' %}
+                                <span class="badge bg-info">Picking</span>
+                                {% elif rsi.invoice.status in ['awaiting_packing', 'awaiting_batch_items'] %}
+                                <span class="badge bg-warning text-dark">Awaiting</span>
+                                {% elif rsi.invoice.status in ['DELIVERED', 'delivered'] %}
+                                <span class="badge bg-success">Delivered</span>
+                                {% elif rsi.invoice.status in ['DELIVERY_FAILED', 'delivery_failed'] %}
+                                <span class="badge bg-danger">Failed</span>
+                                {% elif rsi.invoice.status == 'RETURNED' %}
+                                <span class="badge bg-danger">Returned</span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ rsi.invoice.status }}</span>
+                                {% endif %}
+                                {% if rsi.invoice.total_grand %}
+                                <span class="text-success fw-bold ms-2">€{{ "%.2f"|format(rsi.invoice.total_grand) }}</span>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Actions -->
+                        <div class="detail-actions">
+                            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#notesModal{{ stop.route_stop_id }}">
+                                <i class="fas fa-edit me-1"></i>Edit Notes
+                            </button>
+                            {% if current_user.role in ['admin', 'warehouse_manager'] and stop.customer_code %}
+                            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#paymentTermsModal{{ stop.route_stop_id }}">
+                                <i class="fas fa-credit-card me-1"></i>Payment Terms
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Edit Notes Modal -->
+            <div class="modal fade" id="notesModal{{ stop.route_stop_id }}" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <form method="POST" action="{{ url_for('routes.update_stop_notes', route_stop_id=stop.route_stop_id) }}">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Edit Notes - Stop #{{ stop.seq_no|int }}</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Notes</label>
+                                    <textarea name="notes" class="form-control" rows="4" placeholder="Enter delivery notes">{{ stop.notes or '' }}</textarea>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-primary">Save</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Edit Route Modal -->
+{% if current_user.role in ['admin', 'warehouse_manager'] %}
+<div class="modal fade" id="editRouteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('routes.upsert') }}">
+                <input type="hidden" name="route_id" value="{{ route.id }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Route #{{ route.id }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Driver *</label>
+                        <select name="driver_name" class="form-select" required>
+                            {% for driver in drivers %}
+                            <option value="{{ driver.username }}" {% if driver.username == route.driver_name %}selected{% endif %}>{{ driver.username }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Route Name</label>
+                        <input type="text" name="route_name" class="form-control" value="{{ route.route_name or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Delivery Date *</label>
+                        <input type="date" name="delivery_date" class="form-control" value="{{ route.delivery_date.strftime('%Y-%m-%d') }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select name="status" class="form-select">
+                            <option value="PLANNED" {% if route.status == 'PLANNED' %}selected{% endif %}>Planned</option>
+                            <option value="DISPATCHED" {% if route.status == 'DISPATCHED' %}selected{% endif %}>Dispatched</option>
+                            <option value="IN_TRANSIT" {% if route.status == 'IN_TRANSIT' %}selected{% endif %}>In Transit</option>
+                            <option value="COMPLETED" {% if route.status == 'COMPLETED' %}selected{% endif %}>Completed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Change Status Modal -->
+<div class="modal fade" id="changeStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('routes.upsert') }}">
+                <input type="hidden" name="route_id" value="{{ route.id }}">
+                <input type="hidden" name="driver_name" value="{{ route.driver_name }}">
+                <input type="hidden" name="route_name" value="{{ route.route_name or '' }}">
+                <input type="hidden" name="delivery_date" value="{{ route.delivery_date.strftime('%Y-%m-%d') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Change Status</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Current status: <strong>{{ route.status }}</strong></p>
+                    <div class="mb-3">
+                        <label class="form-label">New Status</label>
+                        <select name="status" class="form-select">
+                            <option value="PLANNED">Planned</option>
+                            <option value="DISPATCHED">Dispatched</option>
+                            <option value="IN_TRANSIT">In Transit</option>
+                            <option value="COMPLETED">Completed</option>
+                            <option value="CANCELLED">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Status</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+function toggleStopDetails(stopId) {
+    const details = document.getElementById('stopDetails' + stopId);
+    const icon = document.getElementById('expandIcon' + stopId);
+    
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        details.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+}
+
+function editSequence(stopId, currentSeq) {
+    document.getElementById('seqDisplay' + stopId).classList.add('d-none');
+    document.getElementById('seqInput' + stopId).classList.remove('d-none');
+    document.getElementById('seqSave' + stopId).classList.remove('d-none');
+    document.getElementById('seqCancel' + stopId).classList.remove('d-none');
+    document.getElementById('seqInput' + stopId).focus();
+}
+
+function cancelSequence(stopId, originalSeq) {
+    document.getElementById('seqInput' + stopId).value = originalSeq;
+    document.getElementById('seqDisplay' + stopId).classList.remove('d-none');
+    document.getElementById('seqInput' + stopId).classList.add('d-none');
+    document.getElementById('seqSave' + stopId).classList.add('d-none');
+    document.getElementById('seqCancel' + stopId).classList.add('d-none');
+}
+
+function saveSequence(stopId) {
+    const newSeq = document.getElementById('seqInput' + stopId).value;
+    const seqDisplay = document.getElementById('seqDisplay' + stopId);
+    const saveBtn = document.getElementById('seqSave' + stopId);
+    const cancelBtn = document.getElementById('seqCancel' + stopId);
+    
+    // Show loading state
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    saveBtn.disabled = true;
+    cancelBtn.disabled = true;
+    
+    fetch('/routes/api/update-stop-sequence', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            stop_id: stopId,
+            new_sequence: parseFloat(newSeq)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update display and reload to show reordered list
+            location.reload();
+        } else {
+            alert('Error: ' + (data.message || 'Failed to update sequence'));
+            // Restore buttons
+            saveBtn.innerHTML = '<i class="fas fa-check"></i>';
+            saveBtn.disabled = false;
+            cancelBtn.disabled = false;
+        }
+    })
+    .catch(error => {
+        alert('Error updating sequence');
+        console.error(error);
+        // Restore buttons
+        saveBtn.innerHTML = '<i class="fas fa-check"></i>';
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,702 @@
+{% extends "base.html" %}
+{% block title %}View Shipped Orders - Operations{% endblock %}
+
+{% block content %}
+<style>
+.sorted-asc::after {
+    content: " ↑";
+    color: #007bff;
+}
+
+.sorted-desc::after {
+    content: " ↓";
+    color: #007bff;
+}
+
+#archiveTable th {
+    position: relative;
+}
+
+#customerSuggestions .p-2:hover {
+    background-color: #f8f9fa !important;
+}
+
+.search-indicator {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.live-search-active {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+</style>
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2><i class="fas fa-archive me-2"></i>View Shipped Orders</h2>
+                <div class="btn-group">
+                    <a href="{{ url_for('on_shipment') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-truck me-1"></i>Ship Orders
+                    </a>
+                    <a href="{{ url_for('archive') }}" class="btn btn-primary">
+                        <i class="fas fa-archive me-1"></i>View Shipped Orders
+                    </a>
+                    <a href="{{ url_for('shipped_orders_report') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-truck-loading me-1"></i>Shipped Report
+                    </a>
+                </div>
+            </div>
+            <p class="text-muted">Historical records: shipped, delivered and cancelled orders</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filters</h5>
+        </div>
+        <div class="card-body">
+            <form method="GET" class="row g-3">
+                <div class="col-md-3">
+                    <label for="status" class="form-label">Status</label>
+                    <select class="form-select" id="status" name="status">
+                        <option value="">All Statuses</option>
+                        <option value="shipped" {% if filters.status == 'shipped' %}selected{% endif %}>Shipped</option>
+                        <option value="delivered" {% if filters.status == 'delivered' %}selected{% endif %}>Delivered</option>
+                        <option value="cancelled" {% if filters.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="customer" class="form-label">Customer</label>
+                    <div class="position-relative">
+                        <input type="text" class="form-control" id="customer" name="customer" 
+                               value="{{ filters.customer }}" placeholder="Search customer..." 
+                               autocomplete="off" oninput="filterCustomers(this.value)">
+                        <div class="search-indicator" id="searchIndicator">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <div id="customerSuggestions" class="position-absolute w-100 bg-white border rounded-bottom shadow-sm" 
+                             style="top: 100%; z-index: 1000; max-height: 200px; overflow-y: auto; display: none;">
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label for="date_from" class="form-label">From Date</label>
+                    <input type="date" class="form-control" id="date_from" name="date_from" 
+                           value="{{ filters.date_from }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="date_to" class="form-label">To Date</label>
+                    <input type="date" class="form-control" id="date_to" name="date_to" 
+                           value="{{ filters.date_to }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">&nbsp;</label>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search me-1"></i>Filter
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Export Actions -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="btn-group">
+                <button class="btn btn-success" onclick="exportToExcel()">
+                    <i class="fas fa-file-excel me-1"></i>Export to Excel
+                </button>
+                <button class="btn btn-danger" onclick="exportToPDF()">
+                    <i class="fas fa-file-pdf me-1"></i>Export to PDF
+                </button>
+                <a href="?{{ request.query_string.decode() }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-sync me-1"></i>Refresh
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Orders Table -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Shipped Orders History</h5>
+            <div>
+                <span class="badge bg-secondary" id="totalOrdersCount">{{ archived_orders|length }} total</span>
+                <span class="badge bg-primary" id="filteredOrdersCount" style="display: none;">0 filtered</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="archiveTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Customer</th>
+                            <th>Status</th>
+                            <th>Order Date</th>
+                            <th>Ship Date</th>
+                            <th>Delivery Date</th>
+                            <th>Total Value</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in archived_orders %}
+                        <tr>
+                            <td>
+                                <strong>{{ order.invoice_no }}</strong>
+                                <br><small class="text-muted">Route: {{ order.routing or 'N/A' }}</small>
+                            </td>
+                            <td>
+                                {{ order.customer_name }}
+                                {% if order.customer_code_365 %}
+                                <br><small class="text-muted">Code: {{ order.customer_code_365 }}</small>
+                                {% endif %}
+                                <br><small class="text-muted">{{ order.total_items|round(0) }} items</small>
+                            </td>
+                            <td>
+                                {% if order.status == 'shipped' %}
+                                <span class="badge bg-info">
+                                    <i class="fas fa-truck me-1"></i>Shipped
+                                </span>
+                                {% elif order.status == 'delivered' %}
+                                <span class="badge bg-success">
+                                    <i class="fas fa-check-circle me-1"></i>Delivered
+                                </span>
+                                {% elif order.status == 'cancelled' %}
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-times-circle me-1"></i>Cancelled
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.created_at %}
+                                {{ order.created_at|local_time('%d/%m/%y') }}
+                                <br><small class="text-muted">{{ order.created_at|local_time('%H:%M') }}</small>
+                                {% else %}
+                                <span class="text-muted">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.shipped_at %}
+                                {{ order.shipped_at|local_time('%d/%m/%y') }}
+                                <br><small class="text-muted">{{ order.shipped_at|local_time('%H:%M') }}</small>
+                                {% else %}
+                                <span class="text-muted">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if order.status == 'delivered' and order.delivered_at %}
+                                <span class="text-success">
+                                    {{ order.delivered_at|local_time('%d/%m/%y') }}
+                                    <br><small class="text-muted">{{ order.delivered_at|local_time('%H:%M') }}</small>
+                                </span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <strong>€{{ (order.total_items * 10)|round(2) }}</strong>
+                                <br><small class="text-muted">{{ order.total_weight|round(1) }} kg</small>
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a href="{{ url_for('admin_view_invoice', invoice_no=order.invoice_no) }}" 
+                                       class="btn btn-sm btn-outline-primary" title="View Details">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('print_invoice', invoice_no=order.invoice_no) }}" 
+                                       class="btn btn-sm btn-outline-success" title="Print Invoice">
+                                        <i class="fas fa-print"></i>
+                                    </a>
+                                    <button class="btn btn-sm btn-outline-info" 
+                                            onclick="viewTimeline('{{ order.invoice_no }}')" title="View Timeline">
+                                        <i class="fas fa-history"></i>
+                                    </button>
+                                    {% if order.status in ['shipped', 'delivered'] %}
+                                    <button class="btn btn-sm btn-outline-warning" 
+                                            onclick="returnToReadyForDispatch('{{ order.invoice_no }}', '{{ order.customer_name }}')" 
+                                            title="Return to Ready for Dispatch">
+                                        <i class="fas fa-undo"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                
+                {% if not archived_orders %}
+                <div class="text-center py-5">
+                    <i class="fas fa-archive fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No archived orders found</h5>
+                    <p class="text-muted">Try adjusting your filters to see more results.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Statistics -->
+    <div class="row mt-4">
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Delivered Orders</h6>
+                            <h4>{{ archived_orders|selectattr('status', 'equalto', 'delivered')|list|length }}</h4>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-check-circle fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-secondary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Cancelled Orders</h6>
+                            <h4>{{ archived_orders|selectattr('status', 'equalto', 'cancelled')|list|length }}</h4>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-times-circle fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Total Weight</h6>
+                            <h4>{{ (archived_orders|sum(attribute='total_weight'))|round(1) }} kg</h4>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-weight fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-dark">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Avg Delivery Time</h6>
+                            <h4>2.3 days</h4>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-clock fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function exportToExcel() {
+    alert('Excel export feature will be implemented. This would generate a downloadable Excel file with the filtered data.');
+}
+
+function exportToPDF() {
+    alert('PDF export feature will be implemented. This would generate a downloadable PDF report.');
+}
+
+function viewTimeline(invoiceNo) {
+    alert(`Timeline view for order ${invoiceNo} will show:\n- Order created\n- Picking started\n- Items picked\n- Packed and ready\n- Shipped\n- Delivered\n\nThis would open in a modal or separate page.`);
+}
+
+function downloadDeliveryProof(invoiceNo) {
+    alert(`Delivery proof for order ${invoiceNo} would be downloaded. This could include:\n- Delivery confirmation\n- Signature proof\n- GPS location\n- Timestamp`);
+}
+
+function showCancelModal(invoiceNo, customerName) {
+    document.getElementById('cancelInvoiceNo').value = invoiceNo;
+    document.getElementById('cancelOrderInfo').textContent = invoiceNo + ' - ' + customerName;
+    document.getElementById('cancelReason').value = '';
+    new bootstrap.Modal(document.getElementById('cancelModal')).show();
+}
+
+function returnToReadyForDispatch(invoiceNo, customerName) {
+    document.getElementById('returnInvoiceNo').value = invoiceNo;
+    document.getElementById('returnOrderInfo').textContent = invoiceNo + ' - ' + customerName;
+    new bootstrap.Modal(document.getElementById('returnToReadyModal')).show();
+}
+
+// Customer search functionality
+const customers = {{ customers|tojson }};
+
+function filterCustomers(searchTerm) {
+    const suggestions = document.getElementById('customerSuggestions');
+    const customerInput = document.getElementById('customer');
+    const searchIndicator = document.getElementById('searchIndicator');
+    
+    // Update search indicator
+    if (searchTerm.length > 0) {
+        customerInput.classList.add('live-search-active');
+        searchIndicator.innerHTML = '<i class="fas fa-times text-danger" onclick="clearCustomerSearch()" style="cursor: pointer;"></i>';
+    } else {
+        customerInput.classList.remove('live-search-active');
+        searchIndicator.innerHTML = '<i class="fas fa-search"></i>';
+    }
+    
+    if (searchTerm.length < 2) {
+        suggestions.style.display = 'none';
+        liveFilterTable(); // Apply live filtering immediately
+        return;
+    }
+    
+    const filtered = customers.filter(customer => 
+        customer.toLowerCase().includes(searchTerm.toLowerCase())
+    ).slice(0, 10);
+    
+    if (filtered.length > 0) {
+        suggestions.innerHTML = filtered.map(customer => 
+            `<div class="p-2 border-bottom cursor-pointer" onclick="selectCustomer('${customer}')" 
+                  style="cursor: pointer;" onmouseover="this.style.backgroundColor='#f8f9fa'" 
+                  onmouseout="this.style.backgroundColor='white'">
+                <i class="fas fa-user me-2 text-muted"></i>${customer}
+            </div>`
+        ).join('');
+        suggestions.style.display = 'block';
+    } else {
+        suggestions.style.display = 'none';
+    }
+    
+    // Apply live filtering
+    liveFilterTable();
+}
+
+function clearCustomerSearch() {
+    const customerInput = document.getElementById('customer');
+    const suggestions = document.getElementById('customerSuggestions');
+    const searchIndicator = document.getElementById('searchIndicator');
+    
+    customerInput.value = '';
+    customerInput.classList.remove('live-search-active');
+    suggestions.style.display = 'none';
+    searchIndicator.innerHTML = '<i class="fas fa-search"></i>';
+    
+    liveFilterTable();
+}
+
+function selectCustomer(customerName) {
+    document.getElementById('customer').value = customerName;
+    document.getElementById('customerSuggestions').style.display = 'none';
+}
+
+// Live table filtering
+function liveFilterTable() {
+    const customerFilter = document.getElementById('customer').value.toLowerCase();
+    const statusFilter = document.getElementById('status').value;
+    const table = document.getElementById('archiveTable');
+    const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+    
+    let visibleCount = 0;
+    let totalCount = rows.length;
+    
+    for (let i = 0; i < rows.length; i++) {
+        const customerCell = rows[i].getElementsByTagName('td')[1];
+        const statusCell = rows[i].getElementsByTagName('td')[2];
+        
+        if (customerCell && statusCell) {
+            const customerText = customerCell.textContent.toLowerCase();
+            const statusText = statusCell.textContent.trim();
+            
+            let showRow = true;
+            
+            // Filter by customer
+            if (customerFilter && !customerText.includes(customerFilter)) {
+                showRow = false;
+            }
+            
+            // Filter by status
+            if (statusFilter && statusText !== statusFilter) {
+                showRow = false;
+            }
+            
+            rows[i].style.display = showRow ? '' : 'none';
+            if (showRow) visibleCount++;
+        }
+    }
+    
+    // Update count badges
+    const totalBadge = document.getElementById('totalOrdersCount');
+    const filteredBadge = document.getElementById('filteredOrdersCount');
+    
+    if (customerFilter || statusFilter) {
+        totalBadge.style.display = 'none';
+        filteredBadge.style.display = 'inline';
+        filteredBadge.textContent = `${visibleCount} of ${totalCount} shown`;
+    } else {
+        totalBadge.style.display = 'inline';
+        filteredBadge.style.display = 'none';
+    }
+    
+    // Show/hide "no results" message
+    const tableBody = table.getElementsByTagName('tbody')[0];
+    const existingNoResults = document.getElementById('noResultsMessage');
+    
+    if (visibleCount === 0 && totalCount > 0) {
+        if (!existingNoResults) {
+            const noResultsRow = document.createElement('tr');
+            noResultsRow.id = 'noResultsMessage';
+            noResultsRow.innerHTML = `
+                <td colspan="8" class="text-center py-4">
+                    <i class="fas fa-search fa-2x text-muted mb-2"></i>
+                    <h6 class="text-muted">No orders match your search criteria</h6>
+                    <small class="text-muted">Try adjusting your filters to see more results</small>
+                </td>
+            `;
+            tableBody.appendChild(noResultsRow);
+        }
+    } else if (existingNoResults) {
+        existingNoResults.remove();
+    }
+}
+
+// Hide suggestions when clicking outside
+document.addEventListener('click', function(event) {
+    const customerInput = document.getElementById('customer');
+    const suggestions = document.getElementById('customerSuggestions');
+    
+    if (!customerInput.contains(event.target) && !suggestions.contains(event.target)) {
+        suggestions.style.display = 'none';
+    }
+});
+
+// Enhanced table sorting
+document.addEventListener('DOMContentLoaded', function() {
+    // Add click-to-sort functionality for table headers
+    const headers = document.querySelectorAll('#archiveTable th');
+    headers.forEach((header, index) => {
+        if (index < 7) { // Skip actions column
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', function() {
+                sortTable(index);
+            });
+        }
+    });
+    
+    // Add live filtering to customer input
+    document.getElementById('customer').addEventListener('input', function() {
+        liveFilterTable();
+    });
+    
+    document.getElementById('status').addEventListener('change', function() {
+        liveFilterTable();
+    });
+});
+
+function sortTable(columnIndex) {
+    const table = document.getElementById('archiveTable');
+    const tbody = table.getElementsByTagName('tbody')[0];
+    const rows = Array.from(tbody.getElementsByTagName('tr'));
+    
+    const isAscending = table.getAttribute('data-sort-direction') !== 'asc';
+    
+    rows.sort((a, b) => {
+        const aVal = a.getElementsByTagName('td')[columnIndex].textContent.trim();
+        const bVal = b.getElementsByTagName('td')[columnIndex].textContent.trim();
+        
+        // Try to parse as numbers first
+        const aNum = parseFloat(aVal.replace(/[^\d.-]/g, ''));
+        const bNum = parseFloat(bVal.replace(/[^\d.-]/g, ''));
+        
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return isAscending ? aNum - bNum : bNum - aNum;
+        }
+        
+        // String comparison
+        return isAscending ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+    
+    // Clear tbody and append sorted rows
+    tbody.innerHTML = '';
+    rows.forEach(row => tbody.appendChild(row));
+    
+    // Update sort direction
+    table.setAttribute('data-sort-direction', isAscending ? 'asc' : 'desc');
+    
+    // Update header indicators
+    document.querySelectorAll('#archiveTable th').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+    });
+    
+    const currentHeader = document.querySelectorAll('#archiveTable th')[columnIndex];
+    currentHeader.classList.add(isAscending ? 'sorted-asc' : 'sorted-desc');
+}
+
+// Cancel shipment form handling
+document.addEventListener('DOMContentLoaded', function() {
+    const cancelForm = document.getElementById('cancelShipmentForm');
+    if (cancelForm) {
+        cancelForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+            submitBtn.disabled = true;
+            
+            fetch('/operations/cancel-shipment', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success message and reload page
+                    alert('✅ ' + data.message);
+                    location.reload();
+                } else {
+                    // Show error message
+                    alert('❌ Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('❌ An error occurred while cancelling the shipment.');
+            })
+            .finally(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+                bootstrap.Modal.getInstance(document.getElementById('cancelModal')).hide();
+            });
+        });
+    }
+    
+    // Return to Ready for Dispatch form handler
+    const returnForm = document.getElementById('returnToReadyForm');
+    if (returnForm) {
+        returnForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('new_status', 'ready_for_dispatch');
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+            submitBtn.disabled = true;
+            
+            fetch('/operations/update-status', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success message and reload page
+                    alert('✅ ' + data.message);
+                    location.reload();
+                } else {
+                    // Show error message
+                    alert('❌ Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('❌ An error occurred while updating the status.');
+            })
+            .finally(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+                bootstrap.Modal.getInstance(document.getElementById('returnToReadyModal')).hide();
+            });
+        });
+    }
+});
+</script>
+
+<!-- Cancel Shipment Modal -->
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cancelModalLabel">
+                    <i class="fas fa-undo me-2"></i>Cancel Shipment
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="cancelShipmentForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" id="cancelInvoiceNo" name="invoice_no" value="">
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> This will return the order to "Ready for Dispatch" status.
+                    </div>
+                    <p><strong>Order:</strong> <span id="cancelOrderInfo"></span></p>
+                    <div class="mb-3">
+                        <label for="cancelReason" class="form-label">Cancellation Reason *</label>
+                        <textarea class="form-control" id="cancelReason" name="reason" rows="3" 
+                                  placeholder="Please provide a reason for cancelling this shipment..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-undo me-1"></i>Cancel Shipment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Return to Ready for Dispatch Modal -->
+<div class="modal fade" id="returnToReadyModal" tabindex="-1" aria-labelledby="returnToReadyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="returnToReadyModalLabel">
+                    <i class="fas fa-undo me-2"></i>Return to Ready for Dispatch
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="returnToReadyForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" id="returnInvoiceNo" name="invoice_no" value="">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Confirmation:</strong> This will change the order status back to "Ready for Dispatch".
+                    </div>
+                    <p><strong>Order:</strong> <span id="returnOrderInfo"></span></p>
+                    <p class="text-muted">The order will be moved back to the ready for dispatch queue and can be shipped again.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning" id="confirmReturnBtn">
+                        <i class="fas fa-undo me-1"></i>Return to Ready for Dispatch
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

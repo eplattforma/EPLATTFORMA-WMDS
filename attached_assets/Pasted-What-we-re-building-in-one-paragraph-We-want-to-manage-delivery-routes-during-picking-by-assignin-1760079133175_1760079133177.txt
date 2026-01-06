@@ -1,0 +1,586 @@
+What we’re building (in one paragraph)
+
+We want to manage delivery routes during picking by assigning each invoice to a route (per driver per day) via stops. A stop is a single visit in the route sequence and can contain one or many invoices (e.g., 2 invoices to the same customer/address). We’ll reuse your existing invoices, shipments (as route header), and shipping_events tables, and add two small tables: route_stop and route_stop_invoice. We’ll provide REST endpoints + simple Bootstrap pages to: create/find a route, add stops, attach invoices, update statuses, and monitor progress per driver/day.
+
+0) Project layout (suggested)
+/app
+  /models.py
+  /schemas.sql                # raw SQL migration (idempotent)
+  /routes_routes.py           # Flask blueprint for “routes & stops”
+  /routes_invoices.py         # Flask blueprint for invoice status updates
+  /services.py                # DB ops / domain logic
+  /templates/
+    base.html
+    routes_dashboard.html
+    route_detail.html
+    stop_form.html
+    run_sheet.html
+  /static/
+    app.js
+  /app.py
+  /config.py
+requirements.txt
+
+
+requirements.txt (add if missing):
+
+flask
+sqlalchemy
+psycopg2-binary
+pandas
+numpy
+scikit-learn
+openai
+pillow
+python-dotenv
+
+1) Database: new tables + minimal constraints
+1.1 Raw SQL migration (idempotent) — /app/schemas.sql
+-- ROUTE STOP (one visit in a route)
+CREATE TABLE IF NOT EXISTS route_stop (
+  route_stop_id   SERIAL PRIMARY KEY,
+  shipment_id     INTEGER NOT NULL REFERENCES public.shipments(id) ON DELETE CASCADE,
+  seq_no          INTEGER NOT NULL,
+  stop_name       TEXT,
+  stop_addr       TEXT,
+  stop_city       TEXT,
+  stop_postcode   TEXT,
+  notes           TEXT,
+  window_start    TIMESTAMP,
+  window_end      TIMESTAMP,
+  UNIQUE (shipment_id, seq_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_route_stop_shipment_seq ON route_stop (shipment_id, seq_no);
+CREATE INDEX IF NOT EXISTS idx_route_stop_shipment ON route_stop (shipment_id);
+
+-- STOP ↔ INVOICES (many invoices per stop)
+CREATE TABLE IF NOT EXISTS route_stop_invoice (
+  route_stop_invoice_id SERIAL PRIMARY KEY,
+  route_stop_id         INTEGER NOT NULL REFERENCES route_stop(route_stop_id) ON DELETE CASCADE,
+  invoice_no            VARCHAR NOT NULL REFERENCES public.invoices(invoice_no) ON DELETE RESTRICT,
+  status                VARCHAR,
+  weight_kg             DOUBLE PRECISION,
+  notes                 TEXT,
+  UNIQUE (route_stop_id, invoice_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rsi_stop ON route_stop_invoice (route_stop_id);
+CREATE INDEX IF NOT EXISTS idx_rsi_invoice ON route_stop_invoice (invoice_no);
+CREATE INDEX IF NOT EXISTS idx_rsi_status ON route_stop_invoice (status);
+
+-- Helpful uniqueness on shipments (route header): one per driver per day
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_shipments_driver_day'
+  ) THEN
+    ALTER TABLE public.shipments
+      ADD CONSTRAINT uq_shipments_driver_day UNIQUE (driver_name, delivery_date);
+  END IF;
+END$$;
+
+
+We don’t add vehicles or event tables now. We keep your existing shipping_events and invoices as-is.
+
+2) SQLAlchemy models — /app/models.py
+from sqlalchemy import (
+    Column, Integer, String, Text, Date, DateTime, ForeignKey, Float, UniqueConstraint
+)
+from sqlalchemy.orm import relationship, declarative_base
+from datetime import datetime
+
+Base = declarative_base()
+
+# Existing tables you already have (minimal mapping used where needed)
+class Invoice(Base):
+    __tablename__ = 'invoices'
+    invoice_no = Column(String, primary_key=True)
+    routing = Column(String)
+    customer_name = Column(String)
+    upload_date = Column(String, nullable=False)
+    assigned_to = Column(String)  # FK to users.username (not mapped here)
+    total_lines = Column(Integer)
+    total_items = Column(Integer)
+    total_weight = Column(Float)
+    total_exp_time = Column(Float)
+    status = Column(String, default='not_started')
+    current_item_index = Column(Integer)
+    packing_complete_time = Column(DateTime)
+    picking_complete_time = Column(DateTime)
+    status_updated_at = Column(DateTime, default=datetime.utcnow)
+    shipped_at = Column(DateTime)
+    shipped_by = Column(String)
+    delivered_at = Column(DateTime)
+    undelivered_reason = Column(Text)
+
+class Shipment(Base):
+    __tablename__ = 'shipments'
+    id = Column(Integer, primary_key=True)
+    driver_name = Column(String, nullable=False)
+    route_name = Column(String)
+    status = Column(String, nullable=False)       # e.g. PLANNED/IN_PROGRESS/DISPATCHED/COMPLETED
+    delivery_date = Column(Date, nullable=False)
+    created_at = Column(DateTime)
+
+    route_stops = relationship("RouteStop", back_populates="shipment", cascade="all, delete-orphan")
+
+    __table_args__ = (UniqueConstraint('driver_name', 'delivery_date', name='uq_shipments_driver_day'),)
+
+class RouteStop(Base):
+    __tablename__ = 'route_stop'
+    route_stop_id = Column(Integer, primary_key=True)
+    shipment_id = Column(Integer, ForeignKey('shipments.id', ondelete='CASCADE'), nullable=False)
+    seq_no = Column(Integer, nullable=False)
+
+    stop_name = Column(Text)
+    stop_addr = Column(Text)
+    stop_city = Column(Text)
+    stop_postcode = Column(Text)
+    notes = Column(Text)
+    window_start = Column(DateTime)
+    window_end = Column(DateTime)
+
+    shipment = relationship("Shipment", back_populates="route_stops")
+    invoices = relationship("RouteStopInvoice", back_populates="stop", cascade="all, delete-orphan")
+
+    __table_args__ = (UniqueConstraint('shipment_id', 'seq_no', name='uq_stop_seq_per_route'),)
+
+class RouteStopInvoice(Base):
+    __tablename__ = 'route_stop_invoice'
+    route_stop_invoice_id = Column(Integer, primary_key=True)
+    route_stop_id = Column(Integer, ForeignKey('route_stop.route_stop_id', ondelete='CASCADE'), nullable=False)
+    invoice_no = Column(String, ForeignKey('invoices.invoice_no', ondelete='RESTRICT'), nullable=False)
+
+    status = Column(String)     # ASSIGNED/PICKING/READY_TO_DISPATCH/DISPATCHED/DELIVERED/FAILED
+    weight_kg = Column(Float)
+    notes = Column(Text)
+
+    stop = relationship("RouteStop", back_populates="invoices")
+    invoice = relationship("Invoice")
+
+    __table_args__ = (UniqueConstraint('route_stop_id', 'invoice_no', name='uq_invoice_once_per_stop'),)
+
+3) App boot + migration runner — /app/app.py
+import os
+from flask import Flask
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, scoped_session
+from app.models import Base
+from app.routes_routes import bp as routes_bp
+from app.routes_invoices import bp as invoices_bp
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object('app.config.Config')
+
+    engine = create_engine(app.config['DATABASE_URL'], pool_pre_ping=True)
+    Base.metadata.bind = engine
+    app.session_factory = scoped_session(sessionmaker(bind=engine))
+
+    # Run raw SQL migration (idempotent)
+    with engine.begin() as conn:
+        sql_path = os.path.join(os.path.dirname(__file__), 'schemas.sql')
+        with open(sql_path, 'r', encoding='utf-8') as f:
+            conn.execute(text(f.read()))
+
+    # (Optional) create models that aren’t already present
+    Base.metadata.create_all(engine)
+
+    # Blueprints
+    app.register_blueprint(routes_bp, url_prefix="/routes")
+    app.register_blueprint(invoices_bp, url_prefix="/invoices")
+
+    @app.teardown_appcontext
+    def shutdown_session(exception=None):
+        app.session_factory.remove()
+
+    return app
+
+app = create_app()
+
+
+/app/config.py
+
+import os
+class Config:
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://user:pass@localhost:5432/mydb")
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev")
+
+4) Domain services (business logic) — /app/services.py
+from datetime import date, datetime
+from sqlalchemy import select, func, and_
+from app.models import Shipment, RouteStop, RouteStopInvoice, Invoice
+
+def upsert_route(session, driver_name: str, route_name: str, delivery_date: date, status="PLANNED"):
+    # Try to find existing route by driver/day; if not present, create it.
+    route = session.execute(
+        select(Shipment).where(
+            Shipment.driver_name == driver_name,
+            Shipment.delivery_date == delivery_date
+        )
+    ).scalar_one_or_none()
+    if route:
+        if route_name and route.route_name != route_name:
+            route.route_name = route_name
+        if status and route.status != status:
+            route.status = status
+        session.commit()
+        return route
+
+    route = Shipment(driver_name=driver_name, route_name=route_name,
+                     status=status, delivery_date=delivery_date, created_at=datetime.utcnow())
+    session.add(route)
+    session.commit()
+    return route
+
+def create_stop(session, shipment_id: int, seq_no: int, **kwargs):
+    stop = RouteStop(shipment_id=shipment_id, seq_no=seq_no, **kwargs)
+    session.add(stop)
+    session.commit()
+    return stop
+
+def attach_invoices_to_stop(session, route_stop_id: int, invoice_nos: list[str]):
+    attached = []
+    for inv in invoice_nos:
+        rsi = RouteStopInvoice(route_stop_id=route_stop_id, invoice_no=inv, status="ASSIGNED")
+        session.add(rsi)
+        attached.append(rsi)
+    session.commit()
+    return attached
+
+def set_invoice_in_stop_status(session, route_stop_id: int, invoice_no: str, status: str, mirror_invoice=True):
+    rsi = session.execute(select(RouteStopInvoice).where(
+        RouteStopInvoice.route_stop_id == route_stop_id,
+        RouteStopInvoice.invoice_no == invoice_no
+    )).scalar_one()
+    rsi.status = status
+    session.commit()
+
+    if mirror_invoice:
+        inv = session.get(Invoice, invoice_no)
+        if not inv: return rsi
+        now = datetime.utcnow()
+        inv.status = status.lower() if status else inv.status
+        inv.status_updated_at = now
+        if status == "DELIVERED":
+            inv.delivered_at = now
+        if status == "DISPATCHED":
+            inv.shipped_at = now
+        session.commit()
+    return rsi
+
+def route_progress(session, shipment_id: int):
+    q = session.query(
+        func.count(RouteStopInvoice.route_stop_invoice_id),
+        func.sum(func.case(((RouteStopInvoice.status.in_(["DELIVERED", "FAILED"]), 1)), else_=0))
+    ).join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id
+    ).filter(RouteStop.shipment_id == shipment_id)
+    total, done = q.one()
+    return {"total": total or 0, "done": done or 0, "pct": (done or 0) / (total or 1) * 100.0}
+
+5) Flask endpoints — /app/routes_routes.py
+from flask import Blueprint, request, render_template, redirect, url_for, current_app, flash
+from datetime import datetime
+from app.services import upsert_route, create_stop, attach_invoices_to_stop, route_progress
+from app.models import Shipment, RouteStop, RouteStopInvoice
+
+bp = Blueprint("routes", __name__)
+
+@bp.route("/dashboard")
+def dashboard():
+    session = current_app.session_factory()
+    date_str = request.args.get("date")
+    day = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else datetime.utcnow().date()
+    routes = session.query(Shipment).filter(Shipment.delivery_date == day).order_by(Shipment.driver_name).all()
+    cards = []
+    for r in routes:
+        prog = route_progress(session, r.id)
+        cards.append((r, prog))
+    return render_template("routes_dashboard.html", day=day, cards=cards)
+
+@bp.route("/upsert", methods=["POST"])
+def upsert():
+    session = current_app.session_factory()
+    data = request.form
+    r = upsert_route(session,
+        driver_name=data["driver_name"],
+        route_name=data.get("route_name") or "",
+        delivery_date=datetime.strptime(data["delivery_date"], "%Y-%m-%d").date(),
+        status=data.get("status", "PLANNED")
+    )
+    flash(f"Route ready for {r.driver_name} on {r.delivery_date} (id={r.id})", "success")
+    return redirect(url_for("routes.detail", shipment_id=r.id))
+
+@bp.route("/<int:shipment_id>")
+def detail(shipment_id):
+    session = current_app.session_factory()
+    r = session.get(Shipment, shipment_id)
+    stops = session.query(RouteStop).filter(RouteStop.shipment_id == shipment_id).order_by(RouteStop.seq_no).all()
+    return render_template("route_detail.html", route=r, stops=stops)
+
+@bp.route("/<int:shipment_id>/stops/new", methods=["GET", "POST"])
+def new_stop(shipment_id):
+    session = current_app.session_factory()
+    if request.method == "POST":
+        seq_no = int(request.form["seq_no"])
+        stop = create_stop(session, shipment_id, seq_no,
+                           stop_name=request.form.get("stop_name"),
+                           stop_addr=request.form.get("stop_addr"),
+                           stop_city=request.form.get("stop_city"),
+                           stop_postcode=request.form.get("stop_postcode"),
+                           notes=request.form.get("notes"))
+        invoice_list = [s.strip() for s in request.form.get("invoice_nos","").split(",") if s.strip()]
+        if invoice_list:
+            attach_invoices_to_stop(session, stop.route_stop_id, invoice_list)
+        return redirect(url_for("routes.detail", shipment_id=shipment_id))
+    return render_template("stop_form.html", shipment_id=shipment_id)
+
+Invoice status endpoints — /app/routes_invoices.py
+from flask import Blueprint, request, jsonify, current_app
+from app.services import set_invoice_in_stop_status
+
+bp = Blueprint("invoices", __name__)
+
+@bp.route("/stop/<int:route_stop_id>/<invoice_no>/status", methods=["POST"])
+def update_status(route_stop_id, invoice_no):
+    session = current_app.session_factory()
+    payload = request.get_json(force=True)
+    status = payload.get("status")
+    rsi = set_invoice_in_stop_status(session, route_stop_id, invoice_no, status)
+    return jsonify({"ok": True, "route_stop_id": route_stop_id, "invoice_no": invoice_no, "status": rsi.status})
+
+6) Templates (Bootstrap + Jinja)
+
+/app/templates/base.html
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Routes</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+</head>
+<body class="p-3">
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="alert alert-{{ 'success' if cat=='success' else 'info' }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
+
+
+/app/templates/routes_dashboard.html
+
+{% extends "base.html" %}
+{% block content %}
+<h3>Routes for {{ day }}</h3>
+
+<form class="row g-2 mb-3" method="post" action="{{ url_for('routes.upsert') }}">
+  <div class="col-auto"><input name="driver_name" class="form-control" placeholder="Driver name" required></div>
+  <div class="col-auto"><input name="route_name" class="form-control" placeholder="Route name (optional)"></div>
+  <div class="col-auto"><input type="date" name="delivery_date" class="form-control" value="{{ day }}" required></div>
+  <div class="col-auto">
+    <select name="status" class="form-select">
+      <option>PLANNED</option><option>IN_PROGRESS</option><option>DISPATCHED</option><option>COMPLETED</option>
+    </select>
+  </div>
+  <div class="col-auto"><button class="btn btn-primary">Create/Find Route</button></div>
+</form>
+
+<div class="row">
+  {% for r, prog in cards %}
+  <div class="col-md-4 mb-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">{{ r.driver_name }}</h5>
+        <p class="card-text">
+          Route: {{ r.route_name or '-' }}<br>
+          Status: {{ r.status }}<br>
+          Progress: {{ prog.done }}/{{ prog.total }} ({{ "%.0f"|format(prog.pct) }}%)
+        </p>
+        <a class="btn btn-outline-primary" href="{{ url_for('routes.detail', shipment_id=r.id) }}">Open</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+
+/app/templates/route_detail.html
+
+{% extends "base.html" %}
+{% block content %}
+<h3>Route #{{ route.id }} — {{ route.driver_name }} — {{ route.delivery_date }}</h3>
+<a class="btn btn-sm btn-success mb-3" href="{{ url_for('routes.new_stop', shipment_id=route.id) }}">Add Stop</a>
+
+<table class="table table-bordered">
+  <thead><tr><th>Seq</th><th>Address</th><th>Invoices</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for s in stops %}
+    <tr>
+      <td>{{ s.seq_no }}</td>
+      <td>
+        <div>{{ s.stop_name or route.route_name or '' }}</div>
+        <div>{{ s.stop_addr }} {{ s.stop_city }} {{ s.stop_postcode }}</div>
+      </td>
+      <td>
+        {% if s.invoices %}
+          <ul class="mb-0">
+          {% for rsi in s.invoices %}
+            <li>
+              {{ rsi.invoice_no }} — <span class="badge bg-secondary">{{ rsi.status or 'ASSIGNED' }}</span>
+              <button class="btn btn-sm btn-outline-primary ms-2" onclick="quickStatus({{ s.route_stop_id }}, '{{ rsi.invoice_no }}', 'READY_TO_DISPATCH')">Ready</button>
+              <button class="btn btn-sm btn-outline-warning" onclick="quickStatus({{ s.route_stop_id }}, '{{ rsi.invoice_no }}', 'DISPATCHED')">Dispatch</button>
+              <button class="btn btn-sm btn-outline-success" onclick="quickStatus({{ s.route_stop_id }}, '{{ rsi.invoice_no }}', 'DELIVERED')">Deliver</button>
+            </li>
+          {% endfor %}
+          </ul>
+        {% else %}
+          <em>No invoices</em>
+        {% endif %}
+      </td>
+      <td><!-- room for future actions --></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+
+/app/templates/stop_form.html
+
+{% extends "base.html" %}
+{% block content %}
+<h4>New Stop</h4>
+<form method="post">
+  <div class="mb-2"><label class="form-label">Sequence #</label><input class="form-control" name="seq_no" type="number" required></div>
+  <div class="mb-2"><label class="form-label">Stop name</label><input class="form-control" name="stop_name"></div>
+  <div class="mb-2"><label class="form-label">Address</label><input class="form-control" name="stop_addr"></div>
+  <div class="mb-2"><label class="form-label">City</label><input class="form-control" name="stop_city"></div>
+  <div class="mb-2"><label class="form-label">Postcode</label><input class="form-control" name="stop_postcode"></div>
+  <div class="mb-2">
+    <label class="form-label">Invoices (comma-separated)</label>
+    <input class="form-control" name="invoice_nos" placeholder="INV001, INV002">
+  </div>
+  <div class="mb-2"><label class="form-label">Notes</label><textarea class="form-control" name="notes"></textarea></div>
+  <button class="btn btn-primary">Create Stop</button>
+</form>
+{% endblock %}
+
+
+/app/templates/run_sheet.html (optional print view):
+
+{% extends "base.html" %}
+{% block content %}
+<h3>Run Sheet — {{ driver }} — {{ day }}</h3>
+<ol>
+{% for s in stops %}
+  <li>
+    <strong>#{{ s.seq_no }}</strong> — {{ s.stop_name }} / {{ s.stop_addr }} {{ s.stop_city }}
+    <div>Invoices: {{ s.invoices|join(", ") }}</div>
+  </li>
+{% endfor %}
+</ol>
+{% endblock %}
+
+7) Minimal JS helper — /app/static/app.js
+async function quickStatus(route_stop_id, invoice_no, status) {
+  const r = await fetch(`/invoices/stop/${route_stop_id}/${encodeURIComponent(invoice_no)}/status`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({status})
+  });
+  if (r.ok) {
+    location.reload();
+  } else {
+    alert('Failed to update status');
+  }
+}
+
+8) A couple of reports (Pandas for quick analysis)
+
+Example: progress by driver for a given date.
+
+# Use this in a Flask view or a notebook in Replit
+import pandas as pd
+from sqlalchemy import create_engine
+
+engine = create_engine(DATABASE_URL)
+
+sql = """
+SELECT s.driver_name, s.delivery_date, s.status,
+       COUNT(rsi.route_stop_invoice_id) AS invoices_total,
+       SUM(CASE WHEN rsi.status IN ('DELIVERED','FAILED') THEN 1 ELSE 0 END) AS invoices_done
+FROM shipments s
+LEFT JOIN route_stop rs  ON rs.shipment_id = s.id
+LEFT JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id
+WHERE s.delivery_date = %(day)s
+GROUP BY s.driver_name, s.delivery_date, s.status
+ORDER BY s.driver_name;
+"""
+df = pd.read_sql(sql, engine, params={"day": "2025-10-10"})
+print(df)
+
+9) Workflow (how the team should use it)
+
+During picking
+
+Create/find route header (shipment) for driver + delivery_date.
+
+For each customer/address, create a stop (seq_no).
+
+Attach one or more invoice numbers to that stop.
+
+Update per-invoice status to PICKING / READY_TO_DISPATCH as warehouse progresses.
+
+Dispatch
+
+When loading the truck, move per-invoice status to DISPATCHED.
+
+Optionally set the route header shipments.status = 'DISPATCHED'.
+
+Delivery
+
+Driver updates each invoice at the stop to DELIVERED (or FAILED).
+
+(We mirror to invoices.status, delivered_at, etc., so your existing reports keep working.)
+
+Monitoring
+
+Use /routes/dashboard?date=YYYY-MM-DD to see per-driver progress.
+
+Open a route to see stops in order and invoices per stop.
+
+10) Guardrails and notes
+
+Data integrity: A given invoice can be linked to at most one stop (enforced by logic; table constraint is per stop). Business rule: link each invoice to only one route_stop_id.
+
+Uniqueness: One route per driver/day: uq_shipments_driver_day.
+
+Performance: The indexes in the migration are enough for typical dashboards.
+
+Status vocabulary: Use the simple set now (ASSIGNED, PICKING, READY_TO_DISPATCH, DISPATCHED, DELIVERED, FAILED). You can expand later without schema changes.
+
+Backwards compatibility: If legacy code reads from shipment_orders, we can add a view mapping route_stop_invoice back to it later.
+
+11) Acceptance criteria (quick)
+
+Can create a route for a driver/date via dashboard form.
+
+Can add a stop with seq_no and attach multiple invoices in one form submit.
+
+Route detail shows stops in order and each invoice’s status with quick-action buttons.
+
+Invoice status updates mirror to the invoices table timestamps.
+
+Dashboard shows total vs delivered/failed per route.

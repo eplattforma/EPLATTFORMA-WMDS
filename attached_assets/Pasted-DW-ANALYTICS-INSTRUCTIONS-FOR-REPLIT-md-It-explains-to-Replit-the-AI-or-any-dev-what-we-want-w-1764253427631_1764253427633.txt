@@ -1,0 +1,724 @@
+DW_ANALYTICS_INSTRUCTIONS_FOR_REPLIT.md
+
+It explains to “Replit” (the AI or any dev) what we want, what tables to create, what analysis jobs to run, and how to build a simple web interface to view the results.
+
+You can just copy-paste this whole thing into a file. 👇
+
+# DW Customer Opportunity Analytics – Build Instructions for Replit
+
+## 1. Goal
+
+We have a data warehouse (DW) with customer invoice data.
+
+We want Replit to help us build:
+
+1. **Background analytics jobs** that populate 4 new DW tables:
+   - Market basket recommendations (products often bought together)
+   - Category penetration (which categories each customer buys vs doesn’t buy)
+   - Share of wallet analysis (how much more each customer could spend)
+   - Churn risk by category (customers whose spend dropped sharply in a category)
+
+2. **A simple web interface (Flask)** where a user can:
+   - Select a customer and see:
+     - Recommended additional products
+     - Categories they are missing
+     - Share-of-wallet gap
+     - Churn risk by category
+   - Optionally see global lists (top rules, biggest gaps, biggest churn risks).
+
+The project uses **Python + Flask + SQLAlchemy** (existing DB session: `db`).
+
+
+---
+
+## 2. Existing Assumptions (Current DW Tables)
+
+These tables already exist (or are very similar). If names differ, please adapt.
+
+### 2.1. `dw_invoice_header`
+Represents invoice headers.
+
+```python
+class DwInvoiceHeader(db.Model):
+    __tablename__ = "dw_invoice_header"
+
+    invoice_no_365 = db.Column(db.String, primary_key=True)
+    customer_code_365 = db.Column(db.String, nullable=False)
+    invoice_date = db.Column(db.Date, nullable=False)
+    invoice_type = db.Column(db.String(20), nullable=False)
+    total_grand = db.Column(db.Numeric(12, 2), nullable=False)
+
+2.2. dw_invoice_line
+
+Represents invoice lines (with signed amounts: returns are negative).
+
+class DwInvoiceLine(db.Model):
+    __tablename__ = "dw_invoice_line"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    invoice_no_365 = db.Column(
+        db.String,
+        db.ForeignKey("dw_invoice_header.invoice_no_365"),
+        nullable=False,
+    )
+    item_code_365 = db.Column(db.String, nullable=False)
+    quantity = db.Column(db.Numeric(12, 3), nullable=False)
+    line_total_incl = db.Column(db.Numeric(12, 2), nullable=False)
+
+2.3. dw_item
+
+Represents items / products.
+
+class DwItem(db.Model):
+    __tablename__ = "dw_item"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    item_code_365 = db.Column(db.String, unique=True, nullable=False)
+
+    item_description = db.Column(db.String, nullable=True)
+    category_code = db.Column(db.String, nullable=True)
+
+    item_length = db.Column(db.Numeric(10, 3), nullable=True)
+    item_width = db.Column(db.Numeric(10, 3), nullable=True)
+    item_height = db.Column(db.Numeric(10, 3), nullable=True)
+    item_weight = db.Column(db.Numeric(10, 3), nullable=True)
+    number_of_pieces = db.Column(db.Integer, nullable=True)
+    selling_qty = db.Column(db.Numeric(10, 3), nullable=True)
+
+
+If the real schema is slightly different, keep the logic but map to the real column names.
+
+3. New Analytics Tables to Create
+
+Create these 4 new tables in the same database (via SQLAlchemy models).
+Put them into a new file, e.g. dw_analytics_models.py.
+
+# dw_analytics_models.py
+
+from your_app import db  # adjust import as needed
+
+class DwRecoBasket(db.Model):
+    """
+    Market basket rules:
+    - from_item_code => to_item_code
+    - support, confidence, lift
+    """
+    __tablename__ = "dw_reco_basket"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    from_item_code = db.Column(db.String, nullable=False, index=True)
+    to_item_code = db.Column(db.String, nullable=False, index=True)
+
+    support = db.Column(db.Float, nullable=False)
+    confidence = db.Column(db.Float, nullable=False)
+    lift = db.Column(db.Float, nullable=True)
+
+
+class DwCategoryPenetration(db.Model):
+    """
+    Customer x Category matrix:
+    - total_spend and has_category flag (0/1)
+    """
+    __tablename__ = "dw_category_penetration"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    customer_code_365 = db.Column(db.String, nullable=False, index=True)
+    category_code = db.Column(db.String, nullable=False, index=True)
+
+    total_spend = db.Column(db.Numeric(12, 2), nullable=False)
+    has_category = db.Column(db.Integer, nullable=False)  # 1 = yes, 0 = no
+
+
+class DwShareOfWallet(db.Model):
+    """
+    Per customer:
+    - actual total spend
+    - global average spend
+    - opportunity_gap = max(avg_spend - actual_spend, 0)
+    """
+    __tablename__ = "dw_share_of_wallet"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    customer_code_365 = db.Column(db.String, nullable=False, unique=True)
+
+    actual_spend = db.Column(db.Numeric(14, 2), nullable=False)
+    avg_spend = db.Column(db.Numeric(14, 2), nullable=False)
+    opportunity_gap = db.Column(db.Numeric(14, 2), nullable=False)
+
+
+class DwChurnRisk(db.Model):
+    """
+    Churn risk by customer & category:
+    - compares recent vs previous period spend
+    """
+    __tablename__ = "dw_churn_risk"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    customer_code_365 = db.Column(db.String, nullable=False, index=True)
+    category_code = db.Column(db.String, nullable=False, index=True)
+
+    recent_spend = db.Column(db.Numeric(14, 2), nullable=False)
+    prev_spend = db.Column(db.Numeric(14, 2), nullable=False)
+    spend_ratio = db.Column(db.Float, nullable=False)  # recent / prev
+    drop_pct = db.Column(db.Float, nullable=False)     # 0.0–1.0
+    churn_flag = db.Column(db.Integer, nullable=False) # 1 = high risk
+
+DB migration
+
+In app.py or equivalent, once models are imported, run:
+
+with app.app_context():
+    db.create_all()
+
+
+Run once to create the tables, then remove or comment it to avoid re-running.
+
+4. Analytics Jobs (Python Functions)
+
+Create a new file: dw_analytics_jobs.py.
+
+# dw_analytics_jobs.py
+
+from collections import defaultdict
+from datetime import date, timedelta
+from math import isfinite
+
+from your_app import db
+from dw_analytics_models import (
+    DwRecoBasket,
+    DwCategoryPenetration,
+    DwShareOfWallet,
+    DwChurnRisk,
+)
+from dw_invoice_header_model import DwInvoiceHeader  # adapt import paths
+from dw_invoice_line_model import DwInvoiceLine
+from dw_item_model import DwItem
+
+4.1. Market Basket – run_market_basket
+def run_market_basket(min_support=0.01, min_confidence=0.2, max_rules=1000):
+    """
+    Build market basket rules:
+    - from_item_code -> to_item_code
+    - store results in DwRecoBasket
+    """
+
+    rows = db.session.execute("""
+        SELECT invoice_no_365, item_code_365
+        FROM dw_invoice_line
+    """).fetchall()
+
+    baskets = defaultdict(set)
+    for inv_no, item_code in rows:
+        baskets[inv_no].add(item_code)
+
+    total_baskets = len(baskets)
+    if total_baskets == 0:
+        print("No baskets found.")
+        return
+
+    item_count = defaultdict(int)
+    pair_count = defaultdict(int)
+
+    for items in baskets.values():
+        items = list(items)
+        for i in range(len(items)):
+            item_count[items[i]] += 1
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                a = items[i]
+                b = items[j]
+                if a == b:
+                    continue
+                key = tuple(sorted((a, b)))
+                pair_count[key] += 1
+
+    rules = []
+    for (a, b), cnt_ab in pair_count.items():
+        support_ab = cnt_ab / total_baskets
+        if support_ab < min_support:
+            continue
+
+        support_a = item_count[a] / total_baskets
+        support_b = item_count[b] / total_baskets
+
+        conf_a_b = cnt_ab / item_count[a]
+        conf_b_a = cnt_ab / item_count[b]
+
+        lift_a_b = conf_a_b / support_b if support_b > 0 else None
+        lift_b_a = conf_b_a / support_a if support_a > 0 else None
+
+        if conf_a_b >= min_confidence:
+            rules.append({
+                "from_item": a,
+                "to_item": b,
+                "support": support_ab,
+                "confidence": conf_a_b,
+                "lift": lift_a_b,
+            })
+        if conf_b_a >= min_confidence:
+            rules.append({
+                "from_item": b,
+                "to_item": a,
+                "support": support_ab,
+                "confidence": conf_b_a,
+                "lift": lift_b_a,
+            })
+
+    rules.sort(
+        key=lambda r: (
+            -(r["lift"] if r["lift"] is not None and isfinite(r["lift"]) else r["confidence"])
+        )
+    )
+
+    DwRecoBasket.query.delete()
+    db.session.commit()
+
+    for r in rules[:max_rules]:
+        rec = DwRecoBasket(
+            from_item_code=r["from_item"],
+            to_item_code=r["to_item"],
+            support=r["support"],
+            confidence=r["confidence"],
+            lift=r["lift"],
+        )
+        db.session.add(rec)
+
+    db.session.commit()
+    print(f"Saved {min(len(rules), max_rules)} market basket rules.")
+
+4.2. Category Penetration – run_category_penetration
+def run_category_penetration():
+    """
+    Build customer x category matrix and store in DwCategoryPenetration.
+    """
+
+    rows = db.session.execute("""
+        SELECT
+            h.customer_code_365,
+            i.category_code,
+            SUM(l.line_total_incl) AS total_spend
+        FROM dw_invoice_line l
+        JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+        JOIN dw_item i ON i.item_code_365 = l.item_code_365
+        GROUP BY h.customer_code_365, i.category_code
+    """).fetchall()
+
+    all_cats_rows = db.session.execute("""
+        SELECT DISTINCT category_code
+        FROM dw_item
+        WHERE category_code IS NOT NULL
+    """).fetchall()
+    all_categories = [r[0] for r in all_cats_rows]
+
+    cust_cat_spend = defaultdict(dict)
+    for cust, cat, spend in rows:
+        cust_cat_spend[cust][cat] = float(spend or 0)
+
+    DwCategoryPenetration.query.delete()
+    db.session.commit()
+
+    for cust, cat_map in cust_cat_spend.items():
+        for cat in all_categories:
+            spend = cat_map.get(cat, 0.0)
+            has_category = 1 if spend > 0 else 0
+            rec = DwCategoryPenetration(
+                customer_code_365=cust,
+                category_code=cat,
+                total_spend=spend,
+                has_category=has_category,
+            )
+            db.session.add(rec)
+
+    db.session.commit()
+    print("Category penetration table refreshed.")
+
+4.3. Share of Wallet – run_share_of_wallet
+def run_share_of_wallet():
+    """
+    Compute per-customer:
+    - actual total spend
+    - global average spend
+    - opportunity_gap
+    Store in DwShareOfWallet.
+    """
+
+    rows = db.session.execute("""
+        SELECT h.customer_code_365, SUM(l.line_total_incl) AS total_spend
+        FROM dw_invoice_line l
+        JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+        GROUP BY h.customer_code_365
+    """).fetchall()
+
+    if not rows:
+        print("No spend data.")
+        return
+
+    spends = [float(s or 0) for _, s in rows]
+    avg_spend = sum(spends) / len(spends)
+
+    DwShareOfWallet.query.delete()
+    db.session.commit()
+
+    for cust, spend in rows:
+        spend_val = float(spend or 0)
+        gap = max(avg_spend - spend_val, 0.0)
+        rec = DwShareOfWallet(
+            customer_code_365=cust,
+            actual_spend=spend_val,
+            avg_spend=avg_spend,
+            opportunity_gap=gap,
+        )
+        db.session.add(rec)
+
+    db.session.commit()
+    print("Share of wallet table refreshed.")
+
+4.4. Churn Risk – run_churn_analysis
+def run_churn_analysis(days_window=90, drop_threshold=0.5):
+    """
+    Compare two consecutive periods of length days_window:
+    - previous period vs recent period
+    - if recent / previous < drop_threshold => churn_flag = 1
+    """
+
+    today = date.today()
+    recent_start = today - timedelta(days=days_window)
+    prev_start = today - timedelta(days=2 * days_window)
+
+    rows = db.session.execute("""
+        SELECT
+            h.customer_code_365,
+            i.category_code,
+            SUM(CASE
+                    WHEN h.invoice_date >= :recent_start THEN l.line_total_incl
+                    ELSE 0
+                END) AS recent_spend,
+            SUM(CASE
+                    WHEN h.invoice_date >= :prev_start
+                     AND h.invoice_date < :recent_start
+                    THEN l.line_total_incl
+                    ELSE 0
+                END) AS prev_spend
+        FROM dw_invoice_line l
+        JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+        JOIN dw_item i ON i.item_code_365 = l.item_code_365
+        WHERE h.invoice_date >= :prev_start
+        GROUP BY h.customer_code_365, i.category_code
+    """, {
+        "recent_start": recent_start,
+        "prev_start": prev_start,
+    }).fetchall()
+
+    DwChurnRisk.query.delete()
+    db.session.commit()
+
+    for cust, cat, recent_spend, prev_spend in rows:
+        recent_val = float(recent_spend or 0)
+        prev_val = float(prev_spend or 0)
+
+        if prev_val <= 0:
+            continue
+
+        ratio = recent_val / prev_val
+        drop_pct = 1 - ratio
+        churn_flag = 1 if ratio < drop_threshold else 0
+
+        rec = DwChurnRisk(
+            customer_code_365=cust,
+            category_code=cat,
+            recent_spend=recent_val,
+            prev_spend=prev_val,
+            spend_ratio=ratio,
+            drop_pct=drop_pct,
+            churn_flag=churn_flag,
+        )
+        db.session.add(rec)
+
+    db.session.commit()
+    print("Churn risk table refreshed.")
+
+5. How to Run All Jobs
+
+In app.py or a separate admin script:
+
+from dw_analytics_jobs import (
+    run_market_basket,
+    run_category_penetration,
+    run_share_of_wallet,
+    run_churn_analysis,
+)
+
+with app.app_context():
+    run_market_basket()
+    run_category_penetration()
+    run_share_of_wallet()
+    run_churn_analysis()
+
+
+Later this can be scheduled (e.g. daily).
+
+6. Web Interface for Users (Flask)
+
+Create a simple Blueprint in dw_analytics_routes.py:
+
+# dw_analytics_routes.py
+
+from flask import Blueprint, render_template, request
+from your_app import db
+from dw_analytics_models import (
+    DwRecoBasket,
+    DwCategoryPenetration,
+    DwShareOfWallet,
+    DwChurnRisk,
+)
+from dw_invoice_header_model import DwInvoiceHeader
+from dw_item_model import DwItem
+
+analytics_bp = Blueprint("analytics", __name__, url_prefix="/analytics")
+
+6.1. Main page – select customer
+@analytics_bp.route("/", methods=["GET"])
+def analytics_home():
+    customers = db.session.execute("""
+        SELECT DISTINCT customer_code_365
+        FROM dw_invoice_header
+        ORDER BY customer_code_365
+    """).fetchall()
+
+    selected_customer = request.args.get("customer")
+
+    customer_data = None
+    if selected_customer:
+        # Share of wallet
+        sow = DwShareOfWallet.query.filter_by(
+            customer_code_365=selected_customer
+        ).first()
+
+        # Missing categories (has_category = 0)
+        missing_categories = DwCategoryPenetration.query.filter_by(
+            customer_code_365=selected_customer, has_category=0
+        ).all()
+
+        # Churn risks (churn_flag = 1)
+        churn_risks = DwChurnRisk.query.filter_by(
+            customer_code_365=selected_customer, churn_flag=1
+        ).all()
+
+        # Recommended items:
+        # 1. find items this customer already buys
+        items_rows = db.session.execute("""
+            SELECT DISTINCT l.item_code_365
+            FROM dw_invoice_line l
+            JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+            WHERE h.customer_code_365 = :cust
+        """, {"cust": selected_customer}).fetchall()
+        customer_items = [r[0] for r in items_rows]
+
+        if customer_items:
+            recos = (
+                DwRecoBasket.query
+                .filter(DwRecoBasket.from_item_code.in_(customer_items))
+                .order_by(DwRecoBasket.lift.desc())
+                .limit(50)
+                .all()
+            )
+        else:
+            recos = []
+
+        customer_data = {
+            "share_of_wallet": sow,
+            "missing_categories": missing_categories,
+            "churn_risks": churn_risks,
+            "recommendations": recos,
+        }
+
+    return render_template(
+        "analytics_home.html",
+        customers=[c[0] for c in customers],
+        selected_customer=selected_customer,
+        customer_data=customer_data,
+    )
+
+6.2. Register the blueprint
+
+In app.py:
+
+from dw_analytics_routes import analytics_bp
+
+app.register_blueprint(analytics_bp)
+
+7. HTML Template: templates/analytics_home.html
+
+Create the template for the interface.
+
+<!-- templates/analytics_home.html -->
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Customer Opportunity Analytics</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1, h2 { margin-bottom: 5px; }
+    table { border-collapse: collapse; margin: 10px 0; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; }
+    th { background: #f0f0f0; }
+    .section { margin-top: 20px; }
+    .badge-danger { color: #fff; background: #c0392b; padding: 2px 6px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Customer Opportunity Analytics</h1>
+
+  <form method="get" action="">
+    <label for="customer">Select customer:</label>
+    <select id="customer" name="customer">
+      <option value="">-- choose --</option>
+      {% for cust in customers %}
+        <option value="{{ cust }}" {% if cust == selected_customer %}selected{% endif %}>
+          {{ cust }}
+        </option>
+      {% endfor %}
+    </select>
+    <button type="submit">View</button>
+  </form>
+
+  {% if selected_customer and customer_data %}
+    <hr>
+    <h2>Customer: {{ selected_customer }}</h2>
+
+    <!-- Share of Wallet -->
+    <div class="section">
+      <h3>Share of Wallet</h3>
+      {% if customer_data.share_of_wallet %}
+        <table>
+          <tr>
+            <th>Actual Spend</th>
+            <th>Average Spend</th>
+            <th>Opportunity Gap</th>
+          </tr>
+          <tr>
+            <td>{{ customer_data.share_of_wallet.actual_spend }}</td>
+            <td>{{ customer_data.share_of_wallet.avg_spend }}</td>
+            <td>{{ customer_data.share_of_wallet.opportunity_gap }}</td>
+          </tr>
+        </table>
+      {% else %}
+        <p>No share-of-wallet data for this customer.</p>
+      {% endif %}
+    </div>
+
+    <!-- Missing Categories -->
+    <div class="section">
+      <h3>Missing Categories</h3>
+      {% if customer_data.missing_categories %}
+        <table>
+          <tr>
+            <th>Category</th>
+          </tr>
+          {% for row in customer_data.missing_categories %}
+            <tr>
+              <td>{{ row.category_code }}</td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <p>No missing categories (customer buys from all known categories).</p>
+      {% endif %}
+    </div>
+
+    <!-- Churn Risk -->
+    <div class="section">
+      <h3>Churn Risk by Category</h3>
+      {% if customer_data.churn_risks %}
+        <table>
+          <tr>
+            <th>Category</th>
+            <th>Previous Spend</th>
+            <th>Recent Spend</th>
+            <th>Drop %</th>
+            <th>Flag</th>
+          </tr>
+          {% for row in customer_data.churn_risks %}
+            <tr>
+              <td>{{ row.category_code }}</td>
+              <td>{{ row.prev_spend }}</td>
+              <td>{{ row.recent_spend }}</td>
+              <td>{{ (row.drop_pct * 100) | round(1) }}%</td>
+              <td>
+                {% if row.churn_flag == 1 %}
+                  <span class="badge-danger">High</span>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <p>No churn risk detected for this customer.</p>
+      {% endif %}
+    </div>
+
+    <!-- Product Recommendations -->
+    <div class="section">
+      <h3>Product Recommendations (Market Basket)</h3>
+      {% if customer_data.recommendations %}
+        <table>
+          <tr>
+            <th>From Item</th>
+            <th>Recommended Item</th>
+            <th>Confidence</th>
+            <th>Lift</th>
+          </tr>
+          {% for r in customer_data.recommendations %}
+            <tr>
+              <td>{{ r.from_item_code }}</td>
+              <td>{{ r.to_item_code }}</td>
+              <td>{{ (r.confidence * 100) | round(1) }}%</td>
+              <td>{{ (r.lift or 0) | round(2) }}</td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <p>No recommendations found for this customer yet.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+</body>
+</html>
+
+8. Summary
+
+What Replit should do:
+
+Create 4 analytics tables using the models above.
+
+Implement 4 jobs in dw_analytics_jobs.py:
+
+run_market_basket
+
+run_category_penetration
+
+run_share_of_wallet
+
+run_churn_analysis
+
+Wire a simple interface using a Flask blueprint:
+
+Route: /analytics/
+
+Dropdown to select customer.
+
+Show: share-of-wallet, missing categories, churn risks, and product recommendations.
+
+Ensure all imports & table names match the actual project structure.
+
+After that, I can open /analytics/ in the browser and use the UI to explore cross-sell opportunities for each customer.
+
+
+---
+
+If you want, next step I can do is turn this into actual Python files (using your real module names) instead of a markdown instruction.
