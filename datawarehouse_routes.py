@@ -653,27 +653,17 @@ def database_settings():
                 statusDiv.innerHTML = '<div class="success-message">Starting database clone...</div>';
                 
                 try {
-                    const response = await fetch('/admin/tools/database-clone/execute', {
+                    const response = await fetch('/admin/clone-database', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({confirmed: true})
+                        headers: {'Content-Type': 'application/json'}
                     });
-                    
-                    // Check content-type before parsing JSON
-                    const contentType = response.headers.get('content-type');
-                    if (!contentType || !contentType.includes('application/json')) {
-                        const text = await response.text();
-                        throw new Error('Server returned non-JSON response: ' + text.substring(0, 200));
-                    }
                     
                     const result = await response.json();
                     
                     if (result.success) {
                         statusDiv.innerHTML = '<div class="success-message"><strong>✓ Success!</strong><br>' + result.message + '</div>';
                     } else {
-                        const errorMsg = result.error || result.message || 'Unknown error';
-                        const stderr = result.stderr ? '<br><pre style="font-size: 12px; overflow-x: auto; max-height: 200px;">' + result.stderr + '</pre>' : '';
-                        statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + errorMsg + stderr + '</div>';
+                        statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + result.message + '</div>';
                     }
                 } catch (error) {
                     statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + error.message + '</div>';

@@ -30,32 +30,22 @@ def database_clone_page():
 def execute_database_clone():
     """Execute database clone from production to development"""
     if not is_admin():
-        return jsonify({"success": False, "error": "Access denied"}), 403
+        return jsonify({"error": "Access denied"}), 403
     
     try:
-        # Check environment variables - STRICT: require explicit DATABASE_URL_DEV
+        # Check environment variables
         database_url_prod = os.getenv('DATABASE_URL_PROD')
-        database_url_dev = os.getenv('DATABASE_URL_DEV')
+        database_url_dev = os.getenv('DATABASE_URL_DEV') or os.getenv('DATABASE_URL')
         
         if not database_url_prod:
-            return jsonify({
-                "success": False,
-                "error": "DATABASE_URL_PROD environment variable not set. Please configure it in Secrets."
-            }), 400
+            return jsonify({"error": "DATABASE_URL_PROD environment variable not set"}), 400
         
         if not database_url_dev:
-            return jsonify({
-                "success": False,
-                "error": "DATABASE_URL_DEV environment variable not set. Please configure it in Secrets to avoid accidentally overwriting the wrong database."
-            }), 400
+            return jsonify({"error": "DATABASE_URL or DATABASE_URL_DEV not set"}), 400
         
-        # Get confirmation from request body
-        request_data = request.get_json(silent=True) or {}
-        if not request_data.get('confirmed'):
-            return jsonify({
-                "success": False,
-                "error": "Clone not confirmed. Please confirm the operation."
-            }), 400
+        # Get confirmation
+        if not request.get_json().get('confirmed'):
+            return jsonify({"error": "Clone not confirmed"}), 400
         
         logger.info(f"Starting database clone by {current_user.username}")
         
@@ -79,8 +69,6 @@ pg_restore \\
   --clean \\
   --if-exists \\
   --no-owner \\
-  --single-transaction \\
-  --exit-on-error \\
   -d "{database_url_dev}" \\
   /tmp/prod_db.dump
 
@@ -98,13 +86,9 @@ psql "{database_url_dev}" -c "SELECT COUNT(*) as ps_items_count FROM ps_items_dw
         
         if result.returncode != 0:
             logger.error(f"Clone failed: {result.stderr}")
-            # Include both stdout and stderr in response for debugging
             return jsonify({
                 "success": False,
-                "error": "Clone failed - see details below",
-                "stdout": result.stdout[-4000:] if result.stdout else "",
-                "stderr": result.stderr[-4000:] if result.stderr else "",
-                "returncode": result.returncode
+                "error": f"Clone failed: {result.stderr}"
             }), 500
         
         logger.info(f"Database clone completed by {current_user.username}")
@@ -115,15 +99,12 @@ psql "{database_url_dev}" -c "SELECT COUNT(*) as ps_items_count FROM ps_items_dw
             "message": "Database clone completed successfully!"
         })
         
-    except subprocess.TimeoutExpired as te:
-        logger.error(f"Clone timed out: {str(te)}")
+    except subprocess.TimeoutExpired:
         return jsonify({
-            "success": False,
-            "error": "Clone operation timed out (exceeded 5 minutes). The database may be large - consider running during off-peak hours."
+            "error": "Clone operation timed out (exceeded 5 minutes)"
         }), 500
     except Exception as e:
         logger.error(f"Error in database clone: {str(e)}", exc_info=True)
         return jsonify({
-            "success": False,
-            "error": f"Unexpected error: {str(e)}"
+            "error": f"Error: {str(e)}"
         }), 500
