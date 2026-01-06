@@ -92,19 +92,26 @@ def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
 
 
 def run_date_sync_job(job_id: str, import_date: str):
-    """Execute the date sync job in a background thread."""
+    """Execute the date sync job in a background thread with isolated session."""
+    from sqlalchemy.orm import scoped_session, sessionmaker
+    
     with app.app_context():
-        job = SyncJob.query.get(job_id)
-        if not job:
-            logger.error(f"Job {job_id} not found")
-            return
+        # Create an isolated session for this background thread INSIDE app context
+        # This prevents corrupting the shared Flask-SQLAlchemy session
+        Session = scoped_session(sessionmaker(bind=db.engine))
+        session = Session()
         
         try:
+            job = session.query(SyncJob).get(job_id)
+            if not job:
+                logger.error(f"Job {job_id} not found")
+                return
+            
             # Update job status to running
             job.status = 'running'
             job.started_at = utc_now_for_db()
             job.progress_message = f"Starting sync for date {import_date}..."
-            db.session.commit()
+            session.commit()
             
             # Import the sync function
             from services_powersoft import sync_invoices_from_ps365
@@ -113,6 +120,10 @@ def run_date_sync_job(job_id: str, import_date: str):
             logger.info(f"Job {job_id}: Starting date sync for {import_date}")
             
             result = sync_invoices_from_ps365(invoice_no_365=None, import_date=import_date)
+            
+            # Refresh job from isolated session after sync (sync uses its own session)
+            session.rollback()  # Clear any stale state
+            job = session.query(SyncJob).get(job_id)
             
             # Update job with results
             job.finished_at = utc_now_for_db()
@@ -126,17 +137,30 @@ def run_date_sync_job(job_id: str, import_date: str):
             job.status = 'completed' if job.success else 'failed'
             job.progress_message = f"Completed: {job.invoices_created} created, {job.invoices_updated} updated"
             
-            db.session.commit()
+            session.commit()
             logger.info(f"Job {job_id}: Completed with success={job.success}")
             
         except Exception as e:
             logger.error(f"Job {job_id} failed with exception: {str(e)}", exc_info=True)
-            job.finished_at = utc_now_for_db()
-            job.success = False
-            job.status = 'failed'
-            job.error_message = str(e)
-            job.progress_message = f"Failed: {str(e)[:100]}"
-            db.session.commit()
+            try:
+                session.rollback()
+                job = session.query(SyncJob).get(job_id)
+                if job:
+                    job.finished_at = utc_now_for_db()
+                    job.success = False
+                    job.status = 'failed'
+                    job.error_message = str(e)
+                    job.progress_message = f"Failed: {str(e)[:100]}"
+                    session.commit()
+            except Exception as inner_e:
+                logger.error(f"Failed to update job status: {str(inner_e)}")
+        finally:
+            # Always clean up the isolated session
+            try:
+                session.close()
+                Session.remove()
+            except Exception as cleanup_e:
+                logger.error(f"Session cleanup error: {str(cleanup_e)}")
 
 
 def start_date_sync_async(import_date: str, created_by: str = None) -> Dict[str, Any]:
