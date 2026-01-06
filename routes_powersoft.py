@@ -104,12 +104,21 @@ def get_customer(customer_code):
         Response: {"success": true, "customer": {...}}
     """
     try:
-        result = get_customer_by_code(customer_code)
+        customer = get_customer_by_code(customer_code)
         
-        if result is None or not isinstance(result, dict) or not result.get("success"):
-            return jsonify(result if result else {"success": False, "error": "Customer not found"}), 404
+        if customer is None:
+            return jsonify({"success": False, "error": "Customer not found"}), 404
         
-        return jsonify(result), 200
+        # Convert model to dict
+        customer_data = {
+            "customer_code_365": customer.customer_code_365,
+            "customer_name": customer.customer_name,
+            "customer_email": customer.customer_email,
+            "customer_phone": customer.customer_phone,
+            "last_synced_at": customer.last_synced_at.isoformat() if customer.last_synced_at else None
+        }
+        
+        return jsonify({"success": True, "customer": customer_data}), 200
     except Exception as e:
         return jsonify({
             "success": False,

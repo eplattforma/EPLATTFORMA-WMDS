@@ -28,3 +28,11 @@ Thumbs.db
 # Local export archives (do not commit)
 warehouse-system-export.tar.gz
 warehouse-system-export.zip
+
+# User uploads and attachments (large files, may contain sensitive data)
+uploads/
+attached_assets/*.xlsx
+attached_assets/*.pdf
+attached_assets/*.png
+attached_assets/*.jpg
+attached_assets/*.jpeg

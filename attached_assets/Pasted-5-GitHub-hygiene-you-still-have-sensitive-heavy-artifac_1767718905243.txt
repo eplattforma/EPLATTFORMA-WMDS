@@ -1,0 +1,52 @@
+5) GitHub hygiene: you still have sensitive / heavy artifacts tracked
+
+You already discovered that cookies.txt is tracked by git (git ls-files … showed it). That file name strongly suggests credentials/session material.
+
+Minimum action (do this even if you keep the repo public)
+
+Add cookies.txt to .gitignore
+
+Remove it from git tracking: git rm --cached cookies.txt
+
+Commit + push
+
+Rotate/replace anything that file might authenticate (treat as compromised)
+
+If cookies.txt contains real session tokens, removing it in a later commit is not enough by itself because it remains in git history. In that case, the correct fix is history rewrite (filter-repo/BFG) or recreating the repo.
+
+Also: your repo contains very large volumes of uploads/ and attached_assets/ (lots of xlsx/pdf/images). That’s not inherently wrong, but it will:
+
+bloat clones
+
+slow CI/deploys
+
+increase the chance you accidentally commit something sensitive
+
+For a production codebase, I strongly recommend ignoring:
+
+uploads/
+
+most of attached_assets/ (keep only required docs, not raw exports)
+
+6) One production-specific lever to re-check: DB statement timeout
+
+In app.py you set a production statement_timeout on the SQLAlchemy engine.
+If your date import runs heavy queries (or concurrent load increases latency), this can cause mid-sync failures that you won’t reproduce in dev.
+
+Recommendation:
+
+For bulk imports, either temporarily increase the timeout or set it per session/transaction only for the sync job, not globally.
+
+What I would do next (tight execution plan)
+
+Fix the broken routes in routes_powersoft.py (/customers/<customer_code>, /jobs/<job_id>). 
+GitHub
+
+Confirm whether production failures are Flask exceptions or upstream timeouts by checking status code + Content-Type on the date import response.
+
+If it’s timeout-related: make date import async-only in production (job + polling UI) and increase gunicorn/proxy timeout only if needed.
+
+Remove cookies.txt from git tracking and rotate secrets.
+
+Add retry/backoff + strict timeouts in ps365_client.call_ps365(). 
+GitHub
