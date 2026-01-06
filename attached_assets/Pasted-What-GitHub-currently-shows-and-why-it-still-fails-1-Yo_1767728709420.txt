@@ -1,0 +1,99 @@
+What GitHub currently shows (and why it still fails)
+1) Your Deployment still runs Gunicorn with the default 30s timeout
+
+In .replit, the deployment command is:
+
+run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"] 
+GitHub
+
+That does not use your gunicorn_config.py, so Gunicorn uses its default timeout=30 seconds. That exactly matches your logs: the worker is killed mid-clone.
+
+Meanwhile, your workflow (the “Run” button / dev run) uses:
+
+gunicorn -c gunicorn_config.py main:app 
+GitHub
+
+So development behaves differently (longer timeout, different runtime), which is why it “works in dev”.
+
+2) Your gunicorn_config.py timeout is 120s, but production is not using it
+
+Your gunicorn_config.py explicitly sets:
+
+timeout = 120 
+GitHub
+
+But since deployment isn’t loading that config, production is still at 30s.
+
+3) Your clone endpoint is still inherently risky if it gets interrupted
+
+Your clone route runs pg_restore --clean --if-exists ... and the subprocess is allowed up to 300s. 
+GitHub
+
+If the web request is killed mid-restore (Gunicorn timeout), you can end up with a half-dropped / half-restored dev database (exactly what happened).
+
+Required fixes (give these to Replit)
+Fix A — Make Deployment use your Gunicorn config (most important)
+
+Update .replit deployment run to use the config:
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["gunicorn", "-c", "gunicorn_config.py", "main:app"]
+
+
+Right now it’s not doing that. 
+GitHub
+
+Then commit + push + redeploy.
+
+Fix B — Increase Gunicorn timeout for cloning
+
+Even 120s may be tight depending on DB size. Set something safer, e.g. 600–900 seconds in gunicorn_config.py:
+
+change timeout = 120 → timeout = 900 
+GitHub
+
+Fix C — Make the restore atomic so a failure cannot “break” dev
+
+In routes_admin_tools.py, modify the pg_restore to run in a single transaction so it rolls back on failure:
+
+Add:
+
+--single-transaction
+
+--exit-on-error
+
+Conceptually:
+
+pg_restore \
+  --clean \
+  --if-exists \
+  --no-owner \
+  --single-transaction \
+  --exit-on-error \
+  -d "$DATABASE_URL_DEV" \
+  /tmp/prod_db.dump
+
+
+This directly addresses your “drops tables then dies” failure mode. 
+GitHub
+
+Fix D — Best long-term: run clone as a background job (no HTTP request waiting)
+
+Even with higher timeouts, a web request doing a full DB clone is fragile on autoscale. The robust pattern is:
+
+POST /execute returns immediately with a job_id
+
+a background worker/thread performs pg_dump/pg_restore
+
+UI polls /status/<job_id>
+
+This avoids proxy/request limits and prevents the browser/UI from being the “container” for a long-running operation.
+
+Bottom line
+
+Your clone is failing not because your clone logic isn’t in GitHub, but because production deployments are not using your Gunicorn config (so they still enforce a ~30s request limit). 
+GitHub
++1
+
+If you implement Fix A + Fix B you should immediately stop seeing the worker-kill timeout. If you implement Fix C, you’ll stop ending up with a broken dev database even if something interrupts the process.
