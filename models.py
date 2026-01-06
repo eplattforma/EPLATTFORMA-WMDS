@@ -64,7 +64,7 @@ class User(UserMixin, db.Model):
     password = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), nullable=False)  # 'admin', 'picker', 'warehouse_manager', 'driver'
     payment_type_code_365 = db.Column(db.String(50), nullable=True)  # Payment type code for PS365 API receipt sending
-    require_gps_check = db.Column(db.Boolean, default=True)  # Enable/disable GPS location checking for this user
+    require_gps_check = db.Column(db.Boolean, default=True, server_default='true')  # Enable/disable GPS location checking for this user
     
     # ActivatableMixin fields defined directly for proper index support
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
