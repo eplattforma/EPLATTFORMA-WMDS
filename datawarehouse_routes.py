@@ -638,6 +638,34 @@ def database_settings():
         </div>
         
         <script>
+            // Safe JSON parsing for non-JSON responses (timeout pages, login redirects, etc.)
+            async function safeParseResponse(response) {
+                const contentType = response.headers.get("content-type") || "";
+                const text = await response.text();
+                
+                if (contentType.includes("application/json")) {
+                    try {
+                        return { ok: response.ok, data: JSON.parse(text), raw: text };
+                    } catch (e) {
+                        return { ok: false, data: { success: false, error: "Invalid JSON from server" }, raw: text };
+                    }
+                }
+                
+                // Detect common error scenarios from HTML responses
+                let errorMsg = text;
+                if (text.includes("504") || text.includes("Gateway Timeout")) {
+                    errorMsg = "Request timed out (504). The clone operation is taking too long.";
+                } else if (text.includes("502") || text.includes("Bad Gateway")) {
+                    errorMsg = "Server error (502). Please try again.";
+                } else if (text.toLowerCase().includes("login")) {
+                    errorMsg = "Session expired. Please refresh the page and log in again.";
+                } else if (text.length > 500) {
+                    errorMsg = text.substring(0, 500) + "...";
+                }
+                
+                return { ok: false, data: { success: false, error: errorMsg }, raw: text };
+            }
+            
             async function cloneDatabase() {
                 const statusDiv = document.getElementById('clone-status');
                 
@@ -653,17 +681,24 @@ def database_settings():
                 statusDiv.innerHTML = '<div class="success-message">Starting database clone...</div>';
                 
                 try {
-                    const response = await fetch('/admin/clone-database', {
+                    const response = await fetch('/admin/tools/database-clone/execute', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'}
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ confirmed: true })
                     });
                     
-                    const result = await response.json();
+                    const parsed = await safeParseResponse(response);
                     
-                    if (result.success) {
-                        statusDiv.innerHTML = '<div class="success-message"><strong>✓ Success!</strong><br>' + result.message + '</div>';
+                    if (parsed.ok && parsed.data.success) {
+                        const output = (parsed.data.output || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        statusDiv.innerHTML = '<div class="success-message"><strong>✓ Success!</strong><br>' + (parsed.data.message || 'Database cloned successfully') + '<pre style="background:#f8f9fa; padding:10px; border-radius:5px; margin-top:10px; max-height:200px; overflow-y:auto; font-size:12px;">' + output + '</pre></div>';
                     } else {
-                        statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + result.message + '</div>';
+                        const errMsg = parsed.data.error || parsed.data.message || 'Clone failed';
+                        statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + errMsg + '</div>';
                     }
                 } catch (error) {
                     statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + error.message + '</div>';
