@@ -441,7 +441,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                 logging.warning(f"Could not reset timeout: {reset_err}")
 
 def sync_active_customers():
-    """Sync active customers from PS365 API"""
+    """Sync active customers from PS365 API. Returns dict for JSON response."""
     from models import PSCustomer, db
     from ps365_client import call_ps365
     import logging
@@ -461,11 +461,12 @@ def sync_active_customers():
         
         if api_resp.get("response_code") != "1":
             logging.error(f"Customer sync failed: {api_resp}")
-            return False
+            return {"success": False, "error": f"PS365 API error: {api_resp.get('response_message', 'Unknown')}"}
             
         customers = response.get("list_customers", [])
         logging.info(f"Found {len(customers)} customers to sync")
         
+        updated_count = 0
         for cust_data in customers:
             customer = cust_data.get("customer", {})
             code = customer.get("customer_code_365")
@@ -481,14 +482,19 @@ def sync_active_customers():
             existing.customer_email = customer.get("customer_email")
             existing.customer_phone = customer.get("customer_phone")
             existing.last_synced_at = datetime.utcnow()
+            updated_count += 1
             
         db.session.commit()
         logging.info("Customer sync completed successfully")
-        return True
+        return {
+            "success": True,
+            "total_customers": len(customers),
+            "updated_count": updated_count
+        }
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error syncing customers: {e}")
-        return False
+        return {"success": False, "error": str(e)}
 
 def upsert_single_customer(customer_code):
     """Sync a single customer by code"""

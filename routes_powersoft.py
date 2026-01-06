@@ -47,6 +47,9 @@ def sync_customers():
     
     try:
         result = sync_active_customers()
+        # Return appropriate HTTP status based on success
+        if not result.get("success"):
+            return jsonify(result), 500
         return jsonify(result), 200
     except Exception as e:
         logging.error(f"Customer sync failed: {str(e)}")
@@ -62,25 +65,38 @@ def upsert_customer():
     Upsert a single customer from JSON payload
     
     Request Body:
-        JSON object with customer fields (customer_code_365 required)
+        JSON object with customer_code_365 field (required)
     
     Returns:
         JSON with success status and customer_code_365
     
     Example:
         POST /api/powersoft/customers/upsert
-        Body: {"customer_code_365": "00100010", "first_name": "Alex", "last_name": "Baldwin", ...}
+        Body: {"customer_code_365": "00100010"}
         Response: {"success": true, "customer_code_365": "00100010"}
     """
     try:
-        customer_data = request.get_json(force=True) or {}
-        result = upsert_single_customer(customer_data)
-        return jsonify(result), 200
-    except ValueError as e:
+        payload = request.get_json(silent=True) or {}
+        code = (payload.get("customer_code_365") or "").strip()
+        
+        if not code:
+            return jsonify({
+                "success": False,
+                "error": "customer_code_365 is required"
+            }), 400
+        
+        customer = upsert_single_customer(code)  # Pass string, not dict
+        
+        if not customer:
+            return jsonify({
+                "success": False,
+                "error": "Customer not found in PS365"
+            }), 404
+        
         return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 400
+            "success": True,
+            "customer_code_365": customer.customer_code_365
+        }), 200
     except Exception as e:
         return jsonify({
             "success": False,
