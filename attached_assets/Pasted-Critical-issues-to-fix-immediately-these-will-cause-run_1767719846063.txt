@@ -1,0 +1,105 @@
+Critical issues to fix immediately (these will cause runtime failures)
+1) routes_powersoft.py route definitions + parameter mismatches
+
+Right now, you have endpoints whose route path does not provide the function parameter, and you also pass the wrong type into your service function:
+
+get_customer(customer_code) is registered on '/customers/' (no <customer_code> in the URL).
+
+get_job_status(job_id) is registered on '/jobs/' (no <job_id> in the URL).
+
+upsert_customer() passes a dict into upsert_single_customer(...), but your service signature expects a string customer_code. 
+GitHub
++1
+
+These are not “edge cases”; they will break as soon as those endpoints are hit.
+
+Fix pattern (minimal, safe):
+
+# routes_powersoft.py
+
+@bp_powersoft.route('/customers/<customer_code>', methods=['GET'])
+@admin_required
+def get_customer(customer_code):
+    customer = get_customer_by_code(customer_code)
+    if not customer:
+        return jsonify({"success": False, "error": "Customer not found"}), 404
+    return jsonify({"success": True, "customer": customer.to_dict() if hasattr(customer, "to_dict") else {
+        "customer_code_365": getattr(customer, "customer_code_365", customer_code)
+    }}), 200
+
+
+@bp_powersoft.route('/customers/upsert', methods=['POST'])
+@admin_required
+def upsert_customer():
+    payload = request.get_json(silent=True) or {}
+    code = (payload.get("customer_code_365") or "").strip()
+    if not code:
+        return jsonify({"success": False, "error": "customer_code_365 is required"}), 400
+
+    customer = upsert_single_customer(code)  # <-- pass string
+    if not customer:
+        return jsonify({"success": False, "error": "Customer not found in PS365"}), 404
+
+    return jsonify({"success": True, "customer_code_365": getattr(customer, "customer_code_365", code)}), 200
+
+
+@bp_powersoft.route('/jobs/<job_id>', methods=['GET'])
+@admin_required
+def get_job_status(job_id):
+    job = get_job(job_id)
+    if not job:
+        return jsonify({"success": False, "error": "Job not found"}), 404
+    return jsonify({"success": True, "job": job}), 200
+
+2) Service return types are inconsistent with your API expectations
+
+In services_powersoft.py, get_customer_by_code() returns a SQLAlchemy object (or None) rather than a JSON-ready dict, and sync_active_customers() returns a boolean. 
+GitHub
+
+That’s fine internally, but your API routes must consistently return JSON structures. Either:
+
+Standardize services to return dicts (recommended), or
+
+Make routes convert models/bools into dicts (acceptable, but can spread conversion logic everywhere).
+
+Repo safety and hygiene (critical)
+3) cookies.txt is still tracked in Git
+
+Your earlier git ls-files showed cookies.txt is committed, and your .gitignore now ignores it — but ignoring does not remove already-tracked files. 
+GitHub
+
+Do this now:
+
+git rm --cached cookies.txt
+git commit -m "Remove cookies.txt from repository"
+git push
+
+
+If cookies.txt contains authenticated session data, treat it as compromised: regenerate/expire sessions or rotate whatever it grants access to.
+
+4) You are still carrying historical “junk” in Git (uploads/assets)
+
+You correctly ignored uploads/ and attached_assets/, but if they were already committed, they remain in the repo history unless you remove them (and optionally rewrite history). 
+GitHub
+
+At minimum, remove them from tracking (keeps files locally):
+
+git rm -r --cached uploads attached_assets
+git commit -m "Stop tracking uploads and attached assets"
+git push
+
+Does this address the production JSON parse error?
+
+Your new combination of:
+
+“Return JSON for API errors” in app.py 
+GitHub
+
+“Detect non-JSON / HTML responses from PS365” in ps365_client.py 
+GitHub
+
+…is exactly what prevents the frontend error Unexpected token 'I', "Internal S"....
+
+However, it does not guarantee the underlying server error is gone — it just ensures the client receives valid JSON when something fails. The next step is to check production logs for the real exception that happens during date imports (timeout, PS365 rate limiting, DB constraint/duplicate line issue, etc.).
+
+If you want, paste the production log traceback for one failed ?date=... run and I will pinpoint the precise failing line and recommend the cleanest fix.
