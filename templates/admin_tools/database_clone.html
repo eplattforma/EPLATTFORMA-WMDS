@@ -67,35 +67,6 @@
 </div>
 
 <script>
-// Helper to safely parse JSON or return raw text for non-JSON responses
-async function safeParseResponse(response) {
-    const contentType = response.headers.get("content-type") || "";
-    const text = await response.text();
-    
-    if (contentType.includes("application/json")) {
-        try {
-            return { ok: response.ok, data: JSON.parse(text), raw: text };
-        } catch (e) {
-            return { ok: false, data: { success: false, error: "Invalid JSON from server" }, raw: text };
-        }
-    }
-    
-    // Non-JSON response (HTML timeout page, login redirect, etc.)
-    // Extract meaningful error message from HTML if possible
-    let errorMsg = text;
-    if (text.includes("504") || text.includes("Gateway Timeout")) {
-        errorMsg = "Request timed out (504 Gateway Timeout). The clone operation is taking too long.";
-    } else if (text.includes("502") || text.includes("Bad Gateway")) {
-        errorMsg = "Server error (502 Bad Gateway). Please try again.";
-    } else if (text.includes("login") || text.includes("Login")) {
-        errorMsg = "Session expired. Please refresh the page and log in again.";
-    } else if (text.length > 500) {
-        errorMsg = text.substring(0, 500) + "...";
-    }
-    
-    return { ok: false, data: { success: false, error: errorMsg }, raw: text };
-}
-
 document.getElementById("btn-clone").onclick = async () => {
     const statusDiv = document.getElementById("clone-status");
     const progressDiv = document.getElementById("clone-progress");
@@ -111,34 +82,30 @@ document.getElementById("btn-clone").onclick = async () => {
         progressDiv.classList.remove("d-none");
         statusDiv.classList.add("d-none");
 
-        const res = await fetch("{{ url_for('admin_tools_custom.execute_database_clone') }}", {
+        const res = await fetch("{{ url_for('admin_tools.execute_database_clone') }}", {
             method: "POST",
             headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
+                'Content-Type': 'application/json'
             },
-            credentials: 'same-origin',
             body: JSON.stringify({ confirmed: true })
         });
 
-        // Safe JSON parsing that handles non-JSON responses
-        const parsed = await safeParseResponse(res);
-        
+        const data = await res.json();
+
         progressDiv.classList.add("d-none");
 
-        if (parsed.ok && parsed.data.success) {
+        if (res.ok && data.success) {
             statusDiv.className = "alert alert-success";
-            const output = parsed.data.output || "";
             statusDiv.innerHTML = `
                 <i class="fas fa-check-circle me-2"></i>
                 <strong>Clone Complete!</strong><br>
-                <small>${parsed.data.message || "Database cloned successfully"}</small>
+                <small>${data.message}</small>
                 <div style="background:#f8f9fa; padding:10px; border-radius:5px; margin-top:10px; max-height:200px; overflow-y:auto; font-family:monospace; font-size:12px; white-space:pre-wrap;">
-                ${output.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                ${data.output.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
                 </div>
             `;
         } else {
-            throw new Error(parsed.data.error || "Clone failed");
+            throw new Error(data.error || "Clone failed");
         }
 
         statusDiv.classList.remove("d-none");
