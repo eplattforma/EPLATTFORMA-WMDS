@@ -50,7 +50,7 @@ if is_production:
         "echo": False,
         "connect_args": {
             "connect_timeout": 10,
-            "options": "-c statement_timeout=60000 -c lock_timeout=10000"  # 60s statement, 10s lock timeout
+            "options": "-c statement_timeout=120000 -c lock_timeout=30000"  # 120s statement (for large imports), 30s lock timeout
         }
     }
 else:
