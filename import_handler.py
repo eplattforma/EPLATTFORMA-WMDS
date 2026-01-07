@@ -149,7 +149,12 @@ def process_excel_file_safely(filepath):
                 db.session.add(invoice)
                 db.session.flush()  # Write to DB but don't commit yet
                 
-                # Process items
+                # Process items using bulk insert for better performance
+                items_to_add = []
+                total_items_qty = 0
+                total_weight_sum = 0.0
+                total_exp_time_sum = 0.0
+                
                 for _, row in group.iterrows():
                     item_code = str(row.get('ITEM CODE', ''))
                     if not item_code:
@@ -167,9 +172,15 @@ def process_excel_file_safely(filepath):
                         qty = 1  # Force exact quantity for this specific invoice
 
                     line_weight = weight * qty
+                    exp_time = float(row.get('EXP TIME', 0) or 0)
                     
-                    # Create item
-                    item = InvoiceItem(
+                    # Calculate totals inline to avoid extra DB query
+                    total_items_qty += qty
+                    total_weight_sum += line_weight
+                    total_exp_time_sum += exp_time
+                    
+                    # Create item dict for bulk insert
+                    items_to_add.append(InvoiceItem(
                         invoice_no=str(invoice_no),
                         item_code=item_code,
                         location=str(row.get('LOCATION', '')),
@@ -181,23 +192,23 @@ def process_excel_file_safely(filepath):
                         pack=str(row.get('Pack', '')),
                         qty=qty,
                         line_weight=line_weight,
-                        exp_time=float(row.get('EXP TIME', 0) or 0),
+                        exp_time=exp_time,
                         pieces_per_unit_snapshot=int(float(row.get('PIECES_PER_UNIT_SNAPSHOT', 0) or 0)),
                         expected_pick_pieces=int(float(row.get('EXPECTED_PICK_PIECES', 0) or 0))
-                    )
-                    
-                    db.session.add(item)
+                    ))
                     item_count += 1
+                
+                # Bulk add all items at once (much faster than individual adds)
+                db.session.add_all(items_to_add)
+                
+                # Update invoice totals inline (avoid extra query)
+                invoice.total_items = total_items_qty
+                invoice.total_weight = total_weight_sum
+                invoice.total_exp_time = total_exp_time_sum
                 
                 # Commit this invoice
                 db.session.commit()
                 success_count += 1
-                
-                # Update totals
-                try:
-                    calculate_invoice_totals(db.session, str(invoice_no))
-                except Exception as e:
-                    logging.error(f"Error calculating totals for {invoice_no}: {str(e)}")
                 
             except Exception as e:
                 db.session.rollback()
