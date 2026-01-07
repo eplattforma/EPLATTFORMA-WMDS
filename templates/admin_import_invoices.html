@@ -106,7 +106,121 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('importDate').value = today;
 });
 
-// Common import function
+let pollInterval = null;
+
+// Poll for sync status
+async function pollSyncStatus(btn) {
+    try {
+        const response = await fetch('/api/powersoft/sync/invoices/status');
+        const data = await response.json();
+        
+        if (!data.success) return;
+        
+        const status = data.status;
+        const loadingAlert = document.getElementById('loadingAlert');
+        
+        // Update progress message
+        if (status.progress) {
+            loadingAlert.innerHTML = '<strong>Processing...</strong> ' + status.progress;
+        }
+        
+        // Check if sync completed
+        if (!status.running && status.completed_at) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+            btn.disabled = false;
+            
+            loadingAlert.style.display = 'none';
+            
+            if (status.error) {
+                document.getElementById('errorAlert').style.display = 'block';
+                document.getElementById('errorMessage').innerHTML = status.error;
+            } else if (status.result) {
+                const result = status.result;
+                const invoices = result.invoices_processed || result.invoices_created || 0;
+                const items = result.items_processed || result.items_created || 0;
+                const errors = result.errors || 0;
+                
+                // Show success alert
+                document.getElementById('successAlert').style.display = 'block';
+                document.getElementById('successMessage').innerHTML = 
+                    `Import completed! ${invoices} invoices and ${items} lines processed.`;
+                
+                // Update results cards
+                document.getElementById('invoiceCount').textContent = invoices;
+                document.getElementById('itemCount').textContent = items;
+                document.getElementById('errorCount').textContent = errors;
+                document.getElementById('resultsContainer').style.display = 'block';
+                
+                // Show popup notification
+                showImportNotification(invoices, items, errors);
+            }
+        }
+    } catch (error) {
+        console.error('Status poll error:', error);
+    }
+}
+
+// Show popup notification
+function showImportNotification(invoices, items, errors) {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = 'import-notification';
+    notification.innerHTML = `
+        <div class="notification-content">
+            <div class="notification-icon">
+                <i class="fas fa-check-circle text-success" style="font-size: 48px;"></i>
+            </div>
+            <h4>Import Complete!</h4>
+            <div class="notification-stats">
+                <div class="stat"><strong>${invoices}</strong> invoices</div>
+                <div class="stat"><strong>${items}</strong> lines</div>
+                ${errors > 0 ? `<div class="stat text-warning"><strong>${errors}</strong> errors</div>` : ''}
+            </div>
+            <button class="btn btn-primary mt-3" onclick="this.parentElement.parentElement.remove()">OK</button>
+        </div>
+    `;
+    
+    // Add styles
+    notification.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    `;
+    
+    const content = notification.querySelector('.notification-content');
+    content.style.cssText = `
+        background: white;
+        padding: 30px 50px;
+        border-radius: 10px;
+        text-align: center;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        animation: popIn 0.3s ease;
+    `;
+    
+    // Add animation
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes popIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .notification-stats { display: flex; gap: 20px; justify-content: center; margin-top: 15px; }
+        .notification-stats .stat { font-size: 18px; }
+    `;
+    document.head.appendChild(style);
+    
+    document.body.appendChild(notification);
+}
+
+// Common import function with background sync
 async function doImport(url, btn) {
     const statusContainer = document.getElementById('statusContainer');
     const successAlert = document.getElementById('successAlert');
@@ -119,10 +233,16 @@ async function doImport(url, btn) {
     successAlert.style.display = 'none';
     errorAlert.style.display = 'none';
     loadingAlert.style.display = 'block';
+    loadingAlert.innerHTML = '<strong>Processing...</strong> Starting sync...';
     resultsContainer.style.display = 'none';
     
     // Disable button during request
     btn.disabled = true;
+    
+    // Clear any existing poll
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
     
     try {
         const response = await fetch(url, {
@@ -132,33 +252,47 @@ async function doImport(url, btn) {
             }
         });
         
-        // Check if response is JSON before parsing
         const contentType = response.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
             throw new Error('Server returned an error. Please refresh the page and try again.');
         }
         
         const data = await response.json();
-        loadingAlert.style.display = 'none';
         
         if (data.success) {
-            successAlert.style.display = 'block';
-            document.getElementById('successMessage').innerHTML = data.message || 'Invoices imported successfully!';
-            
-            // Show results
-            document.getElementById('invoiceCount').textContent = data.invoices_processed || data.total_invoices_imported || 0;
-            document.getElementById('itemCount').textContent = data.items_processed || data.total_items_imported || 0;
-            document.getElementById('errorCount').textContent = data.errors || 0;
-            resultsContainer.style.display = 'block';
+            // Check if this is a background sync response
+            if (data.message && data.message.includes('background')) {
+                // Start polling for status
+                loadingAlert.innerHTML = '<strong>Processing...</strong> Sync running in background, please wait...';
+                pollInterval = setInterval(() => pollSyncStatus(btn), 2000);
+            } else {
+                // Immediate result (sync mode)
+                loadingAlert.style.display = 'none';
+                successAlert.style.display = 'block';
+                document.getElementById('successMessage').innerHTML = data.message || 'Invoices imported successfully!';
+                
+                const invoices = data.invoices_processed || data.total_invoices_imported || 0;
+                const items = data.items_processed || data.total_items_imported || 0;
+                const errors = data.errors || 0;
+                
+                document.getElementById('invoiceCount').textContent = invoices;
+                document.getElementById('itemCount').textContent = items;
+                document.getElementById('errorCount').textContent = errors;
+                resultsContainer.style.display = 'block';
+                
+                showImportNotification(invoices, items, errors);
+                btn.disabled = false;
+            }
         } else {
+            loadingAlert.style.display = 'none';
             errorAlert.style.display = 'block';
             document.getElementById('errorMessage').innerHTML = data.error || 'An error occurred during import.';
+            btn.disabled = false;
         }
     } catch (error) {
         loadingAlert.style.display = 'none';
         errorAlert.style.display = 'block';
         document.getElementById('errorMessage').innerHTML = error.message || 'Network error. Please try again.';
-    } finally {
         btn.disabled = false;
     }
 }

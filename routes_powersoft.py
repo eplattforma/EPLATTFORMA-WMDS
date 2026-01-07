@@ -2,7 +2,7 @@
 Routes for PS365 Customer Sync API
 Provides endpoints for bulk sync and single customer operations
 """
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_login import current_user
 from functools import wraps
 from services_powersoft import (
@@ -10,6 +10,12 @@ from services_powersoft import (
     upsert_single_customer,
     get_customer_by_code,
     sync_invoices_from_ps365
+)
+from background_sync import (
+    start_invoice_sync_background,
+    start_customer_sync_background,
+    get_sync_status,
+    is_sync_running
 )
 
 bp_powersoft = Blueprint('powersoft', __name__, url_prefix='/api/powersoft')
@@ -120,46 +126,78 @@ def get_customer(customer_code):
 @admin_required
 def sync_invoices():
     """
-    Sync invoices from PS365 API
+    Sync invoices from PS365 API - runs in background to prevent timeouts
     
     Query Parameters:
         invoice_no: Optional specific invoice number to sync (e.g., ?invoice_no=IN10052209)
         date: Optional date to import all invoices from (e.g., ?date=2025-12-28)
+        background: Set to 'false' to run synchronously (default: true)
     
     Returns:
-        JSON with sync statistics (total_invoices_imported, total_items_imported, errors)
+        JSON with sync status (background mode) or results (sync mode)
     
     Examples:
-        POST /api/powersoft/sync/invoices?invoice_no=IN10052209
-        Syncs only invoice IN10052209
-        
         POST /api/powersoft/sync/invoices?date=2025-12-28
-        Syncs all invoices from that date
+        Starts background sync, returns immediately
         
-        Response: {"success": true, "total_invoices_imported": 5, "total_items_imported": 23, "errors": 0}
+        POST /api/powersoft/sync/invoices?date=2025-12-28&background=false
+        Runs synchronously (may timeout for large imports)
     """
     import logging
     
     try:
-        # Get optional parameters
         invoice_no = request.args.get('invoice_no')
         import_date = request.args.get('date')
+        background = request.args.get('background', 'true').lower() != 'false'
         
-        # Ensure parameters are strings for type safety
         inv_no_str: str = str(invoice_no) if invoice_no is not None else ""
         date_str: str = str(import_date) if import_date is not None else ""
         
-        logging.info(f"Starting invoice sync. Invoice: {inv_no_str or 'N/A'}, Date: {date_str or 'N/A'}")
+        logging.info(f"Starting invoice sync. Invoice: {inv_no_str or 'N/A'}, Date: {date_str or 'N/A'}, Background: {background}")
         
-        result = sync_invoices_from_ps365(invoice_no_365=inv_no_str, import_date=date_str)
-        
-        if not result.get("success"):
-            return jsonify(result), 500
-        
-        return jsonify(result), 200
+        if background:
+            result = start_invoice_sync_background(
+                current_app._get_current_object(),
+                invoice_no=inv_no_str or None,
+                import_date=date_str or None
+            )
+            return jsonify(result), 200 if result.get("success") else 409
+        else:
+            result = sync_invoices_from_ps365(invoice_no_365=inv_no_str, import_date=date_str)
+            if not result.get("success"):
+                return jsonify(result), 500
+            return jsonify(result), 200
+            
     except Exception as e:
         logging.error(f"Invoice sync endpoint error: {str(e)}")
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+
+@bp_powersoft.route('/sync/invoices/status', methods=['GET'])
+@admin_required
+def sync_invoices_status():
+    """
+    Get current status of invoice sync operation
+    
+    Returns:
+        JSON with sync status (running, progress, result, error)
+    """
+    status = get_sync_status("invoices")
+    return jsonify({
+        "success": True,
+        "status": status
+    }), 200
+
+@bp_powersoft.route('/sync/customers/status', methods=['GET'])
+@admin_required
+def sync_customers_status():
+    """
+    Get current status of customer sync operation
+    """
+    status = get_sync_status("customers")
+    return jsonify({
+        "success": True,
+        "status": status
+    }), 200
