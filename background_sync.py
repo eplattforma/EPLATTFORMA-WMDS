@@ -1,84 +1,101 @@
 """
 Background sync module for long-running PS365 operations.
 Prevents request timeouts by running syncs in background threads.
+Uses file-based status to work across multiple gunicorn workers.
 """
 import threading
 import logging
 import time
+import json
+import os
 from datetime import datetime
 
-sync_status = {
-    "invoices": {
-        "running": False,
-        "started_at": None,
-        "completed_at": None,
-        "progress": "",
-        "result": None,
-        "error": None
-    },
-    "customers": {
-        "running": False,
-        "started_at": None,
-        "completed_at": None,
-        "progress": "",
-        "result": None,
-        "error": None
-    }
-}
-
+STATUS_FILE = "/tmp/sync_status.json"
 _lock = threading.Lock()
+
+def _read_status_file():
+    """Read status from file"""
+    try:
+        if os.path.exists(STATUS_FILE):
+            with open(STATUS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logging.error(f"Error reading status file: {e}")
+    return {
+        "invoices": {"running": False, "started_at": None, "completed_at": None, "progress": "", "result": None, "error": None},
+        "customers": {"running": False, "started_at": None, "completed_at": None, "progress": "", "result": None, "error": None}
+    }
+
+def _write_status_file(status):
+    """Write status to file"""
+    try:
+        with open(STATUS_FILE, 'w') as f:
+            json.dump(status, f)
+    except Exception as e:
+        logging.error(f"Error writing status file: {e}")
+
+def _update_status(sync_type, **kwargs):
+    """Update specific fields in sync status"""
+    with _lock:
+        status = _read_status_file()
+        if sync_type not in status:
+            status[sync_type] = {}
+        status[sync_type].update(kwargs)
+        _write_status_file(status)
 
 def get_sync_status(sync_type="invoices"):
     """Get current status of a sync operation"""
     with _lock:
-        status = sync_status.get(sync_type, {}).copy()
-        return status
+        status = _read_status_file()
+        return status.get(sync_type, {}).copy()
 
 def is_sync_running(sync_type="invoices"):
     """Check if a sync is currently running"""
     with _lock:
-        return sync_status.get(sync_type, {}).get("running", False)
+        status = _read_status_file()
+        return status.get(sync_type, {}).get("running", False)
 
 def _run_invoice_sync(app, invoice_no, import_date):
     """Background worker for invoice sync"""
     from services_powersoft import sync_invoices_from_ps365
     
-    with _lock:
-        sync_status["invoices"]["running"] = True
-        sync_status["invoices"]["started_at"] = datetime.now().isoformat()
-        sync_status["invoices"]["completed_at"] = None
-        sync_status["invoices"]["progress"] = "Starting sync..."
-        sync_status["invoices"]["result"] = None
-        sync_status["invoices"]["error"] = None
+    _update_status("invoices",
+        running=True,
+        started_at=datetime.now().isoformat(),
+        completed_at=None,
+        progress="Starting sync...",
+        result=None,
+        error=None
+    )
     
     try:
         with app.app_context():
             logging.info(f"Background sync started: invoice={invoice_no}, date={import_date}")
             
-            with _lock:
-                sync_status["invoices"]["progress"] = "Fetching invoices from PS365..."
+            _update_status("invoices", progress="Fetching invoices from PS365...")
             
             result = sync_invoices_from_ps365(
                 invoice_no_365=invoice_no or "",
                 import_date=import_date or ""
             )
             
-            with _lock:
-                sync_status["invoices"]["result"] = result
-                sync_status["invoices"]["progress"] = "Completed"
-                sync_status["invoices"]["completed_at"] = datetime.now().isoformat()
+            _update_status("invoices",
+                result=result,
+                progress="Completed",
+                completed_at=datetime.now().isoformat()
+            )
                 
             logging.info(f"Background sync completed: {result}")
             
     except Exception as e:
         logging.error(f"Background sync error: {str(e)}")
-        with _lock:
-            sync_status["invoices"]["error"] = str(e)
-            sync_status["invoices"]["progress"] = f"Error: {str(e)}"
-            sync_status["invoices"]["completed_at"] = datetime.now().isoformat()
+        _update_status("invoices",
+            error=str(e),
+            progress=f"Error: {str(e)}",
+            completed_at=datetime.now().isoformat()
+        )
     finally:
-        with _lock:
-            sync_status["invoices"]["running"] = False
+        _update_status("invoices", running=False)
 
 def start_invoice_sync_background(app, invoice_no=None, import_date=None):
     """
@@ -99,7 +116,7 @@ def start_invoice_sync_background(app, invoice_no=None, import_date=None):
     )
     thread.start()
     
-    time.sleep(0.1)
+    time.sleep(0.2)
     
     return {
         "success": True,
@@ -111,13 +128,14 @@ def _run_customer_sync(app):
     """Background worker for customer sync"""
     from services_powersoft import sync_active_customers
     
-    with _lock:
-        sync_status["customers"]["running"] = True
-        sync_status["customers"]["started_at"] = datetime.now().isoformat()
-        sync_status["customers"]["completed_at"] = None
-        sync_status["customers"]["progress"] = "Starting customer sync..."
-        sync_status["customers"]["result"] = None
-        sync_status["customers"]["error"] = None
+    _update_status("customers",
+        running=True,
+        started_at=datetime.now().isoformat(),
+        completed_at=None,
+        progress="Starting customer sync...",
+        result=None,
+        error=None
+    )
     
     try:
         with app.app_context():
@@ -125,22 +143,23 @@ def _run_customer_sync(app):
             
             result = sync_active_customers()
             
-            with _lock:
-                sync_status["customers"]["result"] = result
-                sync_status["customers"]["progress"] = "Completed"
-                sync_status["customers"]["completed_at"] = datetime.now().isoformat()
+            _update_status("customers",
+                result=result,
+                progress="Completed",
+                completed_at=datetime.now().isoformat()
+            )
                 
             logging.info(f"Background customer sync completed: {result}")
             
     except Exception as e:
         logging.error(f"Background customer sync error: {str(e)}")
-        with _lock:
-            sync_status["customers"]["error"] = str(e)
-            sync_status["customers"]["progress"] = f"Error: {str(e)}"
-            sync_status["customers"]["completed_at"] = datetime.now().isoformat()
+        _update_status("customers",
+            error=str(e),
+            progress=f"Error: {str(e)}",
+            completed_at=datetime.now().isoformat()
+        )
     finally:
-        with _lock:
-            sync_status["customers"]["running"] = False
+        _update_status("customers", running=False)
 
 def start_customer_sync_background(app):
     """Start customer sync in background thread."""
@@ -158,7 +177,7 @@ def start_customer_sync_background(app):
     )
     thread.start()
     
-    time.sleep(0.1)
+    time.sleep(0.2)
     
     return {
         "success": True,
