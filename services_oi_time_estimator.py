@@ -37,7 +37,7 @@ DEFAULT_PARAMS = {
     "end_seconds": 45
   },
   "travel": {
-    "sec_align_per_stop": 2,
+    "sec_align_per_stop": 13,
     "sec_per_corridor_change": 14,
     "sec_per_corridor_step": 4,
     "sec_per_bay_step": 2.5,
@@ -59,7 +59,7 @@ DEFAULT_PARAMS = {
       "item": 1.1,
       "pack": 1.6,
       "box": 2.0,
-      "case": 3.0,
+      "case": 0,
       "virtual_pack": 1.1
     },
     "level_seconds": {
@@ -348,7 +348,16 @@ def estimate_pick_seconds_for_line(inv_item: InvoiceItem, dw_item: Optional[DwIt
 
     base = float(base_map.get(unit_type, base_map.get("item", 6)))
     per_qty = float(per_qty_map.get(unit_type, per_qty_map.get("item", 1.1)))
+    
+    # Calculate base picking time
     t = base + per_qty * max(0, qty - 1)
+    
+    # Add travel/walking alignment time for this specific pick
+    # Note: Global travel between locations is calculated in estimate_travel_seconds
+    # This alignment time accounts for the final approach to the item
+    # Since the user requested 13 sec (0.216 min) for a case, we set sec_align_per_stop to 13
+    sec_align = float(params.get("travel", {}).get("sec_align_per_stop", 13))
+    t += sec_align
 
     # Level from location
     corridor, _, level, _ = parse_location(inv_item.location, params)
