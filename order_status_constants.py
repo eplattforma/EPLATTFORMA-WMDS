@@ -34,7 +34,7 @@ ORDER_STATUSES = {
         'value': 'awaiting_packing',
         'label': 'Awaiting Packing',
         'description': 'Picking complete, awaiting packing confirmation',
-        'color': 'warning',
+        'color': 'deep-yellow',
         'icon': 'fas fa-box-open',
         'sort_order': 2.7
     },
