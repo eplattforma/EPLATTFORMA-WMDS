@@ -67,8 +67,14 @@ body {
     border-radius: 0.5rem;
 }
 
-/* Make icons consistent */
+/* Icon icon styling */
 i.fas, i.far, i.fab {
     width: 1.25em;
     text-align: center;
+}
+
+/* Deep Yellow Status Badge */
+.bg-deep-yellow {
+    background-color: #f1c40f !important;
+    color: #000 !important;
 }
