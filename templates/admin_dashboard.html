@@ -336,7 +336,7 @@
                         {% endif %}
                     {% endif %}
                     
-                    <tr {% if invoice_exceptions[invoice.invoice_no] > 0 %}class="table-danger"{% endif %}>
+                    <tr>
                         <td class="text-center">
                             <input type="checkbox" class="order-checkbox" value="{{ invoice.invoice_no }}" onchange="updateSelectedCount()">
                         </td>
