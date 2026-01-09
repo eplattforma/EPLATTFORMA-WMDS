@@ -461,41 +461,46 @@ def edit_stop(route_stop_id):
     return render_template("stop_form.html", route=route, seq_no=stop.seq_no, stop=stop)
 
 
-@bp.route("/stops/<int:route_stop_id>/update-seq", methods=["POST"])
+@bp.route("/api/update-stop-sequence", methods=["POST"])
 @login_required
 @admin_required
-def update_stop_seq(route_stop_id):
-    """Quick update stop sequence number"""
+def api_update_stop_sequence():
+    """API endpoint to update stop sequence number with validation"""
     from decimal import Decimal
-    stop = RouteStop.query.get_or_404(route_stop_id)
-    shipment_id = stop.shipment_id
+    data = request.get_json()
+    if not data:
+        return jsonify({"success": False, "message": "No data provided"}), 400
+        
+    stop_id = data.get("stop_id")
+    new_sequence = data.get("new_sequence")
     
-    new_seq = request.form.get("seq_no")
-    if new_seq:
-        new_seq_decimal = Decimal(str(new_seq))
+    if stop_id is None or new_sequence is None:
+        return jsonify({"success": False, "message": "stop_id and new_sequence are required"}), 400
         
-        # Check if sequence number already exists in this shipment
-        existing_stop = RouteStop.query.filter_by(
-            shipment_id=shipment_id, 
-            seq_no=new_seq_decimal
-        ).filter(RouteStop.route_stop_id != route_stop_id).first()
-        
-        if existing_stop:
-            return jsonify({
-                "success": False, 
-                "message": f"Sequence number {new_seq} is already in use by stop '{existing_stop.stop_name}'. Please choose a different number."
-            }), 400
+    stop = RouteStop.query.get_or_404(stop_id)
+    shipment_id = stop.shipment_id
+    new_seq_decimal = Decimal(str(new_sequence))
+    
+    # Check if sequence number already exists in this shipment
+    existing_stop = RouteStop.query.filter_by(
+        shipment_id=shipment_id, 
+        seq_no=new_seq_decimal
+    ).filter(RouteStop.route_stop_id != stop_id).first()
+    
+    if existing_stop:
+        return jsonify({
+            "success": False, 
+            "message": f"Sequence number {new_sequence} is already in use by stop '{existing_stop.stop_name or existing_stop.customer_code}'. Please choose a different number."
+        }), 400
 
-        stop.seq_no = new_seq_decimal
-        from app import db
-        try:
-            db.session.commit()
-            return jsonify({"success": True, "message": f"Stop sequence updated to #{stop.seq_no}"})
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"success": False, "message": f"Error updating sequence: {str(e)}"}), 500
-    else:
-        return jsonify({"success": False, "message": "Sequence number required"}), 400
+    stop.seq_no = new_seq_decimal
+    from app import db
+    try:
+        db.session.commit()
+        return jsonify({"success": True, "message": f"Stop sequence updated to #{stop.seq_no}"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": f"Error updating sequence: {str(e)}"}), 500
 
 
 @bp.route("/stops/<int:route_stop_id>/update-notes", methods=["POST"])
