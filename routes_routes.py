@@ -472,21 +472,30 @@ def update_stop_seq(route_stop_id):
     
     new_seq = request.form.get("seq_no")
     if new_seq:
-        stop.seq_no = Decimal(str(new_seq))
+        new_seq_decimal = Decimal(str(new_seq))
+        
+        # Check if sequence number already exists in this shipment
+        existing_stop = RouteStop.query.filter_by(
+            shipment_id=shipment_id, 
+            seq_no=new_seq_decimal
+        ).filter(RouteStop.route_stop_id != route_stop_id).first()
+        
+        if existing_stop:
+            return jsonify({
+                "success": False, 
+                "message": f"Sequence number {new_seq} is already in use by stop '{existing_stop.stop_name}'. Please choose a different number."
+            }), 400
+
+        stop.seq_no = new_seq_decimal
         from app import db
         try:
             db.session.commit()
-            flash(f"Stop sequence updated to #{stop.seq_no}", "success")
+            return jsonify({"success": True, "message": f"Stop sequence updated to #{stop.seq_no}"})
         except Exception as e:
             db.session.rollback()
-            if "UniqueViolation" in str(e) or "unique constraint" in str(e).lower():
-                flash(f"Sequence number {new_seq} is already in use. Please choose a different number.", "danger")
-            else:
-                flash(f"Error updating sequence: {str(e)}", "danger")
+            return jsonify({"success": False, "message": f"Error updating sequence: {str(e)}"}), 500
     else:
-        flash("Sequence number required", "warning")
-    
-    return redirect(url_for("routes.detail", shipment_id=shipment_id))
+        return jsonify({"success": False, "message": "Sequence number required"}), 400
 
 
 @bp.route("/stops/<int:route_stop_id>/update-notes", methods=["POST"])
