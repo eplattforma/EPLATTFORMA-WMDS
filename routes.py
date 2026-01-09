@@ -675,13 +675,45 @@ def admin_dashboard():
             items_by_invoice[item.invoice_no] = []
         items_by_invoice[item.invoice_no].append(item)
     
+    # NEW BATCH QUERY FOR PICKING TIMES: Get OrderTimeBreakdown and ItemTimeTracking data
+    from models import OrderTimeBreakdown, ItemTimeTracking
+    time_breakdowns = OrderTimeBreakdown.query.filter(
+        OrderTimeBreakdown.invoice_no.in_(invoice_nos)
+    ).all()
+    breakdown_by_invoice = {tb.invoice_no: tb for tb in time_breakdowns}
+    
+    actual_tracking = db.session.query(
+        ItemTimeTracking.invoice_no,
+        func.sum(ItemTimeTracking.total_item_time).label('total_time')
+    ).filter(
+        ItemTimeTracking.invoice_no.in_(invoice_nos)
+    ).group_by(ItemTimeTracking.invoice_no).all()
+    actual_by_invoice = {t.invoice_no: t.total_time for t in actual_tracking}
+    
+    now_utc = get_utc_now()
+    
     for invoice in invoices:
         items = items_by_invoice.get(invoice.invoice_no, [])
         total_lines_count[invoice.invoice_no] = len(items)
         picked_lines_count[invoice.invoice_no] = sum(1 for item in items if item.is_picked)
         
-        # Skip detailed picking time calculation for performance
-        picking_times[invoice.invoice_no] = "—"
+        # Calculate picking time with same logic as picker dashboard
+        # Priority 1: Actual time from ItemTimeTracking
+        actual_seconds = actual_by_invoice.get(invoice.invoice_no)
+        if actual_seconds and actual_seconds > 0:
+            picking_times[invoice.invoice_no] = f"{round(actual_seconds / 60, 2)}m"
+        else:
+            # Priority 2: Time from OrderTimeBreakdown
+            breakdown = breakdown_by_invoice.get(invoice.invoice_no)
+            if breakdown:
+                if breakdown.picking_started and breakdown.picking_completed:
+                    duration = (breakdown.picking_completed - breakdown.picking_started).total_seconds() / 60
+                    picking_times[invoice.invoice_no] = f"{int(duration)}m"
+                elif breakdown.picking_started and invoice.status == 'picking':
+                    elapsed = (now_utc - breakdown.picking_started).total_seconds() / 60
+                    picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
+            else:
+                picking_times[invoice.invoice_no] = "—"
     
     # BATCH QUERY 3: Get all batch picked items and sessions for all invoices
     batch_items_list = BatchPickedItem.query.filter(BatchPickedItem.invoice_no.in_(invoice_nos)).all()
