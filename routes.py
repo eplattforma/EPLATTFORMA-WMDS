@@ -131,14 +131,16 @@ def sort_items_by_config(items):
             if len(segments) >= 2:
                 parts['aisle'] = segments[1]
                 
-            # Handle level and shelf (ex: 'A03' in '10-05-A03')
+            # Handle level and shelf (ex: 'A03' in '10-05-A03' or 'A 05' in '13-01-A 05')
             if len(segments) >= 3:
                 last_segment = segments[2]
                 
                 # Separate level and shelf
                 # Example: 'A03' -> level 'A' and shelf '03'
+                # Also handle space: 'A 05' -> level 'A' and shelf '05'
                 import re
-                match = re.match(r'([A-Za-z]*)(\d*)', last_segment)
+                # Updated regex to handle optional space between letters and digits
+                match = re.match(r'([A-Za-z]*)\s*(\d*)', last_segment)
                 if match:
                     level_part, shelf_part = match.groups()
                     parts['level'] = level_part
