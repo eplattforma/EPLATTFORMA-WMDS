@@ -62,14 +62,27 @@ def migrate_db():
         dev_conn = psycopg2.connect(dev_url)
         dev_cur = dev_conn.cursor()
 
-        dev_cur.execute("SET session_replication_role = 'replica';")
+        logger.info("Clearing development tables in reverse order (for foreign keys)...")
+        for table in reversed(TABLES_TO_COPY):
+            dev_cur.execute(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s);",
+                (table,)
+            )
+            result = dev_cur.fetchone()
+            if result and result[0]:
+                try:
+                    dev_cur.execute(sql.SQL("DELETE FROM {};").format(sql.Identifier(table)))
+                    logger.info(f"  Cleared {table}")
+                except Exception as del_err:
+                    logger.warning(f"  Could not clear {table}: {del_err}")
+        
+        dev_conn.commit()
 
         total_rows = 0
         tables_copied = 0
 
+        logger.info("\nCopying data from production...")
         for table in TABLES_TO_COPY:
-            logger.info(f"Processing table: {table}")
-
             dev_cur.execute(
                 "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s);",
                 (table,)
@@ -88,13 +101,11 @@ def migrate_db():
                 logger.warning(f"  Table {table} does not exist in production. Skipping.")
                 continue
 
-            dev_cur.execute(sql.SQL("TRUNCATE TABLE {} CASCADE;").format(sql.Identifier(table)))
-
             prod_cur.execute(sql.SQL("SELECT * FROM {};").format(sql.Identifier(table)))
             rows = prod_cur.fetchall()
 
             if not rows:
-                logger.info(f"  Table {table} is empty in production.")
+                logger.info(f"  {table}: empty in production")
                 continue
 
             if prod_cur.description is None:
@@ -109,21 +120,28 @@ def migrate_db():
                 sql.Identifier(table), columns, placeholders
             )
 
+            inserted = 0
+            errors = 0
             for row in rows:
                 try:
                     dev_cur.execute(insert_query, row)
+                    inserted += 1
                 except Exception as row_err:
-                    logger.warning(f"  Error inserting row in {table}: {row_err}")
-                    continue
+                    errors += 1
+                    if errors <= 3:
+                        logger.warning(f"    Row error in {table}: {str(row_err)[:80]}")
 
-            total_rows += len(rows)
-            tables_copied += 1
-            logger.info(f"  Copied {len(rows)} rows into {table}.")
+            dev_conn.commit()
+            total_rows += inserted
+            if inserted > 0:
+                tables_copied += 1
+            
+            status = f"{inserted} rows"
+            if errors > 0:
+                status += f" ({errors} errors)"
+            logger.info(f"  {table}: {status}")
 
-        dev_cur.execute("SET session_replication_role = 'origin';")
-
-        dev_conn.commit()
-        logger.info(f"\nMigration completed successfully!")
+        logger.info(f"\nMigration completed!")
         logger.info(f"Copied {total_rows} total rows across {tables_copied} tables.")
         return True
 
@@ -154,6 +172,6 @@ if __name__ == "__main__":
         if success:
             print("\nYour development database now mirrors production.")
         else:
-            print("\nMigration failed. Check the errors above.")
+            print("\nMigration had issues. Check the errors above.")
     else:
         print("\nMigration cancelled.")
