@@ -510,6 +510,7 @@ function saveSequence(stopId) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
         },
         body: JSON.stringify({
             stop_id: stopId,

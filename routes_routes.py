@@ -490,7 +490,7 @@ def api_update_stop_sequence():
     if existing_stop:
         return jsonify({
             "success": False, 
-            "message": f"Sequence number {new_sequence} is already in use by stop '{existing_stop.stop_name or existing_stop.customer_code}'. Please choose a different number."
+            "message": f"Sequence number {new_sequence} is already in use by stop '{existing_stop.stop_name or existing_stop.customer_code or existing_stop.route_stop_id}'. Please choose a different number."
         }), 400
 
     stop.seq_no = new_seq_decimal
