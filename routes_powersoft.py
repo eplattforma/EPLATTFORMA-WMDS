@@ -53,7 +53,12 @@ def sync_customers():
     
     try:
         result = sync_active_customers()
-        return jsonify(result), 200
+        if result is True:
+            return jsonify({"success": True, "message": "Customer sync completed successfully"}), 200
+        elif result is False:
+            return jsonify({"success": False, "error": "Customer sync failed"}), 500
+        else:
+            return jsonify(result), 200
     except Exception as e:
         logging.error(f"Customer sync failed: {str(e)}")
         return jsonify({
