@@ -420,6 +420,7 @@ def sync_active_customers():
         logging.info("Starting customer sync from PS365...")
         payload = {
             "filter_define": {
+                "only_counted": "N",
                 "active_only": "Y",
                 "page_number": 1,
                 "page_size": 1000
@@ -469,6 +470,7 @@ def upsert_single_customer(customer_code):
     try:
         payload = {
             "filter_define": {
+                "only_counted": "N",
                 "customer_code_selection": customer_code,
                 "page_number": 1,
                 "page_size": 1
