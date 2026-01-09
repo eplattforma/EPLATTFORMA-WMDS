@@ -678,18 +678,26 @@ def admin_dashboard():
     # NEW BATCH QUERY FOR PICKING TIMES: Get OrderTimeBreakdown and ItemTimeTracking data
     from models import OrderTimeBreakdown, ItemTimeTracking
     from timezone_utils import get_utc_now
-    time_breakdowns = OrderTimeBreakdown.query.filter(
-        OrderTimeBreakdown.invoice_no.in_(invoice_nos)
-    ).all()
-    breakdown_by_invoice = {tb.invoice_no: tb for tb in time_breakdowns}
     
-    actual_tracking = db.session.query(
-        ItemTimeTracking.invoice_no,
-        func.sum(ItemTimeTracking.total_item_time).label('total_time')
-    ).filter(
-        ItemTimeTracking.invoice_no.in_(invoice_nos)
-    ).group_by(ItemTimeTracking.invoice_no).all()
-    actual_by_invoice = {t.invoice_no: t.total_time for t in actual_tracking}
+    # Check if tables exist to prevent errors during migration/setup
+    try:
+        time_breakdowns = OrderTimeBreakdown.query.filter(
+            OrderTimeBreakdown.invoice_no.in_(invoice_nos)
+        ).all()
+        breakdown_by_invoice = {tb.invoice_no: tb for tb in time_breakdowns}
+        
+        actual_tracking = db.session.query(
+            ItemTimeTracking.invoice_no,
+            func.sum(ItemTimeTracking.total_item_time).label('total_time')
+        ).filter(
+            ItemTimeTracking.invoice_no.in_(invoice_nos)
+        ).group_by(ItemTimeTracking.invoice_no).all()
+        actual_by_invoice = {t.invoice_no: t.total_time for t in actual_tracking}
+    except Exception as e:
+        import logging
+        logging.error(f"Error fetching time tracking data: {e}")
+        breakdown_by_invoice = {}
+        actual_by_invoice = {}
     
     now_utc = get_utc_now()
     
