@@ -342,7 +342,7 @@
                                 <i class="fas fa-edit me-1"></i>Edit Notes
                             </button>
                             {% if current_user.role in ['admin', 'warehouse_manager'] and stop.customer_code %}
-                            <button class="btn btn-sm btn-outline-secondary" onclick="openPaymentTermsModal('{{ stop.customer_code }}', '{{ stop.stop_name|escapejs }}')">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="openPaymentTermsModal('{{ stop.customer_code }}', '{{ stop.stop_name|replace("'", "\\'") }}')">
                                 <i class="fas fa-credit-card me-1"></i>Payment Terms
                             </button>
                             {% endif %}
