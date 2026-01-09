@@ -79,7 +79,8 @@
                         <th>Lines</th>
                         <th>Items</th>
                         <th>Weight (kg)</th>
-                        <th>Time (min)</th>
+                        <th>Est. Time</th>
+                        <th>Actual</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -97,6 +98,13 @@
                         <td>{{ invoice.total_items|int }}</td>
                         <td>{{ invoice.total_weight|round(1) }}</td>
                         <td>{{ invoice.total_exp_time|round(1) }}</td>
+                        <td>
+                            {% if picking_times and invoice.invoice_no in picking_times %}
+                                <span class="badge bg-info">{{ picking_times[invoice.invoice_no] }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
                         <td>
                             {% if invoice.status == 'not_started' %}
                             <span class="badge bg-secondary">Not Started</span>

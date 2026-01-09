@@ -2258,6 +2258,20 @@ def picker_dashboard():
         Invoice.status.in_(['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing'])
     ).all()
     
+    # Calculate picking times for invoices
+    picking_times = {}
+    for invoice in invoices:
+        if invoice.picking_started and invoice.picking_completed:
+            # Calculate actual picking duration
+            duration = (invoice.picking_completed - invoice.picking_started).total_seconds() / 60
+            picking_times[invoice.invoice_no] = f"{int(duration)}m"
+        elif invoice.picking_started and invoice.status == 'picking':
+            # Show elapsed time for orders currently being picked
+            from timezone_utils import get_utc_now
+            now_utc = get_utc_now()
+            elapsed = (now_utc - invoice.picking_started).total_seconds() / 60
+            picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
+    
     # Get batch picking sessions assigned to this picker (include today's completed ones)
     from datetime import date
     today = date.today()
@@ -2390,7 +2404,8 @@ def picker_dashboard():
                           check_in_time_formatted=check_in_time_formatted,
                           on_break_start_time_formatted=on_break_start_time_formatted,
                           shift_duration_minutes=shift_duration_minutes,
-                          picker_unvalidated_issues_count=picker_unvalidated_issues_count)
+                          picker_unvalidated_issues_count=picker_unvalidated_issues_count,
+                          picking_times=picking_times)
 
 # Batch picking dashboard removed - will be rebuilt
 
