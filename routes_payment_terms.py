@@ -451,7 +451,7 @@ def reconcile_missing_terms():
                         "page_size": PAGE_SIZE,
                         "active_type": "all"  # Get ALL customers - both active and inactive
                     }
-                })
+                }, method="POST")
                 
                 customers = response.get('list_customers', [])
                 if not customers:
