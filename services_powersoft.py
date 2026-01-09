@@ -426,7 +426,7 @@ def sync_active_customers():
             }
         }
         
-        response = call_ps365("list_loyalty_customers", payload, method="POST")
+        response = call_ps365("list_customers", payload, method="POST")
         api_resp = response.get("api_response", {})
         
         if api_resp.get("response_code") != "1":
@@ -475,7 +475,7 @@ def upsert_single_customer(customer_code):
             }
         }
         
-        response = call_ps365("list_loyalty_customers", payload, method="POST")
+        response = call_ps365("list_customers", payload, method="POST")
         customers = response.get("list_customers", [])
         
         if not customers:

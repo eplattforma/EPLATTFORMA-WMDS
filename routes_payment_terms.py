@@ -444,7 +444,7 @@ def reconcile_missing_terms():
         
         while True:
             try:
-                response = call_ps365('list_loyalty_customers', {
+                response = call_ps365('list_customers', {
                     "filter_define": {
                         "only_counted": "N",
                         "page_number": page,
