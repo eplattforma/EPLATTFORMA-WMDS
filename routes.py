@@ -2258,8 +2258,8 @@ def picker_dashboard():
         Invoice.status.in_(['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing'])
     ).all()
     
-    # Calculate picking times for invoices using OrderTimeBreakdown
-    from models import OrderTimeBreakdown
+    # Calculate picking times for invoices using OrderTimeBreakdown and ItemTimeTracking
+    from models import OrderTimeBreakdown, ItemTimeTracking
     picking_times = {}
     
     # Get time breakdowns for all invoices at once
@@ -2269,18 +2269,33 @@ def picker_dashboard():
     ).all()
     breakdown_by_invoice = {tb.invoice_no: tb for tb in time_breakdowns}
     
+    # Get item tracking aggregates for "Actual" time (sum of walking, picking, confirmation)
+    from sqlalchemy import func
+    actual_tracking = db.session.query(
+        ItemTimeTracking.invoice_no,
+        func.sum(ItemTimeTracking.total_item_time).label('total_time')
+    ).filter(
+        ItemTimeTracking.invoice_no.in_(invoice_nos)
+    ).group_by(ItemTimeTracking.invoice_no).all()
+    actual_by_invoice = {t.invoice_no: t.total_time for t in actual_tracking}
+    
     from timezone_utils import get_utc_now
     now_utc = get_utc_now()
     
     for invoice in invoices:
+        # Priority 1: Actual time from ItemTimeTracking (most precise)
+        actual_seconds = actual_by_invoice.get(invoice.invoice_no)
+        if actual_seconds and actual_seconds > 0:
+            picking_times[invoice.invoice_no] = f"{round(actual_seconds / 60, 2)}m"
+            continue
+            
+        # Priority 2: Time from OrderTimeBreakdown
         breakdown = breakdown_by_invoice.get(invoice.invoice_no)
         if breakdown:
             if breakdown.picking_started and breakdown.picking_completed:
-                # Calculate actual picking duration
                 duration = (breakdown.picking_completed - breakdown.picking_started).total_seconds() / 60
                 picking_times[invoice.invoice_no] = f"{int(duration)}m"
             elif breakdown.picking_started and invoice.status == 'picking':
-                # Show elapsed time for orders currently being picked
                 elapsed = (now_utc - breakdown.picking_started).total_seconds() / 60
                 picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
     
