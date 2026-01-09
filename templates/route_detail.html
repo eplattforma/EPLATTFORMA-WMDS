@@ -342,7 +342,7 @@
                                 <i class="fas fa-edit me-1"></i>Edit Notes
                             </button>
                             {% if current_user.role in ['admin', 'warehouse_manager'] and stop.customer_code %}
-                            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#paymentTermsModal{{ stop.route_stop_id }}">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="openPaymentTermsModal('{{ stop.customer_code }}', '{{ stop.stop_name|escapejs }}')">
                                 <i class="fas fa-credit-card me-1"></i>Payment Terms
                             </button>
                             {% endif %}
@@ -465,6 +465,19 @@
 
 <script>
 function toggleStopDetails(stopId) {
+    const details = document.getElementById('stopDetails' + stopId);
+    const icon = document.getElementById('expandIcon' + stopId);
+    
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        details.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+}
     const details = document.getElementById('stopDetails' + stopId);
     const icon = document.getElementById('expandIcon' + stopId);
     
