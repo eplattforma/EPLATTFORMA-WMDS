@@ -464,7 +464,7 @@ def edit_stop(route_stop_id):
 @bp.route("/api/update-stop-sequence", methods=["POST"])
 @login_required
 @admin_required
-def api_update_stop_sequence():
+def api_update_stop_sequence_new_endpoint():
     """API endpoint to update stop sequence number with validation"""
     from decimal import Decimal
     data = request.get_json()
