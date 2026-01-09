@@ -2258,19 +2258,31 @@ def picker_dashboard():
         Invoice.status.in_(['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing'])
     ).all()
     
-    # Calculate picking times for invoices
+    # Calculate picking times for invoices using OrderTimeBreakdown
+    from models import OrderTimeBreakdown
     picking_times = {}
+    
+    # Get time breakdowns for all invoices at once
+    invoice_nos = [inv.invoice_no for inv in invoices]
+    time_breakdowns = OrderTimeBreakdown.query.filter(
+        OrderTimeBreakdown.invoice_no.in_(invoice_nos)
+    ).all()
+    breakdown_by_invoice = {tb.invoice_no: tb for tb in time_breakdowns}
+    
+    from timezone_utils import get_utc_now
+    now_utc = get_utc_now()
+    
     for invoice in invoices:
-        if invoice.picking_started and invoice.picking_completed:
-            # Calculate actual picking duration
-            duration = (invoice.picking_completed - invoice.picking_started).total_seconds() / 60
-            picking_times[invoice.invoice_no] = f"{int(duration)}m"
-        elif invoice.picking_started and invoice.status == 'picking':
-            # Show elapsed time for orders currently being picked
-            from timezone_utils import get_utc_now
-            now_utc = get_utc_now()
-            elapsed = (now_utc - invoice.picking_started).total_seconds() / 60
-            picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
+        breakdown = breakdown_by_invoice.get(invoice.invoice_no)
+        if breakdown:
+            if breakdown.picking_started and breakdown.picking_completed:
+                # Calculate actual picking duration
+                duration = (breakdown.picking_completed - breakdown.picking_started).total_seconds() / 60
+                picking_times[invoice.invoice_no] = f"{int(duration)}m"
+            elif breakdown.picking_started and invoice.status == 'picking':
+                # Show elapsed time for orders currently being picked
+                elapsed = (now_utc - breakdown.picking_started).total_seconds() / 60
+                picking_times[invoice.invoice_no] = f"{int(elapsed)}m"
     
     # Get batch picking sessions assigned to this picker (include today's completed ones)
     from datetime import date
