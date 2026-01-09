@@ -412,7 +412,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
 
 def sync_active_customers():
     """Sync active customers from PS365 API with pagination"""
-    from models import PSCustomer, db
+    from models import PSCustomer, PaymentCustomer, db
     from ps365_client import call_ps365
     import logging
     
@@ -421,6 +421,8 @@ def sync_active_customers():
         page = 1
         PAGE_SIZE = 100  # PS365 API max page size is 100
         total_synced = 0
+        total_pages = 0
+        payment_terms_created = 0
         
         while True:
             payload = {
@@ -437,12 +439,13 @@ def sync_active_customers():
             
             if api_resp.get("response_code") != "1":
                 logging.error(f"Customer sync failed: {api_resp}")
-                return False
+                return {"success": False, "error": f"API error: {api_resp.get('response_msg', 'Unknown error')}"}
                 
             customers = response.get("list_customers", [])
             if not customers:
                 break
-                
+            
+            total_pages += 1
             logging.info(f"Page {page}: Found {len(customers)} customers to sync")
             
             for cust_data in customers:
@@ -461,6 +464,16 @@ def sync_active_customers():
                 existing.customer_phone = customer.get("mobile") or customer.get("tel_1")
                 existing.last_synced_at = datetime.utcnow()
                 total_synced += 1
+                
+                # Auto-create PaymentCustomer if not exists
+                existing_payment = PaymentCustomer.query.filter_by(customer_code_365=code).first()
+                if not existing_payment:
+                    new_payment = PaymentCustomer(
+                        customer_code_365=code,
+                        customer_name=existing.customer_name
+                    )
+                    db.session.add(new_payment)
+                    payment_terms_created += 1
             
             db.session.commit()
             
@@ -468,12 +481,18 @@ def sync_active_customers():
                 break
             page += 1
             
-        logging.info(f"Customer sync completed successfully. Total synced: {total_synced}")
-        return True
+        logging.info(f"Customer sync completed successfully. Total synced: {total_synced}, Pages: {total_pages}, Payment terms created: {payment_terms_created}")
+        return {
+            "success": True,
+            "total_customers": total_synced,
+            "total_pages": total_pages,
+            "updated_count": total_synced,
+            "payment_terms_created": payment_terms_created
+        }
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error syncing customers: {e}")
-        return False
+        return {"success": False, "error": str(e)}
 
 def upsert_single_customer(customer_code):
     """Sync a single customer by code"""
