@@ -15,25 +15,52 @@ logger = logging.getLogger(__name__)
 TABLES_TO_COPY = [
     "users",
     "settings",
+    "discrepancy_types",
     "ps_customers",
+    "ps_items_dw",
     "payment_customers",
     "credit_terms",
     "invoices",
     "invoice_items",
     "batch_picking_sessions",
+    "batch_session_invoices",
     "batch_picked_items",
     "item_time_tracking",
-    "order_time_breakdowns",
+    "order_time_breakdown",
     "picking_exceptions",
+    "idle_periods",
+    "shifts",
+    "time_tracking_alerts",
     "shipments",
-    "route_stops",
-    "route_stop_invoices",
+    "shipment_orders",
+    "route_stop",
+    "route_stop_invoice",
+    "cod_receipts",
+    "pod_records",
+    "receipt_log",
+    "receipt_sequence",
     "delivery_discrepancies",
     "delivery_discrepancy_events",
+    "delivery_events",
+    "delivery_lines",
+    "invoice_delivery_events",
+    "invoice_post_delivery_cases",
+    "invoice_route_history",
+    "route_delivery_events",
+    "reroute_requests",
+    "shipping_events",
+    "stock_positions",
+    "stock_resolutions",
     "purchase_orders",
     "purchase_order_lines",
     "receiving_sessions",
     "receiving_lines",
+    "sync_jobs",
+    "sync_state",
+    "activity_logs",
+    "wms_category_defaults",
+    "wms_classification_runs",
+    "wms_item_overrides",
 ]
 
 
@@ -43,7 +70,6 @@ def migrate_db():
 
     if not prod_url:
         logger.error("DATABASE_URL_PROD not found in environment variables.")
-        logger.info("Please add DATABASE_URL_PROD secret with your production connection string.")
         return False
 
     if not dev_url:
@@ -62,7 +88,7 @@ def migrate_db():
         dev_conn = psycopg2.connect(dev_url)
         dev_cur = dev_conn.cursor()
 
-        logger.info("Clearing development tables in reverse order (for foreign keys)...")
+        logger.info("Clearing development tables in reverse order...")
         for table in reversed(TABLES_TO_COPY):
             dev_cur.execute(
                 "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s);",
@@ -72,11 +98,11 @@ def migrate_db():
             if result and result[0]:
                 try:
                     dev_cur.execute(sql.SQL("DELETE FROM {};").format(sql.Identifier(table)))
+                    dev_conn.commit()
                     logger.info(f"  Cleared {table}")
                 except Exception as del_err:
-                    logger.warning(f"  Could not clear {table}: {del_err}")
-        
-        dev_conn.commit()
+                    dev_conn.rollback()
+                    logger.warning(f"  Could not clear {table}: {str(del_err)[:60]}")
 
         total_rows = 0
         tables_copied = 0
@@ -89,7 +115,6 @@ def migrate_db():
             )
             result = dev_cur.fetchone()
             if not result or not result[0]:
-                logger.warning(f"  Table {table} does not exist in development. Skipping.")
                 continue
 
             prod_cur.execute(
@@ -98,18 +123,16 @@ def migrate_db():
             )
             result = prod_cur.fetchone()
             if not result or not result[0]:
-                logger.warning(f"  Table {table} does not exist in production. Skipping.")
                 continue
 
             prod_cur.execute(sql.SQL("SELECT * FROM {};").format(sql.Identifier(table)))
             rows = prod_cur.fetchall()
 
             if not rows:
-                logger.info(f"  {table}: empty in production")
+                logger.info(f"  {table}: empty")
                 continue
 
             if prod_cur.description is None:
-                logger.warning(f"  Could not get column info for {table}. Skipping.")
                 continue
 
             colnames = [desc[0] for desc in prod_cur.description]
@@ -127,9 +150,10 @@ def migrate_db():
                     dev_cur.execute(insert_query, row)
                     inserted += 1
                 except Exception as row_err:
+                    dev_conn.rollback()
                     errors += 1
-                    if errors <= 3:
-                        logger.warning(f"    Row error in {table}: {str(row_err)[:80]}")
+                    if errors <= 2:
+                        logger.warning(f"    {table} row error: {str(row_err)[:60]}")
 
             dev_conn.commit()
             total_rows += inserted
@@ -138,7 +162,7 @@ def migrate_db():
             
             status = f"{inserted} rows"
             if errors > 0:
-                status += f" ({errors} errors)"
+                status += f" ({errors} skipped)"
             logger.info(f"  {table}: {status}")
 
         logger.info(f"\nMigration completed!")
