@@ -610,7 +610,7 @@ function displayItemInfo(data) {
         <div style="font-size: 0.95rem; line-height: 1.6;">
             <div><strong>${data.item_code}</strong> ${statusBadge}</div>
             <div>${data.item_name || 'N/A'}</div>
-            <div>${data.shelf_location ? '<span class="badge bg-warning text-dark" style="font-size: 1.1rem; padding: 0.5rem 0.75rem;">' + data.shelf_location + '</span>' : '<span class="text-muted">-</span>'}</div>
+            <div>${data.shelf_location ? '<span class="badge bg-dark text-white" style="font-size: 1.1rem; padding: 0.5rem 0.75rem; border: 1px solid #ffffff;">' + data.shelf_location + '</span>' : '<span class="text-muted">-</span>'}</div>
             ${combinedStockDisplay ? '<div>' + combinedStockDisplay + '</div>' : ''}
             ${barcodesDisplay}
         </div>

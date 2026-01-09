@@ -82,7 +82,7 @@
             <div class="card-body p-2 text-center">
                 <div class="d-flex justify-content-center">
                     <div class="location-display">
-                        <h1 class="mb-0 fw-bold" style="color: #ffff00; font-size: 50px;">
+                        <h1 class="mb-0 fw-bold" style="color: #ffffff; font-size: 50px;">
                             {{ location_parts.aisle }} - {{ location_parts.shelf }} - {{ location_parts.level }} {{ location_parts.bin }}
                         </h1>
                     </div>
@@ -117,7 +117,7 @@
 <!-- Unit Type Below Image -->
 <div class="row mb-3">
     <div class="col-12">
-        <div class="text-center fw-bold" style="color: #ffff00; font-size: 40px;">
+        <div class="text-center fw-bold" style="color: #ffffff; font-size: 40px;">
             {{ item.unit_type }}
         </div>
     </div>
@@ -164,8 +164,8 @@
                 </div>
                 
                 <div class="text-center mb-3">
-                    <!-- Quantity Display - Large, Bold and Yellow -->
-                    <h2 class="display-5 fw-bold mb-3">Pick <span id="expectedQuantity" style="color: #ffff00; background-color: #000; padding: 10px 20px; border-radius: 5px; font-size: 4rem;">{{ item.display_qty|int }}</span> {% if item.display_unit_type|lower == 'item' %}{% if item.display_qty|int > 1 %}Pieces{% else %}Piece{% endif %}{% else %}{{ item.display_unit_type }}{% endif %}{% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' and item.display_unit_type != 'Pieces' and item.display_unit_type|lower != 'item' and item.unit_type|lower not in ['piece', 'item'] %} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>{% endif %}</h2>
+                    <!-- Quantity Display - Large, Bold and White -->
+                    <h2 class="display-5 fw-bold mb-3">Pick <span id="expectedQuantity" style="color: #ffffff; background-color: #000; padding: 10px 20px; border-radius: 5px; font-size: 4rem;">{{ item.display_qty|int }}</span> {% if item.display_unit_type|lower == 'item' %}{% if item.display_qty|int > 1 %}Pieces{% else %}Piece{% endif %}{% else %}{{ item.display_unit_type }}{% endif %}{% if item.pack and item.pack|string|trim != '' and item.pack|string|trim != '0' and item.pack|string|trim != '0.0' and item.display_unit_type != 'Pieces' and item.display_unit_type|lower != 'item' and item.unit_type|lower not in ['piece', 'item'] %} <span style="font-size: 0.75em;">({{ item.pack|float|int }})</span>{% endif %}</h2>
                 </div>
                 
                 <!-- Quantity Entry Section for items > 1 -->
@@ -298,9 +298,9 @@
 <div class="modal fade" id="skipModal" tabindex="-1" aria-labelledby="skipModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header bg-warning text-dark">
+            <div class="modal-header bg-dark text-white">
                 <h5 class="modal-title" id="skipModalLabel">Skip This Item</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-info">
