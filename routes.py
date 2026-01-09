@@ -2262,14 +2262,20 @@ def picker_dashboard():
     from models import OrderTimeBreakdown, ItemTimeTracking
     picking_times = {}
     
-    # Get time breakdowns for all invoices at once
-    invoice_nos = [inv.invoice_no for inv in invoices]
+    # Get all relevant invoices for time calculation (including those on admin dashboard)
+    # The current code only does this for invoices assigned to the current user (picker dashboard)
+    # We need to do this for all invoices being displayed on both dashboards
+    all_visible_invoices = invoices if 'invoices' in locals() else []
+    if 'all_invoices' in locals():
+        all_visible_invoices = all_invoices
+        
+    invoice_nos = [inv.invoice_no for inv in all_visible_invoices]
     time_breakdowns = OrderTimeBreakdown.query.filter(
         OrderTimeBreakdown.invoice_no.in_(invoice_nos)
     ).all()
     breakdown_by_invoice = {tb.invoice_no: tb for tb in time_breakdowns}
     
-    # Get item tracking aggregates for "Actual" time (sum of walking, picking, confirmation)
+    # Get item tracking aggregates for "Actual" time
     from sqlalchemy import func
     actual_tracking = db.session.query(
         ItemTimeTracking.invoice_no,
@@ -2282,8 +2288,8 @@ def picker_dashboard():
     from timezone_utils import get_utc_now
     now_utc = get_utc_now()
     
-    for invoice in invoices:
-        # Priority 1: Actual time from ItemTimeTracking (most precise)
+    for invoice in all_visible_invoices:
+        # Priority 1: Actual time from ItemTimeTracking
         actual_seconds = actual_by_invoice.get(invoice.invoice_no)
         if actual_seconds and actual_seconds > 0:
             picking_times[invoice.invoice_no] = f"{round(actual_seconds / 60, 2)}m"
