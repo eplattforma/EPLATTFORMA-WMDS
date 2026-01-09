@@ -178,10 +178,10 @@
                             <td>
                                 <strong>{{ shift.picker_username }}</strong>
                             </td>
-                            <td>{{ shift.check_in_time|local_time if shift.check_in_time else 'N/A' }}</td>
+                            <td>{{ shift.check_in_time|local_time('%H:%M') if shift.check_in_time else 'N/A' }}</td>
                             <td>
                                 {% if shift.check_out_time %}
-                                    {{ shift.check_out_time|local_time }}
+                                    {{ shift.check_out_time|local_time('%H:%M') }}
                                 {% else %}
                                     <span class="badge bg-warning">Active</span>
                                 {% endif %}
