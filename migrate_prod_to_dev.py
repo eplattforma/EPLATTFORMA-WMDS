@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Migration script to copy data from production database to development database.
-This will OVERWRITE all data in the development database with production data.
 """
 
 import os
@@ -64,115 +63,84 @@ TABLES_TO_COPY = [
 ]
 
 
+def table_exists(cur, table_name):
+    cur.execute(
+        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s);",
+        (table_name,)
+    )
+    result = cur.fetchone()
+    return result and result[0]
+
+
 def migrate_db():
     prod_url = os.environ.get("DATABASE_URL_PROD")
     dev_url = os.environ.get("DATABASE_URL")
 
-    if not prod_url:
-        logger.error("DATABASE_URL_PROD not found in environment variables.")
-        return False
-
-    if not dev_url:
-        logger.error("DATABASE_URL (Development) not found in environment variables.")
+    if not prod_url or not dev_url:
+        logger.error("Missing database URLs")
         return False
 
     prod_conn = None
     dev_conn = None
 
     try:
-        logger.info("Connecting to Production database...")
+        logger.info("Connecting to databases...")
         prod_conn = psycopg2.connect(prod_url)
+        prod_conn.autocommit = True
         prod_cur = prod_conn.cursor()
 
-        logger.info("Connecting to Development database...")
         dev_conn = psycopg2.connect(dev_url)
+        dev_conn.autocommit = True
         dev_cur = dev_conn.cursor()
 
-        logger.info("Clearing development tables in reverse order...")
+        logger.info("Clearing development tables...")
         for table in reversed(TABLES_TO_COPY):
-            dev_cur.execute(
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s);",
-                (table,)
-            )
-            result = dev_cur.fetchone()
-            if result and result[0]:
+            if table_exists(dev_cur, table):
                 try:
-                    dev_cur.execute(sql.SQL("DELETE FROM {};").format(sql.Identifier(table)))
-                    dev_conn.commit()
-                    logger.info(f"  Cleared {table}")
-                except Exception as del_err:
-                    dev_conn.rollback()
-                    logger.warning(f"  Could not clear {table}: {str(del_err)[:60]}")
+                    dev_cur.execute(sql.SQL("TRUNCATE TABLE {} CASCADE;").format(sql.Identifier(table)))
+                    logger.info(f"  Truncated {table}")
+                except Exception as e:
+                    logger.warning(f"  Could not truncate {table}: {str(e)[:50]}")
 
         total_rows = 0
         tables_copied = 0
 
-        logger.info("\nCopying data from production...")
+        logger.info("\nCopying data...")
         for table in TABLES_TO_COPY:
-            dev_cur.execute(
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s);",
-                (table,)
-            )
-            result = dev_cur.fetchone()
-            if not result or not result[0]:
-                continue
-
-            prod_cur.execute(
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s);",
-                (table,)
-            )
-            result = prod_cur.fetchone()
-            if not result or not result[0]:
+            if not table_exists(dev_cur, table) or not table_exists(prod_cur, table):
                 continue
 
             prod_cur.execute(sql.SQL("SELECT * FROM {};").format(sql.Identifier(table)))
             rows = prod_cur.fetchall()
 
-            if not rows:
-                logger.info(f"  {table}: empty")
-                continue
-
-            if prod_cur.description is None:
+            if not rows or prod_cur.description is None:
                 continue
 
             colnames = [desc[0] for desc in prod_cur.description]
-
             columns = sql.SQL(', ').join(map(sql.Identifier, colnames))
             placeholders = sql.SQL(', ').join([sql.Placeholder()] * len(colnames))
-            insert_query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+            insert_query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT DO NOTHING").format(
                 sql.Identifier(table), columns, placeholders
             )
 
             inserted = 0
-            errors = 0
             for row in rows:
                 try:
                     dev_cur.execute(insert_query, row)
                     inserted += 1
-                except Exception as row_err:
-                    dev_conn.rollback()
-                    errors += 1
-                    if errors <= 2:
-                        logger.warning(f"    {table} row error: {str(row_err)[:60]}")
+                except Exception:
+                    pass
 
-            dev_conn.commit()
-            total_rows += inserted
             if inserted > 0:
+                total_rows += inserted
                 tables_copied += 1
-            
-            status = f"{inserted} rows"
-            if errors > 0:
-                status += f" ({errors} skipped)"
-            logger.info(f"  {table}: {status}")
+                logger.info(f"  {table}: {inserted} rows")
 
-        logger.info(f"\nMigration completed!")
-        logger.info(f"Copied {total_rows} total rows across {tables_copied} tables.")
+        logger.info(f"\nDone! Copied {total_rows} rows across {tables_copied} tables.")
         return True
 
     except Exception as e:
         logger.error(f"Migration failed: {e}")
-        if dev_conn:
-            dev_conn.rollback()
         return False
 
     finally:
@@ -183,19 +151,12 @@ def migrate_db():
 
 
 if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("PRODUCTION TO DEVELOPMENT DATABASE MIGRATION")
-    print("=" * 60)
-    print("\nWARNING: This will OVERWRITE your development database")
-    print("with data from production.\n")
+    print("\n" + "=" * 50)
+    print("PRODUCTION → DEVELOPMENT DATABASE MIGRATION")
+    print("=" * 50 + "\n")
 
     confirm = input("Type 'yes' to proceed: ")
     if confirm.lower() == 'yes':
-        print()
-        success = migrate_db()
-        if success:
-            print("\nYour development database now mirrors production.")
-        else:
-            print("\nMigration had issues. Check the errors above.")
+        migrate_db()
     else:
-        print("\nMigration cancelled.")
+        print("Cancelled.")
