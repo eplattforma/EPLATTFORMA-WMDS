@@ -677,6 +677,7 @@ def admin_dashboard():
     
     # NEW BATCH QUERY FOR PICKING TIMES: Get OrderTimeBreakdown and ItemTimeTracking data
     from models import OrderTimeBreakdown, ItemTimeTracking
+    from timezone_utils import get_utc_now
     time_breakdowns = OrderTimeBreakdown.query.filter(
         OrderTimeBreakdown.invoice_no.in_(invoice_nos)
     ).all()
