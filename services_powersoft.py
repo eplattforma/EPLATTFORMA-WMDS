@@ -411,50 +411,64 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
         return {"success": False, "error": str(e)}
 
 def sync_active_customers():
-    """Sync active customers from PS365 API"""
+    """Sync active customers from PS365 API with pagination"""
     from models import PSCustomer, db
     from ps365_client import call_ps365
     import logging
     
     try:
         logging.info("Starting customer sync from PS365...")
-        payload = {
-            "filter_define": {
-                "only_counted": "N",
-                "active_only": "Y",
-                "page_number": 1,
-                "page_size": 1000
+        page = 1
+        PAGE_SIZE = 100  # PS365 API max page size is 100
+        total_synced = 0
+        
+        while True:
+            payload = {
+                "filter_define": {
+                    "only_counted": "N",
+                    "active_type": "active",
+                    "page_number": page,
+                    "page_size": PAGE_SIZE
+                }
             }
-        }
-        
-        response = call_ps365("list_customers", payload, method="POST")
-        api_resp = response.get("api_response", {})
-        
-        if api_resp.get("response_code") != "1":
-            logging.error(f"Customer sync failed: {api_resp}")
-            return False
             
-        customers = response.get("list_customers", [])
-        logging.info(f"Found {len(customers)} customers to sync")
-        
-        for cust_data in customers:
-            customer = cust_data.get("customer", {})
-            code = customer.get("customer_code_365")
-            if not code:
-                continue
+            response = call_ps365("list_customers", payload, method="POST")
+            api_resp = response.get("api_response", {})
+            
+            if api_resp.get("response_code") != "1":
+                logging.error(f"Customer sync failed: {api_resp}")
+                return False
                 
-            existing = PSCustomer.query.filter_by(customer_code_365=code).first()
-            if not existing:
-                existing = PSCustomer(customer_code_365=code)
-                db.session.add(existing)
+            customers = response.get("list_customers", [])
+            if not customers:
+                break
+                
+            logging.info(f"Page {page}: Found {len(customers)} customers to sync")
             
-            existing.customer_name = customer.get("customer_name")
-            existing.customer_email = customer.get("customer_email")
-            existing.customer_phone = customer.get("customer_phone")
-            existing.last_synced_at = datetime.utcnow()
+            for cust_data in customers:
+                customer = cust_data if not cust_data.get("customer") else cust_data.get("customer", {})
+                code = customer.get("customer_code_365")
+                if not code:
+                    continue
+                    
+                existing = PSCustomer.query.filter_by(customer_code_365=code).first()
+                if not existing:
+                    existing = PSCustomer(customer_code_365=code)
+                    db.session.add(existing)
+                
+                existing.customer_name = customer.get("company_name") or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
+                existing.customer_email = customer.get("email")
+                existing.customer_phone = customer.get("mobile") or customer.get("tel_1")
+                existing.last_synced_at = datetime.utcnow()
+                total_synced += 1
             
-        db.session.commit()
-        logging.info("Customer sync completed successfully")
+            db.session.commit()
+            
+            if len(customers) < PAGE_SIZE:
+                break
+            page += 1
+            
+        logging.info(f"Customer sync completed successfully. Total synced: {total_synced}")
         return True
     except Exception as e:
         db.session.rollback()
@@ -471,7 +485,7 @@ def upsert_single_customer(customer_code):
         payload = {
             "filter_define": {
                 "only_counted": "N",
-                "customer_code_selection": customer_code,
+                "customer_code_365_selection": customer_code,
                 "page_number": 1,
                 "page_size": 1
             }
@@ -482,8 +496,9 @@ def upsert_single_customer(customer_code):
         
         if not customers:
             return None
-            
-        customer_data = customers[0].get("customer", {})
+        
+        cust_data = customers[0]
+        customer_data = cust_data if not cust_data.get("customer") else cust_data.get("customer", {})
         code = customer_data.get("customer_code_365")
         
         existing = PSCustomer.query.filter_by(customer_code_365=code).first()
