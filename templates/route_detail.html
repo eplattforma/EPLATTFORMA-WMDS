@@ -463,21 +463,205 @@
 </div>
 {% endif %}
 
+<!-- Global Payment Terms Modal -->
+<div class="modal fade" id="globalPaymentTermsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="paymentTermsModalTitle">Payment Terms</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="paymentTermsLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Loading terms...</p>
+                </div>
+                <form id="paymentTermsForm" style="display: none;">
+                    <input type="hidden" id="pt_customer_code">
+                    <input type="hidden" id="pt_customer_name">
+                    <input type="hidden" id="pt_group">
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Terms Code</label>
+                            <input type="text" id="pt_terms_code" class="form-control" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Due Days</label>
+                            <input type="number" id="pt_due_days" class="form-control" min="0">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Credit Limit (€)</label>
+                            <input type="number" id="pt_credit_limit" class="form-control" step="0.01">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check mt-4">
+                                <input type="checkbox" id="pt_is_credit" class="form-check-input">
+                                <label class="form-check-label">Is Credit Account</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="border-bottom pb-2 mt-3 mb-3">Allowed Payment Methods</h6>
+                    <div class="row">
+                        <div class="col-md-3 mb-2">
+                            <div class="form-check">
+                                <input type="checkbox" id="pt_allow_cash" class="form-check-input">
+                                <label class="form-check-label">Cash</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <div class="form-check">
+                                <input type="checkbox" id="pt_allow_card_pos" class="form-check-input">
+                                <label class="form-check-label">Card/POS</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <div class="form-check">
+                                <input type="checkbox" id="pt_allow_bank_transfer" class="form-check-input">
+                                <label class="form-check-label">Bank Transfer</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <div class="form-check">
+                                <input type="checkbox" id="pt_allow_cheque" class="form-check-input">
+                                <label class="form-check-label">Cheque</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 mt-3">
+                        <label class="form-label">Cheque Days Allowed</label>
+                        <input type="number" id="pt_cheque_days" class="form-control" min="0">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Notes for Driver</label>
+                        <textarea id="pt_notes" class="form-control" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="savePaymentTermsBtn" onclick="savePaymentTerms()">Save Terms</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
-function toggleStopDetails(stopId) {
-    const details = document.getElementById('stopDetails' + stopId);
-    const icon = document.getElementById('expandIcon' + stopId);
-    
-    if (details.style.display === 'none') {
-        details.style.display = 'block';
-        icon.classList.remove('fa-chevron-down');
-        icon.classList.add('fa-chevron-up');
-    } else {
-        details.style.display = 'none';
-        icon.classList.remove('fa-chevron-up');
-        icon.classList.add('fa-chevron-down');
+let paymentTermsModal = null;
+
+function openPaymentTermsModal(customerCode, customerName) {
+    if (!paymentTermsModal) {
+        paymentTermsModal = new bootstrap.Modal(document.getElementById('globalPaymentTermsModal'));
     }
+    
+    document.getElementById('paymentTermsModalTitle').innerText = 'Payment Terms - ' + customerName;
+    document.getElementById('paymentTermsLoading').style.display = 'block';
+    document.getElementById('paymentTermsForm').style.display = 'none';
+    document.getElementById('savePaymentTermsBtn').disabled = true;
+    
+    paymentTermsModal.show();
+    
+    fetch('/admin/payment-terms/list?query=' + encodeURIComponent(customerCode))
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('paymentTermsLoading').style.display = 'none';
+            document.getElementById('paymentTermsForm').style.display = 'block';
+            document.getElementById('savePaymentTermsBtn').disabled = false;
+            
+            const item = data.items.find(i => i.customer_code === customerCode);
+            if (item) {
+                document.getElementById('pt_customer_code').value = item.customer_code;
+                document.getElementById('pt_customer_name').value = item.customer_name;
+                document.getElementById('pt_group').value = item.group || '';
+                document.getElementById('pt_terms_code').value = item.terms_code || '';
+                document.getElementById('pt_due_days').value = item.due_days || 0;
+                document.getElementById('pt_credit_limit').value = item.credit_limit || '';
+                document.getElementById('pt_is_credit').checked = !!item.is_credit;
+                document.getElementById('pt_allow_cash').checked = !!item.allow_cash;
+                document.getElementById('pt_allow_card_pos').checked = !!item.allow_card_pos;
+                document.getElementById('pt_allow_bank_transfer').checked = !!item.allow_bank_transfer;
+                document.getElementById('pt_allow_cheque').checked = !!item.allow_cheque;
+                document.getElementById('pt_cheque_days').value = item.cheque_days_allowed || '';
+                document.getElementById('pt_notes').value = item.notes || '';
+            } else {
+                // If not found, use defaults or just set basic info
+                document.getElementById('pt_customer_code').value = customerCode;
+                document.getElementById('pt_customer_name').value = customerName;
+                document.getElementById('pt_group').value = '';
+                document.getElementById('pt_terms_code').value = '';
+                document.getElementById('pt_due_days').value = 0;
+                document.getElementById('pt_credit_limit').value = '';
+                document.getElementById('pt_is_credit').checked = false;
+                document.getElementById('pt_allow_cash').checked = true;
+                document.getElementById('pt_allow_card_pos').checked = false;
+                document.getElementById('pt_allow_bank_transfer').checked = false;
+                document.getElementById('pt_allow_cheque').checked = false;
+                document.getElementById('pt_cheque_days').value = '';
+                document.getElementById('pt_notes').value = '';
+            }
+        })
+        .catch(err => {
+            alert('Error loading payment terms');
+            console.error(err);
+            paymentTermsModal.hide();
+        });
 }
+
+function savePaymentTerms() {
+    const btn = document.getElementById('savePaymentTermsBtn');
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
+    btn.disabled = true;
+    
+    const data = {
+        customer_code: document.getElementById('pt_customer_code').value,
+        customer_name: document.getElementById('pt_customer_name').value,
+        group: document.getElementById('pt_group').value,
+        terms_code: document.getElementById('pt_terms_code').value,
+        due_days: parseInt(document.getElementById('pt_due_days').value) || 0,
+        credit_limit: parseFloat(document.getElementById('pt_credit_limit').value) || null,
+        is_credit: document.getElementById('pt_is_credit').checked,
+        allow_cash: document.getElementById('pt_allow_cash').checked,
+        allow_card_pos: document.getElementById('pt_allow_card_pos').checked,
+        allow_bank_transfer: document.getElementById('pt_allow_bank_transfer').checked,
+        allow_cheque: document.getElementById('pt_allow_cheque').checked,
+        cheque_days_allowed: parseInt(document.getElementById('pt_cheque_days').value) || null,
+        notes: document.getElementById('pt_notes').value
+    };
+    
+    fetch('/admin/payment-terms/save', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(res => res.json())
+    .then(result => {
+        if (result.status === 'ok' || result.status === 'no_change') {
+            paymentTermsModal.hide();
+            location.reload(); // Reload to show updated badges/notes
+        } else {
+            alert('Error: ' + (result.error || 'Failed to save terms'));
+            btn.innerHTML = 'Save Terms';
+            btn.disabled = false;
+        }
+    })
+    .catch(err => {
+        alert('Error saving payment terms');
+        console.error(err);
+        btn.innerHTML = 'Save Terms';
+        btn.disabled = false;
+    });
+}
+
+function toggleStopDetails(stopId) {
     const details = document.getElementById('stopDetails' + stopId);
     const icon = document.getElementById('expandIcon' + stopId);
     
