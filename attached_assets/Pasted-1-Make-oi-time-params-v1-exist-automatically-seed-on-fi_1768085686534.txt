@@ -1,0 +1,397 @@
+1) Make oi_time_params_v1 exist automatically (seed on first use)
+Goal
+
+Stop relying on “fallback-only” defaults. Ensure the default JSON is actually persisted in the Settings table, and a revision counter exists.
+
+Implement (recommended: app startup seeding)
+
+In app.py, immediately after db.create_all() and before serving requests, add:
+
+If Setting(key="oi_time_params_v1") does not exist → create it with DEFAULT_PARAMS
+
+If Setting(key="oi_time_params_v1_revision") does not exist → set "1"
+
+Skeleton:
+
+# app.py
+from models import Setting
+from services_oi_time_estimator import DEFAULT_PARAMS
+
+def seed_oi_time_params():
+    if not Setting.query.filter_by(key="oi_time_params_v1").first():
+        Setting.set_json(db.session, "oi_time_params_v1", DEFAULT_PARAMS)
+
+    if not Setting.query.filter_by(key="oi_time_params_v1_revision").first():
+        Setting.set(db.session, "oi_time_params_v1_revision", "1")
+
+    db.session.commit()
+
+
+Call seed_oi_time_params() once during app init (after db.create_all()).
+
+2) Ensure PS365 import uses the same defaults (stop using {})
+Problem to fix
+
+In services_powersoft.py, PS365 import currently does:
+
+Setting.get_json(..., {}) → meaning if the setting isn’t saved yet, import runs without your intended defaults.
+
+Fix
+
+Change to:
+
+from services_oi_time_estimator import DEFAULT_PARAMS
+oi_params = Setting.get_json(db.session, "oi_time_params_v1", DEFAULT_PARAMS)
+
+
+Even after seeding, keep this fix (it prevents future regressions).
+
+3) Unit-type normalization (the #1 reason “params not applied”)
+Requirement
+
+One normalization function, implemented once, used everywhere:
+
+PS365 import (any provisional/per-line estimate)
+
+the official estimator (always)
+
+Implement once (e.g. services_oi_time_estimator.py or utils/oi_params.py)
+def normalize_unit_type(raw):
+    if not raw:
+        return "item"
+    u = str(raw).strip().upper()
+
+    mapping = {
+        "PCS": "item", "PIECE": "item", "ITEM": "item", "EA": "item",
+        "PK": "pack", "PACK": "pack",
+        "BX": "box", "BOX": "box",
+        "CS": "case", "CASE": "case",
+        "VPACK": "virtual_pack", "VIRTUAL_PACK": "virtual_pack",
+    }
+    return mapping.get(u, u.lower())
+
+
+Replace all logic like:
+
+unit_type.lower() if unit_type else "item"
+with:
+
+normalize_unit_type(unit_type)
+
+4) Fix “align seconds” being used twice (correctness issue)
+Current issue (in your estimator defaults/logic)
+
+The same key travel.sec_align_per_stop is effectively being used for two different concepts:
+
+“scan/align per line” behavior (pick-side)
+
+“base/align per movement” behavior (travel-side)
+
+This creates silent double counting and makes tuning impossible.
+
+Required change
+
+Split into two keys:
+
+pick.sec_align_scan_per_line
+
+travel.sec_align_per_move
+
+Update DEFAULT_PARAMS:
+
+"travel": {
+  "sec_align_per_move": 13,
+  ...
+},
+"pick": {
+  "sec_align_scan_per_line": 13,
+  ...
+}
+
+Backward compatibility
+
+If JSON doesn’t have the new keys:
+
+use old travel.sec_align_per_stop as fallback for both
+
+but when saving from admin, write the new keys going forward.
+
+Pseudo:
+
+scan_align = params["pick"].get("sec_align_scan_per_line",
+              params["travel"].get("sec_align_per_stop", 0))
+
+move_align = params["travel"].get("sec_align_per_move",
+              params["travel"].get("sec_align_per_stop", 0))
+
+5) Make the estimator authoritative (run it at explicit moments)
+Rule (enforce)
+
+PS365 import is not the estimation engine. It may populate provisional values, but the estimator service is the single source of truth.
+
+A) After PS365 invoice import
+
+At the end of invoice upsert:
+
+Upsert invoice + lines
+
+db.session.commit()
+
+Run estimator (which overwrites official estimate fields and creates snapshots)
+
+Implementation hook (example):
+
+from services_oi_time_estimator import estimate_and_snapshot_invoice
+
+db.session.commit()
+estimate_and_snapshot_invoice(invoice.invoice_no, reason="ps365_import")
+db.session.commit()
+
+
+If performance is a concern, enqueue a background job instead (you already have scheduler patterns).
+
+B) After OI params change
+
+When admin saves oi_time_params_v1, support:
+
+“Recalculate open invoices”
+
+or “Recalculate last N days”
+
+This should be an explicit admin action and can be backgrounded.
+
+6) Non-negotiable: params revisioning + full snapshotting per run (audit log)
+A) Increment revision on every save
+
+In routes_oi_time_admin.py POST handler, after saving JSON:
+
+read oi_time_params_v1_revision
+
+increment and store back
+
+rev = int(Setting.get(db.session, "oi_time_params_v1_revision", "1"))
+Setting.set(db.session, "oi_time_params_v1_revision", str(rev + 1))
+db.session.commit()
+
+B) Add audit tables (recommended design: run + line tables)
+oi_estimate_runs (one row per estimate run per invoice)
+
+Fields:
+
+id (pk)
+
+invoice_no (indexed)
+
+estimator_version (string constant, e.g. "oi_estimator_v1.1")
+
+params_revision (int)
+
+params_snapshot_json (json/text)
+
+estimated_total_seconds
+
+estimated_pick_seconds
+
+estimated_travel_seconds
+
+breakdown_json
+
+reason (e.g. ps365_import, admin_recalc)
+
+created_at
+
+oi_estimate_lines (one row per invoice line per run)
+
+Fields:
+
+id (pk)
+
+run_id (fk)
+
+invoice_no (indexed)
+
+invoice_item_id (nullable, if you have stable IDs)
+
+item_code (indexed)
+
+location (string)
+
+unit_type_normalized
+
+qty
+
+estimated_pick_seconds
+
+estimated_walk_seconds
+
+estimated_total_seconds
+
+breakdown_json
+
+Add SQLAlchemy models in models.py. Since your app uses db.create_all(), the new tables will be created automatically (no schema updater needed for new tables).
+
+7) Travel-by-sorted-locations (Option 2: more accurate)
+Goal
+
+Compute travel time deterministically by ordering the warehouse locations, then applying your travel model between successive locations.
+
+Implement
+
+Parse locations using your configured regex:
+
+corridor
+
+bay
+
+level
+
+pos
+
+Sort the invoice lines by (zone, corridor, bay, level, pos) (define level order A < B < C < D)
+
+Compute travel seconds between consecutive locations:
+
+travel_seconds(i-1 -> i) using your current travel function
+
+allocate that travel to the first line at the “arrival” location (deterministic rule)
+
+Allocation rule (simple and stable):
+
+For each location group, estimated_walk_seconds is the travel from the previous distinct location to this location.
+
+All other lines at same location get 0 walk seconds.
+
+This gives you line-level estimated walk time without inventing extra steps.
+
+8) Line-by-line actual vs estimate (walk + pick)
+Store estimates in seconds
+
+oi_estimate_lines.estimated_pick_seconds
+
+oi_estimate_lines.estimated_walk_seconds
+
+oi_estimate_lines.estimated_total_seconds
+
+Store actuals in seconds
+
+You already have ItemTimeTracking fields:
+
+walking_time
+
+picking_time
+
+confirmation_time
+
+total_time
+
+plus timestamps item_started, item_completed
+
+Required operational change (to make walk vs pick real)
+
+You must record a “pick start” moment per line, not just “completion”.
+
+Implement a per-line start event:
+
+Add an endpoint like: POST /picker/items/<id>/start
+
+Called when the picker begins that line (UI: on page load or explicit “Start line” button)
+
+When start is called:
+
+set item_started = now if not set
+
+When confirm/complete happens:
+
+set item_completed = now
+
+Then compute:
+
+picking_time = item_completed - item_started
+
+Walking time requires the previous completed time:
+
+walking_time = item_started(current) - item_completed(previous)
+(previous line in the same invoice and same picking sequence)
+
+If you don’t have a stable “sequence”, add it:
+
+store pick_sequence_no in ItemTimeTracking (incrementing integer per invoice picking session)
+
+or store previous_tracking_id
+
+This yields clean comparisons per line:
+
+estimated_pick_seconds vs picking_time
+
+estimated_walk_seconds vs walking_time
+
+estimated_total_seconds vs total_time
+
+9) Admin UX additions (minimal but critical)
+A) OI params page
+
+Display current oi_time_params_v1_revision
+
+Validate JSON before saving (at minimum: must be valid JSON, must have required top-level keys)
+
+B) Add “Recalculate estimates” button
+
+Route:
+
+POST /admin/oi-time/recalculate
+Options:
+
+open invoices only (recommended)
+
+last N days (optional)
+
+Implementation:
+
+enqueue background job using your existing scheduler patterns
+
+progress can be basic: store status in Settings or a small jobs table
+
+10) Estimator version constant (do this now)
+
+In estimator service:
+
+ESTIMATOR_VERSION = "oi_estimator_v1.1"
+
+
+Store this on every run row. This is how you defend historical comparisons when logic changes.
+
+11) Acceptance tests (what Replit should verify)
+
+First boot seeding
+
+Settings has oi_time_params_v1
+
+Settings has oi_time_params_v1_revision = 1
+
+Saving params
+
+revision increments by 1 each save
+
+PS365 import
+
+after import, estimator runs
+
+oi_estimate_runs and oi_estimate_lines rows exist
+
+invoice + lines show estimates consistent with estimator (not provisional import values)
+
+Unit mapping
+
+PS365 unit types like PCS, BOX, PACK map to item/box/pack correctly
+
+Line-level walk allocation
+
+first line in a new location gets walk seconds
+
+additional lines same location get 0 walk seconds
+
+Actual timing
+
+start + complete events create non-zero pick time
+
+walking time populates as deltas between lines

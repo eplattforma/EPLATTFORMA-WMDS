@@ -1,10 +1,18 @@
 import json
+import logging
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 
 from app import db
 from models import Setting, Invoice
-from services_oi_time_estimator import DEFAULT_PARAMS, estimate_and_persist_invoice_time, estimate_invoice_time
+from services_oi_time_estimator import (
+    DEFAULT_PARAMS, 
+    estimate_and_persist_invoice_time, 
+    estimate_invoice_time,
+    estimate_and_snapshot_invoice,
+    get_params_revision,
+    ESTIMATOR_VERSION
+)
 
 
 oi_time_admin_bp = Blueprint("oi_time_admin", __name__)
@@ -52,8 +60,19 @@ def oi_time_params():
                 params = json.loads(raw)
                 if not isinstance(params, dict):
                     raise ValueError("Params JSON must be an object.")
+                
+                required_keys = ["travel", "pick", "pack", "overhead"]
+                for key in required_keys:
+                    if key not in params:
+                        raise ValueError(f"Missing required top-level key: {key}")
+                
                 Setting.set_json(db.session, "oi_time_params_v1", params)
-                flash("ETC parameters saved.", "success")
+                
+                rev = get_params_revision()
+                Setting.set(db.session, "oi_time_params_v1_revision", str(rev + 1))
+                db.session.commit()
+                
+                flash(f"ETC parameters saved (revision {rev + 1}).", "success")
             except Exception as e:
                 flash(f"Could not save parameters: {e}", "danger")
 
@@ -68,22 +87,23 @@ def oi_time_params():
                 flash("Please provide an invoice number.", "warning")
             else:
                 try:
-                    result = estimate_and_persist_invoice_time(invoice_no, commit=True)
-                    flash(f"Recalculated ETC for invoice {invoice_no}.", "success")
+                    result = estimate_and_snapshot_invoice(invoice_no, reason="admin_recalc", commit=True)
+                    flash(f"Recalculated ETC for invoice {invoice_no} (run ID: {result.get('run_id')}).", "success")
                 except Exception as e:
+                    logging.error(f"Recalculation failed for {invoice_no}: {e}")
                     flash(f"Recalculation failed: {e}", "danger")
 
         elif action == "recalc_open":
-            # Recalculate for orders that are not shipped/delivered
             statuses = request.form.getlist("statuses") or ["not_started", "picking", "ready_for_dispatch"]
             q = Invoice.query.filter(Invoice.status.in_(statuses))
             count = 0
             last = None
-            for inv in q.limit(500).all():  # safety cap
+            for inv in q.limit(500).all():
                 try:
-                    last = estimate_and_persist_invoice_time(inv.invoice_no, commit=False)
+                    last = estimate_and_snapshot_invoice(inv.invoice_no, reason="admin_batch_recalc", commit=False)
                     count += 1
-                except Exception:
+                except Exception as e:
+                    logging.warning(f"Recalc failed for {inv.invoice_no}: {e}")
                     continue
             db.session.commit()
             flash(f"Recalculated ETC for {count} open invoices (statuses: {', '.join(statuses)}).", "success")
@@ -93,11 +113,14 @@ def oi_time_params():
 
     params = Setting.get_json(db.session, "oi_time_params_v1", default=DEFAULT_PARAMS)
     summer_mode = Setting.get(db.session, "summer_mode", "false").lower() in ("1", "true", "yes", "on")
+    params_revision = get_params_revision()
 
     return render_template(
         "admin/oi_time_params.html",
         params_json=json.dumps(params, indent=2, ensure_ascii=False),
         summer_mode=summer_mode,
         last_result=Setting.get_json(db.session, "oi_time_last_result", default=None),
-        invoice_no="IN10052585"
+        invoice_no="IN10052585",
+        params_revision=params_revision,
+        estimator_version=ESTIMATOR_VERSION
     )

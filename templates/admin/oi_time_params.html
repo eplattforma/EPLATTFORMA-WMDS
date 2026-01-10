@@ -24,6 +24,10 @@
     <div>
       <h3 class="mb-1">Order Time Estimation (ETC) Parameters</h3>
       <div class="text-muted">Edit parameters, toggle Summer Mode, and recalculate estimated times.</div>
+      <div class="mt-1">
+        <span class="badge bg-secondary">Revision: {{ params_revision }}</span>
+        <span class="badge bg-info">{{ estimator_version }}</span>
+      </div>
     </div>
     <div class="d-flex gap-2">
       <button class="btn btn-outline-secondary" type="button" id="btnDownloadJson">Download JSON</button>
@@ -95,8 +99,8 @@
 
                     <div class="row g-2">
                       <div class="col-md-4">
-                        <label class="form-label">Align per stop (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Align Per Stop" data-content="Time spent per line item to stop the trolley, orient to the correct shelf, and scan the shelf barcode before picking."></i></label>
-                        <input type="number" class="form-control" data-path="travel.sec_align_per_stop" step="0.1" min="0">
+                        <label class="form-label">Align per move (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Align Per Move" data-content="Time spent aligning the trolley when moving between locations. Applied once per movement between distinct shelf positions."></i></label>
+                        <input type="number" class="form-control" data-path="travel.sec_align_per_move" step="0.1" min="0">
                       </div>
                       <div class="col-md-4">
                         <label class="form-label">Zone switch (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Zone Switch" data-content="Extra time added when the picker has to move between major warehouse zones (e.g., from Ambient to Chilled)."></i></label>
@@ -155,6 +159,13 @@
                 </h2>
                 <div id="cPick" class="accordion-collapse collapse" data-bs-parent="#accParams">
                   <div class="accordion-body">
+                    <div class="row g-2 mb-3">
+                      <div class="col-md-4">
+                        <label class="form-label">Scan/Align per line (sec) <i class="fas fa-info-circle text-primary info-icon" data-title="Scan Align Per Line" data-content="Time spent per line item to scan the shelf barcode and orient to the correct shelf position before picking. Applied once per line."></i></label>
+                        <input type="number" class="form-control" data-path="pick.sec_align_scan_per_line" step="0.1" min="0">
+                        <div class="form-text">Barcode scan + visual check before picking each line.</div>
+                      </div>
+                    </div>
                     <div class="mb-3">
                       <div class="fw-semibold mb-2">Base seconds by unit type <i class="fas fa-info-circle text-primary info-icon" data-title="Base Pick Seconds" data-content="Fixed time added for the first unit of each item line. Covers reaching for the item, scanning the barcode, and placing it in the bin."></i></div>
                       <div class="row g-2">

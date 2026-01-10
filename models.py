@@ -1955,3 +1955,50 @@ class WmsClassificationRun(db.Model):
     
     def __repr__(self):
         return f"<WmsClassificationRun {self.id} by {self.run_by}>"
+
+
+# ============================================================================
+# OI TIME ESTIMATOR AUDIT MODELS
+# ============================================================================
+
+class OiEstimateRun(db.Model):
+    """Audit log for OI time estimate runs - one row per invoice estimate"""
+    __tablename__ = "oi_estimate_runs"
+    
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    invoice_no = db.Column(db.String(50), db.ForeignKey('invoices.invoice_no'), nullable=False, index=True)
+    estimator_version = db.Column(db.String(50), nullable=False)
+    params_revision = db.Column(db.Integer, nullable=False)
+    params_snapshot_json = db.Column(db.Text, nullable=True)
+    estimated_total_seconds = db.Column(db.Float, nullable=True)
+    estimated_pick_seconds = db.Column(db.Float, nullable=True)
+    estimated_travel_seconds = db.Column(db.Float, nullable=True)
+    breakdown_json = db.Column(db.Text, nullable=True)
+    reason = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    
+    lines = db.relationship('OiEstimateLine', backref='run', lazy='dynamic', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f"<OiEstimateRun {self.id} invoice={self.invoice_no}>"
+
+
+class OiEstimateLine(db.Model):
+    """Audit log for OI time estimate per line - one row per invoice line per run"""
+    __tablename__ = "oi_estimate_lines"
+    
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    run_id = db.Column(db.Integer, db.ForeignKey('oi_estimate_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    invoice_no = db.Column(db.String(50), nullable=False, index=True)
+    invoice_item_id = db.Column(db.Integer, nullable=True)
+    item_code = db.Column(db.String(100), nullable=True, index=True)
+    location = db.Column(db.String(100), nullable=True)
+    unit_type_normalized = db.Column(db.String(50), nullable=True)
+    qty = db.Column(db.Float, nullable=True)
+    estimated_pick_seconds = db.Column(db.Float, nullable=True)
+    estimated_walk_seconds = db.Column(db.Float, nullable=True)
+    estimated_total_seconds = db.Column(db.Float, nullable=True)
+    breakdown_json = db.Column(db.Text, nullable=True)
+    
+    def __repr__(self):
+        return f"<OiEstimateLine {self.id} item={self.item_code}>"

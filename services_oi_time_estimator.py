@@ -18,6 +18,8 @@ from app import db
 from models import Setting, Invoice, InvoiceItem, DwItem
 
 
+ESTIMATOR_VERSION = "oi_estimator_v1.1"
+
 DEFAULT_PARAMS = {
   "version": "v1",
   "store_units": {
@@ -37,7 +39,7 @@ DEFAULT_PARAMS = {
     "end_seconds": 45
   },
   "travel": {
-    "sec_align_per_stop": 13,
+    "sec_align_per_move": 13,
     "sec_per_corridor_change": 14,
     "sec_per_corridor_step": 4,
     "sec_per_bay_step": 2.5,
@@ -48,6 +50,7 @@ DEFAULT_PARAMS = {
     "zone_switch_seconds": 4
   },
   "pick": {
+    "sec_align_scan_per_line": 13,
     "base_by_unit_type": {
       "item": 6,
       "pack": 8,
@@ -98,6 +101,22 @@ DEFAULT_PARAMS = {
 }
 
 
+def normalize_unit_type(raw):
+    """Normalize unit type from PS365 or other sources to standard types"""
+    if not raw:
+        return "item"
+    u = str(raw).strip().upper()
+    
+    mapping = {
+        "PCS": "item", "PIECE": "item", "ITEM": "item", "EA": "item",
+        "PK": "pack", "PACK": "pack",
+        "BX": "box", "BOX": "box",
+        "CS": "case", "CASE": "case",
+        "VPACK": "virtual_pack", "VIRTUAL_PACK": "virtual_pack",
+    }
+    return mapping.get(u, u.lower())
+
+
 def _to_bool(v: object) -> bool:
     return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
 
@@ -116,8 +135,29 @@ def get_time_params() -> Dict:
         params["location"] = {}
     if "regex" not in params["location"]:
         params["location"]["regex"] = DEFAULT_PARAMS["location"]["regex"]
+    
+    # Backward compatibility: migrate old sec_align_per_stop to new split keys
+    if "travel" not in params:
+        params["travel"] = {}
+    if "pick" not in params:
+        params["pick"] = {}
+    
+    old_align = params["travel"].get("sec_align_per_stop", 13)
+    if "sec_align_per_move" not in params["travel"]:
+        params["travel"]["sec_align_per_move"] = old_align
+    if "sec_align_scan_per_line" not in params["pick"]:
+        params["pick"]["sec_align_scan_per_line"] = old_align
         
     return params
+
+
+def get_params_revision() -> int:
+    """Get the current params revision number"""
+    rev_str = Setting.get(db.session, "oi_time_params_v1_revision", "1")
+    try:
+        return int(rev_str)
+    except (ValueError, TypeError):
+        return 1
 
 
 @dataclass(frozen=True)
@@ -504,3 +544,191 @@ def estimate_and_persist_invoice_time(invoice_no: str, commit: bool = True) -> D
         db.session.commit()
 
     return result
+
+
+def estimate_and_snapshot_invoice(invoice_no: str, reason: str = "manual", commit: bool = True) -> Dict:
+    """
+    Run the estimator and create an audit snapshot in oi_estimate_runs/oi_estimate_lines.
+    This is the authoritative estimation function that should be called after PS365 import
+    or when recalculating estimates.
+    """
+    import json
+    from models import OiEstimateRun, OiEstimateLine
+    
+    params = get_time_params()
+    params_revision = get_params_revision()
+    summer_mode = get_summer_mode()
+
+    invoice = Invoice.query.filter_by(invoice_no=invoice_no).first()
+    if not invoice:
+        raise ValueError(f"Invoice not found: {invoice_no}")
+
+    items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
+    if not items:
+        return {"invoice_no": invoice_no, "total_minutes": 0.0, "run_id": None}
+
+    item_codes = [it.item_code for it in items if it.item_code]
+    dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+    dw_map = {d.item_code_365: d for d in dw_items if getattr(d, "active", True)}
+
+    # Build stops and compute travel with line-level allocation
+    stops = build_stops(items, params)
+    ordered = order_stops_one_trip(stops, params)
+    travel_res = estimate_travel_seconds(ordered, params)
+    travel_s = travel_res.get("total", 0.0)
+
+    # Create location -> walk seconds mapping for first line at each location
+    location_walk_map = {}
+    if ordered:
+        for i, stop in enumerate(ordered):
+            loc_key = (stop.zone, stop.corridor, stop.bay, stop.level, stop.pos)
+            if loc_key not in location_walk_map:
+                if i == 0:
+                    location_walk_map[loc_key] = 0.0
+                else:
+                    prev = ordered[i - 1]
+                    walk_s = _compute_walk_between_stops(prev, stop, params)
+                    location_walk_map[loc_key] = walk_s
+
+    # Pick sum and per-line with walk allocation
+    pick_s_total = 0.0
+    per_line_data = []
+    location_seen = set()
+    
+    for it in items:
+        dw = dw_map.get(it.item_code)
+        pick_s = estimate_pick_seconds_for_line(it, dw, params, summer_mode)
+        pick_s_total += float(pick_s)
+        
+        # Determine walk seconds for this line
+        c2, b2, l2, p2 = parse_location(it.location, params)
+        corridor = c2 if c2 is not None else _safe_int(getattr(it, 'corridor', 0), 0)
+        bay = b2 if b2 is not None else 0
+        level = l2 or "A"
+        pos = p2 if p2 is not None else 0
+        zone = (it.zone or "MAIN").strip().upper()
+        loc_key = (zone, corridor, bay, level, pos)
+        
+        if loc_key not in location_seen:
+            walk_s = location_walk_map.get(loc_key, 0.0)
+            location_seen.add(loc_key)
+        else:
+            walk_s = 0.0
+        
+        norm_unit = normalize_unit_type(it.unit_type)
+        per_line_data.append({
+            "item": it,
+            "item_code": it.item_code,
+            "location": it.location,
+            "unit_type_normalized": norm_unit,
+            "qty": float(it.qty) if it.qty else 0.0,
+            "pick_seconds": float(pick_s),
+            "walk_seconds": float(walk_s),
+            "total_seconds": float(pick_s) + float(walk_s)
+        })
+
+    # Packing
+    pack_s = estimate_pack_seconds(items, dw_map, params, summer_mode)
+
+    # Overhead
+    ov = params.get("overhead", {})
+    overhead_s = float(ov.get("start_seconds", DEFAULT_PARAMS["overhead"]["start_seconds"])) + \
+                 float(ov.get("end_seconds", DEFAULT_PARAMS["overhead"]["end_seconds"]))
+
+    total_s = overhead_s + travel_s + pick_s_total + pack_s
+    total_min = total_s / 60.0
+
+    # Update invoice and items
+    invoice.total_exp_time = float(total_min)
+    for line_data in per_line_data:
+        it = line_data["item"]
+        it.exp_time = float(line_data["total_seconds"]) / 60.0
+
+    # Create audit run
+    breakdown = {
+        "overhead_seconds": float(overhead_s),
+        "travel_seconds": float(travel_s),
+        "travel_details": travel_res,
+        "pick_seconds": float(pick_s_total),
+        "pack_seconds": float(pack_s)
+    }
+    
+    run = OiEstimateRun(
+        invoice_no=invoice_no,
+        estimator_version=ESTIMATOR_VERSION,
+        params_revision=params_revision,
+        params_snapshot_json=json.dumps(params),
+        estimated_total_seconds=float(total_s),
+        estimated_pick_seconds=float(pick_s_total),
+        estimated_travel_seconds=float(travel_s),
+        breakdown_json=json.dumps(breakdown),
+        reason=reason
+    )
+    db.session.add(run)
+    db.session.flush()
+
+    # Create audit lines
+    for line_data in per_line_data:
+        it = line_data["item"]
+        line = OiEstimateLine(
+            run_id=run.id,
+            invoice_no=invoice_no,
+            invoice_item_id=getattr(it, 'id', None),
+            item_code=line_data["item_code"],
+            location=line_data["location"],
+            unit_type_normalized=line_data["unit_type_normalized"],
+            qty=line_data["qty"],
+            estimated_pick_seconds=line_data["pick_seconds"],
+            estimated_walk_seconds=line_data["walk_seconds"],
+            estimated_total_seconds=line_data["total_seconds"],
+            breakdown_json=None
+        )
+        db.session.add(line)
+
+    if commit:
+        db.session.commit()
+
+    return {
+        "invoice_no": invoice_no,
+        "total_seconds": float(total_s),
+        "total_minutes": float(total_min),
+        "run_id": run.id,
+        "breakdown": breakdown,
+        "per_line_count": len(per_line_data),
+        "summer_mode": bool(summer_mode),
+        "params_revision": params_revision
+    }
+
+
+def _compute_walk_between_stops(prev: Stop, curr: Stop, params: Dict) -> float:
+    """Compute walk seconds between two stops"""
+    travel = params.get("travel", {})
+    
+    align = float(travel.get("sec_align_per_move", travel.get("sec_align_per_stop", 13)))
+    s = align
+    
+    upper_corridors = set(params.get("location", {}).get("upper_corridors", ["70", "80", "90"]))
+    
+    # Zone switch
+    if prev.zone != curr.zone:
+        s += float(travel.get("zone_switch_seconds", 4))
+    
+    # Corridor change
+    if prev.corridor != curr.corridor:
+        s += float(travel.get("sec_per_corridor_change", 14))
+        corridor_diff = abs(curr.corridor - prev.corridor)
+        s += float(travel.get("sec_per_corridor_step", 4)) * corridor_diff
+    
+    # Bay change
+    bay_diff = abs(curr.bay - prev.bay)
+    s += float(travel.get("sec_per_bay_step", 2.5)) * bay_diff
+    
+    # Position change
+    pos_diff = abs(curr.pos - prev.pos)
+    s += float(travel.get("sec_per_pos_step", 0.6)) * pos_diff
+    
+    # Upper floor multiplier
+    if curr.corridor_str in upper_corridors:
+        s *= float(travel.get("upper_walk_multiplier", 1.05))
+    
+    return s

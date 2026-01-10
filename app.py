@@ -135,6 +135,21 @@ with app.app_context():
                 
             db.session.commit()
             logging.info("Settings initialized")
+        
+        # Seed OI time params (runs in both dev and production)
+        from models import Setting
+        from services_oi_time_estimator import DEFAULT_PARAMS
+        
+        if not Setting.query.filter_by(key="oi_time_params_v1").first():
+            Setting.set_json(db.session, "oi_time_params_v1", DEFAULT_PARAMS)
+            logging.info("Seeded oi_time_params_v1 with defaults")
+        
+        if not Setting.query.filter_by(key="oi_time_params_v1_revision").first():
+            Setting.set(db.session, "oi_time_params_v1_revision", "1")
+            logging.info("Seeded oi_time_params_v1_revision = 1")
+        
+        db.session.commit()
+        
     except Exception as e:
         logging.error(f"Error during database initialization: {str(e)}")
         logging.exception("Database initialization error details:")

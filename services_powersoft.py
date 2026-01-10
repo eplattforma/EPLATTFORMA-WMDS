@@ -188,8 +188,12 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                     except:
                         pass
                     
+                    # Track if this invoice was successfully committed (for estimator)
+                    invoice_committed = False
+                    
                     # 1. UPSERT INVOICE
                     invoice_record = Invoice.query.filter_by(invoice_no=invoice_no_ps365).first()
+                    created_invoice = False
                     if not invoice_record:
                         invoice_record = Invoice(
                             invoice_no=invoice_no_ps365,
@@ -200,6 +204,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                         )
                         db.session.add(invoice_record)
                         total_invoices_created += 1
+                        created_invoice = True
                     else:
                         total_invoices_updated += 1
                         if total_grand_value is not None:
@@ -225,6 +230,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                     
                     if not all_item_codes:
                         db.session.commit()
+                        invoice_committed = True
                         continue
 
                     # Prefetch barcodes from DW
@@ -290,13 +296,15 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
 
                         exp_time_minutes = (15 + 16 * qty_int) / 60
                         try:
-                            oi_params = Setting.get_json(db.session, "oi_time_params_v1", {})
+                            from services_oi_time_estimator import DEFAULT_PARAMS, normalize_unit_type
+                            oi_params = Setting.get_json(db.session, "oi_time_params_v1", DEFAULT_PARAMS)
                             pick_config = oi_params.get("pick", {})
-                            base_pick_seconds = pick_config.get("base_by_unit_type", {}).get(unit_type.lower() if unit_type else "item", 3)
-                            per_qty_seconds = pick_config.get("per_qty_by_unit_type", {}).get(unit_type.lower() if unit_type else "item", 1.6)
-                            travel_config = oi_params.get("travel", {})
-                            align_seconds = travel_config.get("sec_align_per_stop", 2)
-                            total_seconds = align_seconds + base_pick_seconds + (per_qty_seconds * qty_int)
+                            norm_unit = normalize_unit_type(unit_type)
+                            base_pick_seconds = pick_config.get("base_by_unit_type", {}).get(norm_unit, 6)
+                            per_qty_seconds = pick_config.get("per_qty_by_unit_type", {}).get(norm_unit, 1.1)
+                            scan_align = pick_config.get("sec_align_scan_per_line", 
+                                          oi_params.get("travel", {}).get("sec_align_per_stop", 13))
+                            total_seconds = scan_align + base_pick_seconds + (per_qty_seconds * qty_int)
                             exp_time_minutes = total_seconds / 60
                         except:
                             pass
@@ -371,13 +379,22 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                     # 5. FINAL RECALC AND COMMIT
                     recalculate_invoice_totals(invoice_no_ps365, commit=False)
                     db.session.commit()
+                    invoice_committed = True
                     
                 except Exception as inv_err:
                     db.session.rollback()
-                    # Ensure counters are still updated even on partial failure
                     total_invoices_processed += 1
                     logging.error(f"Error processing invoice {inv.get('invoice_no_365')}: {inv_err}")
                     import_errors += 1
+                finally:
+                    # 6. Run estimator for all successfully committed invoices (creates audit trail)
+                    if invoice_committed:
+                        try:
+                            from services_oi_time_estimator import estimate_and_snapshot_invoice
+                            reason = "ps365_import_new" if created_invoice else "ps365_import_update"
+                            estimate_and_snapshot_invoice(invoice_no_ps365, reason=reason, commit=True)
+                        except Exception as est_err:
+                            logging.warning(f"Estimator failed for {invoice_no_ps365}: {est_err}")
 
             if len(invoices) < 100:
                 break
