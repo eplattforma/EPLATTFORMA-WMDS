@@ -51,6 +51,34 @@
     font-weight: 700;
 }
 
+.kpi-divider {
+    width: 1px;
+    background: rgba(255,255,255,0.2);
+    align-self: stretch;
+    margin: 0 0.25rem;
+}
+
+.kpi-payment .kpi-value {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.kpi-amount {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.kpi-total {
+    background: rgba(40, 167, 69, 0.15);
+    border: 1px solid rgba(40, 167, 69, 0.3);
+}
+
+.kpi-total .kpi-label {
+    color: rgba(40, 167, 69, 0.9);
+}
+
 .status-badge-row {
     display: flex;
     align-items: center;
