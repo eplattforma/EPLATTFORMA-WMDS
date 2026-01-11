@@ -98,6 +98,18 @@
     color: rgba(40, 167, 69, 0.9);
 }
 
+.payment-methods-mini {
+    display: inline-flex;
+    gap: 0.25rem;
+    margin-left: 0.35rem;
+    font-size: 0.75rem;
+    color: rgba(255, 193, 7, 0.8);
+}
+
+.payment-methods-mini i {
+    opacity: 0.9;
+}
+
 .status-badge-row {
     display: flex;
     align-items: center;

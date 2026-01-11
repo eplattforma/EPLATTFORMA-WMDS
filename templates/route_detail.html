@@ -260,9 +260,16 @@
                             <span class="badge bg-info">Credit</span>
                             {% else %}
                             <span class="badge bg-warning text-dark">POD</span>
+                            <span class="payment-methods-mini">
+                                {% if stop.payment_terms.allow_cash %}<i class="fas fa-money-bill-wave" title="Cash"></i>{% endif %}
+                                {% if stop.payment_terms.allow_card_pos %}<i class="fas fa-credit-card" title="Card"></i>{% endif %}
+                                {% if stop.payment_terms.allow_bank_transfer %}<i class="fas fa-university" title="Bank"></i>{% endif %}
+                                {% if stop.payment_terms.allow_cheque %}<i class="fas fa-money-check" title="Cheque"></i>{% endif %}
+                            </span>
                             {% endif %}
                         {% else %}
                         <span class="badge bg-warning text-dark">POD</span>
+                        <span class="payment-methods-mini"><i class="fas fa-money-bill-wave" title="Cash"></i><i class="fas fa-credit-card" title="Card"></i></span>
                         {% endif %}
                     </div>
                     
