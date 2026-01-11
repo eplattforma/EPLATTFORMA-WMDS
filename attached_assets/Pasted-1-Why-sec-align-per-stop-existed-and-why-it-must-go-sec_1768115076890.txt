@@ -1,0 +1,137 @@
+1) Why “sec_align_per_stop” existed and why it must go
+
+sec_align_per_stop was effectively a legacy / overloaded parameter that got used for two different semantics:
+
+Pick-side “scan/align per line” (barcode scan + visual check before picking a line)
+
+Travel-side “align per move/stop” (settling at the next stop: orient, reach position, confirm location)
+
+These must be two separate parameters:
+
+pick.sec_align_scan_per_line (your UI “Scan/Align per line (sec)”)
+
+travel.sec_align_per_move (your UI “Align per move (sec)”)
+
+If you keep sec_align_per_stop, it should only exist as a backward-compat alias, e.g.:
+
+If travel.sec_align_per_move is missing, use travel.sec_align_per_stop as a fallback.
+
+Never use the same key for pick and travel.
+
+2) Travel is not just walking — it is “align per move” + walking between stops
+
+For each stop in the ordered route, travel seconds should be:
+
+travel_for_stop_i = sec_align_per_move + walk(prev_stop, this_stop)
+
+Where walk() is derived from your corridor/bay/pos model (plus corridor change penalties, upper corridors multiplier, stairs if you model level changes, etc.).
+
+3) What should the total for the line be now?
+
+If that invoice line is the first line at its stop, then the line’s “total time” should be:
+
+line_total_seconds = pick_seconds_for_line + allocated_travel_seconds_for_that_stop
+
+In your example:
+
+Pick seconds = 20s (base + qty adjustment)
+
+Scan/align per line = 0s (your setting)
+
+Travel align per move = 15s (your setting)
+
+Walk between stops = 0s (if it’s the first stop, or if no movement is modeled)
+
+So:
+
+line_total = 20 + 15 = 35 seconds = 35/60 = 0.5833 minutes (~0.58 min)
+
+If there is walking from a previous stop, then it becomes:
+
+line_total = 20 + (15 + walk_seconds)
+
+That is why 0.33 min is incomplete for your intended meaning of invoice_items.exp_time.
+
+4) The key implementation change: allocate travel to lines
+
+You have to decide how to allocate stop-level travel to line-level exp_time. The standard, deterministic approach is:
+
+Recommended allocation rule (simple and consistent)
+
+Compute ordered stops.
+
+Compute stop_travel_seconds for each stop (align-per-move + walk from previous stop).
+
+Allocate the stop travel seconds to the first invoice line encountered at that stop.
+
+All other lines at that same stop get 0 travel allocation.
+
+This preserves the invariant:
+
+sum(line_total_seconds) = sum(pick_seconds) + sum(travel_seconds)
+
+…and avoids double-counting travel.
+
+Alternative (if you want smoother per-line numbers)
+
+Split the stop travel across all lines at that stop (equal split or proportional to pick time). This is fine, but it complicates auditability.
+
+5) Concrete patch direction (what must be changed in code)
+
+You need to update the function that drives invoice_items.exp_time (in your paste, that’s estimate_invoice_time and/or whichever function writes back to the DB) so that:
+
+It builds and orders stops.
+
+It computes stop travel seconds using travel.sec_align_per_move.
+
+It allocates that stop travel seconds to lines.
+
+It persists exp_time based on pick + allocated_travel (and optionally overhead, if you later choose to allocate overhead similarly).
+
+Conceptually:
+
+# Pseudocode
+ordered_stops = order_stops_one_trip(stops)
+
+stop_travel = {}
+for i, stop in enumerate(ordered_stops):
+    if i == 0:
+        stop_travel[stop.key] = align_per_move
+    else:
+        stop_travel[stop.key] = align_per_move + walk(prev, stop)
+
+seen_stop = set()
+
+for line in invoice_items:
+    pick_s = estimate_pick_seconds_for_line(...)
+    alloc_travel_s = 0
+    if line.stop_key not in seen_stop:
+        alloc_travel_s = stop_travel.get(line.stop_key, 0)
+        seen_stop.add(line.stop_key)
+
+    line_total_s = pick_s + alloc_travel_s
+    line.exp_time = line_total_s / 60.0
+
+6) One more “gotcha” that will break travel: location parsing
+
+From your earlier exports, you have locations like 31-04-E 02 (note the space). If your regex expects 31-04-E02, parsing fails and stops become “unknown”, which usually collapses travel to 0 or produces inconsistent stop keys.
+
+You should normalize locations before parsing:
+
+remove internal spaces: "31-04-E 02" -> "31-04-E02"
+
+trim
+
+uppercase
+
+7) What to verify after the fix
+
+After you allocate travel into line exp_time:
+
+A line that is the first at a stop should jump from 0.33 min to ~0.58 min (for your example).
+
+Invoice total should remain consistent:
+
+invoice_total_seconds = overhead + pack + pick_sum + travel_sum
+
+oi_estimate_runs and oi_estimate_lines should also be populated if the estimator/snapshot path is wired correctly; otherwise you’re still only doing import-time estimation.
