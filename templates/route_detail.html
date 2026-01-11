@@ -48,8 +48,12 @@
                         <div class="kpi-value {% if kpis.ready_count == kpis.invoices_total %}text-success{% elif kpis.ready_count < kpis.invoices_total %}text-warning{% endif %}">{{ kpis.ready_count }}/{{ kpis.invoices_total }}</div>
                     </div>
                     <div class="kpi-block">
-                        <div class="kpi-label">Total Due</div>
-                        <div class="kpi-value text-success">€{{ "%.2f"|format(kpis.total_due) }}</div>
+                        <div class="kpi-label">POD</div>
+                        <div class="kpi-value text-warning">{{ kpis.pod_count }} <small class="text-muted">€{{ "%.2f"|format(kpis.pod_value) }}</small></div>
+                    </div>
+                    <div class="kpi-block">
+                        <div class="kpi-label">Credit</div>
+                        <div class="kpi-value text-info">{{ kpis.credit_count }} <small class="text-muted">€{{ "%.2f"|format(kpis.credit_value) }}</small></div>
                     </div>
                 </div>
             </div>

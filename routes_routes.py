@@ -323,12 +323,36 @@ def detail(shipment_id):
     # Compute KPIs for the new UI
     # "Picked" means warehouse work is complete (ready_for_dispatch or beyond)
     picked_statuses = ['ready_for_dispatch', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'delivered']
+    
+    # Calculate POD vs Credit totals by stop
+    pod_invoice_count = 0
+    pod_invoice_value = 0.0
+    credit_invoice_count = 0
+    credit_invoice_value = 0.0
+    
+    for stop_group in stop_groups:
+        is_credit = stop_group['payment_terms'] and stop_group['payment_terms'].is_credit
+        for inv_data in stop_group['invoices']:
+            inv = Invoice.query.filter_by(invoice_no=inv_data['invoice_no']).first()
+            if inv:
+                inv_value = float(inv.total_grand or 0)
+                if is_credit:
+                    credit_invoice_count += 1
+                    credit_invoice_value += inv_value
+                else:
+                    pod_invoice_count += 1
+                    pod_invoice_value += inv_value
+    
     kpis = {
         'stops_total': len(stops),
         'invoices_total': len(all_invoices),
         'picked_count': sum(1 for inv in all_invoices if inv.status in picked_statuses),
         'ready_count': sum(1 for inv in all_invoices if inv.status == 'ready_for_dispatch'),
-        'total_due': sum(float(inv.total_grand or 0) for inv in all_invoices)
+        'total_due': sum(float(inv.total_grand or 0) for inv in all_invoices),
+        'pod_count': pod_invoice_count,
+        'pod_value': pod_invoice_value,
+        'credit_count': credit_invoice_count,
+        'credit_value': credit_invoice_value
     }
     
     # Compute dispatch blockers (issues preventing dispatch) - only for PLANNED routes
