@@ -502,10 +502,42 @@ def estimate_invoice_time(invoice_no: str) -> Dict:
     # Pick sum and per-line
     pick_s_total = 0.0
     per_line_seconds = {}
+    
+    # Track seen locations for travel allocation
+    location_seen = set()
+    location_walk_map = {}
+    if ordered:
+        sec_align_move = float(params.get("travel", {}).get("sec_align_per_move", 15))
+        for i, stop in enumerate(ordered):
+            loc_key = (stop.zone, stop.corridor, stop.bay, stop.level, stop.pos)
+            if loc_key not in location_walk_map:
+                base_s = sec_align_move
+                if i == 0:
+                    location_walk_map[loc_key] = base_s
+                else:
+                    prev = ordered[i - 1]
+                    walk_s = _compute_walk_between_stops(prev, stop, params)
+                    location_walk_map[loc_key] = base_s + walk_s
+
     for it in items:
         dw = dw_map.get(it.item_code)
         s = estimate_pick_seconds_for_line(it, dw, params, summer_mode)
-        per_line_seconds[(it.item_code, it.invoice_no)] = float(s)
+        
+        # Allocate travel time to the first line at each location
+        c2, b2, l2, p2 = parse_location(it.location, params)
+        corridor = c2 if c2 is not None else _safe_int(it.corridor, 0)
+        bay = b2 if b2 is not None else 0
+        level = l2 or "A"
+        pos = p2 if p2 is not None else 0
+        zone = (it.zone or "MAIN").strip().upper()
+        loc_key = (zone, corridor, bay, level, pos)
+        
+        walk_s = 0.0
+        if loc_key in location_walk_map and loc_key not in location_seen:
+            walk_s = location_walk_map[loc_key]
+            location_seen.add(loc_key)
+            
+        per_line_seconds[(it.item_code, it.invoice_no)] = float(s) + float(walk_s)
         pick_s_total += float(s)
 
     # Packing
@@ -665,36 +697,36 @@ def estimate_and_snapshot_invoice(invoice_no: str, reason: str = "manual", commi
         "pack_seconds": float(pack_s)
     }
     
-    run = OiEstimateRun(
-        invoice_no=invoice_no,
-        estimator_version=ESTIMATOR_VERSION,
-        params_revision=params_revision,
-        params_snapshot_json=json.dumps(params),
-        estimated_total_seconds=float(total_s),
-        estimated_pick_seconds=float(pick_s_total),
-        estimated_travel_seconds=float(travel_s),
-        breakdown_json=json.dumps(breakdown),
-        reason=reason
-    )
+    run = OiEstimateRun()
+    run.invoice_no=invoice_no
+    run.estimator_version=ESTIMATOR_VERSION
+    run.params_revision=params_revision
+    run.params_snapshot_json=json.dumps(params)
+    run.estimated_total_seconds=float(total_s)
+    run.estimated_pick_seconds=float(pick_s_total)
+    run.estimated_travel_seconds=float(travel_s)
+    run.breakdown_json=json.dumps(breakdown)
+    run.reason=reason
+    
     db.session.add(run)
     db.session.flush()
 
     # Create audit lines
     for line_data in per_line_data:
         it = line_data["item"]
-        line = OiEstimateLine(
-            run_id=run.id,
-            invoice_no=invoice_no,
-            invoice_item_id=getattr(it, 'id', None),
-            item_code=line_data["item_code"],
-            location=line_data["location"],
-            unit_type_normalized=line_data["unit_type_normalized"],
-            qty=line_data["qty"],
-            estimated_pick_seconds=line_data["pick_seconds"],
-            estimated_walk_seconds=line_data["walk_seconds"],
-            estimated_total_seconds=line_data["total_seconds"],
-            breakdown_json=None
-        )
+        line = OiEstimateLine()
+        line.run_id=run.id
+        line.invoice_no=invoice_no
+        line.invoice_item_id=getattr(it, 'id', None)
+        line.item_code=line_data["item_code"]
+        line.location=line_data["location"]
+        line.unit_type_normalized=line_data["unit_type_normalized"]
+        line.qty=line_data["qty"]
+        line.estimated_pick_seconds=line_data["pick_seconds"]
+        line.estimated_walk_seconds=line_data["walk_seconds"]
+        line.estimated_total_seconds=line_data["total_seconds"]
+        line.breakdown_json=None
+        
         db.session.add(line)
 
     if commit:
