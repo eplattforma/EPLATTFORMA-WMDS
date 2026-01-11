@@ -273,7 +273,8 @@ def order_stops_one_trip(stops: List[Stop], params: Dict) -> List[Stop]:
 
 def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str, float]:
     tr = params.get("travel", {})
-    sec_align = float(tr.get("sec_align_per_stop", DEFAULT_PARAMS["travel"]["sec_align_per_stop"]))
+    # Use sec_align_per_move instead of sec_align_per_stop for travel calculation
+    sec_align = float(tr.get("sec_align_per_move", DEFAULT_PARAMS["travel"]["sec_align_per_move"]))
     sec_corridor_change = float(tr.get("sec_per_corridor_change", DEFAULT_PARAMS["travel"]["sec_per_corridor_change"]))
     sec_corridor_step = float(tr.get("sec_per_corridor_step", DEFAULT_PARAMS["travel"]["sec_per_corridor_step"]))
     sec_bay_step = float(tr.get("sec_per_bay_step", DEFAULT_PARAMS["travel"]["sec_per_bay_step"]))
@@ -326,7 +327,8 @@ def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str
 def estimate_travel_breakdown_between(s1: Stop, s2: Stop, params: Dict) -> Dict[str, float]:
     """Calculate detailed travel breakdown between two specific stops."""
     tr = params.get("travel", {})
-    sec_align = float(tr.get("sec_align_per_stop", DEFAULT_PARAMS["travel"]["sec_align_per_stop"]))
+    # Use sec_align_per_move instead of sec_align_per_stop for travel calculation
+    sec_align = float(tr.get("sec_align_per_move", DEFAULT_PARAMS["travel"]["sec_align_per_move"]))
     sec_corridor_change = float(tr.get("sec_per_corridor_change", DEFAULT_PARAMS["travel"]["sec_per_corridor_change"]))
     sec_corridor_step = float(tr.get("sec_per_corridor_step", DEFAULT_PARAMS["travel"]["sec_per_corridor_step"]))
     sec_bay_step = float(tr.get("sec_per_bay_step", DEFAULT_PARAMS["travel"]["sec_per_bay_step"]))
