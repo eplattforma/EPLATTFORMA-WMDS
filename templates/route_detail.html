@@ -50,11 +50,11 @@
                     <div class="kpi-divider"></div>
                     <div class="kpi-block kpi-sm">
                         <div class="kpi-label">POD</div>
-                        <div class="kpi-value text-warning">{{ kpis.pod_count }} <small>€{{ "%.0f"|format(kpis.pod_value) }}</small></div>
+                        <div class="kpi-value text-warning">{{ kpis.pod_count }} €{{ "%.2f"|format(kpis.pod_value) }}</div>
                     </div>
                     <div class="kpi-block kpi-sm">
                         <div class="kpi-label">Credit</div>
-                        <div class="kpi-value text-info">{{ kpis.credit_count }} <small>€{{ "%.0f"|format(kpis.credit_value) }}</small></div>
+                        <div class="kpi-value text-info">{{ kpis.credit_count }} €{{ "%.2f"|format(kpis.credit_value) }}</div>
                     </div>
                     <div class="kpi-divider"></div>
                     <div class="kpi-block kpi-total kpi-sm">
