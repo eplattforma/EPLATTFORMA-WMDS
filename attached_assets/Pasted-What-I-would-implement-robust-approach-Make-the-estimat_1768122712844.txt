@@ -1,0 +1,103 @@
+What I would implement (robust approach)
+Make the estimator derive stop order from the sorted item sequence
+
+Use sort_items_for_picking as the single source of truth for order, then build the “route” as the ordered set of unique locations encountered in that sorted list.
+
+That guarantees the stop sequence matches the configured picking sequence—without having to re-encode the config rules inside order_stops_one_trip.
+
+Conceptually:
+
+Fetch items
+
+items = sort_items_for_picking(items, picking_sort_config=...)
+
+Build ordered_stops by scanning sorted items and adding a stop the first time you see a location key
+
+Compute travel between consecutive stops
+
+Allocate travel time consistently (either to the first item at the destination stop, or proportionally across items at that stop—whichever your business rule is)
+
+Sketch (illustrative)
+from collections import OrderedDict
+from sorting_utils import sort_items_for_picking
+
+# after fetching items...
+items = sort_items_for_picking(items, picking_sort_config=picking_sort_config)
+
+# Build stops in the same order items are picked
+seen = OrderedDict()
+for it in items:
+    stop_key = (it.location_id,)  # or (zone,corridor,bay,level,position) if that's your stop identity
+    if stop_key not in seen:
+        seen[stop_key] = build_stop_from_item(it)
+ordered_stops = list(seen.values())
+
+
+If build_stops() currently deduplicates locations without preserving order, this is the cleanest correction: deduplicate while preserving the sorted-item order.
+
+Where to apply it
+In estimate_invoice_time()
+
+Do the sort immediately after retrieval and before:
+
+any allocation loop
+
+any stop construction that influences travel computation
+
+In estimate_and_snapshot_invoice()
+
+Best practice: do not repeat logic. Ensure it calls the same path that sorts once (or sorts in a shared helper). If it fetches items independently (or reuses a different list), sort there too.
+
+If you want maximum correctness: unify stop ordering and item ordering
+
+You have two good options:
+
+Option A (recommended): Stop order comes from sorted items (as above)
+
+This keeps “picking order” defined in one place: sorting_utils.py.
+
+Option B: Refactor order_stops_one_trip() to use the same config-driven key
+
+This is heavier but can be valuable if you need to compute stop order without item context.
+
+You’d expose something like location_sort_key(config) from sorting_utils.py (or a shared module), and both:
+
+sort_items_for_picking() and
+
+order_stops_one_trip()
+
+use the same underlying ordering primitives.
+
+How to confirm you fixed the mismatch (fast, decisive tests)
+
+Config flip test
+
+Create a small set of items across multiple corridors/bays.
+
+Change picking_sort_config to invert something meaningful (e.g., corridor direction, bay direction, upstairs precedence).
+
+Assert:
+
+sort_items_for_picking() order changes accordingly
+
+estimator’s ordered_stops changes in the same way
+
+total travel time changes (or at least segment ordering changes)
+
+“Same stop, multiple items” test
+
+Multiple items in same location should not create extra travel segments.
+
+Ensure ordered stops dedupe is stable and preserves first occurrence.
+
+Cross-floor boundary test
+
+Mix ground + upstairs items.
+
+Verify the estimator follows the configured rule (which may differ from “ground first”).
+
+Bottom line
+
+Yes—what you flagged has to be considered, and the correct fix is not only “sort items before allocation,” but also ensuring the travel path (ordered_stops) is consistent with the same admin-configurable picking sequence. The simplest, most reliable way is: sort items using sort_items_for_picking, then derive stops from that sorted order.
+
+If you paste the relevant parts of sort_items_for_picking (signature + what it expects for config) and the current estimate_invoice_time stop-building/allocation block, I can give you a concrete patch-style rewrite that matches your codebase conventions exactly.

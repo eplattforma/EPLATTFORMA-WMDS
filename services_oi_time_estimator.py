@@ -494,13 +494,28 @@ def estimate_invoice_time(invoice_no: str) -> Dict:
     if not items:
         return {"invoice_no": invoice_no, "total_minutes": 0.0, "breakdown": {"overhead": 0, "travel": 0, "pick": 0, "pack": 0}}
 
+    from sorting_utils import sort_items_for_picking
+    items = sort_items_for_picking(items)
+
     item_codes = [it.item_code for it in items if it.item_code]
     dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
     dw_map = {d.item_code_365: d for d in dw_items if getattr(d, "active", True)}
 
-    # Travel via stops
-    stops = build_stops(items, params)
-    ordered = order_stops_one_trip(stops, params)
+    # Build stops in picking order
+    from collections import OrderedDict
+    seen_stops = OrderedDict()
+    for it in items:
+        c2, b2, l2, p2 = parse_location(it.location, params)
+        corridor = c2 if c2 is not None else _safe_int(it.corridor, 0)
+        bay = b2 if b2 is not None else 0
+        level = l2 or "A"
+        pos = p2 if p2 is not None else 0
+        zone = (it.zone or "MAIN").strip().upper()
+        stop_key = (zone, corridor, bay, level, pos)
+        if stop_key not in seen_stops:
+            seen_stops[stop_key] = Stop(zone=zone, corridor=corridor, bay=bay, level=level, pos=pos)
+    
+    ordered = list(seen_stops.values())
     travel_res = estimate_travel_seconds(ordered, params)
     travel_s = travel_res.get("total", 0.0)
 
@@ -611,13 +626,28 @@ def estimate_and_snapshot_invoice(invoice_no: str, reason: str = "manual", commi
     if not items:
         return {"invoice_no": invoice_no, "total_minutes": 0.0, "run_id": None}
 
+    from sorting_utils import sort_items_for_picking
+    items = sort_items_for_picking(items)
+
     item_codes = [it.item_code for it in items if it.item_code]
     dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
     dw_map = {d.item_code_365: d for d in dw_items if getattr(d, "active", True)}
 
     # Build stops and compute travel with line-level allocation
-    stops = build_stops(items, params)
-    ordered = order_stops_one_trip(stops, params)
+    from collections import OrderedDict
+    seen_stops = OrderedDict()
+    for it in items:
+        c2, b2, l2, p2 = parse_location(it.location, params)
+        corridor = c2 if c2 is not None else _safe_int(it.corridor, 0)
+        bay = b2 if b2 is not None else 0
+        level = l2 or "A"
+        pos = p2 if p2 is not None else 0
+        zone = (it.zone or "MAIN").strip().upper()
+        stop_key = (zone, corridor, bay, level, pos)
+        if stop_key not in seen_stops:
+            seen_stops[stop_key] = Stop(zone=zone, corridor=corridor, bay=bay, level=level, pos=pos)
+    
+    ordered = list(seen_stops.values())
     travel_res = estimate_travel_seconds(ordered, params)
     travel_s = travel_res.get("total", 0.0)
 
