@@ -557,7 +557,7 @@ def estimate_invoice_time(invoice_no: str) -> Dict:
             walk_s = location_walk_map[loc_key]
             location_seen.add(loc_key)
             
-        per_line_seconds[(it.item_code, it.invoice_no)] = float(s) + float(walk_s)
+        per_line_seconds[id(it)] = float(s) + float(walk_s)
         pick_s_total += float(s)
 
     # Packing
@@ -596,7 +596,7 @@ def estimate_and_persist_invoice_time(invoice_no: str, commit: bool = True) -> D
 
     items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
     for it in items:
-        s = result["per_line_seconds"].get((it.item_code, it.invoice_no), 0.0)
+        s = result["per_line_seconds"].get(id(it), 0.0)
         it.exp_time = float(s) / 60.0
 
     if commit:
