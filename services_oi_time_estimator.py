@@ -181,9 +181,14 @@ class Stop:
 def parse_location(loc: Optional[str], params: Dict) -> Tuple[Optional[int], Optional[int], Optional[str], Optional[int]]:
     if not loc:
         return None, None, None, None
+    
+    # Normalization: remove internal spaces, trim, uppercase
+    # Example: "31-04-E 02" -> "31-04-E02"
+    clean_loc = "".join(loc.split()).strip().upper()
+    
     rx = params.get("location", {}).get("regex") or DEFAULT_PARAMS["location"]["regex"]
     try:
-        m = re.match(rx, loc.strip())
+        m = re.match(rx, clean_loc)
     except re.error:
         m = None
     if not m:
@@ -717,6 +722,7 @@ def estimate_and_snapshot_invoice(invoice_no: str, reason: str = "manual", commi
         line = OiEstimateLine()
         line.run_id=run.id
         line.invoice_no=invoice_no
+        # Ensure we use 'id' attribute correctly if it exists, otherwise use None
         line.invoice_item_id=getattr(it, 'id', None)
         line.item_code=line_data["item_code"]
         line.location=line_data["location"]
