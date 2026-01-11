@@ -584,18 +584,23 @@ def estimate_and_snapshot_invoice(invoice_no: str, reason: str = "manual", commi
     travel_res = estimate_travel_seconds(ordered, params)
     travel_s = travel_res.get("total", 0.0)
 
+    # Use "Align per move" setting for the base travel time allocated to each location stop
+    sec_align_move = float(params.get("travel", {}).get("sec_align_per_move", 15))
+
     # Create location -> walk seconds mapping for first line at each location
     location_walk_map = {}
     if ordered:
         for i, stop in enumerate(ordered):
             loc_key = (stop.zone, stop.corridor, stop.bay, stop.level, stop.pos)
             if loc_key not in location_walk_map:
+                # Every location stop gets the "Align per move" time
+                base_s = sec_align_move
                 if i == 0:
-                    location_walk_map[loc_key] = 0.0
+                    location_walk_map[loc_key] = base_s
                 else:
                     prev = ordered[i - 1]
                     walk_s = _compute_walk_between_stops(prev, stop, params)
-                    location_walk_map[loc_key] = walk_s
+                    location_walk_map[loc_key] = base_s + walk_s
 
     # Pick sum and per-line with walk allocation
     pick_s_total = 0.0
