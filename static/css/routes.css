@@ -31,12 +31,31 @@
     flex-wrap: wrap;
 }
 
+.kpi-row-compact {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+}
+
 .kpi-block {
     text-align: center;
     padding: 0.5rem 1rem;
     background: rgba(255,255,255,0.05);
     border-radius: 8px;
     min-width: 80px;
+}
+
+.kpi-sm {
+    padding: 0.35rem 0.6rem;
+    min-width: 60px;
+}
+
+.kpi-sm .kpi-value {
+    font-size: 1.1rem;
+}
+
+.kpi-sm .kpi-value small {
+    font-size: 0.75rem;
+    opacity: 0.85;
 }
 
 .kpi-label {

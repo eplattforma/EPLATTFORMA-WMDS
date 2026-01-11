@@ -33,41 +33,33 @@
             </div>
             
             <!-- Center: KPIs -->
-            <div class="col-lg-5 col-md-6 mb-2 mb-lg-0">
-                <div class="kpi-row">
-                    <div class="kpi-block">
+            <div class="col-lg-6 col-md-8 mb-2 mb-lg-0">
+                <div class="kpi-row kpi-row-compact">
+                    <div class="kpi-block kpi-sm">
                         <div class="kpi-label">Stops</div>
                         <div class="kpi-value">{{ kpis.stops_total }}</div>
                     </div>
-                    <div class="kpi-block">
+                    <div class="kpi-block kpi-sm">
                         <div class="kpi-label">Picked</div>
                         <div class="kpi-value {% if kpis.picked_count == kpis.invoices_total %}text-success{% endif %}">{{ kpis.picked_count }}/{{ kpis.invoices_total }}</div>
                     </div>
-                    <div class="kpi-block">
+                    <div class="kpi-block kpi-sm">
                         <div class="kpi-label">Ready</div>
                         <div class="kpi-value {% if kpis.ready_count == kpis.invoices_total %}text-success{% elif kpis.ready_count < kpis.invoices_total %}text-warning{% endif %}">{{ kpis.ready_count }}/{{ kpis.invoices_total }}</div>
                     </div>
                     <div class="kpi-divider"></div>
-                    <div class="kpi-block kpi-payment">
-                        <div class="kpi-label"><i class="fas fa-hand-holding-usd me-1"></i>POD</div>
-                        <div class="kpi-value">
-                            <span class="text-warning fw-bold">{{ kpis.pod_count }}</span>
-                            <span class="kpi-amount text-warning">€{{ "%.2f"|format(kpis.pod_value) }}</span>
-                        </div>
+                    <div class="kpi-block kpi-sm">
+                        <div class="kpi-label">POD</div>
+                        <div class="kpi-value text-warning">{{ kpis.pod_count }} <small>€{{ "%.0f"|format(kpis.pod_value) }}</small></div>
                     </div>
-                    <div class="kpi-block kpi-payment">
-                        <div class="kpi-label"><i class="fas fa-credit-card me-1"></i>Credit</div>
-                        <div class="kpi-value">
-                            <span class="text-info fw-bold">{{ kpis.credit_count }}</span>
-                            <span class="kpi-amount text-info">€{{ "%.2f"|format(kpis.credit_value) }}</span>
-                        </div>
+                    <div class="kpi-block kpi-sm">
+                        <div class="kpi-label">Credit</div>
+                        <div class="kpi-value text-info">{{ kpis.credit_count }} <small>€{{ "%.0f"|format(kpis.credit_value) }}</small></div>
                     </div>
                     <div class="kpi-divider"></div>
-                    <div class="kpi-block kpi-total">
+                    <div class="kpi-block kpi-total kpi-sm">
                         <div class="kpi-label">Total</div>
-                        <div class="kpi-value">
-                            <span class="text-success fw-bold fs-5">€{{ "%.2f"|format(kpis.total_due) }}</span>
-                        </div>
+                        <div class="kpi-value text-success">€{{ "%.2f"|format(kpis.total_due) }}</div>
                     </div>
                 </div>
             </div>
