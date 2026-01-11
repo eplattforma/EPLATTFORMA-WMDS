@@ -1,0 +1,107 @@
+1) Likely double-counting “alignment / approach” time
+
+Inside estimate_pick_seconds_for_line() you add:
+
+sec_align = float(pk.get("sec_align_scan_per_line", 0))
+t += sec_align
+
+
+But in your estimator you also allocate per-location movement time via:
+
+sec_align_per_move (base per stop)
+
+plus _compute_walk_between_stops(prev, stop, params) for location-to-location travel
+
+allocated to the first line at each location
+
+So you currently have two separate “alignment-ish” components:
+
+Per stop: sec_align_per_move (and walking)
+
+Per line: sec_align_scan_per_line (described in comments as “final approach”)
+
+If sec_align_scan_per_line is truly scan/confirm/locate item within bay time, then it’s valid per line.
+If it is intended as “final approach walking/alignment” time, then you are almost certainly double counting movement.
+
+Action: Decide what sec_align_scan_per_line represents:
+
+If it’s scanning/handling at the shelf → keep it, but rename/comment accordingly.
+
+If it’s “approach/walk” → set it to 0 and rely on the travel allocation model, or fold it into the per-stop model.
+
+2) Corridor fallback inconsistency (can break ladder penalties)
+
+Here you compute corridor only from:
+
+corridor, _, level, _ = parse_location(inv_item.location, params)
+...
+corridor_str = f"{corridor:02d}" if corridor is not None else "00"
+t += ladder_seconds_for(corridor_str, level, params)
+
+
+If parse_location() fails to parse corridor (returns None) but inv_item.corridor is populated, ladder penalties will be missed (corridor becomes "00").
+
+In other parts of your estimator you correctly do fallback:
+
+corridor = c2 if c2 is not None else _safe_int(it.corridor, 0)
+
+
+Action: Apply the same fallback in estimate_pick_seconds_for_line():
+
+c2, _, level, _ = parse_location(inv_item.location, params)
+corridor = c2 if c2 is not None else _safe_int(getattr(inv_item, "corridor", None), 0)
+
+3) Quantity is forced to integer (can be wrong for some unit types)
+
+You do:
+
+qty = _safe_int(getattr(inv_item, "display_qty", None) or inv_item.qty, 0)
+
+
+That truncates/rounds quantities to an int. If you ever have fractional quantities (weight, meters, partial cases, etc.) you will undercount.
+
+Action: Use float quantity where appropriate, or unit-type dependent conversion (e.g., only int for “item/case/pack”, allow float for “kg/m”).
+
+4) Pick difficulty key normalization risk
+
+You set:
+
+pick_diff = str(v).strip()
+t += float(diff_seconds.get(pick_diff, 0))
+
+
+If wms_pick_difficulty is numeric like 2.0, str(v) becomes "2.0" and won’t match keys like "2" in diff_seconds.
+
+Action: Normalize numeric-looking strings:
+
+try:
+    pick_diff = str(int(float(pick_diff)))
+except:
+    pass
+
+5) The “13 seconds for a case” comment is a red flag
+
+This comment indicates a parameter was set to satisfy a single observed case:
+
+# Since the user requested 13 sec (0.216 min) for a case, we set sec_align_per_stop to 13
+sec_align = float(pk.get("sec_align_scan_per_line", 0))
+t += sec_align
+
+
+Two concerns:
+
+It says “per stop” but the code applies it per line.
+
+If this was tuned for “case” but applied to all unit types, it may distort items/pack etc.
+
+Action: If you need unit-type-specific scan time, make it a map (e.g., scan_seconds_by_unit_type) rather than a single global number.
+
+6) By design: per-line time excludes overhead and packing
+
+Your per-line estimate is essentially:
+
+line pick seconds (this function)
+
+plus allocated walk seconds (only for the first line at each location)
+
+Overhead and packing are invoice-level only. That’s fine if intentional, but if users expect each line’s exp_time to “sum to invoice total,” it will not (unless you allocate overhead/pack across lines).

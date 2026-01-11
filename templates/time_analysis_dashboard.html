@@ -33,12 +33,12 @@
                 <div class="col-md-3">
                     <label for="start_date" class="form-label">Start Date</label>
                     <input type="date" class="form-control" id="start_date" name="start_date" 
-                           value="{{ start_date.strftime('%d/%m/%y') if start_date else '' }}">
+                           value="{{ start_date.strftime('%Y-%m-%d') if start_date else '' }}">
                 </div>
                 <div class="col-md-3">
                     <label for="end_date" class="form-label">End Date</label>
                     <input type="date" class="form-control" id="end_date" name="end_date" 
-                           value="{{ end_date.strftime('%d/%m/%y') if end_date else '' }}">
+                           value="{{ end_date.strftime('%Y-%m-%d') if end_date else '' }}">
                 </div>
                 <div class="col-md-3">
                     <label for="picker" class="form-label">Picker</label>
