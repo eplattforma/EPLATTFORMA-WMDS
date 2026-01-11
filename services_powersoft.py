@@ -483,11 +483,11 @@ def sync_active_customers():
                 total_synced += 1
                 
                 # Auto-create PaymentCustomer if not exists
-                existing_payment = PaymentCustomer.query.filter_by(customer_code_365=code).first()
+                existing_payment = PaymentCustomer.query.filter_by(code=code).first()
                 if not existing_payment:
                     new_payment = PaymentCustomer(
-                        customer_code_365=code,
-                        customer_name=existing.customer_name
+                        code=code,
+                        name=existing.customer_name or code
                     )
                     db.session.add(new_payment)
                     payment_terms_created += 1
