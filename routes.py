@@ -3539,26 +3539,34 @@ def update_stop_sequence():
         ).filter(RouteStop.route_stop_id != invoice.stop_id).first()
         
         if conflicting_stop:
-            # Find the next available sequence number in this route
-            existing_sequences = set([s.seq_no for s in RouteStop.query.filter_by(shipment_id=route_id).all()])
-            next_available = Decimal('1')
-            while next_available in existing_sequences:
-                next_available += Decimal('1')
+            # TRUE SWAP: Move the conflicting stop to the OLD sequence of the current stop
+            # This way, if stop A (seq 1) wants to be seq 3, and stop B is at seq 3,
+            # stop B gets moved to seq 1 (the original position of stop A)
             
-            # Move the conflicting stop to the next available sequence
-            conflicting_stop.seq_no = next_available
+            # Use a temporary negative sequence to avoid unique constraint violation
+            # Step 1: Move current stop to a temporary sequence
+            temp_seq = Decimal('-9999')
+            stop.seq_no = temp_seq
+            db.session.flush()
+            
+            # Step 2: Move conflicting stop to the old sequence (now available)
+            conflicting_stop.seq_no = old_sequence
+            db.session.flush()
+            
+            # Step 3: Move current stop to the new sequence (now available)
+            stop.seq_no = new_sequence
             
             # Log the automatic swap
             swap_log = ActivityLog()
             swap_log.invoice_no = invoice_no
             swap_log.activity_type = 'admin_correction'
-            swap_log.details = f'Auto-swapped stop {conflicting_stop.route_stop_id} from seq {new_sequence} to {next_available} (conflict resolution) by {current_user.username}'
+            swap_log.details = f'Auto-swapped stop {conflicting_stop.route_stop_id} from seq {new_sequence} to {old_sequence} (true swap) by {current_user.username}'
             swap_log.picker_username = current_user.username
             swap_log.timestamp = utc_now_for_db()
             db.session.add(swap_log)
-        
-        # Now update the target stop to the requested sequence
-        stop.seq_no = new_sequence
+        else:
+            # No conflict, just update the sequence
+            stop.seq_no = new_sequence
         
         # Log the activity
         activity_log = ActivityLog()
