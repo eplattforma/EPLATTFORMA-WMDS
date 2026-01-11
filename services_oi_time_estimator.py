@@ -143,6 +143,10 @@ def get_time_params() -> Dict:
     if "pick" not in params:
         params["pick"] = {}
     
+    # Migration and ensuring existence of keys
+    if "sec_align_per_stop" not in params["travel"]:
+        params["travel"]["sec_align_per_stop"] = DEFAULT_PARAMS["travel"]["sec_align_per_stop"]
+
     old_align = params["travel"].get("sec_align_per_stop", 13)
     if "sec_align_per_move" not in params["travel"]:
         params["travel"]["sec_align_per_move"] = old_align
