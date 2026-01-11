@@ -53,7 +53,7 @@
         {% for stop in stops %}
         <div class="stop-block">
             <div class="stop-header">
-                <h4 class="mb-0">Stop #{{ stop.seq_no }}: {{ stop.stop_name or 'Unnamed' }}</h4>
+                <h4 class="mb-0">Stop #{{ stop.seq_no|format_seq }}: {{ stop.stop_name or 'Unnamed' }}</h4>
             </div>
             
             <div class="row mb-3">

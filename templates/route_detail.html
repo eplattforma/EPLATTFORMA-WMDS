@@ -202,9 +202,9 @@
                     <!-- Sequence -->
                     <div class="stop-seq-col">
                         <span class="stop-seq" id="seqDisplay{{ stop.route_stop_id }}" onclick="event.stopPropagation(); editSequence({{ stop.route_stop_id }}, {{ stop.seq_no }})" title="Click to edit">
-                            {{ stop.seq_no|int }}
+                            {{ stop.seq_no|format_seq }}
                         </span>
-                        <input type="number" id="seqInput{{ stop.route_stop_id }}" class="form-control form-control-sm d-none seq-input" value="{{ stop.seq_no }}" min="0" step="0.01" onclick="event.stopPropagation()">
+                        <input type="number" id="seqInput{{ stop.route_stop_id }}" class="form-control form-control-sm d-none seq-input" value="{{ stop.seq_no }}" min="0" step="0.1" onclick="event.stopPropagation()">
                         <button id="seqSave{{ stop.route_stop_id }}" class="btn btn-sm btn-success d-none" onclick="event.stopPropagation(); saveSequence({{ stop.route_stop_id }})"><i class="fas fa-check"></i></button>
                         <button id="seqCancel{{ stop.route_stop_id }}" class="btn btn-sm btn-secondary d-none" onclick="event.stopPropagation(); cancelSequence({{ stop.route_stop_id }}, {{ stop.seq_no }})"><i class="fas fa-times"></i></button>
                     </div>
@@ -357,7 +357,7 @@
                     <div class="modal-content">
                         <form method="POST" action="{{ url_for('routes.update_stop_notes', route_stop_id=stop.route_stop_id) }}">
                             <div class="modal-header">
-                                <h5 class="modal-title">Edit Notes - Stop #{{ stop.seq_no|int }}</h5>
+                                <h5 class="modal-title">Edit Notes - Stop #{{ stop.seq_no|format_seq }}</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                             </div>
                             <div class="modal-body">

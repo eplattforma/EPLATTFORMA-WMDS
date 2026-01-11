@@ -3512,8 +3512,8 @@ def update_stop_sequence():
         if new_sequence is None or new_sequence < 0.01:
             return jsonify({'success': False, 'error': 'Invalid sequence number'})
         
-        # Convert to Decimal for precise comparison
-        new_sequence = Decimal(str(new_sequence))
+        # Convert to Decimal and normalize to 1 decimal place
+        new_sequence = Decimal(str(new_sequence)).quantize(Decimal('0.1'))
         
         # Find the invoice
         invoice = Invoice.query.filter_by(invoice_no=invoice_no).first()

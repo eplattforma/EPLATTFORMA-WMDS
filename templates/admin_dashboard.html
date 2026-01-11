@@ -346,7 +346,7 @@
                                 <span id="seq-display-{{ invoice.invoice_no }}" class="badge bg-primary me-1" style="cursor: pointer;" 
                                       onclick="editSequence('{{ invoice.invoice_no }}', {{ stop_sequences[invoice.invoice_no] }})"
                                       title="Stop sequence - click to edit">
-                                    {{ stop_sequences[invoice.invoice_no] }}
+                                    {{ stop_sequences[invoice.invoice_no]|format_seq }}
                                 </span>
                                 <strong>{{ invoice.invoice_no }}</strong>
                             </div>

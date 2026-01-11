@@ -14,8 +14,8 @@
                     <form method="POST">
                         <div class="mb-3">
                             <label class="form-label">Sequence Number *</label>
-                            <input type="number" name="seq_no" class="form-control" value="{{ seq_no }}" min="0" step="0.01" required>
-                            <small class="form-text text-muted">Order of this stop in the route (decimals allowed, e.g., 1.1, 1.2)</small>
+                            <input type="number" name="seq_no" class="form-control" value="{{ seq_no|format_seq }}" min="0" step="0.1" required>
+                            <small class="form-text text-muted">Order of this stop in the route (one decimal allowed, e.g., 1.1, 1.5, 2.3)</small>
                         </div>
 
                         <div class="mb-3">

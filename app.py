@@ -167,6 +167,22 @@ def from_json_filter(value):
     except (ValueError, TypeError):
         return []
 
+@app.template_filter('format_seq')
+def format_seq_filter(value):
+    """Format sequence number: integer if whole, one decimal if not.
+    Examples: 1.00 -> 1, 1.50 -> 1.5, 2.10 -> 2.1"""
+    if value is None:
+        return ''
+    try:
+        from decimal import Decimal
+        val = Decimal(str(value))
+        if val == val.to_integral_value():
+            return str(int(val))
+        else:
+            return str(val.quantize(Decimal('0.1')))
+    except:
+        return str(value)
+
 # Initialize background scheduler for scheduled tasks
 try:
     from scheduler import setup_scheduler, stop_scheduler

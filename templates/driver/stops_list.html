@@ -117,9 +117,9 @@
                 <div class="row g-2">
                     <div class="col-12 col-md-9">
                         <div class="d-flex align-items-center mb-2">
-                            <span class="badge bg-primary me-2">{{ stop.seq_no }}</span>
+                            <span class="badge bg-primary me-2">{{ stop.seq_no|format_seq }}</span>
                             <i class="fas fa-{{ status_icon }} me-2"></i>
-                            <strong class="text-wrap">{{ stop.stop_name or 'Stop ' + stop.seq_no|string }}</strong>
+                            <strong class="text-wrap">{{ stop.stop_name or 'Stop ' + (stop.seq_no|format_seq) }}</strong>
                         </div>
                         
                         <p class="mb-2 text-muted small">
