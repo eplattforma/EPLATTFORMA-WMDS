@@ -401,7 +401,7 @@ def estimate_pick_seconds_for_line(inv_item: InvoiceItem, dw_item: Optional[DwIt
     # Note: Global travel between locations is calculated in estimate_travel_seconds
     # This alignment time accounts for the final approach to the item
     # Since the user requested 13 sec (0.216 min) for a case, we set sec_align_per_stop to 13
-    sec_align = float(params.get("travel", {}).get("sec_align_per_stop", 13))
+    sec_align = float(pk.get("sec_align_scan_per_line", 0))
     t += sec_align
 
     # Level from location
