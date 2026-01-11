@@ -40,6 +40,7 @@ DEFAULT_PARAMS = {
   },
   "travel": {
     "sec_align_per_move": 13,
+    "sec_align_per_stop": 13,
     "sec_per_corridor_change": 14,
     "sec_per_corridor_step": 4,
     "sec_per_bay_step": 2.5,
