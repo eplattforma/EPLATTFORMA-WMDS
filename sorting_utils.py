@@ -180,7 +180,9 @@ def sort_items_for_picking(items, sorting_config=None):
         sorted_regular = sorted(regular_items, key=sort_key)
         sorted_skipped = sorted(skipped_items, key=sort_key)
         return sorted_regular + sorted_skipped
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.warning(f"sort_items_for_picking failed, using unsorted fallback: {e}")
         return regular_items + skipped_items
 
 
@@ -207,5 +209,7 @@ def sort_batch_items(items, sorting_config=None):
     
     try:
         return sorted(items, key=sort_key)
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.warning(f"sort_batch_items failed, using unsorted fallback: {e}")
         return items

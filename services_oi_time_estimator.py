@@ -558,8 +558,10 @@ def estimate_invoice_time(invoice_no: str) -> Dict:
         if loc_key in location_walk_map and loc_key not in location_seen:
             walk_s = location_walk_map[loc_key]
             location_seen.add(loc_key)
-            
-        per_line_seconds[id(it)] = float(s) + float(walk_s)
+        
+        # Use stable database ID as key (or fallback tuple for unsaved items)
+        line_key = getattr(it, "id", None) or (it.invoice_no, it.item_code, it.location, float(it.qty or 0))
+        per_line_seconds[line_key] = float(s) + float(walk_s)
         pick_s_total += float(s)
 
     # Packing
@@ -598,7 +600,9 @@ def estimate_and_persist_invoice_time(invoice_no: str, commit: bool = True) -> D
 
     items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
     for it in items:
-        s = result["per_line_seconds"].get(id(it), 0.0)
+        # Use stable database ID as key (matching estimate_invoice_time)
+        line_key = getattr(it, "id", None) or (it.invoice_no, it.item_code, it.location, float(it.qty or 0))
+        s = result["per_line_seconds"].get(line_key, 0.0)
         it.exp_time = float(s) / 60.0
 
     if commit:

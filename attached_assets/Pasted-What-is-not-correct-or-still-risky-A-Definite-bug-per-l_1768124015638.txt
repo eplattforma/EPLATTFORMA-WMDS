@@ -1,0 +1,65 @@
+What is not correct (or still risky)
+A) Definite bug: per_line_seconds key collisions
+
+In estimate_invoice_time():
+
+per_line_seconds[(it.item_code, it.invoice_no)] = ...
+
+
+This will overwrite entries if the same item_code appears multiple times in the same invoice (very common), and it can also collide on null codes.
+
+Fix: key by invoice line id (preferred) or a stable line identifier.
+
+Minimal safe patch:
+
+line_key = getattr(it, "id", None) or (it.invoice_no, it.item_code, it.location, float(it.qty or 0))
+per_line_seconds[line_key] = float(s) + float(walk_s)
+
+
+If you have an invoice “line number” field, use that instead of qty/location.
+
+B) Potential inconsistency: travel_s vs allocated per-line walk_s
+
+You compute total travel using:
+
+travel_res = estimate_travel_seconds(ordered, params)
+travel_s = travel_res.get("total", 0.0)
+
+
+But then you separately compute per-stop walk using _compute_walk_between_stops() + sec_align_per_move.
+
+That is fine only if:
+
+estimate_travel_seconds() uses the same _compute_walk_between_stops() logic, and
+
+it includes/excludes sec_align_per_move in the same way.
+
+If they differ, you will get internal inconsistencies:
+
+invoice total uses travel_s
+
+line-level allocation uses a different computed travel basis
+
+Best practice: make estimate_travel_seconds() return per-leg/per-stop seconds and allocate from that output rather than recomputing.
+
+C) sort_items_for_picking() hides failures
+
+In sorting_utils.py:
+
+try:
+    ...
+except Exception:
+    return regular_items + skipped_items
+
+
+If get_item_sort_key() breaks (config issue, unexpected item shape), the estimator silently falls back to unsorted order, reintroducing the original problem without any visibility.
+
+At minimum, log the exception (even if you keep the fallback).
+
+Design note: order_stops_one_trip() is now irrelevant for ETC
+
+Your estimator functions no longer call build_stops() or order_stops_one_trip() at all; they build stops directly from sorted items.
+
+That is not inherently a problem—arguably it is better—but it means any “zone priority” logic you added in order_stops_one_trip() will not affect ETC unless some other estimator path still uses it.
+
+If you intended zone priority / ground-before-upstairs to constrain the route regardless of item sorting config, that is not happening in ETC anymore. Right now, ETC follows the item sequence dictated by sort_items_for_picking().
