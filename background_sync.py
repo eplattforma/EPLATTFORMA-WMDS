@@ -157,9 +157,11 @@ def _run_customer_sync(app):
                 INSERT INTO payment_customers (code, name, "group")
                 SELECT 
                     pc.customer_code_365,
-                    COALESCE(pc.company_name, 
-                        TRIM(CONCAT(COALESCE(pc.contact_first_name, ''), ' ', COALESCE(pc.contact_last_name, ''))),
-                        COALESCE(pc.customer_name, 'Unknown')),
+                    COALESCE(
+                        NULLIF(pc.company_name, ''), 
+                        NULLIF(TRIM(CONCAT(COALESCE(pc.contact_first_name, ''), ' ', COALESCE(pc.contact_last_name, ''))), ''),
+                        'Unknown'
+                    ),
                     pc.category_1_name
                 FROM ps_customers pc
                 WHERE pc.customer_code_365 IS NOT NULL
