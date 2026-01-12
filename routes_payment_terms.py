@@ -4,13 +4,16 @@ Handles credit terms, payment methods, and import/export functionality
 """
 import io
 import datetime as dt
+import logging
+import traceback
 from decimal import Decimal, InvalidOperation
 from flask import Blueprint, request, jsonify, render_template, send_file, flash, redirect, url_for
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 import pandas as pd
-from app import db
+from app import app, db
 from models import PaymentCustomer, CreditTerms, PSCustomer
+from background_sync import start_customer_sync_background, get_sync_status, is_sync_running
 
 bp = Blueprint('payment_terms', __name__, url_prefix='/admin/payment-terms')
 
@@ -419,9 +422,39 @@ def import_terms():
 @bp.route('/reconcile', methods=['POST'])
 @login_required
 def reconcile_missing_terms():
-    """Backfill default payment terms for customers that don't have active terms"""
-    import logging
-    import traceback
+    """Start customer sync in background to avoid timeout"""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        return jsonify({"error": "Access denied"}), 403
+    
+    result = start_customer_sync_background(app)
+    
+    if result.get("success"):
+        return jsonify({
+            "status": "started",
+            "message": "Customer sync started in background"
+        }), 202
+    else:
+        return jsonify({
+            "status": "error",
+            "error": result.get("error", "Failed to start sync")
+        }), 400
+
+
+@bp.route('/sync-status', methods=['GET'])
+@login_required
+def sync_status():
+    """Get the current status of a running customer sync"""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        return jsonify({"error": "Access denied"}), 403
+    
+    status = get_sync_status("customers")
+    return jsonify(status)
+
+
+@bp.route('/reconcile-sync', methods=['POST'])
+@login_required
+def reconcile_sync():
+    """Legacy sync endpoint - runs synchronously (may timeout on large datasets)"""
     from ps365_client import call_ps365
     
     if current_user.role not in ['admin', 'warehouse_manager']:
@@ -436,8 +469,6 @@ def reconcile_missing_terms():
         
         logging.info("Starting reconcile missing terms...")
         
-        # Step 1: Fetch ALL customers from PS365 API (both active and inactive) with pagination
-        logging.info("Fetching customers from PS365 API...")
         page = 1
         total_fetched = 0
         PAGE_SIZE = 100
@@ -449,7 +480,7 @@ def reconcile_missing_terms():
                         "only_counted": "N",
                         "page_number": page,
                         "page_size": PAGE_SIZE,
-                        "active_type": "all"  # Get ALL customers - both active and inactive
+                        "active_type": "all"
                     }
                 }, method="POST")
                 
@@ -457,7 +488,6 @@ def reconcile_missing_terms():
                 if not customers:
                     break
                 
-                # Insert/update customers into ps_customers table
                 for cust in customers:
                     ps_cust = PSCustomer.query.filter_by(
                         customer_code_365=cust.get('customer_code_365')
@@ -485,7 +515,6 @@ def reconcile_missing_terms():
         
         logging.info(f"Fetched {total_fetched} customers from PS365 API")
         
-        # Step 2: Sync ps_customers → payment_customers (BULK operation)
         from sqlalchemy import text
         
         result = db.session.execute(text("""
@@ -505,7 +534,6 @@ def reconcile_missing_terms():
         db.session.commit()
         logging.info(f"Synced {synced} customers from ps_customers")
         
-        # Step 2: Create default terms for customers without active terms (BULK operation)
         terms_defaults = _default_terms_values_for("dummy")
         result = db.session.execute(text("""
             INSERT INTO credit_terms (

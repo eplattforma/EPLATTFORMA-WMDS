@@ -125,7 +125,7 @@ def start_invoice_sync_background(app, invoice_no=None, import_date=None):
     }
 
 def _run_customer_sync(app):
-    """Background worker for customer sync"""
+    """Background worker for customer sync with payment terms creation"""
     from services_powersoft import sync_active_customers
     
     _update_status("customers",
@@ -139,9 +139,54 @@ def _run_customer_sync(app):
     
     try:
         with app.app_context():
+            from app import db
+            from sqlalchemy import text
+            from main import _default_terms_values_for
+            
             logging.info("Background customer sync started")
             
+            _update_status("customers", progress="Fetching customers from PS365...")
             result = sync_active_customers()
+            
+            if not result.get("success", True):
+                raise Exception(result.get("error", "Customer sync failed"))
+            
+            _update_status("customers", progress="Creating payment terms for new customers...")
+            
+            terms_defaults = _default_terms_values_for("dummy")
+            terms_result = db.session.execute(text("""
+                INSERT INTO credit_terms (
+                    customer_code, terms_code, due_days, is_credit,
+                    credit_limit, allow_cash, allow_card_pos, allow_bank_transfer, allow_cheque,
+                    cheque_days_allowed, notes_for_driver, valid_from, valid_to
+                )
+                SELECT 
+                    pc.code,
+                    :terms_code,
+                    :due_days,
+                    :is_credit,
+                    :credit_limit,
+                    :allow_cash,
+                    :allow_card_pos,
+                    :allow_bank_transfer,
+                    :allow_cheque,
+                    :cheque_days_allowed,
+                    :notes_for_driver,
+                    CURRENT_DATE,
+                    NULL
+                FROM payment_customers pc
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM credit_terms ct 
+                    WHERE ct.customer_code = pc.code 
+                    AND ct.valid_to IS NULL
+                )
+            """), terms_defaults)
+            created_terms = terms_result.rowcount
+            db.session.commit()
+            logging.info(f"Created {created_terms} default payment terms")
+            
+            result["created_defaults"] = created_terms
+            result["synced_customers"] = result.get("total_customers", 0)
             
             _update_status("customers",
                 result=result,
