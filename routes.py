@@ -106,13 +106,13 @@ def sort_items_by_config(items):
     skipped_items = [item for item in items if item.pick_status == 'skipped_pending']
     
     def extract_location_parts(location):
-        """Extract different parts from a location string like '20-05-B 03'
+        """Extract different parts from a location string like '31-04-C 01'
         
-        Format: ZONE-CORRIDOR-SHELF LEVEL (e.g., '20-05-B 03')
-        - Zone: 20 (first segment - the main area/aisle number)
-        - Corridor: 05 (second segment - position within zone)
-        - Shelf: B (letter part of third segment)
-        - Level/Bin: 03 (number part of third segment)
+        Format: CORRIDOR-SHELF-LEVEL BIN (e.g., '31-04-C 01')
+        - Corridor: 31 (first segment - the aisle/corridor number)
+        - Shelf: 04 (second segment - shelf position within corridor)
+        - Level: C (letter part of third segment)
+        - Bin: 01 (number part of third segment)
         """
         if not location or location.lower() == 'none' or location.lower() == 'no location':
             return {'zone': '', 'corridor': '', 'shelf': '', 'level': '', 'bin': '', 'is_none': True}
@@ -129,15 +129,16 @@ def sort_items_by_config(items):
         if '-' in location:
             segments = location.split('-')
             
-            # First segment = Zone (e.g., '20' in '20-05-B 03')
+            # First segment = Corridor (e.g., '31' in '31-04-C 01')
             if len(segments) >= 1:
-                parts['zone'] = segments[0].strip()
+                parts['corridor'] = segments[0].strip()
+                parts['zone'] = segments[0].strip()  # Keep zone same as corridor for compatibility
                 
-            # Second segment = Corridor (e.g., '05' in '20-05-B 03')
+            # Second segment = Shelf (e.g., '04' in '31-04-C 01')
             if len(segments) >= 2:
-                parts['corridor'] = segments[1].strip()
+                parts['shelf'] = segments[1].strip()
                 
-            # Third segment = Shelf + Level/Bin (e.g., 'B 03' or 'B03')
+            # Third segment = Level + Bin (e.g., 'C 01' or 'C01')
             if len(segments) >= 3:
                 last_segment = segments[2].strip()
                 
@@ -145,12 +146,11 @@ def sort_items_by_config(items):
                 # Match letter(s) then optional space then digits
                 match = re.match(r'([A-Za-z]+)\s*(\d+)?', last_segment)
                 if match:
-                    shelf_letter, bin_number = match.groups()
-                    parts['shelf'] = shelf_letter or ''
-                    parts['level'] = shelf_letter or ''  # Level is the shelf letter
+                    level_letter, bin_number = match.groups()
+                    parts['level'] = level_letter or ''
                     parts['bin'] = bin_number or ''
         else:
-            parts['zone'] = location.strip()
+            parts['corridor'] = location.strip()
             
         return parts
     
