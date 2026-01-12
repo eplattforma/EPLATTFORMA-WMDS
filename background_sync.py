@@ -151,6 +151,27 @@ def _run_customer_sync(app):
             if not result.get("success", True):
                 raise Exception(result.get("error", "Customer sync failed"))
             
+            _update_status("customers", progress="Syncing payment customers...")
+            
+            sync_result = db.session.execute(text("""
+                INSERT INTO payment_customers (code, name, "group")
+                SELECT 
+                    pc.customer_code_365,
+                    COALESCE(pc.company_name, 
+                        TRIM(CONCAT(COALESCE(pc.contact_first_name, ''), ' ', COALESCE(pc.contact_last_name, ''))),
+                        COALESCE(pc.customer_name, 'Unknown')),
+                    pc.category_1_name
+                FROM ps_customers pc
+                WHERE pc.customer_code_365 IS NOT NULL
+                ON CONFLICT (code) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    "group" = EXCLUDED."group"
+            """))
+            synced_count = sync_result.rowcount
+            db.session.commit()
+            logging.info(f"Synced {synced_count} payment customers")
+            result["synced_customers"] = synced_count
+            
             _update_status("customers", progress="Creating payment terms for new customers...")
             
             terms_defaults = _default_terms_values_for("dummy")
