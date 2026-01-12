@@ -106,48 +106,51 @@ def sort_items_by_config(items):
     skipped_items = [item for item in items if item.pick_status == 'skipped_pending']
     
     def extract_location_parts(location):
-        """Extract different parts from a location string like '10-05-A03'"""
-        if not location:
-            return {'corridor': '', 'aisle': '', 'level': '', 'shelf': ''}
+        """Extract different parts from a location string like '20-05-B 03'
         
-        parts = {}
-        # Initialize default values
-        parts['corridor'] = ''
-        parts['aisle'] = ''
-        parts['level'] = ''
-        parts['shelf'] = ''
+        Format: ZONE-CORRIDOR-SHELF LEVEL (e.g., '20-05-B 03')
+        - Zone: 20 (first segment - the main area/aisle number)
+        - Corridor: 05 (second segment - position within zone)
+        - Shelf: B (letter part of third segment)
+        - Level/Bin: 03 (number part of third segment)
+        """
+        if not location or location.lower() == 'none':
+            return {'zone': '', 'corridor': '', 'shelf': '', 'level': '', 'bin': '', 'is_none': True}
         
-        # For warehouse location format: '10-05-A03'
-        # First segment (10) = corridor, Second segment (05) = aisle, 
-        # Last segment (A03) contains level (A) and shelf (03)
+        parts = {
+            'zone': '',
+            'corridor': '',
+            'shelf': '',
+            'level': '',
+            'bin': '',
+            'is_none': False
+        }
+        
         if '-' in location:
             segments = location.split('-')
             
-            # Handle corridor part (like '10' in '10-05-A03')
+            # First segment = Zone (e.g., '20' in '20-05-B 03')
             if len(segments) >= 1:
-                parts['corridor'] = segments[0]
+                parts['zone'] = segments[0].strip()
                 
-            # Handle aisle part (like '05' in '10-05-A03')
+            # Second segment = Corridor (e.g., '05' in '20-05-B 03')
             if len(segments) >= 2:
-                parts['aisle'] = segments[1]
+                parts['corridor'] = segments[1].strip()
                 
-            # Handle level and shelf (ex: 'A03' in '10-05-A03' or 'A 05' in '13-01-A 05')
+            # Third segment = Shelf + Level/Bin (e.g., 'B 03' or 'B03')
             if len(segments) >= 3:
-                last_segment = segments[2]
+                last_segment = segments[2].strip()
                 
-                # Separate level and shelf
-                # Example: 'A03' -> level 'A' and shelf '03'
-                # Also handle space: 'A 05' -> level 'A' and shelf '05'
                 import re
-                # Updated regex to handle optional space between letters and digits
-                match = re.match(r'([A-Za-z]*)\s*(\d*)', last_segment)
+                # Match letter(s) then optional space then digits
+                match = re.match(r'([A-Za-z]+)\s*(\d+)?', last_segment)
                 if match:
-                    level_part, shelf_part = match.groups()
-                    parts['level'] = level_part
-                    parts['shelf'] = shelf_part
+                    shelf_letter, bin_number = match.groups()
+                    parts['shelf'] = shelf_letter or ''
+                    parts['level'] = shelf_letter or ''  # Level is the shelf letter
+                    parts['bin'] = bin_number or ''
         else:
-            # If no dashes, treat the entire location as corridor
-            parts['corridor'] = location
+            parts['zone'] = location.strip()
             
         return parts
     
@@ -188,17 +191,20 @@ def sort_items_by_config(items):
     def get_sort_key(item):
         """Generate a sort key tuple based on configured sort order and enabled flags"""
         location = item.location or ''
-        zone = item.zone or ''
+        item_zone = item.zone or ''
         
         # Extract location parts
         parts = extract_location_parts(location)
-        corridor = parts['corridor'] or ''
-        aisle = parts['aisle'] or ''
-        level = parts['level'] or ''
-        shelf = parts['shelf'] or ''
         
-        # Build sort key based on enabled fields and their priority order
-        sort_components = []
+        # If location is None/empty, sort last
+        if parts.get('is_none', False):
+            return ((999999,),)  # Very high value to sort last
+        
+        zone = parts['zone'] or ''
+        corridor = parts['corridor'] or ''
+        shelf = parts['shelf'] or ''
+        level = parts['level'] or ''
+        bin_val = parts['bin'] or ''
         
         # Get config for each field
         zone_config = sorting_config.get('zone', {})
@@ -211,7 +217,8 @@ def sort_items_by_config(items):
         enabled_fields = []
         
         if zone_config.get('enabled', True):
-            effective_zone = zone if zone else 'MAIN'
+            # Use zone from location parsing, fall back to item.zone
+            effective_zone = zone if zone else (item_zone if item_zone else 'MAIN')
             manual_zones = zone_config.get('manual_priority', [])
             if manual_zones and effective_zone in manual_zones:
                 zone_key = ((1, manual_zones.index(effective_zone), ''),)
@@ -225,13 +232,13 @@ def sort_items_by_config(items):
             enabled_fields.append((corridor_config.get('order', 2), 'corridor', numeric_sort_key(corridor)))
         
         if shelf_config.get('enabled', True):
-            enabled_fields.append((shelf_config.get('order', 3), 'shelf', numeric_sort_key(aisle)))
+            enabled_fields.append((shelf_config.get('order', 3), 'shelf', numeric_sort_key(shelf)))
         
         if level_config.get('enabled', True):
             enabled_fields.append((level_config.get('order', 4), 'level', numeric_sort_key(level)))
         
         if bin_config.get('enabled', True):
-            enabled_fields.append((bin_config.get('order', 5), 'bin', numeric_sort_key(shelf)))
+            enabled_fields.append((bin_config.get('order', 5), 'bin', numeric_sort_key(bin_val)))
         
         # Sort by priority order and build final key
         enabled_fields.sort(key=lambda x: x[0])
