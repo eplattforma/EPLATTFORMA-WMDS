@@ -36,7 +36,7 @@ def extract_location_parts(location):
     - Shelf: B (letter part of third segment)
     - Level/Bin: 03 (number part of third segment)
     """
-    if not location or str(location).lower() == 'none':
+    if not location or str(location).lower() == 'none' or str(location).lower() == 'no location':
         return {'zone': '', 'corridor': '', 'shelf': '', 'level': '', 'bin': '', 'is_none': True}
     
     parts = {

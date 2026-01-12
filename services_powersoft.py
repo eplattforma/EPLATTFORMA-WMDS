@@ -65,12 +65,17 @@ def recalculate_invoice_totals(invoice_no: str, commit: bool = True) -> bool:
         return False
 
 def _format_location_code(raw_loc):
-    """Format shelf location code for display: 1006A01 -> 10-06-A 01"""
+    """Format shelf location code for display: 1006A01 -> 10-06-A 01
+    Returns 'No Location' for empty/null values to ensure proper sorting."""
     if not raw_loc:
-        return ""
+        return "No Location"
     
     # Standardize format: remove leading/trailing spaces and ensure uppercase
     clean_loc = str(raw_loc).strip().upper().replace("-", "")
+    
+    # If empty after cleaning, return "No Location"
+    if not clean_loc:
+        return "No Location"
     
     # Format: 10-06-A 01 (Corridor-Aisle-Level Bin)
     # Expected pattern: 2 digits (corridor) + 2 digits (aisle) + 1 char (level) + 2 digits (bin)
