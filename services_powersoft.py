@@ -481,9 +481,42 @@ def sync_active_customers():
                     existing = PSCustomer(customer_code_365=code)
                     db.session.add(existing)
                 
-                existing.customer_name = customer.get("company_name") or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
-                existing.customer_email = customer.get("email")
-                existing.customer_phone = customer.get("mobile") or customer.get("tel_1")
+                existing.company_name = customer.get("company_name") or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
+                existing.customer_code_secondary = customer.get("customer_code_secondary")
+                existing.is_company = customer.get("is_company")
+                existing.store_code_365 = customer.get("store_code_365")
+                existing.active = customer.get("active", True)
+                existing.tel_1 = customer.get("tel_1")
+                existing.mobile = customer.get("mobile")
+                existing.sms = customer.get("sms")
+                existing.website = customer.get("website")
+                existing.category_code_1_365 = customer.get("category_code_1_365")
+                existing.category_1_name = customer.get("category_1_name")
+                existing.category_code_2_365 = customer.get("category_code_2_365")
+                existing.category_2_name = customer.get("category_2_name")
+                existing.company_activity_code_365 = customer.get("company_activity_code_365")
+                existing.company_activity_name = customer.get("company_activity_name")
+                existing.credit_limit_amount = customer.get("credit_limit_amount")
+                existing.vat_registration_number = customer.get("vat_registration_number")
+                existing.address_line_1 = customer.get("address_line_1")
+                existing.address_line_2 = customer.get("address_line_2")
+                existing.address_line_3 = customer.get("address_line_3")
+                existing.postal_code = customer.get("postal_code")
+                existing.town = customer.get("town")
+                existing.contact_last_name = customer.get("contact_last_name")
+                existing.contact_first_name = customer.get("contact_first_name")
+                existing.agent_code_365 = customer.get("agent_code_365")
+                existing.agent_name = customer.get("agent_name")
+                if customer.get("text_field_1_value"):
+                    try:
+                        existing.latitude = float(customer.get("text_field_1_value"))
+                    except (ValueError, TypeError):
+                        pass
+                if customer.get("text_field_2_value"):
+                    try:
+                        existing.longitude = float(customer.get("text_field_2_value"))
+                    except (ValueError, TypeError):
+                        pass
                 existing.last_synced_at = datetime.utcnow()
                 total_synced += 1
                 
@@ -492,7 +525,7 @@ def sync_active_customers():
                 if not existing_payment:
                     new_payment = PaymentCustomer(
                         code=code,
-                        name=existing.customer_name or code
+                        name=existing.company_name or code
                     )
                     db.session.add(new_payment)
                     payment_terms_created += 1
@@ -547,9 +580,9 @@ def upsert_single_customer(customer_code):
             existing = PSCustomer(customer_code_365=code)
             db.session.add(existing)
             
-        existing.customer_name = customer_data.get("customer_name")
-        existing.customer_email = customer_data.get("customer_email")
-        existing.customer_phone = customer_data.get("customer_phone")
+        existing.company_name = customer_data.get("company_name") or f"{customer_data.get('first_name', '')} {customer_data.get('last_name', '')}".strip()
+        existing.mobile = customer_data.get("mobile")
+        existing.tel_1 = customer_data.get("tel_1")
         existing.last_synced_at = datetime.utcnow()
         
         db.session.commit()
