@@ -115,7 +115,9 @@ def get_item_sort_key(item, sorting_config=None):
     
     # If location is None/empty, sort last
     if parts.get('is_none', False):
-        return ((999999,),)  # Very high value to sort last
+        # Return a tuple that will sort after everything else
+        # Must match structure of normal keys: tuple of tuples with (type, int, str) format
+        return (((1, 999999, ''),),)
     
     zone = parts['zone'] or ''
     corridor = parts['corridor'] or ''
