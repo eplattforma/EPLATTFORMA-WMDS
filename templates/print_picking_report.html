@@ -338,7 +338,7 @@
                     <tr class="manually-picked {% if item.picked_qty != (item.expected_pick_pieces or item.qty) %}exception-row{% endif %}">
                         <td>{{ item.item_code }}</td>
                         <td class="item-name">{{ item.item_name }}</td>
-                        <td>{{ item.location }}</td>
+                        <td>{{ item.location if item.location and item.location != 'None' else 'No Location' }}</td>
                         <td>{% if item.unit_type|lower in ['virtual pack', 'item'] %}{{ item.unit_type }}{% else %}{{ item.unit_type }}{% if item.pack %}({{ item.pack }}){% endif %}{% endif %}</td>
                         <td>{{ (item.expected_pick_pieces or item.qty)|int }}</td>
                         <td>
@@ -414,7 +414,7 @@
                         <tr class="batch-picked {% if item.get('status') == 'not_picked' %}exception-row{% endif %}" {% if item.get('status') == 'not_picked' %}style="background-color: #fff3cd;"{% endif %}>
                             <td>{{ item.item_code }}</td>
                             <td class="item-name">{{ item.item_name }}</td>
-                            <td>{{ item.location }}</td>
+                            <td>{{ item.location if item.location and item.location != 'None' else 'No Location' }}</td>
                             <td>{% if item.unit_type|lower in ['virtual pack', 'item'] %}{{ item.unit_type }}{% else %}{{ item.unit_type }}{% if item.get('pack') %}({{ item.pack }}){% endif %}{% endif %}</td>
                             <td>{{ item.requested_qty|int }}</td>
                             <td>

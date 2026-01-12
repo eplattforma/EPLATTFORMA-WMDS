@@ -323,7 +323,7 @@
             <tbody>
                 {% for item in manually_picked %}
                 <tr {% if item.picked_qty is not none and item.picked_qty < item.qty %}class="discrepancy"{% endif %}>
-                    <td>{{ item.location }}</td>
+                    <td>{{ item.location if item.location and item.location != 'None' else 'No Location' }}</td>
                     <td>{{ item.item_code }}</td>
                     <td>{{ item.item_name }}</td>
                     <td style="text-align: center;">{{ item.qty|int }}</td>
@@ -382,7 +382,7 @@
                 <tbody>
                     {% for item in items %}
                     <tr {% if item.get('status') == 'not_picked' %}style="background-color: #fff3cd;"{% endif %}>
-                        <td>{{ item.location }}</td>
+                        <td>{{ item.location if item.location and item.location != 'None' else 'No Location' }}</td>
                         <td>{{ item.item_code }}</td>
                         <td>{{ item.item_name }}</td>
                         <td style="text-align: center;">{{ item.requested_qty|int }}</td>
