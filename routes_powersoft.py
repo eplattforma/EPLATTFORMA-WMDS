@@ -35,34 +35,35 @@ def admin_required(f):
 @admin_required
 def sync_customers():
     """
-    Bulk sync all active customers from PS365
+    Bulk sync all active customers from PS365 (runs in background to avoid timeout)
     
     Returns:
-        JSON with sync statistics (total, pages, updated count)
+        JSON with sync status
     
     Example:
         POST /api/powersoft/sync/customers
-        Response: {"success": true, "total_customers": 1500, "total_pages": 8, "updated_count": 1500}
+        Response: {"success": true, "message": "Customer sync started in background"}
     """
     import os
     import logging
+    from app import app
     
-    # Log environment info for debugging production issues
     logging.info(f"PS365_BASE_URL: {os.getenv('PS365_BASE_URL', 'NOT SET')}")
     logging.info(f"Token present: {bool(os.getenv('PS365_TOKEN'))}")
     
-    try:
-        result = sync_active_customers()
-        if result.get("success"):
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 500
-    except Exception as e:
-        logging.error(f"Customer sync failed: {str(e)}")
+    result = start_customer_sync_background(app)
+    
+    if result.get("success"):
+        return jsonify({
+            "success": True,
+            "message": "Customer sync started in background",
+            "status": result.get("status", {})
+        }), 202
+    else:
         return jsonify({
             "success": False,
-            "error": str(e)
-        }), 500
+            "error": result.get("error", "Failed to start sync")
+        }), 400
 
 @bp_powersoft.route('/customers/upsert', methods=['POST'])
 @admin_required
