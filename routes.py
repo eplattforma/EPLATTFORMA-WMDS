@@ -3259,6 +3259,8 @@ def print_invoice(invoice_no):
     manually_picked = [item for item in all_items if item.item_code not in batch_assigned_codes]
     
     # Group manually picked items by zone for better organization
+    # Items are already sorted by sort_items_by_config, so we preserve that order
+    from sorting_utils import get_item_sort_key
     manually_picked_by_zone = {}
     for item in manually_picked:
         zone = item.zone or 'Unknown Zone'
@@ -3266,9 +3268,9 @@ def print_invoice(invoice_no):
             manually_picked_by_zone[zone] = []
         manually_picked_by_zone[zone].append(item)
     
-    # Sort zones and items within each zone by corridor and location
+    # Re-sort items within each zone using the proper sort key (preserves zone/corridor/shelf/bin order)
     for zone in manually_picked_by_zone:
-        manually_picked_by_zone[zone].sort(key=lambda x: (x.corridor or '', x.location or ''))
+        manually_picked_by_zone[zone].sort(key=lambda x: get_item_sort_key(x))
     
     # Add unpicked batch-assigned items to batch_items
     for item in all_items:
