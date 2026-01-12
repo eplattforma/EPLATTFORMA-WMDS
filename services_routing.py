@@ -73,7 +73,10 @@ def match_customer_code_for_invoice(invoice):
     ).all()
     
     for cust in customers:
-        full_name = f"{cust.last_name} {cust.first_name}".strip()
+        # Check if attributes exist before accessing them
+        last_name = getattr(cust, 'last_name', '') or ''
+        first_name = getattr(cust, 'first_name', '') or ''
+        full_name = f"{last_name} {first_name}".strip()
         if full_name and full_name == invoice.customer_name:
             invoice.customer_code = cust.customer_code_365
             db.session.commit()
