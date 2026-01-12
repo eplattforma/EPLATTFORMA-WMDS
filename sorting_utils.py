@@ -140,10 +140,13 @@ def get_item_sort_key(item, sorting_config=None):
         effective_zone = zone if zone else (item_zone if item_zone else 'MAIN')
         manual_zones = zone_config.get('manual_priority', [])
         if manual_zones and effective_zone in manual_zones:
-            zone_key = ((1, manual_zones.index(effective_zone), ''),)
+            # Zones in manual priority list get their index as sort key
+            zone_key = ((0, manual_zones.index(effective_zone), ''),)
         elif manual_zones:
-            zone_key = ((1, len(manual_zones), ''),)
+            # Zones NOT in manual priority list sort after, but still by their numeric value
+            zone_key = ((1, 0, ''),) + numeric_sort_key(effective_zone)
         else:
+            # No manual priority - just use numeric sort
             zone_key = numeric_sort_key(effective_zone)
         enabled_fields.append((zone_config.get('order', 1), 'zone', zone_key))
     
