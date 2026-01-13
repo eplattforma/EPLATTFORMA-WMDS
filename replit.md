@@ -20,7 +20,7 @@ Preferred communication style: Simple, everyday language.
 - **Deployment**: Gunicorn.
 - **Core Models**: Users, Invoices, InvoiceItems, BatchPickingSession, ItemTimeTracking, DeliveryDiscrepancy, DeliveryDiscrepancyEvent, Settings, RouteStop, RouteStopInvoice, PSCustomer, Shipment, PaymentCustomer, CreditTerms, PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine.
 - **Picking System**: Supports individual and batch picking, skip/collect later, real-time updates, and exception handling. Displays item codes and barcodes (normalized from PS365) in format "ITEM-CODE / BARCODE" for improved picker efficiency.
-- **Time Tracking & Analytics**: Per-item time tracking, shift management, KPI calculation, AI analysis.
+- **Time Tracking & Analytics**: Phase-based per-item time tracking capturing walking_time (between items), picking_time (arrival to confirmation), and confirmation_time (batch confirmation screens). Supports shift management, KPI calculation, AI analysis. For batch picks, walking_time is divided by number of source invoices to prevent time multiplication.
 - **Batch Processing**: Zone/corridor-based batch creation, item locking, sequential/optimized picking modes.
 - **Delivery Issue Tracking**: Admin-only system for recording, validating, and resolving discrepancies with photo uploads, configurable types, stock resolutions, and audit trails.
 - **Delivery Route Management**: Comprehensive route planning, driver assignment, stop sequencing, invoice assignment, progress tracking, and printable run sheets. Includes warehouse collection option that automatically marks orders as DELIVERED for customer pickup scenarios.
