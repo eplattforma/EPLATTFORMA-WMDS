@@ -2010,8 +2010,13 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 60000);
 
-// Auto-refresh the dashboard every 30 seconds, but ONLY if no modals are open
+// Auto-refresh the dashboard every 30 seconds, but ONLY if no modals are open and we're on the dashboard
 setInterval(function() {
+    // Check if we're still on the dashboard page
+    if (!window.location.pathname.includes('/admin/dashboard')) {
+        console.log('Not on dashboard - skipping refresh');
+        return;
+    }
     // Check if any modal is currently open
     if (window.isModalOpen === false) {
         location.reload();
