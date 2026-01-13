@@ -1,0 +1,413 @@
+Below is a concrete, copy/paste-friendly set of instructions you can give Replit (or implement yourself) to ensure the system tracks what the picker is actually doing:
+
+Click #1 (“Proceed to Pick” / Arrived at location) ⇒ sets item_started and computes walking_time (time since previous item confirmation).
+
+Click #2 (“Confirm pick”) ⇒ sets item_completed and computes picking_time.
+
+For batch picking (where you have an extra confirmation screen), also compute confirmation_time as the time spent on that confirmation screen.
+
+1) Update models.py so total_item_time uses walking/picking/confirmation (not just end-start)
+
+File: models.py
+Change: In ItemTimeTracking.calculate_metrics(), it currently does total_item_time = (item_completed - item_started) which ignores your phase fields and overwrites totals.
+
+Replace the block that sets self.total_item_time and self.efficiency_ratio with this logic:
+
+diff --git a/models.py b/models.py
+@@ class ItemTimeTracking(db.Model):
+     def calculate_metrics(self):
+         """Calculate efficiency and context metrics for AI analysis"""
+         if self.item_started and self.item_completed:
+@@
+-            # Calculate duration in UTC (accurate, no DST surprises)
+-            delta = item_completed_utc - item_started_utc
+-            self.total_item_time = delta.total_seconds()
+-            
+-            # Calculate efficiency ratio
+-            if self.expected_time > 0:
+-                self.efficiency_ratio = self.total_item_time / self.expected_time
++            # Duration between "arrived" (item_started) and "confirmed" (item_completed)
++            delta_seconds = max((item_completed_utc - item_started_utc).total_seconds(), 0)
++
++            # If picking_time not explicitly set, use delta as picking_time
++            if not self.picking_time or self.picking_time <= 0:
++                self.picking_time = delta_seconds
++
++            walk = float(self.walking_time or 0.0)
++            pick = float(self.picking_time or 0.0)
++            conf = float(self.confirmation_time or 0.0)
++
++            # Prefer explicit phase totals (walking + picking + confirmation)
++            phase_total = walk + pick + conf
++            self.total_item_time = phase_total if phase_total > 0 else delta_seconds
++
++            # Calculate efficiency ratio using total_item_time
++            if self.expected_time and self.expected_time > 0:
++                self.efficiency_ratio = self.total_item_time / self.expected_time
+
+
+Result: once you set walking/picking/confirmation, your reports and invoice totals become meaningful.
+
+2) Change item_tracking.start_item_tracking() to support “create tracking now, start timer later”
+
+File: item_tracking.py
+Goal: On the GET of picking.html, create the tracking row (so you have a tracking_id), but do not set item_started until the picker clicks Proceed to Pick.
+
+Modify the function signature + how item_started is assigned + allow a “flush-only” mode for batch:
+
+diff --git a/item_tracking.py b/item_tracking.py
+@@
+-def start_item_tracking(invoice_no, item_code, picker_username, previous_location=None):
++def start_item_tracking(invoice_no, item_code, picker_username, previous_location=None,
++                        start_immediately=True, started_at=None, commit=True):
+@@
+-        tracking = ItemTimeTracking(
++        start_ts = None
++        if start_immediately:
++            start_ts = started_at or get_utc_now()
++
++        tracking = ItemTimeTracking(
+             invoice_no=invoice_no,
+             item_code=item_code,
+             picker_username=picker_username,
+-            item_started=get_utc_now(),
++            item_started=start_ts,
+             item_completed=None,
+@@
+         db.session.add(tracking)
+-        db.session.commit()
++        if commit:
++            db.session.commit()
++        else:
++            db.session.flush()
+         return tracking
+
+3) Change item_tracking.complete_item_tracking() so it computes picking/total before calling calculate_metrics()
+
+File: item_tracking.py
+
+diff --git a/item_tracking.py b/item_tracking.py
+@@ def complete_item_tracking(tracking_id, picked_qty, picked_correctly=True, was_skipped=False, skip_reason=None):
+         tracking.item_completed = get_utc_now()
+         tracking.quantity_picked = picked_qty
+         tracking.picked_correctly = picked_correctly
+         tracking.was_skipped = was_skipped
+         tracking.skip_reason = skip_reason
++
++        # Derive picking_time (between Arrived and Confirm)
++        if tracking.item_started:
++            tracking.picking_time = max((tracking.item_completed - tracking.item_started).total_seconds(), 0)
++
++        # Total = walking + picking + confirmation
++        walk = float(tracking.walking_time or 0.0)
++        pick = float(tracking.picking_time or 0.0)
++        conf = float(tracking.confirmation_time or 0.0)
++        tracking.total_item_time = walk + pick + conf
+ 
+         # Calculate all metrics
+         tracking.calculate_metrics()
+
+4) Update routes.py (regular picking) so tracking starts on “Proceed to Pick” click (Arrived)
+4.1 Change pick_item() GET to create tracking but NOT start it
+
+File: routes.py
+In pick_item(invoice_no) where it calls start_item_tracking(...), change it to:
+
+-        tracking = start_item_tracking(
++        tracking = start_item_tracking(
+             invoice_no=invoice_no,
+             item_code=current_item.item_code,
+             picker_username=current_user.username,
+-            previous_location=previous_location
++            previous_location=previous_location,
++            start_immediately=False
+         )
+
+4.2 Add a new endpoint: “Arrived” (sets item_started + walking_time)
+
+File: routes.py
+Add this near your other picker API endpoints (e.g., close to /api/picker/invoice/<invoice_no>/confirm-pick):
+
+@app.route('/api/picker/invoice/<invoice_no>/arrived', methods=['POST'])
+@login_required
+def api_picker_arrived(invoice_no):
+    if current_user.role != 'picker':
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    tracking_id = (request.json or {}).get('tracking_id') if request.is_json else request.form.get('tracking_id')
+    item_code = (request.json or {}).get('item_code') if request.is_json else request.form.get('item_code')
+
+    if not tracking_id:
+        return jsonify({'ok': False, 'error': 'Missing tracking_id'}), 400
+
+    from models import ItemTimeTracking
+
+    tracking = ItemTimeTracking.query.filter_by(
+        id=int(tracking_id),
+        picker_username=current_user.username
+    ).first()
+
+    if not tracking:
+        return jsonify({'ok': False, 'error': 'Tracking record not found'}), 404
+
+    # Idempotent: only set start once
+    if tracking.item_started is None:
+        now = utc_now_for_db()
+
+        # walking_time = time since previous item confirm (within same invoice)
+        prev = ItemTimeTracking.query.filter(
+            ItemTimeTracking.picker_username == current_user.username,
+            ItemTimeTracking.invoice_no == invoice_no,
+            ItemTimeTracking.item_completed.isnot(None),
+            ItemTimeTracking.id != tracking.id
+        ).order_by(ItemTimeTracking.item_completed.desc()).first()
+
+        tracking.item_started = now
+        tracking.walking_time = max((now - prev.item_completed).total_seconds(), 0) if prev else 0.0
+
+        # Optional: keep sanity if item_code provided
+        if item_code:
+            tracking.item_code = tracking.item_code or item_code
+
+        db.session.commit()
+
+    return jsonify({'ok': True})
+
+5) Update templates/picking.html so “Proceed to Pick” triggers the Arrived endpoint
+
+File: templates/picking.html
+In the existing click handler for confirmPickBtn, call /api/picker/invoice/<invoice_no>/arrived before showing the modal.
+
+Add this helper inside the existing <script> block:
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  let arrivedSent = false;
+
+  async function sendArrived() {
+    if (arrivedSent) return;
+    arrivedSent = true;
+
+    const trackingId = "{{ tracking_id or '' }}";
+    if (!trackingId) return;
+
+    const invoiceNo = "{{ invoice.invoice_no }}";
+    const itemCode = "{{ item.item_code }}";
+
+    // Try to send quickly; don't freeze UI if network is slow
+    const req = fetch(`/api/picker/invoice/${encodeURIComponent(invoiceNo)}/arrived`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+      body: JSON.stringify({ tracking_id: trackingId, item_code: itemCode }),
+      keepalive: true
+    });
+
+    // Wait briefly to anchor timestamp close to click; then proceed regardless
+    await Promise.race([req, new Promise(r => setTimeout(r, 250))]);
+  }
+
+  document.getElementById('confirmPickBtn').addEventListener('click', async function() {
+    await sendArrived();
+    {% if confirm_picking == 'true' %}
+      confirmPickModal.show();
+    {% else %}
+      showNextLocationAndSubmit('pickForm');
+    {% endif %}
+  });
+
+  // ...keep the rest as-is
+});
+</script>
+
+
+Important operational note: if confirm_picking is disabled, you effectively collapse “arrived” and “confirm” into one click, so your picking_time will be near-zero. If you want accurate phase tracking, keep confirmation enabled for pickers.
+
+6) Fix batch picking: start tracking on Proceed (Arrived), finish picking on modal confirm, and record confirmation screen time separately
+6.1 Add a batch “Arrived” endpoint
+
+File: routes_batch.py
+Add to the blueprint:
+
+@batch_bp.route('/api/batch/<int:batch_id>/arrived', methods=['POST'])
+@login_required
+def api_batch_arrived(batch_id):
+    if current_user.role not in ['admin', 'warehouse_manager'] and current_user.role != 'picker':
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    batch_session = BatchPickingSession.query.get_or_404(batch_id)
+    if current_user.role not in ['admin', 'warehouse_manager'] and batch_session.assigned_to != current_user.username:
+        return jsonify({'ok': False, 'error': 'Not assigned'}), 403
+
+    fixed_batch_key = 'batch_items_' + str(batch_id)
+    items = session.get(fixed_batch_key)
+    if not items or batch_session.current_item_index >= len(items):
+        return jsonify({'ok': False, 'error': 'No current item'}), 400
+
+    current_item = items[batch_session.current_item_index]
+    source_items = current_item.get('source_items', [])
+    n = max(len(source_items), 1)
+
+    now = datetime.utcnow()
+
+    # Prefer batch session memory for last completion (avoids cross-invoice noise)
+    prev_iso = session.get(f"batch_last_completed_at_{batch_id}")
+    prev_dt = datetime.fromisoformat(prev_iso) if prev_iso else None
+    walking_total = max((now - prev_dt).total_seconds(), 0) if prev_dt else 0.0
+    walking_share = walking_total / n
+
+    from item_tracking import start_item_tracking
+
+    tracking_ids = []
+    for s in source_items:
+        inv = s['invoice_no']
+        code = s['item_code']
+
+        t = start_item_tracking(
+            invoice_no=inv,
+            item_code=code,
+            picker_username=current_user.username,
+            previous_location=None,
+            start_immediately=True,
+            started_at=now,
+            commit=False
+        )
+        t.walking_time = walking_share
+        tracking_ids.append(t.id)
+
+    db.session.commit()
+
+    idx = batch_session.current_item_index
+    session[f"batch_tracking_ids_{batch_id}_{idx}"] = tracking_ids
+    session[f"batch_arrived_at_{batch_id}_{idx}"] = now.isoformat()
+
+    return jsonify({'ok': True})
+
+6.2 In templates/batch_picking_item.html, call the batch arrived endpoint on Proceed click
+
+File: templates/batch_picking_item.html
+Modify the handler for confirmPickBtn:
+
+-        confirmPickBtn.addEventListener('click', function() {
+-            confirmPickModal.show();
+-        });
++        let arrivedSent = false;
++        confirmPickBtn.addEventListener('click', async function() {
++            if (!arrivedSent) {
++                arrivedSent = true;
++                const batchId = "{{ batch_session.id }}";
++                const req = fetch(`/batch/api/batch/${batchId}/arrived`, {
++                    method: 'POST',
++                    headers: { 'X-Requested-With': 'fetch' },
++                    keepalive: true
++                });
++                await Promise.race([req, new Promise(r => setTimeout(r, 250))]);
++            }
++            confirmPickModal.show();
++        });
+
+
+Note: the /batch prefix depends on how your blueprint is registered. If your blueprint is already mounted at / then use /api/batch/... accordingly. Use the same base path your other batch routes use.
+
+6.3 In confirm_batch_item() store “picked confirmed at” time (the modal confirm)
+
+File: routes_batch.py
+Inside confirm_batch_item(batch_id) just before return render_template('batch_picking_confirm.html', ...):
+
+confirmed_at = datetime.utcnow()
+session[f"batch_confirmed_at_{batch_id}_{batch_session.current_item_index}"] = confirmed_at.isoformat()
+
+
+This timestamp represents the picker’s second click (finished picking).
+
+6.4 Replace the current time tracking block in complete_batch_confirm() (it’s wrong today)
+
+Right now, complete_batch_confirm() creates/updates ItemTimeTracking at completion time with item_started=current_time and item_completed=current_time (so picking_time becomes 0). Replace that section with:
+
+Load arrived_at from session
+
+Load confirmed_at from session
+
+Compute:
+
+picking_total = confirmed_at - arrived_at
+
+confirmation_total = final_submit_time - confirmed_at
+
+Allocate per-source-item (divide by n) so you do not multiply time by number of invoices in a consolidated pick.
+
+Update tracking rows by the stored tracking_ids.
+
+Skeleton:
+
+final_time = datetime.utcnow()
+idx = batch_session.current_item_index
+
+arrived_iso = session.get(f"batch_arrived_at_{batch_id}_{idx}")
+confirmed_iso = session.get(f"batch_confirmed_at_{batch_id}_{idx}")
+tracking_ids = session.get(f"batch_tracking_ids_{batch_id}_{idx}", [])
+
+arrived_at = datetime.fromisoformat(arrived_iso) if arrived_iso else None
+confirmed_at = datetime.fromisoformat(confirmed_iso) if confirmed_iso else final_time
+
+picking_total = max((confirmed_at - arrived_at).total_seconds(), 0) if arrived_at else 0.0
+confirmation_total = max((final_time - confirmed_at).total_seconds(), 0)
+
+n = max(len(source_items), 1)
+pick_share = picking_total / n
+conf_share = confirmation_total / n
+
+# Build allocated quantities per source item from your existing allocation logic:
+# allocated_by_key[(invoice_no, item_code)] = allocated_qty
+
+recs = ItemTimeTracking.query.filter(ItemTimeTracking.id.in_(tracking_ids)).all()
+by_id = {r.id: r for r in recs}
+
+for s in source_items:
+    key = (s['invoice_no'], s['item_code'])
+    allocated_qty = allocated_by_key.get(key, s['qty'])
+
+    # find the matching tracking record (you can map ids to source items if you prefer;
+    # simplest: query by invoice_no/item_code and item_started == arrived_at)
+    t = ItemTimeTracking.query.filter_by(
+        invoice_no=s['invoice_no'],
+        item_code=s['item_code'],
+        picker_username=current_user.username
+    ).order_by(ItemTimeTracking.created_at.desc()).first()
+
+    if not t:
+        continue
+
+    t.item_completed = confirmed_at
+    t.quantity_expected = s['qty']
+    t.quantity_picked = allocated_qty
+    t.picking_time = pick_share
+    t.confirmation_time = conf_share
+    t.total_item_time = float(t.walking_time or 0.0) + pick_share + conf_share
+    t.calculate_metrics()
+
+db.session.commit()
+
+# remember last completion for walking calc on next item
+session[f"batch_last_completed_at_{batch_id}"] = confirmed_at.isoformat()
+
+# cleanup per-index keys (optional)
+session.pop(f"batch_tracking_ids_{batch_id}_{idx}", None)
+session.pop(f"batch_arrived_at_{batch_id}_{idx}", None)
+session.pop(f"batch_confirmed_at_{batch_id}_{idx}", None)
+
+
+Also fix this while you are there: do not set quantity_picked=picked_qty for every source invoice line. Use the allocated quantity per invoice line (your code already computes this during distribution).
+
+7) Quick validation checklist (do this after deploy)
+
+Pick 2 consecutive items in a normal invoice (with confirmation enabled):
+
+Item 1: walking_time ≈ 0, picking_time > 0, total_item_time ≈ picking_time
+
+Item 2: walking_time > 0 (time between previous confirm and this proceed), picking_time > 0, total_item_time ≈ walking + picking
+
+Batch pick a consolidated item:
+
+Ensure time is not “multiplied” by number of source invoices (sum of per-line total_item_time for that batch item should be ≈ physical time).
+
+Ensure reporting pages that sum total_item_time per invoice now align much closer to real shift time.

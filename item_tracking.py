@@ -65,7 +65,8 @@ def parse_location_components(location):
     return result
 
 
-def start_item_tracking(invoice_no, item_code, picker_username, previous_location=None):
+def start_item_tracking(invoice_no, item_code, picker_username, previous_location=None,
+                        start_immediately=True, started_at=None, commit=True):
     """
     Start tracking timing for a specific item pick
     
@@ -74,6 +75,9 @@ def start_item_tracking(invoice_no, item_code, picker_username, previous_locatio
         item_code: Item code being picked
         picker_username: Username of picker
         previous_location: Location of previous pick (for distance calculation)
+        start_immediately: If True, set item_started now. If False, leave it None (set later via arrived endpoint)
+        started_at: Optional specific timestamp to use for item_started
+        commit: If True, commit to DB. If False, just flush (useful for batch operations)
     
     Returns:
         ItemTimeTracking record
@@ -96,12 +100,17 @@ def start_item_tracking(invoice_no, item_code, picker_username, previous_locatio
         # Parse location components
         location_parts = parse_location_components(item.location)
         
+        # Determine start timestamp
+        start_ts = None
+        if start_immediately:
+            start_ts = started_at or get_utc_now()
+        
         # Create tracking record
         tracking = ItemTimeTracking(
             invoice_no=invoice_no,
             item_code=item_code,
             picker_username=picker_username,
-            item_started=get_utc_now(),
+            item_started=start_ts,
             
             # Item details
             location=item.location,
@@ -131,7 +140,10 @@ def start_item_tracking(invoice_no, item_code, picker_username, previous_locatio
         tracking.order_sequence = sequence + 1
         
         db.session.add(tracking)
-        db.session.commit()
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
         
         return tracking
         
@@ -163,6 +175,16 @@ def complete_item_tracking(tracking_id, picked_qty, picked_correctly=True, was_s
         tracking.picked_correctly = picked_correctly
         tracking.was_skipped = was_skipped
         tracking.skip_reason = skip_reason
+        
+        # Derive picking_time (between Arrived and Confirm)
+        if tracking.item_started:
+            tracking.picking_time = max((tracking.item_completed - tracking.item_started).total_seconds(), 0)
+        
+        # Total = walking + picking + confirmation
+        walk = float(tracking.walking_time or 0.0)
+        pick = float(tracking.picking_time or 0.0)
+        conf = float(tracking.confirmation_time or 0.0)
+        tracking.total_item_time = walk + pick + conf
         
         # Calculate all metrics
         tracking.calculate_metrics()

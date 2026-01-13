@@ -792,12 +792,23 @@ class ItemTimeTracking(db.Model):
             else:
                 item_completed_utc = self.item_completed.astimezone(timezone.utc)
             
-            # Calculate duration in UTC (accurate, no DST surprises)
-            delta = item_completed_utc - item_started_utc
-            self.total_item_time = delta.total_seconds()
+            # Duration between "arrived" (item_started) and "confirmed" (item_completed)
+            delta_seconds = max((item_completed_utc - item_started_utc).total_seconds(), 0)
             
-            # Calculate efficiency ratio
-            if self.expected_time > 0:
+            # If picking_time not explicitly set, use delta as picking_time
+            if not self.picking_time or self.picking_time <= 0:
+                self.picking_time = delta_seconds
+            
+            walk = float(self.walking_time or 0.0)
+            pick = float(self.picking_time or 0.0)
+            conf = float(self.confirmation_time or 0.0)
+            
+            # Prefer explicit phase totals (walking + picking + confirmation)
+            phase_total = walk + pick + conf
+            self.total_item_time = phase_total if phase_total > 0 else delta_seconds
+            
+            # Calculate efficiency ratio using total_item_time
+            if self.expected_time and self.expected_time > 0:
                 self.efficiency_ratio = self.total_item_time / self.expected_time
             
             # Convert to Athens ONLY for context fields (time_of_day, day_of_week, peak_hours)
