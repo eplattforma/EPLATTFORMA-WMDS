@@ -1759,14 +1759,22 @@ def api_batch_arrived(batch_id):
     now = get_utc_now()
 
     # Find the most recent completed tracking record for walking_time calculation
-    # (Use first tracking_id as representative for the batch)
     prev = ItemTimeTracking.query.filter(
         ItemTimeTracking.picker_username == current_user.username,
         ItemTimeTracking.item_completed.isnot(None),
         ItemTimeTracking.id.notin_(tracking_ids)
     ).order_by(ItemTimeTracking.item_completed.desc()).first()
 
-    walking_time = max((now - prev.item_completed).total_seconds(), 0) if prev else 0.0
+    if prev:
+        # Not the first item - use previous item's completion time
+        walking_time = max((now - prev.item_completed).total_seconds(), 0)
+    else:
+        # First item in batch - use batch session created_at as baseline
+        batch_session = BatchPickingSession.query.get(batch_id)
+        if batch_session and batch_session.created_at:
+            walking_time = max((now - batch_session.created_at).total_seconds(), 0)
+        else:
+            walking_time = 0.0
     
     # For batch picks, divide walking_time by number of source invoices
     num_sources = len(tracking_ids) if tracking_ids else 1

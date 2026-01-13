@@ -2585,8 +2585,23 @@ def api_picker_arrived(invoice_no):
             ItemTimeTracking.id != tracking.id
         ).order_by(ItemTimeTracking.item_completed.desc()).first()
 
+        if prev:
+            # Not the first item - use previous item's completion time
+            tracking.walking_time = max((now - prev.item_completed).total_seconds(), 0)
+        else:
+            # First item - use order start time from ActivityLog
+            from models import ActivityLog
+            order_start = ActivityLog.query.filter_by(
+                invoice_no=invoice_no,
+                activity_type='picking_started'
+            ).order_by(ActivityLog.timestamp.desc()).first()
+            
+            if order_start and order_start.timestamp:
+                tracking.walking_time = max((now - order_start.timestamp).total_seconds(), 0)
+            else:
+                tracking.walking_time = 0.0
+
         tracking.item_started = now
-        tracking.walking_time = max((now - prev.item_completed).total_seconds(), 0) if prev else 0.0
 
         # Keep item_code if provided
         if item_code:
