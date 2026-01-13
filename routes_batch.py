@@ -1639,6 +1639,29 @@ def batch_picking_item(batch_id):
             if batch_session.status != 'Completed':
                 batch_session.status = 'Completed'
                 
+                # Record confirmation_time for all tracking records in this batch
+                # This captures time from last item confirm → batch completion
+                from timezone_utils import get_utc_now
+                now = get_utc_now()
+                
+                # Get all invoice numbers in this batch
+                batch_invoice_nos = [bi.invoice_no for bi in batch_session.invoices]
+                
+                # For each invoice, find the last tracking record and set confirmation_time
+                for invoice_no in batch_invoice_nos:
+                    last_tracking = ItemTimeTracking.query.filter_by(
+                        invoice_no=invoice_no,
+                        picker_username=current_user.username
+                    ).filter(
+                        ItemTimeTracking.item_completed.isnot(None)
+                    ).order_by(ItemTimeTracking.item_completed.desc()).first()
+                    
+                    if last_tracking and last_tracking.item_completed:
+                        # Divide confirmation time by number of invoices in batch
+                        confirmation_seconds = max((now - last_tracking.item_completed).total_seconds(), 0)
+                        confirmation_per_invoice = confirmation_seconds / len(batch_invoice_nos) if batch_invoice_nos else confirmation_seconds
+                        last_tracking.confirmation_time = confirmation_per_invoice
+                
                 # Update order statuses for all invoices in this batch
                 from batch_aware_order_status import update_all_orders_after_batch_completion
                 updated_orders = update_all_orders_after_batch_completion(batch_id)

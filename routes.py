@@ -3509,11 +3509,25 @@ def mark_as_packed(invoice_no):
     
     # Update the invoice status to ready_for_dispatch and record packing time
     from timezone_utils import get_local_time
+    now = utc_now_for_db()
     invoice.status = 'ready_for_dispatch'
-    invoice.packing_complete_time = utc_now_for_db()
+    invoice.packing_complete_time = now
+    
+    # Record confirmation_time on the last item's tracking record
+    # This captures time from last item confirm → packing confirmation
+    from models import ActivityLog, ItemTimeTracking
+    last_tracking = ItemTimeTracking.query.filter_by(
+        invoice_no=invoice_no,
+        picker_username=current_user.username
+    ).filter(
+        ItemTimeTracking.item_completed.isnot(None)
+    ).order_by(ItemTimeTracking.item_completed.desc()).first()
+    
+    if last_tracking and last_tracking.item_completed:
+        confirmation_seconds = max((now - last_tracking.item_completed).total_seconds(), 0)
+        last_tracking.confirmation_time = confirmation_seconds
     
     # Log the actual completion time for accurate time tracking
-    from models import ActivityLog
     completion_log = ActivityLog()
     completion_log.picker_username = current_user.username
     completion_log.activity_type = 'picking_completed'
