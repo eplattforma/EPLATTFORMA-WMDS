@@ -421,8 +421,37 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // Track whether we've sent the arrived signal
+    let arrivedSent = false;
+    
+    // Send arrived signal to record walking time
+    async function sendArrived() {
+        if (arrivedSent) return;
+        arrivedSent = true;
+
+        const trackingId = "{{ tracking_id or '' }}";
+        if (!trackingId) return;
+
+        const invoiceNo = "{{ invoice.invoice_no }}";
+        const itemCode = "{{ item.item_code }}";
+
+        // Try to send quickly; don't freeze UI if network is slow
+        const req = fetch(`/api/picker/invoice/${encodeURIComponent(invoiceNo)}/arrived`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+            body: JSON.stringify({ tracking_id: trackingId, item_code: itemCode }),
+            keepalive: true
+        });
+
+        // Wait briefly to anchor timestamp close to click; then proceed regardless
+        await Promise.race([req, new Promise(r => setTimeout(r, 250))]);
+    }
+    
     // Confirm button shows the confirmation modal or submits directly based on settings
-    document.getElementById('confirmPickBtn').addEventListener('click', function() {
+    document.getElementById('confirmPickBtn').addEventListener('click', async function() {
+        // Send arrived signal first to record walking time
+        await sendArrived();
+        
         {% if confirm_picking == 'true' %}
         // Show confirmation modal when confirmation is enabled
         confirmPickModal.show();
