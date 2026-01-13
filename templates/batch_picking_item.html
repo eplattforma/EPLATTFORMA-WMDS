@@ -539,10 +539,38 @@
         var skipModal = new bootstrap.Modal(document.getElementById('skipModal'));
         var nextLocationModal = new bootstrap.Modal(document.getElementById('nextLocationModal'));
         
+        // Track whether we've sent the arrived signal
+        let arrivedSent = false;
+        
+        // Send arrived signal to record walking time
+        async function sendBatchArrived() {
+            if (arrivedSent) return;
+            arrivedSent = true;
+
+            const trackingIds = {{ tracking_ids|default([])|tojson }};
+            if (!trackingIds || trackingIds.length === 0) return;
+
+            const batchId = {{ batch_session.id }};
+
+            // Try to send quickly; don't freeze UI if network is slow
+            const req = fetch(`/batch/api/picker/batch/${batchId}/arrived`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+                body: JSON.stringify({ tracking_ids: trackingIds }),
+                keepalive: true
+            });
+
+            // Wait briefly to anchor timestamp close to click; then proceed regardless
+            await Promise.race([req, new Promise(r => setTimeout(r, 250))]);
+        }
+        
         // Handle confirm pick button click
         const confirmPickBtn = document.getElementById('confirmPickBtn');
         if (confirmPickBtn) {
-            confirmPickBtn.addEventListener('click', function() {
+            confirmPickBtn.addEventListener('click', async function() {
+                // Send arrived signal first to record walking time
+                await sendBatchArrived();
+                
                 confirmPickModal.show();
             });
         }

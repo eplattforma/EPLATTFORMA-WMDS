@@ -1698,6 +1698,27 @@ def batch_picking_item(batch_id):
     exception_reasons_text = Setting.get(db.session, 'exception_reasons', default_exception_reasons)
     exception_reasons_list = [reason.strip() for reason in exception_reasons_text.split('\n') if reason.strip()]
     
+    # Start per-product time tracking for each source item in this consolidated batch item
+    # We create tracking records now but don't set item_started until picker clicks "Proceed to Pick"
+    tracking_ids = []
+    try:
+        from item_tracking import start_item_tracking
+        source_items = current_item.get('source_items', [])
+        
+        for source_item in source_items:
+            tracking = start_item_tracking(
+                invoice_no=source_item.get('invoice_no'),
+                item_code=current_item.get('item_code'),
+                picker_username=current_user.username,
+                previous_location=None,  # Could track this for walking time
+                start_immediately=False,
+                batch_id=batch_id
+            )
+            if tracking:
+                tracking_ids.append(tracking.id)
+    except Exception as e:
+        current_app.logger.warning(f"Error starting batch item tracking: {e}")
+    
     # Render the picking page
     return render_template('batch_picking_item.html',
                           batch_session=batch_session,
@@ -1710,7 +1731,61 @@ def batch_picking_item(batch_id):
                           exception_reasons_list=exception_reasons_list,
                           total_items=len(items),
                           current_index=batch_session.current_item_index,
-                          show_multi_qty_warning=show_multi_qty_warning)
+                          show_multi_qty_warning=show_multi_qty_warning,
+                          tracking_ids=tracking_ids)
+
+@batch_bp.route('/api/picker/batch/<int:batch_id>/arrived', methods=['POST'])
+@login_required
+def api_batch_arrived(batch_id):
+    """Sets item_started timestamp for all tracking IDs when picker clicks 'Proceed to Pick'"""
+    if current_user.role not in ['admin', 'warehouse_manager', 'picker']:
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    # Get tracking_ids from request
+    if request.is_json:
+        tracking_ids = (request.json or {}).get('tracking_ids', [])
+    else:
+        tracking_ids_str = request.form.get('tracking_ids', '[]')
+        try:
+            import json
+            tracking_ids = json.loads(tracking_ids_str)
+        except:
+            tracking_ids = []
+
+    if not tracking_ids:
+        return jsonify({'ok': False, 'error': 'Missing tracking_ids'}), 400
+
+    from timezone_utils import get_utc_now
+    now = get_utc_now()
+
+    # Find the most recent completed tracking record for walking_time calculation
+    # (Use first tracking_id as representative for the batch)
+    prev = ItemTimeTracking.query.filter(
+        ItemTimeTracking.picker_username == current_user.username,
+        ItemTimeTracking.item_completed.isnot(None),
+        ItemTimeTracking.id.notin_(tracking_ids)
+    ).order_by(ItemTimeTracking.item_completed.desc()).first()
+
+    walking_time = max((now - prev.item_completed).total_seconds(), 0) if prev else 0.0
+    
+    # For batch picks, divide walking_time by number of source invoices
+    num_sources = len(tracking_ids) if tracking_ids else 1
+    walking_time_per_source = walking_time / num_sources if num_sources > 0 else 0.0
+
+    # Update all tracking records
+    for tid in tracking_ids:
+        tracking = ItemTimeTracking.query.filter_by(
+            id=int(tid),
+            picker_username=current_user.username
+        ).first()
+
+        if tracking and tracking.item_started is None:
+            tracking.item_started = now
+            tracking.walking_time = walking_time_per_source
+
+    db.session.commit()
+    return jsonify({'ok': True})
+
 
 @batch_bp.route('/picker/batch/confirm/<int:batch_id>', methods=['POST'])
 @login_required

@@ -66,7 +66,7 @@ def parse_location_components(location):
 
 
 def start_item_tracking(invoice_no, item_code, picker_username, previous_location=None,
-                        start_immediately=True, started_at=None, commit=True):
+                        start_immediately=True, started_at=None, commit=True, batch_id=None):
     """
     Start tracking timing for a specific item pick
     
@@ -78,6 +78,7 @@ def start_item_tracking(invoice_no, item_code, picker_username, previous_locatio
         start_immediately: If True, set item_started now. If False, leave it None (set later via arrived endpoint)
         started_at: Optional specific timestamp to use for item_started
         commit: If True, commit to DB. If False, just flush (useful for batch operations)
+        batch_id: Optional batch picking session ID (for batch consolidated picks)
     
     Returns:
         ItemTimeTracking record
