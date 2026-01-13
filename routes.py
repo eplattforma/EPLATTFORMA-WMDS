@@ -718,11 +718,16 @@ def admin_dashboard():
         total_lines_count[invoice.invoice_no] = len(items)
         picked_lines_count[invoice.invoice_no] = sum(1 for item in items if item.is_picked)
         
-        # Calculate picking time with same logic as picker dashboard
-        # Priority 1: Actual time from ItemTimeTracking
+        # Calculate total order time (picking + packing)
+        # Priority 1: Actual time from ItemTimeTracking + packing time
         actual_seconds = actual_by_invoice.get(invoice.invoice_no)
         if actual_seconds and actual_seconds > 0:
-            picking_times[invoice.invoice_no] = f"{round(actual_seconds / 60, 2)}m"
+            total_seconds = actual_seconds
+            # Add packing time if available
+            if invoice.picking_complete_time and invoice.packing_complete_time:
+                packing_seconds = (invoice.packing_complete_time - invoice.picking_complete_time).total_seconds()
+                total_seconds += packing_seconds
+            picking_times[invoice.invoice_no] = f"{round(total_seconds / 60, 2)}m"
         else:
             # Priority 2: Time from OrderTimeBreakdown
             breakdown = breakdown_by_invoice.get(invoice.invoice_no)
@@ -2342,10 +2347,15 @@ def picker_dashboard():
     now_utc = get_utc_now()
     
     for invoice in all_visible_invoices:
-        # Priority 1: Actual time from ItemTimeTracking
+        # Priority 1: Actual time from ItemTimeTracking + packing time
         actual_seconds = actual_by_invoice.get(invoice.invoice_no)
         if actual_seconds and actual_seconds > 0:
-            picking_times[invoice.invoice_no] = f"{round(actual_seconds / 60, 2)}m"
+            total_seconds = actual_seconds
+            # Add packing time if available
+            if invoice.picking_complete_time and invoice.packing_complete_time:
+                packing_seconds = (invoice.packing_complete_time - invoice.picking_complete_time).total_seconds()
+                total_seconds += packing_seconds
+            picking_times[invoice.invoice_no] = f"{round(total_seconds / 60, 2)}m"
             continue
             
         # Priority 2: Time from OrderTimeBreakdown
