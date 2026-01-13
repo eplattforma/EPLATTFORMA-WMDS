@@ -95,10 +95,9 @@ def time_analysis_dashboard():
         # Fallback to summing item-level exp_time if invoice total is not available
         estimated_total_time = invoice.total_exp_time or sum(item.exp_time or 0 for item in invoice.items)
         
-        # Calculate actual total time - use just the sum of item times (total_picking_minutes)
-        # This matches the dashboard calculation which uses sum(ItemTimeTracking.total_item_time)
-        # total_item_time already includes walking + picking + confirmation per item
-        actual_total_time = actual_picking_time
+        # Calculate actual total time = picking time + packing time
+        # This matches the dashboard calculation and the estimated time (which includes packing)
+        actual_total_time = actual_picking_time + actual_packing_time
         
         # Calculate metrics for this order
         order_data = {
