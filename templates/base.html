@@ -134,8 +134,8 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item" 
-                                   href="/admin/time_analysis">
+                                <a class="dropdown-item {% if request.endpoint == 'time_analysis_dashboard' %}active{% endif %}" 
+                                   href="{{ url_for('time_analysis_dashboard') }}">
                                     <i class="fas fa-stopwatch me-2"></i>Time Analysis
                                 </a>
                             </li>
