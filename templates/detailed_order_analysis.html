@@ -34,10 +34,10 @@
                 </div>
                 <div class="card-body">
                     {% if actual_times %}
-                        <p><strong>Total Picking Time:</strong> <span class="text-success fs-5">{{ actual_times.wall_clock_minutes }} min</span></p>
-                        <p><strong>Packing Time:</strong> {{ actual_times.packing_minutes }} min</p>
+                        <p><strong>Total Picking Time:</strong> <span class="text-success fs-5">{{ actual_times.total_picking_minutes }} min</span></p>
+                        <p><strong>Packing Time:</strong> {{ actual_times.packing_minutes }} min</span></p>
                         <hr>
-                        <p><strong>Total Time:</strong> <span class="fw-bold fs-4">{{ actual_times.total_minutes }} min</span></p>
+                        <p><strong>Total Time:</strong> <span class="fw-bold fs-4">{{ (actual_times.total_picking_minutes + actual_times.packing_minutes)|round(2) }} min</span></p>
                         <p><small class="text-muted">Items tracked: {{ actual_times.items_tracked }}</small></p>
                         {% if actual_times.picking_started and actual_times.picking_completed %}
                             <small class="text-muted">
