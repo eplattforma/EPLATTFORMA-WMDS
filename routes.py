@@ -2544,6 +2544,59 @@ def start_picking(invoice_no):
     return redirect(url_for('pick_item', invoice_no=invoice_no))
 
 
+@app.route('/api/picker/invoice/<invoice_no>/arrived', methods=['POST'])
+@login_required
+def api_picker_arrived(invoice_no):
+    """Sets item_started timestamp and computes walking_time when picker clicks 'Proceed to Pick'"""
+    if current_user.role != 'picker':
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    # Get tracking_id from request
+    if request.is_json:
+        tracking_id = (request.json or {}).get('tracking_id')
+        item_code = (request.json or {}).get('item_code')
+    else:
+        tracking_id = request.form.get('tracking_id')
+        item_code = request.form.get('item_code')
+
+    if not tracking_id:
+        return jsonify({'ok': False, 'error': 'Missing tracking_id'}), 400
+
+    from models import ItemTimeTracking
+    from timezone_utils import get_utc_now
+
+    tracking = ItemTimeTracking.query.filter_by(
+        id=int(tracking_id),
+        picker_username=current_user.username
+    ).first()
+
+    if not tracking:
+        return jsonify({'ok': False, 'error': 'Tracking record not found'}), 404
+
+    # Idempotent: only set start once
+    if tracking.item_started is None:
+        now = get_utc_now()
+
+        # walking_time = time since previous item confirm (within same invoice)
+        prev = ItemTimeTracking.query.filter(
+            ItemTimeTracking.picker_username == current_user.username,
+            ItemTimeTracking.invoice_no == invoice_no,
+            ItemTimeTracking.item_completed.isnot(None),
+            ItemTimeTracking.id != tracking.id
+        ).order_by(ItemTimeTracking.item_completed.desc()).first()
+
+        tracking.item_started = now
+        tracking.walking_time = max((now - prev.item_completed).total_seconds(), 0) if prev else 0.0
+
+        # Keep item_code if provided
+        if item_code:
+            tracking.item_code = tracking.item_code or item_code
+
+        db.session.commit()
+
+    return jsonify({'ok': True})
+
+
 @app.route('/api/picker/invoice/<invoice_no>/confirm-pick', methods=['POST'])
 @login_required
 def api_confirm_pick(invoice_no):
@@ -3014,7 +3067,8 @@ def pick_item(invoice_no):
             invoice_no=invoice_no,
             item_code=current_item.item_code,
             picker_username=current_user.username,
-            previous_location=previous_location
+            previous_location=previous_location,
+            start_immediately=False
         )
         
         if tracking:
