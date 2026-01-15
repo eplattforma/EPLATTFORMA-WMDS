@@ -11,8 +11,16 @@ from app import db
 from models import PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine
 from sqlalchemy import func, or_
 from shelves_service import fetch_item_shelves, Ps365Error
+from utils.image_handler import get_product_image
 
 po_receiving_bp = Blueprint('po_receiving', __name__, url_prefix='/po-receiving')
+
+@po_receiving_bp.route('/api/item-image/<item_code>')
+@login_required
+def api_item_image(item_code):
+    """Proxy for item images to use the same logic as picking"""
+    image_path = get_product_image(item_code)
+    return redirect(url_for('static', filename=image_path))
 
 POWERSOFT_BASE = os.getenv("POWERSOFT_BASE", "").rstrip("/")
 POWERSOFT_TOKEN = os.getenv("POWERSOFT_TOKEN", "")
