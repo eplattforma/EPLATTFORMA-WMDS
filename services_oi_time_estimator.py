@@ -338,9 +338,14 @@ def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str
         if breakdown["stops"]:
             breakdown["stops"][0]["seconds"] += stairs_s
 
-    # Note: floor_transition_seconds is already included in walking_seconds (via _compute_walk_only),
-    # so we exclude it from the total to avoid double-counting. It's tracked separately for visibility only.
-    breakdown["total"] = sum(v for k, v in breakdown.items() if isinstance(v, (int, float)) and k != "floor_transition_seconds")
+    # Note: walking_seconds (from _compute_walk_only) already includes zone_switch, corridor_change,
+    # floor_transition, and bay/pos stepping. Those breakdown fields are informational only.
+    # Total = align + walking + stairs (do NOT add the sub-breakdown fields again)
+    breakdown["total"] = (
+        float(breakdown["align_seconds"]) +
+        float(breakdown["walking_seconds"]) +
+        float(breakdown["stairs_seconds"])
+    )
     return breakdown
 
 

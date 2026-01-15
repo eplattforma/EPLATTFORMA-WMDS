@@ -1,0 +1,60 @@
+Important: you still have a travel double-counting bug in the breakdown total
+
+Right now, _compute_walk_only() returns a value walk_s that already includes:
+
+zone switch seconds
+
+corridor change seconds
+
+floor transition seconds
+
+bay/pos stepping
+
+etc.
+
+But in estimate_travel_seconds() you also separately accumulate:
+
+breakdown["zone_switch_seconds"] += ...
+
+breakdown["corridor_change_seconds"] += ...
+
+breakdown["floor_transition_seconds"] += ...
+
+Then you compute:
+
+breakdown["total"] = sum(... all numeric fields except floor_transition_seconds)
+
+
+This means zone_switch_seconds and corridor_change_seconds are double-counted in breakdown["total"] (because they are included inside walking_seconds via walk_s, and again as separate categories). You only excluded floor_transition_seconds, not the others.
+
+Minimal correct fix
+
+At the end of estimate_travel_seconds(), replace the breakdown["total"] = sum(...) line with:
+
+breakdown["total"] = (
+    float(breakdown["align_seconds"]) +
+    float(breakdown["walking_seconds"]) +
+    float(breakdown["stairs_seconds"])
+)
+
+
+Keep zone_switch_seconds, corridor_change_seconds, floor_transition_seconds as informational sub-breakdowns only (do not add them again into total).
+
+This matters because travel_s = travel_res.get("total") feeds into invoice totals — so if total is inflated, your entire estimate is inflated.
+
+One more consistency note (UI breakdown)
+
+In estimate_travel_breakdown_between(), you set:
+
+"walking_seconds": walk_s
+
+
+But walk_s includes corridor/zone penalties too. So the label “walking_seconds” is semantically misleading (it is “all movement seconds”). Not critical if it’s just display, but worth renaming or splitting later.
+
+Bottom line
+
+Corridor-number distance issue: fixed (good).
+
+Travel totals may still be wrong due to double counting: fix the breakdown["total"] calculation as above.
+
+If you apply that one-line total fix, your travel component should immediately drop (in a correct way), and your overall estimates should move noticeably closer to actuals.
