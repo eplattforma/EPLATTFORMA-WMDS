@@ -1514,6 +1514,10 @@ class PurchaseOrderLine(db.Model):
     # Shelf location from PS365 (JSON array of shelf objects)
     shelf_locations = db.Column(db.Text, nullable=True)
     
+    # Unit Information
+    unit_type = db.Column(db.String(50), nullable=True)
+    pieces_per_unit = db.Column(db.Integer, nullable=True)
+    
     # Relationships
     receiving_lines = db.relationship('ReceivingLine', backref='po_line', cascade='all, delete-orphan', lazy='dynamic')
     

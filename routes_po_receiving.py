@@ -376,6 +376,8 @@ def upsert_purchase_order(order_data, username, force_reimport=False):
             item_has_lot_number=to_bool(ln.get("item_has_lot_number")),
             item_has_serial_number=to_bool(ln.get("item_has_serial_number")),
             shelf_locations=json.dumps(shelf_data) if shelf_data else None,
+            unit_type=ln.get("unit_type"),
+            pieces_per_unit=int(ln.get("number_of_pieces") or 1) if ln.get("number_of_pieces") else None,
         )
         db.session.add(pol)
     
