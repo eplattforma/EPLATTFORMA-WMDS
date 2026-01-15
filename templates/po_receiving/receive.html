@@ -194,6 +194,8 @@ input[type=number] {
                                 <span class="badge bg-light text-dark border ms-2">
                                     {{ line.unit_type }}{% if line.pieces_per_unit and line.pieces_per_unit > 1 %}({{ line.pieces_per_unit|int }}){% endif %}
                                 </span>
+                                {% else %}
+                                <span class="badge bg-light text-muted border ms-2">PIECE</span>
                                 {% endif %}
                                 <br>
                                 <small class="text-muted">{{ line.item_name }}</small>
