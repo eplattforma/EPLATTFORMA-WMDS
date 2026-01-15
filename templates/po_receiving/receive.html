@@ -103,8 +103,13 @@ input[type=number] {
     <!-- Selected Item Display -->
     <div class="card mb-3">
         <div class="card-body">
-            <div id="selectedItemDisplay" class="text-muted" style="font-size: 1.1rem; line-height: 1.6;">
-                <div>No item selected</div>
+            <div class="d-flex align-items-center gap-3">
+                <div id="selectedItemImage" style="width: 120px; height: 120px; border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f8f9fa;">
+                    <i class="fas fa-image fa-3x text-muted"></i>
+                </div>
+                <div id="selectedItemDisplay" class="text-muted flex-grow-1" style="font-size: 1.1rem; line-height: 1.6;">
+                    <div>No item selected</div>
+                </div>
             </div>
         </div>
     </div>
@@ -117,6 +122,8 @@ input[type=number] {
                 data-item="{{ line.item_code_365 }}" 
                 data-name="{{ line.item_name }}" 
                 data-qty="{{ line.line_quantity }}"
+                data-unit="{{ line.unit_type }}"
+                data-pieces="{{ line.pieces_per_unit|int if line.pieces_per_unit else 1 }}"
                 data-requires-expiry="{{ 'true' if line.item_has_expiration_date else 'false' }}">
             #{{ line.line_number }} - {{ line.item_code_365 }} - {{ line.item_name }}
         </option>
@@ -450,13 +457,26 @@ function chooseItem(lineId, itemCode, itemName, orderedQty) {
     const select = document.getElementById('lineSelect');
     select.value = lineId;
     
+    const selectedOption = select.options[select.selectedIndex];
+    const unitType = selectedOption.dataset.unit || 'PIECE';
+    const pieces = parseInt(selectedOption.dataset.pieces || 1);
+    const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+
     // Update display
     const display = document.getElementById('selectedItemDisplay');
     display.innerHTML = `
-        <div><strong>${itemCode}</strong> - ${itemName}</div>
+        <div class="d-flex align-items-center gap-2">
+            <strong>${itemCode}</strong>
+            <span class="badge bg-info">${unitDisplay}</span>
+        </div>
+        <div>${itemName}</div>
         <div class="text-muted">Ordered Quantity: ${orderedQty}</div>
     `;
     
+    // Update image
+    const imgContainer = document.getElementById('selectedItemImage');
+    imgContainer.innerHTML = `<img src="/api/item-image/${itemCode}" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.innerHTML='<i class=\'fas fa-image fa-3x text-muted\'></i>'; this.parentElement.innerHTML='<i class=\'fas fa-image fa-3x text-muted\'></i>';">`;
+
     // Update expiration field visibility
     updateExpiryFieldVisibility();
     
@@ -535,12 +555,26 @@ async function useManual() {
                 const option = select.options[i];
                 if (option.dataset.item === data.item_code_365) {
                     select.selectedIndex = i;
+                    
+                    const unitType = option.dataset.unit || 'PIECE';
+                    const pieces = parseInt(option.dataset.pieces || 1);
+                    const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+
                     // Update display
                     const display = document.getElementById('selectedItemDisplay');
                     display.innerHTML = `
-                        <div><strong>${option.dataset.item}</strong> - ${option.dataset.name}</div>
+                        <div class="d-flex align-items-center gap-2">
+                            <strong>${option.dataset.item}</strong>
+                            <span class="badge bg-info">${unitDisplay}</span>
+                        </div>
+                        <div>${option.dataset.name}</div>
                         <div class="text-muted">Ordered Quantity: ${option.dataset.qty}</div>
                     `;
+                    
+                    // Update image
+                    const imgContainer = document.getElementById('selectedItemImage');
+                    imgContainer.innerHTML = `<img src="/api/item-image/${option.dataset.item}" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.parentElement.innerHTML='<i class=\'fas fa-image fa-3x text-muted\'></i>';">`;
+
                     // Update expiration field visibility
                     updateExpiryFieldVisibility();
                     document.getElementById('qtyInput').focus();
