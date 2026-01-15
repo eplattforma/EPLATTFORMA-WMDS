@@ -192,6 +192,12 @@ input[type=number] {
                                 {% endif %}
                                 <br>
                                 <small class="text-muted">{{ line.item_name }}</small>
+                                {% if line.unit_type %}
+                                <br>
+                                <span class="badge bg-light text-dark border">
+                                    {{ line.unit_type }}{% if line.pieces_per_unit and line.pieces_per_unit > 1 %}({{ line.pieces_per_unit|int }}){% endif %}
+                                </span>
+                                {% endif %}
                             </td>
                             <td class="{% if received > 0 %}received-cell{% endif %}">
                                 {% if shelf_data %}
