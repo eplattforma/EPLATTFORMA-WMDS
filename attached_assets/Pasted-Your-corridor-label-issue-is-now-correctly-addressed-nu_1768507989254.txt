@@ -1,0 +1,109 @@
+Your corridor-label issue is now correctly addressed (numeric corridor differences are no longer used unless explicitly enabled), and your travel total is now computed correctly (align + walking + stairs), so the two major logic defects we discussed are resolved.
+
+However, if your requirement is “use only parameter values; nothing hardcoded”, then you are not fully there yet, because there are still several places where you fall back to literal numbers / literal lists instead of DEFAULT_PARAMS.
+
+Below is an exact checklist of what remains, and the minimal fixes.
+
+1) Remaining “hardcoded” defaults you should remove
+A) Hardcoded upper corridor list ["70","80","90"]
+
+You still have several occurrences like:
+
+params.get("location", {}).get("upper_corridors", ["70", "80", "90"])
+
+
+This violates your rule because the fallback is literal.
+
+Fix: always fall back to DEFAULT_PARAMS["location"]["upper_corridors"].
+
+B) Hardcoded numeric fallbacks (4, 12, 14, 2.5, 0.6, 15, etc.)
+
+Examples:
+
+float(tr.get("zone_switch_seconds", 4))
+float(tr.get("sec_per_corridor_change", 14))
+float(tr.get("floor_transition_seconds", 12))
+float(tr.get("sec_per_bay_step", 2.5))
+float(tr.get("sec_per_pos_step", 0.6))
+sec_align = float(tr.get("sec_align_per_move", 15))   # inconsistent too
+
+
+Fix: use DEFAULT_PARAMS["travel"][...] (or corresponding section) everywhere, never a literal.
+
+C) Inconsistent default for sec_align_per_move in breakdown-between
+
+In estimate_travel_breakdown_between() you use:
+
+sec_align = float(tr.get("sec_align_per_move", 15))
+
+
+But your defaults define it as 13. This inconsistency is exactly the type of silent drift that causes confusion later.
+
+Fix: use DEFAULT_PARAMS["travel"]["sec_align_per_move"].
+
+D) Pick scan align fallback is hardcoded to 0
+
+In estimate_pick_seconds_for_line():
+
+sec_align = float(pk.get("sec_align_scan_per_line", 0))
+
+
+If you want “no hardcoded”, this should fall back to DEFAULT_PARAMS["pick"]["sec_align_scan_per_line"].
+
+E) get_time_params() has a hardcoded “13”
+
+Here:
+
+old_align = params["travel"].get("sec_align_per_stop", 13)
+
+
+Fix: use DEFAULT_PARAMS["travel"]["sec_align_per_stop"].
+
+2) Minimal patch pattern (copy/paste style)
+
+Use this approach everywhere you currently have magic numbers:
+
+Replace hardcoded upper corridor list
+upper_corridors = params.get("location", {}).get("upper_corridors") or DEFAULT_PARAMS["location"]["upper_corridors"]
+upper_corridors = set(str(x).zfill(2) for x in upper_corridors)
+
+Replace numeric fallbacks
+
+Example inside travel:
+
+zone_switch = float(tr.get("zone_switch_seconds", DEFAULT_PARAMS["travel"]["zone_switch_seconds"]))
+corr_change = float(tr.get("sec_per_corridor_change", DEFAULT_PARAMS["travel"]["sec_per_corridor_change"]))
+floor_trans = float(tr.get("floor_transition_seconds", DEFAULT_PARAMS["travel"]["floor_transition_seconds"]))
+bay_step   = float(tr.get("sec_per_bay_step", DEFAULT_PARAMS["travel"]["sec_per_bay_step"]))
+pos_step   = float(tr.get("sec_per_pos_step", DEFAULT_PARAMS["travel"]["sec_per_pos_step"]))
+
+Fix breakdown-between align default
+sec_align = float(tr.get("sec_align_per_move", DEFAULT_PARAMS["travel"]["sec_align_per_move"]))
+
+Fix pick scan align default
+sec_align = float(pk.get("sec_align_scan_per_line", DEFAULT_PARAMS["pick"]["sec_align_scan_per_line"]))
+
+Fix get_time_params old_align
+old_align = params["travel"].get("sec_align_per_stop", DEFAULT_PARAMS["travel"]["sec_align_per_stop"])
+
+3) Important clarification about “nothing hardcoded”
+
+You will still always have some hardcoded logic (e.g., how you parse locations, how you decide “upper corridor”, how you apply the multiplier, etc.). What you can (and should) eliminate is:
+
+hardcoded numeric defaults in get(..., 4) etc.
+
+hardcoded lists like ["70","80","90"]
+
+inconsistent fallback numbers (like 15 vs 13)
+
+If you adopt the rule: all fallbacks come from DEFAULT_PARAMS, then your code remains parameter-driven while still having a safe baseline.
+
+4) Final “OK?” status
+
+Corridor label distance explosion: OK
+
+Travel total double-counting: OK
+
+“Only parameter values, no hardcoded fallbacks”: NOT OK yet (items A–E above)
+
+If you apply the substitutions above, you will meet your requirement cleanly and avoid future parameter drift.
