@@ -190,14 +190,13 @@ input[type=number] {
                                 {% if line.item_barcode %}
                                 <span class="text-muted" style="font-family: monospace; margin-left: 8px;">{{ line.item_barcode }}</span>
                                 {% endif %}
-                                <br>
-                                <small class="text-muted">{{ line.item_name }}</small>
                                 {% if line.unit_type %}
-                                <br>
-                                <span class="badge bg-light text-dark border">
+                                <span class="badge bg-light text-dark border ms-2">
                                     {{ line.unit_type }}{% if line.pieces_per_unit and line.pieces_per_unit > 1 %}({{ line.pieces_per_unit|int }}){% endif %}
                                 </span>
                                 {% endif %}
+                                <br>
+                                <small class="text-muted">{{ line.item_name }}</small>
                             </td>
                             <td class="{% if received > 0 %}received-cell{% endif %}">
                                 {% if shelf_data %}
