@@ -586,91 +586,103 @@ function updateExpiryFieldVisibility() {
     }
 }
 
-// Use manual code entry
-async function useManual() {
-    const code = document.getElementById('manualCode').value.trim();
-    if (!code) return;
-    
-    const select = document.getElementById('lineSelect');
-    
-    // First, try direct match with item code
-    let found = false;
-    for (let i = 0; i < select.options.length; i++) {
-        const option = select.options[i];
-        if (option.dataset.item === code) {
-            select.selectedIndex = i;
-            // Update display
-            const display = document.getElementById('selectedItemDisplay');
-            display.innerHTML = `
-                <div><strong>${option.dataset.item}</strong> - ${option.dataset.name}</div>
-                <div class="text-muted">Ordered Quantity: ${option.dataset.qty}</div>
-            `;
-            // Update expiration field visibility
-            updateExpiryFieldVisibility();
-            document.getElementById('qtyInput').focus();
-            found = true;
+    // Use manual code entry
+    async function useManual() {
+        const code = document.getElementById('manualCode').value.trim();
+        if (!code) return;
+        
+        const select = document.getElementById('lineSelect');
+        
+        // First, try direct match with item code
+        let found = false;
+        for (let i = 0; i < select.options.length; i++) {
+            const option = select.options[i];
+            if (option.dataset.item === code) {
+                select.selectedIndex = i;
+                
+                const unitType = option.dataset.unit || 'PIECE';
+                const pieces = parseInt(option.dataset.pieces || 1);
+                const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+
+                // Update display
+                const display = document.getElementById('selectedItemDisplay');
+                display.innerHTML = `
+                    <div class="d-flex align-items-center gap-2">
+                        <strong>${option.dataset.item}</strong>
+                        <span class="badge bg-info">${unitDisplay}</span>
+                    </div>
+                    <div>${option.dataset.name}</div>
+                    <div class="text-muted">Ordered Quantity: ${option.dataset.qty}</div>
+                `;
+                // Update image
+                updateItemImage(option.dataset.item);
+
+                // Update expiration field visibility
+                updateExpiryFieldVisibility();
+                document.getElementById('qtyInput').focus();
+                found = true;
+                return;
+            }
+        }
+        
+        if (found) {
             return;
         }
-    }
-    
-    if (found) {
-        return;
-    }
-    
-    // If no direct match, lookup barcode via PS365
-    try {
-        const resp = await fetch('{{ url_for("po_receiving.api_lookup_barcode") }}', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({barcode: code})
-        });
         
-        const data = await resp.json();
-        
-        if (data.ok && data.item_code_365) {
-            // Try to match the returned item code to a line
-            for (let i = 0; i < select.options.length; i++) {
-                const option = select.options[i];
-                if (option.dataset.item === data.item_code_365) {
-                    select.selectedIndex = i;
-                    
-                    const unitType = option.dataset.unit || 'PIECE';
-                    const pieces = parseInt(option.dataset.pieces || 1);
-                    const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
-
-                    // Update display
-                    const display = document.getElementById('selectedItemDisplay');
-                    display.innerHTML = `
-                        <div class="d-flex align-items-center gap-2">
-                            <strong>${option.dataset.item}</strong>
-                            <span class="badge bg-info">${unitDisplay}</span>
-                        </div>
-                        <div>${option.dataset.name}</div>
-                        <div class="text-muted">Ordered Quantity: ${option.dataset.qty}</div>
-                    `;
-                    
-                    // Update image
-                    updateItemImage(option.dataset.item);
-
-                    // Update expiration field visibility
-                    updateExpiryFieldVisibility();
-                    document.getElementById('qtyInput').focus();
-                    return;
-                }
-            }
+        // If no direct match, lookup barcode via PS365
+        try {
+            const resp = await fetch('{{ url_for("po_receiving.api_lookup_barcode") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({barcode: code})
+            });
             
-            // Not found in PO - offer to add it
-            if (confirm('Item found in PS365:\n' + data.item_code_365 + ': ' + data.item_name + '\n\nThis item is not on the original order.\nAdd it to the order with ordered quantity 0?')) {
-                await addItemToPO(data.item_code_365, data.item_name);
+            const data = await resp.json();
+            
+            if (data.ok && data.item_code_365) {
+                // Try to match the returned item code to a line
+                for (let i = 0; i < select.options.length; i++) {
+                    const option = select.options[i];
+                    if (option.dataset.item === data.item_code_365) {
+                        select.selectedIndex = i;
+                        
+                        const unitType = option.dataset.unit || 'PIECE';
+                        const pieces = parseInt(option.dataset.pieces || 1);
+                        const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+
+                        // Update display
+                        const display = document.getElementById('selectedItemDisplay');
+                        display.innerHTML = `
+                            <div class="d-flex align-items-center gap-2">
+                                <strong>${option.dataset.item}</strong>
+                                <span class="badge bg-info">${unitDisplay}</span>
+                            </div>
+                            <div>${option.dataset.name}</div>
+                            <div class="text-muted">Ordered Quantity: ${option.dataset.qty}</div>
+                        `;
+                        
+                        // Update image
+                        updateItemImage(option.dataset.item);
+
+                        // Update expiration field visibility
+                        updateExpiryFieldVisibility();
+                        document.getElementById('qtyInput').focus();
+                        return;
+                    }
+                }
+                
+                // Not found in PO - offer to add it
+                if (confirm('Item found in PS365:\n' + data.item_code_365 + ': ' + data.item_name + '\n\nThis item is not on the original order.\nAdd it to the order with ordered quantity 0?')) {
+                    await addItemToPO(data.item_code_365, data.item_name);
+                }
+            } else {
+                alert('No matching item found for: ' + code);
             }
-        } else {
-            alert('No matching item found for: ' + code);
+        } catch (err) {
+            console.error('Barcode lookup error:', err);
+            alert('No matching line found for: ' + code);
         }
-    } catch (err) {
-        console.error('Barcode lookup error:', err);
-        alert('No matching line found for: ' + code);
     }
-}
 
 // Add item to PO (for items not originally on the order)
 async function addItemToPO(itemCode, itemName) {
@@ -732,8 +744,13 @@ async function addItemToPO(itemCode, itemName) {
             // Select the line (whether new or existing) and update display
             select.value = line.id;
             const display = document.getElementById('selectedItemDisplay');
+            const unitDisplay = line.unit_type ? (line.pieces_per_unit > 1 ? `${line.unit_type}(${line.pieces_per_unit})` : line.unit_type) : 'PIECE';
             display.innerHTML = `
-                <div><strong>${line.item_code_365}</strong> - ${line.item_name}</div>
+                <div class="d-flex align-items-center gap-2">
+                    <strong>${line.item_code_365}</strong>
+                    <span class="badge bg-info">${unitDisplay}</span>
+                </div>
+                <div>${line.item_name}</div>
                 <div class="text-muted">Ordered Quantity: 0</div>
             `;
             // Update expiration field visibility
