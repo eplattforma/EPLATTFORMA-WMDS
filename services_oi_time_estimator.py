@@ -42,15 +42,13 @@ DEFAULT_PARAMS = {
     "sec_align_per_move": 13,
     "sec_align_per_stop": 13,
     "sec_per_corridor_change": 14,
-    "sec_per_corridor_step": 4,
     "sec_per_bay_step": 2.5,
     "sec_per_pos_step": 0.6,
     "sec_stairs_up": 25,
     "sec_stairs_down": 20,
     "upper_walk_multiplier": 1.05,
     "zone_switch_seconds": 4,
-    "floor_transition_seconds": 12,
-    "use_corridor_step_distance": False
+    "floor_transition_seconds": 12
   },
   "pick": {
     "sec_align_scan_per_line": 13,
@@ -353,9 +351,7 @@ def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
     """Compute ONLY the movement/walking seconds between two stops (no alignment).
     
     Note: Corridor IDs are treated as labels, not physical coordinates.
-    By default, corridor changes incur only a fixed penalty (not distance-based).
-    Set use_corridor_step_distance=true to enable distance-based corridor stepping
-    (only if corridor numbers represent physical order in your warehouse).
+    Corridor changes incur only a fixed penalty (not distance-based).
     """
     travel = params.get("travel", {})
     upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors", ["70", "80", "90"]))
@@ -369,7 +365,7 @@ def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
     if prev.zone != curr.zone:
         s += float(travel.get("zone_switch_seconds", 4))
     
-    # Corridor change
+    # Corridor change (fixed penalty - corridor IDs are labels, not coordinates)
     if prev.corridor != curr.corridor:
         s += float(travel.get("sec_per_corridor_change", 14))
         
@@ -378,18 +374,12 @@ def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
         # This is the walk from last ground aisle to staircase / from staircase to first upper aisle
         if prev_upper != curr_upper:
             s += float(travel.get("floor_transition_seconds", 12))
-        
-        # Only enable corridor-step distance if corridor IDs represent physical order
-        # Default: OFF (corridor IDs are just labels)
-        if travel.get("use_corridor_step_distance", False):
-            corridor_diff = abs(curr.corridor - prev.corridor)
-            s += float(travel.get("sec_per_corridor_step", 4)) * corridor_diff
     
-    # Bay change (assumes bay numbers are physically ordered within a corridor)
+    # Bay change (bay numbers are physically ordered within a corridor)
     bay_diff = abs(curr.bay - prev.bay)
     s += float(travel.get("sec_per_bay_step", 2.5)) * bay_diff
     
-    # Position change (assumes position numbers are physically ordered)
+    # Position change (position numbers are physically ordered)
     pos_diff = abs(curr.pos - prev.pos)
     s += float(travel.get("sec_per_pos_step", 0.6)) * pos_diff
     
