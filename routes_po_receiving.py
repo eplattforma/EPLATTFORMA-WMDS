@@ -560,6 +560,25 @@ def receive(po_id):
         receiving_notes=receiving_notes
     )
 
+@po_receiving_bp.route('/api/update-description/<int:po_id>', methods=['POST'])
+@login_required
+def api_update_po_description(po_id):
+    """Update purchase order description via AJAX"""
+    if not check_role_access():
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+    
+    po = PurchaseOrder.query.get_or_404(po_id)
+    data = request.get_json()
+    new_desc = data.get('description', '').strip()
+    
+    try:
+        po.description = new_desc
+        db.session.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 @po_receiving_bp.route('/print/<int:po_id>')
 @login_required
 def print_po(po_id):
