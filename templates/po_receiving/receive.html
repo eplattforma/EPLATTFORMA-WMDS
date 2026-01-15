@@ -1019,9 +1019,19 @@ async function addLot() {
             document.getElementById('noteSelect').selectedIndex = 0;
             document.getElementById('lineSelect').selectedIndex = 0;
             
-            // Clear selected item display
+            // Clear selected item display and image
             const display = document.getElementById('selectedItemDisplay');
             display.innerHTML = '<div class="text-muted">No item selected</div>';
+            
+            const imgContainer = document.getElementById('selectedItemImage');
+            if (imgContainer) {
+                imgContainer.innerHTML = '<i class="fas fa-image fa-3x text-muted"></i>';
+            }
+            
+            const mainImgContainer = document.getElementById('itemImageContainer');
+            if (mainImgContainer) {
+                mainImgContainer.innerHTML = '<i class="fas fa-image fa-3x text-muted"></i>';
+            }
             
             setTimeout(() => msgDiv.innerHTML = '', 3000);
         } else {
