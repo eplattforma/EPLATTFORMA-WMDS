@@ -1,4 +1,555 @@
-items_for_picking(items)
+"""OI Order Time Estimator (ETC) - parameter-driven, explainable.
+
+Writes:
+  - invoices.total_exp_time (minutes per invoice)
+  - invoice_items.exp_time (minutes per line; pick-handling time only)
+
+Assumptions:
+  - Location format like '10-01-A02'
+  - Upper corridors are configured (default: 70/80/90)
+  - One upstairs trip per order (stairs added once if any upper corridor present)
+"""
+
+import re
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
+from app import db
+from models import Setting, Invoice, InvoiceItem, DwItem
+
+
+ESTIMATOR_VERSION = "oi_estimator_v1.2"
+
+DEFAULT_PARAMS = {
+  "version": "v1",
+  "store_units": {
+    "line_exp_time": "minutes",
+    "invoice_total_exp_time": "minutes"
+  },
+  "location": {
+    "regex": "^(?P<corridor>\\d{2})-(?P<bay>\\d{2})-(?P<level>[A-Z])(?P<pos>\\d{2})$",
+    "upper_corridors": [
+      "70",
+      "80",
+      "90"
+    ]
+  },
+  "overhead": {
+    "start_seconds": 45,
+    "end_seconds": 45
+  },
+  "travel": {
+    "sec_align_per_move": 13,
+    "sec_align_per_stop": 13,
+    "sec_per_corridor_change": 14,
+    "sec_per_corridor_step": 4,
+    "sec_per_bay_step": 2.5,
+    "sec_per_pos_step": 0.6,
+    "sec_stairs_up": 25,
+    "sec_stairs_down": 20,
+    "upper_walk_multiplier": 1.05,
+    "zone_switch_seconds": 4,
+    "floor_transition_seconds": 12,
+    "use_corridor_step_distance": False
+  },
+  "pick": {
+    "sec_align_scan_per_line": 13,
+    "base_by_unit_type": {
+      "item": 6,
+      "pack": 8,
+      "box": 10,
+      "case": 13,
+      "virtual_pack": 6
+    },
+    "per_qty_by_unit_type": {
+      "item": 1.1,
+      "pack": 1.6,
+      "box": 2.0,
+      "case": 0,
+      "virtual_pack": 1.1
+    },
+    "level_seconds": {
+      "A": 0,
+      "B": 2,
+      "C": 12,
+      "D": 14
+    },
+    "difficulty_seconds": {
+      "1": 0,
+      "2": 2,
+      "3": 6,
+      "4": 12,
+      "5": 20
+    },
+    "handling_seconds": {
+      "fragility_yes": 6,
+      "fragility_semi": 3,
+      "spill_true": 5,
+      "pressure_high": 4,
+      "heat_sensitive_summer": 8
+    },
+    "ladder_rules": [
+      {
+        "corridors": ["11", "13"],
+        "levels": ["C"],
+        "ladder_seconds": 15
+      }
+    ]
+  },
+  "pack": {
+    "base_seconds": 45,
+    "per_line_seconds": 3,
+    "special_group_seconds": 20
+  }
+}
+
+
+def normalize_unit_type(raw):
+    """Normalize unit type from PS365 or other sources to standard types"""
+    if not raw:
+        return "item"
+    u = str(raw).strip().upper()
+    
+    mapping = {
+        "PCS": "item", "PIECE": "item", "ITEM": "item", "EA": "item",
+        "PK": "pack", "PACK": "pack",
+        "BX": "box", "BOX": "box",
+        "CS": "case", "CASE": "case",
+        "VPACK": "virtual_pack", "VIRTUAL_PACK": "virtual_pack",
+    }
+    return mapping.get(u, u.lower())
+
+
+def _to_bool(v: object) -> bool:
+    return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def get_summer_mode() -> bool:
+    return _to_bool(Setting.get(db.session, "summer_mode", "false"))
+
+
+def get_time_params() -> Dict:
+    params = Setting.get_json(db.session, "oi_time_params_v1", default=DEFAULT_PARAMS)
+    if not isinstance(params, dict):
+        return DEFAULT_PARAMS
+    
+    # Ensure critical hidden parameters like regex exist
+    if "location" not in params:
+        params["location"] = {}
+    if "regex" not in params["location"]:
+        params["location"]["regex"] = DEFAULT_PARAMS["location"]["regex"]
+    
+    # Backward compatibility: migrate old sec_align_per_stop to new split keys
+    if "travel" not in params:
+        params["travel"] = {}
+    if "pick" not in params:
+        params["pick"] = {}
+    
+    # Migration and ensuring existence of keys
+    if "sec_align_per_stop" not in params["travel"]:
+        params["travel"]["sec_align_per_stop"] = DEFAULT_PARAMS["travel"]["sec_align_per_stop"]
+
+    old_align = params["travel"].get("sec_align_per_stop", DEFAULT_PARAMS["travel"]["sec_align_per_stop"])
+    if "sec_align_per_move" not in params["travel"]:
+        params["travel"]["sec_align_per_move"] = old_align
+    if "sec_align_scan_per_line" not in params["pick"]:
+        params["pick"]["sec_align_scan_per_line"] = old_align
+        
+    return params
+
+
+def get_params_revision() -> int:
+    """Get the current params revision number"""
+    rev_str = Setting.get(db.session, "oi_time_params_v1_revision", "1")
+    try:
+        return int(rev_str)
+    except (ValueError, TypeError):
+        return 1
+
+
+@dataclass(frozen=True)
+class Stop:
+    zone: str
+    corridor: int
+    bay: int
+    level: str
+    pos: int
+
+    @property
+    def corridor_str(self) -> str:
+        return f"{self.corridor:02d}" if self.corridor < 100 else str(self.corridor)
+
+
+def parse_location(loc: Optional[str], params: Dict) -> Tuple[Optional[int], Optional[int], Optional[str], Optional[int]]:
+    if not loc:
+        return None, None, None, None
+    
+    # Normalization: remove internal spaces, trim, uppercase
+    # Example: "31-04-E 02" -> "31-04-E02"
+    clean_loc = "".join(loc.split()).strip().upper()
+    
+    rx = params.get("location", {}).get("regex") or DEFAULT_PARAMS["location"]["regex"]
+    try:
+        m = re.match(rx, clean_loc)
+    except re.error:
+        m = None
+    if not m:
+        return None, None, None, None
+    gd = m.groupdict()
+    try:
+        corridor = int(gd["corridor"])
+        bay = int(gd["bay"])
+        level = gd["level"]
+        pos = int(gd["pos"])
+        return corridor, bay, level, pos
+    except Exception:
+        return None, None, None, None
+
+
+def _safe_int(v: object, default: int = 0) -> int:
+    try:
+        if v is None:
+            return default
+        s = str(v).strip()
+        if s == "":
+            return default
+        return int(float(s))
+    except Exception:
+        return default
+
+
+def build_stops(items: List[InvoiceItem], params: Dict) -> List[Stop]:
+    uniq = {}
+    for it in items:
+        c2, b2, l2, p2 = parse_location(it.location, params)
+        corridor = c2 if c2 is not None else _safe_int(it.corridor, 0)
+        bay = b2 if b2 is not None else 0
+        level = l2 or "A"
+        pos = p2 if p2 is not None else 0
+        zone = (it.zone or "MAIN").strip().upper()
+        key = (zone, corridor, bay, level, pos)
+        if key not in uniq:
+            uniq[key] = Stop(zone=zone, corridor=corridor, bay=bay, level=level, pos=pos)
+    return list(uniq.values())
+
+
+def _get_zone_priority_from_settings() -> Dict[str, int]:
+    """Get zone priority from picking_sort_config settings, with fallback defaults"""
+    try:
+        import json
+        setting = Setting.query.filter_by(key='picking_sort_config').first()
+        if setting and setting.value:
+            config = json.loads(setting.value) if isinstance(setting.value, str) else setting.value
+            zone_config = config.get('zone', {})
+            manual_priority = zone_config.get('manual_priority', [])
+            if manual_priority and isinstance(manual_priority, list) and len(manual_priority) > 0:
+                return {zone.upper(): idx for idx, zone in enumerate(manual_priority)}
+    except Exception:
+        pass
+    return {}
+
+
+def order_stops_one_trip(stops: List[Stop], params: Dict) -> List[Stop]:
+    upper_corridors_raw = params.get("location", {}).get("upper_corridors") or DEFAULT_PARAMS["location"]["upper_corridors"]
+    upper = set(str(x).zfill(2) for x in upper_corridors_raw)
+
+    def is_upper(s: Stop) -> bool:
+        return s.corridor_str in upper
+
+    # Get zone priority from settings (if configured) - no hardcoded defaults
+    zone_priority = _get_zone_priority_from_settings()
+
+    def zrank(z: str) -> int:
+        z_upper = z.upper()
+        if zone_priority and z_upper in zone_priority:
+            return zone_priority[z_upper]
+        return 999
+
+    # Separate ground and upstairs to ensure full level completion before moving floor
+    ground = [s for s in stops if not is_upper(s)]
+    upstairs = [s for s in stops if is_upper(s)]
+    
+    # Ground: Sort by Zone -> Corridor -> Bay -> Level -> Pos
+    ground.sort(key=lambda s: (zrank(s.zone), s.corridor, s.bay, s.level, s.pos))
+    
+    # Upstairs: Sort by Zone -> Corridor -> Bay -> Level -> Pos
+    upstairs.sort(key=lambda s: (zrank(s.zone), s.corridor, s.bay, s.level, s.pos))
+    
+    return ground + upstairs
+
+
+def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str, object]:
+    tr = params.get("travel", {})
+    upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors") or DEFAULT_PARAMS["location"]["upper_corridors"])
+    # Use sec_align_per_move instead of sec_align_per_stop for travel calculation
+    sec_align = float(tr.get("sec_align_per_move", DEFAULT_PARAMS["travel"]["sec_align_per_move"]))
+    
+    breakdown = {
+        "align_seconds": 0.0,
+        "zone_switch_seconds": 0.0,
+        "corridor_change_seconds": 0.0,
+        "floor_transition_seconds": 0.0,
+        "walking_seconds": 0.0,
+        "stairs_seconds": 0.0,
+        "total": 0.0,
+        "stops": [] # List of {key: stop_key, seconds: total_seconds_for_this_leg}
+    }
+
+    if not stops_ordered:
+        return breakdown
+
+    prev: Optional[Stop] = None
+
+    for i, s in enumerate(stops_ordered):
+        # Every stop gets alignment time
+        leg_s = sec_align
+        breakdown["align_seconds"] += sec_align
+        
+        walk_s = 0.0
+        if prev is not None:
+            # Calculate movement from prev to current
+            walk_s = _compute_walk_only(prev, s, params)
+            
+            # Update breakdown categories based on movement
+            if prev.zone != s.zone:
+                breakdown["zone_switch_seconds"] += float(tr.get("zone_switch_seconds", DEFAULT_PARAMS["travel"]["zone_switch_seconds"]))
+            
+            if prev.corridor != s.corridor:
+                breakdown["corridor_change_seconds"] += float(tr.get("sec_per_corridor_change", DEFAULT_PARAMS["travel"]["sec_per_corridor_change"]))
+                
+                # Track floor transitions (ground <-> upper)
+                prev_upper = prev.corridor_str in upper_corridors
+                curr_upper = s.corridor_str in upper_corridors
+                if prev_upper != curr_upper:
+                    breakdown["floor_transition_seconds"] += float(tr.get("floor_transition_seconds", DEFAULT_PARAMS["travel"]["floor_transition_seconds"]))
+                
+            breakdown["walking_seconds"] += walk_s
+            leg_s += walk_s
+        
+        stop_key = (s.zone, s.corridor, s.bay, s.level, s.pos)
+        breakdown["stops"].append({"key": stop_key, "seconds": float(leg_s)})
+        prev = s
+
+    # Stairs handled once per order if any upper corridors visited
+    if any(s.corridor_str in upper_corridors for s in stops_ordered):
+        stairs_s = float(tr.get("sec_stairs_up", DEFAULT_PARAMS["travel"]["sec_stairs_up"])) + float(tr.get("sec_stairs_down", DEFAULT_PARAMS["travel"]["sec_stairs_down"]))
+        breakdown["stairs_seconds"] = stairs_s
+        # Allocate stairs to the very first stop
+        if breakdown["stops"]:
+            breakdown["stops"][0]["seconds"] += stairs_s
+
+    # Note: walking_seconds (from _compute_walk_only) already includes zone_switch, corridor_change,
+    # floor_transition, and bay/pos stepping. Those breakdown fields are informational only.
+    # Total = align + walking + stairs (do NOT add the sub-breakdown fields again)
+    breakdown["total"] = (
+        float(breakdown["align_seconds"]) +
+        float(breakdown["walking_seconds"]) +
+        float(breakdown["stairs_seconds"])
+    )
+    return breakdown
+
+
+def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
+    """Compute ONLY the movement/walking seconds between two stops (no alignment).
+    
+    Note: Corridor IDs are treated as labels, not physical coordinates.
+    By default, corridor changes incur only a fixed penalty (not distance-based).
+    Set use_corridor_step_distance=true to enable distance-based corridor stepping
+    (only if corridor numbers represent physical order in your warehouse).
+    """
+    travel = params.get("travel", {})
+    upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors") or DEFAULT_PARAMS["location"]["upper_corridors"])
+    
+    prev_upper = prev.corridor_str in upper_corridors
+    curr_upper = curr.corridor_str in upper_corridors
+    
+    s = 0.0
+    
+    # Zone switch
+    if prev.zone != curr.zone:
+        s += float(travel.get("zone_switch_seconds", DEFAULT_PARAMS["travel"]["zone_switch_seconds"]))
+    
+    # Corridor change
+    if prev.corridor != curr.corridor:
+        s += float(travel.get("sec_per_corridor_change", DEFAULT_PARAMS["travel"]["sec_per_corridor_change"]))
+        
+        # Floor transition penalty when switching between ground and upper floors
+        # This is NOT stairs (stairs are added once per order elsewhere)
+        # This is the walk from last ground aisle to staircase / from staircase to first upper aisle
+        if prev_upper != curr_upper:
+            s += float(travel.get("floor_transition_seconds", DEFAULT_PARAMS["travel"]["floor_transition_seconds"]))
+        
+        # Only enable corridor-step distance if corridor IDs represent physical order
+        # Default: OFF (corridor IDs are just labels)
+        if travel.get("use_corridor_step_distance", DEFAULT_PARAMS["travel"]["use_corridor_step_distance"]):
+            corridor_diff = abs(curr.corridor - prev.corridor)
+            s += float(travel.get("sec_per_corridor_step", DEFAULT_PARAMS["travel"]["sec_per_corridor_step"])) * corridor_diff
+    
+    # Bay change (assumes bay numbers are physically ordered within a corridor)
+    bay_diff = abs(curr.bay - prev.bay)
+    s += float(travel.get("sec_per_bay_step", DEFAULT_PARAMS["travel"]["sec_per_bay_step"])) * bay_diff
+    
+    # Position change (assumes position numbers are physically ordered)
+    pos_diff = abs(curr.pos - prev.pos)
+    s += float(travel.get("sec_per_pos_step", DEFAULT_PARAMS["travel"]["sec_per_pos_step"])) * pos_diff
+    
+    # Upper floor multiplier (walking is slightly slower upstairs)
+    if curr_upper:
+        s *= float(travel.get("upper_walk_multiplier", DEFAULT_PARAMS["travel"]["upper_walk_multiplier"]))
+    
+    return s
+
+
+def estimate_travel_breakdown_between(s1: Stop, s2: Stop, params: Dict) -> Dict[str, float]:
+    """Calculate detailed travel breakdown between two specific stops."""
+    tr = params.get("travel", {})
+    upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors") or DEFAULT_PARAMS["location"]["upper_corridors"])
+    sec_align = float(tr.get("sec_align_per_move", DEFAULT_PARAMS["travel"]["sec_align_per_move"]))
+    walk_s = _compute_walk_only(s1, s2, params)
+    
+    # Determine if this is a floor transition
+    s1_upper = s1.corridor_str in upper_corridors
+    s2_upper = s2.corridor_str in upper_corridors
+    floor_transition = (s1_upper != s2_upper) and (s1.corridor != s2.corridor)
+    
+    # For UI display in breakdown tools (informational only - not added to total)
+    res = {
+        "align_seconds": sec_align,
+        "zone_switch_seconds": float(tr.get("zone_switch_seconds", DEFAULT_PARAMS["travel"]["zone_switch_seconds"])) if s1.zone != s2.zone else 0.0,
+        "corridor_change_seconds": float(tr.get("sec_per_corridor_change", DEFAULT_PARAMS["travel"]["sec_per_corridor_change"])) if s1.corridor != s2.corridor else 0.0,
+        "floor_transition_seconds": float(tr.get("floor_transition_seconds", DEFAULT_PARAMS["travel"]["floor_transition_seconds"])) if floor_transition else 0.0,
+        "walking_seconds": walk_s,
+        "total": sec_align + walk_s
+    }
+    return res
+
+
+def _norm(v: object) -> str:
+    return ("" if v is None else str(v)).strip().lower()
+
+
+def ladder_seconds_for(corridor: str, level: str, params: Dict) -> float:
+    """Calculate ladder seconds if corridor/level matches any ladder rule."""
+    rules = ((params.get("pick") or {}).get("ladder_rules") or [])
+    corridor = (corridor or "").zfill(2)
+    level = (level or "").upper()
+    for r in rules:
+        corridors = [str(x).zfill(2) for x in (r.get("corridors") or [])]
+        levels = [str(x).upper() for x in (r.get("levels") or [])]
+        if corridor in corridors and level in levels:
+            return float(r.get("ladder_seconds") or 0)
+    return 0.0
+
+
+def estimate_pick_seconds_for_line(inv_item: InvoiceItem, dw_item: Optional[DwItem], params: Dict, summer_mode: bool) -> float:
+    pk = params.get("pick", {})
+    base_map = pk.get("base_by_unit_type", DEFAULT_PARAMS["pick"]["base_by_unit_type"])
+    per_qty_map = pk.get("per_qty_by_unit_type", DEFAULT_PARAMS["pick"]["per_qty_by_unit_type"])
+    level_seconds = pk.get("level_seconds", DEFAULT_PARAMS["pick"]["level_seconds"])
+    diff_seconds = pk.get("difficulty_seconds", DEFAULT_PARAMS["pick"]["difficulty_seconds"])
+    handling = pk.get("handling_seconds", DEFAULT_PARAMS["pick"]["handling_seconds"])
+
+    unit_type = _norm(inv_item.unit_type) or "item"
+    qty = _safe_int(getattr(inv_item, "display_qty", None) or inv_item.qty, 0)
+    qty = max(qty, 0)
+
+    base = float(base_map.get(unit_type, base_map.get("item", 6)))
+    per_qty = float(per_qty_map.get(unit_type, per_qty_map.get("item", 1.1)))
+    
+    # Calculate base picking time
+    t = base + per_qty * max(0, qty - 1)
+    
+    # Add travel/walking alignment time for this specific pick
+    # Note: Global travel between locations is calculated in estimate_travel_seconds
+    # This alignment time accounts for the final approach to the item
+    sec_align = float(pk.get("sec_align_scan_per_line", DEFAULT_PARAMS["pick"]["sec_align_scan_per_line"]))
+    t += sec_align
+
+    # Level from location
+    corridor, _, level, _ = parse_location(inv_item.location, params)
+    level = level or "A"
+    t += float(level_seconds.get(level, 0))
+    
+    # Ladder penalty (conditional on corridor + level match)
+    corridor_str = f"{corridor:02d}" if corridor is not None else "00"
+    t += ladder_seconds_for(corridor_str, level, params)
+
+    # Pick difficulty from OI
+    pick_diff = "2"
+    if dw_item is not None:
+        v = getattr(dw_item, "wms_pick_difficulty", None)
+        if v is not None and str(v).strip() != "":
+            pick_diff = str(v).strip()
+    t += float(diff_seconds.get(pick_diff, 0))
+
+    # Handling penalties from OI
+    frag = _norm(getattr(dw_item, "wms_fragility", None)) if dw_item is not None else ""
+    if frag in ("yes", "y", "true", "fragile"):
+        t += float(handling.get("fragility_yes", 0))
+    elif frag in ("semi", "moderate", "medium"):
+        t += float(handling.get("fragility_semi", 0))
+
+    spill = _norm(getattr(dw_item, "wms_spill_risk", None)) if dw_item is not None else ""
+    if spill in ("true", "1", "yes", "y"):
+        t += float(handling.get("spill_true", 0))
+
+    pressure = _norm(getattr(dw_item, "wms_pressure_sensitivity", None)) if dw_item is not None else ""
+    if pressure == "high":
+        t += float(handling.get("pressure_high", 0))
+
+    temp = _norm(getattr(dw_item, "wms_temperature_sensitivity", None)) if dw_item is not None else ""
+    if summer_mode and temp == "heat_sensitive":
+        t += float(handling.get("heat_sensitive_summer", 0))
+
+    return t
+
+
+def estimate_pack_seconds(items: List[InvoiceItem], dw_map: Dict[str, DwItem], params: Dict, summer_mode: bool) -> float:
+    pk = params.get("pack", {})
+    base = float(pk.get("base_seconds", DEFAULT_PARAMS["pack"]["base_seconds"]))
+    per_line = float(pk.get("per_line_seconds", DEFAULT_PARAMS["pack"]["per_line_seconds"]))
+    per_group = float(pk.get("special_group_seconds", DEFAULT_PARAMS["pack"]["special_group_seconds"]))
+
+    has_fragile = False
+    has_spill = False
+    has_pressure = False
+    has_heat = False
+
+    for it in items:
+        dw = dw_map.get(it.item_code)
+        if not dw:
+            continue
+        frag = _norm(getattr(dw, "wms_fragility", None))
+        if frag in ("yes", "y", "true", "fragile", "semi", "moderate", "medium"):
+            has_fragile = True
+        spill = _norm(getattr(dw, "wms_spill_risk", None))
+        if spill in ("true", "1", "yes", "y"):
+            has_spill = True
+        pressure = _norm(getattr(dw, "wms_pressure_sensitivity", None))
+        if pressure == "high":
+            has_pressure = True
+        temp = _norm(getattr(dw, "wms_temperature_sensitivity", None))
+        if summer_mode and temp == "heat_sensitive":
+            has_heat = True
+
+    special_groups = sum([has_fragile, has_spill, has_pressure, has_heat])
+    return base + per_line * len(items) + per_group * special_groups
+
+
+def estimate_invoice_time(invoice_no: str) -> Dict:
+    params = get_time_params()
+    summer_mode = get_summer_mode()
+
+    invoice = Invoice.query.filter_by(invoice_no=invoice_no).first()
+    if not invoice:
+        raise ValueError(f"Invoice not found: {invoice_no}")
+
+    items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
+    if not items:
+        return {"invoice_no": invoice_no, "total_minutes": 0.0, "breakdown": {"overhead": 0, "travel": 0, "pick": 0, "pack": 0}}
+
+    from sorting_utils import sort_items_for_picking
+    items = sort_items_for_picking(items)
 
     item_codes = [it.item_code for it in items if it.item_code]
     dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
