@@ -360,26 +360,31 @@ def upsert_purchase_order(order_data, username, force_reimport=False):
         pieces_per_unit = ln.get("number_of_pieces")
         item_name = ln.get("item_name") or ""
         
-        # Smart fallback: Parse from item_name if possible (e.g. "1X24" -> 24)
+        # Priority 1: Smart fallback from item_name (e.g. "1X24" -> 24)
         if (not pieces_per_unit or int(pieces_per_unit) <= 1) and item_name:
             import re
             match = re.search(r'1X(\d+)', item_name, re.IGNORECASE)
             if match:
                 pieces_per_unit = int(match.group(1))
                 if not unit_type:
-                    unit_type = "BOX" # Default to BOX for 1XNN format
+                    unit_type = "BOX"
 
+        # Priority 2: Get from ps_items_dw if still missing
         if (not unit_type or not pieces_per_unit) and item_code:
             from models import DwItem
             dw_item = DwItem.query.get(item_code)
             if dw_item:
-                if not unit_type:
-                    # Logic to determine unit type if missing
-                    # If it has pieces, it's likely a CASE or BOX
-                    if dw_item.number_of_pieces and dw_item.number_of_pieces > 1:
-                        unit_type = "CASE" # Default to CASE if pieces > 1
-                if not pieces_per_unit:
-                    pieces_per_unit = dw_item.number_of_pieces
+                # If pieces_per_unit is still 1 or None, check DW
+                if not pieces_per_unit or int(pieces_per_unit) <= 1:
+                    if dw_item.number_of_pieces and int(dw_item.number_of_pieces) > 1:
+                        pieces_per_unit = dw_item.number_of_pieces
+                        if not unit_type:
+                            unit_type = "CASE"
+                
+                # Check for unit_type in DW or related fields if available
+                # (Assuming DwItem might have unit-related attributes in the future or mapping pieces to type)
+                if not unit_type and pieces_per_unit and int(pieces_per_unit) > 1:
+                    unit_type = "CASE"
 
         pol = PurchaseOrderLine(
             purchase_order_id=po.id,
