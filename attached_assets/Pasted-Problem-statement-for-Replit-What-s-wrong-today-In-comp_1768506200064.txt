@@ -1,0 +1,133 @@
+Problem statement (for Replit)
+What’s wrong today
+
+In _compute_walk_only() the code adds travel time when corridor changes in two ways:
+
+A fixed corridor change penalty (this is fine):
+
+s += sec_per_corridor_change
+
+
+An additional “distance” penalty proportional to the numeric difference between corridor numbers (this is wrong in your warehouse):
+
+corridor_diff = abs(curr.corridor - prev.corridor)
+s += sec_per_corridor_step * corridor_diff
+
+
+This assumes corridor numbers have a physical order (e.g., corridor 10 is “next to” corridor 11). But in your warehouse, corridor IDs are arbitrary. Example:
+
+Moving from corridor 14 to corridor 70 is not “56 corridors away”
+
+It’s simply “a corridor change” plus possibly a floor transition
+
+So the estimator can add hundreds of seconds of fake walking time when the corridor labels are far apart numerically.
+
+Consequence
+
+Travel time is systematically overestimated, and can spike dramatically on any transition between corridors with numerically distant IDs—especially when you switch to “upper corridors” like 70/80/90.
+
+Fix (recommended)
+Principle
+
+When corridor IDs are just labels, corridor transitions should be modeled as:
+
+Fixed penalty for corridor change (sec_per_corridor_change)
+
+Optional: fixed penalty for floor change (if switching between ground and upper corridors)
+
+Do not add time proportional to abs(curr.corridor - prev.corridor)
+
+Minimal safe code change
+
+In _compute_walk_only():
+
+Keep sec_per_corridor_change
+
+Remove (or disable) sec_per_corridor_step * abs(curr.corridor - prev.corridor)
+
+Optionally add a new parameter: floor_transition_seconds when moving ground ↔ upper
+
+Implementation instructions (drop-in change)
+Step 1 — Add optional params (in DEFAULT_PARAMS)
+
+Add these under "travel":
+
+"travel": {
+  ...
+  "floor_transition_seconds": 12,
+  "use_corridor_step_distance": false
+}
+
+
+(You can tune floor_transition_seconds later. 8–20 seconds is a typical range.)
+
+Step 2 — Patch _compute_walk_only()
+
+Replace your corridor-change block with this:
+
+def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
+    travel = params.get("travel", {})
+    upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors", ["70", "80", "90"]))
+
+    prev_upper = prev.corridor_str in upper_corridors
+    curr_upper = curr.corridor_str in upper_corridors
+
+    s = 0.0
+
+    # Zone switch
+    if prev.zone != curr.zone:
+        s += float(travel.get("zone_switch_seconds", 4))
+
+    # Corridor change
+    if prev.corridor != curr.corridor:
+        s += float(travel.get("sec_per_corridor_change", 14))
+
+        # If your corridor IDs are labels (no spatial meaning), do NOT do numeric distance stepping.
+        # Optional: add a small fixed floor transition penalty when switching ground <-> upper.
+        if prev_upper != curr_upper:
+            s += float(travel.get("floor_transition_seconds", 12))
+
+        # Only enable corridor-step distance if you ever introduce a real physical ordering
+        if bool(travel.get("use_corridor_step_distance", False)):
+            corridor_diff = abs(curr.corridor - prev.corridor)
+            s += float(travel.get("sec_per_corridor_step", 4)) * corridor_diff
+
+    # Bay change (only meaningful if bay numbers are physically ordered)
+    bay_diff = abs(curr.bay - prev.bay)
+    s += float(travel.get("sec_per_bay_step", 2.5)) * bay_diff
+
+    # Position change (only meaningful if pos numbers are physically ordered)
+    pos_diff = abs(curr.pos - prev.pos)
+    s += float(travel.get("sec_per_pos_step", 0.6)) * pos_diff
+
+    # Upper floor multiplier (optional)
+    if curr_upper:
+        s *= float(travel.get("upper_walk_multiplier", 1.05))
+
+    return s
+
+Step 3 — Confirm stairs are not double-counted
+
+Your current logic adds stairs once per order inside estimate_travel_seconds():
+
+if any(s.corridor_str in upper for s in stops_ordered):
+    stairs_s = sec_stairs_up + sec_stairs_down
+
+
+That’s good. The new floor_transition_seconds is not stairs; it’s just the small “transition walk” (e.g., from last aisle to staircase door / from staircase exit to first upper aisle). Keep it small.
+
+Notes / sanity checks
+
+If bay and pos numbers are also arbitrary labels, the same problem exists there too.
+
+If bay/pos are physically ordered within a corridor, keep them.
+
+If they are arbitrary codes, you should remove the step-based terms and replace them with fixed “same-corridor move” penalties.
+
+After this patch, your travel estimates should drop sharply for transitions like “14 → 70”, because they will become:
+
+corridor change penalty + (optional) floor transition + stairs (once per order), not “56 steps”.
+
+One-liner summary for Replit
+
+“Corridor IDs are labels, not coordinates. Therefore, travel time must not scale with numeric corridor differences; corridor changes should only incur a fixed penalty (plus a small floor-transition penalty if changing floors). Remove sec_per_corridor_step * abs(curr.corridor - prev.corridor) or gate it behind a flag.”

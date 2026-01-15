@@ -18,7 +18,7 @@ from app import db
 from models import Setting, Invoice, InvoiceItem, DwItem
 
 
-ESTIMATOR_VERSION = "oi_estimator_v1.1"
+ESTIMATOR_VERSION = "oi_estimator_v1.2"
 
 DEFAULT_PARAMS = {
   "version": "v1",
@@ -48,7 +48,9 @@ DEFAULT_PARAMS = {
     "sec_stairs_up": 25,
     "sec_stairs_down": 20,
     "upper_walk_multiplier": 1.05,
-    "zone_switch_seconds": 4
+    "zone_switch_seconds": 4,
+    "floor_transition_seconds": 12,
+    "use_corridor_step_distance": False
   },
   "pick": {
     "sec_align_scan_per_line": 13,
@@ -278,6 +280,7 @@ def order_stops_one_trip(stops: List[Stop], params: Dict) -> List[Stop]:
 
 def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str, object]:
     tr = params.get("travel", {})
+    upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors", ["70", "80", "90"]))
     # Use sec_align_per_move instead of sec_align_per_stop for travel calculation
     sec_align = float(tr.get("sec_align_per_move", DEFAULT_PARAMS["travel"]["sec_align_per_move"]))
     
@@ -285,6 +288,7 @@ def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str
         "align_seconds": 0.0,
         "zone_switch_seconds": 0.0,
         "corridor_change_seconds": 0.0,
+        "floor_transition_seconds": 0.0,
         "walking_seconds": 0.0,
         "stairs_seconds": 0.0,
         "total": 0.0,
@@ -313,6 +317,12 @@ def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str
             if prev.corridor != s.corridor:
                 breakdown["corridor_change_seconds"] += float(tr.get("sec_per_corridor_change", 14))
                 
+                # Track floor transitions (ground <-> upper)
+                prev_upper = prev.corridor_str in upper_corridors
+                curr_upper = s.corridor_str in upper_corridors
+                if prev_upper != curr_upper:
+                    breakdown["floor_transition_seconds"] += float(tr.get("floor_transition_seconds", 12))
+                
             breakdown["walking_seconds"] += walk_s
             leg_s += walk_s
         
@@ -321,24 +331,35 @@ def estimate_travel_seconds(stops_ordered: List[Stop], params: Dict) -> Dict[str
         prev = s
 
     # Stairs handled once per order if any upper corridors visited
-    upper = set(params.get("location", {}).get("upper_corridors") or DEFAULT_PARAMS["location"]["upper_corridors"])
-    if any(s.corridor_str in upper for s in stops_ordered):
+    if any(s.corridor_str in upper_corridors for s in stops_ordered):
         stairs_s = float(tr.get("sec_stairs_up", 25)) + float(tr.get("sec_stairs_down", 20))
         breakdown["stairs_seconds"] = stairs_s
         # Allocate stairs to the very first stop
         if breakdown["stops"]:
             breakdown["stops"][0]["seconds"] += stairs_s
 
-    breakdown["total"] = sum(v for k, v in breakdown.items() if isinstance(v, (int, float)))
+    # Note: floor_transition_seconds is already included in walking_seconds (via _compute_walk_only),
+    # so we exclude it from the total to avoid double-counting. It's tracked separately for visibility only.
+    breakdown["total"] = sum(v for k, v in breakdown.items() if isinstance(v, (int, float)) and k != "floor_transition_seconds")
     return breakdown
 
 
 def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
-    """Compute ONLY the movement/walking seconds between two stops (no alignment)"""
+    """Compute ONLY the movement/walking seconds between two stops (no alignment).
+    
+    Note: Corridor IDs are treated as labels, not physical coordinates.
+    By default, corridor changes incur only a fixed penalty (not distance-based).
+    Set use_corridor_step_distance=true to enable distance-based corridor stepping
+    (only if corridor numbers represent physical order in your warehouse).
+    """
     travel = params.get("travel", {})
-    upper_corridors = set(params.get("location", {}).get("upper_corridors", ["70", "80", "90"]))
+    upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors", ["70", "80", "90"]))
+    
+    prev_upper = prev.corridor_str in upper_corridors
+    curr_upper = curr.corridor_str in upper_corridors
     
     s = 0.0
+    
     # Zone switch
     if prev.zone != curr.zone:
         s += float(travel.get("zone_switch_seconds", 4))
@@ -346,19 +367,29 @@ def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
     # Corridor change
     if prev.corridor != curr.corridor:
         s += float(travel.get("sec_per_corridor_change", 14))
-        corridor_diff = abs(curr.corridor - prev.corridor)
-        s += float(travel.get("sec_per_corridor_step", 4)) * corridor_diff
+        
+        # Floor transition penalty when switching between ground and upper floors
+        # This is NOT stairs (stairs are added once per order elsewhere)
+        # This is the walk from last ground aisle to staircase / from staircase to first upper aisle
+        if prev_upper != curr_upper:
+            s += float(travel.get("floor_transition_seconds", 12))
+        
+        # Only enable corridor-step distance if corridor IDs represent physical order
+        # Default: OFF (corridor IDs are just labels)
+        if travel.get("use_corridor_step_distance", False):
+            corridor_diff = abs(curr.corridor - prev.corridor)
+            s += float(travel.get("sec_per_corridor_step", 4)) * corridor_diff
     
-    # Bay change
+    # Bay change (assumes bay numbers are physically ordered within a corridor)
     bay_diff = abs(curr.bay - prev.bay)
     s += float(travel.get("sec_per_bay_step", 2.5)) * bay_diff
     
-    # Position change
+    # Position change (assumes position numbers are physically ordered)
     pos_diff = abs(curr.pos - prev.pos)
     s += float(travel.get("sec_per_pos_step", 0.6)) * pos_diff
     
-    # Upper floor multiplier
-    if curr.corridor_str in upper_corridors:
+    # Upper floor multiplier (walking is slightly slower upstairs)
+    if curr_upper:
         s *= float(travel.get("upper_walk_multiplier", 1.05))
     
     return s
@@ -367,14 +398,21 @@ def _compute_walk_only(prev: Stop, curr: Stop, params: Dict) -> float:
 def estimate_travel_breakdown_between(s1: Stop, s2: Stop, params: Dict) -> Dict[str, float]:
     """Calculate detailed travel breakdown between two specific stops."""
     tr = params.get("travel", {})
+    upper_corridors = set(str(x).zfill(2) for x in params.get("location", {}).get("upper_corridors", ["70", "80", "90"]))
     sec_align = float(tr.get("sec_align_per_move", 15))
     walk_s = _compute_walk_only(s1, s2, params)
+    
+    # Determine if this is a floor transition
+    s1_upper = s1.corridor_str in upper_corridors
+    s2_upper = s2.corridor_str in upper_corridors
+    floor_transition = (s1_upper != s2_upper) and (s1.corridor != s2.corridor)
     
     # For UI display in breakdown tools
     res = {
         "align_seconds": sec_align,
         "zone_switch_seconds": float(tr.get("zone_switch_seconds", 4)) if s1.zone != s2.zone else 0.0,
         "corridor_change_seconds": float(tr.get("sec_per_corridor_change", 14)) if s1.corridor != s2.corridor else 0.0,
+        "floor_transition_seconds": float(tr.get("floor_transition_seconds", 12)) if floor_transition else 0.0,
         "walking_seconds": walk_s,
         "total": sec_align + walk_s
     }
