@@ -11,6 +11,7 @@ Provides server-rendered admin pages for managing item classification:
 
 import json
 import logging
+import threading
 from datetime import datetime
 from functools import wraps
 
@@ -29,6 +30,22 @@ from models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_running_classification():
+    """Check if a classification job is currently running by looking at database."""
+    running = WmsClassificationRun.query.filter(
+        WmsClassificationRun.started_at.isnot(None),
+        WmsClassificationRun.finished_at.is_(None)
+    ).first()
+    return running
+
+
+def _get_last_completed_classification():
+    """Get the last completed classification run."""
+    return WmsClassificationRun.query.filter(
+        WmsClassificationRun.finished_at.isnot(None)
+    ).order_by(WmsClassificationRun.finished_at.desc()).first()
 
 
 def admin_required(f):
@@ -121,6 +138,9 @@ def oi_dashboard():
         items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
         override_items = {i.item_code_365: i for i in items}
     
+    running_job = _get_running_classification()
+    last_completed = _get_last_completed_classification()
+    
     return render_template('admin/oi/dashboard.html',
                           active_count=active_count,
                           classified_count=classified_count,
@@ -130,41 +150,79 @@ def oi_dashboard():
                           ambiguous_categories=ambiguous_categories,
                           category_names=category_names,
                           recent_overrides=recent_overrides,
-                          override_items=override_items)
+                          override_items=override_items,
+                          running_job=running_job,
+                          last_completed=last_completed)
+
+
+def _run_classification_background(username, summer_mode):
+    """Run classification in background thread."""
+    try:
+        from classification.engine import reclassify_items
+        
+        with app.app_context():
+            result = reclassify_items(
+                run_by=username,
+                threshold=60,
+                summer_mode=summer_mode
+            )
+            
+            activity = ActivityLog()
+            activity.picker_username = username
+            activity.activity_type = 'oi_reclassify'
+            activity.details = f"Reclassified {result['items_scanned']} items, {result['items_updated']} updated, {result['items_needing_review']} need review"
+            db.session.add(activity)
+            db.session.commit()
+            
+            logger.info(f"Background classification complete: {result}")
+            
+    except Exception as e:
+        logger.error(f"Background reclassification failed: {e}")
 
 
 @app.route('/admin/oi/reclassify', methods=['POST'])
 @login_required
 @admin_required
 def oi_reclassify():
-    """Trigger item reclassification."""
-    try:
-        from classification.engine import reclassify_items
-        
-        summer_mode = request.form.get('summer_mode') == 'on'
-        
-        result = reclassify_items(
-            run_by=current_user.username,
-            threshold=60,
-            summer_mode=summer_mode
-        )
-        
-        activity = ActivityLog()
-        activity.picker_username = current_user.username
-        activity.activity_type = 'oi_reclassify'
-        activity.details = f"Reclassified {result['items_scanned']} items, {result['items_updated']} updated, {result['items_needing_review']} need review"
-        db.session.add(activity)
-        db.session.commit()
-        
-        flash(f"Classification complete: {result['items_scanned']} items scanned, "
-              f"{result['items_updated']} updated, {result['items_needing_review']} need review.", 
-              'success')
-        
-    except Exception as e:
-        logger.error(f"Reclassification failed: {e}")
-        flash(f'Classification failed: {str(e)}', 'danger')
+    """Trigger item reclassification in background."""
+    running_job = _get_running_classification()
+    if running_job:
+        flash('Classification is already running. Please wait for it to complete.', 'warning')
+        return redirect(url_for('oi_dashboard'))
     
+    summer_mode = request.form.get('summer_mode') == 'on'
+    
+    thread = threading.Thread(
+        target=_run_classification_background,
+        args=(current_user.username, summer_mode)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    flash('Classification started in background. Refresh the page to check status.', 'info')
     return redirect(url_for('oi_dashboard'))
+
+
+@app.route('/admin/oi/reclassify/status')
+@login_required
+@admin_required
+def oi_reclassify_status():
+    """Check status of running classification job."""
+    running_job = _get_running_classification()
+    last_completed = _get_last_completed_classification()
+    
+    return jsonify({
+        'running': running_job is not None,
+        'started_at': running_job.started_at.isoformat() if running_job else None,
+        'run_by': running_job.run_by if running_job else None,
+        'last_completed': {
+            'finished_at': last_completed.finished_at.isoformat() if last_completed and last_completed.finished_at else None,
+            'items_scanned': last_completed.active_items_scanned if last_completed else None,
+            'items_updated': last_completed.items_updated if last_completed else None,
+            'items_needing_review': last_completed.items_needing_review if last_completed else None,
+            'notes': last_completed.notes if last_completed else None
+        } if last_completed else None
+    })
 
 
 @app.route('/admin/oi/items')

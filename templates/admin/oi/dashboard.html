@@ -4,16 +4,33 @@
 
 {% block content %}
 <div class="container-fluid py-4">
+    {% if running_job %}
+    <div class="alert alert-info d-flex align-items-center mb-4" id="classificationStatus">
+        <div class="spinner-border spinner-border-sm me-3" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div>
+            <strong>Classification in progress...</strong> Started by {{ running_job.run_by }}. 
+            This may take a few minutes for large catalogs.
+            <a href="javascript:location.reload()" class="ms-2">Refresh</a>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2><i class="fas fa-brain me-2"></i>Operational Intelligence</h2>
         <div class="d-flex gap-2">
             <form action="{{ url_for('oi_reclassify') }}" method="POST" class="d-inline">
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" name="summer_mode" id="summerMode">
+                    <input class="form-check-input" type="checkbox" name="summer_mode" id="summerMode" {% if running_job %}disabled{% endif %}>
                     <label class="form-check-label" for="summerMode">Summer Mode</label>
                 </div>
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary" {% if running_job %}disabled{% endif %}>
+                    {% if running_job %}
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Running...
+                    {% else %}
                     <i class="fas fa-sync-alt me-1"></i> Reclassify Items
+                    {% endif %}
                 </button>
             </form>
             <a href="{{ url_for('oi_items', needs_review='true') }}" class="btn btn-warning">
