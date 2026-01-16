@@ -102,11 +102,8 @@
                         </td>
                         <td class="text-end">
                             <div class="btn-group btn-group-sm">
-                                <a href="{{ url_for('oi_rule_edit', rule_id=rule.id) }}" class="btn btn-outline-primary">
+                                <a href="{{ url_for('oi_rule_edit', rule_id=rule.id) }}" class="btn btn-outline-primary" title="Edit">
                                     <i class="fas fa-edit"></i>
-                                </a>
-                                <a href="{{ url_for('oi_rules_test', item_code='') }}" class="btn btn-outline-info" title="Test this rule">
-                                    <i class="fas fa-flask"></i>
                                 </a>
                                 <form action="{{ url_for('oi_rule_toggle', rule_id=rule.id) }}" method="POST" class="d-inline">
                                     <button type="submit" class="btn btn-outline-{% if rule.is_active %}warning{% else %}success{% endif %}" 

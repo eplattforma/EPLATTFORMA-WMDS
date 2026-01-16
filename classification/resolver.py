@@ -23,8 +23,8 @@ def resolve_attribute(
     dynamic_value: Any = None,
     dynamic_conf: int = 0,
     dynamic_reason: str = "",
-    dynamic_rule_id: int = None,
-    dynamic_rule_name: str = None
+    dynamic_rule_id: Optional[int] = None,
+    dynamic_rule_name: Optional[str] = None
 ) -> Tuple[Any, int, str, str, Dict]:
     """
     Resolve final attribute value based on precedence.
