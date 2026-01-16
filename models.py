@@ -1952,6 +1952,31 @@ class WmsItemOverride(db.Model):
         return f"<WmsItemOverride {self.item_code_365}>"
 
 
+class WmsDynamicRule(db.Model):
+    """Dynamic rule for rule-based classification in Operational Intelligence"""
+    __tablename__ = "wms_dynamic_rules"
+    
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(120), nullable=False)
+    
+    # Must match the resolver attr names (no wms_ prefix)
+    target_attr = db.Column(db.String(64), nullable=False)      # e.g. 'pressure_sensitivity'
+    action_value = db.Column(db.String(100), nullable=False)    # stored as string; cast on apply
+    confidence = db.Column(db.Integer, nullable=False, default=65)
+    priority = db.Column(db.Integer, nullable=False, default=100)
+    
+    stop_processing = db.Column(db.Boolean, nullable=False, default=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    
+    condition_json = db.Column(db.Text, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    updated_by = db.Column(db.String(100), nullable=True)
+    updated_at = db.Column(UTCDateTime(), nullable=True, default=get_utc_now)
+    
+    def __repr__(self):
+        return f"<WmsDynamicRule {self.id} {self.target_attr} prio={self.priority}>"
+
+
 class WmsClassificationRun(db.Model):
     """Log of classification runs for audit purposes"""
     __tablename__ = "wms_classification_runs"

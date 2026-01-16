@@ -3,7 +3,7 @@ Classification engine for Operational Intelligence.
 
 Orchestrates the reclassification process:
 1. Loads active items from DwItem
-2. Fetches category defaults and SKU overrides
+2. Fetches category defaults, SKU overrides, and dynamic rules
 3. Computes attributes using rules
 4. Resolves final values using precedence
 5. Stores results and audit trail
@@ -12,7 +12,7 @@ Orchestrates the reclassification process:
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 
 from app import db
 from models import DwItem, WmsCategoryDefault, WmsItemOverride, WmsClassificationRun
@@ -28,6 +28,7 @@ from .resolver import (
     resolve_attribute, get_override_value, get_default_value,
     calculate_overall_confidence, determine_class_source, build_class_notes
 )
+from .dynamic_rules import load_active_rules, match_best_rule
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,9 @@ def reclassify_items(run_by: str, threshold: int = 60,
             for o in WmsItemOverride.query.filter_by(is_active=True).all()
         }
         
+        # Load dynamic rules once for all items
+        dynamic_rules_by_attr = load_active_rules()
+        
         active_items = DwItem.query.filter(DwItem.active == True).all()
         
         items_scanned = len(active_items)
@@ -75,6 +79,7 @@ def reclassify_items(run_by: str, threshold: int = 60,
                 item, 
                 category_defaults.get(item.category_code_365),
                 item_overrides.get(item.item_code_365),
+                dynamic_rules_by_attr,
                 threshold,
                 summer_mode
             )
@@ -116,9 +121,46 @@ def reclassify_items(run_by: str, threshold: int = 60,
         raise
 
 
+def _resolve_with_dynamic(attr_name: str, computed_val, computed_conf: int, 
+                          computed_reason: str, item, item_override, 
+                          category_default, dynamic_rules_by_attr: Dict,
+                          threshold: int, skip_category_default: bool = False) -> Dict:
+    """
+    Helper to resolve an attribute with dynamic rule support.
+    
+    Returns dict with: value, confidence, reason, source, and optional meta
+    """
+    # Check for dynamic rule match
+    dyn = match_best_rule(item, attr_name, dynamic_rules_by_attr)
+    
+    cat_default = None if skip_category_default else get_default_value(category_default, attr_name)
+    
+    final_val, final_conf, final_reason, source, meta = resolve_attribute(
+        attr_name, computed_val, computed_conf, computed_reason,
+        get_override_value(item_override, attr_name),
+        cat_default,
+        threshold,
+        dynamic_value=(dyn['value'] if dyn else None),
+        dynamic_conf=(dyn['confidence'] if dyn else 0),
+        dynamic_reason=(dyn['reason'] if dyn else ""),
+        dynamic_rule_id=(dyn['rule_id'] if dyn else None),
+        dynamic_rule_name=(dyn['rule_name'] if dyn else None),
+    )
+    
+    result = {
+        'value': final_val,
+        'confidence': final_conf,
+        'reason': final_reason,
+        'source': source
+    }
+    result.update(meta)
+    return result
+
+
 def classify_single_item(item: DwItem, 
                          category_default: Optional[WmsCategoryDefault],
                          item_override: Optional[WmsItemOverride],
+                         dynamic_rules_by_attr: Dict,
                          threshold: int = 60,
                          summer_mode: bool = False) -> bool:
     """
@@ -129,144 +171,103 @@ def classify_single_item(item: DwItem,
     evidence = {}
     any_updated = False
     
+    # Unit type (no category default)
     unit_val, unit_conf, unit_reason = compute_unit_type(item)
-    final_unit, final_unit_conf, final_unit_reason, unit_source = resolve_attribute(
+    evidence['unit_type'] = _resolve_with_dynamic(
         'unit_type', unit_val, unit_conf, unit_reason,
-        get_override_value(item_override, 'unit_type'),
-        None,
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr,
+        threshold, skip_category_default=True
     )
-    evidence['unit_type'] = {
-        'value': final_unit, 'confidence': final_unit_conf, 
-        'reason': final_unit_reason, 'source': unit_source
-    }
+    final_unit = evidence['unit_type']['value']
     
+    # Spill risk
     spill_val, spill_conf, spill_reason = compute_spill_risk(item)
-    final_spill, final_spill_conf, final_spill_reason, spill_source = resolve_attribute(
+    evidence['spill_risk'] = _resolve_with_dynamic(
         'spill_risk', spill_val, spill_conf, spill_reason,
-        get_override_value(item_override, 'spill_risk'),
-        get_default_value(category_default, 'spill_risk'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['spill_risk'] = {
-        'value': final_spill, 'confidence': final_spill_conf,
-        'reason': final_spill_reason, 'source': spill_source
-    }
+    final_spill = evidence['spill_risk']['value']
     
+    # Fragility
     frag_val, frag_conf, frag_reason = compute_fragility(item)
-    final_frag, final_frag_conf, final_frag_reason, frag_source = resolve_attribute(
+    evidence['fragility'] = _resolve_with_dynamic(
         'fragility', frag_val, frag_conf, frag_reason,
-        get_override_value(item_override, 'fragility'),
-        get_default_value(category_default, 'fragility'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['fragility'] = {
-        'value': final_frag, 'confidence': final_frag_conf,
-        'reason': final_frag_reason, 'source': frag_source
-    }
+    final_frag = evidence['fragility']['value']
     
+    # Pressure sensitivity
     press_val, press_conf, press_reason = compute_pressure_sensitivity(item)
-    final_press, final_press_conf, final_press_reason, press_source = resolve_attribute(
+    evidence['pressure_sensitivity'] = _resolve_with_dynamic(
         'pressure_sensitivity', press_val, press_conf, press_reason,
-        get_override_value(item_override, 'pressure_sensitivity'),
-        get_default_value(category_default, 'pressure_sensitivity'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['pressure_sensitivity'] = {
-        'value': final_press, 'confidence': final_press_conf,
-        'reason': final_press_reason, 'source': press_source
-    }
+    final_press = evidence['pressure_sensitivity']['value']
     
+    # Stackability (depends on fragility and pressure)
     stack_val, stack_conf, stack_reason = compute_stackability(item, final_frag, final_press)
-    final_stack, final_stack_conf, final_stack_reason, stack_source = resolve_attribute(
+    evidence['stackability'] = _resolve_with_dynamic(
         'stackability', stack_val, stack_conf, stack_reason,
-        get_override_value(item_override, 'stackability'),
-        get_default_value(category_default, 'stackability'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['stackability'] = {
-        'value': final_stack, 'confidence': final_stack_conf,
-        'reason': final_stack_reason, 'source': stack_source
-    }
+    final_stack = evidence['stackability']['value']
     
+    # Temperature sensitivity
     temp_val, temp_conf, temp_reason = compute_temperature_sensitivity(item)
-    final_temp, final_temp_conf, final_temp_reason, temp_source = resolve_attribute(
+    evidence['temperature_sensitivity'] = _resolve_with_dynamic(
         'temperature_sensitivity', temp_val, temp_conf, temp_reason,
-        get_override_value(item_override, 'temperature_sensitivity'),
-        get_default_value(category_default, 'temperature_sensitivity'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['temperature_sensitivity'] = {
-        'value': final_temp, 'confidence': final_temp_conf,
-        'reason': final_temp_reason, 'source': temp_source
-    }
+    final_temp = evidence['temperature_sensitivity']['value']
     
+    # Shape type
     shape_val, shape_conf, shape_reason = compute_shape_type(item)
-    final_shape, final_shape_conf, final_shape_reason, shape_source = resolve_attribute(
+    evidence['shape_type'] = _resolve_with_dynamic(
         'shape_type', shape_val, shape_conf, shape_reason,
-        get_override_value(item_override, 'shape_type'),
-        get_default_value(category_default, 'shape_type'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['shape_type'] = {
-        'value': final_shape, 'confidence': final_shape_conf,
-        'reason': final_shape_reason, 'source': shape_source
-    }
+    final_shape = evidence['shape_type']['value']
     
+    # Pick difficulty (depends on fragility and pressure)
     diff_val, diff_conf, diff_reason = compute_pick_difficulty(item, final_frag, final_press)
-    final_diff, final_diff_conf, final_diff_reason, diff_source = resolve_attribute(
+    evidence['pick_difficulty'] = _resolve_with_dynamic(
         'pick_difficulty', diff_val, diff_conf, diff_reason,
-        get_override_value(item_override, 'pick_difficulty'),
-        get_default_value(category_default, 'pick_difficulty'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['pick_difficulty'] = {
-        'value': final_diff, 'confidence': final_diff_conf,
-        'reason': final_diff_reason, 'source': diff_source
-    }
+    final_diff = evidence['pick_difficulty']['value']
     
+    # Shelf height
     shelf_val, shelf_conf, shelf_reason = compute_shelf_height(item)
-    final_shelf, final_shelf_conf, final_shelf_reason, shelf_source = resolve_attribute(
+    evidence['shelf_height'] = _resolve_with_dynamic(
         'shelf_height', shelf_val, shelf_conf, shelf_reason,
-        get_override_value(item_override, 'shelf_height'),
-        get_default_value(category_default, 'shelf_height'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['shelf_height'] = {
-        'value': final_shelf, 'confidence': final_shelf_conf,
-        'reason': final_shelf_reason, 'source': shelf_source
-    }
+    final_shelf = evidence['shelf_height']['value']
     
+    # Box fit rule (depends on multiple attributes)
     box_val, box_conf, box_reason = compute_box_fit_rule(
         item, final_frag, final_spill, final_press, final_temp, summer_mode
     )
-    final_box, final_box_conf, final_box_reason, box_source = resolve_attribute(
+    evidence['box_fit_rule'] = _resolve_with_dynamic(
         'box_fit_rule', box_val, box_conf, box_reason,
-        get_override_value(item_override, 'box_fit_rule'),
-        get_default_value(category_default, 'box_fit_rule'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['box_fit_rule'] = {
-        'value': final_box, 'confidence': final_box_conf,
-        'reason': final_box_reason, 'source': box_source
-    }
+    final_box = evidence['box_fit_rule']['value']
     
+    # Zone (depends on temperature)
     zone_val, zone_conf, zone_reason = compute_zone(item, final_temp)
-    final_zone, final_zone_conf, final_zone_reason, zone_source = resolve_attribute(
+    evidence['zone'] = _resolve_with_dynamic(
         'zone', zone_val, zone_conf, zone_reason,
-        get_override_value(item_override, 'zone'),
-        get_default_value(category_default, 'zone'),
-        threshold
+        item, item_override, category_default, dynamic_rules_by_attr, threshold
     )
-    evidence['zone'] = {
-        'value': final_zone, 'confidence': final_zone_conf,
-        'reason': final_zone_reason, 'source': zone_source
-    }
+    final_zone = evidence['zone']['value']
     
+    # Calculate overall metrics
     overall_conf = calculate_overall_confidence(evidence)
     class_source = determine_class_source(evidence)
     class_notes = build_class_notes(evidence, overall_conf)
     
+    # Update item fields
     if item.wms_unit_type != final_unit:
         item.wms_unit_type = final_unit
         any_updated = True

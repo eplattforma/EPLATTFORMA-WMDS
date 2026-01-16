@@ -127,6 +127,35 @@ def update_oi_schema():
             logger.warning(f"Could not create wms_classification_runs: {e}")
         db.session.rollback()
     
+    # Create wms_dynamic_rules table for dynamic rule-based classification
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS wms_dynamic_rules (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                target_attr VARCHAR(64) NOT NULL,
+                action_value VARCHAR(100) NOT NULL,
+                confidence INTEGER NOT NULL DEFAULT 65,
+                priority INTEGER NOT NULL DEFAULT 100,
+                stop_processing BOOLEAN NOT NULL DEFAULT TRUE,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                condition_json TEXT NOT NULL,
+                notes TEXT,
+                updated_by VARCHAR(100),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_wms_dynamic_rules_active_target
+            ON wms_dynamic_rules (is_active, target_attr, priority)
+        """))
+        db.session.commit()
+        logger.info("Created wms_dynamic_rules table")
+    except Exception as e:
+        if "already exists" not in str(e).lower():
+            logger.warning(f"Could not create wms_dynamic_rules: {e}")
+        db.session.rollback()
+    
     logger.info("OI schema update complete")
 
 

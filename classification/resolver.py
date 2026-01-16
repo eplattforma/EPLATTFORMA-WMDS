@@ -2,13 +2,14 @@
 Resolution logic for Operational Intelligence classification.
 
 Implements the precedence hierarchy:
-1. SKU override (highest priority)
-2. Category default
-3. Computed rule result (only if confidence >= threshold)
-4. NULL (if no confident value available)
+1. SKU override (highest priority) - MANUAL
+2. Dynamic rule match - DYNAMIC_RULE
+3. Category default - CATEGORY_DEFAULT
+4. Computed rule result (only if confidence >= threshold) - RULES
+5. NULL (if no confident value available)
 """
 
-from typing import Tuple, Any, Optional
+from typing import Tuple, Any, Optional, Dict
 
 
 def resolve_attribute(
@@ -18,43 +19,72 @@ def resolve_attribute(
     computed_reason: str,
     item_override_value: Optional[Any],
     category_default_value: Optional[Any],
-    threshold: int = 60
-) -> Tuple[Any, int, str, str]:
+    threshold: int = 60,
+    dynamic_value: Any = None,
+    dynamic_conf: int = 0,
+    dynamic_reason: str = "",
+    dynamic_rule_id: int = None,
+    dynamic_rule_name: str = None
+) -> Tuple[Any, int, str, str, Dict]:
     """
     Resolve final attribute value based on precedence.
     
-    Returns: (final_value, confidence, reason, source)
-    - source: 'MANUAL', 'CATEGORY_DEFAULT', or 'RULES'
+    Returns: (final_value, confidence, reason, source, meta)
+    - source: 'MANUAL', 'DYNAMIC_RULE', 'CATEGORY_DEFAULT', or 'RULES'
+    - meta: dict with additional info (e.g., rule_id, rule_name for dynamic rules)
     """
+    # Priority 1: Manual SKU override
     if item_override_value is not None:
         return (
             item_override_value,
             100,
             f"MANUAL override for {attr_name}",
-            'MANUAL'
+            'MANUAL',
+            {}
         )
     
+    # Priority 2: Dynamic rule match
+    if dynamic_value is not None:
+        meta = {}
+        if dynamic_rule_id:
+            meta['rule_id'] = dynamic_rule_id
+        if dynamic_rule_name:
+            meta['rule_name'] = dynamic_rule_name
+        return (
+            dynamic_value,
+            dynamic_conf,
+            dynamic_reason,
+            'DYNAMIC_RULE',
+            meta
+        )
+    
+    # Priority 3: Category default
     if category_default_value is not None:
         return (
             category_default_value,
             85,
             f"CATEGORY default for {attr_name}",
-            'CATEGORY_DEFAULT'
+            'CATEGORY_DEFAULT',
+            {}
         )
     
+    # Priority 4: Computed rules (only if confidence >= threshold)
     if computed_conf >= threshold:
         return (
             computed_value,
             computed_conf,
             computed_reason,
-            'RULES'
+            'RULES',
+            {}
         )
     
+    # Priority 5: NULL (ambiguous)
     return (
         None,
         computed_conf,
         f"AMBIGUOUS (<{threshold}) – {computed_reason}",
-        'RULES'
+        'RULES',
+        {}
     )
 
 
@@ -106,22 +136,25 @@ def determine_class_source(evidence: dict) -> str:
     """
     Determine overall classification source based on evidence.
     
-    Returns 'MANUAL' if any override was used,
-    'CATEGORY_DEFAULT' if any default was used (and no overrides),
-    'RULES' otherwise.
+    Precedence: MANUAL > DYNAMIC_RULE > CATEGORY_DEFAULT > RULES
     """
     has_manual = False
+    has_dynamic = False
     has_default = False
     
     for attr, data in evidence.items():
         source = data.get('source', 'RULES')
         if source == 'MANUAL':
             has_manual = True
+        elif source == 'DYNAMIC_RULE':
+            has_dynamic = True
         elif source == 'CATEGORY_DEFAULT':
             has_default = True
     
     if has_manual:
         return 'MANUAL'
+    if has_dynamic:
+        return 'DYNAMIC_RULE'
     if has_default:
         return 'CATEGORY_DEFAULT'
     return 'RULES'
@@ -136,6 +169,8 @@ def build_class_notes(evidence: dict, overall_confidence: int) -> str:
     sources = set(data.get('source', 'RULES') for data in evidence.values())
     if 'MANUAL' in sources:
         notes_parts.append("Contains manual overrides")
+    if 'DYNAMIC_RULE' in sources:
+        notes_parts.append("Uses dynamic rules")
     if 'CATEGORY_DEFAULT' in sources:
         notes_parts.append("Uses category defaults")
     
