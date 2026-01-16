@@ -1975,6 +1975,23 @@ class WmsDynamicRule(db.Model):
     
     def __repr__(self):
         return f"<WmsDynamicRule {self.id} {self.target_attr} prio={self.priority}>"
+    
+    def get_conditions(self):
+        """Parse and return the conditions list from condition_json."""
+        import json
+        try:
+            data = json.loads(self.condition_json)
+            conditions = data.get('all', [])
+            result = []
+            for c in conditions:
+                obj = type('Condition', (), {})()
+                obj.field = c.get('field', '')
+                obj.op = c.get('op', '')
+                obj.value = c.get('value', '')
+                result.append(obj)
+            return result
+        except:
+            return []
 
 
 class WmsClassificationRun(db.Model):

@@ -125,7 +125,7 @@
             <h5 class="mb-0">Rule Conditions</h5>
         </div>
         <div class="card-body">
-            {% set conditions = rule.condition_json|safe|fromjson %}
+            {% set conditions = rule.get_conditions() %}
             <table class="table table-sm mb-0">
                 <thead>
                     <tr>
@@ -135,7 +135,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for cond in conditions.get('all', []) %}
+                    {% for cond in conditions %}
                     <tr>
                         <td><code>{{ cond.field }}</code></td>
                         <td><span class="badge bg-info">{{ cond.op }}</span></td>

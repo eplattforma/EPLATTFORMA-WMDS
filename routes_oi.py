@@ -926,3 +926,57 @@ def oi_rule_matches(rule_id):
                           total_items=len(items))
 
 
+@app.route('/admin/oi/rules/preview-matches', methods=['POST'])
+@login_required
+@admin_required
+def oi_rules_preview_matches():
+    """API endpoint to preview items matching conditions (AJAX)."""
+    from classification.dynamic_rules import evaluate_conditions
+    
+    try:
+        data = request.get_json()
+        conditions_list = data.get('conditions', [])
+        
+        if not conditions_list:
+            return jsonify({'count': 0, 'items': []})
+        
+        # Parse conditions - handle comma-separated values for 'in' operator
+        parsed_conditions = []
+        for c in conditions_list:
+            op = c.get('op', '')
+            val = c.get('value', '')
+            if op in ('in', 'not_in') and isinstance(val, str):
+                val = [x.strip() for x in val.split(',') if x.strip()]
+            parsed_conditions.append({
+                'field': c.get('field', ''),
+                'op': op,
+                'value': val
+            })
+        
+        condition_json = {'all': parsed_conditions}
+        
+        # Get all active items
+        items = DwItem.query.filter(DwItem.is_active == True).all()
+        
+        # Find matching items
+        matching = []
+        for item in items:
+            try:
+                if evaluate_conditions(item, condition_json):
+                    matching.append({
+                        'code': item.item_code_365,
+                        'name': item.item_name or ''
+                    })
+            except:
+                continue
+        
+        # Return first 100 items for preview
+        return jsonify({
+            'count': len(matching),
+            'items': matching[:100]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+

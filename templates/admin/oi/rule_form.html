@@ -185,11 +185,37 @@
                     <button type="submit" class="btn btn-primary btn-lg">
                         <i class="fas fa-save me-1"></i> {% if rule %}Update Rule{% else %}Create Rule{% endif %}
                     </button>
+                    {% if rule %}
+                    <a href="{{ url_for('oi_rule_matches', rule_id=rule.id) }}" class="btn btn-info">
+                        <i class="fas fa-list-check me-1"></i> View Matching Items
+                    </a>
+                    {% endif %}
+                    <button type="button" class="btn btn-outline-info" onclick="testConditions()">
+                        <i class="fas fa-flask me-1"></i> Preview Matches
+                    </button>
                     <a href="{{ url_for('oi_rules') }}" class="btn btn-outline-secondary">Cancel</a>
                 </div>
             </div>
         </div>
     </form>
+    
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card" id="matchPreviewCard" style="display: none;">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-list-check me-2"></i>Matching Items Preview</h5>
+                    <span id="matchCount" class="badge bg-white text-info"></span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="matchPreviewLoading" class="text-center py-4">
+                        <i class="fas fa-spinner fa-spin fa-2x text-muted"></i>
+                        <p class="text-muted mt-2">Testing conditions...</p>
+                    </div>
+                    <div id="matchPreviewResults" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <template id="conditionTemplate">
@@ -284,5 +310,64 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+function testConditions() {
+    const conditions = [];
+    document.querySelectorAll('.condition-row').forEach(row => {
+        const field = row.querySelector('[name="cond_field"]').value;
+        const op = row.querySelector('[name="cond_op"]').value;
+        const value = row.querySelector('[name="cond_value"]').value;
+        if (field && op) {
+            conditions.push({field: field, op: op, value: value});
+        }
+    });
+    
+    if (conditions.length === 0) {
+        alert('Please add at least one condition to test.');
+        return;
+    }
+    
+    const card = document.getElementById('matchPreviewCard');
+    const loading = document.getElementById('matchPreviewLoading');
+    const results = document.getElementById('matchPreviewResults');
+    const countBadge = document.getElementById('matchCount');
+    
+    card.style.display = 'block';
+    loading.style.display = 'block';
+    results.innerHTML = '';
+    
+    fetch('/admin/oi/rules/preview-matches', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({conditions: conditions})
+    })
+    .then(r => r.json())
+    .then(data => {
+        loading.style.display = 'none';
+        countBadge.textContent = data.count + ' items match';
+        
+        if (data.items.length === 0) {
+            results.innerHTML = '<div class="text-center py-4 text-muted">No items match these conditions.</div>';
+        } else {
+            let html = '<table class="table table-sm table-hover mb-0">';
+            html += '<thead class="table-light sticky-top"><tr><th>Item Code</th><th>Item Name</th></tr></thead>';
+            html += '<tbody>';
+            data.items.forEach(item => {
+                html += '<tr><td><code>' + item.code + '</code></td><td>' + item.name + '</td></tr>';
+            });
+            if (data.count > data.items.length) {
+                html += '<tr class="table-warning"><td colspan="2" class="text-center">... and ' + (data.count - data.items.length) + ' more items</td></tr>';
+            }
+            html += '</tbody></table>';
+            results.innerHTML = html;
+        }
+        
+        card.scrollIntoView({behavior: 'smooth'});
+    })
+    .catch(err => {
+        loading.style.display = 'none';
+        results.innerHTML = '<div class="alert alert-danger m-3">Error testing conditions: ' + err.message + '</div>';
+    });
+}
 </script>
 {% endblock %}
