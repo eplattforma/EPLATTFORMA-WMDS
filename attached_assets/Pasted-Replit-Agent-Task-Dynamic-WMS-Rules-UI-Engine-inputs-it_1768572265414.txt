@@ -1,0 +1,390 @@
+Replit Agent Task: Dynamic WMS Rules UI + Engine (inputs: item_name, brand_code_365, attribute_1..6, item_weight)
+Goal
+
+Add a UI to view and create rules that automatically set wms_* properties. Rules must be able to use these item fields as conditions:
+
+item_name
+
+brand_code_365
+
+attribute_1_code_365 … attribute_6_code_365
+
+item_weight
+
+Rules must be applied during /admin/oi/reclassify and must appear in the item evidence on /admin/oi/item/<code>.
+
+1) Database + Model
+1.1 Extend schema script
+
+File: update_oi_schema.py
+Add creation of a new table wms_dynamic_rules:
+
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS wms_dynamic_rules (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                target_attr VARCHAR(64) NOT NULL,
+                action_value VARCHAR(100) NOT NULL,
+                confidence INTEGER NOT NULL DEFAULT 65,
+                priority INTEGER NOT NULL DEFAULT 100,
+                stop_processing BOOLEAN NOT NULL DEFAULT TRUE,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                condition_json TEXT NOT NULL,
+                notes TEXT,
+                updated_by VARCHAR(100),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_wms_dynamic_rules_active_target
+            ON wms_dynamic_rules (is_active, target_attr, priority)
+        """))
+        db.session.commit()
+        logger.info("Created wms_dynamic_rules table")
+    except Exception as e:
+        if "already exists" not in str(e).lower():
+            logger.warning(f"Could not create wms_dynamic_rules: {e}")
+        db.session.rollback()
+
+1.2 Add SQLAlchemy model
+
+File: models.py (near other WMS OI models)
+
+class WmsDynamicRule(db.Model):
+    __tablename__ = "wms_dynamic_rules"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(120), nullable=False)
+
+    # Must match the resolver attr names (no wms_ prefix)
+    target_attr = db.Column(db.String(64), nullable=False)      # e.g. 'pressure_sensitivity'
+    action_value = db.Column(db.String(100), nullable=False)    # stored as string; cast on apply
+    confidence = db.Column(db.Integer, nullable=False, default=65)
+    priority = db.Column(db.Integer, nullable=False, default=100)
+
+    stop_processing = db.Column(db.Boolean, nullable=False, default=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    condition_json = db.Column(db.Text, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    updated_by = db.Column(db.String(100), nullable=True)
+    updated_at = db.Column(UTCDateTime(), nullable=True, default=get_utc_now)
+
+    def __repr__(self):
+        return f"<WmsDynamicRule {self.id} {self.target_attr} prio={self.priority}>"
+
+2) Rule Engine (safe JSON rules, no eval)
+2.1 Create module
+
+Create file: classification/dynamic_rules.py
+
+Requirements
+
+Whitelist fields: item_name, brand_code_365, attribute_1..6_code_365, item_weight
+
+Whitelist ops by type:
+
+text: contains, not_contains, starts_with, ends_with, eq, is_empty, is_not_empty
+
+code: eq, neq, in, not_in, is_empty, is_not_empty
+
+number: gt, gte, lt, lte, is_empty, is_not_empty
+
+JSON format (store in condition_json):
+
+{"all":[{"field":"attribute_1_code_365","op":"in","value":["CAS","BOX"]}]}
+
+Output
+
+Implement these functions:
+
+load_active_rules() → returns dict { target_attr: [rules sorted by priority desc] }
+
+match_best_rule(dw_item, target_attr, rules_by_attr) → returns either:
+
+None if no match
+
+dict {value, confidence, reason, rule_id, rule_name}
+
+Also implement:
+
+cast_action_value(target_attr, action_value) to convert:
+
+spill_risk to bool
+
+pick_difficulty to int
+
+otherwise keep string
+
+3) Resolver precedence update
+3.1 Update precedence
+
+File: classification/resolver.py
+
+Change documented precedence to:
+
+MANUAL (SKU override)
+
+DYNAMIC_RULE
+
+CATEGORY_DEFAULT
+
+RULES (computed, only if confidence >= threshold)
+
+NULL
+
+3.2 Update resolve_attribute signature (safe approach)
+
+Keep existing positional calls intact by adding dynamic params at the end as keyword-only usage:
+
+def resolve_attribute(..., threshold: int = 60,
+                      dynamic_value: Any = None,
+                      dynamic_conf: int = 0,
+                      dynamic_reason: str = "",
+                      dynamic_rule_id: int = None,
+                      dynamic_rule_name: str = None) -> Tuple[Any,int,str,str,dict]:
+
+
+Return five values now: (final_value, confidence, reason, source, meta)
+Where meta is a dict like {"rule_id":..., "rule_name":...} for dynamic rules, otherwise {}.
+
+Logic:
+
+if manual override → source MANUAL
+
+elif dynamic_value is not None → source DYNAMIC_RULE (confidence = dynamic_conf, reason includes rule name/id)
+
+elif category default → source CATEGORY_DEFAULT
+
+elif computed_conf >= threshold → source RULES
+
+else → None + ambiguous
+
+3.3 Update helpers
+
+In determine_class_source(evidence) update overall source precedence to:
+
+MANUAL > DYNAMIC_RULE > CATEGORY_DEFAULT > RULES
+
+In build_class_notes(...), add “Uses dynamic rules” when present.
+
+4) Classification engine integration
+
+File: classification/engine.py
+
+4.1 Import + load rules once per run
+
+Import: from models import WmsDynamicRule
+
+Import: from .dynamic_rules import load_active_rules, match_best_rule
+
+In reclassify_items(...):
+
+dynamic_rules_by_attr = load_active_rules() (which queries DB using model)
+
+Pass dynamic_rules_by_attr into classify_single_item(...).
+
+4.2 Apply per attribute
+
+In classify_single_item, before calling resolve_attribute, call:
+
+dyn = match_best_rule(item, 'pressure_sensitivity', dynamic_rules_by_attr)
+
+
+Then call resolver using keyword args:
+
+final_press, final_press_conf, final_press_reason, press_source, press_meta = resolve_attribute(
+    'pressure_sensitivity', press_val, press_conf, press_reason,
+    get_override_value(item_override, 'pressure_sensitivity'),
+    get_default_value(category_default, 'pressure_sensitivity'),
+    threshold,
+    dynamic_value=(dyn['value'] if dyn else None),
+    dynamic_conf=(dyn['confidence'] if dyn else 0),
+    dynamic_reason=(dyn['reason'] if dyn else ""),
+    dynamic_rule_id=(dyn['rule_id'] if dyn else None),
+    dynamic_rule_name=(dyn['rule_name'] if dyn else None),
+)
+
+
+Store evidence with optional meta:
+
+evidence['pressure_sensitivity'] = {
+  'value': final_press,
+  'confidence': final_press_conf,
+  'reason': final_press_reason,
+  'source': press_source,
+  **press_meta
+}
+
+
+Repeat the same pattern for all target attributes.
+
+5) Admin UI: Rule List + Create/Edit + Tester
+5.1 Add routes
+
+File: routes_oi.py
+
+Add imports:
+
+from models import WmsDynamicRule
+
+
+Add routes (all @login_required @admin_required):
+
+GET /admin/oi/rules
+
+List rules
+
+Filters: target_attr, active, search
+
+GET/POST /admin/oi/rules/new
+
+Create rule
+
+GET/POST /admin/oi/rules/<int:rule_id>/edit
+
+Edit rule
+
+POST /admin/oi/rules/<int:rule_id>/toggle
+
+Enable/disable
+
+GET/POST /admin/oi/rules/test
+
+Enter item_code_365
+
+Show which rules match (and predicted outputs)
+
+Form parsing (recommended)
+
+Use repeating inputs:
+
+cond_field (multiple)
+
+cond_op (multiple)
+
+cond_value (multiple)
+
+Flask:
+
+fields = request.form.getlist('cond_field')
+ops = request.form.getlist('cond_op')
+vals = request.form.getlist('cond_value')
+
+
+Build:
+
+conditions = [{"field": f, "op": o, "value": parsed_value}, ...]
+condition_json = json.dumps({"all": conditions})
+
+
+Validate:
+
+field in allowed list
+
+op allowed for field type
+
+confidence 0–100
+
+priority integer
+
+action_value valid for target_attr (use a dict of allowed values)
+
+5.2 Templates to add
+
+Create in templates/admin/oi/:
+
+rules.html
+
+Table list with:
+
+Name
+
+Target attribute
+
+Action value
+
+Priority / Confidence
+
+Conditions summary
+
+Active badge
+
+Buttons: Edit, Toggle, Test
+
+rule_form.html
+
+Create/Edit form
+
+Condition builder with “Add condition” button (simple JS to clone a row)
+
+rules_test.html
+
+Input item code
+
+Show matched rules with reasons + priority
+
+Also show current item fields (brand, attr1..6, weight, name) for context
+
+5.3 Add navigation links
+
+Update templates/admin/oi/dashboard.html header button group to include:
+
+“Rules” → url_for('oi_rules')
+
+6) Item detail visibility (show dynamic rule source)
+
+File: templates/admin/oi/item_detail.html
+
+In overall source badge section, add:
+
+{% elif item.wms_class_source == 'DYNAMIC_RULE' %}
+<span class="badge bg-primary">DYNAMIC RULE</span>
+
+
+In the per-attribute evidence table section, add handling for data.source == 'DYNAMIC_RULE' and display data.rule_name if present.
+
+Example:
+
+{% if data.source == 'DYNAMIC_RULE' %}
+<span class="badge bg-primary">RULE</span>
+{% endif %}
+{% if data.rule_name %}
+<small class="text-muted d-block">Rule: {{ data.rule_name }}</small>
+{% endif %}
+
+7) Deployment checklist
+
+Run schema update (one time):
+
+python update_oi_schema.py
+
+
+Restart server.
+
+Visit:
+
+/admin/oi/rules → create a rule, e.g.
+
+IF attribute_1_code_365 in CAS
+
+THEN pressure_sensitivity = low
+
+confidence 65
+
+priority 200
+
+Run:
+
+/admin/oi/dashboard → “Reclassify Items”
+
+Verify:
+
+/admin/oi/item/<code> evidence shows source DYNAMIC_RULE and the rule name.
+
+Notes (important)
+
+For pressure terminology: pressure_sensitivity = high means “crushable”. For “can take pressure”, use low.
+
+Your Excel shows attribute1 codes like TEM, CAS, BOX, PAC, VPACK. The UI should accept these exact codes.
