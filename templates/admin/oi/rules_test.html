@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Test Rules - Operational Intelligence{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2><i class="fas fa-flask me-2"></i>Test Dynamic Rules</h2>
+            <p class="text-muted mb-0">Enter an item code to see which rules would match</p>
+        </div>
+        <a href="{{ url_for('oi_rules') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Back to Rules
+        </a>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Test Item</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Item Code</label>
+                            <input type="text" name="item_code" class="form-control" 
+                                   value="{{ item.item_code_365 if item else '' }}"
+                                   placeholder="Enter item code (e.g., ITEM001)">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-search me-1"></i> Test Rules
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {% if item %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Item Details</h5>
+                </div>
+                <div class="card-body">
+                    <h6 class="mb-2">{{ item.item_code_365 }}</h6>
+                    <p class="text-muted small mb-3">{{ item.item_name }}</p>
+                    
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            {% for field, value in item_fields.items() %}
+                            <tr>
+                                <td class="text-muted small">{{ field.replace('_code_365', '').replace('_', ' ').title() }}</td>
+                                <td>
+                                    {% if value %}
+                                    <code>{{ value }}</code>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer">
+                    <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365) }}" class="btn btn-sm btn-outline-primary">
+                        View Full Details
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Rule Match Results</h5>
+                    {% if test_results %}
+                    <span class="badge bg-info">{{ test_results|length }} rules tested</span>
+                    {% endif %}
+                </div>
+                <div class="card-body p-0">
+                    {% if not item %}
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-inbox fa-3x mb-3 d-block opacity-50"></i>
+                        Enter an item code to test which rules would match.
+                    </div>
+                    {% elif not test_results %}
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-check-circle fa-3x mb-3 d-block opacity-50"></i>
+                        No active rules found. <a href="{{ url_for('oi_rule_new') }}">Create a rule</a> first.
+                    </div>
+                    {% else %}
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 50px;">Match</th>
+                                <th>Rule Name</th>
+                                <th>Target</th>
+                                <th>Action</th>
+                                <th>Priority</th>
+                                <th>Confidence</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in test_results %}
+                            <tr class="{% if result.matches %}table-success{% endif %}">
+                                <td class="text-center">
+                                    {% if result.matches %}
+                                    <i class="fas fa-check-circle text-success fa-lg"></i>
+                                    {% else %}
+                                    <i class="fas fa-times-circle text-muted"></i>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ result.rule_name }}</strong>
+                                    <br>
+                                    <small class="text-muted">
+                                        {% for field, val in result.field_values.items() %}
+                                        {{ field.replace('_code_365', '') }}=<code>{{ val if val else 'null' }}</code>{% if not loop.last %}, {% endif %}
+                                        {% endfor %}
+                                    </small>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">{{ result.target_attr.replace('_', ' ').title() }}</span>
+                                </td>
+                                <td><code>{{ result.action_value }}</code></td>
+                                <td>{{ result.priority }}</td>
+                                <td>{{ result.confidence }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if test_results %}
+            {% set matched = test_results|selectattr('matches')|list %}
+            {% if matched %}
+            <div class="card mt-4 border-success">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-check me-2"></i>Matching Rules Summary</h5>
+                </div>
+                <div class="card-body">
+                    <p>The following rules would be applied during reclassification:</p>
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Attribute</th>
+                                <th>Value</th>
+                                <th>Rule</th>
+                                <th>Priority</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set seen_attrs = {} %}
+                            {% for result in matched|sort(attribute='priority', reverse=true) %}
+                                {% if result.target_attr not in seen_attrs %}
+                                    {% set _ = seen_attrs.update({result.target_attr: true}) %}
+                                <tr>
+                                    <td><span class="badge bg-primary">{{ result.target_attr.replace('_', ' ').title() }}</span></td>
+                                    <td><code>{{ result.action_value }}</code></td>
+                                    <td>{{ result.rule_name }}</td>
+                                    <td>{{ result.priority }}</td>
+                                </tr>
+                                {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <div class="alert alert-info mt-3 mb-0 small">
+                        <i class="fas fa-info-circle me-1"></i>
+                        For each attribute, only the highest priority matching rule is applied.
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

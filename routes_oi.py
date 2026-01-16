@@ -26,7 +26,7 @@ from app import app, db
 from models import (
     DwItem, DwItemCategory, DwBrand, 
     WmsCategoryDefault, WmsItemOverride, WmsClassificationRun,
-    ActivityLog
+    WmsDynamicRule, ActivityLog
 )
 
 logger = logging.getLogger(__name__)
@@ -558,5 +558,337 @@ def oi_runs():
 def oi_manual():
     """Display Operational Intelligence manual and help."""
     return render_template('admin/oi/manual.html')
+
+
+# =============================================================================
+# Dynamic Rules Management
+# =============================================================================
+
+@app.route('/admin/oi/rules')
+@login_required
+@admin_required
+def oi_rules():
+    """List all dynamic rules with filtering."""
+    from classification.dynamic_rules import summarize_conditions, TARGET_ATTRS
+    
+    target_filter = request.args.get('target', '')
+    active_filter = request.args.get('active', '')
+    search = request.args.get('search', '').strip()
+    
+    query = WmsDynamicRule.query
+    
+    if target_filter:
+        query = query.filter(WmsDynamicRule.target_attr == target_filter)
+    
+    if active_filter == 'true':
+        query = query.filter(WmsDynamicRule.is_active == True)
+    elif active_filter == 'false':
+        query = query.filter(WmsDynamicRule.is_active == False)
+    
+    if search:
+        query = query.filter(or_(
+            WmsDynamicRule.name.ilike(f'%{search}%'),
+            WmsDynamicRule.notes.ilike(f'%{search}%')
+        ))
+    
+    rules = query.order_by(
+        WmsDynamicRule.target_attr,
+        WmsDynamicRule.priority.desc()
+    ).all()
+    
+    # Add condition summary to each rule
+    for rule in rules:
+        rule.condition_summary = summarize_conditions(rule.condition_json)
+    
+    return render_template('admin/oi/rules.html',
+                          rules=rules,
+                          target_attrs=list(TARGET_ATTRS.keys()),
+                          filters={
+                              'target': target_filter,
+                              'active': active_filter,
+                              'search': search
+                          })
+
+
+@app.route('/admin/oi/rules/new', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def oi_rule_new():
+    """Create a new dynamic rule."""
+    from classification.dynamic_rules import (
+        ALLOWED_FIELDS, OPERATORS_BY_TYPE, TARGET_ATTRS,
+        validate_rule_condition, validate_target_attr
+    )
+    
+    if request.method == 'POST':
+        # Parse form data
+        name = request.form.get('name', '').strip()
+        target_attr = request.form.get('target_attr', '')
+        action_value = request.form.get('action_value', '')
+        confidence = request.form.get('confidence', 65, type=int)
+        priority = request.form.get('priority', 100, type=int)
+        notes = request.form.get('notes', '').strip()
+        
+        # Parse conditions from repeating form fields
+        fields = request.form.getlist('cond_field')
+        ops = request.form.getlist('cond_op')
+        vals = request.form.getlist('cond_value')
+        
+        conditions = []
+        errors = []
+        
+        for i, (f, o, v) in enumerate(zip(fields, ops, vals)):
+            if not f or not o:
+                continue
+            
+            # Parse value - handle "in" operator with comma-separated values
+            if o in ('in', 'not_in') and v:
+                parsed_value = [x.strip() for x in v.split(',') if x.strip()]
+            else:
+                parsed_value = v.strip() if v else ''
+            
+            cond = {'field': f, 'op': o, 'value': parsed_value}
+            
+            is_valid, err = validate_rule_condition(cond)
+            if not is_valid:
+                errors.append(f"Condition {i+1}: {err}")
+            else:
+                conditions.append(cond)
+        
+        # Validate target and action
+        if not name:
+            errors.append("Rule name is required")
+        
+        is_valid, err = validate_target_attr(target_attr, action_value)
+        if not is_valid:
+            errors.append(err)
+        
+        if confidence < 0 or confidence > 100:
+            errors.append("Confidence must be 0-100")
+        
+        if not conditions:
+            errors.append("At least one condition is required")
+        
+        if errors:
+            for err in errors:
+                flash(err, 'danger')
+            return render_template('admin/oi/rule_form.html',
+                                  rule=None,
+                                  allowed_fields=ALLOWED_FIELDS,
+                                  operators_by_type=OPERATORS_BY_TYPE,
+                                  target_attrs=TARGET_ATTRS,
+                                  form_data=request.form)
+        
+        # Create rule
+        condition_json = json.dumps({'all': conditions})
+        
+        rule = WmsDynamicRule(
+            name=name,
+            target_attr=target_attr,
+            action_value=action_value,
+            confidence=confidence,
+            priority=priority,
+            condition_json=condition_json,
+            notes=notes,
+            updated_by=current_user.username,
+            updated_at=datetime.utcnow()
+        )
+        db.session.add(rule)
+        db.session.commit()
+        
+        activity = ActivityLog()
+        activity.picker_username = current_user.username
+        activity.activity_type = 'oi_rule_create'
+        activity.details = f"Created dynamic rule: {name} ({target_attr}={action_value})"
+        db.session.add(activity)
+        db.session.commit()
+        
+        flash(f'Rule "{name}" created. Run reclassification to apply.', 'success')
+        return redirect(url_for('oi_rules'))
+    
+    return render_template('admin/oi/rule_form.html',
+                          rule=None,
+                          allowed_fields=ALLOWED_FIELDS,
+                          operators_by_type=OPERATORS_BY_TYPE,
+                          target_attrs=TARGET_ATTRS,
+                          form_data=None)
+
+
+@app.route('/admin/oi/rules/<int:rule_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def oi_rule_edit(rule_id):
+    """Edit an existing dynamic rule."""
+    from classification.dynamic_rules import (
+        ALLOWED_FIELDS, OPERATORS_BY_TYPE, TARGET_ATTRS,
+        validate_rule_condition, validate_target_attr
+    )
+    
+    rule = WmsDynamicRule.query.get_or_404(rule_id)
+    
+    if request.method == 'POST':
+        # Parse form data
+        name = request.form.get('name', '').strip()
+        target_attr = request.form.get('target_attr', '')
+        action_value = request.form.get('action_value', '')
+        confidence = request.form.get('confidence', 65, type=int)
+        priority = request.form.get('priority', 100, type=int)
+        notes = request.form.get('notes', '').strip()
+        
+        # Parse conditions
+        fields = request.form.getlist('cond_field')
+        ops = request.form.getlist('cond_op')
+        vals = request.form.getlist('cond_value')
+        
+        conditions = []
+        errors = []
+        
+        for i, (f, o, v) in enumerate(zip(fields, ops, vals)):
+            if not f or not o:
+                continue
+            
+            if o in ('in', 'not_in') and v:
+                parsed_value = [x.strip() for x in v.split(',') if x.strip()]
+            else:
+                parsed_value = v.strip() if v else ''
+            
+            cond = {'field': f, 'op': o, 'value': parsed_value}
+            
+            is_valid, err = validate_rule_condition(cond)
+            if not is_valid:
+                errors.append(f"Condition {i+1}: {err}")
+            else:
+                conditions.append(cond)
+        
+        if not name:
+            errors.append("Rule name is required")
+        
+        is_valid, err = validate_target_attr(target_attr, action_value)
+        if not is_valid:
+            errors.append(err)
+        
+        if confidence < 0 or confidence > 100:
+            errors.append("Confidence must be 0-100")
+        
+        if not conditions:
+            errors.append("At least one condition is required")
+        
+        if errors:
+            for err in errors:
+                flash(err, 'danger')
+            return render_template('admin/oi/rule_form.html',
+                                  rule=rule,
+                                  allowed_fields=ALLOWED_FIELDS,
+                                  operators_by_type=OPERATORS_BY_TYPE,
+                                  target_attrs=TARGET_ATTRS,
+                                  form_data=request.form)
+        
+        # Update rule
+        rule.name = name
+        rule.target_attr = target_attr
+        rule.action_value = action_value
+        rule.confidence = confidence
+        rule.priority = priority
+        rule.condition_json = json.dumps({'all': conditions})
+        rule.notes = notes
+        rule.updated_by = current_user.username
+        rule.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        activity = ActivityLog()
+        activity.picker_username = current_user.username
+        activity.activity_type = 'oi_rule_edit'
+        activity.details = f"Updated dynamic rule: {name} (id={rule_id})"
+        db.session.add(activity)
+        db.session.commit()
+        
+        flash(f'Rule "{name}" updated. Run reclassification to apply.', 'success')
+        return redirect(url_for('oi_rules'))
+    
+    # Parse existing conditions for form
+    existing_conditions = []
+    try:
+        cond_data = json.loads(rule.condition_json)
+        for cond in cond_data.get('all', []):
+            val = cond.get('value', '')
+            if isinstance(val, list):
+                val = ', '.join(str(v) for v in val)
+            existing_conditions.append({
+                'field': cond.get('field', ''),
+                'op': cond.get('op', ''),
+                'value': val
+            })
+    except:
+        pass
+    
+    return render_template('admin/oi/rule_form.html',
+                          rule=rule,
+                          existing_conditions=existing_conditions,
+                          allowed_fields=ALLOWED_FIELDS,
+                          operators_by_type=OPERATORS_BY_TYPE,
+                          target_attrs=TARGET_ATTRS,
+                          form_data=None)
+
+
+@app.route('/admin/oi/rules/<int:rule_id>/toggle', methods=['POST'])
+@login_required
+@admin_required
+def oi_rule_toggle(rule_id):
+    """Enable or disable a dynamic rule."""
+    rule = WmsDynamicRule.query.get_or_404(rule_id)
+    
+    rule.is_active = not rule.is_active
+    rule.updated_by = current_user.username
+    rule.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    status = 'enabled' if rule.is_active else 'disabled'
+    flash(f'Rule "{rule.name}" {status}. Run reclassification to apply.', 'success')
+    return redirect(url_for('oi_rules'))
+
+
+@app.route('/admin/oi/rules/test', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def oi_rules_test():
+    """Test which rules would match a given item."""
+    from classification.dynamic_rules import (
+        load_active_rules, test_rule_against_item, ALLOWED_FIELDS
+    )
+    
+    item = None
+    test_results = []
+    
+    if request.method == 'POST' or request.args.get('item_code'):
+        item_code = request.form.get('item_code', '') or request.args.get('item_code', '')
+        item_code = item_code.strip()
+        
+        if item_code:
+            item = DwItem.query.get(item_code)
+            if not item:
+                flash(f'Item "{item_code}" not found.', 'warning')
+            else:
+                # Test all active rules against this item
+                all_rules = WmsDynamicRule.query.filter_by(is_active=True).order_by(
+                    WmsDynamicRule.target_attr,
+                    WmsDynamicRule.priority.desc()
+                ).all()
+                
+                for rule in all_rules:
+                    result = test_rule_against_item(item, rule)
+                    test_results.append(result)
+    
+    # Get field values for the item
+    item_fields = {}
+    if item:
+        for field in ALLOWED_FIELDS.keys():
+            item_fields[field] = getattr(item, field, None)
+    
+    return render_template('admin/oi/rules_test.html',
+                          item=item,
+                          item_fields=item_fields,
+                          test_results=test_results,
+                          allowed_fields=list(ALLOWED_FIELDS.keys()))
 
 

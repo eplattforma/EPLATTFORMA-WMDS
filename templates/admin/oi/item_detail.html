@@ -83,6 +83,8 @@
                             <td>
                                 {% if item.wms_class_source == 'MANUAL' %}
                                 <span class="badge bg-success">MANUAL</span>
+                                {% elif item.wms_class_source == 'DYNAMIC_RULE' %}
+                                <span class="badge bg-primary">DYNAMIC RULE</span>
                                 {% elif item.wms_class_source == 'CATEGORY_DEFAULT' %}
                                 <span class="badge bg-info">CATEGORY DEFAULT</span>
                                 {% elif item.wms_class_source == 'RULES' %}
@@ -239,6 +241,11 @@
                             <td>
                                 {% if data.source == 'MANUAL' %}
                                 <span class="badge bg-success">MANUAL</span>
+                                {% elif data.source == 'DYNAMIC_RULE' %}
+                                <span class="badge bg-primary">RULE</span>
+                                {% if data.rule_name %}
+                                <small class="text-muted d-block">{{ data.rule_name }}</small>
+                                {% endif %}
                                 {% elif data.source == 'CATEGORY_DEFAULT' %}
                                 <span class="badge bg-info">DEFAULT</span>
                                 {% else %}

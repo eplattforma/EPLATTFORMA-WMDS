@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}{% if rule %}Edit Rule{% else %}New Rule{% endif %} - Operational Intelligence{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>
+            <i class="fas fa-{% if rule %}edit{% else %}plus{% endif %} me-2"></i>
+            {% if rule %}Edit Rule: {{ rule.name }}{% else %}Create New Rule{% endif %}
+        </h2>
+        <a href="{{ url_for('oi_rules') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i> Back to Rules
+        </a>
+    </div>
+
+    <form method="POST">
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Rule Definition</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Rule Name <span class="text-danger">*</span></label>
+                                <input type="text" name="name" class="form-control" required
+                                       value="{{ form_data.get('name', '') if form_data else (rule.name if rule else '') }}"
+                                       placeholder="e.g., Cases are pressure resistant">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Notes</label>
+                                <input type="text" name="notes" class="form-control"
+                                       value="{{ form_data.get('notes', '') if form_data else (rule.notes if rule else '') }}"
+                                       placeholder="Optional description">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Conditions (IF)</h5>
+                        <button type="button" class="btn btn-sm btn-success" onclick="addCondition()">
+                            <i class="fas fa-plus me-1"></i> Add Condition
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">All conditions must match (AND logic). For IN operator, use comma-separated values.</p>
+                        
+                        <div id="conditionsContainer">
+                            {% if rule and existing_conditions %}
+                                {% for cond in existing_conditions %}
+                                <div class="condition-row row g-2 mb-2 align-items-center">
+                                    <div class="col-md-4">
+                                        <select name="cond_field" class="form-select field-select" onchange="updateOperators(this)">
+                                            <option value="">Select field...</option>
+                                            {% for field, ftype in allowed_fields.items() %}
+                                            <option value="{{ field }}" data-type="{{ ftype }}" {% if cond.field == field %}selected{% endif %}>
+                                                {{ field.replace('_code_365', '').replace('_', ' ').title() }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <select name="cond_op" class="form-select op-select">
+                                            <option value="">Operator...</option>
+                                            {% set field_type = allowed_fields.get(cond.field, 'text') %}
+                                            {% for op in operators_by_type.get(field_type, []) %}
+                                            <option value="{{ op }}" {% if cond.op == op %}selected{% endif %}>{{ op.replace('_', ' ') }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <input type="text" name="cond_value" class="form-control" 
+                                               placeholder="Value (comma-sep for IN)" value="{{ cond.value }}">
+                                    </div>
+                                    <div class="col-md-1">
+                                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeCondition(this)">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                            <div class="condition-row row g-2 mb-2 align-items-center">
+                                <div class="col-md-4">
+                                    <select name="cond_field" class="form-select field-select" onchange="updateOperators(this)">
+                                        <option value="">Select field...</option>
+                                        {% for field, ftype in allowed_fields.items() %}
+                                        <option value="{{ field }}" data-type="{{ ftype }}">
+                                            {{ field.replace('_code_365', '').replace('_', ' ').title() }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <select name="cond_op" class="form-select op-select">
+                                        <option value="">Operator...</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <input type="text" name="cond_value" class="form-control" placeholder="Value (comma-sep for IN)">
+                                </div>
+                                <div class="col-md-1">
+                                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeCondition(this)">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Action (THEN)</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Target Attribute <span class="text-danger">*</span></label>
+                                <select name="target_attr" id="targetAttr" class="form-select" required onchange="updateActionValues()">
+                                    <option value="">Select attribute...</option>
+                                    {% for attr, values in target_attrs.items() %}
+                                    <option value="{{ attr }}" data-values="{{ values|join(',') }}"
+                                            {% if (form_data and form_data.get('target_attr') == attr) or (rule and rule.target_attr == attr) %}selected{% endif %}>
+                                        {{ attr.replace('_', ' ').title() }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Set Value To <span class="text-danger">*</span></label>
+                                <select name="action_value" id="actionValue" class="form-select" required>
+                                    <option value="">Select target first...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Rule Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Priority</label>
+                            <input type="number" name="priority" class="form-control" 
+                                   value="{{ form_data.get('priority', 100) if form_data else (rule.priority if rule else 100) }}"
+                                   min="1" max="1000">
+                            <div class="form-text">Higher priority rules are evaluated first (1-1000).</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Confidence</label>
+                            <div class="input-group">
+                                <input type="number" name="confidence" class="form-control" 
+                                       value="{{ form_data.get('confidence', 65) if form_data else (rule.confidence if rule else 65) }}"
+                                       min="0" max="100">
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text">Confidence level when this rule matches.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card bg-light mb-4">
+                    <div class="card-body">
+                        <h6><i class="fas fa-lightbulb me-2 text-warning"></i>Tips</h6>
+                        <ul class="small mb-0">
+                            <li><strong>attribute_1_code_365</strong>: Unit type (CAS, BOX, VPACK, PAC, TEM)</li>
+                            <li><strong>pressure_sensitivity</strong>: high = crushable, low = can take pressure</li>
+                            <li>Use <code>in</code> operator for multiple values: <code>CAS, BOX</code></li>
+                            <li>Use <code>contains</code> for partial name matches</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-save me-1"></i> {% if rule %}Update Rule{% else %}Create Rule{% endif %}
+                    </button>
+                    <a href="{{ url_for('oi_rules') }}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<template id="conditionTemplate">
+    <div class="condition-row row g-2 mb-2 align-items-center">
+        <div class="col-md-4">
+            <select name="cond_field" class="form-select field-select" onchange="updateOperators(this)">
+                <option value="">Select field...</option>
+                {% for field, ftype in allowed_fields.items() %}
+                <option value="{{ field }}" data-type="{{ ftype }}">
+                    {{ field.replace('_code_365', '').replace('_', ' ').title() }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="cond_op" class="form-select op-select">
+                <option value="">Operator...</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <input type="text" name="cond_value" class="form-control" placeholder="Value (comma-sep for IN)">
+        </div>
+        <div class="col-md-1">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeCondition(this)">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+</template>
+
+<script>
+const operatorsByType = {{ operators_by_type|tojson|safe }};
+
+function addCondition() {
+    const template = document.getElementById('conditionTemplate');
+    const container = document.getElementById('conditionsContainer');
+    const clone = template.content.cloneNode(true);
+    container.appendChild(clone);
+}
+
+function removeCondition(btn) {
+    const row = btn.closest('.condition-row');
+    const container = document.getElementById('conditionsContainer');
+    if (container.querySelectorAll('.condition-row').length > 1) {
+        row.remove();
+    } else {
+        row.querySelectorAll('select, input').forEach(el => el.value = '');
+    }
+}
+
+function updateOperators(fieldSelect) {
+    const row = fieldSelect.closest('.condition-row');
+    const opSelect = row.querySelector('.op-select');
+    const selectedOption = fieldSelect.options[fieldSelect.selectedIndex];
+    const fieldType = selectedOption.dataset.type || 'text';
+    
+    const operators = operatorsByType[fieldType] || [];
+    
+    opSelect.innerHTML = '<option value="">Operator...</option>';
+    operators.forEach(op => {
+        const option = document.createElement('option');
+        option.value = op;
+        option.textContent = op.replace(/_/g, ' ');
+        opSelect.appendChild(option);
+    });
+}
+
+function updateActionValues() {
+    const targetSelect = document.getElementById('targetAttr');
+    const actionSelect = document.getElementById('actionValue');
+    const selectedOption = targetSelect.options[targetSelect.selectedIndex];
+    const values = selectedOption.dataset.values ? selectedOption.dataset.values.split(',') : [];
+    
+    const currentValue = '{{ form_data.get("action_value", "") if form_data else (rule.action_value if rule else "") }}';
+    
+    actionSelect.innerHTML = '<option value="">Select value...</option>';
+    values.forEach(val => {
+        const option = document.createElement('option');
+        option.value = val;
+        option.textContent = val;
+        if (val === currentValue) option.selected = true;
+        actionSelect.appendChild(option);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    updateActionValues();
+    
+    document.querySelectorAll('.field-select').forEach(select => {
+        if (select.value) {
+            updateOperators(select);
+        }
+    });
+});
+</script>
+{% endblock %}
