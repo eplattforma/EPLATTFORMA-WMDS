@@ -885,10 +885,44 @@ def oi_rules_test():
         for field in ALLOWED_FIELDS.keys():
             item_fields[field] = getattr(item, field, None)
     
+    # Get all rules for the dropdown
+    all_rules = WmsDynamicRule.query.filter_by(is_active=True).order_by(
+        WmsDynamicRule.priority.desc()
+    ).all()
+    
     return render_template('admin/oi/rules_test.html',
                           item=item,
                           item_fields=item_fields,
                           test_results=test_results,
-                          allowed_fields=list(ALLOWED_FIELDS.keys()))
+                          allowed_fields=list(ALLOWED_FIELDS.keys()),
+                          all_rules=all_rules)
+
+
+@app.route('/admin/oi/rules/<int:rule_id>/matches')
+@login_required
+@admin_required
+def oi_rule_matches(rule_id):
+    """Show all items that match a specific rule."""
+    from classification.dynamic_rules import evaluate_conditions
+    
+    rule = WmsDynamicRule.query.get_or_404(rule_id)
+    
+    # Get all active items
+    items = DwItem.query.filter(DwItem.is_active == True).all()
+    
+    # Find all items that match this rule
+    matching_items = []
+    for item in items:
+        try:
+            conditions = json.loads(rule.condition_json)
+            if evaluate_conditions(item, conditions):
+                matching_items.append(item)
+        except:
+            continue
+    
+    return render_template('admin/oi/rule_matches.html',
+                          rule=rule,
+                          matching_items=matching_items,
+                          total_items=len(items))
 
 

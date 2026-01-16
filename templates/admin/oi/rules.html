@@ -102,6 +102,9 @@
                         </td>
                         <td class="text-end">
                             <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('oi_rule_matches', rule_id=rule.id) }}" class="btn btn-outline-info" title="View Matching Items">
+                                    <i class="fas fa-list-check"></i>
+                                </a>
                                 <a href="{{ url_for('oi_rule_edit', rule_id=rule.id) }}" class="btn btn-outline-primary" title="Edit">
                                     <i class="fas fa-edit"></i>
                                 </a>
