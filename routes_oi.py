@@ -333,6 +333,14 @@ def oi_item_override(item_code_365):
     else:
         override.box_fit_rule_override = None
     
+    if request.form.get('pick_difficulty_override'):
+        try:
+            override.pick_difficulty_override = int(request.form.get('pick_difficulty_override'))
+        except (ValueError, TypeError):
+            override.pick_difficulty_override = None
+    else:
+        override.pick_difficulty_override = None
+    
     override.override_reason = request.form.get('override_reason', '')
     override.updated_by = current_user.username
     override.updated_at = datetime.utcnow()

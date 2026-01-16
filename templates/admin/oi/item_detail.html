@@ -162,6 +162,27 @@
                             </select>
                         </div>
                         <div class="mb-2">
+                            <label class="form-label">Stackability</label>
+                            <select class="form-select form-select-sm" name="stackability_override">
+                                <option value="">-- No Override --</option>
+                                <option value="high" {% if override and override.stackability_override == 'high' %}selected{% endif %}>High</option>
+                                <option value="medium" {% if override and override.stackability_override == 'medium' %}selected{% endif %}>Medium</option>
+                                <option value="low" {% if override and override.stackability_override == 'low' %}selected{% endif %}>Low</option>
+                                <option value="none" {% if override and override.stackability_override == 'none' %}selected{% endif %}>None</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Pick Difficulty</label>
+                            <select class="form-select form-select-sm" name="pick_difficulty_override">
+                                <option value="">-- No Override --</option>
+                                <option value="1" {% if override and override.pick_difficulty_override == 1 %}selected{% endif %}>1 - Easy</option>
+                                <option value="2" {% if override and override.pick_difficulty_override == 2 %}selected{% endif %}>2 - Normal</option>
+                                <option value="3" {% if override and override.pick_difficulty_override == 3 %}selected{% endif %}>3 - Moderate</option>
+                                <option value="4" {% if override and override.pick_difficulty_override == 4 %}selected{% endif %}>4 - Difficult</option>
+                                <option value="5" {% if override and override.pick_difficulty_override == 5 %}selected{% endif %}>5 - Very Difficult</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
                             <label class="form-label">Box Fit Rule</label>
                             <select class="form-select form-select-sm" name="box_fit_rule_override">
                                 <option value="">-- No Override --</option>
