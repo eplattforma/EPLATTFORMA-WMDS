@@ -77,27 +77,26 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for item in matching_items %}
+                        {% for match in matching_items %}
                         <tr>
                             <td>
-                                <code>{{ item.item_code_365 }}</code>
+                                <code>{{ match.item.item_code_365 }}</code>
                             </td>
                             <td>
-                                <span class="text-truncate d-inline-block" style="max-width: 300px;" title="{{ item.item_name }}">
-                                    {{ item.item_name }}
+                                <span class="text-truncate d-inline-block" style="max-width: 300px;" title="{{ match.item.item_name }}">
+                                    {{ match.item.item_name }}
                                 </span>
                             </td>
                             <td>
-                                {% if item.brand_code_365 %}
-                                <span class="badge bg-secondary">{{ item.brand_code_365 }}</span>
+                                {% if match.item.brand_code_365 %}
+                                <span class="badge bg-secondary">{{ match.item.brand_code_365 }}</span>
                                 {% else %}
                                 <span class="text-muted">-</span>
                                 {% endif %}
                             </td>
                             <td>
-                                {% set current_val = item['wms_' ~ rule.target_attr] if rule.target_attr != 'zone' else item.wms_zone %}
-                                {% if current_val %}
-                                <code>{{ current_val }}</code>
+                                {% if match.current_value %}
+                                <code>{{ match.current_value }}</code>
                                 {% else %}
                                 <span class="text-muted">Not set</span>
                                 {% endif %}
@@ -106,7 +105,7 @@
                                 <code class="text-success">{{ rule.action_value }}</code>
                             </td>
                             <td class="text-end">
-                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365) }}" 
+                                <a href="{{ url_for('oi_item_detail', item_code_365=match.item.item_code_365) }}" 
                                    class="btn btn-sm btn-outline-primary" target="_blank">
                                     <i class="fas fa-external-link-alt"></i>
                                 </a>

@@ -903,27 +903,41 @@ def oi_rules_test():
 @admin_required
 def oi_rule_matches(rule_id):
     """Show all items that match a specific rule."""
-    from classification.dynamic_rules import evaluate_conditions
+    from classification.dynamic_rules import evaluate_rule_conditions
+    import logging
     
-    rule = WmsDynamicRule.query.get_or_404(rule_id)
-    
-    # Get all active items
-    items = DwItem.query.filter(DwItem.is_active == True).all()
-    
-    # Find all items that match this rule
-    matching_items = []
-    for item in items:
-        try:
-            conditions = json.loads(rule.condition_json)
-            if evaluate_conditions(item, conditions):
-                matching_items.append(item)
-        except:
-            continue
-    
-    return render_template('admin/oi/rule_matches.html',
-                          rule=rule,
-                          matching_items=matching_items,
-                          total_items=len(items))
+    try:
+        rule = WmsDynamicRule.query.get_or_404(rule_id)
+        
+        # Get all active items
+        items = DwItem.query.filter(DwItem.active == True).all()
+        
+        # Find all items that match this rule
+        matching_items = []
+        
+        # Build target attribute name
+        target_attr_name = f"wms_{rule.target_attr}" if rule.target_attr else None
+        
+        for item in items:
+            try:
+                if evaluate_rule_conditions(item, rule.condition_json):
+                    # Get current value of the target attribute for display
+                    current_value = getattr(item, target_attr_name, None) if target_attr_name else None
+                    matching_items.append({
+                        'item': item,
+                        'current_value': current_value
+                    })
+            except Exception as e:
+                logging.debug(f"Rule evaluation error for item {item.item_code_365}: {e}")
+                continue
+        
+        return render_template('admin/oi/rule_matches.html',
+                              rule=rule,
+                              matching_items=matching_items,
+                              total_items=len(items))
+    except Exception as e:
+        logging.error(f"Error in oi_rule_matches: {e}", exc_info=True)
+        raise
 
 
 @app.route('/admin/oi/rules/preview-matches', methods=['POST'])
@@ -931,7 +945,7 @@ def oi_rule_matches(rule_id):
 @admin_required
 def oi_rules_preview_matches():
     """API endpoint to preview items matching conditions (AJAX)."""
-    from classification.dynamic_rules import evaluate_conditions
+    from classification.dynamic_rules import evaluate_rule_conditions
     
     try:
         data = request.get_json()
@@ -953,16 +967,17 @@ def oi_rules_preview_matches():
                 'value': val
             })
         
-        condition_json = {'all': parsed_conditions}
+        # Convert to JSON string for evaluate_rule_conditions
+        condition_json_str = json.dumps({'all': parsed_conditions})
         
         # Get all active items
-        items = DwItem.query.filter(DwItem.is_active == True).all()
+        items = DwItem.query.filter(DwItem.active == True).all()
         
         # Find matching items
         matching = []
         for item in items:
             try:
-                if evaluate_conditions(item, condition_json):
+                if evaluate_rule_conditions(item, condition_json_str):
                     matching.append({
                         'code': item.item_code_365,
                         'name': item.item_name or ''
