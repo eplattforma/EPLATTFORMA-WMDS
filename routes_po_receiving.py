@@ -386,11 +386,20 @@ def upsert_purchase_order(order_data, username, force_reimport=False):
                 if not pieces_per_unit or int(pieces_per_unit) <= 1:
                     if dw_item.number_of_pieces and int(dw_item.number_of_pieces) > 1:
                         pieces_per_unit = dw_item.number_of_pieces
-                        if not unit_type:
-                            unit_type = "CASE"
                 
-                # Check for unit_type in DW or related fields if available
-                # (Assuming DwItem might have unit-related attributes in the future or mapping pieces to type)
+                # Use attribute_1_code_365 from DW for unit type (e.g., VPACK, BOX, CASE)
+                if not unit_type and dw_item.attribute_1_code_365:
+                    attr1 = str(dw_item.attribute_1_code_365).strip().upper()
+                    # Map known attribute codes to display unit types
+                    if attr1 == 'VPACK':
+                        unit_type = 'VPACK'
+                    elif attr1 in ('BOX', 'CASE', 'PIECE', 'PALLET'):
+                        unit_type = attr1
+                    elif pieces_per_unit and int(pieces_per_unit) > 1:
+                        # Fallback: use the attribute as-is if pieces > 1
+                        unit_type = attr1 if attr1 else 'CASE'
+                
+                # Final fallback if still no unit_type but pieces > 1
                 if not unit_type and pieces_per_unit and int(pieces_per_unit) > 1:
                     unit_type = "CASE"
 
