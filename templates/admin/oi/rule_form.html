@@ -266,7 +266,7 @@ function removeCondition(btn) {
     }
 }
 
-function updateOperators(fieldSelect) {
+function updateOperators(fieldSelect, preserveValue = false) {
     const row = fieldSelect.closest('.condition-row');
     const opSelect = row.querySelector('.op-select');
     const selectedOption = fieldSelect.options[fieldSelect.selectedIndex];
@@ -274,11 +274,15 @@ function updateOperators(fieldSelect) {
     
     const operators = operatorsByType[fieldType] || [];
     
+    // Preserve current selection if requested
+    const currentValue = preserveValue ? opSelect.value : '';
+    
     opSelect.innerHTML = '<option value="">Operator...</option>';
     operators.forEach(op => {
         const option = document.createElement('option');
         option.value = op;
         option.textContent = op.replace(/_/g, ' ');
+        if (op === currentValue) option.selected = true;
         opSelect.appendChild(option);
     });
 }
@@ -304,9 +308,10 @@ function updateActionValues() {
 document.addEventListener('DOMContentLoaded', function() {
     updateActionValues();
     
+    // On page load, preserve existing operator selections when repopulating
     document.querySelectorAll('.field-select').forEach(select => {
         if (select.value) {
-            updateOperators(select);
+            updateOperators(select, true);
         }
     });
 });
