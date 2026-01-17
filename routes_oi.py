@@ -507,6 +507,74 @@ def oi_category_defaults(category_code_365):
     return redirect(url_for('oi_categories'))
 
 
+@app.route('/admin/oi/categories/bulk', methods=['POST'])
+@login_required
+@admin_required
+def oi_category_defaults_bulk():
+    """Update all category defaults at once."""
+    category_codes = request.form.getlist('category_codes')
+    updated_count = 0
+    
+    for code in category_codes:
+        fragility = request.form.get(f'fragility_{code}') or None
+        spill_val = request.form.get(f'spill_{code}')
+        pressure = request.form.get(f'pressure_{code}') or None
+        temp = request.form.get(f'temp_{code}') or None
+        boxfit = request.form.get(f'boxfit_{code}') or None
+        zone = request.form.get(f'zone_{code}') or None
+        
+        # Convert spill to boolean
+        if spill_val == 'true':
+            spill = True
+        elif spill_val == 'false':
+            spill = False
+        else:
+            spill = None
+        
+        # Check if anything is set
+        has_values = any([fragility, spill is not None, pressure, temp, boxfit, zone])
+        
+        cat_default = WmsCategoryDefault.query.get(code)
+        
+        if has_values:
+            if not cat_default:
+                cat_default = WmsCategoryDefault(category_code_365=code)
+                db.session.add(cat_default)
+            
+            cat_default.default_fragility = fragility
+            cat_default.default_spill_risk = spill
+            cat_default.default_pressure_sensitivity = pressure
+            cat_default.default_temperature_sensitivity = temp
+            cat_default.default_box_fit_rule = boxfit
+            cat_default.default_zone = zone
+            cat_default.updated_by = current_user.username
+            cat_default.updated_at = datetime.utcnow()
+            cat_default.is_active = True
+            updated_count += 1
+        elif cat_default:
+            # Clear existing defaults if all fields are empty
+            cat_default.default_fragility = None
+            cat_default.default_spill_risk = None
+            cat_default.default_pressure_sensitivity = None
+            cat_default.default_temperature_sensitivity = None
+            cat_default.default_box_fit_rule = None
+            cat_default.default_zone = None
+            cat_default.updated_by = current_user.username
+            cat_default.updated_at = datetime.utcnow()
+    
+    db.session.commit()
+    
+    activity = ActivityLog()
+    activity.picker_username = current_user.username
+    activity.activity_type = 'oi_category_defaults_bulk'
+    activity.details = f"Bulk updated category defaults ({updated_count} categories with values)"
+    db.session.add(activity)
+    db.session.commit()
+    
+    flash(f'Category defaults saved. Run reclassification to apply changes.', 'success')
+    return redirect(url_for('oi_categories'))
+
+
 @app.route('/admin/oi/overrides')
 @login_required
 @admin_required
