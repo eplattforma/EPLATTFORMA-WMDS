@@ -1,0 +1,50 @@
+.pallet-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.pallet-cell {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 10px 6px;
+    min-height: 54px;
+    font-size: 12px;
+    line-height: 1.1;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pallet-cell.free {
+    opacity: 0.5;
+}
+
+.pallet-cell.used {
+    opacity: 1;
+}
+
+.pallet-cell .cell-content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pallet-kpi {
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+.pallet-card {
+    transition: box-shadow 0.2s ease;
+}
+
+.pallet-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.pallet-orders {
+    max-height: 200px;
+    overflow-y: auto;
+}

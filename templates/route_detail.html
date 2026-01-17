@@ -85,6 +85,12 @@
                     </a>
                     {% endif %}
                     
+                    {% if current_user.role in ['admin', 'warehouse_manager'] %}
+                    <a class="btn btn-outline-info" href="{{ url_for('pallets.route_pallets', shipment_id=route.id) }}">
+                        <i class="fas fa-pallet me-1"></i>Pallets
+                    </a>
+                    {% endif %}
+                    
                     <div class="dropdown">
                         <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
                             <i class="fas fa-ellipsis-v"></i>

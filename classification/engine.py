@@ -29,6 +29,7 @@ from .resolver import (
     calculate_overall_confidence, determine_class_source, build_class_notes
 )
 from .dynamic_rules import load_active_rules, match_best_rule
+from packing_profiles import upsert_packing_profile
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ def reclassify_items(run_by: str, threshold: int = 60,
                 threshold,
                 summer_mode
             )
+            
+            upsert_packing_profile(db.session, item)
             
             if updated:
                 items_updated += 1

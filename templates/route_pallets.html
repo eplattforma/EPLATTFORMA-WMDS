@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Pallets - Route {{ shipment.route_code }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pallets.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2><i class="fas fa-pallet me-2"></i>Pallet Management</h2>
+            <p class="text-muted mb-0">Route: <strong>{{ shipment.route_code }}</strong> | {{ shipment.driver_name or 'No driver' }}</p>
+        </div>
+        <div>
+            <form action="{{ url_for('pallets.create_pallet', shipment_id=shipment.id) }}" method="POST" class="d-inline">
+                <button type="submit" class="btn btn-success">
+                    <i class="fas fa-plus me-1"></i> New Pallet
+                </button>
+            </form>
+            <a href="{{ url_for('route_detail', id=shipment.id) }}" class="btn btn-outline-secondary ms-2">
+                <i class="fas fa-arrow-left me-1"></i> Back to Route
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <strong><i class="fas fa-list me-2"></i>Unassigned Orders</strong>
+                    <span class="badge bg-secondary ms-2">{{ unassigned_orders|length }}</span>
+                </div>
+                <div class="card-body p-0" style="max-height: 70vh; overflow-y: auto;">
+                    {% if unassigned_orders %}
+                    <div class="list-group list-group-flush">
+                        {% for order in unassigned_orders %}
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div>
+                                    <strong>{{ order.invoice_no }}</strong>
+                                    <small class="d-block text-muted">{{ order.customer_name[:30] }}{% if order.customer_name|length > 30 %}...{% endif %}</small>
+                                </div>
+                                <span class="badge bg-info">{{ order.hint.recommended_blocks }}/8 blocks</span>
+                            </div>
+                            
+                            {% if order.hint.warnings %}
+                            <div class="mb-2">
+                                {% for warn in order.hint.warnings %}
+                                <span class="badge bg-{{ warn.color }} me-1" title="{{ warn.type }}">
+                                    <i class="fas {{ warn.icon }}"></i>
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            
+                            <div class="small text-muted mb-2">
+                                Weight: {{ order.hint.total_weight_kg }} kg
+                                {% if order.hint.stop_seq %} | Stop #{{ order.hint.stop_seq|int }}{% endif %}
+                            </div>
+                            
+                            {% if order.hint.base_rule %}
+                            <div class="small text-info mb-2">
+                                <i class="fas fa-layer-group me-1"></i>{{ order.hint.base_rule }}
+                            </div>
+                            {% endif %}
+                            
+                            {% if order.hint.split_required %}
+                            <div class="alert alert-danger py-1 px-2 mb-2 small">
+                                <i class="fas fa-exclamation-triangle me-1"></i>SPLIT REQUIRED - Weight exceeds 500kg
+                            </div>
+                            {% endif %}
+                            
+                            {% if open_pallets %}
+                            <form action="{{ url_for('pallets.assign_order', shipment_id=shipment.id) }}" method="POST" class="d-flex gap-2 align-items-center">
+                                <input type="hidden" name="invoice_no" value="{{ order.invoice_no }}">
+                                <input type="hidden" name="weight_kg" value="{{ order.hint.total_weight_kg }}">
+                                <input type="hidden" name="stop_seq" value="{{ order.hint.stop_seq or '' }}">
+                                
+                                <select name="pallet_id" class="form-select form-select-sm" style="width: 80px;">
+                                    {% for pallet in open_pallets %}
+                                    <option value="{{ pallet.pallet_id }}">{{ pallet.label }}</option>
+                                    {% endfor %}
+                                </select>
+                                
+                                <select name="blocks" class="form-select form-select-sm" style="width: 70px;">
+                                    {% for i in range(1, 9) %}
+                                    <option value="{{ i }}" {% if i == order.hint.recommended_blocks %}selected{% endif %}>{{ i }}</option>
+                                    {% endfor %}
+                                </select>
+                                
+                                <button type="submit" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-arrow-right"></i>
+                                </button>
+                            </form>
+                            {% else %}
+                            <div class="text-muted small">Create a pallet first</div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="p-4 text-center text-muted">
+                        <i class="fas fa-check-circle fa-2x mb-2"></i>
+                        <p>All orders assigned to pallets</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-8">
+            <div class="row">
+                {% for pd in pallets %}
+                <div class="col-md-6 mb-4">
+                    <div class="card pallet-card {% if pd.pallet.status == 'SEALED' %}border-success{% endif %}">
+                        <div class="card-header d-flex justify-content-between align-items-center {% if pd.pallet.status == 'SEALED' %}bg-success text-white{% else %}bg-light{% endif %}">
+                            <div>
+                                <strong>{{ pd.pallet.label }}</strong>
+                                <span class="badge {% if pd.pallet.status == 'SEALED' %}bg-light text-dark{% else %}bg-secondary{% endif %} ms-2">
+                                    {{ pd.pallet.status }}
+                                </span>
+                            </div>
+                            <form action="{{ url_for('pallets.toggle_seal', shipment_id=shipment.id) }}" method="POST" class="d-inline">
+                                <input type="hidden" name="pallet_id" value="{{ pd.pallet.pallet_id }}">
+                                {% if pd.pallet.status == 'OPEN' %}
+                                <button type="submit" class="btn btn-sm btn-outline-success">
+                                    <i class="fas fa-lock me-1"></i>Seal
+                                </button>
+                                {% else %}
+                                <button type="submit" class="btn btn-sm btn-outline-light">
+                                    <i class="fas fa-lock-open me-1"></i>Unseal
+                                </button>
+                                {% endif %}
+                            </form>
+                        </div>
+                        
+                        <div class="card-body">
+                            <div class="pallet-grid mb-3">
+                                {% for row_idx in range(2) %}
+                                    {% set row_start = (1 - row_idx) * 4 %}
+                                    {% for col in range(4) %}
+                                        {% set block_idx = row_start + col %}
+                                        {% set is_used = pd.order_masks.get(block_idx) %}
+                                        <div class="pallet-cell {% if is_used %}used bg-primary text-white{% else %}free bg-dark{% endif %}">
+                                            {% if is_used %}
+                                            <div class="cell-content">
+                                                <small>{{ is_used.invoice_no[-6:] }}</small>
+                                            </div>
+                                            {% else %}
+                                            <div class="cell-content text-muted">
+                                                <small>{{ block_idx + 1 }}</small>
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                {% endfor %}
+                            </div>
+                            
+                            <div class="pallet-kpi d-flex justify-content-between mb-3">
+                                <div>
+                                    <i class="fas fa-th-large me-1"></i>
+                                    <strong>{{ pd.used_blocks }}/8</strong> blocks
+                                </div>
+                                <div>
+                                    <i class="fas fa-weight-hanging me-1"></i>
+                                    <strong>{{ pd.pallet.used_weight_kg|round(1) }}/{{ pd.pallet.max_weight_kg }}</strong> kg
+                                </div>
+                            </div>
+                            
+                            <div class="progress mb-3" style="height: 8px;">
+                                <div class="progress-bar {% if pd.weight_pct > 90 %}bg-danger{% elif pd.weight_pct > 70 %}bg-warning{% else %}bg-success{% endif %}" 
+                                     style="width: {{ pd.weight_pct }}%"></div>
+                            </div>
+                            
+                            {% if pd.pallet.orders %}
+                            <div class="pallet-orders">
+                                <small class="text-muted d-block mb-2">Assigned Orders:</small>
+                                {% for order in pd.pallet.orders %}
+                                <div class="d-flex justify-content-between align-items-center mb-1 p-2 bg-light rounded">
+                                    <div>
+                                        <strong>{{ order.invoice_no }}</strong>
+                                        <small class="text-muted ms-2">{{ order.blocks_requested }} blocks</small>
+                                    </div>
+                                    {% if pd.pallet.status == 'OPEN' %}
+                                    <form action="{{ url_for('pallets.unassign_order', shipment_id=shipment.id) }}" method="POST" class="d-inline">
+                                        <input type="hidden" name="invoice_no" value="{{ order.invoice_no }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Remove">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="text-center text-muted py-2">
+                                <small>No orders assigned</small>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body text-center py-5">
+                            <i class="fas fa-pallet fa-3x text-muted mb-3"></i>
+                            <h5>No Pallets Created</h5>
+                            <p class="text-muted">Click "New Pallet" to create the first pallet for this route.</p>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

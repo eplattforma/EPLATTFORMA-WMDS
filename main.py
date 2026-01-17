@@ -160,6 +160,10 @@ app.register_blueprint(oi_time_admin_bp)
 from routes_oi_reports import oi_reports_bp
 app.register_blueprint(oi_reports_bp)
 
+# Register the Pallets blueprint
+from routes_pallets import bp as pallets_bp
+app.register_blueprint(pallets_bp, url_prefix='/routes')
+
 # Register the Admin Tools blueprint
 try:
     from routes_admin_tools import bp as admin_tools_bp
