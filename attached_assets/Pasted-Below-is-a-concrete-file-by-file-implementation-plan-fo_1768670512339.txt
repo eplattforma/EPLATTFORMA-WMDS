@@ -1,0 +1,347 @@
+Below is a concrete, file-by-file implementation plan for your Replit agent.
+
+A) DB Models (new tables only; no ALTERs needed)
+
+Edit: models.py
+Add three new tables:
+
+wms_packing_profile (per SKU)
+
+wms_pallet (per pallet per route)
+
+wms_pallet_order (assignment of an invoice to pallet + blocks mask)
+
+# models.py (add near other WMS tables)
+
+class WmsPackingProfile(db.Model):
+    __tablename__ = "wms_packing_profile"
+    item_code_365 = db.Column(db.String(50), primary_key=True)
+
+    pallet_role = db.Column(db.String(20), nullable=False, default="MIDDLE")
+    flags_json = db.Column(db.Text, nullable=True)  # json list of strings
+
+    # Snapshot of key OI inputs (for explainability)
+    unit_type = db.Column(db.String(20))
+    fragility = db.Column(db.String(10))
+    pressure_sensitivity = db.Column(db.String(10))
+    stackability = db.Column(db.String(10))
+    temperature_sensitivity = db.Column(db.String(20))
+    spill_risk = db.Column(db.Boolean)
+    box_fit_rule = db.Column(db.String(20))
+
+    updated_at = db.Column(UTCDateTime(), nullable=False, default=utc_now_for_db)
+
+
+class WmsPallet(db.Model, SoftDeleteMixin):
+    __tablename__ = "wms_pallet"
+
+    pallet_id = db.Column(db.Integer, primary_key=True)
+    shipment_id = db.Column(db.Integer, db.ForeignKey("shipments.id", ondelete="CASCADE"), nullable=False)
+
+    label = db.Column(db.String(50), nullable=False)  # e.g. "P1", "P2"
+    lane_code = db.Column(db.String(10), nullable=True)  # optional later (A/B/C)
+    lane_slot = db.Column(db.Integer, nullable=True)     # optional: 1 or 2 for half-lane
+
+    status = db.Column(db.String(20), nullable=False, default="OPEN")  # OPEN/SEALED/LOADED
+
+    max_weight_kg = db.Column(db.Numeric(10,2), nullable=False, default=500)
+    max_height_m = db.Column(db.Numeric(10,2), nullable=False, default=1.80)
+
+    used_mask = db.Column(db.Integer, nullable=False, default=0)  # 8-bit occupancy
+    used_weight_kg = db.Column(db.Numeric(10,2), nullable=False, default=0)
+
+    created_at = db.Column(UTCDateTime(), nullable=False, default=utc_now_for_db)
+    updated_at = db.Column(UTCDateTime(), nullable=False, default=utc_now_for_db)
+
+    shipment = db.relationship("Shipment", backref="wms_pallets")
+
+
+class WmsPalletOrder(db.Model):
+    __tablename__ = "wms_pallet_order"
+
+    id = db.Column(db.Integer, primary_key=True)
+    pallet_id = db.Column(db.Integer, db.ForeignKey("wms_pallet.pallet_id", ondelete="CASCADE"), nullable=False)
+
+    invoice_no = db.Column(db.String(50), nullable=False)  # Invoice.invoice_no
+    blocks_requested = db.Column(db.Integer, nullable=False)  # 1..8
+    blocks_mask = db.Column(db.Integer, nullable=False)       # 8-bit allocation
+
+    est_weight_kg = db.Column(db.Numeric(10,2), nullable=True)
+    stop_seq_no = db.Column(db.Numeric(10,2), nullable=True)  # snapshot for UI
+
+    created_at = db.Column(UTCDateTime(), nullable=False, default=utc_now_for_db)
+
+    __table_args__ = (
+        db.UniqueConstraint("invoice_no", name="uq_pallet_order_invoice_no"),
+        db.Index("ix_pallet_order_pallet_id", "pallet_id"),
+    )
+
+    pallet = db.relationship("WmsPallet", backref="orders")
+
+
+Notes for agent:
+
+This adds only new tables → db.create_all() will create them automatically on startup (your app already calls it).
+
+Use your existing utc_now_for_db and UTCDateTime() types (already in project).
+
+B) Packing Profile computation during reclassification
+
+Add new file: packing_profiles.py
+
+import json
+from timezone_utils import utc_now_for_db
+from models import WmsPackingProfile
+
+def derive_packing_profile_from_dw(dw_item):
+    flags = []
+
+    unit_type = (dw_item.wms_unit_type or "item").lower()
+    frag = (dw_item.wms_fragility or "NO").upper()
+    press = (dw_item.wms_pressure_sensitivity or "low").lower()
+    temp = (dw_item.wms_temperature_sensitivity or "normal").lower()
+    spill = bool(dw_item.wms_spill_risk)
+    box = (dw_item.wms_box_fit_rule or "MIDDLE").upper()
+    stack = (dw_item.wms_stackability or "YES").upper()
+
+    # Flags
+    if frag in ("YES", "SEMI"):
+        flags.append("FRAGILE" if frag == "YES" else "SEMI_FRAGILE")
+    if press in ("medium", "high"):
+        flags.append("CRUSHABLE" if press == "high" else "PRESSURE_MEDIUM")
+    if spill:
+        flags.append("SPILL_RISK")
+    if temp in ("heat_sensitive", "cool_required"):
+        flags.append(temp.upper())
+    if box == "COOLER_BAG":
+        flags.append("OFF_PALLET")
+
+    # Pallet role (simple, explainable)
+    if box == "COOLER_BAG" or temp == "cool_required":
+        role = "OFF_PALLET"
+    elif frag == "YES" or press == "high" or box == "TOP":
+        role = "TOP_ONLY"
+    elif spill or unit_type in ("case", "box") or box == "BOTTOM":
+        role = "BASE"
+    else:
+        role = "MIDDLE"
+
+    return {
+        "pallet_role": role,
+        "flags": flags,
+        "unit_type": unit_type,
+        "fragility": frag,
+        "pressure_sensitivity": press,
+        "stackability": stack,
+        "temperature_sensitivity": temp,
+        "spill_risk": spill,
+        "box_fit_rule": box
+    }
+
+
+def upsert_packing_profile(db_session, dw_item):
+    data = derive_packing_profile_from_dw(dw_item)
+    row = db_session.get(WmsPackingProfile, dw_item.item_code_365)
+    if not row:
+        row = WmsPackingProfile(item_code_365=dw_item.item_code_365)
+        db_session.add(row)
+
+    row.pallet_role = data["pallet_role"]
+    row.flags_json = json.dumps(data["flags"])
+    row.unit_type = data["unit_type"]
+    row.fragility = data["fragility"]
+    row.pressure_sensitivity = data["pressure_sensitivity"]
+    row.stackability = data["stackability"]
+    row.temperature_sensitivity = data["temperature_sensitivity"]
+    row.spill_risk = data["spill_risk"]
+    row.box_fit_rule = data["box_fit_rule"]
+    row.updated_at = utc_now_for_db()
+
+
+Edit: classification/engine.py
+Inside reclassify_items loop, after classify_single_item(...), call upsert_packing_profile(db.session, item).
+
+from packing_profiles import upsert_packing_profile
+
+# inside for item in active_items:
+updated = classify_single_item(...)
+upsert_packing_profile(db.session, item)
+
+
+This satisfies your requirement: profiles are computed when you run reclassification.
+
+C) Order-level pallet hint service (recommended 1..8 blocks + warnings)
+
+Add new file: services_palletization.py
+
+Key outputs per invoice:
+
+recommended_blocks (1..8)
+
+total_weight_kg, base_weight_kg
+
+warnings list (fragile, crushable, spill, off-pallet cooler bag)
+
+base_rule: “Corridors 09–12 contain cases: build base first”
+
+Implementation approach (v1):
+
+Query aggregates for all invoices in a route in one pass
+
+Join to WmsPackingProfile by SKU (InvoiceItem.item_code = item_code_365)
+
+Agent should implement a grouped query and compute:
+
+Rules (suggested defaults):
+
+blocks_from_weight = ceil(total_weight / 65) (≈ 8 blocks × 65kg = 520kg)
+
+blocks_from_base = ceil(base_weight / 120) (cases need footprint)
+
+If any FRAGILE or CRUSHABLE ⇒ min 2 blocks
+
+If total_weight > 500 ⇒ show “SPLIT REQUIRED” (cannot fit one pallet)
+
+D) Pallet allocation (8-bit grid, patterns)
+
+Represent blocks as 4×2 grid = indices 0..7.
+Use a pattern library by k-blocks (contiguous) and allocate the first that fits free cells.
+
+Add helper: pallet_masks.py with mask patterns per block count.
+
+E) Routes + UI
+1) Blueprint
+
+Add file: routes_pallets.py
+Register in main.py:
+
+from routes_pallets import bp as pallets_bp
+app.register_blueprint(pallets_bp, url_prefix="/routes")
+
+
+Routes to implement:
+
+GET /routes/<shipment_id>/pallets
+Render dashboard: pallets + unassigned orders with hints.
+
+POST /routes/<shipment_id>/pallets/create
+Create pallet (label auto P1, P2…).
+
+POST /routes/<shipment_id>/pallets/assign (JSON)
+Assign invoice to pallet with blocks_requested; server allocates mask.
+
+POST /routes/<shipment_id>/pallets/unassign (JSON)
+
+POST /routes/<shipment_id>/pallets/seal (JSON)
+OPEN ⇄ SEALED
+
+Enforce:
+
+Cannot assign to SEALED pallets.
+
+Unique invoice assignment (uq_pallet_order_invoice_no).
+
+Weight constraint ≤ 500kg.
+
+2) Template
+
+Add: templates/route_pallets.html
+Layout:
+
+Left: Unassigned Orders (sorted by stop seq)
+
+Right: Pallet cards with an 8-cell occupancy grid + totals:
+
+used_blocks/8
+
+used_weight/500kg
+
+status badge OPEN/SEALED
+
+3) “Nice UI” pallet card grid (Bootstrap)
+
+Implement a compact 4×2 grid using CSS:
+
+Add: static/css/pallets.css
+
+.pallet-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.pallet-cell {
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 10px 6px;
+  min-height: 54px;
+  font-size: 12px;
+  line-height: 1.1;
+}
+.pallet-cell.free { opacity: 0.5; }
+.pallet-cell.used { opacity: 1; }
+.pallet-kpi { font-size: 12px; opacity: 0.9; }
+
+
+Include in route_pallets.html:
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pallets.css') }}">
+{% endblock %}
+
+4) Assignment UI (simple, fast)
+
+Each unassigned order row:
+
+shows recommended blocks (badge)
+
+shows warnings (icons)
+
+has:
+
+dropdown pallet (OPEN pallets)
+
+blocks selector (1..8, default recommended)
+
+Assign button
+
+No drag/drop needed for v1.
+
+F) Link it from Route Detail
+
+Edit: templates/route_detail.html
+Add a button near the top actions:
+
+<a class="btn btn-outline-info"
+   href="{{ url_for('pallets.route_pallets', shipment_id=route.id) }}">
+  <i class="fas fa-layer-group me-1"></i>Pallets
+</a>
+
+6) What you will get in “Phase 1” (what you asked for)
+
+After the above:
+
+Per order (invoice) the picker sees:
+
+Recommended footprint: 1–8/8
+
+Base/case signal (Corridors 09–12 weight/lines)
+
+Warnings: fragile / crushable / spill / cooler-bag (off-pallet)
+
+Suggested build order: base first, then cartons on top
+
+Picker can:
+
+create pallets (P1, P2…)
+
+assign invoices to pallets
+
+see real-time pallet status: used blocks, free blocks, weight
+
+seal pallets when physically built (protects from late order disruption)
+
+Late/missing orders:
+
+automatically appear as Unassigned
+
+can be added to OPEN pallets or trigger new pallets without breaking sealed ones
