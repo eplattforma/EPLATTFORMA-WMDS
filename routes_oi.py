@@ -303,7 +303,7 @@ def oi_items():
                               'zone': zone,
                               'fragility': fragility,
                               'needs_review': needs_review,
-                              'active_only': active_only
+                              'active_only': 'true' if active_only else ''
                           })
 
 

@@ -59,7 +59,7 @@
                 <div class="col-md-1 d-flex align-items-end">
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" name="active_only" value="true" id="activeOnly"
-                               {% if filters.active_only %}checked{% endif %}>
+                               {% if filters.active_only == 'true' %}checked{% endif %}>
                         <label class="form-check-label" for="activeOnly">
                             Active Only
                         </label>
@@ -199,7 +199,7 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365) }}" 
+                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365, return_url=request.url) }}" 
                                    class="btn btn-sm btn-outline-primary">
                                     <i class="fas fa-edit"></i>
                                 </a>
