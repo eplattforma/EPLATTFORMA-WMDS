@@ -2059,3 +2059,85 @@ class OiEstimateLine(db.Model):
     
     def __repr__(self):
         return f"<OiEstimateLine {self.id} item={self.item_code}>"
+
+
+# ============================================================================
+# WMS PALLET MANAGEMENT MODELS
+# ============================================================================
+
+class WmsPackingProfile(db.Model):
+    """Per-SKU packing profile derived from OI classification"""
+    __tablename__ = "wms_packing_profile"
+    
+    item_code_365 = db.Column(db.String(50), primary_key=True)
+    
+    pallet_role = db.Column(db.String(20), nullable=False, default="MIDDLE")
+    flags_json = db.Column(db.Text, nullable=True)
+    
+    unit_type = db.Column(db.String(20))
+    fragility = db.Column(db.String(10))
+    pressure_sensitivity = db.Column(db.String(10))
+    stackability = db.Column(db.String(10))
+    temperature_sensitivity = db.Column(db.String(20))
+    spill_risk = db.Column(db.Boolean)
+    box_fit_rule = db.Column(db.String(20))
+    
+    updated_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    
+    def __repr__(self):
+        return f"<WmsPackingProfile {self.item_code_365} role={self.pallet_role}>"
+
+
+class WmsPallet(db.Model, SoftDeleteMixin):
+    """Pallet for a route/shipment"""
+    __tablename__ = "wms_pallet"
+    
+    pallet_id = db.Column(db.Integer, primary_key=True)
+    shipment_id = db.Column(db.Integer, db.ForeignKey("shipments.id", ondelete="CASCADE"), nullable=False)
+    
+    label = db.Column(db.String(50), nullable=False)
+    lane_code = db.Column(db.String(10), nullable=True)
+    lane_slot = db.Column(db.Integer, nullable=True)
+    
+    status = db.Column(db.String(20), nullable=False, default="OPEN")
+    
+    max_weight_kg = db.Column(db.Numeric(10, 2), nullable=False, default=500)
+    max_height_m = db.Column(db.Numeric(10, 2), nullable=False, default=1.80)
+    
+    used_mask = db.Column(db.Integer, nullable=False, default=0)
+    used_weight_kg = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    
+    created_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    updated_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    
+    shipment = db.relationship("Shipment", backref="wms_pallets")
+    
+    def __repr__(self):
+        return f"<WmsPallet {self.pallet_id} {self.label} status={self.status}>"
+
+
+class WmsPalletOrder(db.Model):
+    """Assignment of an invoice to a pallet with block allocation"""
+    __tablename__ = "wms_pallet_order"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    pallet_id = db.Column(db.Integer, db.ForeignKey("wms_pallet.pallet_id", ondelete="CASCADE"), nullable=False)
+    
+    invoice_no = db.Column(db.String(50), nullable=False)
+    blocks_requested = db.Column(db.Integer, nullable=False)
+    blocks_mask = db.Column(db.Integer, nullable=False)
+    
+    est_weight_kg = db.Column(db.Numeric(10, 2), nullable=True)
+    stop_seq_no = db.Column(db.Numeric(10, 2), nullable=True)
+    
+    created_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    
+    __table_args__ = (
+        db.UniqueConstraint("invoice_no", name="uq_pallet_order_invoice_no"),
+        db.Index("ix_pallet_order_pallet_id", "pallet_id"),
+    )
+    
+    pallet = db.relationship("WmsPallet", backref="orders")
+    
+    def __repr__(self):
+        return f"<WmsPalletOrder {self.id} invoice={self.invoice_no} pallet={self.pallet_id}>"
