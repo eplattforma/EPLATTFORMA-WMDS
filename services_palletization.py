@@ -5,7 +5,7 @@ import math
 from decimal import Decimal
 from sqlalchemy import func
 from app import db
-from models import Invoice, InvoiceItem, WmsPackingProfile, WmsPallet, WmsPalletOrder, RouteStopInvoice
+from models import Invoice, InvoiceItem, WmsPackingProfile, WmsPallet, WmsPalletOrder, RouteStopInvoice, RouteStop
 from pallet_masks import find_allocation, count_free_blocks
 
 
@@ -19,7 +19,9 @@ def get_order_pallet_hints(shipment_id: int) -> dict:
     Get palletization hints for all invoices in a route.
     Returns dict keyed by invoice_no with hints for each order.
     """
-    rsi_list = RouteStopInvoice.query.filter_by(shipment_id=shipment_id).all()
+    rsi_list = db.session.query(RouteStopInvoice).join(RouteStop).filter(
+        RouteStop.shipment_id == shipment_id
+    ).all()
     invoice_nos = [rsi.invoice_no for rsi in rsi_list]
     
     if not invoice_nos:
@@ -29,9 +31,9 @@ def get_order_pallet_hints(shipment_id: int) -> dict:
     
     results = db.session.query(
         InvoiceItem.invoice_no,
-        func.sum(InvoiceItem.quantity * func.coalesce(InvoiceItem.unit_weight, 0)).label('total_weight'),
+        func.sum(func.coalesce(InvoiceItem.line_weight, 0)).label('total_weight'),
         func.array_agg(InvoiceItem.item_code.distinct()).label('item_codes'),
-        func.array_agg(InvoiceItem.shelf_location.distinct()).label('locations')
+        func.array_agg(InvoiceItem.location.distinct()).label('locations')
     ).filter(
         InvoiceItem.invoice_no.in_(invoice_nos)
     ).group_by(InvoiceItem.invoice_no).all()
@@ -108,7 +110,7 @@ def get_order_pallet_hints(shipment_id: int) -> dict:
         split_required = total_weight > MAX_PALLET_WEIGHT_KG
         
         rsi = rsi_by_invoice.get(invoice_no)
-        stop_seq = float(rsi.sequence_in_route) if rsi and rsi.sequence_in_route else None
+        stop_seq = float(rsi.stop.seq_no) if rsi and rsi.stop and rsi.stop.seq_no else None
         
         hints[invoice_no] = {
             'invoice_no': invoice_no,
@@ -134,7 +136,7 @@ def get_order_pallet_hints(shipment_id: int) -> dict:
                 'base_corridors': [],
                 'base_rule': None,
                 'split_required': False,
-                'stop_seq': float(rsi.sequence_in_route) if rsi.sequence_in_route else None,
+                'stop_seq': float(rsi.stop.seq_no) if rsi.stop and rsi.stop.seq_no else None,
                 'assigned_pallet_id': assigned.get(rsi.invoice_no, None) and assigned[rsi.invoice_no].pallet_id,
             }
     
