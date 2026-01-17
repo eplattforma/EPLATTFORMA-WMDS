@@ -108,7 +108,7 @@
                         {% for item in items %}
                         <tr class="{% if item.needs_review() %}table-warning{% endif %}">
                             <td>
-                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365) }}">
+                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365, return_url=request.url) }}">
                                     {{ item.item_code_365 }}
                                 </a>
                             </td>

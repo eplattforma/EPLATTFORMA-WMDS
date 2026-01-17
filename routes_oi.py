@@ -314,6 +314,9 @@ def oi_item_detail(item_code_365):
     """View detailed classification for a single item."""
     item = DwItem.query.get_or_404(item_code_365)
     
+    # Capture return URL for filtered list navigation
+    return_url = request.args.get('return_url', '')
+    
     category = None
     if item.category_code_365:
         category = DwItemCategory.query.get(item.category_code_365)
@@ -341,7 +344,8 @@ def oi_item_detail(item_code_365):
                           brand=brand,
                           override=override,
                           category_default=category_default,
-                          evidence=evidence)
+                          evidence=evidence,
+                          return_url=return_url)
 
 
 @app.route('/admin/oi/item/<item_code_365>/override', methods=['POST'])
@@ -350,6 +354,9 @@ def oi_item_detail(item_code_365):
 def oi_item_override(item_code_365):
     """Create or update SKU override."""
     item = DwItem.query.get_or_404(item_code_365)
+    
+    # Capture return URL for redirect after save
+    return_url = request.form.get('return_url', '')
     
     override = WmsItemOverride.query.get(item_code_365)
     if not override:
@@ -415,6 +422,10 @@ def oi_item_override(item_code_365):
     db.session.commit()
     
     flash(f'Override saved for {item_code_365}. Run reclassification to apply.', 'success')
+    
+    # Redirect back to item detail preserving return_url
+    if return_url:
+        return redirect(url_for('oi_item_detail', item_code_365=item_code_365, return_url=return_url))
     return redirect(url_for('oi_item_detail', item_code_365=item_code_365))
 
 
