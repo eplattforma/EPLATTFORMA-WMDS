@@ -571,8 +571,8 @@ def oi_category_defaults_bulk():
     db.session.add(activity)
     db.session.commit()
     
-    flash(f'Category defaults saved. Run reclassification to apply changes.', 'success')
-    return redirect(url_for('oi_categories'))
+    flash('Category defaults saved. Run reclassification to apply changes.', 'success')
+    return redirect(url_for('oi_categories', saved='1'))
 
 
 @app.route('/admin/oi/overrides')
