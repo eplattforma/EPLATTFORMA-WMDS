@@ -76,30 +76,40 @@
 }
 
 .pallet-orders .list-group-item {
-    background-color: #374151 !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    color: #ffffff !important;
+    background-color: #f3f4f6 !important;
+    border-color: #e5e7eb !important;
+    color: #000000 !important;
 }
 
 .pallet-orders .list-group-item strong {
-    color: #ffffff !important;
+    color: #000000 !important;
 }
 
 .pallet-orders .list-group-item .text-muted {
-    color: #9ca3af !important;
+    color: #4b5563 !important;
+}
+
+.list-group-item {
+    background-color: #ffffff !important;
+    color: #000000 !important;
 }
 
 .list-group-item strong {
-    color: #ffffff !important;
+    color: #000000 !important;
 }
 
 .list-group-item .text-muted,
 .list-group-item small.text-muted {
-    color: #9ca3af !important;
+    color: #4b5563 !important;
 }
 
 .list-group-item .text-info {
-    color: #60a5fa !important;
+    color: #0369a1 !important;
+}
+
+.list-group-item .small,
+.list-group-item small {
+    color: #374151 !important;
 }
 
 .card-header strong {
