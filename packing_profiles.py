@@ -128,9 +128,14 @@ def upsert_packing_profile(db_session, dw_item, category_default=None):
         elif data["pack_mode"] == "CARTON_SMALL":
             data["carton_type_hint"] = "SMALL"
             data["max_carton_weight_kg"] = Decimal("18.0")
-        elif data["pack_mode"] in ("DIRECT_PALLET", "OFF_PALLET"):
-            data["carton_type_hint"] = None
-            data["max_carton_weight_kg"] = None
+        elif data["pack_mode"] == "DIRECT_PALLET":
+            # Items go direct to pallet, no carton needed - keep default for reference
+            data["carton_type_hint"] = "DIRECT"
+            data["max_carton_weight_kg"] = Decimal("0")
+        elif data["pack_mode"] == "OFF_PALLET":
+            # Cooler bag items - keep default for reference
+            data["carton_type_hint"] = "COOLER"
+            data["max_carton_weight_kg"] = Decimal("0")
     
     row = db_session.get(WmsPackingProfile, dw_item.item_code_365)
     if not row:
