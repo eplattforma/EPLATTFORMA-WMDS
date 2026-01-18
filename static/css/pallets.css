@@ -112,8 +112,28 @@
     color: #374151 !important;
 }
 
+.card-header {
+    color: #000000 !important;
+}
+
 .card-header strong {
-    color: inherit !important;
+    color: #000000 !important;
+}
+
+.card-header.bg-light {
+    color: #000000 !important;
+}
+
+.card-header.bg-light strong {
+    color: #000000 !important;
+}
+
+.card-header .badge.bg-secondary {
+    color: #ffffff !important;
+}
+
+.card-header .badge.bg-info {
+    color: #ffffff !important;
 }
 
 .badge.bg-info {
@@ -122,4 +142,43 @@
 
 .badge.bg-warning {
     color: #1f2937 !important;
+}
+
+/* Pallet card text visibility */
+.pallet-card .card-body {
+    color: #000000 !important;
+}
+
+.pallet-card .pallet-kpi {
+    color: #000000 !important;
+}
+
+.pallet-card .pallet-kpi strong {
+    color: #000000 !important;
+}
+
+.pallet-card .text-muted {
+    color: #4b5563 !important;
+}
+
+/* Assigned orders section */
+.pallet-orders small.text-muted {
+    color: #374151 !important;
+}
+
+.pallet-orders .bg-light {
+    background-color: #f3f4f6 !important;
+}
+
+.pallet-orders .bg-light strong {
+    color: #000000 !important;
+}
+
+.pallet-orders .bg-light small {
+    color: #374151 !important;
+}
+
+/* No orders text */
+.text-center.text-muted small {
+    color: #6b7280 !important;
 }
