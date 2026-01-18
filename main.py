@@ -23,7 +23,7 @@ import routes_oi  # noqa: F401  # Operational Intelligence routes
 import routes_time_analysis  # noqa: F401  # Time Analysis dashboard
 import pytz
 from timezone_utils import get_utc_now
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # Import is_production from app
 from app import is_production
@@ -31,9 +31,9 @@ from app import is_production
 # Apply performance optimizations
 # Note: Don't override SQLALCHEMY_ENGINE_OPTIONS here - it's already set in app.py with production optimizations
 app.config.update({
-    'DEBUG': False,
+    'DEBUG': not is_production,
     'SESSION_COOKIE_HTTPONLY': True,
-    'PERMANENT_SESSION_LIFETIME': 3600,
+    'PERMANENT_SESSION_LIFETIME': timedelta(hours=1),
     'JSON_SORT_KEYS': False,
     'JSONIFY_PRETTYPRINT_REGULAR': False,
 })
@@ -46,6 +46,10 @@ def local_time_filter(dt, format_str='%d/%m/%y %H:%M'):
         return 'N/A'
     
     athens_tz = pytz.timezone('Europe/Athens')
+    
+    # Handle naive datetimes safely - assume UTC if no timezone
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     
     # Database stores times in UTC
     athens_dt = dt.astimezone(athens_tz)

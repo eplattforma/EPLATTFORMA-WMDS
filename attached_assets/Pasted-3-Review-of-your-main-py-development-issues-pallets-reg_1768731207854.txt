@@ -1,0 +1,441 @@
+3) Review of your main.py (development issues + pallets registration)
+
+Your main.py is structurally fine for your pattern (blueprints + runtime schema updates). But I would change these items immediately because they will bite you in development and production:
+
+A) PERMANENT_SESSION_LIFETIME should be a timedelta, not an int
+
+Flask expects a timedelta. Use:
+
+from datetime import timedelta
+
+app.config.update({
+    "PERMANENT_SESSION_LIFETIME": timedelta(hours=1),
+})
+
+B) DEBUG should follow is_production
+
+Right now you hard-set DEBUG: False and then run with debug=True at the bottom. Make it consistent:
+
+app.config.update({
+    "DEBUG": (not is_production),
+})
+
+C) Your local_time_filter() should handle naive datetimes safely
+
+If any timestamp is naive, dt.astimezone() will crash. Protect it:
+
+from datetime import timezone
+
+if dt.tzinfo is None:
+    dt = dt.replace(tzinfo=timezone.utc)
+
+D) Pallets blueprint prefix
+
+You registered:
+
+app.register_blueprint(pallets_bp, url_prefix='/routes')
+
+
+That is OK only if all pallets endpoints are something like:
+
+/routes/<shipment_id>/pallets
+
+/routes/<shipment_id>/pallets/create
+
+/routes/pallets/<pallet_id>/assign
+
+Avoid defining any pallets route as @bp.route('/<int:shipment_id>') because that would collide with your existing routes blueprint.
+
+4) Proposed palletisation model (matches your photos and your 1/8 block rule)
+Key rule (phase 1)
+
+A Euro pallet base is split into 8 fixed blocks.
+
+Each block = 300 × 400 mm
+
+Each order occupies 1..8 blocks, preferably contiguous (horizontal separation).
+
+Constraints:
+
+height ≤ 1.8m (you said 1.7/1.8; store 1.8 as max, use 1.7 as operational “warning” threshold if you want)
+
+weight ≤ 500kg
+
+“Cases corridors 09–12” drive the base layer weight and “bottom-first” advice.
+
+What the picker needs (phase 1 output per order)
+
+For each order (invoice):
+
+Suggested blocks (1..8)
+
+Handling warnings:
+
+fragile yes/semi/medium
+
+spill risk
+
+pressure high (do not crush)
+
+heat sensitive (cooler bag)
+
+“Bottom material” summary:
+
+base weight coming from corridor 09–12 items (or OI BOTTOM)
+
+5) How to estimate order blocks (simple + robust with your available columns)
+
+You actually have item_length/width/height in ps_items_dw (many are 0 but still useful). Use this hybrid:
+
+For each line:
+
+line_weight_kg = InvoiceItem.line_weight else qty * DwItem.item_weight
+
+unit_volume_m3:
+
+if L/W/H > 0: (L*W*H) * 1e-6 (assuming cm)
+
+else fallback: line_weight_kg / 300 (density proxy 300 kg/m³)
+
+For the invoice:
+
+total_volume_m3 = sum(qty * unit_volume_m3)
+
+required_footprint_m2 = total_volume_m3 / effective_stack_height
+
+use effective_stack_height = 1.5 (realistic packing height)
+
+pallet_area_m2 = 0.8 * 1.2 = 0.96
+
+fraction = required_footprint_m2 / pallet_area_m2
+
+suggested_blocks = ceil(fraction * 8 * inefficiency_factor)
+
+inefficiency_factor = 1.15 (cartons/voids)
+
+Weight floor:
+
+suggested_blocks = max(suggested_blocks, ceil(total_weight_kg / 62.5)) (500/8)
+
+Clamp to 1..8.
+
+This will give you a defensible “first stage” estimation that you can calibrate later.
+
+6) Implementation plan in YOUR repo (instructions for Replit agent)
+Step 1 — Add DB schema (new tables)
+
+Create update_pallets_schema.py (follow your update_oi_schema.py style) to create:
+
+A) wms_packing_profiles
+
+item_code_365 (PK)
+
+unit_volume_m3 (FLOAT)
+
+unit_weight_kg (FLOAT)
+
+fragility (VARCHAR)
+
+spill_risk (BOOLEAN)
+
+pressure_sensitivity (VARCHAR)
+
+temperature_sensitivity (VARCHAR)
+
+stackability (VARCHAR)
+
+preferred_layer (VARCHAR) (BOTTOM/MIDDLE/TOP/COOLER_BAG)
+
+updated_at (TIMESTAMP)
+
+B) pallets
+
+id (SERIAL/INTEGER PK)
+
+shipment_id (FK shipments.id)
+
+pallet_code (VARCHAR) e.g. “P1”, “P2”
+
+staging_lane (VARCHAR, nullable) (supports “half lane” usage)
+
+lane_fraction (FLOAT default 1.0) (1.0 = full lane, 0.5 = half lane)
+
+max_weight_kg (FLOAT default 500)
+
+max_height_m (FLOAT default 1.8)
+
+status (VARCHAR default “OPEN”) (OPEN/CLOSED/LOADED)
+
+created_at, created_by
+
+C) pallet_orders (assignment of invoices to pallets)
+
+id (SERIAL/INTEGER PK)
+
+pallet_id (FK pallets.id)
+
+invoice_no (FK invoices.invoice_no)
+
+blocks (INTEGER 1..8)
+
+start_block (INTEGER 1..8, nullable if autoplace)
+
+stop_seq_snapshot (INTEGER nullable)
+
+created_at, created_by
+
+Add indexes:
+
+(shipment_id, status) on pallets
+
+(pallet_id) on pallet_orders
+
+(invoice_no) on pallet_orders unique (one invoice assigned to one pallet, phase 1)
+
+Then in main.py, inside the app.app_context() schema update section, add:
+
+from update_pallets_schema import update_pallets_schema
+update_pallets_schema()
+
+
+Place it near the other update calls (before db.create_all()).
+
+Step 2 — Add models
+
+In models.py, add SQLAlchemy models:
+
+WmsPackingProfile
+
+Pallet
+
+PalletOrder
+
+Mirror how you modelled Shipment, ShipmentOrder.
+
+Step 3 — Compute packing profiles during OI run
+
+Create packing_profiles.py:
+
+compute_packing_profile(dw_item: DwItem) -> dict
+
+upsert_packing_profile(dw_item: DwItem)
+
+Then in classification/engine.py:
+
+after updating item.wms_* fields (end of classify_single_item)
+
+call upsert_packing_profile(item)
+
+This ensures profiles refresh whenever you run reclassification.
+
+Step 4 — Order-level palletisation estimator
+
+Create palletisation_estimator.py:
+
+estimate_invoice_pallet_needs(invoice_no) -> dict
+
+returns:
+
+suggested_blocks
+
+total_weight_kg, total_volume_m3
+
+base_weight_kg (corridor 09–12)
+
+counts of fragile/spill/pressure-high/heat-sensitive
+
+short “picker notes”
+
+This function will be used in both:
+
+Pallets UI (route board)
+
+Picking screen (later)
+
+Step 5 — Add pallets blueprint
+
+Create routes_pallets.py:
+
+Blueprint: bp = Blueprint("pallets", __name__)
+
+Endpoints (server-rendered first, then enhance with JS if needed):
+
+GET /routes/<int:shipment_id>/pallets
+
+Show:
+
+pallets board
+
+unassigned orders list (with suggested blocks + warnings)
+
+current assignments
+
+used/available blocks per pallet
+
+POST /routes/<int:shipment_id>/pallets/create
+
+Create pallet (P1/P2/…)
+
+Supports staging lane + lane_fraction
+
+POST /routes/pallets/<int:pallet_id>/assign
+
+Assign invoice to pallet:
+
+default blocks = suggested_blocks
+
+autoplace finds first contiguous free segment
+
+optional manual start_block
+
+POST /routes/pallets/assignments/<int:assignment_id>/remove
+
+Unassign
+
+POST /routes/pallets/<int:pallet_id>/close
+
+Mark pallet CLOSED (no more assignments)
+
+Use your existing CSRF:
+
+import validate_csrf_token from routes
+
+Step 6 — UI (nice “Pallet Board”)
+
+Create template: templates/route_pallets.html
+
+Layout (matches how you physically separate with cardboard):
+
+Left column: Unassigned Orders
+
+table rows:
+
+Stop seq
+
+Invoice
+
+Customer
+
+Weight
+
+Suggested blocks (badge)
+
+Alerts (icons/badges: fragile/spill/heat/pressure)
+
+“Assign” button (modal)
+
+Right column: Pallet cards
+Each pallet card shows:
+
+Header:
+
+Pallet code (P1)
+
+used blocks / 8
+
+used weight / 500
+
+status (OPEN/CLOSED)
+
+Body:
+
+a clean 8-block grid (4×2)
+
+each block cell shows assignment label (invoice + stop)
+
+unfilled blocks are “available”
+
+Actions:
+
+Close pallet
+
+Unassign/move order (dropdown per assigned invoice)
+
+CSS:
+
+add static/css/pallets.css
+
+keep consistent with routes.css tone
+
+Add a button in route_detail.html action bar:
+
+“Pallets” linking to the new page.
+
+Step 7 — Contiguous block placement logic (important)
+
+Implement a simple allocator using an 8-bit mask:
+
+Each block 1..8 corresponds to bits 0..7
+
+For a given pallet, compute occupied_mask from existing assignments
+
+To fit k blocks contiguously:
+
+check segments of length k across 1..8
+
+pick first that fits (or best-fit)
+
+Store start_block and blocks
+
+This guarantees the horizontal separation you want (50% + 25% + 25% etc).
+
+7) Handling “missing orders in the morning” and “late order inserted in between”
+
+Do not over-automate in phase 1. Make it operationally safe:
+
+Route not final = pallet plan is “DRAFT”
+
+Keep pallets OPEN
+
+Allow reassignment freely
+
+Reserve space
+
+Add an optional “Reserve blocks” per pallet (e.g., keep 2 blocks free) so late orders can be inserted without breaking everything.
+
+Sequence drift warning
+
+If a late order is inserted with stop sequence between already-assigned stops:
+
+show a warning badge: “Inserted stop between existing pallet assignments”
+
+do not auto-move anything
+
+warehouse manager decides (move 1 order to another pallet or open a new pallet)
+
+This fits reality: you already use cardboard separators; moving an order section is feasible but should be manual.
+
+8) Replit agent prompt (copy/paste)
+
+Use this exact instruction block to the Replit agent:
+
+Implement palletisation module in this Flask/SQLAlchemy repo.
+
+Requirements:
+- Euro pallet split into 8 fixed blocks (300x400mm). Each order gets 1..8 blocks, preferably contiguous.
+- Use OI fields in ps_items_dw (DwItem.wms_*) to show packing warnings (fragile/spill/pressure/temp/stackability).
+- Create pallets per route (Shipment) and assign invoices to pallets with blocks + start_block.
+- Provide a “Pallet Board” UI per route showing pallets with 8-block grid and unassigned orders list with suggested blocks.
+
+Steps:
+1) Add schema update script update_pallets_schema.py:
+   - create wms_packing_profiles, pallets, pallet_orders tables (+ indexes).
+2) Add models in models.py: WmsPackingProfile, Pallet, PalletOrder.
+3) Add packing_profiles.py:
+   - compute_packing_profile(DwItem) using DwItem dimensions + wms_* fields.
+   - upsert_packing_profile called during OI reclassification.
+4) Modify classification/engine.py to call upsert_packing_profile(item) after wms_* fields set.
+5) Add palletisation_estimator.py to compute per-invoice suggested_blocks using volume/weight:
+   - volume from item_length/width/height when available else weight/density fallback
+   - suggested_blocks = ceil( (volume/1.5)/0.96 * 8 * 1.15 ), also floor by weight/62.5, clamp 1..8
+   - also compute warning counts and base_weight_kg (corridor 09-12).
+6) Create routes_pallets.py blueprint and register in main.py:
+   - GET /routes/<shipment_id>/pallets -> board UI
+   - POST create pallet, assign invoice, unassign, close pallet
+   - enforce CSRF via validate_csrf_token
+   - implement contiguous block allocator (bitmask) for autoplace.
+7) Create templates/route_pallets.html + static/css/pallets.css:
+   - left: unassigned orders with suggested blocks + warnings + assign modal
+   - right: pallet cards with 8-block grid showing assignments and available blocks
+8) Add “Pallets” button in templates/route_detail.html action bar linking to the board.
+9) Fix main.py: PERMANENT_SESSION_LIFETIME must be timedelta; DEBUG should follow is_production; local_time_filter should handle naive dt safely.
