@@ -5,7 +5,7 @@
 }
 
 .pallet-cell {
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 8px;
     padding: 10px 6px;
     min-height: 54px;
@@ -18,33 +18,97 @@
 }
 
 .pallet-cell.free {
-    opacity: 0.5;
+    opacity: 0.6;
+    background-color: #374151 !important;
+    color: #9ca3af !important;
 }
 
 .pallet-cell.used {
     opacity: 1;
+    background-color: #7c3aed !important;
+    color: #ffffff !important;
+    font-weight: 600;
 }
 
 .pallet-cell .cell-content {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: inherit;
+}
+
+.pallet-cell .cell-content small {
+    color: inherit !important;
+    font-size: 11px;
 }
 
 .pallet-kpi {
-    font-size: 12px;
-    opacity: 0.9;
+    font-size: 13px;
+    opacity: 1;
+    color: #e5e7eb !important;
+}
+
+.pallet-kpi strong {
+    color: #ffffff !important;
 }
 
 .pallet-card {
     transition: box-shadow 0.2s ease;
+    background-color: #1f2937 !important;
+}
+
+.pallet-card .card-header {
+    color: #ffffff !important;
+}
+
+.pallet-card .card-body {
+    color: #e5e7eb !important;
 }
 
 .pallet-card:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .pallet-orders {
     max-height: 200px;
     overflow-y: auto;
+}
+
+.pallet-orders .list-group-item {
+    background-color: #374151 !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+}
+
+.pallet-orders .list-group-item strong {
+    color: #ffffff !important;
+}
+
+.pallet-orders .list-group-item .text-muted {
+    color: #9ca3af !important;
+}
+
+.list-group-item strong {
+    color: #ffffff !important;
+}
+
+.list-group-item .text-muted,
+.list-group-item small.text-muted {
+    color: #9ca3af !important;
+}
+
+.list-group-item .text-info {
+    color: #60a5fa !important;
+}
+
+.card-header strong {
+    color: inherit !important;
+}
+
+.badge.bg-info {
+    color: #ffffff !important;
+}
+
+.badge.bg-warning {
+    color: #1f2937 !important;
 }
