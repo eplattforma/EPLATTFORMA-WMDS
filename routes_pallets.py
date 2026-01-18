@@ -12,6 +12,7 @@ from services_palletization import (
     get_order_pallet_hints, allocate_order_to_pallet, unassign_order_from_pallet,
     create_pallet_for_route, toggle_pallet_seal
 )
+from services_order_packing_summary import get_order_packing_summary
 from pallet_masks import count_free_blocks, mask_to_grid_display
 from timezone_utils import get_utc_now
 
@@ -50,10 +51,12 @@ def route_pallets(shipment_id):
     for invoice_no, hint in hints.items():
         if invoice_no not in assigned_invoice_nos:
             invoice = Invoice.query.filter_by(invoice_no=invoice_no).first()
+            packing = get_order_packing_summary(invoice_no)
             unassigned_orders.append({
                 'invoice_no': invoice_no,
                 'customer_name': invoice.customer_name if invoice else 'Unknown',
                 'hint': hint,
+                'packing': packing,
             })
     
     unassigned_orders.sort(key=lambda x: x['hint'].get('stop_seq') or 999)

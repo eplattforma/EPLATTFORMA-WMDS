@@ -331,6 +331,14 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating OI schema: {str(e)}")
     
+    # Update WmsPackingProfile schema for pack_mode fields
+    try:
+        from update_packing_profile_schema import update_packing_profile_schema
+        update_packing_profile_schema()
+        logging.info("WmsPackingProfile schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating WmsPackingProfile schema: {str(e)}")
+    
     # Initialize remaining tables
     from app import db
     db.create_all()

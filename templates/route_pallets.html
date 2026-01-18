@@ -60,6 +60,50 @@
                                 {% if order.hint.stop_seq %} | Stop #{{ order.hint.stop_seq|int }}{% endif %}
                             </div>
                             
+                            {% if order.packing %}
+                            <div class="packing-summary mb-2">
+                                {% if order.packing.direct.qty > 0 %}
+                                <span class="badge bg-primary me-1" title="Direct to pallet">
+                                    <i class="fas fa-box me-1"></i>{{ order.packing.direct.qty }} cases
+                                </span>
+                                {% endif %}
+                                {% if order.packing.cartons_heavy_planned > 0 %}
+                                <span class="badge bg-warning text-dark me-1" title="Heavy cartons needed">
+                                    <i class="fas fa-boxes me-1"></i>{{ order.packing.cartons_heavy_planned }} heavy
+                                </span>
+                                {% endif %}
+                                {% if order.packing.cartons_small_planned > 0 %}
+                                <span class="badge bg-secondary me-1" title="Small cartons needed">
+                                    <i class="fas fa-box-open me-1"></i>{{ order.packing.cartons_small_planned }} small
+                                </span>
+                                {% endif %}
+                                {% if order.packing.off_pallet.lines > 0 %}
+                                <span class="badge bg-info me-1" title="Cooler bag items">
+                                    <i class="fas fa-snowflake me-1"></i>{{ order.packing.off_pallet.lines }} cool
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% if order.packing.active_warnings|length > 0 %}
+                            <div class="packing-warnings mb-2">
+                                {% if order.packing.warnings.spill_risk > 0 %}
+                                <span class="badge bg-danger me-1" title="Spill risk - keep upright"><i class="fas fa-tint"></i></span>
+                                {% endif %}
+                                {% if order.packing.warnings.fragile > 0 %}
+                                <span class="badge bg-warning text-dark me-1" title="Fragile - top only"><i class="fas fa-wine-glass"></i></span>
+                                {% endif %}
+                                {% if order.packing.warnings.crushable > 0 %}
+                                <span class="badge bg-orange me-1" title="Crushable"><i class="fas fa-compress-alt"></i></span>
+                                {% endif %}
+                                {% if order.packing.warnings.heat_sensitive > 0 %}
+                                <span class="badge bg-warning text-dark me-1" title="Heat sensitive"><i class="fas fa-temperature-high"></i></span>
+                                {% endif %}
+                                {% if order.packing.warnings.cool_required > 0 %}
+                                <span class="badge bg-info me-1" title="Cool required"><i class="fas fa-snowflake"></i></span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            {% endif %}
+                            
                             {% if order.hint.base_rule %}
                             <div class="small text-info mb-2">
                                 <i class="fas fa-layer-group me-1"></i>{{ order.hint.base_rule }}
