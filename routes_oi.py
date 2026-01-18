@@ -522,6 +522,7 @@ def oi_category_defaults_bulk():
         temp = request.form.get(f'temp_{code}') or None
         boxfit = request.form.get(f'boxfit_{code}') or None
         zone = request.form.get(f'zone_{code}') or None
+        packmode = request.form.get(f'packmode_{code}') or None
         
         # Convert spill to boolean
         if spill_val == 'true':
@@ -532,7 +533,7 @@ def oi_category_defaults_bulk():
             spill = None
         
         # Check if anything is set
-        has_values = any([fragility, spill is not None, pressure, temp, boxfit, zone])
+        has_values = any([fragility, spill is not None, pressure, temp, boxfit, zone, packmode])
         
         cat_default = WmsCategoryDefault.query.get(code)
         
@@ -547,6 +548,7 @@ def oi_category_defaults_bulk():
             cat_default.default_temperature_sensitivity = temp
             cat_default.default_box_fit_rule = boxfit
             cat_default.default_zone = zone
+            cat_default.default_pack_mode = packmode
             cat_default.updated_by = current_user.username
             cat_default.updated_at = datetime.utcnow()
             cat_default.is_active = True
@@ -559,6 +561,7 @@ def oi_category_defaults_bulk():
             cat_default.default_temperature_sensitivity = None
             cat_default.default_box_fit_rule = None
             cat_default.default_zone = None
+            cat_default.default_pack_mode = None
             cat_default.updated_by = current_user.username
             cat_default.updated_at = datetime.utcnow()
     

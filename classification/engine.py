@@ -76,16 +76,17 @@ def reclassify_items(run_by: str, threshold: int = 60,
         items_needing_review = 0
         
         for item in active_items:
+            cat_default = category_defaults.get(item.category_code_365)
             updated = classify_single_item(
                 item, 
-                category_defaults.get(item.category_code_365),
+                cat_default,
                 item_overrides.get(item.item_code_365),
                 dynamic_rules_by_attr,
                 threshold,
                 summer_mode
             )
             
-            upsert_packing_profile(db.session, item)
+            upsert_packing_profile(db.session, item, cat_default)
             
             if updated:
                 items_updated += 1

@@ -1915,6 +1915,7 @@ class WmsCategoryDefault(db.Model):
     default_pick_difficulty = db.Column(db.Integer, nullable=True)
     default_shelf_height = db.Column(db.String(20), nullable=True)
     default_box_fit_rule = db.Column(db.String(30), nullable=True)
+    default_pack_mode = db.Column(db.String(30), nullable=True)  # DIRECT_PALLET, CARTON_HEAVY, CARTON_SMALL, OFF_PALLET
     
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     notes = db.Column(db.Text, nullable=True)

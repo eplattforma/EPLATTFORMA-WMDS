@@ -48,6 +48,7 @@
                                 <th>Temp</th>
                                 <th>Box Fit</th>
                                 <th>Zone</th>
+                                <th>Pack Mode</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -115,10 +116,19 @@
                                         <option value="SNACKS" {% if default and default.default_zone == 'SNACKS' %}selected{% endif %}>SNACK</option>
                                     </select>
                                 </td>
+                                <td>
+                                    <select class="form-select form-select-sm" name="packmode_{{ cat.category_code_365 }}" style="width: 90px;">
+                                        <option value="">-</option>
+                                        <option value="DIRECT_PALLET" {% if default and default.default_pack_mode == 'DIRECT_PALLET' %}selected{% endif %}>DIRECT</option>
+                                        <option value="CARTON_HEAVY" {% if default and default.default_pack_mode == 'CARTON_HEAVY' %}selected{% endif %}>HEAVY</option>
+                                        <option value="CARTON_SMALL" {% if default and default.default_pack_mode == 'CARTON_SMALL' %}selected{% endif %}>SMALL</option>
+                                        <option value="OFF_PALLET" {% if default and default.default_pack_mode == 'OFF_PALLET' %}selected{% endif %}>OFF</option>
+                                    </select>
+                                </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="10" class="text-center py-4 text-muted">
+                                <td colspan="11" class="text-center py-4 text-muted">
                                     No categories found
                                 </td>
                             </tr>

@@ -156,6 +156,19 @@ def update_oi_schema():
             logger.warning(f"Could not create wms_dynamic_rules: {e}")
         db.session.rollback()
     
+    # Add default_pack_mode column to wms_category_defaults if missing
+    try:
+        db.session.execute(text("""
+            ALTER TABLE wms_category_defaults 
+            ADD COLUMN IF NOT EXISTS default_pack_mode VARCHAR(30)
+        """))
+        db.session.commit()
+        logger.info("Added default_pack_mode column to wms_category_defaults")
+    except Exception as e:
+        if "already exists" not in str(e).lower():
+            logger.debug(f"default_pack_mode column: {e}")
+        db.session.rollback()
+    
     logger.info("OI schema update complete")
 
 

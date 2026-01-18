@@ -109,12 +109,29 @@ def derive_packing_profile_from_dw(dw_item):
     }
 
 
-def upsert_packing_profile(db_session, dw_item):
+def upsert_packing_profile(db_session, dw_item, category_default=None):
     """
     Create or update the packing profile for a DwItem.
     Called during reclassification.
+    
+    category_default: WmsCategoryDefault object, if any, to apply category pack_mode override.
     """
     data = derive_packing_profile_from_dw(dw_item)
+    
+    # Apply category default pack_mode if set (overrides computed pack_mode)
+    if category_default and category_default.default_pack_mode:
+        data["pack_mode"] = category_default.default_pack_mode
+        # Adjust carton hints based on forced pack_mode
+        if data["pack_mode"] == "CARTON_HEAVY":
+            data["carton_type_hint"] = "HEAVY"
+            data["max_carton_weight_kg"] = Decimal("16.0")
+        elif data["pack_mode"] == "CARTON_SMALL":
+            data["carton_type_hint"] = "SMALL"
+            data["max_carton_weight_kg"] = Decimal("18.0")
+        elif data["pack_mode"] in ("DIRECT_PALLET", "OFF_PALLET"):
+            data["carton_type_hint"] = None
+            data["max_carton_weight_kg"] = None
+    
     row = db_session.get(WmsPackingProfile, dw_item.item_code_365)
     if not row:
         row = WmsPackingProfile(item_code_365=dw_item.item_code_365)
