@@ -197,6 +197,16 @@
                                 <option value="COOLER_BAG" {% if override and override.box_fit_rule_override == 'COOLER_BAG' %}selected{% endif %}>COOLER_BAG</option>
                             </select>
                         </div>
+                        <div class="mb-2">
+                            <label class="form-label">Pack Mode</label>
+                            <select class="form-select form-select-sm" name="pack_mode_override">
+                                <option value="">-- No Override --</option>
+                                <option value="DIRECT_PALLET" {% if override and override.pack_mode_override == 'DIRECT_PALLET' %}selected{% endif %}>DIRECT (Pallet)</option>
+                                <option value="CARTON_HEAVY" {% if override and override.pack_mode_override == 'CARTON_HEAVY' %}selected{% endif %}>HEAVY (Carton)</option>
+                                <option value="CARTON_SMALL" {% if override and override.pack_mode_override == 'CARTON_SMALL' %}selected{% endif %}>SMALL (Carton)</option>
+                                <option value="OFF_PALLET" {% if override and override.pack_mode_override == 'OFF_PALLET' %}selected{% endif %}>OFF (Cooler)</option>
+                            </select>
+                        </div>
                         <div class="mb-3">
                             <label class="form-label">Reason</label>
                             <textarea class="form-control form-control-sm" name="override_reason" rows="2">{{ override.override_reason if override else '' }}</textarea>

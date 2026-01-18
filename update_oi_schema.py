@@ -169,6 +169,19 @@ def update_oi_schema():
             logger.debug(f"default_pack_mode column: {e}")
         db.session.rollback()
     
+    # Add pack_mode_override column to wms_item_overrides if missing
+    try:
+        db.session.execute(text("""
+            ALTER TABLE wms_item_overrides 
+            ADD COLUMN IF NOT EXISTS pack_mode_override VARCHAR(30)
+        """))
+        db.session.commit()
+        logger.info("Added pack_mode_override column to wms_item_overrides")
+    except Exception as e:
+        if "already exists" not in str(e).lower():
+            logger.debug(f"pack_mode_override column: {e}")
+        db.session.rollback()
+    
     logger.info("OI schema update complete")
 
 

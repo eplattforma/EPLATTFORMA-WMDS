@@ -1943,6 +1943,7 @@ class WmsItemOverride(db.Model):
     pick_difficulty_override = db.Column(db.Integer, nullable=True)
     shelf_height_override = db.Column(db.String(20), nullable=True)
     box_fit_rule_override = db.Column(db.String(30), nullable=True)
+    pack_mode_override = db.Column(db.String(30), nullable=True)  # DIRECT_PALLET, CARTON_HEAVY, CARTON_SMALL, OFF_PALLET
     
     override_reason = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)

@@ -398,6 +398,11 @@ def oi_item_override(item_code_365):
     else:
         override.box_fit_rule_override = None
     
+    if request.form.get('pack_mode_override'):
+        override.pack_mode_override = request.form.get('pack_mode_override')
+    else:
+        override.pack_mode_override = None
+    
     if request.form.get('pick_difficulty_override'):
         try:
             override.pick_difficulty_override = int(request.form.get('pick_difficulty_override'))
