@@ -2082,10 +2082,15 @@ class WmsPackingProfile(db.Model):
     spill_risk = db.Column(db.Boolean)
     box_fit_rule = db.Column(db.String(20))
     
+    pack_mode = db.Column(db.String(20))
+    loss_risk = db.Column(db.Boolean)
+    carton_type_hint = db.Column(db.String(10))
+    max_carton_weight_kg = db.Column(db.Numeric(10, 2))
+    
     updated_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
     
     def __repr__(self):
-        return f"<WmsPackingProfile {self.item_code_365} role={self.pallet_role}>"
+        return f"<WmsPackingProfile {self.item_code_365} role={self.pallet_role} pack={self.pack_mode}>"
 
 
 class WmsPallet(db.Model, SoftDeleteMixin):

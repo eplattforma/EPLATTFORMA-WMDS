@@ -1,16 +1,64 @@
 """
 Packing profile computation for palletization.
-Derives pallet roles and flags from OI classification data.
+Derives pallet roles, pack modes and flags from OI classification data.
 """
 import json
+from decimal import Decimal
 from timezone_utils import get_utc_now
 from models import WmsPackingProfile
+
+
+def derive_pack_mode(dw_item):
+    """
+    Derive pack_mode and carton hints from DwItem's WMS attributes.
+    Returns dict with pack_mode, carton_type_hint, loss_risk, max_carton_weight_kg.
+    
+    Pack modes:
+    - OFF_PALLET: cooler bag or cool required items
+    - DIRECT_PALLET: cases/boxes that can go directly on pallet
+    - CARTON_HEAVY: spill risk, bottles, sensitive zone items (heavy cartons)
+    - CARTON_SMALL: small items that need carton protection
+    """
+    unit_type = (dw_item.wms_unit_type or "item").lower()
+    press = (dw_item.wms_pressure_sensitivity or "low").lower()
+    temp = (dw_item.wms_temperature_sensitivity or "normal").lower()
+    spill = bool(dw_item.wms_spill_risk)
+    box = (dw_item.wms_box_fit_rule or "MIDDLE").upper()
+    stack = (dw_item.wms_stackability or "YES").upper()
+    shape = (dw_item.wms_shape_type or "").lower()
+    zone = (dw_item.wms_zone or "").upper()
+    
+    pack_mode = None
+    carton_type_hint = None
+    loss_risk = False
+    max_carton_weight_kg = Decimal("18.0")
+    
+    if box == "COOLER_BAG" or temp == "cool_required":
+        pack_mode = "OFF_PALLET"
+    elif unit_type in ("box", "pack", "case", "virtual_pack") and press != "high" and stack != "NO":
+        pack_mode = "DIRECT_PALLET"
+    elif spill or shape in ("bottle", "jug") or zone == "SENSITIVE":
+        pack_mode = "CARTON_HEAVY"
+        carton_type_hint = "HEAVY"
+        max_carton_weight_kg = Decimal("14.0") if spill else Decimal("18.0")
+    else:
+        pack_mode = "CARTON_SMALL"
+        carton_type_hint = "SMALL"
+        if unit_type == "item":
+            loss_risk = True
+    
+    return {
+        "pack_mode": pack_mode,
+        "carton_type_hint": carton_type_hint,
+        "loss_risk": loss_risk,
+        "max_carton_weight_kg": max_carton_weight_kg
+    }
 
 
 def derive_packing_profile_from_dw(dw_item):
     """
     Derive packing profile data from a DwItem's WMS attributes.
-    Returns a dict with pallet_role, flags, and snapshot of key inputs.
+    Returns a dict with pallet_role, flags, pack_mode, and snapshot of key inputs.
     """
     flags = []
 
@@ -42,6 +90,8 @@ def derive_packing_profile_from_dw(dw_item):
     else:
         role = "MIDDLE"
 
+    pack_data = derive_pack_mode(dw_item)
+    
     return {
         "pallet_role": role,
         "flags": flags,
@@ -51,7 +101,11 @@ def derive_packing_profile_from_dw(dw_item):
         "stackability": stack,
         "temperature_sensitivity": temp,
         "spill_risk": spill,
-        "box_fit_rule": box
+        "box_fit_rule": box,
+        "pack_mode": pack_data["pack_mode"],
+        "carton_type_hint": pack_data["carton_type_hint"],
+        "loss_risk": pack_data["loss_risk"],
+        "max_carton_weight_kg": pack_data["max_carton_weight_kg"]
     }
 
 
@@ -75,4 +129,8 @@ def upsert_packing_profile(db_session, dw_item):
     row.temperature_sensitivity = data["temperature_sensitivity"]
     row.spill_risk = data["spill_risk"]
     row.box_fit_rule = data["box_fit_rule"]
+    row.pack_mode = data["pack_mode"]
+    row.loss_risk = data["loss_risk"]
+    row.carton_type_hint = data["carton_type_hint"]
+    row.max_carton_weight_kg = data["max_carton_weight_kg"]
     row.updated_at = get_utc_now()

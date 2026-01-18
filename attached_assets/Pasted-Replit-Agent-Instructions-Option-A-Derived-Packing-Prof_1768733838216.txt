@@ -1,0 +1,238 @@
+Replit Agent Instructions — Option A (Derived Packing Profile)
+Goal
+
+Implement SKU-level packing profile fields (derived from existing DwItem.wms_*) without changing DwItem schema:
+
+Add pack_mode to wms_packing_profile (new column)
+
+Compute pack_mode whenever the OI reclassification script runs
+
+Use pack_mode in order-level packing summary:
+
+direct-to-pallet cases/bulky
+
+heavy carton group (cleaning/detergents)
+
+small carton group (small items)
+
+Display to picker: “how many cases / how many cartons (heavy/small)” per order
+
+1) Schema update
+1.1 Create update_packing_profile_schema.py (or extend existing packing profile schema)
+
+Add columns to wms_packing_profile:
+
+pack_mode (VARCHAR(20)) — required
+
+loss_risk (BOOLEAN) — optional but recommended
+
+carton_type_hint (VARCHAR(10)) — optional: "HEAVY"|"SMALL"|NULL
+
+max_carton_weight_kg (NUMERIC(10,2)) — optional default 18 for heavy cartons
+
+SQL should be safe for SQLite + Postgres. Follow your other schema update scripts’ pattern: check column existence before ALTER.
+
+Example logic:
+
+if table doesn’t exist, create it with all columns
+
+if table exists but missing columns, ALTER TABLE ADD COLUMN
+
+Then in main.py in the schema update block, call:
+
+from update_packing_profile_schema import update_packing_profile_schema
+update_packing_profile_schema()
+
+
+Place it near your other schema update calls before db.create_all().
+
+2) SQLAlchemy model update
+
+In models.py update WmsPackingProfile model (or add it if not present yet):
+
+Add fields:
+
+pack_mode
+
+loss_risk
+
+carton_type_hint
+
+max_carton_weight_kg
+
+Keep existing fields that snapshot OI inputs (unit_type, fragility, spill_risk, box_fit_rule, etc.).
+
+3) Compute pack_mode inside packing_profiles.py
+
+Create/update packing_profiles.py:
+
+3.1 Implement derive_pack_mode(dw_item)
+
+Return:
+
+pack_mode: DIRECT_PALLET | CARTON_HEAVY | CARTON_SMALL | OFF_PALLET
+
+carton_type_hint: HEAVY | SMALL | None
+
+loss_risk: bool
+
+max_carton_weight_kg: numeric (default 18 for heavy cartons)
+
+Mapping rules (v1, explainable):
+
+OFF_PALLET
+
+if wms_box_fit_rule == "COOLER_BAG" OR wms_temperature_sensitivity in ("cool_required",):
+
+pack_mode = "OFF_PALLET"
+
+DIRECT_PALLET (cases + bulky uniform)
+
+if wms_unit_type in ("box","pack","case","virtual_pack") AND
+wms_pressure_sensitivity != "high" AND
+wms_stackability != "NO":
+
+pack_mode = "DIRECT_PALLET"
+
+also if item is “bulky” by volume proxy (if dimensions exist) you can force DIRECT_PALLET (optional v1)
+
+CARTON_HEAVY (cleaning/detergents—boxed variably)
+
+if wms_spill_risk == True OR wms_shape_type in ("bottle","jug") OR wms_zone == "SENSITIVE":
+
+pack_mode = "CARTON_HEAVY"
+
+carton_type_hint = "HEAVY"
+
+max_carton_weight_kg = 18 (reduce to 14 if spill-risk is true; optional)
+
+CARTON_SMALL (small items that would get lost)
+
+default for everything else:
+
+pack_mode = "CARTON_SMALL"
+
+carton_type_hint = "SMALL"
+
+loss_risk = True if wms_unit_type == "item"
+
+3.2 Upsert into wms_packing_profile
+
+Extend your existing upsert_packing_profile() to set:
+
+pack_mode, carton_type_hint, loss_risk, max_carton_weight_kg
+
+4) Hook it into your OI reclassification run
+
+In classification/engine.py (or wherever reclassify_items loops through items):
+
+After the item’s wms_* fields are finalized and before commit, call:
+
+from packing_profiles import upsert_packing_profile
+upsert_packing_profile(db.session, item)
+
+
+This ensures profiles refresh whenever you run the reclassification script—no separate nightly job needed.
+
+5) Order-level packing summary (picker guidance)
+
+Create services_order_packing_summary.py with:
+
+get_order_packing_summary(invoice_no) -> dict
+
+It should:
+
+Query InvoiceItem rows for the invoice (with item_code, qty, line_weight, corridor)
+
+Join DwItem (or WmsPackingProfile) by item_code
+
+Aggregate totals by pack_mode:
+
+Outputs:
+
+direct_weight_kg, direct_lines, direct_qty
+
+heavy_weight_kg, heavy_lines
+
+small_qty, small_lines, small_est_volume (if dims exist)
+
+warnings: spill/fragile/pressure_high/heat_sensitive counts
+
+base_weight_kg (corridors 09–12) and base_lines
+
+5.1 Carton estimation (v1)
+
+Heavy cartons
+
+target_carton_kg = 14 if any spill-risk else 16
+
+cartons_heavy = ceil(heavy_weight_kg / target_carton_kg)
+
+Small cartons
+
+if volume exists: cartons_small = ceil(total_small_volume_m3 / 0.020) (tune)
+
+else fallback: cartons_small = ceil(small_qty / 25) (simple proxy to start)
+
+Return carton counts as:
+
+cartons_heavy_planned
+
+cartons_small_planned
+
+6) UI changes (picker + pallets board)
+6.1 Pallets board / route page
+
+Where you list unassigned orders, add:
+
+Suggested blocks (already planned)
+
+Packing summary badges:
+
+Direct: X cases
+
+Heavy cartons: N
+
+Small cartons: N
+
+Warnings icons: spill / fragile / heat / crushable
+
+6.2 Picker screen (optional in v1 but recommended)
+
+On the order picking page (invoice detail), show:
+
+“Prepare: Heavy cartons N, Small cartons N”
+
+“Base first: corridors 09–12”
+
+Warnings: keep upright, spill risk, fragile top-only, cooler bag
+
+7) Testing checklist (agent must do)
+
+Run OI reclassification: verify wms_packing_profile.pack_mode populated for multiple SKUs
+
+Pick 3 invoices:
+
+mostly cases → DIRECT_PALLET dominates, cartons small/ heavy small
+
+cleaning detergents → heavy cartons computed
+
+stationery small items → small cartons computed
+
+Confirm UI shows the summary and does not slow route screen
+
+Confirm schema updates work in both SQLite and Postgres without failing on rerun
+
+8) Deliverables
+
+Schema update script + main.py registration
+
+Updated model WmsPackingProfile
+
+Updated packing_profiles.py derive + upsert
+
+Hook into OI reclassification
+
+Order packing summary service
+
+UI additions (badges + warning icons) on pallets board (and optionally pick screen)
