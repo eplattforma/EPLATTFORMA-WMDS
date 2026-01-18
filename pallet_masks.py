@@ -93,13 +93,13 @@ def find_allocation(used_mask: int, blocks_needed: int) -> int | None:
     """
     if blocks_needed < 1 or blocks_needed > 8:
         return None
-    
+
     patterns = BLOCK_PATTERNS.get(blocks_needed, [])
-    
+
     for pattern in patterns:
         if (used_mask & pattern) == 0:
             return pattern
-    
+
     return None
 
 
