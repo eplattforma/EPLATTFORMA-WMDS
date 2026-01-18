@@ -1174,23 +1174,22 @@
         
         let html = `
             <div class="row">
-                <!-- Left Side: Unit Type Breakdown (1/4 width) -->
+                <!-- Left Side: Unit Type Breakdown + Corridor Summary (1/4 width) -->
                 <div class="col-md-3">
-                    <div class="card">
-                        <div class="card-header bg-secondary text-white">
+                    <div class="card mb-3">
+                        <div class="card-header bg-secondary text-white py-2">
                             <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Unit Breakdown</h6>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm">
-                                    <thead>
-                                        <tr>
-                                            <th>Type</th>
-                                            <th class="text-end">Qty</th>
-                                            <th class="text-end">%</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>`;
+                        <div class="card-body p-2">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Type</th>
+                                        <th class="text-end">Qty</th>
+                                        <th class="text-end">%</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
         
         // Add unit type rows
         data.unit_breakdown.forEach(unit => {
@@ -1203,26 +1202,175 @@
         });
         
         html += `
-                                    </tbody>
-                                </table>
-                            </div>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Corridor Grouping -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-info text-white py-2">
+                            <h6 class="mb-0"><i class="fas fa-map-signs me-2"></i>Corridors (${data.corridor_breakdown ? data.corridor_breakdown.length : 0})</h6>
+                        </div>
+                        <div class="card-body p-2">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Corridor</th>
+                                        <th class="text-end">Lines</th>
+                                        <th class="text-end">Qty</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+        
+        if (data.corridor_breakdown && data.corridor_breakdown.length > 0) {
+            data.corridor_breakdown.forEach(c => {
+                html += `
+                    <tr>
+                        <td><strong>${c.corridor}</strong></td>
+                        <td class="text-end">${c.items}</td>
+                        <td class="text-end">${c.qty}</td>
+                    </tr>`;
+            });
+        } else {
+            html += `<tr><td colspan="3" class="text-muted">No location data</td></tr>`;
+        }
+        
+        html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Estimated Pick Time -->
+                    <div class="card">
+                        <div class="card-header bg-primary text-white py-2">
+                            <h6 class="mb-0"><i class="fas fa-clock me-2"></i>Est. Pick Time</h6>
+                        </div>
+                        <div class="card-body p-2 text-center">
+                            <h3 class="mb-0">${data.summary.total_time ? Math.round(data.summary.total_time) : 0} min</h3>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Right Side: Case Items (3/4 width) -->
-                <div class="col-md-9">`;
+                <!-- Right Side: Case Items + Risk Indicators + Pallet Info (3/4 width) -->
+                <div class="col-md-9">
+                    <!-- Pallet Assignment Section -->`;
         
-        // Add Case Items Review Section
+        const hasPalletAssignments = data.pallet_assignments && Object.keys(data.pallet_assignments).length > 0;
+        if (hasPalletAssignments) {
+            html += `
+                    <div class="card border-success mb-3">
+                        <div class="card-header bg-success text-white py-2">
+                            <h6 class="mb-0"><i class="fas fa-pallet me-2"></i>Pallet Assignments (${Object.keys(data.pallet_assignments).length})</h6>
+                        </div>
+                        <div class="card-body p-2">
+                            <div class="row">`;
+            
+            Object.entries(data.pallet_assignments).forEach(([invoiceNo, info]) => {
+                const statusBadge = info.pallet_status === 'SEALED' ? 'bg-success' : 'bg-secondary';
+                html += `
+                                <div class="col-md-4 mb-2">
+                                    <div class="border rounded p-2 bg-light">
+                                        <strong>${invoiceNo}</strong><br>
+                                        <span class="badge ${statusBadge}">${info.pallet_label}</span>
+                                        <small class="text-muted ms-1">${info.blocks} blocks</small>
+                                    </div>
+                                </div>`;
+            });
+            
+            html += `
+                            </div>
+                        </div>
+                    </div>`;
+        } else {
+            html += `
+                    <div class="alert alert-secondary mb-3 py-2">
+                        <i class="fas fa-pallet me-2"></i>No pallet assignments yet
+                    </div>`;
+        }
+        
+        // Risk Indicators Section
+        const hasFragile = data.fragile_items && data.fragile_items.length > 0;
+        const hasSpillRisk = data.spill_risk_items && data.spill_risk_items.length > 0;
+        
+        if (hasFragile || hasSpillRisk) {
+            html += `
+                    <div class="row mb-3">`;
+            
+            // Fragile Items
+            if (hasFragile) {
+                html += `
+                        <div class="col-md-6">
+                            <div class="card border-warning h-100">
+                                <div class="card-header bg-warning text-dark py-2">
+                                    <h6 class="mb-0"><i class="fas fa-fragile me-2"></i><i class="fas fa-wine-glass-crack me-2"></i>Fragile Items (${data.fragile_items.length})</h6>
+                                </div>
+                                <div class="card-body p-2" style="max-height: 150px; overflow-y: auto;">
+                                    <table class="table table-sm mb-0">
+                                        <tbody>`;
+                
+                data.fragile_items.forEach(item => {
+                    const fragileBadge = item.fragility === 'HIGH' ? 'bg-danger' : 'bg-warning text-dark';
+                    html += `
+                                            <tr>
+                                                <td><small>${item.location}</small></td>
+                                                <td>${item.item_name.substring(0, 30)}${item.item_name.length > 30 ? '...' : ''}</td>
+                                                <td><span class="badge ${fragileBadge}">${item.fragility}</span></td>
+                                            </tr>`;
+                });
+                
+                html += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>`;
+            }
+            
+            // Spill Risk Items
+            if (hasSpillRisk) {
+                html += `
+                        <div class="col-md-6">
+                            <div class="card border-info h-100">
+                                <div class="card-header bg-info text-white py-2">
+                                    <h6 class="mb-0"><i class="fas fa-tint me-2"></i>Spill Risk Items (${data.spill_risk_items.length})</h6>
+                                </div>
+                                <div class="card-body p-2" style="max-height: 150px; overflow-y: auto;">
+                                    <table class="table table-sm mb-0">
+                                        <tbody>`;
+                
+                data.spill_risk_items.forEach(item => {
+                    html += `
+                                            <tr>
+                                                <td><small>${item.location}</small></td>
+                                                <td>${item.item_name.substring(0, 35)}${item.item_name.length > 35 ? '...' : ''}</td>
+                                                <td>${item.quantity}</td>
+                                            </tr>`;
+                });
+                
+                html += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>`;
+            }
+            
+            html += `
+                    </div>`;
+        }
+        
+        // Case Items Review Section
         if (data.case_items && data.case_items.length > 0) {
             html += `
                     <div class="card border-danger">
-                        <div class="card-header bg-danger text-white">
+                        <div class="card-header bg-danger text-white py-2">
                             <h6 class="mb-0"><i class="fas fa-boxes me-2"></i>Case Items for Admin Review (${data.case_items.length})</h6>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm table-striped">
+                        <div class="card-body p-2">
+                            <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                                <table class="table table-sm table-striped mb-0">
                                     <thead class="table-dark">
                                         <tr>
                                             <th>Location</th>

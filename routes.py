@@ -12,7 +12,7 @@ import re
 from sqlalchemy import func
 
 from app import app, db
-from models import User, Invoice, InvoiceItem, PickingException, Setting, Shift, IdlePeriod, ActivityLog, BatchPickingSession, BatchSessionInvoice, StockPosition
+from models import User, Invoice, InvoiceItem, PickingException, Setting, Shift, IdlePeriod, ActivityLog, BatchPickingSession, BatchSessionInvoice, StockPosition, WmsPackingProfile, WmsPallet, WmsPalletOrder
 from utils import create_user
 from utils.invoice_utils import recalculate_invoice_totals
 from utils.shift_tracking import (
@@ -3712,10 +3712,36 @@ def quick_view_breakdown():
     # Get items for all selected orders
     items = InvoiceItem.query.filter(InvoiceItem.invoice_no.in_(invoice_nos)).all()
     
-    # Calculate unit type breakdown
+    # Get packing profiles for all items
+    item_codes = list(set(item.item_code for item in items if item.item_code))
+    packing_profiles = {}
+    if item_codes:
+        profiles = WmsPackingProfile.query.filter(WmsPackingProfile.item_code_365.in_(item_codes)).all()
+        packing_profiles = {p.item_code_365: p for p in profiles}
+    
+    # Get pallet assignments for orders
+    pallet_assignments = {}
+    pallet_orders = WmsPalletOrder.query.filter(WmsPalletOrder.invoice_no.in_(invoice_nos)).all()
+    if pallet_orders:
+        pallet_ids = [po.pallet_id for po in pallet_orders]
+        pallets = WmsPallet.query.filter(WmsPallet.pallet_id.in_(pallet_ids)).all()
+        pallet_map = {p.pallet_id: p for p in pallets}
+        for po in pallet_orders:
+            pallet = pallet_map.get(po.pallet_id)
+            if pallet:
+                pallet_assignments[po.invoice_no] = {
+                    'pallet_label': pallet.label,
+                    'pallet_status': pallet.status,
+                    'blocks': po.blocks_requested
+                }
+    
+    # Calculate unit type breakdown, corridor grouping, and risk indicators
     unit_counts = {}
+    corridor_counts = {}
     total_items = 0
-    case_items = []  # Collect all case items for detailed review
+    case_items = []
+    fragile_items = []
+    spill_risk_items = []
     
     for item in items:
         unit_type = item.unit_type or 'Unknown'
@@ -3726,6 +3752,34 @@ def quick_view_breakdown():
         unit_counts[unit_type] += quantity
         total_items += quantity
         
+        # Extract corridor from location (first 2 chars of 7-char code like "1006A01")
+        location = item.location or ''
+        if len(location) >= 2 and location[:2].isdigit():
+            corridor = location[:2]
+            if corridor not in corridor_counts:
+                corridor_counts[corridor] = {'items': 0, 'qty': 0}
+            corridor_counts[corridor]['items'] += 1
+            corridor_counts[corridor]['qty'] += quantity
+        
+        # Check packing profile for risk indicators
+        profile = packing_profiles.get(item.item_code)
+        if profile:
+            if profile.fragility in ['HIGH', 'MEDIUM']:
+                fragile_items.append({
+                    'item_code': item.item_code,
+                    'item_name': item.item_name or 'Unknown',
+                    'fragility': profile.fragility,
+                    'quantity': quantity,
+                    'location': location or 'Not specified'
+                })
+            if profile.spill_risk:
+                spill_risk_items.append({
+                    'item_code': item.item_code,
+                    'item_name': item.item_name or 'Unknown',
+                    'quantity': quantity,
+                    'location': location or 'Not specified'
+                })
+        
         # Collect case items for detailed review
         if unit_type.lower() in ['case', 'cases', 'cs', 'cse']:
             case_items.append({
@@ -3734,7 +3788,7 @@ def quick_view_breakdown():
                 'item_name': item.item_name or 'Unknown Item',
                 'quantity': quantity,
                 'unit_type': unit_type,
-                'location': item.location or 'Not specified'
+                'location': location or 'Not specified'
             })
     
     # Calculate percentages and format breakdown
@@ -3747,19 +3801,33 @@ def quick_view_breakdown():
             'percentage': percentage
         })
     
+    # Format corridor breakdown sorted by corridor number
+    corridor_breakdown = []
+    for corridor in sorted(corridor_counts.keys()):
+        data = corridor_counts[corridor]
+        corridor_breakdown.append({
+            'corridor': corridor,
+            'items': data['items'],
+            'qty': data['qty']
+        })
+    
     # Calculate summary
     total_weight = sum(order.total_weight or 0 for order in orders)
     total_time = sum(order.total_exp_time or 0 for order in orders)
     
-    # Format order details
+    # Format order details with pallet info
     order_details = []
     for order in orders:
-        order_details.append({
+        order_info = {
             'invoice_no': order.invoice_no,
             'customer_name': order.customer_name or 'Unknown',
             'total_items': order.total_items or 0,
             'total_weight': round(order.total_weight or 0, 1)
-        })
+        }
+        pallet_info = pallet_assignments.get(order.invoice_no)
+        if pallet_info:
+            order_info['pallet'] = pallet_info
+        order_details.append(order_info)
     
     response_data = {
         'summary': {
@@ -3767,10 +3835,17 @@ def quick_view_breakdown():
             'total_items': total_items,
             'total_weight': round(total_weight, 1),
             'total_time': round(total_time, 1),
-            'total_cases': len(case_items)
+            'total_cases': len(case_items),
+            'total_fragile': len(fragile_items),
+            'total_spill_risk': len(spill_risk_items),
+            'total_corridors': len(corridor_breakdown)
         },
         'unit_breakdown': unit_breakdown,
+        'corridor_breakdown': corridor_breakdown,
         'case_items': case_items,
+        'fragile_items': fragile_items,
+        'spill_risk_items': spill_risk_items,
+        'pallet_assignments': pallet_assignments,
         'orders': order_details
     }
     
