@@ -471,7 +471,7 @@ def check_for_long_shift_checkouts():
         List of usernames of pickers who were automatically checked out
     """
     try:
-        now = get_local_now()
+        now = get_utc_now()
         checked_out_users = []
         
         # Find shifts that are still active
