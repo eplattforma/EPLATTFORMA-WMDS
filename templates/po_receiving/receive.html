@@ -33,9 +33,9 @@ input[type=number]::-webkit-inner-spin-button {
 input[type=number] {
     -moz-appearance: textfield;
 }
-/* Force red background on received cells - override dark theme overlay */
+/* Subtle background for received cells */
 .table .received-cell {
-    background: #FF4433 !important;
+    background: rgba(40, 167, 69, 0.15) !important;
     box-shadow: none !important;
     background-image: none !important;
 }
@@ -819,7 +819,7 @@ async function refreshAllReceivedQuantities() {
                         if (lot.lot_note) {
                             lotsHtml += `<span class="badge bg-warning text-dark" title="${lot.lot_note}"><i class="fas fa-sticky-note"></i> ${lot.lot_note}</span>`;
                         }
-                        lotsHtml += `<button class="btn btn-danger btn-sm py-0 px-1" style="font-size: 0.7rem;" onclick="resetLot(${lot.id})" title="Reset this lot"><i class="fas fa-undo"></i></button>`;
+                        lotsHtml += `<button class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size: 0.7rem;" onclick="resetLot(${lot.id})" title="Delete and re-receive"><i class="fas fa-times"></i></button>`;
                         lotsHtml += '</div>';
                     });
                     lotsHtml += '</div>';
