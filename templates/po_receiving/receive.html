@@ -221,7 +221,7 @@ input[type=number] {
                         {% for line in po.lines %}
                         {% set received = received_by_line.get(line.id, 0) %}
                         {% set shelf_data = (line.shelf_locations|from_json) if line.shelf_locations else [] %}
-                        <tr id="row-{{ line.id }}">
+                        <tr id="row-{{ line.id }}" {% if received == 0 %}style="display: none;"{% endif %} data-received="{{ received }}" data-line-id="{{ line.id }}">
                             <td class="{% if received > 0 %}received-cell{% endif %}">{{ line.line_number }}</td>
                             <td class="{% if received > 0 %}received-cell{% endif %}">
                                 <strong>{{ line.item_code_365 }}</strong>
@@ -792,10 +792,18 @@ async function refreshAllReceivedQuantities() {
                 const row = document.getElementById(`row-${lineId}`);
                 if (!row) continue;
                 
+                const received = lineData.received;
+                
+                // Show/hide row based on received quantity
+                if (received > 0) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+                
                 const receivedCell = row.querySelector('td:nth-child(5)');
                 const orderedCell = row.querySelector('td:nth-child(4)');
                 const ordered = parseInt(orderedCell.textContent) || 0;
-                const received = lineData.received;
                 const lots = lineData.lots || [];
                 
                 // Build lots display HTML
