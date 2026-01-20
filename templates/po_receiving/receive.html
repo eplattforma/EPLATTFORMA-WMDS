@@ -337,10 +337,8 @@ input[type=number] {
                 <div class="list-group list-group-flush">
                     {% for line in po.lines %}
                     {% set received = received_by_line.get(line.id, 0) %}
-                    {% set is_fully_received = received >= line.line_quantity and received > 0 and line.line_quantity > 0 %}
-                    {% if not is_fully_received %}
+                    {% if received == 0 %}
                     <button type="button" class="list-group-item list-group-item-action py-2" 
-                            style="{% if received > 0 %}background-color: #ffc107 !important;{% endif %}"
                             onclick="chooseItem({{ line.id }}, '{{ line.item_code_365 }}', '{{ line.item_name }}', {{ line.line_quantity }})"
                             data-bs-dismiss="modal">
                         <div class="d-flex justify-content-between align-items-center">
@@ -366,9 +364,6 @@ input[type=number] {
                             </div>
                             <div class="text-end" style="min-width: 80px;">
                                 <div class="small">Ord: <strong>{{ line.line_quantity|int }}</strong></div>
-                                <div class="small {% if received > 0 %}text-dark{% else %}text-muted{% endif %}">
-                                    Rec: <strong>{{ received|int }}</strong>
-                                </div>
                             </div>
                         </div>
                     </button>
