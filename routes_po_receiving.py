@@ -711,7 +711,7 @@ def api_lookup_barcode():
                 "page_size": 10,
                 "expression_searched": barcode,
                 "search_operator_type": "Equals",
-                "search_in_fields": "ItemBarcode,ItemCode",
+                "search_in_fields": "ItemBarcode,ItemCode,TextField2",
                 "active_type": "all"
             }
         }
