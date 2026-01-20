@@ -908,25 +908,15 @@ async function refreshItemSelectionModal() {
                     const lineData = data.received_by_line[lineId];
                     
                     if (lineData) {
-                        const isFullyReceived = lineData.is_fully_received;
                         const received = lineData.received;
                         
-                        // Update background color
-                        if (isFullyReceived) {
-                            item.style.backgroundColor = '#28a745';
-                            item.style.color = 'white';
-                        } else if (received > 0) {
-                            item.style.backgroundColor = '#ffc107';
-                            item.style.color = '';
+                        // Hide items with any received quantity
+                        if (received > 0) {
+                            item.style.display = 'none';
                         } else {
+                            item.style.display = '';
                             item.style.backgroundColor = '';
                             item.style.color = '';
-                        }
-                        
-                        // Update received quantity display
-                        const recDisplay = item.querySelector('div.text-end .small:nth-child(2) strong');
-                        if (recDisplay) {
-                            recDisplay.textContent = Math.round(received);
                         }
                     }
                 }
