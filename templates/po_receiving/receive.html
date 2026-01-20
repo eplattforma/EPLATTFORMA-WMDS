@@ -607,9 +607,10 @@ function updateExpiryFieldVisibility() {
 
                 // Update display
                 const display = document.getElementById('selectedItemDisplay');
+                const supplierCode = option.dataset.supplierItem ? ` (${option.dataset.supplierItem})` : '';
                 display.innerHTML = `
                     <div class="d-flex align-items-center gap-2">
-                        <strong>${option.dataset.item}</strong>
+                        <strong>${option.dataset.item}${supplierCode}</strong>
                         <span class="badge bg-info">${unitDisplay}</span>
                     </div>
                     <div>${option.dataset.name}</div>
@@ -644,7 +645,9 @@ function updateExpiryFieldVisibility() {
                 // Try to match the returned item code or supplier item code to a line
                 for (let i = 0; i < select.options.length; i++) {
                     const option = select.options[i];
-                    if (option.dataset.item === data.item_code_365 || option.dataset.supplierItem === data.item_code_365) {
+                    if (option.dataset.item === data.item_code_365 || 
+                        option.dataset.supplierItem === data.item_code_365 ||
+                        (data.supplier_item_code && option.dataset.supplierItem === data.supplier_item_code)) {
                         select.selectedIndex = i;
                         
                         const unitType = option.dataset.unit || 'PIECE';
@@ -673,7 +676,11 @@ function updateExpiryFieldVisibility() {
                 }
                 
                 // Not found in PO - offer to add it
-                if (confirm('Item found in PS365:\n' + data.item_code_365 + ': ' + data.item_name + '\n\nThis item is not on the original order.\nAdd it to the order with ordered quantity 0?')) {
+                const itemDisplayName = data.supplier_item_code ? 
+                    `${data.item_code_365} (${data.supplier_item_code})` : 
+                    data.item_code_365;
+
+                if (confirm('Item found in PS365:\n' + itemDisplayName + ': ' + data.item_name + '\n\nThis item is not on the original order.\nAdd it to the order with ordered quantity 0?')) {
                     await addItemToPO(data.item_code_365, data.item_name);
                 }
             } else {

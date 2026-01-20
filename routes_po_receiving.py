@@ -686,7 +686,7 @@ def print_po(po_id):
 @po_receiving_bp.route('/api/lookup-barcode', methods=['POST'])
 @login_required
 def api_lookup_barcode():
-    """Lookup item code by barcode via PS365 API"""
+    """Lookup item code by barcode, supplier item code, or item code"""
     if not check_role_access():
         return jsonify({'ok': False, 'error': 'Access denied'}), 403
     
@@ -696,11 +696,29 @@ def api_lookup_barcode():
     if not barcode:
         return jsonify({'ok': False, 'error': 'No barcode provided'}), 400
     
+    # First, check our local database for supplier_item_code or barcode match
+    from models import DwItem
+    dw_item = DwItem.query.filter(
+        (DwItem.supplier_item_code == barcode) | 
+        (DwItem.barcode == barcode) |
+        (DwItem.item_code_365 == barcode.upper())
+    ).first()
+    
+    if dw_item:
+        return jsonify({
+            'ok': True,
+            'item_code_365': dw_item.item_code_365,
+            'item_name': dw_item.item_name,
+            'supplier_item_code': dw_item.supplier_item_code,
+            'barcode': dw_item.barcode or barcode
+        })
+    
+    # If not found locally, search PS365 API
     if not POWERSOFT_BASE or not POWERSOFT_TOKEN:
-        return jsonify({'ok': False, 'error': 'PS365 not configured'}), 500
+        return jsonify({'ok': False, 'error': 'Item not found in local database and PS365 not configured'}), 404
     
     try:
-        # Search PS365 for item by barcode
+        # Search PS365 for item by barcode/item code
         search_payload = {
             "api_credentials": {
                 "token": POWERSOFT_TOKEN
@@ -711,7 +729,7 @@ def api_lookup_barcode():
                 "page_size": 10,
                 "expression_searched": barcode,
                 "search_operator_type": "Equals",
-                "search_in_fields": "ItemBarcode,ItemCode,TextField2",
+                "search_in_fields": "ItemBarcode,ItemCode",
                 "active_type": "all"
             }
         }
@@ -730,14 +748,21 @@ def api_lookup_barcode():
         
         items = result.get("list_items", [])
         if not items:
-            return jsonify({'ok': False, 'error': 'No item found for this barcode'}), 404
+            return jsonify({'ok': False, 'error': 'No item found for this code'}), 404
         
         # Return first match
         first_item = items[0]
+        # Look up supplier item code from our DW
+        supplier_item_code = None
+        dw_item = DwItem.query.get(first_item.get('item_code_365'))
+        if dw_item:
+            supplier_item_code = dw_item.supplier_item_code
+
         return jsonify({
             'ok': True,
             'item_code_365': first_item.get('item_code_365'),
             'item_name': first_item.get('item_name'),
+            'supplier_item_code': supplier_item_code,
             'barcode': barcode
         })
         
