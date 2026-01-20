@@ -150,6 +150,7 @@ input[type=number] {
         {% for line in po.lines %}
         <option value="{{ line.id }}" 
                 data-item="{{ line.item_code_365 }}" 
+                data-supplier-item="{{ line.supplier_item_code or '' }}"
                 data-name="{{ line.item_name }}" 
                 data-qty="{{ line.line_quantity }}"
                 data-unit="{{ line.unit_type }}"
@@ -593,11 +594,11 @@ function updateExpiryFieldVisibility() {
         
         const select = document.getElementById('lineSelect');
         
-        // First, try direct match with item code
+        // First, try direct match with item code or supplier item code
         let found = false;
         for (let i = 0; i < select.options.length; i++) {
             const option = select.options[i];
-            if (option.dataset.item === code) {
+            if (option.dataset.item === code || option.dataset.supplierItem === code) {
                 select.selectedIndex = i;
                 
                 const unitType = (option.dataset.unit && option.dataset.unit !== 'None') ? option.dataset.unit : 'PIECE';
@@ -640,10 +641,10 @@ function updateExpiryFieldVisibility() {
             const data = await resp.json();
             
             if (data.ok && data.item_code_365) {
-                // Try to match the returned item code to a line
+                // Try to match the returned item code or supplier item code to a line
                 for (let i = 0; i < select.options.length; i++) {
                     const option = select.options[i];
-                    if (option.dataset.item === data.item_code_365) {
+                    if (option.dataset.item === data.item_code_365 || option.dataset.supplierItem === data.item_code_365) {
                         select.selectedIndex = i;
                         
                         const unitType = option.dataset.unit || 'PIECE';
@@ -709,6 +710,7 @@ async function addItemToPO(itemCode, itemName) {
                 const option = document.createElement('option');
                 option.value = line.id;
                 option.dataset.item = line.item_code_365;
+                option.dataset.supplierItem = line.supplier_item_code || '';
                 option.dataset.name = line.item_name;
                 option.dataset.qty = 0;
                 // Note: API response should include tracking requirements - default to false if not provided
