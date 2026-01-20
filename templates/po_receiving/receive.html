@@ -203,7 +203,7 @@ input[type=number] {
     <!-- Order Lines Table -->
     <div class="card mb-3">
         <div class="card-header">
-            <strong><i class="fas fa-clipboard-list"></i> Order Lines</strong>
+            <strong><i class="fas fa-clipboard-list"></i> Received Order Lines</strong>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -227,6 +227,9 @@ input[type=number] {
                                 <strong>{{ line.item_code_365 }}</strong>
                                 {% if line.item_barcode %}
                                 <span class="text-muted" style="font-family: monospace; margin-left: 8px;">{{ line.item_barcode }}</span>
+                                {% endif %}
+                                {% if line.supplier_item_code %}
+                                <span class="text-info" style="margin-left: 8px;">({{ line.supplier_item_code }})</span>
                                 {% endif %}
                                 {% if line.unit_type %}
                                 <span class="badge bg-light text-dark border ms-2">
