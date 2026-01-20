@@ -338,8 +338,9 @@ input[type=number] {
                     {% for line in po.lines %}
                     {% set received = received_by_line.get(line.id, 0) %}
                     {% set is_fully_received = received >= line.line_quantity and received > 0 and line.line_quantity > 0 %}
+                    {% if not is_fully_received %}
                     <button type="button" class="list-group-item list-group-item-action py-2" 
-                            style="{% if is_fully_received %}background-color: #28a745 !important; color: white;{% elif received > 0 %}background-color: #ffc107 !important;{% endif %}"
+                            style="{% if received > 0 %}background-color: #ffc107 !important;{% endif %}"
                             onclick="chooseItem({{ line.id }}, '{{ line.item_code_365 }}', '{{ line.item_name }}', {{ line.line_quantity }})"
                             data-bs-dismiss="modal">
                         <div class="d-flex justify-content-between align-items-center">
@@ -347,33 +348,31 @@ input[type=number] {
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="fw-bold">#{{ line.line_number }}</span>
                                     {% if line.item_barcode %}
-                                    <span class="fw-bold" style="font-family: monospace; font-size: 1.1rem; {% if is_fully_received %}color: white;{% endif %}">
+                                    <span class="fw-bold" style="font-family: monospace; font-size: 1.1rem;">
                                         {{ line.item_barcode }}
                                     </span>
-                                    <span class="{% if is_fully_received %}text-white-50{% else %}text-muted{% endif %}" style="font-size: 0.9rem;">
+                                    <span class="text-muted" style="font-size: 0.9rem;">
                                         ({{ line.supplier_item_code or line.item_code_365 }})
                                     </span>
                                     {% else %}
-                                    <span class="fw-bold" style="font-family: monospace; font-size: 1.1rem; {% if is_fully_received %}color: white;{% else %}color: #ffc107;{% endif %}">
+                                    <span class="fw-bold" style="font-family: monospace; font-size: 1.1rem; color: #ffc107;">
                                         {{ line.supplier_item_code or line.item_code_365 }}
                                     </span>
                                     {% endif %}
-                                    {% if is_fully_received %}
-                                    <i class="fas fa-check-circle" style="color: white;"></i>
-                                    {% endif %}
                                 </div>
-                                <div class="{% if is_fully_received %}text-white-50{% else %}text-muted{% endif %} small mt-1" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                <div class="text-muted small mt-1" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     {{ line.item_name }}
                                 </div>
                             </div>
                             <div class="text-end" style="min-width: 80px;">
                                 <div class="small">Ord: <strong>{{ line.line_quantity|int }}</strong></div>
-                                <div class="small {% if is_fully_received %}text-white{% elif received > 0 %}text-dark{% else %}text-muted{% endif %}">
+                                <div class="small {% if received > 0 %}text-dark{% else %}text-muted{% endif %}">
                                     Rec: <strong>{{ received|int }}</strong>
                                 </div>
                             </div>
                         </div>
                     </button>
+                    {% endif %}
                     {% endfor %}
                 </div>
             </div>
