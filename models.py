@@ -1495,6 +1495,7 @@ class PurchaseOrderLine(db.Model):
     item_code_365 = db.Column(db.String(100), nullable=False, index=True)
     item_name = db.Column(db.String(500), nullable=True)
     item_barcode = db.Column(db.String(100), nullable=True)  # Barcode number from PS365
+    supplier_item_code = db.Column(db.String(255), nullable=True)  # Supplier's item code from DwItem
     
     line_quantity = db.Column(db.Numeric(12, 4), nullable=True)
     line_price_excl_vat = db.Column(db.Numeric(12, 2), nullable=True)

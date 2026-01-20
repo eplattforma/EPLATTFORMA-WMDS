@@ -378,10 +378,14 @@ def upsert_purchase_order(order_data, username, force_reimport=False):
                     unit_type = "BOX"
 
         # Priority 2: Get from ps_items_dw if still missing
-        if (not unit_type or not pieces_per_unit) and item_code:
+        supplier_item_code = None
+        if item_code:
             from models import DwItem
             dw_item = DwItem.query.get(item_code)
             if dw_item:
+                # Get supplier item code from DW
+                supplier_item_code = dw_item.supplier_item_code
+                
                 # If pieces_per_unit is still 1 or None, check DW
                 if not pieces_per_unit or int(pieces_per_unit) <= 1:
                     if dw_item.number_of_pieces and int(dw_item.number_of_pieces) > 1:
@@ -410,6 +414,7 @@ def upsert_purchase_order(order_data, username, force_reimport=False):
             item_code_365=item_code,
             item_name=ln.get("item_name"),
             item_barcode=item_barcode,  # Barcode from PS365
+            supplier_item_code=supplier_item_code,  # Supplier item code from DwItem
             line_quantity=to_decimal(ln.get("line_quantity")),
             line_price_excl_vat=to_decimal(ln.get("line_price_excl_vat")),
             line_total_sub=to_decimal(ln.get("line_total_sub")),

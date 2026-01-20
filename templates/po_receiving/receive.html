@@ -351,11 +351,11 @@ input[type=number] {
                                         {{ line.item_barcode }}
                                     </span>
                                     <span class="{% if is_fully_received %}text-white-50{% else %}text-muted{% endif %}" style="font-size: 0.9rem;">
-                                        ({{ line.item_code_365 }})
+                                        ({{ line.supplier_item_code or line.item_code_365 }})
                                     </span>
                                     {% else %}
                                     <span class="fw-bold" style="font-family: monospace; font-size: 1.1rem; {% if is_fully_received %}color: white;{% else %}color: #ffc107;{% endif %}">
-                                        {{ line.item_code_365 }}
+                                        {{ line.supplier_item_code or line.item_code_365 }}
                                     </span>
                                     {% endif %}
                                     {% if is_fully_received %}
