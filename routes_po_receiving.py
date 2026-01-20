@@ -1268,3 +1268,85 @@ def api_refresh_shelf_locations(po_id):
     except Exception as e:
         print(f"ERROR: Failed to refresh shelf locations: {e}")
         return jsonify({'ok': False, 'error': f'Failed to refresh: {str(e)}'}), 500
+
+@po_receiving_bp.route('/api/refresh-po/<int:po_id>', methods=['POST'])
+@login_required
+def api_refresh_po(po_id):
+    """Re-download a purchase order from PS365, updating lines while preserving receiving data"""
+    if not check_role_access():
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    po = PurchaseOrder.query.get_or_404(po_id)
+    
+    # Get the PO code to re-fetch
+    po_code = po.code_365 or po.shopping_cart_code
+    if not po_code:
+        return jsonify({'success': False, 'error': 'No PO code found'}), 400
+    
+    # Determine if this was a shopping cart
+    is_cart = bool(po.shopping_cart_code)
+    
+    try:
+        # Fetch fresh data from PS365
+        order_data = fetch_purchase_order_from_ps365(po_code, is_cart)
+        
+        # Update the PO without deleting receiving data
+        # Update PO header fields
+        if 'shopping_cart_code' in order_data:
+            po.shopping_cart_code = order_data.get('shopping_cart_code')
+        if 'code_365' in order_data:
+            po.code_365 = order_data.get('code_365')
+        if 'status_code' in order_data:
+            po.status_code = order_data.get('status_code')
+        if 'status_name' in order_data:
+            po.status_name = order_data.get('status_name')
+        if 'supplier_code_365' in order_data:
+            po.supplier_code_365 = order_data.get('supplier_code_365')
+        if 'supplier_name' in order_data:
+            po.supplier_name = order_data.get('supplier_name')
+        
+        # Build map of existing lines by line_number for matching
+        existing_lines = {line.line_number: line for line in po.lines}
+        
+        # Update or create lines from PS365 data
+        lines_data = order_data.get('lines', [])
+        for line_data in lines_data:
+            line_number = line_data.get('line_number')
+            
+            if line_number in existing_lines:
+                # Update existing line
+                line = existing_lines[line_number]
+                line.item_code_365 = line_data.get('item_code_365')
+                line.item_name = line_data.get('item_name')
+                line.item_barcode = line_data.get('item_barcode')
+                line.line_quantity = line_data.get('line_quantity', 0)
+                line.unit_type = line_data.get('unit_type')
+                line.pieces_per_unit = line_data.get('pieces_per_unit', 1)
+                line.supplier_item_code = line_data.get('supplier_item_code')
+            else:
+                # Create new line
+                new_line = PurchaseOrderLine(
+                    purchase_order_id=po.id,
+                    line_number=line_number,
+                    item_code_365=line_data.get('item_code_365'),
+                    item_name=line_data.get('item_name'),
+                    item_barcode=line_data.get('item_barcode'),
+                    line_quantity=line_data.get('line_quantity', 0),
+                    unit_type=line_data.get('unit_type'),
+                    pieces_per_unit=line_data.get('pieces_per_unit', 1),
+                    supplier_item_code=line_data.get('supplier_item_code')
+                )
+                db.session.add(new_line)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Purchase order {po_code} refreshed successfully'
+        })
+        
+    except Ps365Error as e:
+        return jsonify({'success': False, 'error': f'PS365 Error: {str(e)}'}), 500
+    except Exception as e:
+        print(f"ERROR: Failed to refresh PO: {e}")
+        return jsonify({'success': False, 'error': f'Failed to refresh: {str(e)}'}), 500

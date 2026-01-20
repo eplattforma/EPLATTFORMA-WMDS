@@ -60,6 +60,9 @@
                         <i class="fas fa-plus"></i> Start
                     </a>
                     {% endif %}
+                    <button onclick="refreshPO({{ item.po.id }}, '{{ item.po.code_365 or item.po.shopping_cart_code }}')" class="btn btn-sm btn-outline-primary" title="Re-download from PS365">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
                     <button onclick="archivePO({{ item.po.id }}, '{{ item.po.code_365 or item.po.shopping_cart_code }}')" class="btn btn-sm btn-outline-secondary" title="Archive this PO">
                         <i class="fas fa-archive"></i>
                     </button>
@@ -198,6 +201,41 @@ function archivePO(poId, poCode) {
     .catch(error => {
         console.error('Error:', error);
         alert('Error archiving PO: ' + error);
+    });
+}
+
+function refreshPO(poId, poCode) {
+    if (!confirm(`Re-download purchase order ${poCode} from PS365? This will update the order lines but keep your receiving data.`)) {
+        return;
+    }
+    
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    
+    fetch(`/po-receiving/api/refresh-po/${poId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Purchase order ${poCode} refreshed successfully!`);
+            window.location.reload();
+        } else {
+            alert('Error refreshing PO: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error refreshing PO: ' + error);
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     });
 }
 </script>
