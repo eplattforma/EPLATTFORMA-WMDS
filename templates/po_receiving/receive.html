@@ -338,10 +338,10 @@ input[type=number] {
                 <div class="list-group list-group-flush">
                     {% for line in po.lines %}
                     {% set received = received_by_line.get(line.id, 0) %}
-                    {% if received == 0 %}
                     <button type="button" class="list-group-item list-group-item-action py-2" 
                             onclick="chooseItem({{ line.id }}, '{{ line.item_code_365 }}', '{{ line.item_name }}', {{ line.line_quantity }})"
-                            data-bs-dismiss="modal">
+                            data-bs-dismiss="modal"
+                            style="{% if received > 0 %}display: none;{% endif %}">
                         <div class="d-flex justify-content-between align-items-center">
                             <div class="flex-grow-1 me-3">
                                 <div class="d-flex align-items-center gap-2">
@@ -368,7 +368,6 @@ input[type=number] {
                             </div>
                         </div>
                     </button>
-                    {% endif %}
                     {% endfor %}
                 </div>
             </div>
