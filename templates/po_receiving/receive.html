@@ -481,23 +481,6 @@ function selectLine() {
     modal.show();
 }
 
-    // Item selection change
-    document.getElementById('itemSelect').addEventListener('change', function() {
-        const itemCode = this.value;
-        const option = this.options[this.selectedIndex];
-        
-        if (itemCode) {
-            updateItemImage(itemCode);
-            
-            // Show expiry if needed
-            const needsExpiry = option.dataset.needsExpiry === 'True';
-            document.getElementById('expiryInputWrapper').style.display = needsExpiry ? 'block' : 'none';
-        } else {
-            updateItemImage(null);
-            document.getElementById('expiryInputWrapper').style.display = 'none';
-        }
-    });
-
     // Function to update the image container in the "Enter Quantity" section
     function updateItemImage(itemCode) {
         const imgContainer = document.getElementById('itemImageContainer');
