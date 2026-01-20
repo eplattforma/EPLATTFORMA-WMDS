@@ -171,7 +171,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value",
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value",
             },
         })
         
@@ -208,6 +208,7 @@ def test_fetch_single_item(session: Session):
             "item_weight": float(item.get("item_weight", 0)) if item.get("item_weight") else None,
             "number_of_pieces": int(item.get("number_of_pieces", 0)) if item.get("number_of_pieces") else None,
             "selling_qty": float(item.get("number_field_1_value", 0)) if item.get("number_field_1_value") else None,
+            "supplier_item_code": item.get("text_field_2_value") or None,
         }
         
         attr_hash = _compute_hash(core)
@@ -452,7 +453,7 @@ def full_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value",
                 },
             })
             
@@ -499,6 +500,7 @@ def full_dw_update(session: Session):
                         "item_weight": float(item.get("item_weight")) if item.get("item_weight") else None,
                         "number_of_pieces": int(float(item.get("number_of_pieces"))) if item.get("number_of_pieces") else None,
                         "selling_qty": float(item.get("number_field_1_value")) if item.get("number_field_1_value") else None,
+                        "supplier_item_code": item.get("text_field_2_value") or None,
                     }
                     
                     attr_hash = _compute_hash(core)
@@ -530,6 +532,7 @@ def full_dw_update(session: Session):
                             existing.item_weight = core["item_weight"]
                             existing.number_of_pieces = core["number_of_pieces"]
                             existing.selling_qty = core["selling_qty"]
+                            existing.supplier_item_code = core["supplier_item_code"]
                             existing.attr_hash = attr_hash
                             existing.last_sync_at = now
                             page_inserted += 1
@@ -713,7 +716,7 @@ def incremental_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value",
                 },
             })
             
