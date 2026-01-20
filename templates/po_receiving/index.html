@@ -24,6 +24,11 @@
                 <div class="flex-grow-1">
                     <h6 class="mb-1">
                         <strong>{{ item.po.code_365 or item.po.shopping_cart_code }}</strong>
+                        {% if item.po.status_code == 'REC' or item.po.status_code == 'GRN' %}
+                        <span class="badge bg-info">{{ item.po.status_name }}</span>
+                        {% elif item.po.status_name %}
+                        <span class="badge bg-light text-dark border">{{ item.po.status_name }}</span>
+                        {% endif %}
                         {% if item.is_complete %}
                         <span class="badge bg-success">Complete</span>
                         {% elif item.open_session %}
@@ -46,7 +51,6 @@
                         </span>
                     </div>
                     <small class="text-muted">
-                        Status: {{ item.po.status_name }}<br>
                         Ordered: {{ item.total_ordered }} | Received: {{ item.total_received }}
                     </small>
                 </div>
