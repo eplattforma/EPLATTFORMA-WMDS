@@ -88,7 +88,9 @@ UNIT_TYPE_MAP = {
     'PAC': 'pack',
     'BOX': 'box',
     'CASE': 'case',
+    'CAS': 'case',      # Greek abbreviation for case
     'ITEM': 'item',
+    'TEM': 'item',      # Greek "τεμ." = τεμάχιο (item/unit)
     'EA': 'item',
     'PC': 'item',
     'PCS': 'item',
