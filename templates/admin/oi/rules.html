@@ -60,38 +60,38 @@
 
     <div class="card">
         <div class="card-body p-0">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
+            <table class="table table-hover mb-0 text-dark">
+                <thead class="table-light text-dark">
                     <tr>
-                        <th>Name</th>
-                        <th>Target Attribute</th>
-                        <th>Action Value</th>
-                        <th>Priority</th>
-                        <th>Confidence</th>
-                        <th>Conditions</th>
-                        <th>Status</th>
-                        <th class="text-end">Actions</th>
+                        <th class="text-dark">Name</th>
+                        <th class="text-dark">Target Attribute</th>
+                        <th class="text-dark">Action Value</th>
+                        <th class="text-dark">Priority</th>
+                        <th class="text-dark">Confidence</th>
+                        <th class="text-dark">Conditions</th>
+                        <th class="text-dark">Status</th>
+                        <th class="text-end text-dark">Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="text-dark">
                     {% for rule in rules %}
                     <tr class="{% if not rule.is_active %}table-secondary{% endif %}">
-                        <td>
+                        <td class="text-dark">
                             <strong>{{ rule.name }}</strong>
                             {% if rule.notes %}
-                            <br><small class="text-muted">{{ rule.notes[:50] }}{% if rule.notes|length > 50 %}...{% endif %}</small>
+                            <br><small class="text-secondary">{{ rule.notes[:50] }}{% if rule.notes|length > 50 %}...{% endif %}</small>
                             {% endif %}
                         </td>
                         <td>
                             <span class="badge bg-info">{{ rule.target_attr.replace('_', ' ').title() }}</span>
                         </td>
                         <td>
-                            <code>{{ rule.action_value }}</code>
+                            <code class="text-dark">{{ rule.action_value }}</code>
                         </td>
-                        <td>{{ rule.priority }}</td>
-                        <td>{{ rule.confidence }}%</td>
+                        <td class="text-dark">{{ rule.priority }}</td>
+                        <td class="text-dark">{{ rule.confidence }}%</td>
                         <td>
-                            <small class="text-muted">{{ rule.condition_summary }}</small>
+                            <small class="text-secondary">{{ rule.condition_summary }}</small>
                         </td>
                         <td>
                             {% if rule.is_active %}
@@ -119,7 +119,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="8" class="text-center py-5 text-muted">
+                        <td colspan="8" class="text-center py-5 text-secondary">
                             <i class="fas fa-inbox fa-3x mb-3 d-block opacity-50"></i>
                             No rules found. <a href="{{ url_for('oi_rule_new') }}">Create your first rule</a>.
                         </td>
