@@ -87,7 +87,15 @@ def reclassify_items(run_by: str, threshold: int = 60,
                 summer_mode
             )
             
-            upsert_packing_profile(db.session, item, cat_default, item_override)
+            # Get dynamic rule matches for pack_mode and pallet_role
+            dyn_pack = match_best_rule(item, 'pack_mode', dynamic_rules_by_attr)
+            dyn_role = match_best_rule(item, 'pallet_role', dynamic_rules_by_attr)
+            
+            upsert_packing_profile(
+                db.session, item, cat_default, item_override,
+                dynamic_pack_mode=(dyn_pack['value'] if dyn_pack else None),
+                dynamic_pallet_role=(dyn_role['value'] if dyn_role else None),
+            )
             
             if updated:
                 items_updated += 1

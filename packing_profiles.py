@@ -109,22 +109,27 @@ def derive_packing_profile_from_dw(dw_item):
     }
 
 
-def upsert_packing_profile(db_session, dw_item, category_default=None, item_override=None):
+def upsert_packing_profile(db_session, dw_item, category_default=None, item_override=None,
+                           dynamic_pack_mode=None, dynamic_pallet_role=None):
     """
     Create or update the packing profile for a DwItem.
     Called during reclassification.
     
-    Precedence: item_override > category_default > computed
+    Precedence: item_override > dynamic_rule > category_default > computed
     
     category_default: WmsCategoryDefault object, if any, to apply category pack_mode default.
     item_override: WmsItemOverride object, if any, to apply SKU-level pack_mode override.
+    dynamic_pack_mode: pack_mode from dynamic rule match, if any.
+    dynamic_pallet_role: pallet_role from dynamic rule match, if any.
     """
     data = derive_packing_profile_from_dw(dw_item)
     
-    # Determine which pack_mode to use (item override > category default > computed)
+    # Determine which pack_mode to use (item override > dynamic rule > category default > computed)
     forced_pack_mode = None
     if item_override and item_override.pack_mode_override:
         forced_pack_mode = item_override.pack_mode_override
+    elif dynamic_pack_mode:
+        forced_pack_mode = dynamic_pack_mode
     elif category_default and category_default.default_pack_mode:
         forced_pack_mode = category_default.default_pack_mode
     
@@ -146,6 +151,13 @@ def upsert_packing_profile(db_session, dw_item, category_default=None, item_over
             # Cooler bag items - keep default for reference
             data["carton_type_hint"] = "COOLER"
             data["max_carton_weight_kg"] = Decimal("0")
+    
+    # Apply dynamic pallet_role (item override > dynamic rule > computed)
+    # If pack_mode is OFF_PALLET, enforce OFF_PALLET role regardless
+    if data["pack_mode"] == "OFF_PALLET":
+        data["pallet_role"] = "OFF_PALLET"
+    elif dynamic_pallet_role:
+        data["pallet_role"] = dynamic_pallet_role
     
     row = db_session.get(WmsPackingProfile, dw_item.item_code_365)
     if not row:

@@ -1,0 +1,176 @@
+Understood. In your current Dynamic Rules implementation, the “actions” are limited to the keys in classification/dynamic_rules.py -> TARGET_ATTRS (and, in practice, limited to what the classification engine actually applies to DwItem.wms_*).
+
+To “enable additional actions” you need to do two things:
+
+Expose the new action targets in the Rules UI (extend TARGET_ATTRS)
+
+Actually apply them somewhere (either to DwItem.wms_* via classification/engine.py, or to WmsPackingProfile via packing_profiles.py)
+
+Below is the best, practical set of “additional actions” for picking/packing/palletisation: pack_mode and pallet_role. These directly control cartons vs direct pallet and base/top placement.
+
+A. Add new actions: pack_mode and pallet_role
+1) Update classification/dynamic_rules.py
+(a) Allow “category is empty” conditions (since you’re using that)
+
+Add category_code_365 into ALLOWED_FIELDS:
+
+ALLOWED_FIELDS = {
+    'item_name': 'text',
+    'brand_code_365': 'code',
+    'category_code_365': 'code',          # <-- ADD
+    'attribute_1_code_365': 'code',
+    'attribute_2_code_365': 'code',
+    'attribute_3_code_365': 'code',
+    'attribute_4_code_365': 'code',
+    'attribute_5_code_365': 'code',
+    'attribute_6_code_365': 'code',
+    'item_weight': 'number',
+}
+
+(b) Expand TARGET_ATTRS to include pack_mode and pallet_role (and align values to WMDS)
+
+Replace/adjust your TARGET_ATTRS to reflect your actual system values, and add the two new actions:
+
+TARGET_ATTRS = {
+    # OI attributes (match DwItem.wms_* values)
+    'fragility': ['YES', 'SEMI', 'NO'],
+    'spill_risk': ['true', 'false'],
+    'pressure_sensitivity': ['low', 'medium', 'high'],
+    'temperature_sensitivity': ['normal', 'heat_sensitive', 'cool_required'],
+    'stackability': ['YES', 'LIMITED', 'NO'],
+    'shape_type': ['cubic', 'flat', 'round', 'irregular'],
+    'pick_difficulty': ['1', '2', '3', '4', '5'],
+    'shelf_height': ['LOW', 'MID', 'HIGH'],
+    'box_fit_rule': ['BOTTOM', 'MIDDLE', 'TOP', 'COOLER_BAG'],
+    'zone': ['MAIN', 'SENSITIVE', 'SNACKS', 'CROSS_SHIPPING'],
+    'unit_type': ['item', 'pack', 'box', 'case', 'virtual_pack'],
+
+    # NEW packing/palletisation actions (applied to WmsPackingProfile)
+    'pack_mode': ['DIRECT_PALLET', 'CARTON_HEAVY', 'CARTON_SMALL', 'OFF_PALLET'],
+    'pallet_role': ['BASE', 'MIDDLE', 'TOP_ONLY', 'OFF_PALLET'],
+}
+
+(c) Cast booleans correctly
+
+Extend cast_action_value() to also support boolean-style actions (you already do spill_risk):
+
+def cast_action_value(target_attr: str, action_value: str) -> Any:
+    if target_attr in ('spill_risk',):
+        return action_value.lower() in ('true', '1', 'yes')
+    elif target_attr == 'pick_difficulty':
+        try:
+            return int(action_value)
+        except ValueError:
+            return None
+    return action_value
+
+
+No change needed for pack_mode / pallet_role because they’re strings.
+
+At this point, the UI will show pack_mode and pallet_role as selectable actions.
+
+B. Make the new actions actually work (apply them)
+
+Adding them to the UI alone is not enough. You must apply them when building the packing profile.
+
+2) Update packing_profiles.py
+
+Change the signature and precedence of upsert_packing_profile() so dynamic rules can force pack_mode and/or pallet_role.
+
+(a) Signature change
+def upsert_packing_profile(db_session, dw_item, category_default=None, item_override=None,
+                           dynamic_pack_mode=None, dynamic_pallet_role=None):
+
+(b) Precedence for pack_mode
+
+Use: item_override > dynamic_rule > category_default > computed
+
+Replace the forced_pack_mode selection block with:
+
+forced_pack_mode = None
+if item_override and item_override.pack_mode_override:
+    forced_pack_mode = item_override.pack_mode_override
+elif dynamic_pack_mode:
+    forced_pack_mode = dynamic_pack_mode
+elif category_default and category_default.default_pack_mode:
+    forced_pack_mode = category_default.default_pack_mode
+
+(c) Apply dynamic pallet_role (safely)
+
+After you derive data = derive_packing_profile_from_dw(dw_item) and after you possibly apply forced pack_mode, apply role override:
+
+# If pack_mode ends up OFF_PALLET, enforce OFF_PALLET role regardless
+if data["pack_mode"] == "OFF_PALLET":
+    data["pallet_role"] = "OFF_PALLET"
+elif dynamic_pallet_role:
+    data["pallet_role"] = dynamic_pallet_role
+
+
+This prevents inconsistent states like “OFF_PALLET item but BASE role”.
+
+3) Update classification/engine.py
+
+When you call upsert_packing_profile(...), pass the dynamic matches for pack_mode and pallet_role:
+
+Locate:
+
+upsert_packing_profile(db.session, item, cat_default, item_override)
+
+
+Replace with:
+
+dyn_pack = match_best_rule(item, 'pack_mode', dynamic_rules_by_attr)
+dyn_role = match_best_rule(item, 'pallet_role', dynamic_rules_by_attr)
+
+upsert_packing_profile(
+    db.session, item, cat_default, item_override,
+    dynamic_pack_mode=(dyn_pack['value'] if dyn_pack else None),
+    dynamic_pallet_role=(dyn_role['value'] if dyn_role else None),
+)
+
+
+No DB changes required.
+
+C. What “additional actions” you will get immediately (high value)
+
+Once implemented, you can create rules like:
+
+Example 1: Uncategorized bulky items → direct pallet base
+
+IF category_code_365 is_empty AND item_name contains "TOILET PAPER"
+
+THEN pack_mode = DIRECT_PALLET
+
+THEN pallet_role = BASE
+
+Example 2: Uncategorized chemicals → heavy cartons bottom
+
+IF category_code_365 is_empty AND (item_name contains "BLEACH" OR item_name contains "DETERGENT")
+
+THEN pack_mode = CARTON_HEAVY
+
+THEN pallet_role = BASE
+
+Example 3: Uncategorized snacks → top only
+
+IF category_code_365 is_empty AND item_name contains "CHIPS"
+
+THEN pressure_sensitivity = high
+
+THEN pallet_role = TOP_ONLY
+
+This is exactly the mechanism you need to handle “no category” items without creating a category.
+
+D. If by “additional actions” you mean “set multiple fields in one rule”
+
+Right now, one rule sets one target_attr. You can still achieve bundles by creating multiple rules with the same conditions (fast), but if you want a single rule to set multiple outputs, that requires:
+
+Schema change (store a JSON of actions instead of single target_attr/action_value)
+
+UI changes (add/remove action rows)
+
+Engine changes (apply multiple actions)
+
+If you confirm that this is what you mean, I will outline the minimal schema/UI/engine refactor path. For most operational teams, the “bundle of rules with same condition” is usually sufficient and simpler to maintain.
+
+If you tell me the top 5 actions you want (e.g., pack_mode, pallet_role, max_carton_weight_kg, carton_type_hint, loss_risk), I will prioritize the implementation list accordingly. As of now, pack_mode + pallet_role will give you the biggest improvement for picking/packing/palletisation with the least complexity.

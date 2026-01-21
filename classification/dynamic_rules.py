@@ -36,6 +36,7 @@ OPERATORS_BY_TYPE = {
 
 # Target attributes and their valid values (matches compute_* rules and UI)
 TARGET_ATTRS = {
+    # OI attributes (applied to DwItem.wms_*)
     'fragility': ['YES', 'SEMI', 'NO'],
     'spill_risk': ['true', 'false'],  # Will be cast to bool
     'pressure_sensitivity': ['high', 'medium', 'low'],
@@ -47,6 +48,9 @@ TARGET_ATTRS = {
     'box_fit_rule': ['BOTTOM', 'MIDDLE', 'TOP', 'COOLER_BAG'],
     'zone': ['MAIN', 'SENSITIVE', 'SNACKS', 'CROSS_SHIPPING'],
     'unit_type': ['item', 'pack', 'box', 'case', 'virtual_pack'],
+    # Packing/palletisation actions (applied to WmsPackingProfile)
+    'pack_mode': ['DIRECT_PALLET', 'CARTON_HEAVY', 'CARTON_SMALL', 'OFF_PALLET'],
+    'pallet_role': ['BASE', 'MIDDLE', 'TOP_ONLY', 'OFF_PALLET'],
 }
 
 
