@@ -170,62 +170,68 @@ def send_receiving_to_ps365(session):
             'skipped_lines': skipped_lines
         }
 
+def fetch_single_barcode(item_code):
+    """Fetch barcode for a single item from PS365"""
+    try:
+        search_payload = {
+            "api_credentials": {"token": POWERSOFT_TOKEN},
+            "search_option": {
+                "only_counted": "N",
+                "page_number": 1,
+                "page_size": 1,
+                "expression_searched": item_code,
+                "search_operator_type": "Equals",
+                "search_in_fields": "ItemCode",
+                "active_type": "all"
+            }
+        }
+        url = f"{POWERSOFT_BASE}/search_item"
+        r = requests.post(url, json=search_payload, timeout=10)
+        r.raise_for_status()
+        result = r.json()
+        
+        api_resp = result.get("api_response", {})
+        if api_resp.get("response_code") == "1":
+            items = result.get("list_items", [])
+            if items:
+                item = items[0]
+                barcode_list = item.get("list_item_barcodes", [])
+                barcode = None
+                
+                # Prefer barcode with is_label_barcode=true
+                for bc_obj in barcode_list:
+                    if bc_obj.get("is_label_barcode") == True:
+                        barcode = bc_obj.get("barcode")
+                        break
+                
+                # Fallback to first barcode if no label barcode found
+                if not barcode and barcode_list:
+                    barcode = barcode_list[0].get("barcode")
+                
+                if barcode and barcode != item_code:
+                    return (item_code, barcode)
+        return (item_code, None)
+    except Exception as e:
+        print(f"WARNING: Failed to fetch barcode for {item_code}: {e}")
+        return (item_code, None)
+
 def fetch_item_barcodes(item_codes):
-    """Fetch barcodes for multiple items from PS365"""
+    """Fetch barcodes for multiple items from PS365 using parallel requests"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     if not item_codes:
         return {}
     
     barcodes = {}
-    # Search for items in batches to get their barcodes
-    for item_code in item_codes:
-        try:
-            search_payload = {
-                "api_credentials": {"token": POWERSOFT_TOKEN},
-                "search_option": {
-                    "only_counted": "N",
-                    "page_number": 1,
-                    "page_size": 1,
-                    "expression_searched": item_code,
-                    "search_operator_type": "Equals",
-                    "search_in_fields": "ItemCode",
-                    "active_type": "all"
-                }
-            }
-            url = f"{POWERSOFT_BASE}/search_item"
-            r = requests.post(url, json=search_payload, timeout=15)
-            r.raise_for_status()
-            result = r.json()
-            
-            print(f"DEBUG: Barcode search response for {item_code}: {json.dumps(result, indent=2)}")
-            
-            api_resp = result.get("api_response", {})
-            if api_resp.get("response_code") == "1":
-                items = result.get("list_items", [])
-                if items:
-                    item = items[0]
-                    # Extract barcode from list_item_barcodes array
-                    barcode_list = item.get("list_item_barcodes", [])
-                    barcode = None
-                    
-                    # Prefer barcode with is_label_barcode=true
-                    for bc_obj in barcode_list:
-                        if bc_obj.get("is_label_barcode") == True:
-                            barcode = bc_obj.get("barcode")
-                            break
-                    
-                    # Fallback to first barcode if no label barcode found
-                    if not barcode and barcode_list:
-                        barcode = barcode_list[0].get("barcode")
-                    
-                    if barcode and barcode != item_code:  # Don't use item code as barcode
-                        barcodes[item_code] = barcode
-                        print(f"DEBUG: Found barcode for {item_code}: {barcode}")
-                    else:
-                        print(f"DEBUG: No valid barcode found for {item_code}")
-        except Exception as e:
-            print(f"WARNING: Failed to fetch barcode for {item_code}: {e}")
-            continue
+    # Use thread pool for parallel API calls (max 10 concurrent requests)
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_single_barcode, code): code for code in item_codes}
+        for future in as_completed(futures):
+            item_code, barcode = future.result()
+            if barcode:
+                barcodes[item_code] = barcode
     
+    print(f"DEBUG: Fetched {len(barcodes)} barcodes for {len(item_codes)} items")
     return barcodes
 
 def fetch_purchase_order_from_ps365(po_code, is_shopping_cart):
