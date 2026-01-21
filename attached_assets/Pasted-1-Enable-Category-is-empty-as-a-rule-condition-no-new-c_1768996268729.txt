@@ -1,0 +1,133 @@
+1) Enable “Category is empty” as a rule condition (no new category needed)
+Change: classification/dynamic_rules.py
+
+Add category_code_365 to ALLOWED_FIELDS:
+
+ALLOWED_FIELDS = {
+    'item_name': 'text',
+    'brand_code_365': 'code',
+    'category_code_365': 'code',          # <-- ADD THIS
+    'attribute_1_code_365': 'code',
+    'attribute_2_code_365': 'code',
+    'attribute_3_code_365': 'code',
+    'attribute_4_code_365': 'code',
+    'attribute_5_code_365': 'code',
+    'attribute_6_code_365': 'code',
+    'item_weight': 'number',
+}
+
+
+Good news: your engine already supports is_empty / is_not_empty for code fields, and it treats both None and '' as empty:
+
+if op == 'is_empty':
+    return actual is None or actual == ''
+
+
+So the condition will work whether PS365 sync stores NULL or blank string.
+
+2) Fix TARGET_ATTRS to match your actual WMDS values (required)
+
+Right now your Dynamic Rules TARGET_ATTRS contains values that don’t match what your WMDS actually uses (per your compute rules + templates).
+
+Update TARGET_ATTRS in classification/dynamic_rules.py to:
+
+TARGET_ATTRS = {
+    # Matches compute_* and UI dropdowns
+    'fragility': ['YES', 'SEMI', 'NO'],
+    'spill_risk': ['true', 'false'],  # cast to bool
+    'pressure_sensitivity': ['high', 'medium', 'low'],
+    'temperature_sensitivity': ['normal', 'heat_sensitive', 'cool_required'],
+    'stackability': ['YES', 'LIMITED', 'NO'],
+    'shape_type': ['cubic', 'flat', 'round', 'irregular'],
+    'pick_difficulty': ['1', '2', '3', '4', '5'],
+    'shelf_height': ['LOW', 'MID', 'HIGH'],  # your compute returns LOW/MID/None but allow HIGH for manual/rules
+    'box_fit_rule': ['BOTTOM', 'MIDDLE', 'TOP', 'COOLER_BAG'],
+    'zone': ['MAIN', 'SENSITIVE', 'SNACKS', 'CROSS_SHIPPING'],
+    'unit_type': ['item', 'pack', 'box', 'case', 'virtual_pack'],
+}
+
+
+After this, the rule UI will let you set actions that are consistent with the rest of the system.
+
+3) How you build the “No Category defaults” using rules
+
+Because each Dynamic Rule sets one attribute, you create a bundle of rules that all share the same condition:
+
+Condition (for all of them):
+
+category_code_365 → is_empty
+
+Then actions like:
+
+zone = MAIN (confidence e.g. 70)
+
+fragility = SEMI (confidence 65)
+
+pressure_sensitivity = medium
+
+temperature_sensitivity = normal
+
+spill_risk = false
+
+box_fit_rule = MIDDLE
+
+Example condition JSON stored in DB:
+
+{"all":[{"field":"category_code_365","op":"is_empty","value":""}]}
+
+
+(Note: UI will submit empty value; your validator already allows blank value for is_empty.)
+
+Recommended starting “No Category” bundle
+
+To be conservative (reduce damages), I recommend:
+
+fragility: SEMI
+
+pressure: medium
+
+spill_risk: false
+
+temp: normal
+
+box_fit: MIDDLE
+
+zone: MAIN
+
+Then add more specific higher-priority rules above it (same “category empty” + keywords/brand/attr1) for exceptions, e.g.:
+
+name contains “SPRAY” or “BLEACH” → spill_risk=true, box_fit=BOTTOM
+
+name contains “CHIPS” → pressure=high, box_fit=TOP, zone=SNACKS
+
+Use priority to control precedence (higher wins).
+
+4) You also mentioned filtering: show “No Category” in filters without adding a category
+
+You can do this purely in the UI/backend, without creating a category record:
+
+Template: templates/admin/oi/items.html
+
+Add an option:
+
+<option value="__EMPTY__" {% if filters.category == '__EMPTY__' %}selected{% endif %}>
+  (No Category)
+</option>
+
+Backend: routes_oi.py inside oi_items()
+
+Replace:
+
+if category:
+    query = query.filter(DwItem.category_code_365 == category)
+
+
+With:
+
+if category == '__EMPTY__':
+    query = query.filter(or_(DwItem.category_code_365 == None, DwItem.category_code_365 == ''))
+elif category:
+    query = query.filter(DwItem.category_code_365 == category)
+
+
+This solves the “blank does not appear in filtering” problem without adding any category.

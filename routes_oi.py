@@ -252,7 +252,9 @@ def oi_items():
             DwItem.item_name.ilike(f'%{search}%')
         ))
     
-    if category:
+    if category == '__EMPTY__':
+        query = query.filter(or_(DwItem.category_code_365 == None, DwItem.category_code_365 == ''))
+    elif category:
         query = query.filter(DwItem.category_code_365 == category)
     
     if brand:

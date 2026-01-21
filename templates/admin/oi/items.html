@@ -23,6 +23,7 @@
                     <label class="form-label">Category</label>
                     <select class="form-select" name="category">
                         <option value="">All Categories</option>
+                        <option value="__EMPTY__" {% if filters.category == '__EMPTY__' %}selected{% endif %}>(No Category)</option>
                         {% for cat in categories %}
                         <option value="{{ cat.category_code_365 }}" {% if filters.category == cat.category_code_365 %}selected{% endif %}>
                             {{ cat.category_code_365 }} - {{ cat.category_name[:20] }}

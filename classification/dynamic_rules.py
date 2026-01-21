@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_FIELDS = {
     'item_name': 'text',
     'brand_code_365': 'code',
+    'category_code_365': 'code',          # Category field for "no category" rules
     'attribute_1_code_365': 'code',
     'attribute_2_code_365': 'code',
     'attribute_3_code_365': 'code',
@@ -33,19 +34,19 @@ OPERATORS_BY_TYPE = {
     'number': ['gt', 'gte', 'lt', 'lte', 'eq', 'is_empty', 'is_not_empty'],
 }
 
-# Target attributes and their valid values
+# Target attributes and their valid values (matches compute_* rules and UI)
 TARGET_ATTRS = {
-    'fragility': ['none', 'low', 'medium', 'high'],
+    'fragility': ['YES', 'SEMI', 'NO'],
     'spill_risk': ['true', 'false'],  # Will be cast to bool
-    'pressure_sensitivity': ['none', 'low', 'medium', 'high'],
-    'temperature_sensitivity': ['none', 'cold', 'cool', 'heat_sensitive'],
-    'stackability': ['none', 'limited', 'full'],
-    'shape_type': ['standard', 'irregular', 'cylindrical', 'fragile_shape'],
+    'pressure_sensitivity': ['high', 'medium', 'low'],
+    'temperature_sensitivity': ['normal', 'heat_sensitive', 'cool_required'],
+    'stackability': ['YES', 'LIMITED', 'NO'],
+    'shape_type': ['cubic', 'flat', 'round', 'irregular'],
     'pick_difficulty': ['1', '2', '3', '4', '5'],  # Will be cast to int
-    'shelf_height': ['floor', 'low', 'medium', 'high', 'top'],
-    'box_fit_rule': ['standard', 'alone', 'top_only', 'cooler_bag', 'special_handling'],
-    'zone': ['ambient', 'cold', 'frozen', 'hazmat'],
-    'unit_type': ['PIECE', 'BOX', 'CASE', 'VPACK', 'PAC'],
+    'shelf_height': ['LOW', 'MID', 'HIGH'],
+    'box_fit_rule': ['BOTTOM', 'MIDDLE', 'TOP', 'COOLER_BAG'],
+    'zone': ['MAIN', 'SENSITIVE', 'SNACKS', 'CROSS_SHIPPING'],
+    'unit_type': ['item', 'pack', 'box', 'case', 'virtual_pack'],
 }
 
 
