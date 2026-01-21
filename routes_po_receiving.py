@@ -242,8 +242,8 @@ def fetch_purchase_order_from_ps365(po_code, is_shopping_cart):
     url = f"{POWERSOFT_BASE}/purchaseorder?{urlencode(params)}"
     
     try:
-        # Increased timeout for large POs: (connect_timeout, read_timeout)
-        r = requests.get(url, timeout=(10, 90))
+        # Extended timeout for large POs: (connect_timeout, read_timeout)
+        r = requests.get(url, timeout=(15, 180))
         r.raise_for_status()
         data = r.json()
         

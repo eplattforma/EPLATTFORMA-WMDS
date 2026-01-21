@@ -9,8 +9,8 @@ worker_connections = 100    # Allow more concurrent connections per worker
 max_requests = 500          # Recycle workers after 500 requests to prevent memory leaks
 max_requests_jitter = 50    # Add randomness to prevent all workers recycling at once
 
-# Timeout settings - balanced for both quick requests and longer operations
-timeout = 120               # 2 minutes - enough for most operations, proxy won't kill it
+# Timeout settings - extended for large PO downloads with many items
+timeout = 300               # 5 minutes - allows for large PO downloads with many items
 keepalive = 5               # Keep connections alive longer for efficiency
 graceful_timeout = 30       # Allow graceful shutdown
 
