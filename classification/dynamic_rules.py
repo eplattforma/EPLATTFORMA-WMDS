@@ -71,6 +71,8 @@ def load_active_rules() -> Dict[str, List[WmsDynamicRule]]:
     """
     Load all active dynamic rules from database, grouped by target attribute.
     
+    Multi-action rules are indexed under ALL their action target_attrs.
+    
     Returns:
         Dict mapping target_attr to list of rules sorted by priority (descending)
     """
@@ -80,9 +82,16 @@ def load_active_rules() -> Dict[str, List[WmsDynamicRule]]:
     
     rules_by_attr: Dict[str, List[WmsDynamicRule]] = {}
     for rule in rules:
-        if rule.target_attr not in rules_by_attr:
-            rules_by_attr[rule.target_attr] = []
-        rules_by_attr[rule.target_attr].append(rule)
+        # Get all actions from rule (supports multi-action rules)
+        actions = rule.get_actions()
+        seen_attrs = set()
+        for action in actions:
+            attr = action.get('attr', rule.target_attr)
+            if attr and attr not in seen_attrs:
+                seen_attrs.add(attr)
+                if attr not in rules_by_attr:
+                    rules_by_attr[attr] = []
+                rules_by_attr[attr].append(rule)
     
     return rules_by_attr
 
@@ -226,6 +235,7 @@ def match_best_rule(item, target_attr: str, rules_by_attr: Dict[str, List[WmsDyn
     Find the best matching rule for an item and target attribute.
     
     Rules are processed in priority order (highest first).
+    For multi-action rules, returns the value for the specific target_attr.
     Returns None if no rule matches.
     
     Returns:
@@ -235,7 +245,18 @@ def match_best_rule(item, target_attr: str, rules_by_attr: Dict[str, List[WmsDyn
     
     for rule in rules:
         if evaluate_rule_conditions(item, rule.condition_json):
-            casted_value = cast_action_value(target_attr, rule.action_value)
+            # Find the action value for this target_attr from multi-action rules
+            action_value = None
+            for action in rule.get_actions():
+                if action.get('attr') == target_attr:
+                    action_value = action.get('value')
+                    break
+            
+            # Fallback to primary action for backward compat
+            if action_value is None:
+                action_value = rule.action_value
+            
+            casted_value = cast_action_value(target_attr, action_value)
             
             return {
                 'value': casted_value,

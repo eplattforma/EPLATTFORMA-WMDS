@@ -64,8 +64,7 @@
                 <thead class="table-light text-dark">
                     <tr>
                         <th class="text-dark">Name</th>
-                        <th class="text-dark">Target Attribute</th>
-                        <th class="text-dark">Action Value</th>
+                        <th class="text-dark">Actions</th>
                         <th class="text-dark">Priority</th>
                         <th class="text-dark">Confidence</th>
                         <th class="text-dark">Conditions</th>
@@ -83,10 +82,9 @@
                             {% endif %}
                         </td>
                         <td>
-                            <span class="badge bg-info">{{ rule.target_attr.replace('_', ' ').title() }}</span>
-                        </td>
-                        <td>
-                            <code class="text-dark">{{ rule.action_value }}</code>
+                            {% for action in rule.get_actions() %}
+                            <span class="badge bg-info me-1 mb-1">{{ action.attr.replace('_', ' ').title() }}={{ action.value }}</span>
+                            {% endfor %}
                         </td>
                         <td class="text-dark">{{ rule.priority }}</td>
                         <td class="text-dark">{{ rule.confidence }}%</td>
@@ -119,7 +117,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="8" class="text-center py-5 text-secondary">
+                        <td colspan="7" class="text-center py-5 text-secondary">
                             <i class="fas fa-inbox fa-3x mb-3 d-block opacity-50"></i>
                             No rules found. <a href="{{ url_for('oi_rule_new') }}">Create your first rule</a>.
                         </td>

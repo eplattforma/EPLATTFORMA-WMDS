@@ -115,29 +115,69 @@
                 </div>
 
                 <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Action (THEN)</h5>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Actions (THEN)</h5>
+                        <button type="button" class="btn btn-sm btn-success" onclick="addAction()">
+                            <i class="fas fa-plus me-1"></i> Add Action
+                        </button>
                     </div>
                     <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Target Attribute <span class="text-danger">*</span></label>
-                                <select name="target_attr" id="targetAttr" class="form-select" required onchange="updateActionValues()">
-                                    <option value="">Select attribute...</option>
-                                    {% for attr, values in target_attrs.items() %}
-                                    <option value="{{ attr }}" data-values="{{ values|join(',') }}"
-                                            {% if (form_data and form_data.get('target_attr') == attr) or (rule and rule.target_attr == attr) %}selected{% endif %}>
-                                        {{ attr.replace('_', ' ').title() }}
-                                    </option>
-                                    {% endfor %}
-                                </select>
+                        <p class="text-muted small mb-3">Set multiple attributes when this rule matches.</p>
+                        <div id="actionsContainer">
+                            {% if rule and existing_actions %}
+                                {% for action in existing_actions %}
+                                <div class="action-row row g-2 mb-2 align-items-center">
+                                    <div class="col-md-5">
+                                        <select name="action_attr" class="form-select action-attr-select" onchange="updateActionValueOptions(this)">
+                                            <option value="">Select attribute...</option>
+                                            {% for attr, values in target_attrs.items() %}
+                                            <option value="{{ attr }}" data-values="{{ values|join(',') }}"
+                                                    {% if action.attr == attr %}selected{% endif %}>
+                                                {{ attr.replace('_', ' ').title() }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <select name="action_value" class="form-select action-value-select">
+                                            <option value="">Select value...</option>
+                                            {% set attr_values = target_attrs.get(action.attr, []) %}
+                                            {% for val in attr_values %}
+                                            <option value="{{ val }}" {% if action.value == val %}selected{% endif %}>{{ val }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAction(this)">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                            <div class="action-row row g-2 mb-2 align-items-center">
+                                <div class="col-md-5">
+                                    <select name="action_attr" class="form-select action-attr-select" onchange="updateActionValueOptions(this)">
+                                        <option value="">Select attribute...</option>
+                                        {% for attr, values in target_attrs.items() %}
+                                        <option value="{{ attr }}" data-values="{{ values|join(',') }}">
+                                            {{ attr.replace('_', ' ').title() }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-5">
+                                    <select name="action_value" class="form-select action-value-select">
+                                        <option value="">Select attribute first...</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAction(this)">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Set Value To <span class="text-danger">*</span></label>
-                                <select name="action_value" id="actionValue" class="form-select" required>
-                                    <option value="">Select target first...</option>
-                                </select>
-                            </div>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -246,6 +286,31 @@
     </div>
 </template>
 
+<template id="actionTemplate">
+    <div class="action-row row g-2 mb-2 align-items-center">
+        <div class="col-md-5">
+            <select name="action_attr" class="form-select action-attr-select" onchange="updateActionValueOptions(this)">
+                <option value="">Select attribute...</option>
+                {% for attr, values in target_attrs.items() %}
+                <option value="{{ attr }}" data-values="{{ values|join(',') }}">
+                    {{ attr.replace('_', ' ').title() }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-5">
+            <select name="action_value" class="form-select action-value-select">
+                <option value="">Select attribute first...</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeAction(this)">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+</template>
+
 <script>
 const operatorsByType = {{ operators_by_type|tojson|safe }};
 
@@ -264,6 +329,38 @@ function removeCondition(btn) {
     } else {
         row.querySelectorAll('select, input').forEach(el => el.value = '');
     }
+}
+
+function addAction() {
+    const template = document.getElementById('actionTemplate');
+    const container = document.getElementById('actionsContainer');
+    const clone = template.content.cloneNode(true);
+    container.appendChild(clone);
+}
+
+function removeAction(btn) {
+    const row = btn.closest('.action-row');
+    const container = document.getElementById('actionsContainer');
+    if (container.querySelectorAll('.action-row').length > 1) {
+        row.remove();
+    } else {
+        row.querySelectorAll('select').forEach(el => el.value = '');
+    }
+}
+
+function updateActionValueOptions(attrSelect) {
+    const row = attrSelect.closest('.action-row');
+    const valueSelect = row.querySelector('.action-value-select');
+    const selectedOption = attrSelect.options[attrSelect.selectedIndex];
+    const values = selectedOption.dataset.values ? selectedOption.dataset.values.split(',') : [];
+    
+    valueSelect.innerHTML = '<option value="">Select value...</option>';
+    values.forEach(val => {
+        const option = document.createElement('option');
+        option.value = val;
+        option.textContent = val;
+        valueSelect.appendChild(option);
+    });
 }
 
 function updateOperators(fieldSelect, preserveValue = false) {
@@ -287,27 +384,7 @@ function updateOperators(fieldSelect, preserveValue = false) {
     });
 }
 
-function updateActionValues() {
-    const targetSelect = document.getElementById('targetAttr');
-    const actionSelect = document.getElementById('actionValue');
-    const selectedOption = targetSelect.options[targetSelect.selectedIndex];
-    const values = selectedOption.dataset.values ? selectedOption.dataset.values.split(',') : [];
-    
-    const currentValue = '{{ form_data.get("action_value", "") if form_data else (rule.action_value if rule else "") }}';
-    
-    actionSelect.innerHTML = '<option value="">Select value...</option>';
-    values.forEach(val => {
-        const option = document.createElement('option');
-        option.value = val;
-        option.textContent = val;
-        if (val === currentValue) option.selected = true;
-        actionSelect.appendChild(option);
-    });
-}
-
 document.addEventListener('DOMContentLoaded', function() {
-    updateActionValues();
-    
     // On page load, preserve existing operator selections when repopulating
     document.querySelectorAll('.field-select').forEach(select => {
         if (select.value) {

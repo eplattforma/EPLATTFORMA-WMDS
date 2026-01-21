@@ -1965,9 +1965,13 @@ class WmsDynamicRule(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(120), nullable=False)
     
-    # Must match the resolver attr names (no wms_ prefix)
+    # Primary action (kept for backward compat and display)
     target_attr = db.Column(db.String(64), nullable=False)      # e.g. 'pressure_sensitivity'
     action_value = db.Column(db.String(100), nullable=False)    # stored as string; cast on apply
+    
+    # Multiple actions stored as JSON: [{"attr": "fragility", "value": "YES"}, ...]
+    actions_json = db.Column(db.Text, nullable=True)
+    
     confidence = db.Column(db.Integer, nullable=False, default=65)
     priority = db.Column(db.Integer, nullable=False, default=100)
     
@@ -1981,6 +1985,25 @@ class WmsDynamicRule(db.Model):
     
     def __repr__(self):
         return f"<WmsDynamicRule {self.id} {self.target_attr} prio={self.priority}>"
+    
+    def get_actions(self):
+        """Return all actions as a list of dicts: [{"attr": ..., "value": ...}, ...]"""
+        import json
+        if self.actions_json:
+            try:
+                return json.loads(self.actions_json)
+            except:
+                pass
+        # Fallback to single action for backward compat
+        return [{"attr": self.target_attr, "value": self.action_value}]
+    
+    @property
+    def actions_summary(self):
+        """Return a summary of all actions for display."""
+        actions = self.get_actions()
+        if len(actions) == 1:
+            return f"{actions[0]['attr']}={actions[0]['value']}"
+        return ", ".join(f"{a['attr']}={a['value']}" for a in actions)
     
     def get_conditions(self):
         """Parse and return the conditions list from condition_json."""

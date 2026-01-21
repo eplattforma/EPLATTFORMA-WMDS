@@ -712,8 +712,6 @@ def oi_rule_new():
     if request.method == 'POST':
         # Parse form data
         name = request.form.get('name', '').strip()
-        target_attr = request.form.get('target_attr', '')
-        action_value = request.form.get('action_value', '')
         confidence = request.form.get('confidence', 65, type=int)
         priority = request.form.get('priority', 100, type=int)
         notes = request.form.get('notes', '').strip()
@@ -723,7 +721,12 @@ def oi_rule_new():
         ops = request.form.getlist('cond_op')
         vals = request.form.getlist('cond_value')
         
+        # Parse actions from repeating form fields
+        action_attrs = request.form.getlist('action_attr')
+        action_values = request.form.getlist('action_value')
+        
         conditions = []
+        actions = []
         errors = []
         
         for i, (f, o, v) in enumerate(zip(fields, ops, vals)):
@@ -744,13 +747,21 @@ def oi_rule_new():
             else:
                 conditions.append(cond)
         
-        # Validate target and action
+        # Validate actions
+        for i, (attr, val) in enumerate(zip(action_attrs, action_values)):
+            if not attr or not val:
+                continue
+            is_valid, err = validate_target_attr(attr, val)
+            if not is_valid:
+                errors.append(f"Action {i+1}: {err}")
+            else:
+                actions.append({'attr': attr, 'value': val})
+        
         if not name:
             errors.append("Rule name is required")
         
-        is_valid, err = validate_target_attr(target_attr, action_value)
-        if not is_valid:
-            errors.append(err)
+        if not actions:
+            errors.append("At least one action is required")
         
         if confidence < 0 or confidence > 100:
             errors.append("Confidence must be 0-100")
@@ -768,13 +779,15 @@ def oi_rule_new():
                                   target_attrs=TARGET_ATTRS,
                                   form_data=request.form)
         
-        # Create rule
+        # Create rule - primary action from first action in list
         condition_json = json.dumps({'all': conditions})
+        actions_json = json.dumps(actions)
         
         rule = WmsDynamicRule(
             name=name,
-            target_attr=target_attr,
-            action_value=action_value,
+            target_attr=actions[0]['attr'],
+            action_value=actions[0]['value'],
+            actions_json=actions_json,
             confidence=confidence,
             priority=priority,
             condition_json=condition_json,
@@ -788,11 +801,12 @@ def oi_rule_new():
         activity = ActivityLog()
         activity.picker_username = current_user.username
         activity.activity_type = 'oi_rule_create'
-        activity.details = f"Created dynamic rule: {name} ({target_attr}={action_value})"
+        actions_desc = ", ".join(f"{a['attr']}={a['value']}" for a in actions)
+        activity.details = f"Created dynamic rule: {name} ({actions_desc})"
         db.session.add(activity)
         db.session.commit()
         
-        flash(f'Rule "{name}" created. Run reclassification to apply.', 'success')
+        flash(f'Rule "{name}" created with {len(actions)} action(s). Run reclassification to apply.', 'success')
         return redirect(url_for('oi_rules'))
     
     return render_template('admin/oi/rule_form.html',
@@ -800,6 +814,7 @@ def oi_rule_new():
                           allowed_fields=ALLOWED_FIELDS,
                           operators_by_type=OPERATORS_BY_TYPE,
                           target_attrs=TARGET_ATTRS,
+                          existing_actions=None,
                           form_data=None)
 
 
@@ -818,8 +833,6 @@ def oi_rule_edit(rule_id):
     if request.method == 'POST':
         # Parse form data
         name = request.form.get('name', '').strip()
-        target_attr = request.form.get('target_attr', '')
-        action_value = request.form.get('action_value', '')
         confidence = request.form.get('confidence', 65, type=int)
         priority = request.form.get('priority', 100, type=int)
         notes = request.form.get('notes', '').strip()
@@ -829,7 +842,12 @@ def oi_rule_edit(rule_id):
         ops = request.form.getlist('cond_op')
         vals = request.form.getlist('cond_value')
         
+        # Parse actions from repeating form fields
+        action_attrs = request.form.getlist('action_attr')
+        action_values = request.form.getlist('action_value')
+        
         conditions = []
+        actions = []
         errors = []
         
         for i, (f, o, v) in enumerate(zip(fields, ops, vals)):
@@ -849,12 +867,21 @@ def oi_rule_edit(rule_id):
             else:
                 conditions.append(cond)
         
+        # Validate actions
+        for i, (attr, val) in enumerate(zip(action_attrs, action_values)):
+            if not attr or not val:
+                continue
+            is_valid, err = validate_target_attr(attr, val)
+            if not is_valid:
+                errors.append(f"Action {i+1}: {err}")
+            else:
+                actions.append({'attr': attr, 'value': val})
+        
         if not name:
             errors.append("Rule name is required")
         
-        is_valid, err = validate_target_attr(target_attr, action_value)
-        if not is_valid:
-            errors.append(err)
+        if not actions:
+            errors.append("At least one action is required")
         
         if confidence < 0 or confidence > 100:
             errors.append("Confidence must be 0-100")
@@ -872,10 +899,11 @@ def oi_rule_edit(rule_id):
                                   target_attrs=TARGET_ATTRS,
                                   form_data=request.form)
         
-        # Update rule
+        # Update rule - primary action from first action in list
         rule.name = name
-        rule.target_attr = target_attr
-        rule.action_value = action_value
+        rule.target_attr = actions[0]['attr']
+        rule.action_value = actions[0]['value']
+        rule.actions_json = json.dumps(actions)
         rule.confidence = confidence
         rule.priority = priority
         rule.condition_json = json.dumps({'all': conditions})
@@ -888,11 +916,12 @@ def oi_rule_edit(rule_id):
         activity = ActivityLog()
         activity.picker_username = current_user.username
         activity.activity_type = 'oi_rule_edit'
-        activity.details = f"Updated dynamic rule: {name} (id={rule_id})"
+        actions_desc = ", ".join(f"{a['attr']}={a['value']}" for a in actions)
+        activity.details = f"Updated dynamic rule: {name} ({actions_desc})"
         db.session.add(activity)
         db.session.commit()
         
-        flash(f'Rule "{name}" updated. Run reclassification to apply.', 'success')
+        flash(f'Rule "{name}" updated with {len(actions)} action(s). Run reclassification to apply.', 'success')
         return redirect(url_for('oi_rules'))
     
     # Parse existing conditions for form
@@ -911,9 +940,13 @@ def oi_rule_edit(rule_id):
     except:
         pass
     
+    # Parse existing actions for form
+    existing_actions = rule.get_actions()
+    
     return render_template('admin/oi/rule_form.html',
                           rule=rule,
                           existing_conditions=existing_conditions,
+                          existing_actions=existing_actions,
                           allowed_fields=ALLOWED_FIELDS,
                           operators_by_type=OPERATORS_BY_TYPE,
                           target_attrs=TARGET_ATTRS,
