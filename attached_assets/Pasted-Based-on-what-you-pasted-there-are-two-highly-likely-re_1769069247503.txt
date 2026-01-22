@@ -1,0 +1,157 @@
+Based on what you pasted, there are two highly likely reasons why PS365 is not receiving (or not applying) the status and comment:
+
+The payload shown is incomplete (your snippet omits required/standard fields such as api_credentials, user_code, and order_type). If your live code really matches that snippet, PS365 may still accept the request (depending on your wrapper code), but it may ignore optional fields or default the order header data.
+
+Even with a correct payload, PS365 may not update the underlying Purchase Order status via order_pick_list. In some PS365 setups, order_status_code_365 is applied to the picking list context (or only for Sales Orders), and Purchase Orders require a separate status-change call. The only way to know is to verify the PO status in PS365 immediately after success.
+
+Below are concrete Replit instructions to fix both, including verification and logging so you can prove what PS365 received.
+
+Replit instructions (do exactly these changes)
+A) Fix the PS365 payload so it always includes status + comment correctly
+
+In routes_po_receiving.py (or wherever send_receiving_to_ps365 lives), update the payload construction to include the full structure:
+
+import json
+import logging
+import os
+
+PS365_GRN_STATUS_CODE = os.getenv("PS365_GRN_STATUS_CODE", "GRN").strip().upper()
+
+
+Then inside send_receiving_to_ps365(session) replace the payload block with:
+
+# Refresh session from DB to ensure latest comments are loaded
+session = ReceivingSession.query.get(session.id)
+
+extra_comment = (getattr(session, "comments", None) or "").strip()
+
+base_comment = f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}"
+if extra_comment:
+    base_comment = f"{base_comment} | {extra_comment[:180]}"
+
+payload = {
+    "api_credentials": {
+        "token": POWERSOFT_TOKEN
+    },
+    "order": {
+        "user_code": session.operator or "warehouse_op",
+        "order_type": "PurchaseOrder",
+        "order_status_code_365": PS365_GRN_STATUS_CODE,  # <-- CRITICAL
+        "comment": base_comment,                          # <-- CRITICAL
+        "list_order_details": list_order_details
+    }
+}
+
+
+Also add a guard before sending:
+
+if not list_order_details:
+    return {
+        "success": False,
+        "error": "No valid receiving lines to send to PS365.",
+    }
+
+B) Add logging so you can prove what was sent (and what PS365 returned)
+
+Immediately before the requests.post(...) call:
+
+safe_payload = json.loads(json.dumps(payload))
+safe_payload["api_credentials"]["token"] = "***"
+logging.info("PS365 order_pick_list payload: %s", json.dumps(safe_payload, ensure_ascii=False))
+
+
+Immediately after result = response.json():
+
+logging.info("PS365 order_pick_list response: %s", json.dumps(result, ensure_ascii=False))
+
+
+This will tell you definitively whether order_status_code_365 and comment are present in the outgoing request.
+
+C) Fix your comments UI feedback (so you don’t “think” it saved when it didn’t)
+
+In receive.html, update JS to handle non-200 and show error:
+
+<script>
+async function savePoComments() {
+  const comments = document.getElementById('poComments').value;
+
+  const resp = await fetch(`/po-receiving/api/update-comments/${SESSION_ID}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({comments})
+  });
+
+  let data = null;
+  try { data = await resp.json(); } catch(e) {}
+
+  if (!resp.ok || !data || !data.success) {
+    alert("Failed to save comments: " + ((data && data.error) ? data.error : resp.status));
+    return;
+  }
+
+  // Minimal feedback
+  // e.g. change button text temporarily or show a small "Saved" label
+}
+</script>
+
+
+If your DB model does not actually have comments, your endpoint will error and the UI will now tell you.
+
+D) Ensure the DB column exists (common root cause)
+
+If ReceivingSession.comments is not a real DB column, session.comments = ... will never persist.
+
+Run a quick DB check (Postgres):
+
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = 'receiving_session'
+  AND column_name = 'comments';
+
+
+If it returns zero rows, add the column:
+
+ALTER TABLE receiving_session ADD COLUMN comments TEXT;
+
+
+(Adjust table name if yours is plural.)
+
+E) Verify whether PS365 actually changes PO status with order_pick_list
+
+After a successful order_pick_list, do a verification fetch from PS365 (if you already have a function for it). If the PO status is unchanged, then PS365 is ignoring status changes here and you must call the status endpoint.
+
+Add this immediately after success:
+
+# OPTIONAL verification step (recommended)
+try:
+    verify = requests.post(
+        f"{POWERSOFT_BASE}/purchaseorder",
+        json={
+            "api_credentials": {"token": POWERSOFT_TOKEN},
+            "purchase_order_code": po.code_365,
+            "is_shopping_cart_code": "N"
+        },
+        timeout=30
+    )
+    verify.raise_for_status()
+    verify_data = verify.json()
+    logging.info("PS365 PO verify response: %s", json.dumps(verify_data, ensure_ascii=False))
+except Exception as e:
+    logging.warning("PS365 PO verify failed: %s", str(e))
+
+
+If PS365 shows the PO is still not GRN after this, then PS365 requires a dedicated status change call (not order_pick_list) for Purchase Orders in your configuration.
+
+The one thing I need you to check in your logs
+
+After you apply (A) + (B), paste the log lines for:
+
+PS365 order_pick_list payload (token masked is fine)
+
+PS365 order_pick_list response
+
+From those two, I can tell you immediately whether:
+
+The payload is correct but PS365 is ignoring the fields (workflow constraint), or
+
+Your code is still not sending the fields as expected (implementation bug / overwritten payload).

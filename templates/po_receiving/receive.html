@@ -984,7 +984,7 @@ async function savePoComments() {
         });
         
         const data = await resp.json();
-        if (data.success) {
+        if (resp.ok && data.success) {
             const btn = document.querySelector('button[onclick="savePoComments()"]');
             const originalHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fas fa-check"></i> Saved';

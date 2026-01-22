@@ -124,12 +124,9 @@ def send_receiving_to_ps365(session):
         }
 
     # Build the complete payload
-    extra_comment = (
-        getattr(session, "comments", None) or
-        getattr(session, "comment", None) or
-        getattr(session, "notes", None) or
-        ""
-    ).strip()
+    # Refresh session from DB to ensure latest comments are loaded
+    db.session.refresh(session)
+    extra_comment = (getattr(session, "comments", None) or "").strip()
 
     base_comment = f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}"
     if extra_comment:
@@ -148,16 +145,22 @@ def send_receiving_to_ps365(session):
         }
     }
     
+    # Mask token for logging
+    import logging
+    safe_payload = json.loads(json.dumps(payload))
+    safe_payload["api_credentials"]["token"] = "***"
+    logging.info("PS365 order_pick_list payload: %s", json.dumps(safe_payload, ensure_ascii=False))
+
     # Send to PS365
     url = f"{POWERSOFT_BASE}/order_pick_list"
     try:
         print(f"DEBUG: Sending receiving data to PS365: {url}")
-        print(f"DEBUG: Payload: {json.dumps(payload, indent=2)}")
         
         response = requests.post(url, json=payload, timeout=30)
         response.raise_for_status()
         
         result = response.json()
+        logging.info("PS365 order_pick_list response: %s", json.dumps(result, ensure_ascii=False))
         print(f"DEBUG: PS365 Response: {json.dumps(result, indent=2)}")
         
         # Check if successful
