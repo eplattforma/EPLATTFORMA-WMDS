@@ -126,6 +126,7 @@ def send_receiving_to_ps365(session):
     # Build the complete payload
     # Refresh session from DB to ensure latest comments are loaded
     db.session.refresh(session)
+    # Use direct attribute access for reliability
     extra_comment = (session.comments or "").strip()
 
     base_comment = f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}"
@@ -139,7 +140,7 @@ def send_receiving_to_ps365(session):
         "order": {
             "user_code": session.operator or "warehouse_op",
             "order_type": "PurchaseOrder",
-            "order_status_code_365": PS365_GRN_STATUS_CODE,  # Change 2 — Add order_status_code_365
+            "order_status_code_365": PS365_GRN_STATUS_CODE,
             "comment": base_comment,
             "list_order_details": list_order_details
         }
@@ -147,14 +148,23 @@ def send_receiving_to_ps365(session):
     
     # Mask token for logging
     import logging
-    safe_payload = json.loads(json.dumps(payload))
-    safe_payload["api_credentials"]["token"] = "***"
+    # Use deepcopy or careful dict construction to avoid token leakage
+    safe_payload = {
+        "api_credentials": {"token": "***"},
+        "order": {
+            "user_code": payload["order"]["user_code"],
+            "order_type": payload["order"]["order_type"],
+            "order_status_code_365": payload["order"]["order_status_code_365"],
+            "comment": payload["order"]["comment"],
+            "list_order_details": payload["order"]["list_order_details"]
+        }
+    }
     logging.info("PS365 order_pick_list payload: %s", json.dumps(safe_payload, ensure_ascii=False))
 
     # Send to PS365
     url = f"{POWERSOFT_BASE}/order_pick_list"
     try:
-        print(f"DEBUG: Sending receiving data to PS365: {url}")
+        logging.info("Sending request to PS365: %s", url)
         
         response = requests.post(url, json=payload, timeout=30)
         response.raise_for_status()
