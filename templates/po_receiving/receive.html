@@ -960,48 +960,47 @@ async function refreshItemSelectionModal() {
 }
 
 // Move a table row to the top of the main order table
-    // Move a table row to the top of the main order table
-    function moveRowToTop(lineId) {
-        const row = document.getElementById('row-' + lineId);
-        if (!row) return;
-        
-        const tbody = row.parentElement;
-        if (tbody.firstChild !== row) {
-            tbody.removeChild(row);
-            tbody.insertBefore(row, tbody.firstChild);
-        }
+function moveRowToTop(lineId) {
+    const row = document.getElementById('row-' + lineId);
+    if (!row) return;
+    
+    const tbody = row.parentElement;
+    if (tbody.firstChild !== row) {
+        tbody.removeChild(row);
+        tbody.insertBefore(row, tbody.firstChild);
     }
+}
 
-    // Save PO comments
-    async function savePoComments() {
-        const comments = document.getElementById('poComments').value;
-        const sessionId = {{ session.id }};
+// Save PO comments
+async function savePoComments() {
+    const comments = document.getElementById('poComments').value;
+    const sessionId = {{ session.id }};
+    
+    try {
+        const resp = await fetch(`/po-receiving/api/update-comments/${sessionId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({comments: comments})
+        });
         
-        try {
-            const resp = await fetch(`/po-receiving/api/update-comments/${sessionId}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({comments: comments})
-            });
-            
-            const data = await resp.json();
-            if (data.success) {
-                const btn = document.querySelector('button[onclick="savePoComments()"]');
-                const originalHtml = btn.innerHTML;
-                btn.innerHTML = '<i class="fas fa-check"></i> Saved';
-                btn.classList.replace('btn-outline-primary', 'btn-success');
-                setTimeout(() => {
-                    btn.innerHTML = originalHtml;
-                    btn.classList.replace('btn-success', 'btn-outline-primary');
-                }, 2000);
-            } else {
-                alert('Error saving comments: ' + (data.error || 'Unknown error'));
-            }
-        } catch (err) {
-            console.error('Error saving comments:', err);
-            alert('Failed to save comments');
+        const data = await resp.json();
+        if (data.success) {
+            const btn = document.querySelector('button[onclick="savePoComments()"]');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check"></i> Saved';
+            btn.classList.replace('btn-outline-primary', 'btn-success');
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.replace('btn-success', 'btn-outline-primary');
+            }, 2000);
+        } else {
+            alert('Error saving comments: ' + (data.error || 'Unknown error'));
         }
+    } catch (err) {
+        console.error('Error saving comments:', err);
+        alert('Failed to save comments');
     }
+}
 
     // Add lot
     async function addLot() {
