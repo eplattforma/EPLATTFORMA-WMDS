@@ -126,7 +126,7 @@ def send_receiving_to_ps365(session):
     # Build the complete payload
     # Refresh session from DB to ensure latest comments are loaded
     db.session.refresh(session)
-    extra_comment = (getattr(session, "comments", None) or "").strip()
+    extra_comment = (session.comments or "").strip()
 
     base_comment = f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}"
     if extra_comment:
