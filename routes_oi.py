@@ -225,6 +225,52 @@ def oi_reclassify_status():
     })
 
 
+@app.route('/admin/oi/items/bulk-override', methods=['POST'])
+@login_required
+@admin_required
+def oi_items_bulk_override():
+    """Bulk update SKU overrides from the items list."""
+    item_codes = request.form.getlist('item_codes')
+    updated_count = 0
+    
+    for code in item_codes:
+        zone = request.form.get(f'zone_{code}')
+        fragility = request.form.get(f'fragility_{code}')
+        spill = request.form.get(f'spill_{code}')
+        pressure = request.form.get(f'pressure_{code}')
+        temp = request.form.get(f'temp_{code}')
+        boxfit = request.form.get(f'boxfit_{code}')
+        
+        # Check if anything is actually being overridden for this item
+        has_overrides = any([zone, fragility, spill, pressure, temp, boxfit])
+        
+        if has_overrides:
+            override = WmsItemOverride.query.get(code)
+            if not override:
+                override = WmsItemOverride(item_code_365=code)
+                db.session.add(override)
+            
+            if zone: override.zone_override = zone
+            if fragility: override.fragility_override = fragility
+            if spill: override.spill_risk_override = (spill == 'true')
+            if pressure: override.pressure_sensitivity_override = pressure
+            if temp: override.temperature_sensitivity_override = temp
+            if boxfit: override.box_fit_rule_override = boxfit
+            
+            override.updated_by = current_user.username
+            override.updated_at = datetime.utcnow()
+            override.is_active = True
+            updated_count += 1
+            
+    db.session.commit()
+    
+    if updated_count > 0:
+        flash(f'Bulk overrides saved for {updated_count} items. Run reclassification to apply.', 'success')
+    else:
+        flash('No changes detected.', 'info')
+        
+    return redirect(request.referrer or url_for('oi_items'))
+
 @app.route('/admin/oi/items')
 @login_required
 @admin_required
