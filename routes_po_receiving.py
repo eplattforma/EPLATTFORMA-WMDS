@@ -26,6 +26,7 @@ POWERSOFT_BASE = os.getenv("POWERSOFT_BASE", "").rstrip("/")
 POWERSOFT_TOKEN = os.getenv("POWERSOFT_TOKEN", "")
 # Hardcode store to 777 due to environment variable caching issue
 PS365_DEFAULT_STORE = "777"
+PS365_GRN_STATUS_CODE = os.getenv("PS365_GRN_STATUS_CODE", "GRN").strip().upper()
 
 def check_role_access():
     """Check if user has access to PO receiving (admin, warehouse_manager, picker)"""
@@ -114,6 +115,14 @@ def send_receiving_to_ps365(session):
         list_order_details.append(line_detail)
         pick_order_no += 1
     
+    # Change 4 — Do not send an empty pick list
+    if not list_order_details:
+        return {
+            "success": False,
+            "error": "No valid receiving lines to send to PS365 (all lines missing PS365 line_id_365 or no quantities).",
+            "skipped_lines": skipped_lines
+        }
+
     # Build the complete payload
     payload = {
         "api_credentials": {
@@ -122,7 +131,8 @@ def send_receiving_to_ps365(session):
         "order": {
             "user_code": session.operator or "warehouse_op",
             "order_type": "PurchaseOrder",
-            "comment": f"GRN for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}",
+            "order_status_code_365": PS365_GRN_STATUS_CODE,  # Change 2 — Add order_status_code_365
+            "comment": f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}",
             "list_order_details": list_order_details
         }
     }
@@ -142,6 +152,7 @@ def send_receiving_to_ps365(session):
         # Check if successful
         api_response = result.get("api_response", {})
         if api_response.get("response_code") == "1":
+            # Change 5 — Keep local update, but also store PS365 response id (if needed)
             # Update PO status to GRN (Goods Received Note) on successful submission
             po.status_code = "GRN"
             po.status_name = "Goods Received"

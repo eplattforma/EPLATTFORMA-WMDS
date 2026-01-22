@@ -1,0 +1,123 @@
+Below are implementation instructions you can give to the Replit agent to modify your existing send_receiving_to_ps365() so that, when the call succeeds, the PO is sent as GRN / Goods Received in PS365 (via order_status_code_365) and your local PO is also updated as you already do.
+
+Replit Instructions (Copy/Paste)
+Objective
+
+Update the existing send_receiving_to_ps365(session) function so that:
+
+The request to PS365 /order_pick_list includes order_status_code_365="GRN" (so PS365 sets the PO status to GRN / Goods Received).
+
+After a successful response, keep the existing local updates (po.status_code="GRN", po.status_name="Goods Received", po.is_archived=True) and commit.
+
+Improve transparency by returning skipped_lines to the caller (so UI can display items skipped due to missing line_id_365).
+
+Change 1 — Add a configurable status code (optional but recommended)
+
+At the top of the module where POWERSOFT_BASE / POWERSOFT_TOKEN are defined, add:
+
+PS365_GRN_STATUS_CODE = os.getenv("PS365_GRN_STATUS_CODE", "GRN").strip().upper()
+
+
+This allows changing status code without code edits if PS365 uses a different code than GRN.
+
+Change 2 — Add order_status_code_365 to the payload
+
+Inside send_receiving_to_ps365(session), in the payload construction, add the field under "order":
+
+Before
+
+payload = {
+    "api_credentials": {"token": POWERSOFT_TOKEN},
+    "order": {
+        "user_code": session.operator or "warehouse_op",
+        "order_type": "PurchaseOrder",
+        "comment": f"GRN for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}",
+        "list_order_details": list_order_details
+    }
+}
+
+
+After
+
+payload = {
+    "api_credentials": {"token": POWERSOFT_TOKEN},
+    "order": {
+        "user_code": session.operator or "warehouse_op",
+        "order_type": "PurchaseOrder",
+        "order_status_code_365": PS365_GRN_STATUS_CODE,  # <-- ADD THIS
+        "comment": f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}",
+        "list_order_details": list_order_details
+    }
+}
+
+Change 3 — Return skipped lines for visibility
+
+In success and error returns, include skipped_lines so the UI/logs can show what was not sent due to missing PS365 line IDs.
+
+Example
+
+return {
+    "success": True,
+    "pick_list_code": api_response.get("response_id"),
+    "message": api_response.get("response_msg", "OK"),
+    "skipped_lines": skipped_lines
+}
+
+
+And similarly on failure:
+
+return {
+    "success": False,
+    "error": api_response.get("response_msg", "Unknown error"),
+    "skipped_lines": skipped_lines
+}
+
+Change 4 — Do not send an empty pick list
+
+Add a guard before the API call:
+
+if not list_order_details:
+    return {
+        "success": False,
+        "error": "No valid receiving lines to send to PS365 (all lines missing PS365 line_id_365 or no quantities).",
+        "skipped_lines": skipped_lines
+    }
+
+Change 5 — Keep local update, but also store PS365 response id (recommended)
+
+If you have a field like po.ps365_pick_list_code or session.ps365_pick_list_code, populate it. If not available, skip.
+
+After success:
+
+if api_response.get("response_code") == "1":
+    ps_pick_list_code = api_response.get("response_id")
+
+    # OPTIONAL: persist pick list code if you have a column
+    # session.ps365_pick_list_code = ps_pick_list_code
+
+    po.status_code = "GRN"
+    po.status_name = "Goods Received"
+    po.is_archived = True
+    db.session.commit()
+
+    return {...}
+
+Testing Steps
+
+Use a PO that has at least one line with line_id_365 populated and a non-zero received quantity.
+
+Run receiving and “Send to PS365”.
+
+Confirm in PS365:
+
+A picking list is created (response_id).
+
+PO status is now GRN / Goods Received (or whatever status label maps to code GRN).
+
+Confirm locally:
+
+po.status_code == "GRN"
+
+po.is_archived == True
+
+Confirm UI shows any skipped_lines.
