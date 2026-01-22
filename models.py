@@ -1535,6 +1535,7 @@ class ReceivingSession(db.Model):
     receipt_code = db.Column(db.String(50), nullable=False, unique=True, index=True)
     
     operator = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
+    comments = db.Column(db.Text, nullable=True)
     started_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
     finished_at = db.Column(UTCDateTime(), nullable=True)
     
