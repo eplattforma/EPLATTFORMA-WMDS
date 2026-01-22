@@ -989,6 +989,24 @@ def api_add_lot():
     
     return jsonify({'ok': True, 'id': rcv_line.id})
 
+@po_receiving_bp.route('/api/update-comments/<int:session_id>', methods=['POST'])
+@login_required
+def api_update_comments(session_id):
+    """API endpoint to update PO receiving session comments"""
+    session = ReceivingSession.query.get_or_404(session_id)
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
+    try:
+        session.comments = data.get('comments', '')
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @po_receiving_bp.route('/api/get-received-quantities', methods=['POST'])
 @login_required
 def api_get_received_quantities():
