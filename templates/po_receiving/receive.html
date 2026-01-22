@@ -150,6 +150,7 @@ input[type=number] {
         {% for line in po.lines %}
         <option value="{{ line.id }}" 
                 data-item="{{ line.item_code_365 }}" 
+                data-barcode="{{ line.item_barcode or '' }}"
                 data-supplier-item="{{ line.supplier_item_code or '' }}"
                 data-name="{{ line.item_name }}" 
                 data-qty="{{ line.line_quantity }}"
@@ -505,15 +506,21 @@ function selectLine() {
         const unitType = (selectedOption.dataset.unit && selectedOption.dataset.unit !== 'None') ? selectedOption.dataset.unit : 'PIECE';
         const pieces = parseInt(selectedOption.dataset.pieces || 1);
         const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+        const barcode = selectedOption.dataset.barcode || '';
+        const supplierItemCode = selectedOption.dataset.supplierItem || '';
 
         // Update display
         const display = document.getElementById('selectedItemDisplay');
         display.innerHTML = `
             <div class="d-flex align-items-center gap-2">
-                <strong>${itemCode}</strong>
                 <span class="badge bg-info">${unitDisplay}</span>
+                <span class="fw-bold text-primary">${itemCode}</span>
             </div>
-            <div>${itemName}</div>
+            <div class="fw-bold" style="font-size: 1.2rem;">${itemName}</div>
+            <div class="d-flex align-items-center gap-3 mt-1">
+                ${barcode ? `<div class="text-muted" style="font-family: monospace; font-size: 1.1rem;"><i class="fas fa-barcode"></i> ${barcode}</div>` : ''}
+                ${supplierItemCode ? `<div class="text-info" style="font-size: 0.95rem;"><i class="fas fa-tag"></i> ${supplierItemCode}</div>` : ''}
+            </div>
             <div class="text-muted">Ordered Quantity: ${orderedQty}</div>
         `;
         
