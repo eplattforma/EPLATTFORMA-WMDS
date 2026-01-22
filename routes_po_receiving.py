@@ -145,8 +145,9 @@ def send_receiving_to_ps365(session):
             # Update PO status to GRN (Goods Received Note) on successful submission
             po.status_code = "GRN"
             po.status_name = "Goods Received"
+            po.is_archived = True  # Mark as completed/archived
             db.session.commit()
-            print(f"DEBUG: Updated PO {po.code_365} status to GRN")
+            print(f"DEBUG: Updated PO {po.code_365} status to GRN and archived")
             
             return {
                 'success': True,
