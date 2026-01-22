@@ -1,0 +1,106 @@
+Replit instructions
+1) Make the outgoing payload auditable (this will confirm whether status is “sent”)
+
+Add logging right before the POST:
+
+import json, logging
+
+# ... after payload is built
+safe_payload = json.loads(json.dumps(payload))
+safe_payload["api_credentials"]["token"] = "***"
+logging.info("PS365 /order_pick_list payload: %s", json.dumps(safe_payload, ensure_ascii=False))
+
+
+Also log the response:
+
+result = response.json()
+logging.info("PS365 /order_pick_list response: %s", json.dumps(result, ensure_ascii=False))
+return result
+
+
+This immediately tells you if order_status_code_365 is present and what value it has.
+
+2) Ensure PS365_GRN_STATUS_CODE is always a real value
+
+At module level:
+
+import os
+PS365_GRN_STATUS_CODE = os.getenv("PS365_GRN_STATUS_CODE", "GRN").strip().upper()
+
+
+Before building payload:
+
+if not PS365_GRN_STATUS_CODE:
+    raise ValueError("PS365_GRN_STATUS_CODE is empty; cannot set PO status to GRN.")
+
+3) Send comments (plural) to match PS365 conventions
+
+PS365 uses comments in other endpoints (orders and purchase orders).
+Update your payload to send comments. To be extra safe during transition, you can send both keys (PS365 will ignore the unknown one if it doesn’t need it):
+
+payload = {
+    "api_credentials": {"token": POWERSOFT_TOKEN},
+    "order": {
+        "user_code": session.operator or "warehouse_op",
+        "order_type": "PurchaseOrder",
+        "order_status_code_365": PS365_GRN_STATUS_CODE,
+        "comments": base_comment,   # <-- use plural
+        "comment": base_comment,    # <-- optional compatibility (safe to remove later)
+        "list_order_details": list_order_details
+    }
+}
+
+4) If PO status still does not change: call change_order_status after success
+
+The PS365 documentation index includes change_order_status.
+That is the most likely required step for PurchaseOrder transitions.
+
+Implement a second call only when /order_pick_list returns success:
+
+def _ps365_change_po_status(po_code_365: str, status_code: str, comments: str = ""):
+    url = f"{POWERSOFT_BASE}/change_order_status"
+    payload = {
+        "api_credentials": {"token": POWERSOFT_TOKEN},
+        "order": {
+            "order_type": "PurchaseOrder",
+            "order_code_365": po_code_365,
+            "order_status_code_365": status_code,
+            "comments": comments
+        }
+    }
+    r = requests.post(url, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+Then in send_receiving_to_ps365:
+
+result = response.json()
+api = result.get("api_response", {})
+if api.get("response_code") == "1":
+    # enforce GRN transition in PS365
+    try:
+        _ps365_change_po_status(po.code_365, PS365_GRN_STATUS_CODE, base_comment)
+    except Exception as e:
+        logging.warning("PS365 change_order_status failed: %s", str(e))
+return result
+
+
+Important: Field names for change_order_status may differ slightly in your PS365 tenant (e.g., purchase_order_code_365 instead of order_code_365). The logging will show PS365’s error message, and the agent should align the payload to the exact doc for your endpoint.
+
+5) Verify with a GET after the calls (to confirm status actually changed)
+
+PS365 /purchaseorder returns order_status_code_365, order_status_name, and comments in the header.
+After success, fetch the PO and log those fields to confirm.
+
+One more critical fix (prevents silent PS365 oddities)
+
+You currently do not skip PO lines with missing line_id_365. If any line has line_id_365 = None, PS365 behavior can be unpredictable (reject/ignore/partial).
+
+Reinstate the skip logic:
+
+if not po_line.line_id_365:
+    continue  # or track skipped lines for UI
+
+
+If you paste (1) the logged payload (token masked) and (2) the PS365 response JSON, I can tell you immediately whether PS365 is ignoring order_status_code_365 on order_pick_list (meaning you must use change_order_status) and whether it’s ignoring the comment because of the singular/plural field name.

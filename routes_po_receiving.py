@@ -56,10 +56,36 @@ def to_bool(value):
     return False
 
 
+def _ps365_change_po_status(po_code_365: str, status_code: str, comments: str = ""):
+    """Helper to explicitly change PO status in PS365"""
+    url = f"{POWERSOFT_BASE}/change_order_status"
+    payload = {
+        "api_credentials": {"token": POWERSOFT_TOKEN},
+        "order": {
+            "order_type": "PurchaseOrder",
+            "order_code_365": po_code_365,
+            "order_status_code_365": status_code,
+            "comments": comments
+        }
+    }
+    import logging
+    try:
+        r = requests.post(url, json=payload, timeout=30)
+        r.raise_for_status()
+        result = r.json()
+        logging.info("PS365 change_order_status response: %s", json.dumps(result, ensure_ascii=False))
+        return result
+    except Exception as e:
+        logging.warning("PS365 change_order_status failed: %s", str(e))
+        return {"success": False, "error": str(e)}
+
 def send_receiving_to_ps365(session):
     """Send receiving session data to PS365 via order_pick_list API"""
     if not POWERSOFT_BASE or not POWERSOFT_TOKEN:
         raise Exception("PS365 credentials not configured")
+    
+    if not PS365_GRN_STATUS_CODE:
+        raise ValueError("PS365_GRN_STATUS_CODE is empty; cannot set PO status to GRN.")
     
     po = session.purchase_order
     
@@ -115,7 +141,7 @@ def send_receiving_to_ps365(session):
         list_order_details.append(line_detail)
         pick_order_no += 1
     
-    # Change 4 — Do not send an empty pick list
+    # Do not send an empty pick list
     if not list_order_details:
         return {
             "success": False,
@@ -139,8 +165,9 @@ def send_receiving_to_ps365(session):
         "order": {
             "user_code": session.operator or "warehouse_op",
             "order_type": "PurchaseOrder",
-            "order_status_code_365": PS365_GRN_STATUS_CODE,  # Change 2 — Add order_status_code_365
-            "comment": base_comment,
+            "order_status_code_365": PS365_GRN_STATUS_CODE,
+            "comments": base_comment,   # Added plural for PS365 convention
+            "comment": base_comment,    # Kept for compatibility
             "list_order_details": list_order_details
         }
     }
@@ -166,13 +193,33 @@ def send_receiving_to_ps365(session):
         # Check if successful
         api_response = result.get("api_response", {})
         if api_response.get("response_code") == "1":
-            # Change 5 — Keep local update, but also store PS365 response id (if needed)
-            # Update PO status to GRN (Goods Received Note) on successful submission
+            # Explicitly change PO status to GRN in PS365
+            _ps365_change_po_status(po.code_365, PS365_GRN_STATUS_CODE, base_comment)
+
+            # Verification: Fetch PO after status change
+            try:
+                verify_params = {
+                    "token": POWERSOFT_TOKEN,
+                    "purchase_order_code": po.code_365,
+                    "is_shopping_cart_code": "N"
+                }
+                verify_url = f"{POWERSOFT_BASE}/purchaseorder?{urlencode(verify_params)}"
+                v_resp = requests.get(verify_url, timeout=30)
+                v_resp.raise_for_status()
+                v_data = v_resp.json()
+                v_hdr = v_data.get("order", {}).get("purchase_order_header", {})
+                logging.info("PS365 PO Verify - Status: %s (%s), Comment: %s", 
+                             v_hdr.get("order_status_code_365"), 
+                             v_hdr.get("order_status_name"),
+                             v_hdr.get("comments"))
+            except Exception as ve:
+                logging.warning("PS365 verification fetch failed: %s", str(ve))
+
+            # Update local PO status
             po.status_code = "GRN"
             po.status_name = "Goods Received"
-            po.is_archived = True  # Mark as completed/archived
+            po.is_archived = True
             db.session.commit()
-            print(f"DEBUG: Updated PO {po.code_365} status to GRN and archived")
             
             return {
                 'success': True,
