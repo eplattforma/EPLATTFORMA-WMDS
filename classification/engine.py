@@ -12,7 +12,9 @@ Orchestrates the reclassification process:
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+
+from sqlalchemy import or_
 
 from app import db
 from models import DwItem, WmsCategoryDefault, WmsItemOverride, WmsClassificationRun
@@ -34,8 +36,13 @@ from packing_profiles import upsert_packing_profile
 logger = logging.getLogger(__name__)
 
 
-def reclassify_items(run_by: str, threshold: int = 60, 
-                     summer_mode: bool = False) -> Dict[str, Any]:
+def reclassify_items(
+    run_by: str,
+    threshold: int = 60,
+    summer_mode: bool = False,
+    item_codes: Optional[List[str]] = None,
+    category_code: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Main classification engine entry point.
     
@@ -43,10 +50,18 @@ def reclassify_items(run_by: str, threshold: int = 60,
         run_by: Username of admin running classification
         threshold: Confidence threshold (default 60 for moderate mode)
         summer_mode: Whether to apply summer mode rules (cooler bags for heat-sensitive)
+        item_codes: Optional list of specific item codes to reclassify
+        category_code: Optional category code to filter items (use "__EMPTY__" for items without category)
     
     Returns:
         Dictionary with run statistics
     """
+    scope = "ALL"
+    if item_codes:
+        scope = f"ITEMS:{len(item_codes)}"
+    elif category_code is not None:
+        scope = f"CATEGORY:{category_code}"
+    
     run = WmsClassificationRun(
         started_at=datetime.utcnow(),
         run_by=run_by,
@@ -69,14 +84,26 @@ def reclassify_items(run_by: str, threshold: int = 60,
         # Load dynamic rules once for all items
         dynamic_rules_by_attr = load_active_rules()
         
-        active_items = DwItem.query.filter(DwItem.active == True).all()
+        # Build query with optional filters
+        q = DwItem.query.filter(DwItem.active == True)
+        
+        if item_codes:
+            q = q.filter(DwItem.item_code_365.in_(item_codes))
+        elif category_code is not None:
+            if category_code == "__EMPTY__":
+                q = q.filter(or_(DwItem.category_code_365.is_(None), DwItem.category_code_365 == ""))
+            else:
+                q = q.filter(DwItem.category_code_365 == category_code)
+        
+        active_items = q.all()
         
         items_scanned = len(active_items)
         items_updated = 0
         items_needing_review = 0
         
         for item in active_items:
-            cat_default = category_defaults.get(item.category_code_365)
+            cat_code = item.category_code_365 or "__EMPTY__"
+            cat_default = category_defaults.get(cat_code)
             item_override = item_overrides.get(item.item_code_365)
             updated = classify_single_item(
                 item, 
@@ -109,7 +136,7 @@ def reclassify_items(run_by: str, threshold: int = 60,
         run.active_items_scanned = items_scanned
         run.items_updated = items_updated
         run.items_needing_review = items_needing_review
-        run.notes = f"Completed successfully. Threshold: {threshold}, Summer mode: {summer_mode}"
+        run.notes = f"Scope={scope}; threshold={threshold}; summer_mode={summer_mode}; Completed successfully"
         db.session.commit()
         
         logger.info(f"Classification complete: {items_scanned} scanned, {items_updated} updated, {items_needing_review} need review")

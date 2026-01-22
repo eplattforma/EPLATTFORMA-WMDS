@@ -1,0 +1,241 @@
+Below are Replit-Agent-ready instructions to implement an automatic “refresh” so that ps_items_dw.wms_* and wms_packing_profile are kept in sync whenever you change category defaults / item overrides / rules—without requiring you to manually click “Reclassify”.
+The core idea is:
+
+
+Extend the existing classification job to support filtered reclassification (single SKU, category, or all).
+
+
+Trigger that job automatically after admin changes.
+
+
+Because classification.engine.reclassify_items() already calls classify_single_item() and upsert_packing_profile(), the refresh will update both tables correctly.
+
+
+
+Replit Agent Instructions
+1) Add “filtered reclassification” support in classification/engine.py
+File: classification/engine.py
+A. Update the function signature
+Change:
+def reclassify_items(run_by: str, threshold: int = 60, summer_mode: bool = False) -> Dict[str, Any]:
+
+to:
+from typing import Optional, List
+from sqlalchemy import or_
+
+def reclassify_items(
+    run_by: str,
+    threshold: int = 60,
+    summer_mode: bool = False,
+    item_codes: Optional[List[str]] = None,
+    category_code: Optional[str] = None,
+) -> Dict[str, Any]:
+
+B. Apply filters when selecting active items
+Replace:
+active_items = DwItem.query.filter(DwItem.active == True).all()
+
+with:
+q = DwItem.query.filter(DwItem.active == True)
+
+if item_codes:
+    q = q.filter(DwItem.item_code_365.in_(item_codes))
+elif category_code is not None:
+    # Support pseudo-category for "no category" items
+    if category_code == "__EMPTY__":
+        q = q.filter(or_(DwItem.category_code_365.is_(None), DwItem.category_code_365 == ""))
+    else:
+        q = q.filter(DwItem.category_code_365 == category_code)
+
+active_items = q.all()
+
+C. Ensure category defaults can apply to “no category” items
+Change:
+cat_default = category_defaults.get(item.category_code_365)
+
+to:
+cat_code = item.category_code_365 or "__EMPTY__"
+cat_default = category_defaults.get(cat_code)
+
+This allows you to store an internal default row in wms_category_defaults with category_code_365="__EMPTY__" (not a PS365 category), and have it apply to blank-category items.
+D. Add scope notes to the run record
+When creating the WmsClassificationRun, set something like:
+scope = "ALL"
+if item_codes:
+    scope = f"ITEMS:{len(item_codes)}"
+elif category_code is not None:
+    scope = f"CATEGORY:{category_code}"
+
+run.notes = f"Scope={scope}; threshold={threshold}; summer_mode={summer_mode}"
+
+So your status screen remains meaningful.
+
+2) Update routes_oi.py to trigger refresh automatically after changes
+File: routes_oi.py
+A. Update _run_classification_background() to accept filters
+Change:
+def _run_classification_background(username, summer_mode):
+
+to:
+def _run_classification_background(username, summer_mode, item_codes=None, category_code=None):
+
+and change the call to:
+result = reclassify_items(
+    run_by=username,
+    threshold=60,
+    summer_mode=summer_mode,
+    item_codes=item_codes,
+    category_code=category_code,
+)
+
+B. Create a helper to start the thread consistently
+Add a small helper in routes_oi.py (near oi_reclassify()):
+def _start_reclassify_thread(username, summer_mode, item_codes=None, category_code=None):
+    running_job = _get_running_classification()
+    if running_job:
+        return False  # job already running
+
+    thread = threading.Thread(
+        target=_run_classification_background,
+        args=(username, summer_mode, item_codes, category_code)
+    )
+    thread.daemon = True
+    thread.start()
+    return True
+
+C. Keep existing “Reclassify” button working (full run)
+In oi_reclassify() leave it as “all items”, but update to use the helper:
+started = _start_reclassify_thread(current_user.username, summer_mode)
+if not started:
+    flash('Classification is already running. Please wait for it to complete.', 'warning')
+    return redirect(url_for('oi_dashboard'))
+
+flash('Classification started in background. Refresh the page to check status.', 'info')
+return redirect(url_for('oi_dashboard'))
+
+
+3) Auto-refresh after category default changes (category-scoped refresh)
+File: routes_oi.py → function oi_category_defaults(category_code_365)
+At the end, replace the current flash:
+flash(f'Defaults saved for category {category_code_365}. Run reclassification to apply.', 'success')
+
+with:
+started = _start_reclassify_thread(
+    current_user.username,
+    summer_mode=False,
+    category_code=category_code_365
+)
+if started:
+    flash(f'Defaults saved for category {category_code_365}. Refresh started for that category.', 'success')
+else:
+    flash(f'Defaults saved for category {category_code_365}. A refresh is already running; run again after it completes.', 'warning')
+
+This will refresh only items in that category.
+Bulk category defaults
+In oi_category_defaults_bulk(), trigger full refresh (or keep as manual if you prefer). Minimal implementation:
+
+
+After commit, call _start_reclassify_thread(..., category_code=None, item_codes=None).
+
+
+
+4) Auto-refresh after SKU override changes (single-item refresh)
+File: routes_oi.py → function oi_item_override(item_code_365)
+Replace:
+flash(f'Override saved for {item_code_365}. Run reclassification to apply.', 'success')
+
+with:
+started = _start_reclassify_thread(
+    current_user.username,
+    summer_mode=False,
+    item_codes=[item_code_365]
+)
+if started:
+    flash(f'Override saved for {item_code_365}. Refresh started for this SKU.', 'success')
+else:
+    flash(f'Override saved for {item_code_365}. A refresh is already running; run again after it completes.', 'warning')
+
+Do the same in oi_override_disable() so disabling an override also refreshes the SKU.
+
+5) Auto-refresh after rule changes (full refresh)
+Dynamic rule changes potentially affect many SKUs, so the safest default is to refresh all active items.
+File: routes_oi.py → oi_rule_new(), oi_rule_edit(), oi_rule_toggle()
+Replace “Run reclassification to apply” messaging with:
+started = _start_reclassify_thread(current_user.username, summer_mode=False)
+if started:
+    flash('Rule saved. Full refresh started in background.', 'success')
+else:
+    flash('Rule saved. A refresh is already running; run again after it completes.', 'warning')
+
+This removes your manual step and ensures ps_items_dw.wms_* and wms_packing_profile stay synchronized.
+
+Validation Checklist (what to test)
+
+
+SKU override test
+
+
+
+
+Change an override for one SKU.
+
+
+Confirm wms_packing_profile.updated_at changes for that SKU.
+
+
+Confirm ps_items_dw.wms_* fields change if override affects them.
+
+
+
+
+Category default test
+
+
+
+
+Change defaults for one category.
+
+
+Confirm only SKUs in that category were scanned/updated (check run notes + counts).
+
+
+Confirm both ps_items_dw and wms_packing_profile updated.
+
+
+
+
+Rule change test
+
+
+
+
+Add a simple rule (e.g., name contains “SPRAY” ⇒ spill_risk=true).
+
+
+Confirm full refresh runs and affected SKUs reflect it.
+
+
+
+
+Concurrency
+
+
+
+
+Start a refresh; immediately save another override/default.
+
+
+Confirm the second one does not start a new job, and you get a “job already running” warning.
+
+
+
+Optional (recommended): “No Category defaults” without adding a PS365 category
+Create one internal row in wms_category_defaults with:
+
+
+category_code_365 = "__EMPTY__"
+and set your defaults there. With step 1C above, those defaults will apply automatically to blank-category items during refresh.
+
+
+
+If you want, I can also provide the exact code patches (diff-style) for the files above based on your current repo snapshot, but the steps here are already aligned with your existing architecture: background thread + WmsClassificationRun status + reclassify_items() updating both the item and packing profile layers.

@@ -155,8 +155,8 @@ def oi_dashboard():
                           last_completed=last_completed)
 
 
-def _run_classification_background(username, summer_mode):
-    """Run classification in background thread."""
+def _run_classification_background(username, summer_mode, item_codes=None, category_code=None):
+    """Run classification in background thread with optional filters."""
     try:
         from classification.engine import reclassify_items
         
@@ -164,7 +164,9 @@ def _run_classification_background(username, summer_mode):
             result = reclassify_items(
                 run_by=username,
                 threshold=60,
-                summer_mode=summer_mode
+                summer_mode=summer_mode,
+                item_codes=item_codes,
+                category_code=category_code,
             )
             
             activity = ActivityLog()
@@ -180,24 +182,32 @@ def _run_classification_background(username, summer_mode):
         logger.error(f"Background reclassification failed: {e}")
 
 
+def _start_reclassify_thread(username, summer_mode=False, item_codes=None, category_code=None):
+    """Helper to start reclassification thread consistently. Returns True if started, False if already running."""
+    running_job = _get_running_classification()
+    if running_job:
+        return False
+    
+    thread = threading.Thread(
+        target=_run_classification_background,
+        args=(username, summer_mode, item_codes, category_code)
+    )
+    thread.daemon = True
+    thread.start()
+    return True
+
+
 @app.route('/admin/oi/reclassify', methods=['POST'])
 @login_required
 @admin_required
 def oi_reclassify():
     """Trigger item reclassification in background."""
-    running_job = _get_running_classification()
-    if running_job:
-        flash('Classification is already running. Please wait for it to complete.', 'warning')
-        return redirect(url_for('oi_dashboard'))
-    
     summer_mode = request.form.get('summer_mode') == 'on'
     
-    thread = threading.Thread(
-        target=_run_classification_background,
-        args=(current_user.username, summer_mode)
-    )
-    thread.daemon = True
-    thread.start()
+    started = _start_reclassify_thread(current_user.username, summer_mode)
+    if not started:
+        flash('Classification is already running. Please wait for it to complete.', 'warning')
+        return redirect(url_for('oi_dashboard'))
     
     flash('Classification started in background. Refresh the page to check status.', 'info')
     return redirect(url_for('oi_dashboard'))
@@ -267,7 +277,21 @@ def oi_items_bulk_override():
     db.session.commit()
     
     if updated_count > 0:
-        flash(f'Bulk overrides saved for {updated_count} items. Run reclassification to apply.', 'success')
+        # Get item codes that were actually updated for targeted refresh
+        updated_item_codes = [code for code in item_codes if request.form.get(f'zone_{code}') or 
+                              request.form.get(f'fragility_{code}') or request.form.get(f'spill_{code}') or
+                              request.form.get(f'pressure_{code}') or request.form.get(f'temp_{code}') or
+                              request.form.get(f'boxfit_{code}') or request.form.get(f'pack_mode_{code}')]
+        
+        started = _start_reclassify_thread(
+            current_user.username,
+            summer_mode=False,
+            item_codes=updated_item_codes if len(updated_item_codes) <= 50 else None
+        )
+        if started:
+            flash(f'Bulk overrides saved for {updated_count} items. Refresh started.', 'success')
+        else:
+            flash(f'Bulk overrides saved for {updated_count} items. A refresh is already running; run again after it completes.', 'warning')
     else:
         flash('No changes detected.', 'info')
         
@@ -495,7 +519,16 @@ def oi_item_override(item_code_365):
     db.session.add(activity)
     db.session.commit()
     
-    flash(f'Override saved for {item_code_365}. Run reclassification to apply.', 'success')
+    # Auto-refresh classification for this single SKU
+    started = _start_reclassify_thread(
+        current_user.username,
+        summer_mode=False,
+        item_codes=[item_code_365]
+    )
+    if started:
+        flash(f'Override saved for {item_code_365}. Refresh started for this SKU.', 'success')
+    else:
+        flash(f'Override saved for {item_code_365}. A refresh is already running; run again after it completes.', 'warning')
     
     # Redirect back to item detail preserving return_url
     if return_url:
@@ -577,7 +610,16 @@ def oi_category_defaults(category_code_365):
     db.session.add(activity)
     db.session.commit()
     
-    flash(f'Defaults saved for category {category_code_365}. Run reclassification to apply.', 'success')
+    # Auto-refresh classification for items in this category
+    started = _start_reclassify_thread(
+        current_user.username,
+        summer_mode=False,
+        category_code=category_code_365
+    )
+    if started:
+        flash(f'Defaults saved for category {category_code_365}. Refresh started for that category.', 'success')
+    else:
+        flash(f'Defaults saved for category {category_code_365}. A refresh is already running; run again after it completes.', 'warning')
     return redirect(url_for('oi_categories'))
 
 
@@ -648,7 +690,12 @@ def oi_category_defaults_bulk():
     db.session.add(activity)
     db.session.commit()
     
-    flash('Category defaults saved. Run reclassification to apply changes.', 'success')
+    # Auto-refresh all items (bulk category changes can affect many SKUs)
+    started = _start_reclassify_thread(current_user.username, summer_mode=False)
+    if started:
+        flash('Category defaults saved. Full refresh started in background.', 'success')
+    else:
+        flash('Category defaults saved. A refresh is already running; run again after it completes.', 'warning')
     return redirect(url_for('oi_categories', saved='1'))
 
 
@@ -692,7 +739,16 @@ def oi_override_disable(item_code_365):
     override.updated_at = datetime.utcnow()
     db.session.commit()
     
-    flash(f'Override disabled for {item_code_365}. Run reclassification to apply.', 'success')
+    # Auto-refresh classification for this SKU
+    started = _start_reclassify_thread(
+        current_user.username,
+        summer_mode=False,
+        item_codes=[item_code_365]
+    )
+    if started:
+        flash(f'Override disabled for {item_code_365}. Refresh started for this SKU.', 'success')
+    else:
+        flash(f'Override disabled for {item_code_365}. A refresh is already running; run again after it completes.', 'warning')
     return redirect(url_for('oi_overrides'))
 
 
@@ -873,7 +929,12 @@ def oi_rule_new():
         db.session.add(activity)
         db.session.commit()
         
-        flash(f'Rule "{name}" created with {len(actions)} action(s). Run reclassification to apply.', 'success')
+        # Auto-refresh all items (rules can affect many SKUs)
+        started = _start_reclassify_thread(current_user.username, summer_mode=False)
+        if started:
+            flash(f'Rule "{name}" created with {len(actions)} action(s). Full refresh started in background.', 'success')
+        else:
+            flash(f'Rule "{name}" created with {len(actions)} action(s). A refresh is already running; run again after it completes.', 'warning')
         return redirect(url_for('oi_rules'))
     
     return render_template('admin/oi/rule_form.html',
@@ -988,7 +1049,12 @@ def oi_rule_edit(rule_id):
         db.session.add(activity)
         db.session.commit()
         
-        flash(f'Rule "{name}" updated with {len(actions)} action(s). Run reclassification to apply.', 'success')
+        # Auto-refresh all items (rules can affect many SKUs)
+        started = _start_reclassify_thread(current_user.username, summer_mode=False)
+        if started:
+            flash(f'Rule "{name}" updated with {len(actions)} action(s). Full refresh started in background.', 'success')
+        else:
+            flash(f'Rule "{name}" updated with {len(actions)} action(s). A refresh is already running; run again after it completes.', 'warning')
         return redirect(url_for('oi_rules'))
     
     # Parse existing conditions for form
@@ -1033,7 +1099,13 @@ def oi_rule_toggle(rule_id):
     db.session.commit()
     
     status = 'enabled' if rule.is_active else 'disabled'
-    flash(f'Rule "{rule.name}" {status}. Run reclassification to apply.', 'success')
+    
+    # Auto-refresh all items (rule toggle affects classification)
+    started = _start_reclassify_thread(current_user.username, summer_mode=False)
+    if started:
+        flash(f'Rule "{rule.name}" {status}. Full refresh started in background.', 'success')
+    else:
+        flash(f'Rule "{rule.name}" {status}. A refresh is already running; run again after it completes.', 'warning')
     return redirect(url_for('oi_rules'))
 
 
