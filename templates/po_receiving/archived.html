@@ -11,11 +11,30 @@
         </a>
     </div>
 
-    {% if order_data %}
-    <div class="alert alert-info mb-3">
-        <i class="fas fa-info-circle"></i> Showing {{ order_data|length }} archived purchase order(s)
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('po_receiving.archived') }}" class="row g-2">
+                <div class="col-md-10">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" name="search" class="form-control" placeholder="Search by PO number or supplier..." value="{{ search_query or '' }}">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Search</button>
+                </div>
+            </form>
+        </div>
     </div>
-    <div class="list-group">
+
+    {% if order_data %}
+    <div class="alert alert-info mb-3 d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-info-circle"></i> Showing {{ order_data|length }} archived purchase order(s)</span>
+        {% if search_query %}
+        <a href="{{ url_for('po_receiving.archived') }}" class="btn btn-sm btn-outline-info">Clear Search</a>
+        {% endif %}
+    </div>
+    <div class="list-group mb-4">
         {% for item in order_data %}
         <div class="list-group-item">
             <div class="d-flex justify-content-between align-items-start">
@@ -63,6 +82,32 @@
         </div>
         {% endfor %}
     </div>
+
+    {% if pagination and pagination.pages > 1 %}
+    <nav aria-label="Page navigation" class="mt-4">
+        <ul class="pagination justify-content-center">
+            <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+                <a class="page-item" href="{{ url_for('po_receiving.archived', page=pagination.prev_num, search=search_query) if pagination.has_prev else '#' }}">
+                    <span class="page-link">Previous</span>
+                </a>
+            </li>
+            
+            {% for page_num in pagination.iter_pages(left_edge=1, left_current=1, right_current=2, right_edge=1) %}
+                {% if page_num %}
+                    <li class="page-item {{ 'active' if page_num == pagination.page }}">
+                        <a class="page-link" href="{{ url_for('po_receiving.archived', page=page_num, search=search_query) }}">{{ page_num }}</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+            {% endfor %}
+
+            <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+                <a class="page-link" href="{{ url_for('po_receiving.archived', page=pagination.next_num, search=search_query) if pagination.has_next else '#' }}">Next</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
     {% else %}
     <div class="alert alert-info">
         <i class="fas fa-info-circle"></i> No archived purchase orders. Archive completed POs from the main list to keep it organized.

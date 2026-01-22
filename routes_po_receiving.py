@@ -1162,13 +1162,31 @@ def unarchive_po(po_id):
 @po_receiving_bp.route('/archived')
 @login_required
 def archived():
-    """List all archived purchase orders"""
+    """List archived purchase orders with search and pagination"""
     if not check_role_access():
         flash('Access denied', 'error')
         return redirect(url_for('dashboard'))
     
-    # Get all archived purchase orders
-    orders = PurchaseOrder.query.filter_by(is_archived=True).order_by(PurchaseOrder.archived_at.desc()).all()
+    search_query = request.args.get('search', '').strip()
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
+    
+    query = PurchaseOrder.query.filter_by(is_archived=True)
+    
+    if search_query:
+        query = query.filter(
+            or_(
+                PurchaseOrder.code_365.ilike(f'%{search_query}%'),
+                PurchaseOrder.shopping_cart_code.ilike(f'%{search_query}%'),
+                PurchaseOrder.supplier_name.ilike(f'%{search_query}%')
+            )
+        )
+    
+    pagination = query.order_by(PurchaseOrder.archived_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    orders = pagination.items
     
     # Calculate receiving progress for each order
     order_data = []
@@ -1190,7 +1208,10 @@ def archived():
             'is_complete': total_received >= total_ordered if total_ordered > 0 else False
         })
     
-    return render_template('po_receiving/archived.html', order_data=order_data)
+    return render_template('po_receiving/archived.html', 
+                           order_data=order_data, 
+                           pagination=pagination,
+                           search_query=search_query)
 
 @po_receiving_bp.route('/api/reset-receiving-line/<int:line_id>', methods=['POST'])
 @login_required
