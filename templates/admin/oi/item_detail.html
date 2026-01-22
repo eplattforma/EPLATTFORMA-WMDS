@@ -104,6 +104,11 @@
                         <tr><th>Pick Difficulty</th><td>{{ item.wms_pick_difficulty or '-' }}</td></tr>
                         <tr><th>Shelf Height</th><td>{{ item.wms_shelf_height or '-' }}</td></tr>
                         <tr><th>Box Fit Rule</th><td>{{ item.wms_box_fit_rule or '-' }}</td></tr>
+                        <tr><th>Pack Mode</th><td>
+                            {% if item.packing_profile %}
+                            <span class="badge bg-secondary">{{ item.packing_profile.pack_mode }}</span>
+                            {% else %}-{% endif %}
+                        </td></tr>
                     </table>
                     {% if item.wms_classified_at %}
                     <small class="text-muted">Last classified: {{ item.wms_classified_at.strftime('%Y-%m-%d %H:%M') }}</small>
@@ -205,6 +210,16 @@
                                 <option value="CARTON_HEAVY" {% if override and override.pack_mode_override == 'CARTON_HEAVY' %}selected{% endif %}>HEAVY (Carton)</option>
                                 <option value="CARTON_SMALL" {% if override and override.pack_mode_override == 'CARTON_SMALL' %}selected{% endif %}>SMALL (Carton)</option>
                                 <option value="OFF_PALLET" {% if override and override.pack_mode_override == 'OFF_PALLET' %}selected{% endif %}>OFF (Cooler)</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Pallet Role</label>
+                            <select class="form-select form-select-sm" name="pallet_role_override">
+                                <option value="">-- No Override --</option>
+                                <option value="BASE" {% if override and override.pallet_role_override == 'BASE' %}selected{% endif %}>BASE</option>
+                                <option value="MIDDLE" {% if override and override.pallet_role_override == 'MIDDLE' %}selected{% endif %}>MIDDLE</option>
+                                <option value="TOP_ONLY" {% if override and override.pallet_role_override == 'TOP_ONLY' %}selected{% endif %}>TOP_ONLY</option>
+                                <option value="OFF_PALLET" {% if override and override.pallet_role_override == 'OFF_PALLET' %}selected{% endif %}>OFF_PALLET</option>
                             </select>
                         </div>
                         <div class="mb-3">

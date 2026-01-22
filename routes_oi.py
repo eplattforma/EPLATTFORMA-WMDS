@@ -240,9 +240,10 @@ def oi_items_bulk_override():
         pressure = request.form.get(f'pressure_{code}')
         temp = request.form.get(f'temp_{code}')
         boxfit = request.form.get(f'boxfit_{code}')
+        packmode = request.form.get(f'pack_mode_{code}')
         
         # Check if anything is actually being overridden for this item
-        has_overrides = any([zone, fragility, spill, pressure, temp, boxfit])
+        has_overrides = any([zone, fragility, spill, pressure, temp, boxfit, packmode])
         
         if has_overrides:
             override = WmsItemOverride.query.get(code)
@@ -256,6 +257,7 @@ def oi_items_bulk_override():
             if pressure: override.pressure_sensitivity_override = pressure
             if temp: override.temperature_sensitivity_override = temp
             if boxfit: override.box_fit_rule_override = boxfit
+            if packmode: override.pack_mode_override = packmode
             
             override.updated_by = current_user.username
             override.updated_at = datetime.utcnow()
@@ -330,9 +332,12 @@ def oi_items():
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     items = pagination.items
     
-    # Pre-fetch category defaults to show inherited values
+    # Pre-fetch category defaults and item overrides for display
     category_codes = [i.category_code_365 for i in items if i.category_code_365]
     cat_defaults = {d.category_code_365: d for d in WmsCategoryDefault.query.filter(WmsCategoryDefault.category_code_365.in_(category_codes)).all()}
+    
+    item_codes = [i.item_code_365 for i in items]
+    overrides = {o.item_code_365: o for o in WmsItemOverride.query.filter(WmsItemOverride.item_code_365.in_(item_codes), WmsItemOverride.is_active == True).all()}
     
     categories = DwItemCategory.query.order_by(DwItemCategory.category_name).all()
     brands = DwBrand.query.order_by(DwBrand.brand_name).all()
@@ -345,6 +350,7 @@ def oi_items():
     return render_template('admin/oi/items.html',
                           items=items,
                           cat_defaults=cat_defaults,
+                          overrides=overrides,
                           pagination=pagination,
                           categories=categories,
                           brands=brands,
@@ -455,6 +461,11 @@ def oi_item_override(item_code_365):
         override.pack_mode_override = request.form.get('pack_mode_override')
     else:
         override.pack_mode_override = None
+
+    if request.form.get('pallet_role_override'):
+        override.pallet_role_override = request.form.get('pallet_role_override')
+    else:
+        override.pallet_role_override = None
     
     if request.form.get('pick_difficulty_override'):
         try:

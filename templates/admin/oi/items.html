@@ -102,6 +102,7 @@
                             <th>Temp</th>
                             <th>Box Fit</th>
                             <th>Confidence</th>
+                            <th>Pack Mode</th>
                             <th>Source</th>
                             <th></th>
                         </tr>
@@ -109,6 +110,7 @@
                     <tbody>
                         {% for item in items %}
                         {% set cat_def = cat_defaults.get(item.category_code_365) %}
+                        {% set override = overrides.get(item.item_code_365) %}
                         <tr class="{% if item.needs_review() %}table-warning{% endif %}">
                             <td>
                                 <input type="hidden" name="item_codes" value="{{ item.item_code_365 }}">
@@ -169,6 +171,15 @@
                                 {% if item.wms_class_confidence %}
                                 <small>{{ item.wms_class_confidence }}%</small>
                                 {% else %}-{% endif %}
+                            </td>
+                            <td>
+                                <select name="pack_mode_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if override and override.pack_mode_override %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <option value="">(inherited: {{ cat_def.default_pack_mode if cat_def and cat_def.default_pack_mode else '-' }})</option>
+                                    <option value="DIRECT_PALLET" {% if item.packing_profile and item.packing_profile.pack_mode == 'DIRECT_PALLET' %}selected{% endif %}>DIRECT</option>
+                                    <option value="CARTON_HEAVY" {% if item.packing_profile and item.packing_profile.pack_mode == 'CARTON_HEAVY' %}selected{% endif %}>HEAVY</option>
+                                    <option value="CARTON_SMALL" {% if item.packing_profile and item.packing_profile.pack_mode == 'CARTON_SMALL' %}selected{% endif %}>SMALL</option>
+                                    <option value="OFF_PALLET" {% if item.packing_profile and item.packing_profile.pack_mode == 'OFF_PALLET' %}selected{% endif %}>OFF</option>
+                                </select>
                             </td>
                             <td>
                                 <span class="badge {% if item.wms_class_source == 'MANUAL' %}bg-success{% else %}bg-secondary{% endif %} p-1" style="font-size: 0.65rem;">
