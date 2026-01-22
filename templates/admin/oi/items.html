@@ -240,7 +240,8 @@
                                     {% endif %}
                                 </div>
                                 <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
-                                    <span class="fw-bold">{{ item.packing_profile.pack_mode if item.packing_profile else '-' }}</span>
+                                    {% set profile = packing_profiles.get(item.item_code_365) %}
+                                    <span class="fw-bold">{{ profile.pack_mode if profile else '-' }}</span>
                                 </div>
                             </td>
                             <td>

@@ -339,6 +339,10 @@ def oi_items():
     item_codes = [i.item_code_365 for i in items]
     overrides = {o.item_code_365: o for o in WmsItemOverride.query.filter(WmsItemOverride.item_code_365.in_(item_codes), WmsItemOverride.is_active == True).all()}
     
+    # Pre-fetch packing profiles for pack_mode display
+    from models import WmsPackingProfile
+    packing_profiles = {p.item_code_365: p for p in WmsPackingProfile.query.filter(WmsPackingProfile.item_code_365.in_(item_codes)).all()}
+    
     categories = DwItemCategory.query.order_by(DwItemCategory.category_name).all()
     brands = DwBrand.query.order_by(DwBrand.brand_name).all()
     
@@ -351,6 +355,7 @@ def oi_items():
                           items=items,
                           cat_defaults=cat_defaults,
                           overrides=overrides,
+                          packing_profiles=packing_profiles,
                           pagination=pagination,
                           categories=categories,
                           brands=brands,
