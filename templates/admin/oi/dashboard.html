@@ -204,7 +204,7 @@
                                     {% if override.box_fit_rule_override %}<span class="badge bg-secondary">box-fit</span>{% endif %}
                                     {% if override.zone_override %}<span class="badge bg-secondary">zone</span>{% endif %}
                                 </td>
-                                <td>{{ override.override_reason[:50] }}{% if override.override_reason|length > 50 %}...{% endif %}</td>
+                                <td>{{ override.override_reason[:50] if override.override_reason else '' }}{% if override.override_reason and override.override_reason|length > 50 %}...{% endif %}</td>
                                 <td>{{ override.updated_by }}</td>
                                 <td>{{ override.updated_at.strftime('%d/%m %H:%M') if override.updated_at else 'N/A' }}</td>
                             </tr>
