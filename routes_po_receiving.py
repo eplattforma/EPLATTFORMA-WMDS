@@ -124,6 +124,17 @@ def send_receiving_to_ps365(session):
         }
 
     # Build the complete payload
+    extra_comment = (
+        getattr(session, "comments", None) or
+        getattr(session, "comment", None) or
+        getattr(session, "notes", None) or
+        ""
+    ).strip()
+
+    base_comment = f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}"
+    if extra_comment:
+        base_comment = f"{base_comment} | {extra_comment[:180]}"
+
     payload = {
         "api_credentials": {
             "token": POWERSOFT_TOKEN
@@ -132,7 +143,7 @@ def send_receiving_to_ps365(session):
             "user_code": session.operator or "warehouse_op",
             "order_type": "PurchaseOrder",
             "order_status_code_365": PS365_GRN_STATUS_CODE,  # Change 2 — Add order_status_code_365
-            "comment": f"GRN / Goods Received for {po.code_365 or po.shopping_cart_code} - Receipt {session.receipt_code}",
+            "comment": base_comment,
             "list_order_details": list_order_details
         }
     }
@@ -1264,6 +1275,24 @@ def update_description(po_id):
     db.session.commit()
     
     return jsonify({'success': True, 'description': po.description or ''})
+
+@po_receiving_bp.route('/api/update-comments/<int:session_id>', methods=['POST'])
+@login_required
+def update_comments(session_id):
+    """Update the comments for a receiving session"""
+    if not check_role_access():
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    session = ReceivingSession.query.get_or_404(session_id)
+    
+    data = request.get_json()
+    comments = data.get('comments', '').strip()
+    
+    # Update the comments
+    session.comments = comments if comments else None
+    db.session.commit()
+    
+    return jsonify({'success': True, 'comments': session.comments or ''})
 
 @po_receiving_bp.route('/api/refresh-shelf-locations/<int:po_id>', methods=['POST'])
 @login_required

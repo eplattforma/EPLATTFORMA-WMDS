@@ -233,15 +233,17 @@
                     {% else %}
                         -
                     {% endif %}
+                </td>
+                <td>
+                    {{ item.line.item_name or 'N/A' }}
                     {% if item.notes %}
-                        <div style="font-size: 9px; font-style: italic; margin-top: 3px; font-family: Arial;">
+                        <div style="font-size: 8px; font-style: italic; margin-top: 2px; color: #333;">
                             {% for note in item.notes %}
                                 <div>📝 {{ note }}</div>
                             {% endfor %}
                         </div>
                     {% endif %}
                 </td>
-                <td>{{ item.line.item_name or 'N/A' }}</td>
                 <td class="qty-cell" style="text-align: center;">{{ item.line.line_quantity|int }}</td>
                 <td class="shelf-cell">
                     {% if item.shelf_locations %}
