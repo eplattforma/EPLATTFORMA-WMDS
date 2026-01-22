@@ -114,15 +114,15 @@
                         <tr class="{% if item.needs_review() %}table-warning{% endif %}">
                             <td>
                                 <input type="hidden" name="item_codes" value="{{ item.item_code_365 }}">
-                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365, return_url=request.url) }}" style="font-size: 0.75rem;">
+                                <a href="{{ url_for('oi_item_detail', item_code_365=item.item_code_365, return_url=request.url) }}" style="font-size: 0.75rem; color: #ffffff !important;">
                                     {{ item.item_code_365 }}
                                 </a>
                             </td>
-                            <td><div style="font-size: 0.75rem; line-height: 1.1;">{{ item.item_name[:40] }}</div></td>
+                            <td><div style="font-size: 0.75rem; line-height: 1.1; color: #ffffff !important;">{{ item.item_name[:40] }}</div></td>
                             <td>
                                 {% set is_overridden = override and override.zone_override %}
                                 <div class="d-flex align-items-center">
-                                    <select name="zone_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <select name="zone_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success text-dark{% endif %}" style="font-size: 0.75rem;">
                                         <option value="">-- No Override --</option>
                                         {% for z in zones %}
                                         <option value="{{ z }}" {% if override and override.zone_override == z %}selected{% endif %}>{{ z }}</option>
@@ -132,14 +132,14 @@
                                     <i class="fas fa-user-edit ms-1 text-success" title="Manual Override: {{ override.zone_override }}" style="font-size: 0.7rem;"></i>
                                     {% endif %}
                                 </div>
-                                <div class="text-dark mt-1" style="font-size: 0.8rem;">
+                                <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
                                     <span class="fw-bold">{{ item.wms_zone or '-' }}</span>
                                 </div>
                             </td>
                             <td>
                                 {% set is_overridden = override and override.fragility_override %}
                                 <div class="d-flex align-items-center">
-                                    <select name="fragility_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <select name="fragility_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success text-dark{% endif %}" style="font-size: 0.75rem;">
                                         <option value="">-- No Override --</option>
                                         <option value="YES" {% if override and override.fragility_override == 'YES' %}selected{% endif %}>YES</option>
                                         <option value="SEMI" {% if override and override.fragility_override == 'SEMI' %}selected{% endif %}>SEMI</option>
@@ -149,14 +149,14 @@
                                     <i class="fas fa-user-edit ms-1 text-success" title="Manual Override: {{ override.fragility_override }}" style="font-size: 0.7rem;"></i>
                                     {% endif %}
                                 </div>
-                                <div class="text-dark mt-1" style="font-size: 0.8rem;">
+                                <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
                                     <span class="fw-bold">{{ item.wms_fragility or '-' }}</span>
                                 </div>
                             </td>
                             <td>
                                 {% set is_overridden = override and override.spill_risk_override is not none %}
                                 <div class="d-flex align-items-center">
-                                    <select name="spill_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <select name="spill_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success text-dark{% endif %}" style="font-size: 0.75rem;">
                                         <option value="">-- No Override --</option>
                                         <option value="true" {% if override and override.spill_risk_override == true %}selected{% endif %}>Yes</option>
                                         <option value="false" {% if override and override.spill_risk_override == false %}selected{% endif %}>No</option>
@@ -165,14 +165,14 @@
                                     <i class="fas fa-user-edit ms-1 text-success" title="Manual Override: {{ 'Yes' if override.spill_risk_override else 'No' }}" style="font-size: 0.7rem;"></i>
                                     {% endif %}
                                 </div>
-                                <div class="text-dark mt-1" style="font-size: 0.8rem;">
+                                <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
                                     <span class="fw-bold">{{ 'Yes' if item.wms_spill_risk else 'No' if item.wms_spill_risk == false else '-' }}</span>
                                 </div>
                             </td>
                             <td>
                                 {% set is_overridden = override and override.pressure_sensitivity_override %}
                                 <div class="d-flex align-items-center">
-                                    <select name="pressure_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <select name="pressure_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success text-dark{% endif %}" style="font-size: 0.75rem;">
                                         <option value="">-- No Override --</option>
                                         <option value="high" {% if override and override.pressure_sensitivity_override == 'high' %}selected{% endif %}>high</option>
                                         <option value="medium" {% if override and override.pressure_sensitivity_override == 'medium' %}selected{% endif %}>med</option>
@@ -182,14 +182,14 @@
                                     <i class="fas fa-user-edit ms-1 text-success" title="Manual Override: {{ override.pressure_sensitivity_override }}" style="font-size: 0.7rem;"></i>
                                     {% endif %}
                                 </div>
-                                <div class="text-dark mt-1" style="font-size: 0.8rem;">
+                                <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
                                     <span class="fw-bold">{{ item.wms_pressure_sensitivity or '-' }}</span>
                                 </div>
                             </td>
                             <td>
                                 {% set is_overridden = override and override.temperature_sensitivity_override %}
                                 <div class="d-flex align-items-center">
-                                    <select name="temp_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <select name="temp_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success text-dark{% endif %}" style="font-size: 0.75rem;">
                                         <option value="">-- No Override --</option>
                                         <option value="cool_required" {% if override and override.temperature_sensitivity_override == 'cool_required' %}selected{% endif %}>cool</option>
                                         <option value="heat_sensitive" {% if override and override.temperature_sensitivity_override == 'heat_sensitive' %}selected{% endif %}>heat</option>
@@ -199,14 +199,14 @@
                                     <i class="fas fa-user-edit ms-1 text-success" title="Manual Override: {{ override.temperature_sensitivity_override }}" style="font-size: 0.7rem;"></i>
                                     {% endif %}
                                 </div>
-                                <div class="text-dark mt-1" style="font-size: 0.8rem;">
+                                <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
                                     <span class="fw-bold">{{ item.wms_temperature_sensitivity or '-' }}</span>
                                 </div>
                             </td>
                             <td>
                                 {% set is_overridden = override and override.box_fit_rule_override %}
                                 <div class="d-flex align-items-center">
-                                    <select name="boxfit_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <select name="boxfit_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success text-dark{% endif %}" style="font-size: 0.75rem;">
                                         <option value="">-- No Override --</option>
                                         <option value="TOP" {% if override and override.box_fit_rule_override == 'TOP' %}selected{% endif %}>TOP</option>
                                         <option value="MIDDLE" {% if override and override.box_fit_rule_override == 'MIDDLE' %}selected{% endif %}>MID</option>
@@ -216,19 +216,19 @@
                                     <i class="fas fa-user-edit ms-1 text-success" title="Manual Override: {{ override.box_fit_rule_override }}" style="font-size: 0.7rem;"></i>
                                     {% endif %}
                                 </div>
-                                <div class="text-dark mt-1" style="font-size: 0.8rem;">
+                                <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
                                     <span class="fw-bold">{{ item.wms_box_fit_rule or '-' }}</span>
                                 </div>
                             </td>
                             <td>
                                 {% if item.wms_class_confidence %}
-                                <small>{{ item.wms_class_confidence }}%</small>
-                                {% else %}-{% endif %}
+                                <small style="color: #ffffff !important;">{{ item.wms_class_confidence }}%</small>
+                                {% else %}<span style="color: #ffffff !important;">-</span>{% endif %}
                             </td>
                             <td>
                                 {% set is_overridden = override and override.pack_mode_override %}
                                 <div class="d-flex align-items-center">
-                                    <select name="pack_mode_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success{% endif %}" style="font-size: 0.75rem;">
+                                    <select name="pack_mode_{{ item.item_code_365 }}" class="form-select form-select-sm p-0 {% if is_overridden %}bg-success-subtle border-success text-dark{% endif %}" style="font-size: 0.75rem;">
                                         <option value="">-- No Override --</option>
                                         <option value="DIRECT_PALLET" {% if override and override.pack_mode_override == 'DIRECT_PALLET' %}selected{% endif %}>DIRECT</option>
                                         <option value="CARTON_HEAVY" {% if override and override.pack_mode_override == 'CARTON_HEAVY' %}selected{% endif %}>HEAVY</option>
@@ -239,7 +239,7 @@
                                     <i class="fas fa-user-edit ms-1 text-success" title="Manual Override: {{ override.pack_mode_override }}" style="font-size: 0.7rem;"></i>
                                     {% endif %}
                                 </div>
-                                <div class="text-dark mt-1" style="font-size: 0.8rem;">
+                                <div class="mt-1" style="font-size: 0.8rem; color: #ffffff !important;">
                                     <span class="fw-bold">{{ item.packing_profile.pack_mode if item.packing_profile else '-' }}</span>
                                 </div>
                             </td>
