@@ -330,6 +330,10 @@ def oi_items():
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     items = pagination.items
     
+    # Pre-fetch category defaults to show inherited values
+    category_codes = [i.category_code_365 for i in items if i.category_code_365]
+    cat_defaults = {d.category_code_365: d for d in WmsCategoryDefault.query.filter(WmsCategoryDefault.category_code_365.in_(category_codes)).all()}
+    
     categories = DwItemCategory.query.order_by(DwItemCategory.category_name).all()
     brands = DwBrand.query.order_by(DwBrand.brand_name).all()
     
@@ -340,6 +344,7 @@ def oi_items():
     
     return render_template('admin/oi/items.html',
                           items=items,
+                          cat_defaults=cat_defaults,
                           pagination=pagination,
                           categories=categories,
                           brands=brands,
