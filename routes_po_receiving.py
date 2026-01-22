@@ -289,13 +289,16 @@ def upsert_purchase_order(order_data, username, force_reimport=False):
     # Find existing order
     query = PurchaseOrder.query
     if code_365:
-        query = query.filter_by(code_365=code_365)
+        # Prioritize matching by code_365 if available
+        existing = query.filter_by(code_365=code_365).first()
+        if not existing and sc_code:
+            # Fallback to shopping cart code if code_365 not found
+            existing = query.filter_by(shopping_cart_code=sc_code).first()
     elif sc_code:
-        query = query.filter_by(shopping_cart_code=sc_code)
+        existing = query.filter_by(shopping_cart_code=sc_code).first()
     else:
         raise RuntimeError("No valid purchase order code found")
     
-    existing = query.first()
     had_receiving_data = False
     
     if existing:
