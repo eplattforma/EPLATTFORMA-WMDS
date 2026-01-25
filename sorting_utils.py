@@ -136,8 +136,8 @@ def get_item_sort_key(item, sorting_config=None):
     enabled_fields = []
     
     if zone_config.get('enabled', True):
-        # Use zone from location parsing, fall back to item.zone
-        effective_zone = zone if zone else (item_zone if item_zone else 'MAIN')
+        # Use InvoiceItem.zone first (code from PS365 Attribute #3), fallback to MAIN
+        effective_zone = item_zone if item_zone else 'MAIN'
         manual_zones = zone_config.get('manual_priority', [])
         if manual_zones and effective_zone in manual_zones:
             # Zones in manual priority list get their index as sort key

@@ -105,6 +105,67 @@ def _upsert_dimension(session: Session, model, key_field: str, data: dict):
 
 
 # ----------------------
+# Attribute Dimension Sync Helper
+# ----------------------
+
+ATTRIBUTE_DIM_MODELS = {
+    1: (DwAttribute1, "attribute_1_code_365", "attribute_1_name", "attribute_1_secondary_code"),
+    2: (DwAttribute2, "attribute_2_code_365", "attribute_2_name", "attribute_2_secondary_code"),
+    3: (DwAttribute3, "attribute_3_code_365", "attribute_3_name", "attribute_3_secondary_code"),
+    4: (DwAttribute4, "attribute_4_code_365", "attribute_4_name", "attribute_4_secondary_code"),
+    5: (DwAttribute5, "attribute_5_code_365", "attribute_5_name", "attribute_5_secondary_code"),
+    6: (DwAttribute6, "attribute_6_code_365", "attribute_6_name", "attribute_6_secondary_code"),
+}
+
+
+def sync_attribute_dimension(session: Session, attr_no: int, page_size: int = 100) -> int:
+    """
+    Sync one PS365 attribute dimension (attr_no 1..6) into dw_attribute{n}.
+    Returns number of rows upserted.
+    """
+    if attr_no not in ATTRIBUTE_DIM_MODELS:
+        raise ValueError(f"attr_no must be 1..6, got {attr_no}")
+
+    model_cls, code_field, name_field, secondary_field = ATTRIBUTE_DIM_MODELS[attr_no]
+    upserted = 0
+    page = 1
+
+    while True:
+        resp = call_ps365(
+            "list_attributes",
+            {
+                "attributeNo": attr_no,
+                "page_number": page,
+                "page_size": page_size,
+            },
+            method="GET"
+        )
+
+        rows = resp.get("list_attributes") or resp.get("data") or []
+        if not rows:
+            break
+
+        for r in rows:
+            code = r.get("attribute_code_365") or r.get("code") or r.get("attributeCode")
+            if not code:
+                continue
+
+            payload = {
+                code_field: str(code).strip(),
+                name_field: (r.get("attribute_name") or r.get("name") or "").strip(),
+                secondary_field: r.get("attribute_secondary_code") or r.get("secondary_code") or r.get("other_name"),
+            }
+            payload["attr_hash"] = _compute_hash(payload)
+            _upsert_dimension(session, model_cls, code_field, payload)
+            upserted += 1
+
+        session.commit()
+        page += 1
+
+    return upserted
+
+
+# ----------------------
 # TEST: Fetch single item for debugging
 # ----------------------
 
@@ -637,6 +698,16 @@ def incremental_dw_update(session: Session):
     Shows which items have actual changes that will be updated.
     """
     logger.info("Starting incremental item update...")
+    
+    # Sync Attribute #3 (Zones) before items - ensures new zones are available
+    logger.info("Syncing Attribute 3 (Zones) before items...")
+    try:
+        n = sync_attribute_dimension(session, 3, page_size=100)
+        logger.info(f"Attribute 3 sync complete: upserted {n} zones")
+    except HTTPError as e:
+        logger.warning(f"Attribute 3 sync failed (HTTPError): {e}")
+    except Exception as e:
+        logger.warning(f"Attribute 3 sync failed (non-fatal): {e}")
     
     # Get last sync timestamp from database
     last_sync_result = session.query(DwItem).order_by(DwItem.last_sync_at.desc()).limit(1).first()

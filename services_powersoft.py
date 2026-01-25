@@ -103,7 +103,10 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
     
     # Prefetch attribute lookup tables once (avoid repeated queries)
     attr1_map = {a.attribute_1_code_365: a.attribute_1_name for a in DwAttribute1.query.all()}
-    attr3_map = {a.attribute_3_code_365: a.attribute_3_name for a in DwAttribute3.query.all()}
+    # Build zone maps: code-to-name (for display) and name-to-code (for backward compat)
+    attr3_rows = DwAttribute3.query.all()
+    attr3_code_to_name = {a.attribute_3_code_365: (a.attribute_3_name or a.attribute_3_code_365) for a in attr3_rows}
+    attr3_name_to_code = {(a.attribute_3_name or "").strip().upper(): a.attribute_3_code_365 for a in attr3_rows if a.attribute_3_name}
     
     try:
         page = 1
@@ -291,7 +294,16 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                         item_name = dw.item_name if dw else None
                         item_weight = float(dw.item_weight) if (dw and dw.item_weight) else 0.0
                         unit_type = attr1_map.get(dw.attribute_1_code_365) if (dw and dw.attribute_1_code_365) else None
-                        zone = attr3_map.get(dw.attribute_3_code_365) if (dw and dw.attribute_3_code_365) else None
+                        # Zone: use PS365 attribute_3 CODE directly, fallback to OI wms_zone
+                        zone = None
+                        if dw and dw.attribute_3_code_365:
+                            zone = dw.attribute_3_code_365  # Store CODE (e.g., STNR)
+                        elif dw:
+                            # Fallback to OI assigned zone when PS365 attr3 empty
+                            z = (dw.wms_zone or "").strip()
+                            if z:
+                                # If wms_zone is a name, convert to code; if already code, keep it
+                                zone = attr3_name_to_code.get(z.upper(), z)
                         number_of_pieces = int(dw.number_of_pieces) if (dw and dw.number_of_pieces) else None
                         selling_qty = int(dw.selling_qty) if (dw and dw.selling_qty) else None
 

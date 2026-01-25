@@ -24,12 +24,41 @@ from sqlalchemy import func, or_, text
 
 from app import app, db
 from models import (
-    DwItem, DwItemCategory, DwBrand, 
+    DwItem, DwItemCategory, DwBrand, DwAttribute3,
     WmsCategoryDefault, WmsItemOverride, WmsClassificationRun,
     WmsDynamicRule, ActivityLog
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_dynamic_target_attrs():
+    """
+    Build TARGET_ATTRS dict with zone values dynamically loaded from DwAttribute3.
+    This ensures new zones added in PS365 appear automatically in rule forms.
+    """
+    from classification.dynamic_rules import TARGET_ATTRS
+    
+    # Create a copy of TARGET_ATTRS to modify
+    target_attrs = dict(TARGET_ATTRS)
+    
+    # Load zone codes from DwAttribute3 (sorted)
+    zones = [z.attribute_3_code_365 for z in DwAttribute3.query.order_by(DwAttribute3.attribute_3_code_365).all()]
+    if zones:
+        target_attrs['zone'] = zones
+    
+    return target_attrs
+
+
+def _validate_zone_action(zone_code: str) -> tuple:
+    """
+    Validate that a zone code exists in DwAttribute3.
+    Returns (is_valid, error_message).
+    """
+    exists = DwAttribute3.query.filter_by(attribute_3_code_365=zone_code).first()
+    if exists:
+        return True, None
+    return False, f"Zone code '{zone_code}' not found in system. Sync Attribute 3 from PS365 first."
 
 
 def _get_running_classification():
@@ -874,7 +903,11 @@ def oi_rule_new():
         for i, (attr, val) in enumerate(zip(action_attrs, action_values)):
             if not attr or not val:
                 continue
-            is_valid, err = validate_target_attr(attr, val)
+            # Special validation for zone actions against DB
+            if attr == 'zone':
+                is_valid, err = _validate_zone_action(val)
+            else:
+                is_valid, err = validate_target_attr(attr, val)
             if not is_valid:
                 errors.append(f"Action {i+1}: {err}")
             else:
@@ -899,7 +932,7 @@ def oi_rule_new():
                                   rule=None,
                                   allowed_fields=ALLOWED_FIELDS,
                                   operators_by_type=OPERATORS_BY_TYPE,
-                                  target_attrs=TARGET_ATTRS,
+                                  target_attrs=_get_dynamic_target_attrs(),
                                   form_data=request.form)
         
         # Create rule - primary action from first action in list
@@ -941,7 +974,7 @@ def oi_rule_new():
                           rule=None,
                           allowed_fields=ALLOWED_FIELDS,
                           operators_by_type=OPERATORS_BY_TYPE,
-                          target_attrs=TARGET_ATTRS,
+                          target_attrs=_get_dynamic_target_attrs(),
                           existing_actions=None,
                           form_data=None)
 
@@ -999,7 +1032,11 @@ def oi_rule_edit(rule_id):
         for i, (attr, val) in enumerate(zip(action_attrs, action_values)):
             if not attr or not val:
                 continue
-            is_valid, err = validate_target_attr(attr, val)
+            # Special validation for zone actions against DB
+            if attr == 'zone':
+                is_valid, err = _validate_zone_action(val)
+            else:
+                is_valid, err = validate_target_attr(attr, val)
             if not is_valid:
                 errors.append(f"Action {i+1}: {err}")
             else:
@@ -1024,7 +1061,7 @@ def oi_rule_edit(rule_id):
                                   rule=rule,
                                   allowed_fields=ALLOWED_FIELDS,
                                   operators_by_type=OPERATORS_BY_TYPE,
-                                  target_attrs=TARGET_ATTRS,
+                                  target_attrs=_get_dynamic_target_attrs(),
                                   form_data=request.form)
         
         # Update rule - primary action from first action in list
@@ -1082,7 +1119,7 @@ def oi_rule_edit(rule_id):
                           existing_actions=existing_actions,
                           allowed_fields=ALLOWED_FIELDS,
                           operators_by_type=OPERATORS_BY_TYPE,
-                          target_attrs=TARGET_ATTRS,
+                          target_attrs=_get_dynamic_target_attrs(),
                           form_data=None)
 
 
@@ -1256,3 +1293,61 @@ def oi_rules_preview_matches():
         return jsonify({'error': str(e)}), 400
 
 
+@app.route('/admin/oi/normalize-zones', methods=['POST'])
+@login_required
+@admin_required
+def oi_normalize_zones():
+    """
+    One-time migration: Convert zone names to codes in invoice_items.
+    E.g., 'STATIONARY' -> 'STNR', 'SNACKS' -> 'SNACK'
+    """
+    from models import InvoiceItem
+    
+    # Build name-to-code mapping from DwAttribute3
+    attr3_rows = DwAttribute3.query.all()
+    name_to_code = {
+        (a.attribute_3_name or "").strip().upper(): a.attribute_3_code_365 
+        for a in attr3_rows if a.attribute_3_name
+    }
+    
+    if not name_to_code:
+        flash('No zone mappings found in DwAttribute3. Sync Attribute 3 first.', 'warning')
+        return redirect(url_for('oi_dashboard'))
+    
+    # Find all invoice items with zone values
+    items = InvoiceItem.query.filter(InvoiceItem.zone.isnot(None)).all()
+    
+    converted = 0
+    already_codes = 0
+    unmapped = []
+    
+    # Precompute code set for O(1) lookup
+    known_codes = {a.attribute_3_code_365 for a in attr3_rows}
+    
+    for item in items:
+        z = (item.zone or "").strip()
+        if not z:
+            continue
+        
+        # Check if it's already a known code (O(1) lookup)
+        if z in known_codes:
+            already_codes += 1
+            continue
+        
+        # Try to convert name to code
+        code = name_to_code.get(z.upper())
+        if code:
+            item.zone = code
+            converted += 1
+        else:
+            if z not in unmapped:
+                unmapped.append(z)
+    
+    db.session.commit()
+    
+    msg = f"Zone normalization complete: {converted} converted, {already_codes} already codes."
+    if unmapped:
+        msg += f" Unmapped values: {', '.join(unmapped[:10])}"
+    flash(msg, 'success' if not unmapped else 'warning')
+    
+    return redirect(url_for('oi_dashboard'))

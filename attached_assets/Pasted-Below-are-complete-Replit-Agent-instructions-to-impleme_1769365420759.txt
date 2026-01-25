@@ -1,0 +1,268 @@
+Below are complete Replit-Agent instructions to implement Option A (auto-sync Attribute #3 “Zones” during incremental updates), plus the related changes needed so new zones added in PS365:
+
+arrive in WMDS automatically
+
+never produce blank InvoiceItem.zone if the dimension hasn’t updated yet
+
+can be used in OI rules without hard-coding zone values
+
+can be used for picking sort and batch picking consistently
+
+I am writing this as an implementation checklist with concrete code blocks and where to put them.
+
+Replit Implementation Instructions — Auto-sync Zones (Attribute #3) + End-to-end Usage
+Overview of what to implement
+You will implement four changes:
+
+Incremental DW update will always refresh Attribute #3 from PS365 (Zones)
+
+Invoice sync will store InvoiceItem.zone as the ZONE CODE (e.g., STNR) and not the name; and it will fall back to the code even if name lookup fails
+
+OI rule UI/validation will load allowed zone values dynamically from dw_attribute3 so new zones appear automatically
+
+Picking sort and batch picking will use InvoiceItem.zone (code) consistently; UI can display names via mapping
+
+This gives you a stable system: PS365 is the authority for zone codes; WMDS syncs them; OI can assign codes; picking/batch uses codes.
+
+1) Auto-sync Attribute #3 during incremental updates (Option A)
+File: datawarehouse_sync.py
+Step 1.1 — Add a helper sync_attribute_dimension(session, attr_no)
+
+Add this function near your other DW sync helpers (below _upsert_dimension is a good place). Adjust import names to your project structure (you already import DwAttribute1..6 and call_ps365 here).
+
+from sqlalchemy.orm import Session
+from requests import HTTPError
+
+ATTRIBUTE_DIM_MODELS = {
+    1: ("DwAttribute1", "attribute_1_code_365", "attribute_1_name", "attribute_1_secondary_code"),
+    2: ("DwAttribute2", "attribute_2_code_365", "attribute_2_name", "attribute_2_secondary_code"),
+    3: ("DwAttribute3", "attribute_3_code_365", "attribute_3_name", "attribute_3_secondary_code"),
+    4: ("DwAttribute4", "attribute_4_code_365", "attribute_4_name", "attribute_4_secondary_code"),
+    5: ("DwAttribute5", "attribute_5_code_365", "attribute_5_name", "attribute_5_secondary_code"),
+    6: ("DwAttribute6", "attribute_6_code_365", "attribute_6_name", "attribute_6_secondary_code"),
+}
+
+def sync_attribute_dimension(session: Session, attr_no: int, page_size: int = 100) -> int:
+    """
+    Sync one PS365 attribute dimension (attr_no 1..6) into dw_attribute{n}.
+    Returns number of rows upserted.
+    """
+    if attr_no not in ATTRIBUTE_DIM_MODELS:
+        raise ValueError(f"attr_no must be 1..6, got {attr_no}")
+
+    # Resolve model classes from globals by name (keeps code compact)
+    model_name, code_field, name_field, secondary_field = ATTRIBUTE_DIM_MODELS[attr_no]
+    model_cls = globals().get(model_name)
+    if model_cls is None:
+        raise RuntimeError(f"Model {model_name} not found in datawarehouse_sync.py globals()")
+
+    upserted = 0
+    page = 1
+
+    while True:
+        # Your codebase uses call_ps365 already; keep consistent with the same auth pattern.
+        # Endpoint name is "list_attributes".
+        resp = call_ps365(
+            "list_attributes",
+            {
+                "attributeNo": attr_no,
+                "page_number": page,
+                "page_size": page_size,
+            },
+            method="GET"
+        )
+
+        rows = resp.get("list_attributes") or resp.get("data") or []
+        if not rows:
+            break
+
+        for r in rows:
+            # Map fields defensively (PS365 naming sometimes differs)
+            code = r.get("attribute_code_365") or r.get("code") or r.get("attributeCode")
+            if not code:
+                continue
+
+            payload = {
+                code_field: str(code).strip(),
+                name_field: (r.get("attribute_name") or r.get("name") or "").strip(),
+                secondary_field: (r.get("attribute_secondary_code") or r.get("secondary_code") or r.get("other_name")),
+            }
+            payload["attr_hash"] = _compute_hash(payload)
+            _upsert_dimension(session, model_cls, code_field, payload)
+            upserted += 1
+
+        session.commit()
+        page += 1
+
+    return upserted
+
+Step 1.2 — Call it inside incremental_dw_update() before syncing items
+
+Find incremental_dw_update(session, ...) and add at the start:
+
+logger.info("Incremental DW update: syncing Attribute 3 (Zones) before items...")
+try:
+    n = sync_attribute_dimension(session, 3, page_size=100)
+    logger.info(f"Attribute 3 sync complete: upserted {n} zones")
+except HTTPError as e:
+    # Do not fail the entire incremental update if the endpoint is temporarily unavailable
+    logger.warning(f"Attribute 3 sync failed (HTTPError): {e}")
+except Exception as e:
+    logger.warning(f"Attribute 3 sync failed (non-fatal): {e}")
+
+
+This makes new zones appear automatically whenever your nightly incremental job runs.
+
+2) Invoice sync: store zone CODE in InvoiceItem.zone (and never leave it blank)
+File: services_powersoft.py
+Step 2.1 — Build two maps: code→name, name→code (for display and compatibility)
+
+Where you currently build:
+
+attr3_map = {a.attribute_3_code_365: a.attribute_3_name for a in DwAttribute3.query.all()}
+
+
+Replace with:
+
+attr3_rows = DwAttribute3.query.all()
+attr3_code_to_name = {a.attribute_3_code_365: (a.attribute_3_name or a.attribute_3_code_365) for a in attr3_rows}
+attr3_name_to_code = { (a.attribute_3_name or "").strip().upper(): a.attribute_3_code_365 for a in attr3_rows if a.attribute_3_name }
+
+Step 2.2 — Set InvoiceItem.zone to the code (fallback to code if name not found)
+
+Replace your current assignment:
+
+zone = attr3_map.get(dw.attribute_3_code_365) if (dw and dw.attribute_3_code_365) else None
+
+
+With:
+
+zone = None
+if dw and dw.attribute_3_code_365:
+    zone = dw.attribute_3_code_365  # store CODE (e.g., STNR)
+elif dw:
+    # Fallback to OI assigned zone when PS365 attr3 empty
+    # Ensure it matches codes, not names.
+    # If dw.wms_zone currently stores names, convert if possible.
+    z = (dw.wms_zone or "").strip()
+    if z:
+        # If wms_zone is already a known code, keep it; if it's a name, map to code.
+        zone = attr3_name_to_code.get(z.upper(), z)
+
+Step 2.3 — Backward compatibility for existing invoices that stored zone NAME
+
+You may already have invoice_items with zone names (“STATIONARY”, “SNACKS”).
+Add a one-time migration script, OR apply a runtime normalization inside batch/picking views. I recommend the migration (cleaner).
+
+Create a quick CLI script (or admin route) to normalize zone names to codes:
+
+def normalize_invoice_item_zones():
+    rows = InvoiceItem.query.filter(InvoiceItem.zone.isnot(None)).all()
+    for r in rows:
+        z = (r.zone or "").strip()
+        if not z:
+            continue
+        # Convert known names to code
+        code = attr3_name_to_code.get(z.upper())
+        if code:
+            r.zone = code
+    db.session.commit()
+
+
+Run it once after deployment.
+
+3) OI Rules: Zone actions must come from dw_attribute3 (dynamic list)
+
+Right now, zone values in classification/dynamic_rules.py are hard-coded. That will not scale.
+
+File: routes_oi.py
+Step 3.1 — Build target_attrs dynamically before rendering rule forms
+
+Wherever you currently pass TARGET_ATTRS to templates (rule create/edit pages), replace with:
+
+from classification.dynamic_rules import TARGET_ATTRS
+
+target_attrs = dict(TARGET_ATTRS)
+
+# Dynamically load zone codes from DwAttribute3
+zones = [z.attribute_3_code_365 for z in DwAttribute3.query.order_by(DwAttribute3.attribute_3_code_365).all()]
+if zones:
+    target_attrs["zone"] = zones
+
+
+Then pass target_attrs instead of TARGET_ATTRS into the template.
+
+Step 3.2 — Validate zone values against DB, not hard-coded list
+
+In classification/dynamic_rules.py, your validate_actions() currently checks that values are in TARGET_ATTRS[target_attr]. That will fail for newly added zones if you don’t refresh code.
+
+Modify validation so that for target_attr == "zone", you accept any non-empty string and optionally validate against DB:
+
+Best practice: validate in routes layer (where DB is available) rather than in the pure module.
+
+In routes_oi.py, when saving a rule:
+
+if any action has target_attr == "zone", validate that action_value exists in DwAttribute3.attribute_3_code_365.
+If not found, return validation error: “Zone code not found; sync Attribute 3 first.”
+
+4) Use zone for picking sort and batch picking (code-safe)
+File: sorting_utils.py
+Step 4.1 — Stop overwriting zone from location corridor
+
+In extract_location_parts() remove/avoid:
+
+parts['zone'] = segments[0].strip()
+
+
+Zone should not be derived from corridor.
+
+Step 4.2 — In get_item_sort_key(), use InvoiceItem.zone first
+
+Ensure the effective zone uses the field on the item:
+
+effective_zone = item.zone or 'MAIN'
+
+
+If you have manual priority list support already, keep it.
+
+File: routes_batch.py and templates
+
+Batch filtering already uses InvoiceItem.zone. After change #2, it will now be codes. Update display labels:
+
+Build a mapping: code_to_name using DwAttribute3
+
+Show dropdown options as: STNR — STATIONARY, SNACK — SNACKS, etc.
+
+But keep the value as the code.
+
+Operational result (what you get)
+
+After deploying all of the above:
+
+You add a new zone in PS365 attribute #3 (e.g., CHEM = CHEMICALS)
+
+Your nightly incremental update runs
+
+WMDS automatically pulls CHEM into dw_attribute3
+
+Invoice sync stores InvoiceItem.zone = "CHEM" for items assigned in PS365
+
+Your OI rules UI automatically shows CHEM as an available action value
+
+Picking sort and batch picking can reliably process by zone code
+
+Final post-deploy checklist (Replit should run)
+
+Run incremental update once (or run attribute sync directly) to populate new dw_attribute3 rows
+
+Run the one-time normalize_invoice_item_zones() conversion script
+
+Create one test rule:
+
+If category_code_365 is_empty AND name contains “SPRAY”
+
+Action: zone = CHEM
+
+Create a batch session with zone filter CHEM and confirm it includes those lines
+
+Confirm picking order sorts by zone priority
