@@ -80,34 +80,33 @@ def numeric_sort_key(value, descending=False):
     Args:
         value: The value to create a sort key for
         descending: If True, invert values for descending sort
+    
+    Returns a tuple that can be compared for sorting.
+    For descending, we invert numeric values and letter ordinals.
     """
     if not value:
-        # Empty values sort first in asc, last in desc
-        if descending:
-            return ((2, 999999, ''),)  # Sort last
-        return ((0, -999999, ''),)  # Sort first
+        # Empty values sort last in both asc and desc
+        return (999999,)
         
-    parts = re.findall(r'(\d+|\D+)', str(value))
+    str_value = str(value)
+    parts = re.findall(r'(\d+|\D+)', str_value)
     
     final_result = []
     for part in parts:
         if part.isdigit():
             num = int(part)
             if descending:
-                # Invert numeric value for descending sort
-                num = -num
-            final_result.append((1, num, ''))
+                # Invert numeric value for descending sort (large numbers first)
+                num = 1000000 - num
+            final_result.append(num)
         else:
-            # For letters/strings, use inverted ord values for descending
-            if descending:
-                # Invert each character's ordinal value for descending sort
-                # Use a large base number minus ord to reverse alphabetical order
-                inverted_chars = tuple(1000 - ord(c.upper()) for c in part)
-                final_result.append((0, inverted_chars, part))
-            else:
-                # For ascending, use normal ord values
-                char_ords = tuple(ord(c.upper()) for c in part)
-                final_result.append((0, char_ords, part))
+            # For letters, convert to ordinal values
+            for c in part:
+                ord_val = ord(c.upper())
+                if descending:
+                    # Invert for descending (Z before A)
+                    ord_val = 1000 - ord_val
+                final_result.append(ord_val)
     
     return tuple(final_result)
 
