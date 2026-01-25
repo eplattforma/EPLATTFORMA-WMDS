@@ -79,7 +79,7 @@ def numeric_sort_key(value, descending=False):
     
     Args:
         value: The value to create a sort key for
-        descending: If True, invert numeric values for descending sort
+        descending: If True, invert values for descending sort
     """
     if not value:
         # Empty values sort first in asc, last in desc
@@ -98,7 +98,16 @@ def numeric_sort_key(value, descending=False):
                 num = -num
             final_result.append((1, num, ''))
         else:
-            final_result.append((0, 0, part))
+            # For letters/strings, use inverted ord values for descending
+            if descending:
+                # Invert each character's ordinal value for descending sort
+                # Use a large base number minus ord to reverse alphabetical order
+                inverted_chars = tuple(1000 - ord(c.upper()) for c in part)
+                final_result.append((0, inverted_chars, part))
+            else:
+                # For ascending, use normal ord values
+                char_ords = tuple(ord(c.upper()) for c in part)
+                final_result.append((0, char_ords, part))
     
     return tuple(final_result)
 
