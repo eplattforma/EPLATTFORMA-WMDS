@@ -74,17 +74,29 @@ def extract_location_parts(location):
     return parts
 
 
-def numeric_sort_key(value):
-    """Create a sort key that properly handles numeric values within strings"""
+def numeric_sort_key(value, descending=False):
+    """Create a sort key that properly handles numeric values within strings.
+    
+    Args:
+        value: The value to create a sort key for
+        descending: If True, invert numeric values for descending sort
+    """
     if not value:
-        return ('', 0)
+        # Empty values sort first in asc, last in desc
+        if descending:
+            return ((2, 999999, ''),)  # Sort last
+        return ((0, -999999, ''),)  # Sort first
         
     parts = re.findall(r'(\d+|\D+)', str(value))
     
     final_result = []
     for part in parts:
         if part.isdigit():
-            final_result.append((1, int(part), ''))
+            num = int(part)
+            if descending:
+                # Invert numeric value for descending sort
+                num = -num
+            final_result.append((1, num, ''))
         else:
             final_result.append((0, 0, part))
     
@@ -156,16 +168,20 @@ def get_item_sort_key(item, sorting_config=None):
         enabled_fields.append((zone_config.get('order', 1), 'zone', zone_key))
     
     if corridor_config.get('enabled', True):
-        enabled_fields.append((corridor_config.get('order', 2), 'corridor', numeric_sort_key(corridor)))
+        corridor_desc = corridor_config.get('direction') == 'desc'
+        enabled_fields.append((corridor_config.get('order', 2), 'corridor', numeric_sort_key(corridor, corridor_desc)))
     
     if shelf_config.get('enabled', True):
-        enabled_fields.append((shelf_config.get('order', 3), 'shelf', numeric_sort_key(shelf)))
+        shelf_desc = shelf_config.get('direction') == 'desc'
+        enabled_fields.append((shelf_config.get('order', 3), 'shelf', numeric_sort_key(shelf, shelf_desc)))
     
     if level_config.get('enabled', True):
-        enabled_fields.append((level_config.get('order', 4), 'level', numeric_sort_key(level)))
+        level_desc = level_config.get('direction') == 'desc'
+        enabled_fields.append((level_config.get('order', 4), 'level', numeric_sort_key(level, level_desc)))
     
     if bin_config.get('enabled', True):
-        enabled_fields.append((bin_config.get('order', 5), 'bin', numeric_sort_key(bin_val)))
+        bin_desc = bin_config.get('direction') == 'desc'
+        enabled_fields.append((bin_config.get('order', 5), 'bin', numeric_sort_key(bin_val, bin_desc)))
     
     # Sort by priority order and build final key
     enabled_fields.sort(key=lambda x: x[0])
