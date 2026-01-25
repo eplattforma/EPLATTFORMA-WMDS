@@ -68,4 +68,5 @@ Preferred communication style: Simple, everyday language.
 - **PostgreSQL 16**: Production database.
 
 ### Integrations
-- **PS365**: Used for automatic shelf location lookup, PO receiving, customer data synchronization, and integrated receipt system.
+- **PS365**: Used for automatic shelf location lookup, PO receiving, customer data synchronization, integrated receipt system, and zone (Attribute #3) synchronization.
+- **Zone Auto-Sync**: Attribute #3 (Zones) automatically syncs from PS365 during incremental updates. InvoiceItem.zone stores the PS365 zone CODE (e.g., "STNR") rather than the name. OI dynamic rules load zone options dynamically from dw_attribute3 table. Migration endpoint `/admin/oi/normalize-zones` converts legacy zone names to codes.
