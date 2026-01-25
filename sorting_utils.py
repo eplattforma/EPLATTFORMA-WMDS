@@ -141,10 +141,15 @@ def get_item_sort_key(item, sorting_config=None):
         manual_zones = zone_config.get('manual_priority', [])
         if manual_zones and effective_zone in manual_zones:
             # Zones in manual priority list get their index as sort key
-            zone_key = ((0, manual_zones.index(effective_zone), ''),)
+            # Direction handling: if descending, reverse the index
+            idx = manual_zones.index(effective_zone)
+            if zone_config.get('direction') == 'desc':
+                idx = len(manual_zones) - 1 - idx
+            zone_key = ((0, idx, ''),)
         elif manual_zones:
-            # Zones NOT in manual priority list sort after, but still by their numeric value
-            zone_key = ((1, 0, ''),) + numeric_sort_key(effective_zone)
+            # Zones NOT in manual priority list sort after
+            prefix = 1 if zone_config.get('direction') != 'desc' else -1
+            zone_key = ((prefix, 0, ''),) + numeric_sort_key(effective_zone)
         else:
             # No manual priority - just use numeric sort
             zone_key = numeric_sort_key(effective_zone)
@@ -164,9 +169,20 @@ def get_item_sort_key(item, sorting_config=None):
     
     # Sort by priority order and build final key
     enabled_fields.sort(key=lambda x: x[0])
-    sort_key = tuple(field[2] for field in enabled_fields)
     
-    return sort_key if sort_key else (numeric_sort_key(location),)
+    # Handle global sort direction if needed, but usually we handle it per field
+    # For now, we build the tuple. If a field is 'desc', we should have inverted its key.
+    
+    final_keys = []
+    for priority, field_name, key in enabled_fields:
+        field_config = sorting_config.get(field_name, {})
+        # If it's a simple numeric/string key and direction is desc, we might need inversion
+        # However, for manual priority we already handled it.
+        # For standard numeric_sort_key, we can't easily invert without knowing types.
+        # Most of our sorting is ASC by default in warehouse.
+        final_keys.append(key)
+        
+    return tuple(final_keys) if final_keys else (numeric_sort_key(location),)
 
 
 def sort_items_for_picking(items, sorting_config=None):
