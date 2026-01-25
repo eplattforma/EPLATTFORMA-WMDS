@@ -3095,12 +3095,9 @@ def batch_print_reports(batch_id):
         # Get all items for this invoice that are in the batch
         invoice_items = [item for item in all_invoice_items if item.invoice_no == invoice.invoice_no]
         
-        # Sort items using the canonical minimum position mapping from actual picking sequence
-        def get_item_order(item):
-            base = (item.invoice_no, item.item_code, item.location or '')
-            return (min_pos.get(base, 10**9), item.zone or '', item.corridor or '', item.location or '', item.item_code)
-        
-        invoice_items.sort(key=get_item_order)
+        # Sort items using the shared sorting utility
+        from sorting_utils import sort_items_for_picking
+        invoice_items = sort_items_for_picking(invoice_items)
         
         batch_picked = []
         manually_picked = []
