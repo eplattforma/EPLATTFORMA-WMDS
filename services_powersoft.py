@@ -164,6 +164,9 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                 break
             
             for inv in invoices:
+                invoice_committed = False
+                created_invoice = False
+                invoice_no_ps365 = None
                 try:
                     # Parse nested invoice structure
                     inv_obj = inv.get("invoice", inv)
@@ -196,12 +199,8 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                     except:
                         pass
                     
-                    # Track if this invoice was successfully committed (for estimator)
-                    invoice_committed = False
-                    
                     # 1. UPSERT INVOICE
                     invoice_record = Invoice.query.filter_by(invoice_no=invoice_no_ps365).first()
-                    created_invoice = False
                     if not invoice_record:
                         invoice_record = Invoice(
                             invoice_no=invoice_no_ps365,
