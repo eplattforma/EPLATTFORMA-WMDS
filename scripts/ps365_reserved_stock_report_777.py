@@ -9,7 +9,7 @@ import csv
 import math
 import time
 import requests
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_UP
 from datetime import datetime
 
 os.environ.setdefault("TZ", "Europe/Nicosia")
@@ -21,9 +21,8 @@ from models import Ps365ReservedStock777
 PS365_BASE_URL = os.getenv("PS365_BASE_URL", "").rstrip("/")
 PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 STORE_CODE = "777"
-PAGE_SIZE = int(os.getenv("PS365_PAGE_SIZE", "100"))
+PAGE_SIZE = 100
 TIMEOUT = 120
-CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "reports_cache")
 
 def d(v) -> Decimal:
     try:
@@ -43,21 +42,23 @@ def ps365_get(path: str, params: dict) -> dict:
             r.raise_for_status()
             return r.json()
         except Exception:
-            time.sleep(1.5 * attempt)
+            time.sleep(1 * attempt)
     return {}
 
 def build_rows() -> list:
-    data = ps365_get("list_stock_items_store", {
+    # 1) Get items with reservations in Store 777
+    id_list_data = ps365_get("list_stock_items_store", {
         "store_code_365": STORE_CODE,
         "available_stock_type": "all",
         "active_type": "all",
         "ecommerce_type": "all",
     })
-    total = int(data.get("total_count_list_items") or 0)
-    if total <= 0: return []
-
+    
+    total = int(id_list_data.get("total_count_list_items") or 0)
     pages = int(math.ceil(total / PAGE_SIZE))
-    reserved_items = []
+    reserved_item_data = {}
+    
+    print(f"Identifying items with reservations in Store {STORE_CODE}...")
     for p in range(1, pages + 1):
         page_data = ps365_get("list_stock_items_store", {
             "store_code_365": STORE_CODE,
@@ -70,39 +71,73 @@ def build_rows() -> list:
         rows = page_data.get("list_stock_stores_item") or page_data.get("list_stock_items_store") or []
         for r in rows:
             if d(r.get("stock_reserved")) > 0:
-                reserved_items.append(r)
+                code = r.get("item_code_365")
+                reserved_item_data[code] = {
+                    "stock": d(r.get("stock")),
+                    "stock_reserved": d(r.get("stock_reserved")),
+                    "item_name": r.get("item_name")
+                }
         time.sleep(0.05)
+    
+    if not reserved_item_data:
+        print("No items with reservations found.")
+        return []
 
+    print(f"Found {len(reserved_item_data)} items. Fetching all stock info...")
+    
     out = []
-    for r in reserved_items:
-        item_code = (r.get("item_code_365") or "").strip()
-        if not item_code: continue
+    item_codes = list(reserved_item_data.keys())
+    
+    # Process items to get accurate totals
+    for code in item_codes:
+        r_store = reserved_item_data[code]
         
-        item_data = ps365_get("item", {"item_code_365": item_code})
-        item = item_data.get("item") or {}
+        # We use list_items_stock (POST) for each item to get the most accurate 'total_stock_ordered'
+        # This endpoint is generally the source of truth for "On PO" across the system
+        url = f"{PS365_BASE_URL}/list_items_stock"
+        payload = {
+            "api_credentials": {"token": PS365_TOKEN},
+            "filter_define": {
+                "page_number": 1,
+                "page_size": 1,
+                "items_selection": code,
+                "analytical_per_store": False
+            }
+        }
         
-        stock = d(r.get("stock"))
-        stock_reserved = d(r.get("stock_reserved"))
-        available = stock - stock_reserved
+        stock_ordered = Decimal("0")
+        try:
+            resp = requests.post(url, json=payload, timeout=TIMEOUT)
+            if resp.status_code == 200:
+                data = resp.json().get("list_items_stock") or []
+                if data:
+                    # PS365 total_stock_ordered is the most reliable "On PO" field
+                    stock_ordered = d(data[0].get("total_stock_ordered"))
+        except Exception as e:
+            print(f"Error fetching ordered qty for {code}: {e}")
 
+        item_details = ps365_get("item", {"item_code_365": code})
+        item = item_details.get("item") or {}
+        
         out.append({
-            "item_code_365": item_code,
-            "item_name": r.get("item_name") or item.get("item_name") or "",
+            "item_code_365": code,
+            "item_name": r_store["item_name"] or item.get("item_name") or "",
             "season_name": item.get("season_name") or "",
             "number_of_pieces": int(d(item.get("number_of_pieces"))),
             "number_field_5_value": int(d(item.get("number_field_5_value"))),
-            "stock": stock,
-            "stock_reserved": stock_reserved,
-            "available_stock": available,
-            "stock_ordered": d(r.get("stock_ordered")),
+            "stock": r_store["stock"],
+            "stock_reserved": r_store["stock_reserved"],
+            "available_stock": r_store["stock"] - r_store["stock_reserved"],
+            "stock_ordered": stock_ordered,
             "store_code_365": STORE_CODE
         })
+        time.sleep(0.02) # Small throttle
+
     return out
 
 def save_to_db(rows: list) -> None:
     from flask import has_app_context
     now = datetime.utcnow()
-    
     def do_save():
         for row in rows:
             rec = Ps365ReservedStock777.query.get(row["item_code_365"])
@@ -128,7 +163,6 @@ def save_to_db(rows: list) -> None:
             do_save()
 
 def main():
-    os.makedirs(CACHE_DIR, exist_ok=True)
     rows = build_rows()
     if rows:
         save_to_db(rows)
