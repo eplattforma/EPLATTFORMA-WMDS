@@ -1,0 +1,290 @@
+Below is the cleanest way to build this report from Powersoft365, for store 777, including:
+
+Reserved qty on sales orders (PS365: stock_reserved)
+
+Available stock now (calculated as stock - stock_reserved)
+
+Season attribute (season_code_365, season_name)
+
+Qty on purchase orders (PS365: stock_ordered)
+
+Min order qty from number_field_5_value
+
+Plus the two fields you explicitly requested: number_of_pieces and number_field_5_value
+
+This solution uses:
+
+GET /list_stock_items_store to pull store-level stock + reserved + ordered for store 777
+
+GET /item to enrich each reserved item with season_code_365, number_of_pieces, number_field_5_value
+
+1) Add a DB table to store the latest report (recommended)
+
+Create / update your SQLAlchemy model (e.g., in models.py):
+
+from datetime import datetime
+from app import db
+
+class Ps365ReservedStock777(db.Model):
+    __tablename__ = "ps365_reserved_stock_777"
+
+    item_code_365 = db.Column(db.String(64), primary_key=True)
+    item_name = db.Column(db.String(255), nullable=False)
+
+    season_code_365 = db.Column(db.String(32), nullable=True)
+    season_name = db.Column(db.String(128), nullable=True)
+
+    number_of_pieces = db.Column(db.Numeric(18, 4), nullable=True)          # <- required
+    number_field_5_value = db.Column(db.Numeric(18, 4), nullable=True)      # <- required (min order qty)
+
+    store_code_365 = db.Column(db.String(16), nullable=False, default="777")
+
+    stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_reserved = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_ordered = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_on_transfer = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+
+    available_stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+
+    synced_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+Run your normal migration approach (or db.create_all() if that’s how your project is set up).
+
+2) Create the report script (pull PS365 → save DB → export CSV)
+
+Create: scripts/ps365_reserved_stock_report_777.py
+
+#!/usr/bin/env python3
+import os
+import csv
+import time
+import math
+import requests
+from decimal import Decimal, InvalidOperation
+from datetime import datetime
+
+# If your project requires TZ before importing app/models, keep it:
+os.environ.setdefault("TZ", "Europe/Nicosia")
+
+from app import app, db
+from models import Ps365ReservedStock777
+
+PS365_BASE_URL = os.getenv("PS365_BASE_URL", "").rstrip("/")
+PS365_TOKEN = os.getenv("PS365_TOKEN", "")
+STORE_CODE = "777"
+
+PAGE_SIZE = int(os.getenv("PS365_PAGE_SIZE", "100"))  # keep conservative unless you know PS365 allows more
+TIMEOUT = 120
+
+def d(v) -> Decimal:
+    try:
+        if v is None or v == "":
+            return Decimal("0")
+        return Decimal(str(v))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+def ps365_get(path: str, params: dict) -> dict:
+    if not PS365_BASE_URL or not PS365_TOKEN:
+        raise RuntimeError("PS365_BASE_URL and PS365_TOKEN must be set")
+
+    url = f"{PS365_BASE_URL}/{path.lstrip('/')}"
+    # PS365 GET endpoints in docs use token in querystring
+    params = dict(params or {})
+    params["token"] = PS365_TOKEN
+
+    # simple retry for transient issues
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            r = requests.get(url, params=params, timeout=TIMEOUT)
+            r.raise_for_status()
+            return r.json()
+        except Exception as exc:
+            last_exc = exc
+            time.sleep(1.5 * attempt)
+    raise last_exc
+
+def get_total_count_store_stock() -> int:
+    # First call (no paging) returns total_count_list_items per docs :contentReference[oaicite:2]{index=2}
+    data = ps365_get(
+        "list_stock_items_store",
+        {
+            "store_code_365": STORE_CODE,
+            "available_stock_type": "all",
+            "active_type": "all",
+            "ecommerce_type": "all",
+        },
+    )
+    return int(data.get("total_count_list_items") or 0)
+
+def get_store_stock_page(page_number: int) -> list[dict]:
+    data = ps365_get(
+        "list_stock_items_store",
+        {
+            "store_code_365": STORE_CODE,
+            "available_stock_type": "all",
+            "active_type": "all",
+            "ecommerce_type": "all",
+            "page_number": page_number,
+            "page_size": PAGE_SIZE,
+        },
+    )
+    return data.get("list_stock_stores_item") or []
+
+def get_item_details(item_code_365: str) -> dict:
+    # GET /item includes season_code_365, number_of_pieces, number_field_5_value :contentReference[oaicite:3]{index=3}
+    data = ps365_get("item", {"item_code_365": item_code_365})
+    return data.get("item") or {}
+
+def build_rows() -> list[dict]:
+    total = get_total_count_store_stock()
+    if total <= 0:
+        return []
+
+    pages = int(math.ceil(total / PAGE_SIZE))
+    reserved_items = []
+
+    for p in range(1, pages + 1):
+        page_rows = get_store_stock_page(p)
+        for r in page_rows:
+            if d(r.get("stock_reserved")) > 0:
+                reserved_items.append(r)
+
+        # small pacing to reduce risk of throttling/token issues
+        time.sleep(0.05)
+
+    # Enrich each reserved item with /item fields
+    out = []
+    for r in reserved_items:
+        item_code = (r.get("item_code_365") or "").strip()
+        if not item_code:
+            continue
+
+        item = get_item_details(item_code)
+        stock = d(r.get("stock"))
+        stock_reserved = d(r.get("stock_reserved"))
+        available = stock - stock_reserved  # “available now” (your requested field)
+
+        out.append({
+            "store_code_365": STORE_CODE,
+            "item_code_365": item_code,
+            "item_name": r.get("item_name") or item.get("item_name") or "",
+            "season_code_365": item.get("season_code_365") or "",
+            "season_name": item.get("season_name") or "",
+
+            # REQUIRED FIELDS YOU ASKED FOR:
+            "number_of_pieces": d(item.get("number_of_pieces")),
+            "number_field_5_value": d(item.get("number_field_5_value")),  # min order qty per your requirement
+
+            # STOCK POSITION (STORE 777):
+            "stock": stock,
+            "stock_reserved": stock_reserved,
+            "stock_ordered": d(r.get("stock_ordered")),
+            "stock_on_transfer": d(r.get("stock_on_transfer")),
+            "available_stock": available,
+        })
+
+        time.sleep(0.05)
+
+    return out
+
+def save_to_db(rows: list[dict]) -> None:
+    now = datetime.utcnow()
+    with app.app_context():
+        for row in rows:
+            rec = Ps365ReservedStock777.query.get(row["item_code_365"])
+            if not rec:
+                rec = Ps365ReservedStock777(item_code_365=row["item_code_365"])
+                db.session.add(rec)
+
+            rec.item_name = row["item_name"]
+            rec.season_code_365 = row["season_code_365"]
+            rec.season_name = row["season_name"]
+
+            rec.number_of_pieces = row["number_of_pieces"]
+            rec.number_field_5_value = row["number_field_5_value"]
+
+            rec.store_code_365 = row["store_code_365"]
+            rec.stock = row["stock"]
+            rec.stock_reserved = row["stock_reserved"]
+            rec.stock_ordered = row["stock_ordered"]
+            rec.stock_on_transfer = row["stock_on_transfer"]
+            rec.available_stock = row["available_stock"]
+
+            rec.synced_at = now
+
+        db.session.commit()
+
+def export_csv(rows: list[dict], filepath: str) -> None:
+    fieldnames = [
+        "store_code_365",
+        "item_code_365",
+        "item_name",
+        "season_code_365",
+        "season_name",
+        "number_of_pieces",
+        "number_field_5_value",
+        "stock",
+        "stock_reserved",
+        "available_stock",
+        "stock_ordered",
+        "stock_on_transfer",
+    ]
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for row in rows:
+            # serialize Decimals as strings to keep precision
+            rr = dict(row)
+            for k in ["number_of_pieces","number_field_5_value","stock","stock_reserved","available_stock","stock_ordered","stock_on_transfer"]:
+                rr[k] = str(rr[k])
+            w.writerow(rr)
+
+def main():
+    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    out_csv = f"reserved_stock_store_{STORE_CODE}_{stamp}.csv"
+
+    print(f"PS365 Reserved Stock Report (Store {STORE_CODE})")
+    rows = build_rows()
+    print(f"Reserved items found: {len(rows)}")
+
+    if rows:
+        save_to_db(rows)
+        export_csv(rows, out_csv)
+        print(f"Saved DB table: ps365_reserved_stock_777")
+        print(f"Exported CSV: {out_csv}")
+    else:
+        print("No reserved items found (stock_reserved <= 0 for all items).")
+
+if __name__ == "__main__":
+    main()
+
+
+What this script uses from PS365:
+
+list_stock_items_store returns stock, stock_reserved, stock_ordered per store
+
+item returns season_code_365, season_name, number_of_pieces, number_field_5_value
+
+3) How to run it on Replit
+
+Set secrets:
+
+PS365_BASE_URL (your API base, e.g. https://...)
+
+PS365_TOKEN (your token)
+
+optional PS365_PAGE_SIZE (default 100)
+
+Run:
+
+python scripts/ps365_reserved_stock_report_777.py
+
+
+You will get:
+
+DB refreshed table: ps365_reserved_stock_777
+
+A CSV exported in the project root (e.g. reserved_stock_store_777_YYYYMMDD_HHMMSS.csv)

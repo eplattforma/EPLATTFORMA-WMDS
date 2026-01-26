@@ -2176,3 +2176,31 @@ class WmsPalletOrder(db.Model):
     
     def __repr__(self):
         return f"<WmsPalletOrder {self.id} invoice={self.invoice_no} pallet={self.pallet_id}>"
+
+
+class Ps365ReservedStock777(db.Model):
+    """Reserved stock report for Store 777 - synced from PS365"""
+    __tablename__ = "ps365_reserved_stock_777"
+
+    item_code_365 = db.Column(db.String(64), primary_key=True)
+    item_name = db.Column(db.String(255), nullable=False)
+
+    season_code_365 = db.Column(db.String(32), nullable=True)
+    season_name = db.Column(db.String(128), nullable=True)
+
+    number_of_pieces = db.Column(db.Numeric(18, 4), nullable=True)
+    number_field_5_value = db.Column(db.Numeric(18, 4), nullable=True)
+
+    store_code_365 = db.Column(db.String(16), nullable=False, default="777")
+
+    stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_reserved = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_ordered = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_on_transfer = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+
+    available_stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+
+    synced_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+
+    def __repr__(self):
+        return f"<Ps365ReservedStock777 {self.item_code_365}>"

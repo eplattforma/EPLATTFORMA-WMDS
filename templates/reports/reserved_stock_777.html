@@ -1,68 +1,68 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container" style="max-width: 1400px;">
+<div class="container" style="max-width: 1600px;">
   <h2>Reserved Stock Report - Store 777</h2>
 
-  {% if not payload %}
+  {% if not rows %}
     <div class="alert alert-warning">
-      <p>No report cache found. Run the report generator first:</p>
-      <pre>python reports/ps365_reserved_stock_777_report.py</pre>
+      <p>No data found. Run the report sync first:</p>
+      <pre>python scripts/ps365_reserved_stock_report_777.py</pre>
     </div>
   {% else %}
     <p>
-      Captured at (UTC): <strong>{{ payload.captured_at_utc }}</strong><br>
-      Total Rows: <strong>{{ payload.count }}</strong> | 
-      Showing: <strong id="visibleCount">{{ payload.count }}</strong>
+      Last Synced (UTC): <strong>{{ synced_at.strftime('%Y-%m-%d %H:%M:%S') if synced_at else 'N/A' }}</strong><br>
+      Total Items: <strong>{{ count }}</strong> | 
+      Showing: <strong id="visibleCount">{{ count }}</strong>
     </p>
 
     <div class="row mb-3">
-      <div class="col-md-4">
+      <div class="col-md-3">
         <label for="seasonFilter" class="form-label">Filter by Season:</label>
         <select id="seasonFilter" class="form-select">
           <option value="">All Seasons</option>
-          {% set seasons = [] %}
-          {% for r in payload.rows %}
-            {% if r.season_name and r.season_name not in seasons %}
-              {% set _ = seasons.append(r.season_name) %}
-            {% endif %}
-          {% endfor %}
-          {% for season in seasons|sort %}
+          {% for season in seasons %}
             <option value="{{ season }}">{{ season }}</option>
           {% endfor %}
           <option value="__empty__">(No Season)</option>
         </select>
       </div>
-      <div class="col-md-8 d-flex align-items-end">
+      <div class="col-md-9 d-flex align-items-end">
         <a class="btn btn-primary me-2" href="{{ url_for('reports.reserved_stock_777_download') }}">Download CSV</a>
         <a class="btn btn-secondary" href="{{ url_for('reports.reserved_stock_777_refresh') }}">Refresh</a>
       </div>
     </div>
 
     <div style="overflow:auto; border: 1px solid #ddd;">
-      <table class="table table-striped table-sm" id="reportTable" style="min-width: 1200px;">
-        <thead>
+      <table class="table table-striped table-sm" id="reportTable" style="min-width: 1400px;">
+        <thead class="table-dark">
           <tr>
             <th>Item Code</th>
             <th>Item Name</th>
             <th>Season Code</th>
             <th>Season</th>
-            <th style="text-align:right;">Stock (777)</th>
-            <th style="text-align:right;">Reserved (777)</th>
-            <th style="text-align:right;">Available Now</th>
-            <th style="text-align:right;">On PO (Ordered)</th>
+            <th style="text-align:right;">Pieces/Unit</th>
+            <th style="text-align:right;">Min Order Qty</th>
+            <th style="text-align:right;">Stock</th>
+            <th style="text-align:right;">Reserved</th>
+            <th style="text-align:right;">Available</th>
+            <th style="text-align:right;">On PO</th>
+            <th style="text-align:right;">On Transfer</th>
           </tr>
         </thead>
         <tbody>
-          {% for r in payload.rows %}
+          {% for r in rows %}
           <tr data-season="{{ r.season_name or '' }}">
             <td>{{ r.item_code_365 }}</td>
             <td>{{ r.item_name }}</td>
-            <td>{{ r.season_code_365 }}</td>
-            <td>{{ r.season_name }}</td>
-            <td style="text-align:right;">{{ r.stock_777 }}</td>
-            <td style="text-align:right;"><strong>{{ r.reserved_777 }}</strong></td>
-            <td style="text-align:right;">{{ r.available_now_777 }}</td>
-            <td style="text-align:right;">{{ r.ordered_po_777 }}</td>
+            <td>{{ r.season_code_365 or '' }}</td>
+            <td>{{ r.season_name or '' }}</td>
+            <td style="text-align:right;">{{ r.number_of_pieces or 0 }}</td>
+            <td style="text-align:right;">{{ r.number_field_5_value or 0 }}</td>
+            <td style="text-align:right;">{{ r.stock }}</td>
+            <td style="text-align:right;"><strong>{{ r.stock_reserved }}</strong></td>
+            <td style="text-align:right;">{{ r.available_stock }}</td>
+            <td style="text-align:right;">{{ r.stock_ordered }}</td>
+            <td style="text-align:right;">{{ r.stock_on_transfer }}</td>
           </tr>
           {% endfor %}
         </tbody>
