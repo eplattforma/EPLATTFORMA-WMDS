@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container" style="max-width: 1400px;">
+  <h2>Reserved Stock Report - Store 777</h2>
+
+  {% if not payload %}
+    <div class="alert alert-warning">
+      <p>No report cache found. Run the report generator first:</p>
+      <pre>python reports/ps365_reserved_stock_777_report.py</pre>
+    </div>
+  {% else %}
+    <p>
+      Captured at (UTC): <strong>{{ payload.captured_at_utc }}</strong><br>
+      Rows: <strong>{{ payload.count }}</strong>
+    </p>
+
+    <p>
+      <a class="btn btn-primary" href="{{ url_for('reports.reserved_stock_777_download') }}">Download CSV</a>
+      <a class="btn btn-secondary" href="{{ url_for('reports.reserved_stock_777_refresh') }}">Refresh</a>
+    </p>
+
+    <div style="overflow:auto; border: 1px solid #ddd;">
+      <table class="table table-striped table-sm" style="min-width: 1200px;">
+        <thead>
+          <tr>
+            <th>Item Code</th>
+            <th>Item Name</th>
+            <th>Season Code</th>
+            <th>Season</th>
+            <th style="text-align:right;">Stock (777)</th>
+            <th style="text-align:right;">Reserved (777)</th>
+            <th style="text-align:right;">Available Now</th>
+            <th style="text-align:right;">On PO (Ordered)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in payload.rows %}
+          <tr>
+            <td>{{ r.item_code_365 }}</td>
+            <td>{{ r.item_name }}</td>
+            <td>{{ r.season_code_365 }}</td>
+            <td>{{ r.season_name }}</td>
+            <td style="text-align:right;">{{ r.stock_777 }}</td>
+            <td style="text-align:right;"><strong>{{ r.reserved_777 }}</strong></td>
+            <td style="text-align:right;">{{ r.available_now_777 }}</td>
+            <td style="text-align:right;">{{ r.ordered_po_777 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

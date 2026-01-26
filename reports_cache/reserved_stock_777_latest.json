@@ -1,0 +1,1957 @@
+{
+  "store_code": "777",
+  "captured_at_utc": "2026-01-26T13:26:03.674221+00:00",
+  "count": 195,
+  "rows": [
+    {
+      "item_code_365": "SNA-0105",
+      "item_name": "KATERINA PITTA SATZIS 180GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "65.0",
+      "reserved_777": "31.0",
+      "available_now_777": "34.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0016",
+      "item_name": "HARIBO GOLDBEAR 100g",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "116.0",
+      "reserved_777": "30.0",
+      "available_now_777": "86.0",
+      "ordered_po_777": "60.0"
+    },
+    {
+      "item_code_365": "COF-0017",
+      "item_name": "HARIBO PRIMAVERA-ERDBEEREN 100g",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "33.0",
+      "reserved_777": "30.0",
+      "available_now_777": "3.0",
+      "ordered_po_777": "120.0"
+    },
+    {
+      "item_code_365": "COF-0020",
+      "item_name": "HARIBO HAPPY CHERRIES 100g",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "113.0",
+      "reserved_777": "30.0",
+      "available_now_777": "83.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0080",
+      "item_name": "MALTESERS POUCH 175GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "187.0",
+      "reserved_777": "26.0",
+      "available_now_777": "161.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "GRO-0020",
+      "item_name": "ROYAL CRYSTAL SUGAR 1KG 1X10",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "75.0",
+      "reserved_777": "21.0",
+      "available_now_777": "54.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "TAC-0001",
+      "item_name": "RIZLA+ 120 FILTER TIPS ULTRA SLIMS 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "88.0",
+      "reserved_777": "21.0",
+      "available_now_777": "67.0",
+      "ordered_po_777": "50.0"
+    },
+    {
+      "item_code_365": "STA-0147",
+      "item_name": "SAX STAPLES 24/6, P1000-ZING",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "80.0",
+      "reserved_777": "20.0",
+      "available_now_777": "60.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "TAC-0027",
+      "item_name": "SMOKING BROWN REGULAR PAPER 60 LEAVES 1X50",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "20.0",
+      "reserved_777": "20.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SNA-0001",
+      "item_name": "PRINGLES ORIGINAL 165GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "164.0",
+      "reserved_777": "19.0",
+      "available_now_777": "145.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0029",
+      "item_name": "LOACKER FAMILY CREM COCOA 90GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "108.0",
+      "reserved_777": "17.0",
+      "available_now_777": "91.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0038",
+      "item_name": "OREO BISCUIT ROLL ORIGINAL 154GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "104.0",
+      "reserved_777": "15.0",
+      "available_now_777": "89.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "JUI-0019",
+      "item_name": "ALEO ALOE VERA POMEGRANATE 500ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "118.0",
+      "reserved_777": "15.0",
+      "available_now_777": "103.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ALC-0037",
+      "item_name": "JOHNNIE WALKER RED LABEL 1L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "17.0",
+      "reserved_777": "12.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0028",
+      "item_name": "LOACKER FAMILY NAPOLITANER 90GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "119.0",
+      "reserved_777": "12.0",
+      "available_now_777": "107.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0180",
+      "item_name": "ROKLIN ULTRA OCEAN 1L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "105.0",
+      "reserved_777": "12.0",
+      "available_now_777": "93.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0239",
+      "item_name": "FAIRY ULTRA ORIGINAL 350ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "49.0",
+      "reserved_777": "10.0",
+      "available_now_777": "39.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0240",
+      "item_name": "FAIRY ULTRA LEMON 350ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "50.0",
+      "reserved_777": "10.0",
+      "available_now_777": "40.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COR-0032",
+      "item_name": "TIPP-EX RAPID CORRECTION FLUID 20ml WHTE",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "20.0",
+      "reserved_777": "10.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "END-0001",
+      "item_name": "HELL ENERGY DRINK CLASSIC 250ml 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "111.0",
+      "reserved_777": "10.0",
+      "available_now_777": "101.0",
+      "ordered_po_777": "264.0"
+    },
+    {
+      "item_code_365": "BIS-0026",
+      "item_name": "LOACKER QUADRATINI NAPOLITANER 125GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "126.0",
+      "reserved_777": "9.0",
+      "available_now_777": "117.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0027",
+      "item_name": "LOACKER QUADRATINI CHOCOLATE 125GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "84.0",
+      "reserved_777": "9.0",
+      "available_now_777": "75.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0015",
+      "item_name": "HARIBO HAPPY COLA 100g",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "63.0",
+      "reserved_777": "8.0",
+      "available_now_777": "55.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0065",
+      "item_name": "ANTISEPTIC SPRAY 110ML Mr. Brewer",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "66.0",
+      "reserved_777": "8.0",
+      "available_now_777": "58.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0059",
+      "item_name": "GULLON MINI CRACKER 350GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "25.0",
+      "reserved_777": "6.0",
+      "available_now_777": "19.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0020",
+      "item_name": "EUREKA LIQUID LEMON 750ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "225.0",
+      "reserved_777": "6.0",
+      "available_now_777": "219.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "DAP-0008",
+      "item_name": "KOKO DAIRY FREE UNSWEETENED 1L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "40.0",
+      "reserved_777": "6.0",
+      "available_now_777": "34.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "GRO-0073",
+      "item_name": "MR NOODLES CHICKEN 280GR 4PCS",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "79.0",
+      "reserved_777": "6.0",
+      "available_now_777": "73.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "INC-0008",
+      "item_name": "CADBURY DRINKING CHOCOLATE 250GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "80.0",
+      "reserved_777": "6.0",
+      "available_now_777": "74.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "JUI-0018",
+      "item_name": "ALEO ALOE VERA STRAWBERRY 500ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "142.0",
+      "reserved_777": "6.0",
+      "available_now_777": "136.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0054",
+      "item_name": "LOACKER FAMILY PEANUT BUTTER 90GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "19.0",
+      "reserved_777": "5.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0209",
+      "item_name": "JOKER CHOCOLATE 25GR 1X5",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "38.0",
+      "reserved_777": "5.0",
+      "available_now_777": "33.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0011",
+      "item_name": "AROXOL SPRAY  FOR KATSARIDES AND ANTS 300ml",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "53.0",
+      "reserved_777": "5.0",
+      "available_now_777": "48.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0051",
+      "item_name": "TROLLI GUMMI SHARKS 100GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "44.0",
+      "reserved_777": "5.0",
+      "available_now_777": "39.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0066",
+      "item_name": "MAOAM KRACHER 200GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "36.0",
+      "reserved_777": "5.0",
+      "available_now_777": "31.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COR-0012",
+      "item_name": "DELI SCHOOL CORRECTION FLUID 10ML",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "10.0",
+      "reserved_777": "5.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0121",
+      "item_name": "PALMOLIVE SHAMPOO ALOE 350ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "55.0",
+      "reserved_777": "5.0",
+      "available_now_777": "50.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0042",
+      "item_name": "VIOLANTA OAT COOKIES WITH DARK CHOCOLATE 200GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "27.0",
+      "reserved_777": "4.0",
+      "available_now_777": "23.0",
+      "ordered_po_777": "36.0"
+    },
+    {
+      "item_code_365": "BIS-0043",
+      "item_name": "VIOLANTA OAT COOKIES WITH HONEY 200GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "50.0",
+      "reserved_777": "4.0",
+      "available_now_777": "46.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0044",
+      "item_name": "VIOLANTA OAT COOKIES WITH CRANBERRIES 200GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "50.0",
+      "reserved_777": "4.0",
+      "available_now_777": "46.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0121",
+      "item_name": "KINDER BUENO 43g 3PACK",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "96.0",
+      "reserved_777": "4.0",
+      "available_now_777": "92.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0004",
+      "item_name": "EUREKA EXTRA WITH VINEGAR 500ml",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "199.0",
+      "reserved_777": "4.0",
+      "available_now_777": "195.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0005",
+      "item_name": "FAMOZO FRESH TRIGGER 750ml",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "201.0",
+      "reserved_777": "4.0",
+      "available_now_777": "197.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0033",
+      "item_name": "DOMESTOS ORIGINAL BLEACH BLUE 750ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "33.0",
+      "reserved_777": "4.0",
+      "available_now_777": "29.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0064",
+      "item_name": "EUREKA MASSALIAS CLASSIC LIQUID 2.592L 57W",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "51.0",
+      "reserved_777": "4.0",
+      "available_now_777": "47.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0083",
+      "item_name": "FAIRY ULTRA LEMON 900ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "50.0",
+      "reserved_777": "4.0",
+      "available_now_777": "46.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0136",
+      "item_name": "EUREKA ACTIVE CARE 70W  3.5L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "113.0",
+      "reserved_777": "4.0",
+      "available_now_777": "109.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0191",
+      "item_name": "EUREKA EXTRA WITH VINEGAR 750ml",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "109.0",
+      "reserved_777": "4.0",
+      "available_now_777": "105.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0234",
+      "item_name": "COMFORT GOLD BLUEBERRIES AND PURPLE ORCHID FABRIC SOFTENER 2L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "18.0",
+      "reserved_777": "4.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COD-0007",
+      "item_name": "HALLS ORIGINAL TAB S/F 32GR 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "50.0",
+      "reserved_777": "4.0",
+      "available_now_777": "46.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COD-0008",
+      "item_name": "HALLS HONEY  LEMON TAB S/F 32GR 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "15.0",
+      "reserved_777": "4.0",
+      "available_now_777": "11.0",
+      "ordered_po_777": "84.0"
+    },
+    {
+      "item_code_365": "ECL-0007",
+      "item_name": "GARBAGE PREMIUM BAGS luxplast  54cm x 75cm 10PCS",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "42.0",
+      "reserved_777": "4.0",
+      "available_now_777": "38.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ICT-0019",
+      "item_name": "LIPTON  ICE TEA PEACH PET 500ML 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "17.0",
+      "reserved_777": "4.0",
+      "available_now_777": "13.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "KCO-0085",
+      "item_name": "PAPER CUP DOUBLE WALL 12-14oz 25PCS",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "163.0",
+      "reserved_777": "4.0",
+      "available_now_777": "159.0",
+      "ordered_po_777": "72.0"
+    },
+    {
+      "item_code_365": "PEC-0145",
+      "item_name": "SENSODYNE TOOTHPASTE REPAIR  PROTECT EXTRA FRESH 75 ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "10.0",
+      "reserved_777": "4.0",
+      "available_now_777": "6.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEF-0051",
+      "item_name": "PEDIGREE MARKIES 500GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "9.0",
+      "reserved_777": "4.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "12.0"
+    },
+    {
+      "item_code_365": "SCC-0003",
+      "item_name": "SDI LARGE CUTTER KNIFE WITH PUSH BRAKE",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "4.0",
+      "reserved_777": "4.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0004",
+      "item_name": "COCA COLA ZERO CAN 330ml 3X8",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "60.0",
+      "reserved_777": "4.0",
+      "available_now_777": "56.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ACM-0073",
+      "item_name": "MICRO SDHC 128GB CARD CLASS 10 -  MediaRange",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "34.0",
+      "reserved_777": "3.0",
+      "available_now_777": "31.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ALC-0044",
+      "item_name": "CHIVAS REGAL 12YO 70CL",
+      "season_code_365": "330",
+      "season_name": "ZOOM DRINGS",
+      "stock_777": "1.0",
+      "reserved_777": "3.0",
+      "available_now_777": "-2.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0011",
+      "item_name": "FROU FROU MORNING COFFEE CHOCO 100GR 6PACK",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "18.0",
+      "reserved_777": "3.0",
+      "available_now_777": "15.0",
+      "ordered_po_777": "10.0"
+    },
+    {
+      "item_code_365": "CER-0011",
+      "item_name": "KELLOGGS FROSTIES 330GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "21.0",
+      "reserved_777": "3.0",
+      "available_now_777": "18.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0029",
+      "item_name": "BOUNTY MILK BAR 57g 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "49.0",
+      "reserved_777": "3.0",
+      "available_now_777": "46.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0125",
+      "item_name": "CADBURY TWIRL MILK BAR 43g 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "58.83",
+      "reserved_777": "3.0",
+      "available_now_777": "55.83",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0187",
+      "item_name": "NESTLE CRUNCH WHITE 100GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "47.0",
+      "reserved_777": "3.0",
+      "available_now_777": "44.0",
+      "ordered_po_777": "80.0"
+    },
+    {
+      "item_code_365": "CLE-0163",
+      "item_name": "SEMANA FS. ELIXIR SENSUAL 1.7L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "35.0",
+      "reserved_777": "3.0",
+      "available_now_777": "32.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0166",
+      "item_name": "SEMANA FS. PURFUMES OF NIGHT MIDNIGHT BLUE 1.65L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "68.0",
+      "reserved_777": "3.0",
+      "available_now_777": "65.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0194",
+      "item_name": "FIORO TOILET LIQUID CLEANER BERRY BUBBLEGUM 750ml",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "96.0",
+      "reserved_777": "3.0",
+      "available_now_777": "93.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COD-0001",
+      "item_name": "HALLS CHERRY TAB S/F 32GR 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "29.0",
+      "reserved_777": "3.0",
+      "available_now_777": "26.0",
+      "ordered_po_777": "48.0"
+    },
+    {
+      "item_code_365": "COF-0006",
+      "item_name": "GIANT LOVE HEARTS 39g 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "9.0",
+      "reserved_777": "3.0",
+      "available_now_777": "6.0",
+      "ordered_po_777": "10.0"
+    },
+    {
+      "item_code_365": "COF-0090",
+      "item_name": "TROLLI STRAWBERRY KISS 100GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "63.0",
+      "reserved_777": "3.0",
+      "available_now_777": "60.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ENV-0019",
+      "item_name": "GOLDEN PRIME - BROWN ENV. PS 250X176MM 120GSM - 25 PCS PACK",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "3.0",
+      "reserved_777": "3.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "GLT-0019",
+      "item_name": "DELI TRANSPARENT TAPE  18MMX7.62M WITH DISPENSER BLISTER",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "0.0",
+      "reserved_777": "3.0",
+      "available_now_777": "-3.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "GRO-0072",
+      "item_name": "MR NOODLES BEEF 280GR 4PCS",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "57.0",
+      "reserved_777": "3.0",
+      "available_now_777": "54.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "INC-0007",
+      "item_name": "CADBURY COCOA 125GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "112.0",
+      "reserved_777": "3.0",
+      "available_now_777": "109.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "KCO-0052",
+      "item_name": "REUSABLE STRAWS FOR FREDDO COVERED 18cm 1000PCS",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "23.0",
+      "reserved_777": "3.0",
+      "available_now_777": "20.0",
+      "ordered_po_777": "20.0"
+    },
+    {
+      "item_code_365": "KCO-0074",
+      "item_name": "PAPER CUP HOLDER BOX 4 POSITIONS  50PCS KRAFT",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "20.0",
+      "reserved_777": "3.0",
+      "available_now_777": "17.0",
+      "ordered_po_777": "8.0"
+    },
+    {
+      "item_code_365": "KCO-0075",
+      "item_name": "PAPER CUP HOLDER BOX 2 POSITIONS  50PCS KRAFT",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "270.0",
+      "reserved_777": "3.0",
+      "available_now_777": "267.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0010",
+      "item_name": "PANTENE PROV SMOOTH SLEEK SHAMPOO 400ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "51.0",
+      "reserved_777": "3.0",
+      "available_now_777": "48.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0294",
+      "item_name": "NEUTRO DEO SPRAY POWDER FRESH 50ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "45.0",
+      "reserved_777": "3.0",
+      "available_now_777": "42.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "RUL-0022",
+      "item_name": "DELI PS RULER 20CM ASSORTED",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "3.0",
+      "reserved_777": "3.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SNA-0083",
+      "item_name": "LAYS SALTED 42GR 1X4",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "31.5",
+      "reserved_777": "3.0",
+      "available_now_777": "28.5",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0003",
+      "item_name": "COCA COLA CAN 330ml 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "118.0",
+      "reserved_777": "3.0",
+      "available_now_777": "115.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0041",
+      "item_name": "7UP ZERO 330ML CAN 3X8",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "10.0",
+      "reserved_777": "3.0",
+      "available_now_777": "7.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ACM-107",
+      "item_name": "CAR HOLDERRM C03- REMAX",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "14.0",
+      "reserved_777": "2.0",
+      "available_now_777": "12.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ALC-0015",
+      "item_name": "STOLICHNAYA VODKA 700ML",
+      "season_code_365": "330",
+      "season_name": "ZOOM DRINGS",
+      "stock_777": "18.0",
+      "reserved_777": "2.0",
+      "available_now_777": "16.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BEE-0001",
+      "item_name": "CARLSBERG CAN 500ML 2X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "15.0",
+      "reserved_777": "2.0",
+      "available_now_777": "13.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CER-0008",
+      "item_name": "KELLOGGS CHOCOS 330GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "86.0",
+      "reserved_777": "2.0",
+      "available_now_777": "84.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CER-0010",
+      "item_name": "KELLOGGS COCO POPS 330GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "17.0",
+      "reserved_777": "2.0",
+      "available_now_777": "15.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0011",
+      "item_name": "KIT KAT 4F WAFER BAR 41.5g 1X24 CY",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "93.0",
+      "reserved_777": "2.0",
+      "available_now_777": "91.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0027",
+      "item_name": "SNICKERS MILK BAR 50g 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "52.0",
+      "reserved_777": "2.0",
+      "available_now_777": "50.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0085",
+      "item_name": "CADBURY DAIRY MILK TAB 45g 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "31.0",
+      "reserved_777": "2.0",
+      "available_now_777": "29.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0122",
+      "item_name": "FERRERO NUTELLA BISCUIT T22 304GR 1X10",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "2.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0055",
+      "item_name": "COMFORT PURELY SOFT FABRIC SOFTENER 2L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "42.0",
+      "reserved_777": "2.0",
+      "available_now_777": "40.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0130",
+      "item_name": "EUREKA MASSALIAS COLORS LIQUID 2.59L 57W",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "61.0",
+      "reserved_777": "2.0",
+      "available_now_777": "59.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0137",
+      "item_name": "EUREKA EXPRESS POWDER 420GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "106.0",
+      "reserved_777": "2.0",
+      "available_now_777": "104.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0175",
+      "item_name": "ROKLIN ULTRA MIDNIGHT ROSE 1L",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "135.0",
+      "reserved_777": "2.0",
+      "available_now_777": "133.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "END-0003",
+      "item_name": "HELL ENERGY DRINK STRONG APPLE 250ml 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "40.0",
+      "reserved_777": "2.0",
+      "available_now_777": "38.0",
+      "ordered_po_777": "132.0"
+    },
+    {
+      "item_code_365": "END-0006",
+      "item_name": "HELL ENERGY DRINK CLASSIC 500ml 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "221.0",
+      "reserved_777": "2.0",
+      "available_now_777": "219.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "END-0011",
+      "item_name": "SHARK ENERGY DRINK 250ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "5.0",
+      "reserved_777": "2.0",
+      "available_now_777": "3.0",
+      "ordered_po_777": "10.0"
+    },
+    {
+      "item_code_365": "END-0069",
+      "item_name": "MONSTER ENERGY MANGO LOCO 500ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "2.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ENV-0015",
+      "item_name": "GOLDEN PRIME - BROWN ENV. PS 324X229MM 100GSM - 25 PCS PACK",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "2.0",
+      "reserved_777": "2.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "GIN-0002",
+      "item_name": "GORDONS LONDON DRY GIN 70CL",
+      "season_code_365": "330",
+      "season_name": "ZOOM DRINGS",
+      "stock_777": "0.0",
+      "reserved_777": "2.0",
+      "available_now_777": "-2.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "GRO-0021",
+      "item_name": "QUAKER OATS 500GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "2.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "KCO-0034",
+      "item_name": "PLASTIC CUPS 250ML 50PCS luxplust",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "116.0",
+      "reserved_777": "2.0",
+      "available_now_777": "114.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "MAR-0011",
+      "item_name": "PILOT MARKER PERMA FINE BLACK",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "3.0",
+      "reserved_777": "2.0",
+      "available_now_777": "1.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "MAR-0017",
+      "item_name": "PILOT MARKER PERMA FINE  RED",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "10.0",
+      "reserved_777": "2.0",
+      "available_now_777": "8.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0087",
+      "item_name": "PALMOLIVE SHAMPOO ANTI-DANDRUFF 350ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "40.0",
+      "reserved_777": "2.0",
+      "available_now_777": "38.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0096",
+      "item_name": "SEPTONA COTTON BUDS BIODEGRADABLE 200PCS",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "30.0",
+      "reserved_777": "2.0",
+      "available_now_777": "28.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0133",
+      "item_name": "WET HANKIES CLEAN  PROTECT ANTIVACTERIAL 15s 2+2FREE",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "28.0",
+      "reserved_777": "2.0",
+      "available_now_777": "26.0",
+      "ordered_po_777": "48.0"
+    },
+    {
+      "item_code_365": "PEC-0146",
+      "item_name": "SENSODYNE TOOTHPASTE REPAIR  PROTECT WHITENING 75 ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "35.0",
+      "reserved_777": "2.0",
+      "available_now_777": "33.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEF-0008",
+      "item_name": "FRISKIES DRY CAT FOOD BEEF 2kg",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "2.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEF-0020",
+      "item_name": "PEDIGREE DRY ADULT MINI BEEF  VEGETABLES 1.4KG",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "2.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "RUL-0018",
+      "item_name": "RUBBER BANDS 100 CREPE 50 GRAMS BOX - 60X1.2MM Blue",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "2.0",
+      "reserved_777": "2.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SNA-0062",
+      "item_name": "7DAYS BAKE ROLLS PIZZA 80GR 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "2.0",
+      "available_now_777": "4.0",
+      "ordered_po_777": "5.0"
+    },
+    {
+      "item_code_365": "SNA-0084",
+      "item_name": "LAYS SALT AND VINEGAR 42GR 1X4",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "2.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SNA-0085",
+      "item_name": "LAYS PRAWN COCKTAIL 42GR 1X4",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "23.25",
+      "reserved_777": "2.0",
+      "available_now_777": "21.25",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SNA-0086",
+      "item_name": "LAYS BARBEQUE 42GR 1X4",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "2.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0007",
+      "item_name": "COCA COLA PET 500ml 6X4",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "2.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0021",
+      "item_name": "PEPSI COLA 330ML CAN 3X8",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "14.0",
+      "reserved_777": "2.0",
+      "available_now_777": "12.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0024",
+      "item_name": "KEAN ORANGADE 250ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "4.0",
+      "reserved_777": "2.0",
+      "available_now_777": "2.0",
+      "ordered_po_777": "8.0"
+    },
+    {
+      "item_code_365": "ACM-0072",
+      "item_name": "CAR CHARGER 30W 1XUSB-A/1XUSB-C PORT-mediarange",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "25.0",
+      "reserved_777": "1.0",
+      "available_now_777": "24.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ACM-0105",
+      "item_name": "CABLE USB  to TYPE C RC-138A 1M- REMAX",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "46.0",
+      "reserved_777": "1.0",
+      "available_now_777": "45.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BAT-0031",
+      "item_name": "AAA Duracell PLUS POWERBOOST Batteries 4P 1X10",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "1.0",
+      "reserved_777": "1.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "6.0"
+    },
+    {
+      "item_code_365": "BIS-0012",
+      "item_name": "FROU FROU MORNING COFFEE 80GR 6PACK",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "28.0",
+      "reserved_777": "1.0",
+      "available_now_777": "27.0",
+      "ordered_po_777": "10.0"
+    },
+    {
+      "item_code_365": "BIS-0013",
+      "item_name": "FROU FROU MARIE FOURRE CHOC. 325GR 3PACK",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "1.0",
+      "available_now_777": "11.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0016",
+      "item_name": "FROU FROU MARIE FOURRE VANILLA  325GR 3PACK",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "23.0",
+      "reserved_777": "1.0",
+      "available_now_777": "22.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "BIS-0041",
+      "item_name": "OREO ORIGINAL BISCUITS 66GR 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "9.0",
+      "reserved_777": "1.0",
+      "available_now_777": "8.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHG-0017",
+      "item_name": "MENTOS STORMING SPEARMINT 33GR 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "1.0",
+      "available_now_777": "11.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHG-0033",
+      "item_name": "ORBIT REFRESHERS STRAWBERRY LEMON BTL 46P 67GR 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "1.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHG-0047",
+      "item_name": "TRIDENT LONG LASTING FLAVOUR STRAWBERRY 22GR 1X16",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "1.0",
+      "reserved_777": "1.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "11.0"
+    },
+    {
+      "item_code_365": "CHO-0010",
+      "item_name": "CADBURY DAIRY MILK TAB 110g 1X7",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "10.0",
+      "reserved_777": "1.0",
+      "available_now_777": "9.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0028",
+      "item_name": "TWIX TWIN MILK BAR 50g 1X25",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "34.0",
+      "reserved_777": "1.0",
+      "available_now_777": "33.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0031",
+      "item_name": "MALTESERS BITES 37g 1X25",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "23.0",
+      "reserved_777": "1.0",
+      "available_now_777": "22.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0040",
+      "item_name": "SNICKERS MILK BAR 2X37.5g 75g 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "27.0",
+      "reserved_777": "1.0",
+      "available_now_777": "26.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0041",
+      "item_name": "GALAXY SMOOTH MILK 42GR 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "1.0",
+      "available_now_777": "15.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0055",
+      "item_name": "FERRERO DUPLO 26g 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "14.0",
+      "reserved_777": "1.0",
+      "available_now_777": "13.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0066",
+      "item_name": "CORNY BIG CHOCOLATE 50GR 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "1.0",
+      "available_now_777": "11.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0067",
+      "item_name": "CORNY BIG CHOCOLATE BANANA 50GR 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "17.0",
+      "reserved_777": "1.0",
+      "available_now_777": "16.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0086",
+      "item_name": "CADBURY DAIRY MILK TAB WHOLE NUT 45g 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "24.0",
+      "reserved_777": "1.0",
+      "available_now_777": "23.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0116",
+      "item_name": "CADBURY DAIRY MILK WHOLE NUT TAB 120GR 1X8",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "3.0",
+      "reserved_777": "1.0",
+      "available_now_777": "2.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0185",
+      "item_name": "PAVLIDES KISS STRAWBERRY 27.5GR 1X25",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "15.0",
+      "reserved_777": "1.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0195",
+      "item_name": "PAVLIDES CHOCOLATE GEMISTI STRAWBERRY 100GR 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "10.0",
+      "reserved_777": "1.0",
+      "available_now_777": "9.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO-0214",
+      "item_name": "CADBURY FLAKE 32GR 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "8.0",
+      "reserved_777": "1.0",
+      "available_now_777": "7.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CHO9-0185",
+      "item_name": "PAVLIDES CHOCOLATE GEMISTI CHERRY 100GR 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "1.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CLE-0032",
+      "item_name": "CIF CREAM WHITE 500ML 4PACK",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "7.0",
+      "reserved_777": "1.0",
+      "available_now_777": "6.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COD-0011",
+      "item_name": "HALLS XSTRONG TAB S/F 32GR 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "9.0",
+      "reserved_777": "1.0",
+      "available_now_777": "8.0",
+      "ordered_po_777": "36.0"
+    },
+    {
+      "item_code_365": "COD-0017",
+      "item_name": "HALLS CINNAMON TAB S/F 32GR 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "1.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "6.0"
+    },
+    {
+      "item_code_365": "COD-0018",
+      "item_name": "HALLS SPEARMINT TAB S/F 32GR 1X20",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "13.0",
+      "reserved_777": "1.0",
+      "available_now_777": "12.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0004",
+      "item_name": "MEGA ROULETTE 45g 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "9.0",
+      "reserved_777": "1.0",
+      "available_now_777": "8.0",
+      "ordered_po_777": "6.0"
+    },
+    {
+      "item_code_365": "COF-0026",
+      "item_name": "POLO MINT ORIGINAL 34GR 1X32",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "1.0",
+      "available_now_777": "15.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0029",
+      "item_name": "TROLLI BURGER 50GR 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "11.0",
+      "reserved_777": "1.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0038",
+      "item_name": "PASTELAKI WITH PEANUTS LONG 50GR Ζaharia 1x15",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "34.0",
+      "reserved_777": "1.0",
+      "available_now_777": "33.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0042",
+      "item_name": "MENTOS FRUIT ROLL 38GR 1X40",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "8.0",
+      "reserved_777": "1.0",
+      "available_now_777": "7.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0053",
+      "item_name": "MAOAM 22GR 1X50",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "14.0",
+      "reserved_777": "1.0",
+      "available_now_777": "13.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COF-0055",
+      "item_name": "HARIBO SHAMALLOWS MALLOW MANIA 175GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "21.0",
+      "reserved_777": "1.0",
+      "available_now_777": "20.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "CON-0002",
+      "item_name": "DUREX PLEASUREMAX 3P 1X12",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "1.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "COO-0001",
+      "item_name": "DELI 11-HOLE MIRROR SURFACE SHEET PROTECTOR A4 0.035MM 100PK",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "1.0",
+      "reserved_777": "1.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "END-0012",
+      "item_name": "SHARK ENERGY RED BERRIES 250ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "1.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "10.0"
+    },
+    {
+      "item_code_365": "END-0019",
+      "item_name": "SHARK ENERGY APPLE  MELON 250ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "1.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "5.0"
+    },
+    {
+      "item_code_365": "END-0067",
+      "item_name": "MONSTER ENERGY GREEN ZERO 500ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "4.0",
+      "reserved_777": "1.0",
+      "available_now_777": "3.0",
+      "ordered_po_777": "5.0"
+    },
+    {
+      "item_code_365": "END-0072",
+      "item_name": "MONSTER ENERGY ULTRA ZERO 500ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "11.0",
+      "reserved_777": "1.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "5.0"
+    },
+    {
+      "item_code_365": "GLT-0010",
+      "item_name": "PANFIX CELLULOSE  TAPE 5/8   X 72 YARDS",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "15.0",
+      "reserved_777": "1.0",
+      "available_now_777": "14.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "GRO-0069",
+      "item_name": "ST. DALFOUR STRAWBERRY JAM 284GR",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "1.0",
+      "available_now_777": "15.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ICC-0013",
+      "item_name": "POKKA MILK COFFEE 240ML 1X30",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "43.0",
+      "reserved_777": "1.0",
+      "available_now_777": "42.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ICC-0043",
+      "item_name": "HELL ENERGY COFFEE LATTE 250ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "13.0",
+      "reserved_777": "1.0",
+      "available_now_777": "12.0",
+      "ordered_po_777": "48.0"
+    },
+    {
+      "item_code_365": "ICT-0016",
+      "item_name": "LIPTON GREEN ICE TEA LEMON 330ML 4X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "9.0",
+      "reserved_777": "1.0",
+      "available_now_777": "8.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "ICT-0027",
+      "item_name": "LIPTON ICE TEA TROPICAL 330ML 4X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "8.0",
+      "reserved_777": "1.0",
+      "available_now_777": "7.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "JUI-0014",
+      "item_name": "CAPRI-SUN MULTIVITAMIN 330ml 1X15",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "8.0",
+      "reserved_777": "1.0",
+      "available_now_777": "7.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "JUI-0020",
+      "item_name": "ALEO ALOE VERA MANGO 500ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "97.0",
+      "reserved_777": "1.0",
+      "available_now_777": "96.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "JUI-0026",
+      "item_name": "KEAN MANGO  RODI NECTAR JUICE 250ML 9PACK",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "22.0",
+      "reserved_777": "1.0",
+      "available_now_777": "21.0",
+      "ordered_po_777": "6.0"
+    },
+    {
+      "item_code_365": "JUI-0036",
+      "item_name": "KEANITA ORANGE FRUIT 250ML 3X9",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "8.0",
+      "reserved_777": "1.0",
+      "available_now_777": "7.0",
+      "ordered_po_777": "10.0"
+    },
+    {
+      "item_code_365": "PEC-0044",
+      "item_name": "DOVE DEO ORIGINAL 150ML 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "1.0",
+      "available_now_777": "15.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0047",
+      "item_name": "LISTERINE COOL MINT 250ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "26.0",
+      "reserved_777": "1.0",
+      "available_now_777": "25.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0124",
+      "item_name": "AXE DEO BODYSPRAY BLACK 150ML 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "11.0",
+      "reserved_777": "1.0",
+      "available_now_777": "10.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEC-0128",
+      "item_name": "BRYLCREEM ORIGINAL RED STYLING POT 250ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "26.0",
+      "reserved_777": "1.0",
+      "available_now_777": "25.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "PEF-0040",
+      "item_name": "SIMBA CAT FISH 415GR 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "3.0",
+      "reserved_777": "1.0",
+      "available_now_777": "2.0",
+      "ordered_po_777": "6.0"
+    },
+    {
+      "item_code_365": "SHA-0022",
+      "item_name": "GILLETTE CLASSIC FOAM REGULAR 200ML",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "21.0",
+      "reserved_777": "1.0",
+      "available_now_777": "20.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SNA-0094",
+      "item_name": "HANDY SKIPS BACON 65GR 1X3",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "16.0",
+      "reserved_777": "1.0",
+      "available_now_777": "15.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SNA-0101",
+      "item_name": "PELLITO SALTED PEANUTS 50gr 1X7",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "27.0",
+      "reserved_777": "1.0",
+      "available_now_777": "26.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0012",
+      "item_name": "COCA COLA PET 1.5L 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "36.0",
+      "reserved_777": "1.0",
+      "available_now_777": "35.0",
+      "ordered_po_777": "16.0"
+    },
+    {
+      "item_code_365": "SOD-0020",
+      "item_name": "7UP 330ML CAN 3X8",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "36.0",
+      "reserved_777": "1.0",
+      "available_now_777": "35.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0026",
+      "item_name": "VIMTO 250ML 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "7.0",
+      "reserved_777": "1.0",
+      "available_now_777": "6.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0042",
+      "item_name": "IVI SODA 330ML CAN 4X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "6.0",
+      "reserved_777": "1.0",
+      "available_now_777": "5.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SOD-0043",
+      "item_name": "PEPSI COLA PET 2L 1X8",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "22.0",
+      "reserved_777": "1.0",
+      "available_now_777": "21.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SPD-0026",
+      "item_name": "OSHEE SPORT DRINK ZERO MULTIFRUIT 750ML 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "20.0",
+      "reserved_777": "1.0",
+      "available_now_777": "19.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SPD-0027",
+      "item_name": "OSHEE SPORT DRINK RED ORANGE 750ML 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "18.0",
+      "reserved_777": "1.0",
+      "available_now_777": "17.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SPD-0028",
+      "item_name": "OSHEE SPORT DRINK ZERO LEMON 750ML 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "12.0",
+      "reserved_777": "1.0",
+      "available_now_777": "11.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "SRP-0003",
+      "item_name": "DELI TAPE DISPENSER LARGE",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "1.0",
+      "reserved_777": "1.0",
+      "available_now_777": "0.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "STA-0114",
+      "item_name": "GLOBULUS CLASSIC COPY PAPER A4 80GSM 5X500 SHEETS",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "8.0",
+      "reserved_777": "1.0",
+      "available_now_777": "7.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "STN-0003",
+      "item_name": "STICK  N 76X76MM 100 SHEETS PAD YELLOW",
+      "season_code_365": "350",
+      "season_name": "SPK",
+      "stock_777": "12.0",
+      "reserved_777": "1.0",
+      "available_now_777": "11.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "TAC-0004",
+      "item_name": "RIZLA+ 50 SILVER SUPER THIN PAPERS 1X100",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "26.0",
+      "reserved_777": "1.0",
+      "available_now_777": "25.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "TAC-0030",
+      "item_name": "SMOKING DELUXE ROLLS 4M+33 FILTER TIPS 1X24",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "26.0",
+      "reserved_777": "1.0",
+      "available_now_777": "25.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "WAT-0012",
+      "item_name": "OSHEE VITAMIN WATER RED GRAPE/DRAGON FRUIT 555ML 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "13.0",
+      "reserved_777": "1.0",
+      "available_now_777": "12.0",
+      "ordered_po_777": "0.0"
+    },
+    {
+      "item_code_365": "WAT-0014",
+      "item_name": "OSHEE VITAMIN WATER ZERO 555ML 1X6",
+      "season_code_365": "",
+      "season_name": "",
+      "stock_777": "10.0",
+      "reserved_777": "1.0",
+      "available_now_777": "9.0",
+      "ordered_po_777": "0.0"
+    }
+  ]
+}
