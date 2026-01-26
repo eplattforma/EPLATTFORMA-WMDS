@@ -1,0 +1,144 @@
+2026-01-26 13:11:06.23
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+2026-01-26 13:11:06.23
+e12b6b26
+User
+rv = self.handle_user_exception(e)
+2026-01-26 13:11:06.23
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+2026-01-26 13:11:06.23
+e12b6b26
+User
+ERROR:app:Exception on /admin/invoice/IN10053094/print [GET]
+2026-01-26 13:11:06.23
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:11:06.23
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:11:06.23
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:11:06.23
+e12b6b26
+User
+TypeError: '<' not supported between instances of 'tuple' and 'int'
+2026-01-26 13:11:06.23
+e12b6b26
+User
+return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args) # type: ignore[no-any-return]
+2026-01-26 13:11:06.23
+e12b6b26
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+2026-01-26 13:11:06.23
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+2026-01-26 13:11:06.23
+e12b6b26
+User
+response = self.full_dispatch_request()
+2026-01-26 13:11:06.23
+e12b6b26
+User
+rv = self.dispatch_request()
+2026-01-26 13:11:06.23
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+2026-01-26 13:11:06.23
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:12:15.36
+e12b6b26
+User
+WARNING:root:sort_items_for_picking failed, using unsorted fallback: '<' not supported between instances of 'tuple' and 'int'
+2026-01-26 13:12:15.60
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+2026-01-26 13:12:15.60
+e12b6b26
+User
+File "/home/runner/workspace/routes.py", line 3175, in print_invoice
+2026-01-26 13:12:15.60
+e12b6b26
+User
+TypeError: '<' not supported between instances of 'tuple' and 'int'
+2026-01-26 13:12:15.60
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:12:15.60
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:12:15.60
+e12b6b26
+User
+rv = self.handle_user_exception(e)
+2026-01-26 13:12:15.60
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+2026-01-26 13:12:15.60
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:12:15.60
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+2026-01-26 13:12:15.60
+e12b6b26
+User
+Traceback (most recent call last):
+2026-01-26 13:12:15.60
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+2026-01-26 13:12:15.60
+e12b6b26
+User
+return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args) # type: ignore[no-any-return]
+2026-01-26 13:12:15.60
+e12b6b26
+User
+response = self.full_dispatch_request()
+2026-01-26 13:12:15.60
+e12b6b26
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+2026-01-26 13:12:15.60
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-26 13:12:15.60
+e12b6b26
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+2026-01-26 13:12:15.60
+e12b6b26
+User
+manually_picked_by_zone[zone].sort(key=lambda x: get_item_sort_key(x))
+2026-01-26 13:12:15.60
+e12b6b26
+User
+rv = self.dispatch_request()
+2026-01-26 13:12:15.60
+e12b6b26
+User
+ERROR:app:Exception on /admin/invoice/IN10053094/print [GET]
+2026-01-26 13:12:15.60
+e12b6b26
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

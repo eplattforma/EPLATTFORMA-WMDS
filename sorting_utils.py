@@ -136,8 +136,7 @@ def get_item_sort_key(item, sorting_config=None):
     # If location is None/empty, sort last
     if parts.get('is_none', False):
         # Return a tuple that will sort after everything else
-        # Must match structure of normal keys: tuple of tuples with (type, int, str) format
-        return (((1, 999999, ''),),)
+        return ((999999,),)
     
     zone = parts['zone'] or ''
     corridor = parts['corridor'] or ''
@@ -165,11 +164,11 @@ def get_item_sort_key(item, sorting_config=None):
             idx = manual_zones.index(effective_zone)
             if zone_config.get('direction') == 'desc':
                 idx = len(manual_zones) - 1 - idx
-            zone_key = ((0, idx, ''),)
+            zone_key = (idx,)
         elif manual_zones:
-            # Zones NOT in manual priority list sort after
-            prefix = 1 if zone_config.get('direction') != 'desc' else -1
-            zone_key = ((prefix, 0, ''),) + numeric_sort_key(effective_zone)
+            # Zones NOT in manual priority list sort after all manual zones
+            base = len(manual_zones) if zone_config.get('direction') != 'desc' else -1
+            zone_key = (base,) + numeric_sort_key(effective_zone)
         else:
             # No manual priority - just use numeric sort
             zone_key = numeric_sort_key(effective_zone)
