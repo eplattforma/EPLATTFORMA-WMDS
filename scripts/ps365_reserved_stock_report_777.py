@@ -100,8 +100,10 @@ def build_rows() -> list:
     return out
 
 def save_to_db(rows: list) -> None:
+    from flask import has_app_context
     now = datetime.utcnow()
-    with app.app_context():
+    
+    def do_save():
         for row in rows:
             rec = Ps365ReservedStock777.query.get(row["item_code_365"])
             if not rec:
@@ -118,6 +120,12 @@ def save_to_db(rows: list) -> None:
             rec.available_stock = row["available_stock"]
             rec.synced_at = now
         db.session.commit()
+    
+    if has_app_context():
+        do_save()
+    else:
+        with app.app_context():
+            do_save()
 
 def main():
     os.makedirs(CACHE_DIR, exist_ok=True)

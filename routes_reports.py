@@ -63,12 +63,18 @@ def reserved_stock_777_refresh():
     if current_user.role not in ['admin', 'warehouse_manager']:
         flash("Access denied.", "danger")
         return redirect(url_for("reports.reserved_stock_777"))
-    import subprocess
+    
     try:
-        subprocess.run([sys.executable, "scripts/ps365_reserved_stock_report_777.py"], check=True)
-        flash("Report refreshed successfully.", "success")
+        from scripts.ps365_reserved_stock_report_777 import build_rows, save_to_db
+        rows = build_rows()
+        if rows:
+            save_to_db(rows)
+            flash(f"Report refreshed successfully. {len(rows)} items synced from PS365.", "success")
+        else:
+            flash("No items with reservations found.", "info")
     except Exception as e:
-        flash(f"Error: {str(e)}", "danger")
+        logger.error(f"Error refreshing report: {e}")
+        flash(f"Error refreshing: {str(e)}", "danger")
     return redirect(url_for("reports.reserved_stock_777"))
 
 
