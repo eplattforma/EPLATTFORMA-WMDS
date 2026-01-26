@@ -203,9 +203,24 @@ def get_item_sort_key(item, sorting_config=None):
             b_val = 1000000 - b_val
         field_keys['bin'] = (bin_config.get('order', 5), b_val)
     
-    # Sort fields by their configured order and extract values
-    sorted_fields = sorted(field_keys.items(), key=lambda x: x[1][0])
-    return tuple(fv[1] for fn, fv in sorted_fields)
+    # Build a consistent 5-tuple with all field values
+    # Use defaults if field not enabled
+    zone_val = field_keys.get('zone', (999, 9999))[1] if 'zone' in field_keys else 9999
+    corridor_val = field_keys.get('corridor', (999, 9999))[1] if 'corridor' in field_keys else 9999
+    shelf_val = field_keys.get('shelf', (999, 9999))[1] if 'shelf' in field_keys else 9999
+    level_val = field_keys.get('level', (999, 9999))[1] if 'level' in field_keys else 9999
+    bin_val_key = field_keys.get('bin', (999, 9999))[1] if 'bin' in field_keys else 9999
+    
+    # Sort fields by their configured order and build result
+    field_order = [
+        ('zone', zone_config.get('order', 1), zone_val),
+        ('corridor', corridor_config.get('order', 2), corridor_val),
+        ('shelf', shelf_config.get('order', 3), shelf_val),
+        ('level', level_config.get('order', 4), level_val),
+        ('bin', bin_config.get('order', 5), bin_val_key),
+    ]
+    sorted_fields = sorted(field_order, key=lambda x: x[1])
+    return tuple(f[2] for f in sorted_fields)
 
 
 def sort_items_for_picking(items, sorting_config=None):
