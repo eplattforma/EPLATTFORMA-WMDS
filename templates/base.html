@@ -106,6 +106,12 @@
                                     <i class="fas fa-stopwatch me-2"></i>Order Time Parameters
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'reports.reserved_stock_777' %}active{% endif %}" 
+                                   href="{{ url_for('reports.reserved_stock_777') }}">
+                                    <i class="fas fa-exchange-alt me-2"></i>Cross Shipping Orders
+                                </a>
+                            </li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <a class="dropdown-item {% if request.endpoint == 'import_excel' %}active{% endif %}" 
