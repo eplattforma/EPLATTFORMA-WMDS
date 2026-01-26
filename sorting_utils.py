@@ -116,9 +116,7 @@ def get_item_sort_key(item, sorting_config=None):
     Generate a sort key for an item based on configured sort order and enabled flags.
     Works with both InvoiceItem objects and dictionaries.
     
-    Args:
-        item: InvoiceItem object or dictionary with location/zone fields
-        sorting_config: Optional sorting configuration, will fetch from DB if not provided
+    Returns a flat tuple of integers for consistent comparison.
     """
     if sorting_config is None:
         sorting_config = get_sorting_config()
@@ -135,10 +133,8 @@ def get_item_sort_key(item, sorting_config=None):
     
     # If location is None/empty, sort last
     if parts.get('is_none', False):
-        # Return a tuple that will sort after everything else
-        return ((999999,),)
+        return (999999, 999999, 999999, 999999, 999999)
     
-    zone = parts['zone'] or ''
     corridor = parts['corridor'] or ''
     shelf = parts['shelf'] or ''
     level = parts['level'] or ''
@@ -151,61 +147,65 @@ def get_item_sort_key(item, sorting_config=None):
     level_config = sorting_config.get('level', {})
     bin_config = sorting_config.get('bin', {})
     
-    # Build list of (priority, field_name, key) for enabled fields only
-    enabled_fields = []
+    # Build field values with their sort keys
+    field_keys = {}
     
+    # Zone handling with manual priority
     if zone_config.get('enabled', True):
-        # Use InvoiceItem.zone first (code from PS365 Attribute #3), fallback to MAIN
         effective_zone = item_zone if item_zone else 'MAIN'
         manual_zones = zone_config.get('manual_priority', [])
         if manual_zones and effective_zone in manual_zones:
-            # Zones in manual priority list get their index as sort key
-            # Direction handling: if descending, reverse the index
             idx = manual_zones.index(effective_zone)
             if zone_config.get('direction') == 'desc':
                 idx = len(manual_zones) - 1 - idx
-            zone_key = (idx,)
+            zone_val = idx
         elif manual_zones:
-            # Zones NOT in manual priority list sort after all manual zones
-            base = len(manual_zones) if zone_config.get('direction') != 'desc' else -1
-            zone_key = (base,) + numeric_sort_key(effective_zone)
+            # Not in manual list - sort after
+            zone_val = len(manual_zones) + ord(effective_zone[0].upper()) if effective_zone else 9999
         else:
-            # No manual priority - just use numeric sort
-            zone_key = numeric_sort_key(effective_zone)
-        enabled_fields.append((zone_config.get('order', 1), 'zone', zone_key))
+            zone_val = ord(effective_zone[0].upper()) if effective_zone else 9999
+        field_keys['zone'] = (zone_config.get('order', 1), zone_val)
     
+    # Corridor - numeric
     if corridor_config.get('enabled', True):
-        corridor_desc = corridor_config.get('direction') == 'desc'
-        enabled_fields.append((corridor_config.get('order', 2), 'corridor', numeric_sort_key(corridor, corridor_desc)))
+        try:
+            c_val = int(corridor) if corridor else 9999
+        except ValueError:
+            c_val = ord(corridor[0].upper()) if corridor else 9999
+        if corridor_config.get('direction') == 'desc':
+            c_val = 1000000 - c_val
+        field_keys['corridor'] = (corridor_config.get('order', 2), c_val)
     
+    # Shelf - numeric
     if shelf_config.get('enabled', True):
-        shelf_desc = shelf_config.get('direction') == 'desc'
-        enabled_fields.append((shelf_config.get('order', 3), 'shelf', numeric_sort_key(shelf, shelf_desc)))
+        try:
+            s_val = int(shelf) if shelf else 9999
+        except ValueError:
+            s_val = ord(shelf[0].upper()) if shelf else 9999
+        if shelf_config.get('direction') == 'desc':
+            s_val = 1000000 - s_val
+        field_keys['shelf'] = (shelf_config.get('order', 3), s_val)
     
+    # Level - letter (A, B, C...)
     if level_config.get('enabled', True):
-        level_desc = level_config.get('direction') == 'desc'
-        enabled_fields.append((level_config.get('order', 4), 'level', numeric_sort_key(level, level_desc)))
+        l_val = ord(level[0].upper()) if level else 9999
+        if level_config.get('direction') == 'desc':
+            l_val = 1000 - l_val
+        field_keys['level'] = (level_config.get('order', 4), l_val)
     
+    # Bin - numeric
     if bin_config.get('enabled', True):
-        bin_desc = bin_config.get('direction') == 'desc'
-        enabled_fields.append((bin_config.get('order', 5), 'bin', numeric_sort_key(bin_val, bin_desc)))
+        try:
+            b_val = int(bin_val) if bin_val else 9999
+        except ValueError:
+            b_val = ord(bin_val[0].upper()) if bin_val else 9999
+        if bin_config.get('direction') == 'desc':
+            b_val = 1000000 - b_val
+        field_keys['bin'] = (bin_config.get('order', 5), b_val)
     
-    # Sort by priority order and build final key
-    enabled_fields.sort(key=lambda x: x[0])
-    
-    # Handle global sort direction if needed, but usually we handle it per field
-    # For now, we build the tuple. If a field is 'desc', we should have inverted its key.
-    
-    final_keys = []
-    for priority, field_name, key in enabled_fields:
-        field_config = sorting_config.get(field_name, {})
-        # If it's a simple numeric/string key and direction is desc, we might need inversion
-        # However, for manual priority we already handled it.
-        # For standard numeric_sort_key, we can't easily invert without knowing types.
-        # Most of our sorting is ASC by default in warehouse.
-        final_keys.append(key)
-        
-    return tuple(final_keys) if final_keys else (numeric_sort_key(location),)
+    # Sort fields by their configured order and extract values
+    sorted_fields = sorted(field_keys.items(), key=lambda x: x[1][0])
+    return tuple(fv[1] for fn, fv in sorted_fields)
 
 
 def sort_items_for_picking(items, sorting_config=None):
