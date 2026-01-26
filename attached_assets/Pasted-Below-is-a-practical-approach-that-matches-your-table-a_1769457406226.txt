@@ -1,0 +1,820 @@
+Below is a practical approach that matches your table and lets you send a PS365 Purchase Order containing ONLY the “Required” quantities (optionally adjusted for Min Order Qty), using PS365’s POST /purchaseorder “WITH ZERO VALUES” payload.
+
+1) How to calculate “Required” (matches your table logic)
+
+From PS365 (store 777) you can pull, per item:
+
+Stock = total_stock
+
+Customer Order (Reserved) = total_stock_reserved
+
+On PO = total_stock_ordered
+
+Then compute:
+
+Available = Stock - Customer Order
+
+Required = max(0, Customer Order - Stock - On PO)
+
+This ensures you order only the deficit, net of what is already on purchase orders.
+
+2) Where to get the extra item fields you requested
+
+Call GET /item for each item code to retrieve:
+
+season_code_365 / season_name
+
+number_of_pieces
+
+number_field_5_value (your Min Order Qty)
+
+3) How to send a PO with “Required quantity only”
+
+Use POST /purchaseorder and the “WITH ZERO VALUES” format (only header + item_code + line_quantity).
+PS365 returns the created PO code in api_response.response_id.
+
+Important note from the docs: “Order with zero values” requires PS365 to be configured to allow zero totals.
+
+4) Replit instructions (script included)
+Replit Secrets (Environment Variables)
+
+Create these in Replit → Secrets:
+
+PS365_BASE_URL (example: https://<yourserver>/api)
+
+PS365_TOKEN (your PS365 API token)
+
+Create this file
+
+Create: scripts/ps365_required_po_report.py
+
+#!/usr/bin/env python3
+"""
+Build a "Required PO" report for PS365 store 777 and optionally create Purchase Orders
+that contain ONLY the required quantities (using /purchaseorder "WITH ZERO VALUES").
+
+Sources:
+- POST /list_items_stock (store-filtered stock, reserved, ordered)  https://doc4api.powersoft365.com/list_items_stock  :contentReference[oaicite:6]{index=6}
+- GET  /item (season, number_of_pieces, number_field_5_value)      https://doc4api.powersoft365.com/item            :contentReference[oaicite:7]{index=7}
+- POST /purchaseorder (zero-values PO creation)                    https://doc4api.powersoft365.com/purchaseorder    :contentReference[oaicite:8]{index=8}
+"""
+
+import os
+import csv
+import argparse
+import requests
+from decimal import Decimal, ROUND_UP
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+
+def d(x) -> Decimal:
+    """Safe Decimal conversion from API floats/strings."""
+    if x is None or x == "":
+        return Decimal("0")
+    return Decimal(str(x))
+
+
+def ps365_get(base_url: str, endpoint: str, params: dict, timeout=120) -> dict:
+    url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+    r = requests.get(url, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def ps365_post(base_url: str, endpoint: str, payload: dict, timeout=120) -> dict:
+    url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+    r = requests.post(url, json=payload, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def fetch_items_stock_store(base_url: str, token: str, store_code: str, active_type="all", ecommerce_type="all"):
+    """
+    Pull ALL items stock rows for the selected store(s) and return list_items_stock.
+    Uses paging as per docs. :contentReference[oaicite:9]{index=9}
+    """
+    page_size = 100
+
+    # 1) Count
+    count_payload = {
+        "api_credentials": {"token": token},
+        "filter_define": {
+            "page_number": 1,
+            "page_size": page_size,
+            "only_counted": "Y",
+            "stores_selection": store_code,
+            "exclude_stores_selection": "",
+            "item_active_type": active_type,
+            "ecommerce_type": ecommerce_type,
+            "categories_selection": "",
+            "departments_selection": "",
+            "items_supplier_selection": "",
+            "brands_selection": "",
+            "seasons_selection": "",
+            "models_selection": "",
+            "items_selection": "",
+            "colours_selection": "",
+            "sizes_selection": "",
+            "sizes_group_selection": "",
+            "attributes_1_selection": "",
+            "attributes_2_selection": "",
+            "attributes_3_selection": "",
+            "attributes_4_selection": "",
+            "attributes_5_selection": "",
+            "attributes_6_selection": "",
+            "last_modified_from": "",
+            "last_modified_to": "",
+            "creation_date_from": "",
+            "creation_date_to": "",
+            "analytical_per_store": False,
+            "model_level": False
+        }
+    }
+    count_resp = ps365_post(base_url, "/list_items_stock", count_payload)
+    api = count_resp.get("api_response", {})
+    if api.get("response_code") != "1":
+        raise RuntimeError(f"PS365 /list_items_stock count failed: {api}")
+
+    total_items = int(count_resp.get("total_items", 0))
+    if total_items == 0:
+        return []
+
+    total_pages = (total_items + page_size - 1) // page_size
+
+    # 2) Pages
+    all_rows = []
+    for page in range(1, total_pages + 1):
+        payload = count_payload.copy()
+        payload["filter_define"] = payload["filter_define"].copy()
+        payload["filter_define"]["only_counted"] = "N"
+        payload["filter_define"]["page_number"] = page
+
+        resp = ps365_post(base_url, "/list_items_stock", payload)
+        api = resp.get("api_response", {})
+        if api.get("response_code") != "1":
+            raise RuntimeError(f"PS365 /list_items_stock page {page} failed: {api}")
+
+        rows = resp.get("list_items_stock") or []
+        all_rows.extend(rows)
+
+    return all_rows
+
+
+def fetch_item_details(base_url: str, token: str, item_code: str) -> dict:
+    """
+    GET /item for season, number_of_pieces, number_field_5_value, etc. :contentReference[oaicite:10]{index=10}
+    """
+    resp = ps365_get(base_url, "/item", {"token": token, "item_code_365": item_code})
+    api = resp.get("api_response", {})
+    if api.get("response_code") != "1":
+        raise RuntimeError(f"PS365 /item failed for {item_code}: {api}")
+    return resp.get("item") or {}
+
+
+def create_purchase_order_zero_values(
+    base_url: str,
+    token: str,
+    supplier_code_365: str,
+    lines: list,
+    user_code_365: str = "API",
+    comments: str = "Auto PO from required report",
+    deliverby_days: int = 7,
+    tz_name: str = "Asia/Nicosia",
+):
+    """
+    POST /purchaseorder using the 'WITH ZERO VALUES' structure. :contentReference[oaicite:11]{index=11}
+    Returns response JSON (response_id contains created PO code). :contentReference[oaicite:12]{index=12}
+    """
+    local_tz = ZoneInfo(tz_name)
+    now_local = datetime.now(local_tz).replace(microsecond=0)
+    now_utc = now_local.astimezone(timezone.utc)
+    deliver_by_utc = (now_utc + timedelta(days=deliverby_days)).replace(microsecond=0)
+
+    shopping_cart_code = f"WMDS-{now_local.strftime('%Y%m%d-%H%M%S')}-{supplier_code_365}"
+
+    payload = {
+        "api_credentials": {"token": token},
+        "order": {
+            "purchase_order_header": {
+                "shopping_cart_code": shopping_cart_code,
+                "order_date_local": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+                "order_date_utc0": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                "order_date_deliverby_utc0": deliver_by_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                "supplier_code_365": str(supplier_code_365),
+                "agent_code_365": "",
+                "user_code_365": user_code_365,
+                "comments": comments,
+                "search_additional_barcodes": False
+            },
+            "list_purchase_order_details": []
+        }
+    }
+
+    for idx, ln in enumerate(lines, start=1):
+        payload["order"]["list_purchase_order_details"].append({
+            "line_number": str(idx),
+            "item_code_365": ln["item_code_365"],
+            "line_quantity": str(ln["line_quantity"])
+        })
+
+    resp = ps365_post(base_url, "/purchaseorder", payload)
+    api = resp.get("api_response", {})
+    if api.get("response_code") != "1":
+        raise RuntimeError(f"PS365 /purchaseorder failed: {api}")
+
+    return resp
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--store", default="777", help="PS365 store_code_365 (default: 777)")
+    ap.add_argument("--output", default="required_po_report.csv")
+    ap.add_argument("--active-type", default="all", choices=["active", "inactive", "all"])
+    ap.add_argument("--ecommerce-type", default="all", choices=["eCommerceOnly", "NoteCommerce", "all"])
+    ap.add_argument("--create-po", action="store_true", help="Create PO(s) in PS365")
+    ap.add_argument("--supplier", default="SPK", help="Supplier code for the PO header (your table shows e.g. SPK)")
+    ap.add_argument("--deliverby-days", type=int, default=7)
+    ap.add_argument("--comments", default="Auto PO from required report")
+    ap.add_argument("--user-code", default="API")
+    ap.add_argument("--min-order-enforce", action="store_true",
+                    help="If set, PO Qty = max(Required, Min Order Qty). If not set, PO Qty = Required.")
+    args = ap.parse_args()
+
+    base_url = os.getenv("PS365_BASE_URL", "").strip()
+    token = os.getenv("PS365_TOKEN", "").strip()
+    if not base_url or not token:
+        raise SystemExit("Missing PS365_BASE_URL or PS365_TOKEN in environment.")
+
+    # 1) Pull stock/reserved/onPO for store 777
+    stock_rows = fetch_items_stock_store(
+        base_url=base_url,
+        token=token,
+        store_code=args.store,
+        active_type=args.active_type,
+        ecommerce_type=args.ecommerce_type
+    )
+
+    # 2) Filter to items with any reserved qty (>0)
+    candidates = [r for r in stock_rows if d(r.get("total_stock_reserved")) > 0]
+
+    # 3) Enrich with /item fields and compute report columns
+    report = []
+    for r in candidates:
+        item_code = r.get("item_code_365")
+        item_name = r.get("item_name") or ""
+        stock = d(r.get("total_stock"))
+        reserved = d(r.get("total_stock_reserved"))
+        on_po = d(r.get("total_stock_ordered"))
+
+        available = stock - reserved
+        required = reserved - stock - on_po
+        if required < 0:
+            required = Decimal("0")
+
+        item = fetch_item_details(base_url, token, item_code)
+        pieces_unit = int(item.get("number_of_pieces") or 0)
+        min_order = d(item.get("number_field_5_value"))
+        season = item.get("season_code_365") or ""
+
+        po_qty = required
+        if args.min_order_enforce and po_qty > 0 and min_order > 0 and po_qty < min_order:
+            po_qty = min_order
+
+        # Optional: round up to whole units if your items are discrete units
+        po_qty = po_qty.quantize(Decimal("1."), rounding=ROUND_UP) if po_qty > 0 else Decimal("0")
+
+        report.append({
+            "Item Code": item_code,
+            "Item Name": item_name,
+            "Supplier": args.supplier,
+            "Season": season,
+            "Pieces/Unit": pieces_unit if pieces_unit else 1,
+            "Min Order Qty": str(min_order),
+            "Stock": str(stock),
+            "Customer Order": str(reserved),
+            "Available": str(available),
+            "On PO": str(on_po),
+            "Required": str(required),
+            "PO Qty": str(po_qty),
+        })
+
+    # 4) Write CSV
+    fieldnames = ["Item Code", "Item Name", "Supplier", "Season", "Pieces/Unit", "Min Order Qty",
+                  "Stock", "Customer Order", "Available", "On PO", "Required", "PO Qty"]
+
+    with open(args.output, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for row in report:
+            w.writerow(row)
+
+    print(f"Saved report: {args.output}")
+    print(f"Items with reserved qty > 0: {len(report)}")
+
+    # 5) Create PO with required quantities only (PO Qty > 0)
+    if args.create_po:
+        po_lines = []
+        for row in report:
+            qty = d(row["PO Qty"])
+            if qty > 0:
+                po_lines.append({
+                    "item_code_365": row["Item Code"],
+                    "line_quantity": qty
+                })
+
+        if not po_lines:
+            print("No lines with PO Qty > 0, nothing to send.")
+            return
+
+        resp = create_purchase_order_zero_values(
+            base_url=base_url,
+            token=token,
+            supplier_code_365=args.supplier,
+            lines=po_lines,
+            user_code_365=args.user_code,
+            comments=args.comments,
+            deliverby_days=args.deliverby_days,
+            tz_name="Asia/Nicosia",
+        )
+        po_code = (resp.get("api_response") or {}).get("response_id")
+        print(f"Created PS365 Purchase Order. response_id (PO code): {po_code}")
+
+
+if __name__ == "__main__":
+    main()
+
+5) How to run it in Replit
+Generate the report (no PO created)
+python scripts/ps365_required_po_report.py --store 777 --output required_po_report.csv
+
+Create a PS365 PO with required quantities only
+python scripts/ps365_required_po_report.py --store 777 --create-po --supplier SPK
+
+If you want “Min Order Qty” enforced (recommended)
+
+This changes PO Qty to max(Required, MinOrderQty):
+
+python scripts/ps365_required_po_report.py --store 777 --create-po --supplier SPK --min-order-enforce
+
+6) Why this works (mapping to PS365 docs)
+
+Stock/reserved/onPO for store 777 comes from POST /list_items_stock using stores_selection: "777" and reading total_stock, total_stock_reserved, total_stock_ordered.
+
+Season + Pieces/Unit + Min Order Qty comes from GET /item fields season_code_365, number_of_pieces, number_field_5_value.
+
+PO is created with only item + quantity using POST /purchaseorder “WITH ZERO VALUES”; PS365 returns PO code in response_id.
+
+If you want, I can adapt the script to group by supplier and create multiple POs automatically (one PO per supplier), but the above matches your current table where everything is under SPK.
+
+Thought for 12m 0s
+
+Below is a practical way to (1) build your Store 777 replenishment report from PS365 and (2) send a PS365 Purchase Order for supplier 10000165 (SPK KYPRIANIDES LTD) with required quantity only.
+
+1) What PS365 endpoints you need
+A) Store 777 stock + reserved + on-PO (per item)
+
+Use GET /list_stock_items_store with store_code_365=777.
+It returns (per item) stock, stock_reserved (reserved on sales orders), and stock_ordered (qty already on purchase orders).
+
+PS365 recommends: call once without paging to get total count, then call with page_number/page_size.
+
+B) Item metadata (supplier, season, pieces/unit, model code)
+
+Use POST /list_items filtered by items_selection (only the item codes you care about) and request key fields such as:
+
+supplier_code_365, supplier_name
+
+season_code_365, season_name
+
+number_of_pieces (pieces/unit)
+
+model_code_365 (so you can fetch model numeric field 5 if needed)
+
+C) Min Order Qty from “number field 5”
+
+Numeric custom fields (including number_field_5_value) are exposed on GET /model.
+So: item → model_code_365 → /model → number_field_5_value = your MOQ.
+
+D) Create Purchase Order with “zero values” (only quantities)
+
+Use POST /purchaseorder “WITH ZERO VALUES” and send only:
+
+header: shopping_cart_code, dates, supplier_code_365, etc.
+
+lines: item_code_365, line_quantity
+
+Optionally verify by shopping cart code using GET /purchaseorder with is_shopping_cart_code=Y.
+
+2) Report calculations (matching your table)
+
+For each item (Store 777):
+
+Stock = stock
+
+Customer Order = stock_reserved (reserved on sales orders)
+
+On PO = stock_ordered
+
+Available = stock - stock_reserved
+
+Required = max(0, stock_reserved - stock - stock_ordered)
+
+This produces the same logic you’re showing (negative Available means shortage; Required becomes the shortage amount).
+
+3) Replit instructions (files + script)
+A) Add/confirm Secrets (Replit)
+
+In Replit → Secrets set (use your existing names if you already have them):
+
+PS365_BASE_URL (your PS365 API base)
+
+PS365_TOKEN
+
+B) Create folder + script
+
+Create: scripts/ps365_replenishment_po.py
+
+#!/usr/bin/env python3
+"""
+Generate Store 777 replenishment report from PS365 and (optionally) create a PS365 Purchase Order
+for a supplier with REQUIRED quantity only.
+
+Key sources:
+- list_stock_items_store: store stock + reserved + ordered (on PO)  (GET)  (paging)  # doc4api
+- list_items: item metadata incl supplier, season, model_code, number_of_pieces (POST)
+- model: number_field_5_value (GET) for MOQ
+- purchaseorder: create "WITH ZERO VALUES" (POST)
+
+Run examples:
+  python scripts/ps365_replenishment_po.py --store 777 --supplier 10000165 --create-po
+  python scripts/ps365_replenishment_po.py --store 777 --supplier 10000165
+"""
+
+import os
+import csv
+import math
+import uuid
+import argparse
+from decimal import Decimal, ROUND_CEILING
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+import requests
+
+
+def _env(name: str, fallback: str = "") -> str:
+    v = os.getenv(name)
+    return v.strip() if v else fallback
+
+
+BASE_URL = (_env("PS365_BASE_URL") or _env("POWERSOFT_BASE") or "").rstrip("/")
+TOKEN = _env("PS365_TOKEN") or _env("POWERSOFT_TOKEN")
+
+CY_TZ = ZoneInfo("Europe/Nicosia")
+
+
+def require_config():
+    if not BASE_URL:
+        raise RuntimeError("Missing PS365_BASE_URL (or POWERSOFT_BASE) in environment.")
+    if not TOKEN:
+        raise RuntimeError("Missing PS365_TOKEN (or POWERSOFT_TOKEN) in environment.")
+
+
+def ps_get(endpoint: str, params: dict, timeout: int = 120) -> dict:
+    url = f"{BASE_URL}/{endpoint.lstrip('/')}"
+    r = requests.get(url, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def ps_post(endpoint: str, payload: dict, timeout: int = 180) -> dict:
+    url = f"{BASE_URL}/{endpoint.lstrip('/')}"
+    r = requests.post(url, json=payload, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def d(x) -> Decimal:
+    if x is None or x == "":
+        return Decimal("0")
+    # PS365 often returns numbers as JSON numbers; safe cast via str
+    return Decimal(str(x))
+
+
+def ceil_decimal(x: Decimal) -> int:
+    if x <= 0:
+        return 0
+    return int(x.to_integral_value(rounding=ROUND_CEILING))
+
+
+def fetch_store_stock_positions(store_code: str, page_size: int = 200) -> list[dict]:
+    """
+    GET /list_stock_items_store
+    First call without paging to get total_count_list_items, then page.
+    """
+    common = {
+        "token": TOKEN,
+        "store_code_365": store_code,
+        "available_stock_type": "all",
+        "active_type": "all",
+        "ecommerce_type": "all",
+    }
+
+    first = ps_get("list_stock_items_store", common)
+    total = int(first.get("total_count_list_items", 0) or 0)
+
+    items: list[dict] = []
+    if total == 0:
+        return items
+
+    pages = math.ceil(total / page_size)
+    for p in range(1, pages + 1):
+        params = dict(common)
+        params["page_number"] = p
+        params["page_size"] = page_size
+        data = ps_get("list_stock_items_store", params)
+        chunk = data.get("list_stock_stores_item") or []
+        items.extend(chunk)
+
+    return items
+
+
+def fetch_items_metadata(item_codes: list[str], page_size: int = 100) -> dict[str, dict]:
+    """
+    POST /list_items with items_selection limited to the item codes we need.
+    Returns dict keyed by item_code_365.
+
+    NOTE: Docs state GET max 100 rows; POST also uses paging fields. We'll chunk item_codes to stay safe.
+    """
+    meta: dict[str, dict] = {}
+    if not item_codes:
+        return meta
+
+    # The API expects comma-separated lists for items_selection.
+    # Chunk to avoid oversized requests.
+    chunk_size = 200
+    display_fields = ",".join([
+        "item_code_365",
+        "item_name",
+        "supplier_code_365",
+        "supplier_name",
+        "season_code_365",
+        "season_name",
+        "model_code_365",
+        "number_of_pieces",
+    ])
+
+    for i in range(0, len(item_codes), chunk_size):
+        chunk_codes = item_codes[i:i + chunk_size]
+        payload = {
+            "api_credentials": {"token": TOKEN},
+            "filter_define": {
+                "only_counted": "N",
+                "page_number": 1,
+                "page_size": page_size,
+                "active_type": "all",
+                "ecommerce_type": "all",
+                "items_selection": ",".join(chunk_codes),
+            },
+            "display_fields": display_fields,
+        }
+
+        data = ps_post("list_items", payload)
+
+        # Common response keys seen in PS365 APIs are list_*; if it differs, print keys and adjust once.
+        rows = (
+            data.get("list_items")
+            or data.get("items")
+            or data.get("list_item")
+            or data.get("list_items_item")
+            or []
+        )
+
+        if not isinstance(rows, list):
+            raise RuntimeError(f"Unexpected list_items response shape. Top-level keys: {list(data.keys())}")
+
+        for row in rows:
+            code = (row.get("item_code_365") or "").strip()
+            if code:
+                meta[code] = row
+
+    return meta
+
+
+def fetch_models_moq(model_codes: list[str]) -> dict[str, Decimal]:
+    """
+    GET /model for each model_code_365 to read number_field_5_value (MOQ).
+    """
+    moq: dict[str, Decimal] = {}
+    for mc in sorted(set([m for m in model_codes if m])):
+        data = ps_get("model", {"token": TOKEN, "model_code_365": mc})
+        model = data.get("model") or {}
+        moq_val = d(model.get("number_field_5_value"))
+        moq[mc] = moq_val
+    return moq
+
+
+def build_report_rows(store_code: str, supplier_filter: str | None = None) -> list[dict]:
+    stock_rows = fetch_store_stock_positions(store_code=store_code)
+
+    # keep only items that matter: any reserved or any shortage or any ordered
+    filtered = []
+    for r in stock_rows:
+        stock = d(r.get("stock"))
+        reserved = d(r.get("stock_reserved"))
+        ordered = d(r.get("stock_ordered"))
+        required = max(Decimal("0"), reserved - stock - ordered)
+
+        if reserved > 0 or required > 0 or ordered > 0:
+            filtered.append((r, stock, reserved, ordered, required))
+
+    item_codes = [(r.get("item_code_365") or "").strip() for (r, *_rest) in filtered]
+    item_codes = [c for c in item_codes if c]
+
+    meta = fetch_items_metadata(item_codes)
+
+    # MOQ from model.number_field_5_value
+    model_codes = []
+    for code in item_codes:
+        model_codes.append((meta.get(code, {}).get("model_code_365") or "").strip())
+    moq_by_model = fetch_models_moq(model_codes)
+
+    out: list[dict] = []
+    for (r, stock, reserved, ordered, required) in filtered:
+        code = (r.get("item_code_365") or "").strip()
+        m = meta.get(code, {})
+
+        supplier_code = (m.get("supplier_code_365") or "").strip()
+        if supplier_filter and supplier_code != supplier_filter:
+            continue
+
+        model_code = (m.get("model_code_365") or "").strip()
+        moq_val = moq_by_model.get(model_code, Decimal("0"))
+        min_order_qty = ceil_decimal(moq_val) or 1
+
+        pieces_per_unit = d(m.get("number_of_pieces"))
+        if pieces_per_unit <= 0:
+            pieces_per_unit = Decimal("1")
+
+        row = {
+            "Code": code,
+            "Item Name": (m.get("item_name") or "").strip(),
+            "Supplier Code": supplier_code,
+            "Supplier": (m.get("supplier_name") or "").strip(),
+            "Pieces/Unit": str(pieces_per_unit),
+            "Min Order Qty": str(min_order_qty),
+            "Stock": str(stock),
+            "Customer Order": str(reserved),
+            "Available": str(stock - reserved),
+            "On PO": str(ordered),
+            "Required": str(required),
+            "Season": (m.get("season_code_365") or "").strip(),
+        }
+        out.append(row)
+
+    # sort: highest required first
+    out.sort(key=lambda x: Decimal(x["Required"]), reverse=True)
+    return out
+
+
+def create_purchase_order_zero_values(
+    supplier_code: str,
+    lines: list[tuple[str, int]],
+    store_code: str,
+    comments: str = "",
+    deliver_in_days: int = 7,
+) -> dict:
+    """
+    POST /purchaseorder (WITH ZERO VALUES)
+    """
+    now_local = datetime.now(CY_TZ)
+    now_utc = now_local.astimezone(timezone.utc)
+
+    deliver_utc = (now_utc + timedelta(days=deliver_in_days)).replace(hour=8, minute=0, second=0, microsecond=0)
+
+    cart_code = f"WMDS-{store_code}-{supplier_code}-{now_local:%Y%m%d%H%M%S}-{uuid.uuid4().hex[:6].upper()}"
+
+    payload = {
+        "api_credentials": {"token": TOKEN},
+        "order": {
+            "purchase_order_header": {
+                "shopping_cart_code": cart_code,
+                "order_date_local": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+                "order_date_utc0": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                "order_date_deliverby_utc0": deliver_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                "supplier_code_365": supplier_code,
+                "agent_code_365": "",
+                "user_code_365": "API",
+                "comments": comments or f"Auto PO from WMDS replenishment (store {store_code})",
+                "search_additional_barcodes": True,
+            },
+            "list_purchase_order_details": [
+                {
+                    "line_number": str(idx),
+                    "item_code_365": item_code,
+                    "line_quantity": str(qty),
+                }
+                for idx, (item_code, qty) in enumerate(lines, start=1)
+            ],
+        },
+    }
+
+    resp = ps_post("purchaseorder", payload)
+    resp["_shopping_cart_code"] = cart_code  # helpful for follow-up GET
+    return resp
+
+
+def write_csv(path: str, rows: list[dict]):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not rows:
+        # still create an empty file with headers
+        headers = ["Code", "Item Name", "Supplier", "Pieces/Unit", "Min Order Qty", "Stock", "Customer Order", "Available", "On PO", "Required", "Season"]
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=headers)
+            w.writeheader()
+        return
+
+    headers = list(rows[0].keys())
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=headers)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+
+
+def main():
+    require_config()
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--store", default="777")
+    ap.add_argument("--supplier", default="10000165", help="supplier_code_365 (e.g., 10000165)")
+    ap.add_argument("--create-po", action="store_true", help="Create PO in PS365 for items with Required>0")
+    args = ap.parse_args()
+
+    rows = build_report_rows(store_code=args.store, supplier_filter=args.supplier)
+
+    stamp = datetime.now(CY_TZ).strftime("%Y%m%d_%H%M%S")
+    csv_path = f"exports/replenishment_{args.store}_{args.supplier}_{stamp}.csv"
+    write_csv(csv_path, rows)
+
+    # Print summary
+    needed = [r for r in rows if Decimal(r["Required"]) > 0]
+    print(f"Report rows: {len(rows)} (needed: {len(needed)})")
+    print(f"CSV: {csv_path}")
+
+    if args.create_po:
+        po_lines = []
+        for r in needed:
+            code = r["Code"]
+            req = ceil_decimal(Decimal(r["Required"]))  # REQUIRED QTY ONLY (rounded up to whole units)
+            if req > 0:
+                po_lines.append((code, req))
+
+        if not po_lines:
+            print("No Required>0 lines. PO not created.")
+            return
+
+        resp = create_purchase_order_zero_values(
+            supplier_code=args.supplier,
+            lines=po_lines,
+            store_code=args.store,
+            comments=f"Auto PO from replenishment report (store {args.store}) - Required qty only",
+            deliver_in_days=7,
+        )
+
+        cart = resp.get("_shopping_cart_code")
+        api = resp.get("api_response", {})
+        print("PO create response:", api)
+
+        # Optional: verify by shopping cart code
+        if cart:
+            verify = ps_get("purchaseorder", {"token": TOKEN, "purchase_order_code": cart, "is_shopping_cart_code": "Y"})
+            print("PO verify api_response:", verify.get("api_response"))
+
+
+if __name__ == "__main__":
+    main()
+
+4) How to run it (your exact case: store 777, supplier 10000165)
+Generate report CSV only
+python scripts/ps365_replenishment_po.py --store 777 --supplier 10000165
+
+Generate report + create PS365 PO with Required qty only
+python scripts/ps365_replenishment_po.py --store 777 --supplier 10000165 --create-po
+
+5) What PS365 will receive for the PO (conceptually)
+
+Your script is using the documented “WITH ZERO VALUES” payload: header + lines with item_code_365 and line_quantity only.
+This is exactly what you asked: “send purchase order with required quantity only”.
+
+Notes you should be aware of (practical)
+
+Rounding: PS365 PO quantities are typically whole units. The script rounds Required up to the next integer.
+
+MOQ logic: You said “required only”, so the script does not enforce MOQ. If later you want MOQ enforcement, you’d change:
+
+req = max(req, min_order_qty) (where min_order_qty comes from /model number_field_5_value).
+
+Response parsing for /list_items: the script includes a safe fallback for common keys; if your PS365 response key differs, print the returned top-level keys once and adjust.
+
+If you want, paste one real JSON response from your /list_items call (just one page), and I will harden the parser to match your exact structure without guesswork.
