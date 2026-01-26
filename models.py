@@ -2185,18 +2185,16 @@ class Ps365ReservedStock777(db.Model):
     item_code_365 = db.Column(db.String(64), primary_key=True)
     item_name = db.Column(db.String(255), nullable=False)
 
-    season_code_365 = db.Column(db.String(32), nullable=True)
     season_name = db.Column(db.String(128), nullable=True)
 
-    number_of_pieces = db.Column(db.Numeric(18, 4), nullable=True)
-    number_field_5_value = db.Column(db.Numeric(18, 4), nullable=True)
+    number_of_pieces = db.Column(db.Integer, nullable=True)
+    number_field_5_value = db.Column(db.Integer, nullable=True)
 
     store_code_365 = db.Column(db.String(16), nullable=False, default="777")
 
     stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
     stock_reserved = db.Column(db.Numeric(18, 4), nullable=False, default=0)
     stock_ordered = db.Column(db.Numeric(18, 4), nullable=False, default=0)
-    stock_on_transfer = db.Column(db.Numeric(18, 4), nullable=False, default=0)
 
     available_stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
 
