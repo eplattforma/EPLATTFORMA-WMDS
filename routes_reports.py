@@ -77,10 +77,12 @@ def reserved_stock_777_refresh():
 def reserved_stock_777_create_po():
     """Create a purchase order in PS365 with items that have Required > 0"""
     if current_user.role not in ['admin', 'warehouse_manager']:
-        return jsonify({"success": False, "error": "Access denied"}), 403
+        flash("Access denied.", "danger")
+        return redirect(url_for("reports.reserved_stock_777"))
     
     if not PS365_BASE_URL or not PS365_TOKEN:
-        return jsonify({"success": False, "error": "PS365 API not configured"}), 500
+        flash("PS365 API not configured. Please set PS365_BASE_URL and PS365_TOKEN.", "danger")
+        return redirect(url_for("reports.reserved_stock_777"))
     
     from models import Ps365ReservedStock777
     

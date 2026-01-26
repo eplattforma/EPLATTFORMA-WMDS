@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container" style="max-width: 1600px;">
-  <h2>Reserved Stock Report - Store 777</h2>
+  <h2>Cross Shipping Orders - Store 777</h2>
 
   {% if not rows %}
     <div class="alert alert-warning">
@@ -11,7 +11,8 @@
     <p>
       Last Synced (UTC): <strong>{{ synced_at.strftime('%Y-%m-%d %H:%M:%S') if synced_at else 'N/A' }}</strong><br>
       Total Items: <strong>{{ count }}</strong> | 
-      Showing: <strong id="visibleCount">{{ count }}</strong>
+      Showing: <strong id="visibleCount">{{ count }}</strong> |
+      Items with Required > 0: <strong id="requiredCount">0</strong>
     </p>
 
     <div class="row mb-3">
@@ -25,9 +26,14 @@
           <option value="__empty__">(No Supplier)</option>
         </select>
       </div>
-      <div class="col-md-9 d-flex align-items-end">
-        <a class="btn btn-primary me-2" href="{{ url_for('reports.reserved_stock_777_download') }}">Download CSV</a>
+      <div class="col-md-9 d-flex align-items-end flex-wrap gap-2">
+        <a class="btn btn-primary" href="{{ url_for('reports.reserved_stock_777_download') }}">Download CSV</a>
         <a class="btn btn-secondary" href="{{ url_for('reports.reserved_stock_777_refresh') }}">Refresh</a>
+        {% if current_user.role in ['admin', 'warehouse_manager'] %}
+        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createPoModal" id="sendPoBtn">
+          <i class="fas fa-paper-plane me-1"></i>Send Order to PS365
+        </button>
+        {% endif %}
       </div>
     </div>
 
@@ -49,7 +55,9 @@
         </thead>
         <tbody>
           {% for r in rows %}
-          <tr data-season="{{ r.season_name or '' }}">
+          {% set required_val = (r.stock_reserved - r.stock - r.stock_ordered)|float %}
+          {% set required_display = required_val|round(0, 'ceil')|int if required_val > 0 else 0 %}
+          <tr data-season="{{ r.season_name or '' }}" data-required="{{ required_display }}">
             <td>{{ r.item_code_365 }}</td>
             <td>{{ r.item_name }}</td>
             <td>{{ r.season_name or '' }}</td>
@@ -59,7 +67,7 @@
             <td style="text-align:right;"><strong>{{ r.stock_reserved|int }}</strong></td>
             <td style="text-align:right;">{{ r.available_stock|int }}</td>
             <td style="text-align:right;">{{ r.stock_ordered|int }}</td>
-            <td style="text-align:right;"><strong>{{ (r.stock_reserved - r.stock - r.stock_ordered)|float|round(0, 'ceil')|int if (r.stock_reserved - r.stock - r.stock_ordered) > 0 else 0 }}</strong></td>
+            <td style="text-align:right;{% if required_display > 0 %} color: #dc3545; font-weight: bold;{% endif %}">{{ required_display }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -68,22 +76,87 @@
   {% endif %}
 </div>
 
+{% if current_user.role in ['admin', 'warehouse_manager'] %}
+<div class="modal fade" id="createPoModal" tabindex="-1" aria-labelledby="createPoModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('reports.reserved_stock_777_create_po') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="supplier_filter" id="supplierFilterHidden" value="">
+        <div class="modal-header">
+          <h5 class="modal-title" id="createPoModalLabel">Create Purchase Order in PS365</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-info">
+            <i class="fas fa-info-circle me-1"></i>
+            This will create a Purchase Order in PS365 with all <strong>filtered items</strong> that have <strong>Required > 0</strong>.
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Items to be ordered:</label>
+            <p class="mb-0"><strong id="modalItemCount">0</strong> items with Required > 0</p>
+          </div>
+          <div class="mb-3">
+            <label for="supplierCode" class="form-label">Supplier Code (PS365):</label>
+            <input type="text" class="form-control" id="supplierCode" name="supplier_code" required placeholder="e.g. SPK">
+            <div class="form-text">Enter the PS365 supplier code for the purchase order header.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success" id="confirmPoBtn">
+            <i class="fas fa-paper-plane me-1"></i>Create PO
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   var seasonFilter = document.getElementById('seasonFilter');
-  if (!seasonFilter) return;
-  seasonFilter.addEventListener('change', function() {
-    var selectedSeason = this.value;
+  var supplierFilterHidden = document.getElementById('supplierFilterHidden');
+  
+  function updateCounts() {
     var rows = document.querySelectorAll('#reportTable tbody tr');
     var visibleCount = 0;
+    var requiredCount = 0;
+    var selectedSeason = seasonFilter ? seasonFilter.value : '';
+    
     rows.forEach(function(row) {
       var rowSeason = row.getAttribute('data-season') || '';
+      var required = parseInt(row.getAttribute('data-required') || '0', 10);
       var show = (selectedSeason === '') || (selectedSeason === '__empty__' && rowSeason === '') || (rowSeason === selectedSeason);
       row.style.display = show ? '' : 'none';
-      if (show) visibleCount++;
+      if (show) {
+        visibleCount++;
+        if (required > 0) requiredCount++;
+      }
     });
+    
     document.getElementById('visibleCount').textContent = visibleCount;
-  });
+    document.getElementById('requiredCount').textContent = requiredCount;
+    
+    var modalItemCount = document.getElementById('modalItemCount');
+    if (modalItemCount) modalItemCount.textContent = requiredCount;
+    
+    if (supplierFilterHidden) {
+      supplierFilterHidden.value = selectedSeason === '__empty__' ? '' : selectedSeason;
+    }
+    
+    var sendPoBtn = document.getElementById('sendPoBtn');
+    var confirmPoBtn = document.getElementById('confirmPoBtn');
+    if (sendPoBtn) sendPoBtn.disabled = (requiredCount === 0);
+    if (confirmPoBtn) confirmPoBtn.disabled = (requiredCount === 0);
+  }
+  
+  if (seasonFilter) {
+    seasonFilter.addEventListener('change', updateCounts);
+  }
+  
+  updateCounts();
 });
 </script>
 {% endblock %}
