@@ -14,6 +14,7 @@ from threading import local
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, Dict, Any, List
 
 os.environ.setdefault("TZ", "Europe/Nicosia")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -55,7 +56,7 @@ def _session() -> requests.Session:
     return s
 
 
-def ps365_get(path: str, params: dict) -> dict:
+def ps365_get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{PS365_BASE_URL}/{path.lstrip('/')}"
     params = dict(params or {})
     params["token"] = PS365_TOKEN
@@ -65,33 +66,35 @@ def ps365_get(path: str, params: dict) -> dict:
             r = _session().get(url, params=params, timeout=TIMEOUT)
             r.raise_for_status()
             return r.json() or {}
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] GET {path} attempt {attempt} failed: {e}")
             time.sleep(attempt)
     return {}
 
 
-def ps365_post_json(path: str, payload: dict) -> dict:
+def ps365_post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{PS365_BASE_URL}/{path.lstrip('/')}"
     for attempt in range(1, 4):
         try:
             r = _session().post(url, json=payload, timeout=TIMEOUT)
             r.raise_for_status()
             return r.json() or {}
-        except Exception:
+        except Exception as e:
+            print(f"[WARN] POST {path} attempt {attempt} failed: {e}")
             time.sleep(attempt)
     return {}
 
 
-def fetch_reserved_items_index() -> dict:
+def fetch_reserved_items_index() -> Dict[str, Any]:
     """
     Returns dict[item_code] = {stock, stock_reserved, item_name}
     Only for items with stock_reserved > 0 in store 777.
     """
     print(f"Identifying items with reservations in Store {STORE_CODE}...")
 
-    reserved_item_data = {}
-    
-    def consume_page(page_data: dict) -> int:
+    reserved_item_data: Dict[str, Any] = {}
+
+    def consume_page(page_data: Dict[str, Any]) -> int:
         """Consume a page and return count of rows processed."""
         rows = page_data.get("list_stock_stores_item") or page_data.get("list_stock_items_store") or []
         for r in rows:
@@ -106,36 +109,42 @@ def fetch_reserved_items_index() -> dict:
                 }
         return len(rows)
 
-    # Paginate until we get an empty page
-    page = 1
-    while True:
+    # Page 1 - also used to get total_count
+    first = ps365_get("list_stock_items_store", {
+        "store_code_365": STORE_CODE,
+        "available_stock_type": "all",
+        "active_type": "all",
+        "ecommerce_type": "all",
+        "page_number": 1,
+        "page_size": PAGE_SIZE,
+    })
+
+    total = int(first.get("total_count_list_items") or 0)
+    consume_page(first)
+
+    if total <= 0:
+        print(f"Found {len(reserved_item_data)} items with reservations (total_count not provided).")
+        return reserved_item_data
+
+    pages = int(math.ceil(total / PAGE_SIZE))
+    for p in range(2, pages + 1):
         page_data = ps365_get("list_stock_items_store", {
             "store_code_365": STORE_CODE,
             "available_stock_type": "all",
             "active_type": "all",
             "ecommerce_type": "all",
-            "page_number": page,
+            "page_number": p,
             "page_size": PAGE_SIZE,
         })
-        
-        rows_count = consume_page(page_data)
-        if rows_count == 0:
-            break
-        
-        page += 1
+        consume_page(page_data)
         if THROTTLE_SECONDS:
             time.sleep(THROTTLE_SECONDS)
-        
-        # Safety limit to avoid infinite loops
-        if page > 100:
-            print(f"Warning: Reached page limit of 100")
-            break
 
-    print(f"Scanned {page} pages, found {len(reserved_item_data)} items with reservations")
+    print(f"Scanned {pages} pages, found {len(reserved_item_data)} items with reservations")
     return reserved_item_data
 
 
-def build_row_for_item(code: str, r_store: dict) -> dict | None:
+def build_row_for_item(code: str, r_store: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Builds one output row for an item code.
     Returns None if season_name is null/empty.
@@ -183,7 +192,7 @@ def build_row_for_item(code: str, r_store: dict) -> dict | None:
     }
 
 
-def build_rows() -> list:
+def build_rows() -> List[Dict[str, Any]]:
     reserved_item_data = fetch_reserved_items_index()
     if not reserved_item_data:
         print("No items with reservations found.")
