@@ -19,28 +19,11 @@ API_TOKEN = os.getenv("POWERSOFT_TOKEN")
 def fetch_invoice_from_ps365(invoice_no, customer_code):
     """
     Fetch invoice details from Powersoft365 API
-    
-    Args:
-        invoice_no: Invoice number (e.g., 'IN10051409')
-        customer_code: Customer code (e.g., '77700188')
-    
-    Returns:
-        dict: Invoice data from API or None if not found/error
     """
-    if not API_TOKEN:
-        logger.error("POWERSOFT_TOKEN environment variable not set")
-        return None
-    
-    url = f"{API_BASE}/list_loyalty_invoices_header"
-    
-    # Use broad date range to ensure we find the invoice
-    from_date = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")  # 2 years back
-    to_date = datetime.now().strftime("%Y-%m-%d")
-    
+    from ps365_client import call_ps365
+    from datetime import datetime, timedelta
+
     payload = {
-        "api_credentials": {
-            "token": API_TOKEN
-        },
         "filter_define": {
             "only_counted": "N",
             "page_number": 1,
@@ -51,27 +34,21 @@ def fetch_invoice_from_ps365(invoice_no, customer_code):
             "invoice_customer_phone_selection": "",
             "invoice_customer_email_selection": "",
             "invoice_customer_name_selection": "",
-            "from_date": from_date,
-            "to_date": to_date
+            "from_date": (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d"),
+            "to_date": datetime.now().strftime("%Y-%m-%d")
         }
     }
     
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = call_ps365("list_loyalty_invoices_header", payload)
         
-        if response.status_code != 200:
-            logger.error(f"PS365 API returned status {response.status_code} for invoice {invoice_no}")
-            return None
-        
-        data = response.json()
-        
-        # Check for API error (response_code '1' means success)
-        api_response = data.get("api_response", {})
+        # Check for API error
+        api_response = response.get("api_response", {})
         if api_response.get("response_code") not in ["1", "200"]:
             logger.error(f"PS365 API error for invoice {invoice_no}: {api_response.get('response_msg')}")
             return None
         
-        invoices = data.get("list_invoices") or []
+        invoices = response.get("list_invoices") or []
         
         if not invoices:
             logger.warning(f"Invoice {invoice_no} not found in PS365 API")
@@ -79,9 +56,6 @@ def fetch_invoice_from_ps365(invoice_no, customer_code):
         
         return invoices[0]
     
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network error fetching invoice {invoice_no} from PS365: {str(e)}")
-        return None
     except Exception as e:
         logger.error(f"Error fetching invoice {invoice_no} from PS365: {str(e)}")
         return None

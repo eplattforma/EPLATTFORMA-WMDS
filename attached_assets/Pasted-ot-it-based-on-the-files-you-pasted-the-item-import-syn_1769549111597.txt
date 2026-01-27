@@ -1,0 +1,434 @@
+ot it — based on the files you pasted, the item import/sync is in datawarehouse_sync.py, inside:
+
+full_dw_update(session) → section “5) Items – ALL items” (this is your main full items importer)
+
+incremental_dw_update(session) → incremental items importer
+
+services_powersoft.py, ps365_service.py, background_sync.py are not your item-master importer (they consume items, invoices, customers).
+
+Below are exact changes + Replit Agent instructions to add PS365 number_field_5_value as Min Order Qty and store it into your items table (ps_items). In your current codebase, your “items” model is DwItem (it’s what invoices read from), so you should store it there unless you also have a separate PsItem model mapped to ps_items.
+
+Replit Agent Instructions (Do Exactly This)
+1) Update the correct model (ps_items)
+1A — Confirm which model maps to ps_items
+
+Open models.py and search:
+
+class DwItem
+
+__tablename__
+
+If you see __tablename__ = "ps_items" (or ps_items_dw used as “ps_items”), then DwItem is the ps_items table → proceed with DwItem edits.
+
+If you see __tablename__ = "dw_items" (or similar) AND you also have a model like PsItem with __tablename__ = "ps_items", then apply the column to PsItem and also update the importer to upsert PsItem. (But based on your pasted code, the app uses DwItem everywhere as the item master.)
+
+1B — Add the column
+
+In the model that represents ps_items (most likely DwItem), add:
+
+min_order_qty = db.Column(db.Integer, nullable=True)
+
+1C — DB schema
+
+If you don’t use Alembic migrations, run once:
+
+ALTER TABLE ps_items ADD COLUMN IF NOT EXISTS min_order_qty INTEGER;
+
+
+(If your table name is different, use the actual __tablename__.)
+
+2) Modify datawarehouse_sync.py (THIS is the importer)
+2A — FULL SYNC: add number_field_5_value to PS365 display_fields
+
+In full_dw_update(session) → “5) Items – ALL items”, find:
+
+"display_fields": "item_code_365,item_name,...,number_of_pieces,number_field_1_value,text_field_2_value",
+
+
+Change it to include number_field_5_value:
+
+"display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value",
+
+2B — FULL SYNC: map it into core as min_order_qty
+
+In the same FULL SYNC loop where you build:
+
+core = {
+   ...
+}
+
+
+Add this line:
+
+"min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
+
+
+So the core dict becomes (showing only the new field):
+
+core = {
+    ...
+    "supplier_item_code": item.get("text_field_2_value") or None,
+    "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
+}
+
+2C — FULL SYNC: ensure UPDATE writes it
+
+In the “existing record update” block (you already set many fields), add:
+
+existing.min_order_qty = core["min_order_qty"]
+
+
+And for INSERT, since you do DwItem(**core, ...), it will auto-populate if the column exists.
+
+✅ Also: since you compute attr_hash = _compute_hash(core), once you add the field into core, the hash will include it automatically.
+
+3) INCREMENTAL SYNC: also fetch and store it
+3A — Add it to display_fields in incremental_dw_update(session)
+
+Find the incremental list_items payload display_fields and add number_field_5_value exactly like the full sync.
+
+3B — Add to incremental core
+
+In incremental code you already have helpers to_int() and to_decimal().
+Add:
+
+"min_order_qty": to_int(i.get("number_field_5_value")),
+
+
+So incremental core includes:
+
+core = {
+    ...
+    "selling_qty": to_decimal(i.get("number_field_1_value")),
+    "min_order_qty": to_int(i.get("number_field_5_value")),
+}
+
+3C — Ensure incremental UPDATE/INSERT writes it
+
+Where you update an existing DwItem, add:
+
+existing.min_order_qty = core["min_order_qty"]
+
+
+Where you insert new DwItem(**core, ...), it will be included.
+
+4) Update the debug helper (optional but recommended)
+
+In test_fetch_single_item(session):
+
+Add number_field_5_value to display_fields
+
+Add to core:
+
+"min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") else None,
+
+5) Quick validation query
+
+After running FULL sync once, run:
+
+SELECT item_code_365, item_name, min_order_qty
+FROM ps_items
+WHERE min_order_qty IS NOT NULL
+ORDER BY min_order_qty DESC
+LIMIT 50;
+
+
+If your table is not ps_items, run the query on whatever table name the model uses.
+
+Why this is the “right script”
+
+Because in your pasted code:
+
+datawarehouse_sync.py is the only place doing a full pagination import of items from list_items
+
+The rest of the system (invoice sync etc.) reads items from DwItem
+So this is the correct integration point.
+
+If you want, I can also give you a patch-style diff (before/after blocks) for the exact lines inside full_dw_update() and incremental_dw_update() — but the steps above are already copy/paste precise for Replit Agent.
+
+review the 4 scripts i provided and suggest improvements
+Thought for 33s
+
+Below is a targeted review of the 4 scripts you pasted:
+
+datawarehouse_sync.py (DW items + dimensions + invoice DW sync)
+
+ps365_service.py (invoice totals sync into local Invoice)
+
+background_sync.py (background threads + cross-worker status file)
+
+services_powersoft.py (operational invoice import into Invoice/InvoiceItem + customers)
+
+I’m focusing on reliability, performance (API + DB), correctness, and maintainability, and I’ll call out the highest-impact fixes first.
+
+1) datawarehouse_sync.py — improvements
+Critical
+
+N+1 DB queries in item sync (full + incremental)
+In full_dw_update() you do this per item:
+
+existing = session.query(DwItem).filter_by(item_code_365=code).first()
+
+
+This explodes DB round-trips. Fix by prefetching existing rows per page:
+
+collect codes = [i["item_code_365"]...]
+
+query DwItem for those codes in one call
+
+build existing_map = {code: obj}
+
+then update/insert using the map.
+
+Mix of naive datetimes / inconsistent timezone handling
+You use utc_now_for_db() in some places, but elsewhere use datetime.now() or datetime.now() without tz. Pick one standard (prefer utc_now_for_db() everywhere) for:
+
+last_sync_at
+
+status timestamps
+
+logs if you care
+
+High-risk typo in filter_define keys
+You repeatedly use:
+
+"creattion_date_to": "",
+
+
+That looks like a typo (creation_date_to). If PS365 ignores unknown keys, you’re fine; if it fails silently, you’re not filtering as you expect. Fix the spelling everywhere.
+
+High impact
+
+Avoid committing inside tight loops where possible
+You commit per page (good), but dimensions commit inside each page loop too. Consider:
+
+session.flush() per page, session.commit() per page (good)
+
+for dimensions, commit per page is okay, but avoid any extra commits per row.
+
+_update_status creates nested app contexts and separate sessions
+In full_dw_update() you create a new app context and use app_db.session while also using session in the outer function. This can create subtle deadlocks/locks or inconsistent writes.
+Better patterns:
+
+Keep status updates in the same session (prefer DB SyncState anyway)
+
+Or use a separate engine/sessionmaker dedicated for status, not Flask global session.
+
+Hash stability
+_compute_hash() is good, but ensure you normalize types before hashing (strings vs numbers vs None). Otherwise you’ll cause unnecessary churn. Example: convert floats to strings with a stable format or Decimal quantization before hashing.
+
+Medium
+
+Huge memory loads in invoice line sync
+In sync_invoice_lines_from_date() you preload:
+
+existing_lines_set = set(session.query(DwInvoiceLine.invoice_no_365, DwInvoiceLine.line_number).all())
+
+
+If the table grows large, this will become slow and memory-heavy.
+Better:
+
+preload only for the invoice date range, or
+
+use DB constraints + ON CONFLICT DO NOTHING, or
+
+query existing lines per page/invoice.
+
+Improve error logging
+In several except Exception blocks you log only str(e) without stack. Use exc_info=True consistently for debugging.
+
+2) ps365_service.py — improvements
+Critical
+
+Two separate PS365 client implementations in the codebase
+This file uses:
+
+POWERSOFT_BASE / POWERSOFT_TOKEN
+
+direct requests.post
+
+بينما elsewhere you use PS365_BASE_URL / PS365_TOKEN and call_ps365().
+You will eventually get inconsistent behavior, retries, timeouts, headers, etc.
+
+Fix: refactor ps365_service.py to use your central call_ps365() client and consistent env vars.
+
+High impact
+
+Invoice search uses fixed 2-year window always
+It’s expensive and can miss edge cases if invoice is older. Prefer:
+
+search by invoice number without needing huge date window (if API supports it)
+
+or pass a user-provided date range.
+
+Decimal handling
+You cast:
+
+Decimal(str(ps365_data.get("total_grand", 0)))
+
+
+Good start, but ensure ps365_data values can be "". You should guard empty string -> 0.
+
+Medium
+
+Better return payload
+Include:
+
+PS365 response code/msg if failed
+
+whether invoice was updated or already up-to-date
+
+3) background_sync.py — improvements
+Critical
+
+Status file writes are not atomic
+You do:
+
+with open(STATUS_FILE, 'w') as f:
+    json.dump(status, f)
+
+
+If the process is killed mid-write, your JSON can corrupt and your UI breaks.
+
+Fix: atomic write pattern:
+
+write to temp file
+
+os.replace(tmp, STATUS_FILE)
+
+/tmp is fragile in multi-worker + container environments
+/tmp can be cleared or not shared across instances. If you have multiple dynos/containers, workers won’t see same status.
+
+Fix: store status in DB (you already have SyncState) or Redis.
+
+High impact
+
+Thread-based background work under Gunicorn is risky
+Gunicorn workers can be killed/restarted; threads die; your sync can stop mid-way.
+Better approaches:
+
+Move long jobs to a separate worker process (Celery/RQ/APS scheduler)
+
+Or run sync scripts via cron/CLI, and UI only reads status from DB.
+
+Medium
+
+No progress granularity
+Status says “Fetching invoices…” but not “page X / total”.
+Add progress fields updated periodically.
+
+4) services_powersoft.py — improvements
+
+This is your operational importer for invoices and customers, and it’s already quite advanced (aggregation, locking logic, shelf batch fetch, estimator hook). Biggest issues are API/DB efficiency and consistency.
+
+Critical
+
+Mixing Flask db.session with function style and long transactions
+You do a lot of work per invoice and call db.session.commit() per invoice (good), but be careful:
+
+If one invoice fails and rolls back, ensure you don’t carry broken session state into next invoice.
+
+You mostly handle rollback (good), but make sure you don’t keep stale objects around.
+
+Expensive barcode lookups
+Inside invoice processing:
+
+find_barcode_for_item_ps365(item_code)
+
+
+That’s an N+1 API pattern and will hammer PS365.
+
+Fix options (best → acceptable):
+
+Maintain barcode in DW items sync (best) so invoices never call barcode API.
+
+If you must fetch, implement batch barcode lookup (if PS365 supports).
+
+Cache per run (dict) so repeated invoices/items don’t re-hit API.
+
+High impact
+
+Shelf location batch fetch is good — extend that philosophy
+You already batch shelves:
+
+shelves_result = fetch_item_shelves(store_code, all_item_codes)
+
+
+Do the same for any other per-item PS365 calls (barcodes, item master fields).
+
+Avoid repeated queries for invoice items
+You load:
+
+existing_map for all existing invoice items (good)
+
+but then DwItem.query.filter(DwItem.item_code_365.in_(all_item_codes)).all() per invoice
+If many invoices in a run share items, consider a run-level LRU cache keyed by item_code.
+
+Estimator call inside finally
+You call estimate_and_snapshot_invoice() per invoice. If this is heavy, it will slow imports significantly.
+Consider deferring estimator:
+
+queue invoice_no to a list and run estimator in a batch at end
+
+or run in background.
+
+Consistency of “zone”
+You decided to store zone as PS365 attribute_3 CODE (good). Make sure all UI logic expects codes, not names. You are already mapping name→code as fallback; that’s fine, but document it.
+
+Medium
+
+Use one “safe parse” layer
+You have _parse_qty_int, _norm_code, _norm_barcode—good.
+Extend to other numeric conversions and reuse consistently across the file.
+
+Customer sync creates PaymentCustomer defaults in two different places
+background_sync.py also inserts into payment_customers via SQL, while sync_active_customers() creates PaymentCustomer ORM records. Risk of duplication/logic drift. Consolidate into one codepath.
+
+Cross-cutting improvements (these will pay off the most)
+1) One PS365 client everywhere
+
+Right now you have:
+
+call_ps365() in most places
+
+raw requests usage in other scripts
+Unify to a single client that provides:
+
+retries w/ backoff + jitter
+
+timeout defaults
+
+structured logging (endpoint, params, duration)
+
+error normalization (response_code, msg)
+
+optional rate limiting
+
+2) Reduce API calls by design
+
+For the “reserved stock with season not empty” topic you were struggling with earlier:
+The only way to make it low-call is to avoid per-item item calls and instead use endpoints that can return season fields in bulk (like list_items / list_items_stock with display_fields). Apply the same principle everywhere: bulk endpoints + local join.
+
+3) DB efficiency: bulk upserts
+
+Wherever you do high-volume inserts/updates:
+
+Use bulk_insert_mappings / bulk_update_mappings, or
+
+Use PostgreSQL upsert (INSERT ... ON CONFLICT DO UPDATE), especially for DW.
+
+If you want a concrete next step
+
+I can propose a patch plan (file-by-file) that implements the top 5 wins with minimal refactor:
+
+Fix N+1 in full_dw_update() items (prefetch existing per page)
+
+Add atomic file status write (or switch to SyncState)
+
+Replace ps365_service.py requests with call_ps365()
+
+Introduce run-level cache for DW items and barcode in services_powersoft.py
+
+Fix creattion_date_to typo everywhere + normalize timestamps
+
+If you paste your DwItem / ps_items model definition (the class with __tablename__), I’ll tailor the “min_order_qty” storage and indexing recommendations too.

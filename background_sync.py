@@ -27,10 +27,12 @@ def _read_status_file():
     }
 
 def _write_status_file(status):
-    """Write status to file"""
+    """Write status to file atomically"""
     try:
-        with open(STATUS_FILE, 'w') as f:
+        temp_file = STATUS_FILE + ".tmp"
+        with open(temp_file, 'w') as f:
             json.dump(status, f)
+        os.replace(temp_file, STATUS_FILE)
     except Exception as e:
         logging.error(f"Error writing status file: {e}")
 
