@@ -149,22 +149,6 @@ def build_row_for_item(code: str, r_store: Dict[str, Any]) -> Optional[Dict[str,
     Builds one output row for an item code.
     Returns None if season_name is null/empty.
     """
-    payload = {
-        "api_credentials": {"token": PS365_TOKEN},
-        "filter_define": {
-            "page_number": 1,
-            "page_size": 1,
-            "items_selection": code,
-            "analytical_per_store": False,
-        }
-    }
-    lis = ps365_post_json("list_items_stock", payload)
-    stock_ordered = Decimal("0")
-
-    lis_rows = lis.get("list_items_stock") or []
-    if lis_rows:
-        stock_ordered = d(lis_rows[0].get("total_stock_ordered"))
-
     item_details = ps365_get("item", {"item_code_365": code})
     item = item_details.get("item") or {}
 
@@ -175,6 +159,7 @@ def build_row_for_item(code: str, r_store: Dict[str, Any]) -> Optional[Dict[str,
     stock = r_store["stock"]
     stock_reserved = r_store["stock_reserved"]
     supplier_item_code = item.get("text_field_2_value") or ""
+    stock_ordered = d(item.get("total_stock_ordered"))
 
     return {
         "item_code_365": code,
