@@ -142,27 +142,45 @@ def build_rows() -> list:
 
     return out
 
+def clear_table_for_store(store_code: str) -> None:
+    from flask import has_app_context
+
+    def do_clear():
+        Ps365ReservedStock777.query.filter_by(store_code_365=store_code).delete(synchronize_session=False)
+        db.session.commit()
+
+    if has_app_context():
+        do_clear()
+    else:
+        with app.app_context():
+            do_clear()
+
 def save_to_db(rows: list) -> None:
     from flask import has_app_context
     now = datetime.utcnow()
+
     def do_save():
+        if not rows:
+            return
+
         for row in rows:
-            rec = Ps365ReservedStock777.query.get(row["item_code_365"])
-            if not rec:
-                rec = Ps365ReservedStock777(item_code_365=row["item_code_365"])
-                db.session.add(rec)
-            rec.item_name = row["item_name"]
-            rec.season_name = row["season_name"]
-            rec.number_of_pieces = row["number_of_pieces"]
-            rec.number_field_5_value = row["number_field_5_value"]
-            rec.store_code_365 = row["store_code_365"]
-            rec.stock = row["stock"]
-            rec.stock_reserved = row["stock_reserved"]
-            rec.stock_ordered = row["stock_ordered"]
-            rec.available_stock = row["available_stock"]
-            rec.synced_at = now
+            rec = Ps365ReservedStock777(
+                item_code_365=row["item_code_365"],
+                item_name=row["item_name"],
+                season_name=row["season_name"],
+                number_of_pieces=row["number_of_pieces"],
+                number_field_5_value=row["number_field_5_value"],
+                store_code_365=row["store_code_365"],
+                stock=row["stock"],
+                stock_reserved=row["stock_reserved"],
+                stock_ordered=row["stock_ordered"],
+                available_stock=row["available_stock"],
+                synced_at=now,
+            )
+            db.session.add(rec)
+
         db.session.commit()
-    
+
     if has_app_context():
         do_save()
     else:
@@ -170,12 +188,14 @@ def save_to_db(rows: list) -> None:
             do_save()
 
 def main():
+    # Always clear first so the table is a true snapshot
+    clear_table_for_store(STORE_CODE)
+    print(f"Cleared existing reserved stock rows for store {STORE_CODE}.")
+
     rows = build_rows()
-    if rows:
-        save_to_db(rows)
-        print(f"Done! {len(rows)} items synced.")
-    else:
-        print("No items to sync (either no reservations or missing season_name).")
+    save_to_db(rows)
+
+    print(f"Done! {len(rows)} items synced.")
 
 if __name__ == "__main__":
     main()
