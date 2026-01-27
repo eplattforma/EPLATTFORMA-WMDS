@@ -124,6 +124,17 @@ input[type=number]::-webkit-inner-spin-button {
                     </div>
                 </div>
             </div>
+
+            <script>
+                // Set default cheque date to today
+                document.addEventListener('DOMContentLoaded', function() {
+                    const dateInput = document.getElementById('cheque-date');
+                    if (dateInput) {
+                        const today = new Date().toISOString().split('T')[0];
+                        dateInput.value = today;
+                    }
+                });
+            </script>
             
             <div class="mb-2">
                 <label class="form-label">Notes <span class="text-muted small">(required if balance due ≠ 0)</span></label>
