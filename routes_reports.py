@@ -144,9 +144,13 @@ def reserved_stock_777_create_po():
         required = max(raw_required, min_order_qty) if raw_required > 0 else 0
         
         if required > 0:
+            ps365_qty = math.ceil(required / pieces_per_unit)
             po_lines.append({
                 "item_code_365": r.item_code_365,
-                "line_quantity": str(required)
+                "item_name": r.item_name,
+                "line_quantity": str(ps365_qty),
+                "required_qty": required,
+                "pieces_per_unit": pieces_per_unit
             })
     
     if not po_lines:
