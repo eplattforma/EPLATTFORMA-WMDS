@@ -71,7 +71,8 @@ def local_and_utc_now():
 
 def create_receipt_core(customer_code: str, amount_val: float, comments: str, 
                         agent_code: str = "2", user_code: str = "", 
-                        invoice_no: str = None, driver_username: str = None, route_stop_id: int = None):
+                        invoice_no: str = None, driver_username: str = None, route_stop_id: int = None,
+                        cheque_number: str = "", cheque_date: str = ""):
     """
     Core receipt creation logic used by both API and form routes
     """
@@ -87,17 +88,25 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
         # Generate reference number
         reference_number = next_reference_number()
         
-        # Build receipt description: [first 7 chars of customer name]/[invoice numbers] truncated to 30 total
+        # Build receipt description: CHQ [number] [invoices] [name] truncated to 30 chars
         customer = PSCustomer.query.get(customer_code)
-        customer_prefix = ""
+        customer_name = ""
         if customer and customer.company_name:
-            customer_prefix = customer.company_name[:7].upper()
+            customer_name = customer.company_name.upper()
         
-        # Build full description then truncate to 30 characters
+        desc_parts = []
+        if cheque_number:
+            desc_parts.append(f"CHQ {cheque_number}")
+        
         if invoice_no:
-            receipt_description = f"{customer_prefix}/{invoice_no}"[:30]
-        else:
-            receipt_description = (customer_prefix or "Receipt")[:30]
+            desc_parts.append(invoice_no)
+        
+        if customer_name:
+            desc_parts.append(customer_name)
+            
+        receipt_description = " ".join(desc_parts)[:30].strip()
+        if not receipt_description:
+            receipt_description = "RECEIPT"
         
         # Get payment type code from driver's user profile
         payment_type_code = "DRVR1"  # Default fallback
@@ -119,8 +128,8 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
                 "amount": float(amount_val),
                 "agent_code_365": agent_code,
                 "payment_type_code_365": payment_type_code,
-                "cheque_number": "",
-                "cheque_date": "",
+                "cheque_number": cheque_number or "",
+                "cheque_date": cheque_date or "",
                 "comments": comments or "",
                 "user_code": user_code or ""
             }
@@ -209,7 +218,9 @@ def create_receipt_api():
     try:
         ok, reference_number, response_id, status_code, ps_json = create_receipt_core(
             customer_code, amount_val, comments, agent_code, user_code, 
-            invoice_no, current_user.username
+            invoice_no, current_user.username,
+            cheque_number=payload.get("cheque_number", ""),
+            cheque_date=payload.get("cheque_date", "")
         )
 
         # If we reach here, receipt was created successfully
@@ -330,7 +341,9 @@ def submit_receipt_form():
     try:
         ok, reference_number, response_id, status_code, ps_json = create_receipt_core(
             customer_code, amount_val, comments, "2", current_user.username, 
-            invoice_no, current_user.username, route_stop_id
+            invoice_no, current_user.username, route_stop_id,
+            cheque_number=request.form.get("cheque_number", ""),
+            cheque_date=request.form.get("cheque_date", "")
         )
 
         # If we reach here, receipt was created successfully
@@ -410,7 +423,9 @@ def send_cod_receipt(cod_receipt_id):
             user_code=current_user.username,
             invoice_no=invoice_nos,
             driver_username=cod_receipt.driver_username,
-            route_stop_id=cod_receipt.route_stop_id
+            route_stop_id=cod_receipt.route_stop_id,
+            cheque_number=cod_receipt.cheque_number or "",
+            cheque_date=cod_receipt.cheque_date.isoformat() if cod_receipt.cheque_date else ""
         )
         
         # Update COD receipt with PS365 reference
