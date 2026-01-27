@@ -176,10 +176,35 @@ def fetch_reserved_items_index() -> Dict[str, Any]:
     return reserved_item_data
 
 
+def fetch_stock_ordered_for_items(item_codes: List[str]) -> Dict[str, Decimal]:
+    """
+    Fetch stock_ordered from PS365 /item endpoint for a list of item codes.
+    Returns dict[item_code] = stock_ordered value.
+    """
+    result: Dict[str, Decimal] = {}
+    
+    print(f"Fetching stock_ordered from PS365 for {len(item_codes)} items...")
+    
+    for i, code in enumerate(item_codes):
+        item_details = ps365_get("item", {"item_code_365": code})
+        item = item_details.get("item") or {}
+        result[code] = d(item.get("total_stock_ordered"))
+        
+        if (i + 1) % 10 == 0:
+            print(f"  Progress: {i + 1}/{len(item_codes)}")
+        
+        if THROTTLE_SECONDS:
+            time.sleep(THROTTLE_SECONDS)
+    
+    return result
+
+
 def build_rows() -> List[Dict[str, Any]]:
     """
     Build rows using LOCAL DB lookups instead of per-item PS365 API calls.
-    PS365 is only called for the paginated list_stock_items_store.
+    PS365 is only called for:
+    1. Paginated list_stock_items_store (to find reserved items)
+    2. /item endpoint for filtered items only (to get stock_ordered)
     """
     reserved_item_data = fetch_reserved_items_index()
     if not reserved_item_data:
@@ -192,7 +217,8 @@ def build_rows() -> List[Dict[str, Any]]:
     # Local DB lookup instead of per-item PS365 calls
     meta_map = load_item_meta_map(item_codes)
 
-    out: List[Dict[str, Any]] = []
+    # First pass: filter items with valid season_name
+    filtered_items: List[Dict[str, Any]] = []
     now = datetime.utcnow()
 
     missing_local = 0
@@ -212,7 +238,7 @@ def build_rows() -> List[Dict[str, Any]]:
         stock = r_store["stock"]
         stock_reserved = r_store["stock_reserved"]
 
-        out.append({
+        filtered_items.append({
             "item_code_365": code,
             "item_name": r_store.get("item_name") or meta.get("item_name") or "",
             "season_name": season_name or "",
@@ -223,12 +249,23 @@ def build_rows() -> List[Dict[str, Any]]:
             "stock": stock,
             "stock_reserved": stock_reserved,
             "available_stock": stock - stock_reserved,
-            "stock_ordered": d(meta.get("stock_ordered")),
+            "stock_ordered": Decimal("0"),  # Placeholder - will be filled below
             "synced_at": now,
         })
 
     print(f"Local meta missing for {missing_local} items; filtered (no season) {filtered_no_season}.")
-    return out
+    print(f"Filtered down to {len(filtered_items)} items with valid season_name.")
+
+    # Second pass: fetch stock_ordered ONLY for filtered items
+    if filtered_items:
+        filtered_codes = [item["item_code_365"] for item in filtered_items]
+        stock_ordered_map = fetch_stock_ordered_for_items(filtered_codes)
+        
+        for item in filtered_items:
+            code = item["item_code_365"]
+            item["stock_ordered"] = stock_ordered_map.get(code, Decimal("0"))
+
+    return filtered_items
 
 
 def clear_table_for_store(store_code: str) -> None:
