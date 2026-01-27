@@ -19,22 +19,35 @@ PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 @reports_bp.route("/reserved-stock-777")
 @login_required
 def reserved_stock_777():
+    import threading
     from models import Ps365ReservedStock777
     from scripts.ps365_reserved_stock_report_777 import build_rows, save_to_db, clear_table_for_store, STORE_CODE
+    from app import app
     
-    # Trigger refresh on every visit
-    try:
-        clear_table_for_store(STORE_CODE)
-        rows = build_rows()
-        if rows:
-            save_to_db(rows)
-    except Exception as e:
-        logger.error(f"Auto-refresh failed: {e}")
-        flash("Auto-refresh failed, showing last successful data.", "warning")
+    # Run refresh in background thread to avoid blocking page load
+    def background_refresh():
+        with app.app_context():
+            try:
+                new_rows = build_rows()
+                if new_rows:
+                    clear_table_for_store(STORE_CODE)
+                    save_to_db(new_rows)
+                    logger.info(f"Background refresh completed: {len(new_rows)} items")
+            except Exception as e:
+                logger.error(f"Background refresh failed: {e}")
+    
+    # Start background refresh
+    refresh_thread = threading.Thread(target=background_refresh, daemon=True)
+    refresh_thread.start()
 
+    # Show existing data immediately
     rows = Ps365ReservedStock777.query.order_by(Ps365ReservedStock777.stock_reserved.desc(), Ps365ReservedStock777.item_code_365).all()
     seasons = sorted(set(r.season_name for r in rows if r.season_name))
     synced_at = rows[0].synced_at if rows else None
+    
+    if not rows:
+        flash("Report is refreshing in the background. Please reload the page in 2-3 minutes.", "info")
+    
     return render_template("reports/reserved_stock_777.html", rows=rows, seasons=seasons, synced_at=synced_at, count=len(rows))
 
 @reports_bp.route("/reserved-stock-777/download")
