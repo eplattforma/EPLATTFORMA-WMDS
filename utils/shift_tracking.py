@@ -409,7 +409,10 @@ def check_for_10hour_shift_closure():
         
         for shift in active_shifts:
             # Calculate shift duration
-            shift_duration = (now - shift.check_in_time).total_seconds() / 3600  # Convert to hours
+            # shift.check_in_time is UTC (naive or aware depending on DB, but usually UTC)
+            from timezone_utils import get_utc_now
+            now_utc = get_utc_now()
+            shift_duration = (now_utc - shift.check_in_time).total_seconds() / 3600  # Convert to hours
             
             # If shift is 10+ hours, auto-close it
             if shift_duration >= 10:
@@ -479,7 +482,10 @@ def check_for_long_shift_checkouts():
         
         for shift in active_shifts:
             # Calculate shift duration
-            shift_duration = (now - shift.check_in_time).total_seconds() / 3600  # Convert to hours
+            # shift.check_in_time is UTC (naive or aware depending on DB, but usually UTC)
+            from timezone_utils import get_utc_now
+            now_utc = get_utc_now()
+            shift_duration = (now_utc - shift.check_in_time).total_seconds() / 3600  # Convert to hours
             
             # If shift is longer than 12 hours
             if shift_duration > 12:
@@ -540,11 +546,16 @@ def check_for_missed_checkouts():
         # Parse the time
         hour, minute = map(int, eod_time_str.split(':'))
         
-        # Get the current time
-        now = datetime.now()
+        # Get the current time in Athens (local)
+        now = get_local_now()
         
-        # Create a datetime for today's end of business day
+        # Create a datetime for today's end of business day in Athens
         eod_datetime = datetime(now.year, now.month, now.day, hour, minute)
+        # Assuming get_local_now returns aware or we treat it as local
+        if eod_datetime.tzinfo is None:
+            import pytz
+            athens_tz = pytz.timezone('Europe/Athens')
+            eod_datetime = athens_tz.localize(eod_datetime)
         
         # If we're past the end of business day
         if now >= eod_datetime:
@@ -553,13 +564,20 @@ def check_for_missed_checkouts():
             
             checked_out_users = []
             for shift in active_shifts:
-                # Check if the shift started today (we don't want to auto-close shifts from previous days)
-                shift_date = shift.check_in_time.date()
+                # shift.check_in_time is UTC (stored in DB)
+                # Convert shift check-in to local for date comparison
+                from timezone_utils import to_athens_tz
+                shift_local = to_athens_tz(shift.check_in_time)
+                shift_date = shift_local.date()
                 today = now.date()
                 
                 if shift_date == today:
                     # Auto check out the picker
-                    shift.check_out_time = eod_datetime
+                    # Convert eod_datetime to UTC for storage
+                    from timezone_utils import to_utc
+                    eod_utc = to_utc(eod_datetime)
+                    
+                    shift.check_out_time = eod_utc
                     shift.status = 'auto_closed'
                     shift.total_duration_minutes = shift.calculate_duration()
                     
@@ -570,7 +588,7 @@ def check_for_missed_checkouts():
                     activity = ActivityLog(
                         picker_username=shift.picker_username,
                         activity_type='auto_checkout',
-                        details=f"Automatic end-of-day checkout at {eod_datetime.strftime('%Y-%m-%d %H:%M:%S')}"
+                        details=f"Automatic end-of-day checkout at {format_utc_datetime_to_local(eod_utc, '%Y-%m-%d %H:%M:%S')}"
                     )
                     db.session.add(activity)
                     
