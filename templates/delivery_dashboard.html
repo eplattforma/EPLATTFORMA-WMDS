@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     data.orders.forEach(function(order) {
                         const statusBadge = getStatusBadge(order.status);
                         const row = `
-                            <tr class="text-white">
+                            <tr class="text-dark">
                                 <td class="text-center">${order.stop_seq || '-'}</td>
                                 <td><strong>${order.invoice_no}</strong></td>
                                 <td>${order.customer_name || '-'}</td>
