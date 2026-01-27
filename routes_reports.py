@@ -3,8 +3,11 @@ import io
 import csv
 import math
 import sys
+import smtplib
 import requests
 import logging
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_UP
 from flask import Blueprint, render_template, Response, flash, redirect, url_for, request, jsonify
@@ -208,5 +211,152 @@ def reserved_stock_777_create_po():
     except Exception as e:
         flash(f"Error creating PO: {str(e)}", "danger")
         logger.error(f"PO creation error: {e}")
+    
+    return redirect(url_for("reports.reserved_stock_777"))
+
+
+@reports_bp.route("/reserved-stock-777/email-order", methods=["POST"])
+@login_required
+def reserved_stock_777_email_order():
+    """Send order via email to supplier"""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        flash("Access denied.", "danger")
+        return redirect(url_for("reports.reserved_stock_777"))
+    
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    
+    if not all([SMTP_HOST, SMTP_EMAIL, SMTP_PASSWORD]):
+        flash("SMTP not configured. Please set SMTP_HOST, SMTP_EMAIL, and SMTP_PASSWORD.", "danger")
+        return redirect(url_for("reports.reserved_stock_777"))
+    
+    from models import Ps365ReservedStock777
+    
+    supplier_filter = request.form.get("supplier_filter", "")
+    recipient_email = request.form.get("recipient_email", "").strip()
+    
+    if not recipient_email:
+        flash("Recipient email is required.", "danger")
+        return redirect(url_for("reports.reserved_stock_777"))
+    
+    rows = Ps365ReservedStock777.query.all()
+    
+    order_lines = []
+    for r in rows:
+        if supplier_filter and r.season_name != supplier_filter:
+            continue
+        
+        stock_val = float(r.stock or 0)
+        reserved_val = float(r.stock_reserved or 0)
+        pieces_per_unit = int(r.number_of_pieces or 1)
+        min_order_qty = int(r.number_field_5_value or 0)
+        shortage = reserved_val - stock_val
+        raw_required = int(shortage * pieces_per_unit) if shortage > 0 else 0
+        required = max(raw_required, min_order_qty) if raw_required > 0 else 0
+        
+        if required > 0:
+            order_lines.append({
+                "item_code": r.item_code_365,
+                "item_name": r.item_name,
+                "required_qty": required,
+                "pieces_per_unit": pieces_per_unit
+            })
+    
+    if not order_lines:
+        flash("No items with Required > 0 found for the selected filter.", "warning")
+        return redirect(url_for("reports.reserved_stock_777"))
+    
+    try:
+        now = datetime.now()
+        subject = f"Purchase Order - {supplier_filter or 'All Suppliers'} - {now.strftime('%Y-%m-%d')}"
+        
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; }}
+                table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #4472C4; color: white; }}
+                tr:nth-child(even) {{ background-color: #f2f2f2; }}
+                .header {{ background-color: #f8f9fa; padding: 20px; border-bottom: 2px solid #4472C4; }}
+                .total {{ font-weight: bold; margin-top: 20px; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>Purchase Order Request</h2>
+                <p><strong>Date:</strong> {now.strftime('%Y-%m-%d %H:%M')}</p>
+                <p><strong>Supplier:</strong> {supplier_filter or 'All Suppliers'}</p>
+                <p><strong>Requested by:</strong> {current_user.username}</p>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Item Code</th>
+                        <th>Item Name</th>
+                        <th>Qty Required</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        for idx, line in enumerate(order_lines, start=1):
+            html_content += f"""
+                    <tr>
+                        <td>{idx}</td>
+                        <td>{line['item_code']}</td>
+                        <td>{line['item_name']}</td>
+                        <td style="text-align: right;"><strong>{line['required_qty']}</strong></td>
+                    </tr>
+            """
+        
+        html_content += f"""
+                </tbody>
+            </table>
+            
+            <p class="total">Total Items: {len(order_lines)}</p>
+            <p class="total">Total Quantity: {sum(line['required_qty'] for line in order_lines)}</p>
+            
+            <hr>
+            <p style="color: #666; font-size: 12px;">This is an automated email from the Warehouse Management System.</p>
+        </body>
+        </html>
+        """
+        
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = SMTP_EMAIL
+        msg["To"] = recipient_email
+        
+        text_content = f"Purchase Order - {supplier_filter or 'All Suppliers'}\n\n"
+        text_content += f"Date: {now.strftime('%Y-%m-%d %H:%M')}\n"
+        text_content += f"Requested by: {current_user.username}\n\n"
+        text_content += "Items:\n"
+        for idx, line in enumerate(order_lines, start=1):
+            text_content += f"{idx}. {line['item_code']} - {line['item_name']} - Qty: {line['required_qty']}\n"
+        text_content += f"\nTotal Items: {len(order_lines)}"
+        text_content += f"\nTotal Quantity: {sum(line['required_qty'] for line in order_lines)}"
+        
+        msg.attach(MIMEText(text_content, "plain"))
+        msg.attach(MIMEText(html_content, "html"))
+        
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, recipient_email, msg.as_string())
+        
+        flash(f"Order email sent successfully to {recipient_email} ({len(order_lines)} items)", "success")
+        logger.info(f"Sent order email to {recipient_email} with {len(order_lines)} items for supplier {supplier_filter}")
+    
+    except smtplib.SMTPException as e:
+        flash(f"Failed to send email: {str(e)}", "danger")
+        logger.error(f"SMTP error: {e}")
+    except Exception as e:
+        flash(f"Error sending email: {str(e)}", "danger")
+        logger.error(f"Email error: {e}")
     
     return redirect(url_for("reports.reserved_stock_777"))
