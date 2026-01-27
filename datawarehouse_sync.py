@@ -232,7 +232,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value",
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value",
             },
         })
         
@@ -534,6 +534,10 @@ def full_dw_update(session: Session):
             page_inserted = 0
             page_skipped = 0
 
+            # Prefetch existing items for this page to avoid N+1 queries
+            page_item_codes = [it.get("item_code_365", "").upper() for it in items if it.get("item_code_365")]
+            existing_items_map = {it.item_code_365: it for it in session.query(DwItem).filter(DwItem.item_code_365.in_(page_item_codes)).all()} if page_item_codes else {}
+
             for item in items:
                 try:
                     code = item.get("item_code_365", "").upper()
@@ -568,8 +572,8 @@ def full_dw_update(session: Session):
 
                     attr_hash = _compute_hash(core)
 
-                    # Check if already exists
-                    existing = session.query(DwItem).filter_by(item_code_365=code).first()
+                    # Check if already exists from prefetched map
+                    existing = existing_items_map.get(code)
                     if existing:
                         # Check if data has changed
                         if existing.attr_hash != attr_hash:
@@ -790,7 +794,7 @@ def incremental_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value",
                 },
             })
             
@@ -845,6 +849,7 @@ def incremental_dw_update(session: Session):
                     "item_weight": to_decimal(i.get("item_weight")),
                     "number_of_pieces": to_int(i.get("number_of_pieces")),
                     "selling_qty": to_decimal(i.get("number_field_1_value")),
+                    "min_order_qty": to_int(i.get("number_field_5_value")),
                 }
                 attr_hash = _compute_hash(core)
                 
@@ -910,6 +915,7 @@ def incremental_dw_update(session: Session):
                         existing.item_weight = core["item_weight"]
                         existing.number_of_pieces = core["number_of_pieces"]
                         existing.selling_qty = core["selling_qty"]
+                        existing.min_order_qty = core["min_order_qty"]
                         existing.attr_hash = attr_hash
                         existing.last_sync_at = now
                     else:
@@ -922,7 +928,7 @@ def incremental_dw_update(session: Session):
             page += 1
             
         except Exception as e:
-            logger.error(f"Error on page {page}: {str(e)}")
+            logger.error(f"Error on page {page}: {str(e)}", exc_info=True)
             break
     
     # Log summary with all changes

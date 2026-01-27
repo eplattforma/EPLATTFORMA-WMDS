@@ -67,6 +67,7 @@ def load_item_meta_map(item_codes: List[str]) -> Dict[str, Dict[str, Any]]:
                 DwItem.item_name,
                 DwItem.number_of_pieces,
                 DwItem.supplier_item_code,
+                DwItem.min_order_qty,
             )
             .outerjoin(DwSeason, DwItem.season_code_365 == DwSeason.season_code_365)
             .filter(DwItem.item_code_365.in_(part))
@@ -80,7 +81,7 @@ def load_item_meta_map(item_codes: List[str]) -> Dict[str, Dict[str, Any]]:
                 "item_name": r[2],
                 "number_of_pieces": r[3],
                 "supplier_item_code": r[4],
-                "number_field_5_value": 0,  # Not stored in DwItem - default to 0
+                "number_field_5_value": r[5] or 0,  # min_order_qty from local DB
                 "stock_ordered": Decimal("0"),  # Not stored locally - default to 0
             }
 
