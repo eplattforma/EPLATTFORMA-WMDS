@@ -1042,20 +1042,47 @@ def api_add_lot():
 @po_receiving_bp.route('/api/update-comments/<int:session_id>', methods=['POST'])
 @login_required
 def api_update_comments(session_id):
-    """API endpoint to update PO receiving session comments"""
+    """Update comments for a receiving session"""
+    if not check_role_access():
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+
     session = ReceivingSession.query.get_or_404(session_id)
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'success': False, 'error': 'No data provided'}), 400
-        
-    try:
-        session.comments = data.get('comments', '')
-        db.session.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
+    data = request.json
+    session.comments = data.get('comments', '')
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Comments updated successfully'})
+
+@po_receiving_bp.route('/api/refresh-stock/<int:po_id>', methods=['POST'])
+@login_required
+def api_refresh_stock(po_id):
+    """Refresh stock, reserved, and ordered quantities for all items in a PO"""
+    if not check_role_access():
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+    po = PurchaseOrder.query.get_or_404(po_id)
+    item_codes = [l.item_code_365 for l in po.lines if l.item_code_365]
+
+    if not item_codes:
+        return jsonify({'success': True, 'updated': 0})
+
+    from services_ps365_stock import fetch_items_stock_for_store
+    stock_map = fetch_items_stock_for_store("777", item_codes)
+
+    updated = 0
+    now = datetime.utcnow()
+    for line in po.lines:
+        s = stock_map.get(line.item_code_365)
+        if not s:
+            continue
+        line.stock_qty = Decimal(str(s["stock"]))
+        line.stock_reserved_qty = Decimal(str(s["stock_reserved"]))
+        line.stock_ordered_qty = Decimal(str(s["stock_ordered"]))
+        line.available_qty = Decimal(str(s["stock"] - s["stock_reserved"]))
+        line.stock_synced_at = now
+        updated += 1
+
+    db.session.commit()
+    return jsonify({'success': True, 'updated': updated})
 
 @po_receiving_bp.route('/api/get-received-quantities', methods=['POST'])
 @login_required

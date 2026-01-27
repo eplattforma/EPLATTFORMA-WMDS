@@ -1,0 +1,324 @@
+Two separate problems are mixed together here:
+
+“PO reserved qty” is wrong because this blueprint never fetches PS365 stock_ordered / stock_reserved at all. It only fetches shelf stock (via fetch_item_shelves) and sums shelf_data[].stock, which is not the “On PO” quantity you want.
+
+“Refresh” is buggy mainly because your /api/refresh-po/<po_id> logic has key mismatches (string vs int line numbers) + a wrong is_cart flag, so it often creates duplicate PO lines instead of updating existing ones.
+
+Below is what to change.
+
+A) Why “On PO / reserved qty” is wrong (and what API to use)
+
+In PS365, the fields you want are exposed by stock endpoints:
+
+stock_reserved = customer orders reserved
+
+stock_ordered = on purchase orders (On PO)
+
+plus stock (physical)
+
+You can get them for store 777 and only for specific items using POST /list_items_stock with:
+
+stores_selection: "777"
+
+items_selection: "CODE1,CODE2,..."
+
+analytical_per_store: true (so you get per-store breakdown with stock_reserved + stock_ordered)
+
+Avoid calling /list_stock_items_store repeatedly for reporting; PS365 explicitly warns it can lead to token disconnection if overused on large datasets.
+
+So: Your “On PO” column should come from stock_ordered (store 777), not from PO header lines or shelf stock.
+
+B) Why refresh is broken (concrete bugs in your code)
+1) is_cart is computed incorrectly
+
+You do:
+
+po_code = po.code_365 or po.shopping_cart_code
+is_cart = bool(po.shopping_cart_code)
+
+
+If a PO has both codes, po_code becomes code_365 but is_cart becomes True, so you call /purchaseorder?...is_shopping_cart_code=Y with a 365 code → wrong request and refresh fails. PS365 expects is_shopping_cart_code to match the identifier type.
+
+Fix:
+
+po_code = po.code_365 or po.shopping_cart_code
+is_cart = bool(po.shopping_cart_code) and (po_code == po.shopping_cart_code)
+
+2) line_number type mismatch causes duplicates
+
+In upsert_purchase_order() you store:
+
+line_number=int(ln.get("line_number", 0))
+
+
+But in api_refresh_po() you do:
+
+line_number = line_data.get('line_number')   # often "1" (string)
+existing_lines = {line.line_number: line for line in po.lines}  # int keys
+
+
+So "1" in {1: ...} is False → it creates new lines each refresh. That breaks “reserved qty” displays and receiving links.
+
+Fix: always normalize:
+
+ln_no = int(line_data.get("line_number") or 0)
+existing_lines = {int(l.line_number): l for l in po.lines}  # or po.lines.all()
+
+3) You don’t refresh critical fields (and decimals)
+
+You update only: item_code, item_name, line_quantity, supplier_item_code.
+You should also update at least: line_id_365, tracking flags, totals, pricing, and convert numerics with to_decimal().
+
+4) You don’t remove lines removed in PS365
+
+So refresh can only grow the table. You should delete lines that no longer exist in PS365 only if they have no receiving lines.
+
+5) Duplicate route definition
+
+You have two handlers on the same route:
+/api/update-comments/<int:session_id> (two different functions). That’s a Flask routing bug waiting to happen.
+
+C) Drop-in patch: fix /api/refresh-po properly
+
+Replace your api_refresh_po() with this (same endpoint, safer logic):
+
+@po_receiving_bp.route('/api/refresh-po/<int:po_id>', methods=['POST'])
+@login_required
+def api_refresh_po(po_id):
+    """Re-download a purchase order from PS365, updating lines while preserving receiving data"""
+    if not check_role_access():
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+    po = PurchaseOrder.query.get_or_404(po_id)
+
+    po_code = po.code_365 or po.shopping_cart_code
+    if not po_code:
+        return jsonify({'success': False, 'error': 'No PO code found'}), 400
+
+    # IMPORTANT: is_cart must match the identifier we are sending
+    is_cart = bool(po.shopping_cart_code) and (po_code == po.shopping_cart_code)
+
+    try:
+        order_data = fetch_purchase_order_from_ps365(po_code, is_cart)
+
+        hdr = order_data.get("purchase_order_header", {}) or {}
+        lines_data = order_data.get("list_purchase_order_details", []) or []
+
+        # Update header
+        po.status_code = hdr.get("order_status_code_365")
+        po.status_name = hdr.get("order_status_name")
+        po.supplier_code = hdr.get("supplier_code_365")
+        po.supplier_name = hdr.get("supplier_name") or po.supplier_name
+        po.comments = hdr.get("comments")
+        po.total_sub = to_decimal(hdr.get("total_sub"))
+        po.total_discount = to_decimal(hdr.get("total_discount"))
+        po.total_vat = to_decimal(hdr.get("total_vat"))
+        po.total_grand = to_decimal(hdr.get("total_grand"))
+
+        # Normalize existing lines map by INT line_number
+        # If po.lines is dynamic relationship use po.lines.all()
+        existing_lines = {int(l.line_number): l for l in po.lines}
+
+        ps_line_numbers = set()
+        item_codes = []
+
+        for ld in lines_data:
+            ln_no = int(ld.get("line_number") or 0)
+            if ln_no <= 0:
+                continue
+
+            ps_line_numbers.add(ln_no)
+            item_code = (ld.get("item_code_365") or "").strip()
+            if item_code:
+                item_codes.append(item_code)
+
+            # DW lookup (optional)
+            from models import DwItem
+            dw_item = DwItem.query.get(item_code) if item_code else None
+            supplier_item_code = dw_item.supplier_item_code if dw_item else None
+
+            # Update or create
+            if ln_no in existing_lines:
+                line = existing_lines[ln_no]
+            else:
+                line = PurchaseOrderLine(purchase_order_id=po.id, line_number=ln_no)
+                db.session.add(line)
+
+            line.item_code_365 = item_code
+            line.item_name = ld.get("item_name")
+            line.line_quantity = to_decimal(ld.get("line_quantity")) or Decimal("0")
+            line.line_price_excl_vat = to_decimal(ld.get("line_price_excl_vat"))
+            line.line_total_sub = to_decimal(ld.get("line_total_sub"))
+            line.line_total_discount = to_decimal(ld.get("line_total_discount"))
+            line.line_total_discount_percentage = to_decimal(ld.get("line_total_discount_percentage"))
+            line.line_vat_code_365 = ld.get("line_vat_code_365")
+            line.line_total_vat = to_decimal(ld.get("line_total_vat"))
+            line.line_total_vat_percentage = to_decimal(ld.get("line_total_vat_percentage"))
+            line.line_total_grand = to_decimal(ld.get("line_total_grand"))
+
+            # If PS365 returns it in your real payload, keep it in sync
+            if ld.get("line_id_365"):
+                line.line_id_365 = ld.get("line_id_365")
+
+            line.supplier_item_code = supplier_item_code
+
+        # Delete lines removed in PS365 ONLY if they have no receiving
+        for ln_no, line in list(existing_lines.items()):
+            if ln_no not in ps_line_numbers:
+                has_receiving = ReceivingLine.query.filter_by(po_line_id=line.id).first() is not None
+                if not has_receiving:
+                    db.session.delete(line)
+
+        db.session.commit()
+
+        return jsonify({'success': True, 'message': f'Purchase order {po_code} refreshed successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'Failed to refresh: {str(e)}'}), 500
+
+D) Add correct “Customer Order / On PO / Available” for store 777
+1) Helper: fetch per-item stock (store 777) from PS365
+
+Use /list_items_stock because it supports items_selection and stores_selection directly.
+
+Create a new file services_ps365_stock.py:
+
+import os
+import requests
+
+POWERSOFT_BASE = os.getenv("POWERSOFT_BASE", "").rstrip("/")
+POWERSOFT_TOKEN = os.getenv("POWERSOFT_TOKEN", "")
+
+def fetch_items_stock_for_store(store_code: str, item_codes: list[str]) -> dict:
+    """
+    Returns: { item_code: {"stock": x, "stock_reserved": y, "stock_ordered": z} }
+    Uses /list_items_stock with analytical_per_store=true.
+    NOTE: when analytical_per_store=true, PS365 page_size max is 50. (per docs)
+    """
+    if not item_codes:
+        return {}
+
+    out = {}
+
+    # chunk to 50 to respect PS365 limits when analytical_per_store=true
+    CHUNK = 50
+    for i in range(0, len(item_codes), CHUNK):
+        chunk = item_codes[i:i+CHUNK]
+        payload = {
+            "api_credentials": {"token": POWERSOFT_TOKEN},
+            "filter_define": {
+                "page_number": 1,
+                "page_size": len(chunk),
+                "only_counted": "N",
+                "stores_selection": str(store_code),
+                "exclude_stores_selection": "",
+                "item_active_type": "all",
+                "ecommerce_type": "all",
+                "categories_selection": "",
+                "departments_selection": "",
+                "items_supplier_selection": "",
+                "brands_selection": "",
+                "seasons_selection": "",
+                "models_selection": "",
+                "items_selection": ",".join(chunk),
+                "colours_selection": "",
+                "sizes_selection": "",
+                "sizes_group_selection": "",
+                "attributes_1_selection": "",
+                "attributes_2_selection": "",
+                "attributes_3_selection": "",
+                "attributes_4_selection": "",
+                "attributes_5_selection": "",
+                "attributes_6_selection": "",
+                "last_modified_from": "",
+                "last_modified_to": "",
+                "creation_date_from": "",
+                "creation_date_to": "",
+                "analytical_per_store": True,
+                "model_level": False
+            }
+        }
+
+        url = f"{POWERSOFT_BASE}/list_items_stock"
+        r = requests.post(url, json=payload, timeout=(15, 120))
+        r.raise_for_status()
+        data = r.json()
+
+        api = data.get("api_response", {})
+        if api.get("response_code") != "1":
+            raise RuntimeError(api.get("response_msg", "PS365 list_items_stock failed"))
+
+        for row in (data.get("list_items_stock") or []):
+            code = row.get("item_code_365")
+            per_store = row.get("list_stock_store") or []
+            srow = next((x for x in per_store if str(x.get("store_code_365")) == str(store_code)), None)
+            if not code or not srow:
+                continue
+            out[code] = {
+                "stock": float(srow.get("stock") or 0),
+                "stock_reserved": float(srow.get("stock_reserved") or 0),
+                "stock_ordered": float(srow.get("stock_ordered") or 0),
+            }
+
+    return out
+
+2) Store the values on your PO lines (recommended)
+
+Add columns to PurchaseOrderLine:
+
+stock_qty (numeric)
+
+stock_reserved_qty (numeric)
+
+stock_ordered_qty (numeric)
+
+available_qty (numeric)
+
+stock_synced_at (datetime)
+
+Then create an endpoint like:
+
+from services_ps365_stock import fetch_items_stock_for_store
+
+@po_receiving_bp.route('/api/refresh-stock/<int:po_id>', methods=['POST'])
+@login_required
+def api_refresh_stock(po_id):
+    if not check_role_access():
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    po = PurchaseOrder.query.get_or_404(po_id)
+    item_codes = [l.item_code_365 for l in po.lines if l.item_code_365]
+
+    stock_map = fetch_items_stock_for_store("777", item_codes)
+
+    updated = 0
+    for line in po.lines:
+        s = stock_map.get(line.item_code_365)
+        if not s:
+            continue
+        line.stock_qty = s["stock"]
+        line.stock_reserved_qty = s["stock_reserved"]
+        line.stock_ordered_qty = s["stock_ordered"]
+        line.available_qty = s["stock"] - s["stock_reserved"]
+        updated += 1
+
+    db.session.commit()
+    return jsonify({'ok': True, 'updated': updated})
+
+
+Now your report columns map cleanly:
+
+Stock = stock_qty
+
+Customer Order = stock_reserved_qty
+
+Available = available_qty
+
+On PO = stock_ordered_qty
+
+E) One more thing you should fix immediately
+
+You have duplicate routes:
+
+@po_receiving_bp.route('/api/update-comments/<int:session_id>', methods=['POST'])
+defined twice (api_update_comments and update_comments). Remove one, or rename one URL.

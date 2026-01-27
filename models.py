@@ -1519,6 +1519,13 @@ class PurchaseOrderLine(db.Model):
     unit_type = db.Column(db.String(50), nullable=True)
     pieces_per_unit = db.Column(db.Integer, nullable=True)
     
+    # Accurate stock fields for Store 777
+    stock_qty = db.Column(db.Numeric(12, 4), nullable=True)
+    stock_reserved_qty = db.Column(db.Numeric(12, 4), nullable=True)
+    stock_ordered_qty = db.Column(db.Numeric(12, 4), nullable=True)
+    available_qty = db.Column(db.Numeric(12, 4), nullable=True)
+    stock_synced_at = db.Column(UTCDateTime(), nullable=True)
+    
     # Relationships
     receiving_lines = db.relationship('ReceivingLine', backref='po_line', cascade='all, delete-orphan', lazy='dynamic')
     
