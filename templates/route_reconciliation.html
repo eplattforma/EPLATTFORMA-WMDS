@@ -287,7 +287,16 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 </tr>
                                 <tr>
                                     <th>Amount Received:</th>
-                                    <td>€{{ "%.2f"|format(stop_data.cod_receipt.received_amount|float) }}</td>
+                                    <td>
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span>€{{ "%.2f"|format(stop_data.cod_receipt.received_amount|float) }}</span>
+                                            {% if not stop_data.cod_receipt.ps365_receipt_id %}
+                                            <button class="btn btn-sm btn-outline-primary ms-2" onclick="editCodAmount({{ stop_data.cod_receipt.id }}, {{ stop_data.cod_receipt.received_amount }})">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                 </tr>
                                 {% if stop_data.cod_receipt.variance and stop_data.cod_receipt.variance != 0 %}
                                 <tr>
@@ -383,6 +392,36 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
 </div>
 
 <script>
+function editCodAmount(receiptId, currentAmount) {
+    const newAmount = prompt('Enter new received amount:', currentAmount);
+    if (newAmount === null) return;
+    
+    const amountNum = parseFloat(newAmount);
+    if (isNaN(amountNum)) {
+        alert('Please enter a valid number');
+        return;
+    }
+    
+    fetch(`/routes/api/cod_receipts/${receiptId}/update_amount`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ received_amount: amountNum })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(`Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert(`Error: ${error.message}`);
+    });
+}
+
 function sendReceipt(codReceiptId) {
     if (!confirm('Send this COD receipt to Powersoft365?')) return;
     

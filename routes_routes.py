@@ -1534,3 +1534,34 @@ def reconciliation_report(shipment_id):
                          total_received=float(total_received),
                          total_variance=float(total_variance),
                          settlement_info=settlement_info)
+
+@bp.route("/api/cod_receipts/<int:receipt_id>/update_amount", methods=["POST"])
+@login_required
+@admin_required
+def update_cod_amount(receipt_id):
+    """Update COD received amount if not yet sent to PS365"""
+    from models import CODReceipt
+    from app import db
+    from decimal import Decimal
+    
+    receipt = CODReceipt.query.get_or_404(receipt_id)
+    
+    if receipt.ps365_receipt_id:
+        return jsonify({'success': False, 'error': 'Cannot update amount: Receipt already sent to PS365'}), 400
+        
+    data = request.get_json()
+    new_amount_val = data.get('received_amount')
+    
+    if new_amount_val is None:
+        return jsonify({'success': False, 'error': 'No amount provided'}), 400
+        
+    try:
+        new_amount = Decimal(str(new_amount_val))
+        receipt.received_amount = new_amount
+        # Re-calculate variance
+        receipt.variance = receipt.received_amount - receipt.expected_amount
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Amount updated successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
