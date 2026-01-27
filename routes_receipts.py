@@ -18,6 +18,28 @@ bp = Blueprint("receipts", __name__)
 POWERSOFT_BASE = os.getenv("POWERSOFT_BASE", "")
 POWERSOFT_TOKEN = os.getenv("POWERSOFT_TOKEN", "")
 LOCAL_TZ = os.getenv("LOCAL_TZ", "Asia/Nicosia")
+PS365_RECEIPT_DESC_MAX = int(os.getenv("PS365_RECEIPT_DESC_MAX", "20"))
+PS365_RECEIPT_COMMENTS_MAX = int(os.getenv("PS365_RECEIPT_COMMENTS_MAX", "255"))
+PS365_CHEQUE_PAYMENT_TYPE_CODE = os.getenv("PS365_CHEQUE_PAYMENT_TYPE_CODE", "CHEQ")
+
+def redact_ps365_request(req: dict) -> dict:
+    safe = json.loads(json.dumps(req))  # deep copy
+    if isinstance(safe.get("api_credentials"), dict):
+        safe["api_credentials"]["token"] = "***REDACTED***"
+    return safe
+
+def normalize_yyyy_mm_dd(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    # yyyy-mm-dd or yyyy-mm-ddTHH:MM...
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    # dd/mm/yyyy
+    if len(s) >= 10 and s[2] == "/" and s[5] == "/":
+        dd, mm, yyyy = s[:2], s[3:5], s[6:10]
+        return f"{yyyy}-{mm}-{dd}"
+    return s
 
 def driver_required(f):
     """Decorator to ensure only drivers can access receipt routes"""
@@ -72,7 +94,8 @@ def local_and_utc_now():
 def create_receipt_core(customer_code: str, amount_val: float, comments: str, 
                         agent_code: str = "2", user_code: str = "", 
                         invoice_no: str = None, driver_username: str = None, route_stop_id: int = None,
-                        cheque_number: str = "", cheque_date: str = ""):
+                        cheque_number: str = "", cheque_date: str = "",
+                        allow_duplicate_stop: bool = False):
     """
     Core receipt creation logic used by both API and form routes
     """
@@ -80,7 +103,7 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
     
     try:
         # Check if receipt already exists for this route stop
-        if route_stop_id and not request.args.get('force_test'):
+        if route_stop_id and not allow_duplicate_stop:
             existing_receipt = ReceiptLog.query.filter_by(route_stop_id=route_stop_id).first()
             if existing_receipt:
                 raise Exception(f"Receipt already exists for this customer. Reference: {existing_receipt.reference_number}")
@@ -88,8 +111,8 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
         # Generate reference number
         reference_number = next_reference_number()
         
-        # Build receipt description: [cheque_number] [invoices] [name] truncated to 30 chars
-        customer = PSCustomer.query.get(customer_code)
+        # Build receipt description: [cheque_number] [invoices] [name]
+        customer = PSCustomer.query.filter_by(customer_code_365=customer_code).first()
         customer_name = ""
         if customer and customer.company_name:
             customer_name = customer.company_name.upper()
@@ -105,7 +128,8 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
         if customer_name:
             desc_parts.append(customer_name)
             
-        receipt_description = " ".join(desc_parts)[:30].strip()
+        receipt_description = " ".join(desc_parts).strip()
+        receipt_description = receipt_description[:PS365_RECEIPT_DESC_MAX].strip()
         if not receipt_description:
             receipt_description = "RECEIPT"
         
@@ -113,10 +137,23 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
         payment_type_code = "DRVR1"  # Default fallback
         if driver_username:
             from models import User
-            driver = User.query.get(driver_username)
+            driver = User.query.filter_by(username=driver_username).first()
             if driver and driver.payment_type_code_365:
                 payment_type_code = driver.payment_type_code_365
         
+        # Enforce cheque behaviour + correct formats
+        cheque_number = (cheque_number or "").strip()
+        cheque_date = normalize_yyyy_mm_dd(cheque_date)
+
+        # enforce comment length
+        comments = (comments or "").strip()
+        if PS365_RECEIPT_COMMENTS_MAX and len(comments) > PS365_RECEIPT_COMMENTS_MAX:
+            comments = comments[:PS365_RECEIPT_COMMENTS_MAX]
+
+        # If cheque info exists, force cheque payment type so PS365 stores cheque fields
+        if cheque_number or cheque_date:
+            payment_type_code = PS365_CHEQUE_PAYMENT_TYPE_CODE
+            
         # Build request for Powersoft365
         req_obj = {
             "api_credentials": {"token": POWERSOFT_TOKEN},
@@ -129,9 +166,8 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
                 "amount": float(amount_val),
                 "agent_code_365": agent_code,
                 "payment_type_code_365": payment_type_code,
-                "cheque_number": cheque_number or "",
-                "cheque_date": cheque_date or "",
-                "post_date": cheque_date or "", # Added redundancy for "post date"
+                "cheque_number": cheque_number,
+                "cheque_date": cheque_date,
                 "comments": comments or "",
                 "user_code": user_code or ""
             }
@@ -171,6 +207,9 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
             db.session.rollback()
             raise Exception("Powersoft365 API not configured. Receipt creation requires valid API credentials.")
 
+        # Redact token before storing ReceiptLog.request_json
+        safe_req_obj = redact_ps365_request(req_obj)
+
         # Log successful receipt
         log = ReceiptLog(
             reference_number=reference_number,
@@ -179,7 +218,7 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
             comments=comments or "",
             response_id=response_id,
             success=1,
-            request_json=json.dumps(req_obj, ensure_ascii=False),
+            request_json=json.dumps(safe_req_obj, ensure_ascii=False),
             response_json=json.dumps(ps_json, ensure_ascii=False),
             invoice_no=invoice_no,
             driver_username=driver_username,
@@ -218,11 +257,13 @@ def create_receipt_api():
         return jsonify({"error": "amount must be a positive number"}), 400
 
     try:
+        allow_duplicate_stop = (current_user.role == "admin") and (request.args.get("force_test") == "1")
         ok, reference_number, response_id, status_code, ps_json = create_receipt_core(
             customer_code, amount_val, comments, agent_code, user_code, 
             invoice_no, current_user.username,
             cheque_number=payload.get("cheque_number") or payload.get("cheque_no") or "",
-            cheque_date=payload.get("cheque_date") or payload.get("post_date") or ""
+            cheque_date=payload.get("cheque_date") or payload.get("post_date") or "",
+            allow_duplicate_stop=allow_duplicate_stop
         )
 
         # If we reach here, receipt was created successfully
@@ -295,9 +336,9 @@ def new_receipt_form():
     
     customer = None
     if customer_code:
-        customer = PSCustomer.query.get(customer_code)
+        customer = PSCustomer.query.filter_by(customer_code_365=customer_code).first()
     elif invoice_no:
-        invoice = Invoice.query.get(invoice_no)
+        invoice = Invoice.query.filter_by(invoice_no=invoice_no).first()
         if invoice and invoice.customer_name:
             customer = PSCustomer.query.filter_by(company_name=invoice.customer_name).first()
             if customer:
@@ -341,11 +382,13 @@ def submit_receipt_form():
                                invoice_no=invoice_no))
 
     try:
+        allow_duplicate_stop = (current_user.role == "admin") and (request.args.get("force_test") == "1")
         ok, reference_number, response_id, status_code, ps_json = create_receipt_core(
             customer_code, amount_val, comments, "2", current_user.username, 
             invoice_no, current_user.username, route_stop_id,
             cheque_number=request.form.get("cheque_number", ""),
-            cheque_date=request.form.get("cheque_date", "")
+            cheque_date=request.form.get("cheque_date", ""),
+            allow_duplicate_stop=allow_duplicate_stop
         )
 
         # If we reach here, receipt was created successfully
@@ -417,6 +460,7 @@ def send_cod_receipt(cod_receipt_id):
             comments += f" | {cod_receipt.note}"
         
         # Create receipt via PS365
+        allow_duplicate_stop = (current_user.role == "admin") and (request.args.get("force_test") == "1")
         ok, reference_number, response_id, status_code, ps_json = create_receipt_core(
             customer_code=customer_code,
             amount_val=float(cod_receipt.received_amount),
@@ -427,7 +471,8 @@ def send_cod_receipt(cod_receipt_id):
             driver_username=cod_receipt.driver_username,
             route_stop_id=cod_receipt.route_stop_id,
             cheque_number=cod_receipt.cheque_number or "",
-            cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else ""
+            cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else "",
+            allow_duplicate_stop=allow_duplicate_stop
         )
         
         # Update COD receipt with PS365 reference

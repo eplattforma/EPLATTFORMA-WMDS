@@ -1,0 +1,187 @@
+Replit Instructions: Fix PS365 receipts blueprint (token leak, cheque fields, force_test, IDs, limits)
+Goal
+
+Stop logging PS365 token in ReceiptLog.request_json
+
+Cheque number + cheque date actually appear in PS365 by enforcing:
+
+cheque_date format YYYY-MM-DD
+
+payment_type_code_365 forced to CHEQ when cheque fields exist
+
+Remove/lock down the insecure force_test bypass
+
+Fix risky .query.get() lookups (use filter_by)
+
+Make field lengths configurable: receipt_description + comments
+
+Step 1 — Add configuration constants (top of receipts blueprint)
+
+Add below existing config:
+
+PS365_RECEIPT_DESC_MAX = int(os.getenv("PS365_RECEIPT_DESC_MAX", "20"))
+PS365_RECEIPT_COMMENTS_MAX = int(os.getenv("PS365_RECEIPT_COMMENTS_MAX", "255"))
+PS365_CHEQUE_PAYMENT_TYPE_CODE = os.getenv("PS365_CHEQUE_PAYMENT_TYPE_CODE", "CHEQ")
+
+Step 2 — Add helpers (same file, near other helpers)
+
+Add:
+
+def redact_ps365_request(req: dict) -> dict:
+    safe = json.loads(json.dumps(req))  # deep copy
+    if isinstance(safe.get("api_credentials"), dict):
+        safe["api_credentials"]["token"] = "***REDACTED***"
+    return safe
+
+def normalize_yyyy_mm_dd(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    # yyyy-mm-dd or yyyy-mm-ddTHH:MM...
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    # dd/mm/yyyy
+    if len(s) >= 10 and s[2] == "/" and s[5] == "/":
+        dd, mm, yyyy = s[:2], s[3:5], s[6:10]
+        return f"{yyyy}-{mm}-{dd}"
+    return s
+
+Step 3 — Remove insecure force_test behaviour
+
+In create_receipt_core, replace:
+
+if route_stop_id and not request.args.get('force_test'):
+
+
+with NO request dependency inside core:
+
+Update function signature:
+
+def create_receipt_core(..., allow_duplicate_stop: bool = False, ...):
+
+
+Update the check:
+
+if route_stop_id and not allow_duplicate_stop:
+    existing_receipt = ReceiptLog.query.filter_by(route_stop_id=route_stop_id).first()
+    if existing_receipt:
+        raise Exception(...)
+
+
+In routes, compute:
+
+allow_duplicate_stop = (current_user.role == "admin") and (request.args.get("force_test") == "1")
+
+
+and pass into create_receipt_core(..., allow_duplicate_stop=allow_duplicate_stop)
+
+If you don’t need it at all, delete it entirely.
+
+Step 4 — Fix .query.get() usage for PSCustomer/User/Invoice
+
+Replace in create_receipt_core:
+
+customer = PSCustomer.query.get(customer_code)
+
+
+with:
+
+customer = PSCustomer.query.filter_by(customer_code_365=customer_code).first()
+
+
+Replace:
+
+driver = User.query.get(driver_username)
+
+
+with:
+
+driver = User.query.filter_by(username=driver_username).first()
+
+
+Also check other .get(invoice_no) usage in form route; replace with filter_by(invoice_no=invoice_no) if Invoice PK is not invoice_no.
+
+Step 5 — Enforce cheque behaviour + correct formats
+
+Inside create_receipt_core before building req_obj, normalize and force payment type:
+
+cheque_number = (cheque_number or "").strip()
+cheque_date = normalize_yyyy_mm_dd(cheque_date)
+
+# enforce comment length
+comments = (comments or "").strip()
+if PS365_RECEIPT_COMMENTS_MAX and len(comments) > PS365_RECEIPT_COMMENTS_MAX:
+    comments = comments[:PS365_RECEIPT_COMMENTS_MAX]
+
+# If cheque info exists, force cheque payment type so PS365 stores cheque fields
+if cheque_number or cheque_date:
+    payment_type_code = PS365_CHEQUE_PAYMENT_TYPE_CODE
+
+
+Then in req_obj, keep only:
+
+"cheque_number": cheque_number,
+"cheque_date": cheque_date,
+
+
+Remove the extra:
+
+"post_date": ...
+
+
+(PS365 likely ignores unknown fields; it just adds confusion.)
+
+Step 6 — Fix receipt_description length to configurable limit
+
+Replace:
+
+receipt_description = " ".join(desc_parts)[:30].strip()
+
+
+with:
+
+receipt_description = " ".join(desc_parts).strip()
+receipt_description = receipt_description[:PS365_RECEIPT_DESC_MAX].strip()
+if not receipt_description:
+    receipt_description = "RECEIPT"
+
+Step 7 — Redact token before storing ReceiptLog.request_json
+
+Before creating ReceiptLog, do:
+
+safe_req_obj = redact_ps365_request(req_obj)
+
+
+Then store safe_req_obj instead of req_obj:
+
+request_json=json.dumps(safe_req_obj, ensure_ascii=False),
+
+Step 8 — Verify with a controlled test
+
+Create a receipt with:
+
+cheque_number="12345"
+
+cheque_date="2026-01-27" (or dd/mm/yyyy to test normalization)
+
+Confirm in ReceiptLog.request_json:
+
+token is redacted
+
+payment_type_code_365 is "CHEQ"
+
+cheque fields are present + non-empty
+
+Confirm in PS365 UI the cheque number and post date appear.
+
+Env vars to add in Replit Secrets
+
+PS365_CHEQUE_PAYMENT_TYPE_CODE=CHEQ
+
+PS365_RECEIPT_DESC_MAX=20
+
+PS365_RECEIPT_COMMENTS_MAX=255
+
+If Replit wants, they can also add a temporary debug line (and remove after):
+
+log req_obj["customer_receipt"]["payment_type_code_365"], cheque_number, cheque_date (never log token).
