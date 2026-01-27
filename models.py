@@ -1629,6 +1629,7 @@ class DwItem(db.Model):
     
     # Supplier Item Code from PS365 (text_field_2_value)
     supplier_item_code = db.Column(db.String(255), nullable=True)
+    min_order_qty = db.Column(db.Integer, nullable=True)  # Items.number_field_5_value
 
     attr_hash = db.Column(db.String(32), nullable=False)
     last_sync_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)

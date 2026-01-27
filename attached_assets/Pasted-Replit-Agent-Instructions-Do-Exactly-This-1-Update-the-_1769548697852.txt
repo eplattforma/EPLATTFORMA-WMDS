@@ -1,0 +1,137 @@
+Replit Agent Instructions (Do Exactly This)
+1) Update the correct model (ps_items)
+1A — Confirm which model maps to ps_items
+
+Open models.py and search:
+
+class DwItem
+
+__tablename__
+
+If you see __tablename__ = "ps_items" (or ps_items_dw used as “ps_items”), then DwItem is the ps_items table → proceed with DwItem edits.
+
+If you see __tablename__ = "dw_items" (or similar) AND you also have a model like PsItem with __tablename__ = "ps_items", then apply the column to PsItem and also update the importer to upsert PsItem. (But based on your pasted code, the app uses DwItem everywhere as the item master.)
+
+1B — Add the column
+
+In the model that represents ps_items (most likely DwItem), add:
+
+min_order_qty = db.Column(db.Integer, nullable=True)
+
+1C — DB schema
+
+If you don’t use Alembic migrations, run once:
+
+ALTER TABLE ps_items ADD COLUMN IF NOT EXISTS min_order_qty INTEGER;
+
+
+(If your table name is different, use the actual __tablename__.)
+
+2) Modify datawarehouse_sync.py (THIS is the importer)
+2A — FULL SYNC: add number_field_5_value to PS365 display_fields
+
+In full_dw_update(session) → “5) Items – ALL items”, find:
+
+"display_fields": "item_code_365,item_name,...,number_of_pieces,number_field_1_value,text_field_2_value",
+
+
+Change it to include number_field_5_value:
+
+"display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value",
+
+2B — FULL SYNC: map it into core as min_order_qty
+
+In the same FULL SYNC loop where you build:
+
+core = {
+   ...
+}
+
+
+Add this line:
+
+"min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
+
+
+So the core dict becomes (showing only the new field):
+
+core = {
+    ...
+    "supplier_item_code": item.get("text_field_2_value") or None,
+    "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
+}
+
+2C — FULL SYNC: ensure UPDATE writes it
+
+In the “existing record update” block (you already set many fields), add:
+
+existing.min_order_qty = core["min_order_qty"]
+
+
+And for INSERT, since you do DwItem(**core, ...), it will auto-populate if the column exists.
+
+✅ Also: since you compute attr_hash = _compute_hash(core), once you add the field into core, the hash will include it automatically.
+
+3) INCREMENTAL SYNC: also fetch and store it
+3A — Add it to display_fields in incremental_dw_update(session)
+
+Find the incremental list_items payload display_fields and add number_field_5_value exactly like the full sync.
+
+3B — Add to incremental core
+
+In incremental code you already have helpers to_int() and to_decimal().
+Add:
+
+"min_order_qty": to_int(i.get("number_field_5_value")),
+
+
+So incremental core includes:
+
+core = {
+    ...
+    "selling_qty": to_decimal(i.get("number_field_1_value")),
+    "min_order_qty": to_int(i.get("number_field_5_value")),
+}
+
+3C — Ensure incremental UPDATE/INSERT writes it
+
+Where you update an existing DwItem, add:
+
+existing.min_order_qty = core["min_order_qty"]
+
+
+Where you insert new DwItem(**core, ...), it will be included.
+
+4) Update the debug helper (optional but recommended)
+
+In test_fetch_single_item(session):
+
+Add number_field_5_value to display_fields
+
+Add to core:
+
+"min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") else None,
+
+5) Quick validation query
+
+After running FULL sync once, run:
+
+SELECT item_code_365, item_name, min_order_qty
+FROM ps_items
+WHERE min_order_qty IS NOT NULL
+ORDER BY min_order_qty DESC
+LIMIT 50;
+
+
+If your table is not ps_items, run the query on whatever table name the model uses.
+
+Why this is the “right script”
+
+Because in your pasted code:
+
+datawarehouse_sync.py is the only place doing a full pagination import of items from list_items
+
+The rest of the system (invoice sync etc.) reads items from DwItem
+So this is the correct integration point.
+
+If you want, I can also give you a patch-style diff (before/after blocks) for the exact lines inside full_dw_update() and incremental_dw_update() — but the steps above are already copy/paste precise for Replit Agent.
