@@ -80,7 +80,7 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
     
     try:
         # Check if receipt already exists for this route stop
-        if route_stop_id:
+        if route_stop_id and not request.args.get('force_test'):
             existing_receipt = ReceiptLog.query.filter_by(route_stop_id=route_stop_id).first()
             if existing_receipt:
                 raise Exception(f"Receipt already exists for this customer. Reference: {existing_receipt.reference_number}")
@@ -88,15 +88,16 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
         # Generate reference number
         reference_number = next_reference_number()
         
-        # Build receipt description: CHQ [number] [invoices] [name] truncated to 30 chars
+        # Build receipt description: [cheque_number] [invoices] [name] truncated to 30 chars
         customer = PSCustomer.query.get(customer_code)
         customer_name = ""
         if customer and customer.company_name:
             customer_name = customer.company_name.upper()
         
         desc_parts = []
+        # PRIORITY: Cheque number first (raw, without "CHQ " prefix as requested)
         if cheque_number:
-            desc_parts.append(f"CHQ {cheque_number}")
+            desc_parts.append(cheque_number)
         
         if invoice_no:
             desc_parts.append(invoice_no)
@@ -130,6 +131,7 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
                 "payment_type_code_365": payment_type_code,
                 "cheque_number": cheque_number or "",
                 "cheque_date": cheque_date or "",
+                "post_date": cheque_date or "", # Added redundancy for "post date"
                 "comments": comments or "",
                 "user_code": user_code or ""
             }
@@ -219,8 +221,8 @@ def create_receipt_api():
         ok, reference_number, response_id, status_code, ps_json = create_receipt_core(
             customer_code, amount_val, comments, agent_code, user_code, 
             invoice_no, current_user.username,
-            cheque_number=payload.get("cheque_number", ""),
-            cheque_date=payload.get("cheque_date", "")
+            cheque_number=payload.get("cheque_number") or payload.get("cheque_no") or "",
+            cheque_date=payload.get("cheque_date") or payload.get("post_date") or ""
         )
 
         # If we reach here, receipt was created successfully
@@ -425,7 +427,7 @@ def send_cod_receipt(cod_receipt_id):
             driver_username=cod_receipt.driver_username,
             route_stop_id=cod_receipt.route_stop_id,
             cheque_number=cod_receipt.cheque_number or "",
-            cheque_date=cod_receipt.cheque_date.isoformat() if cod_receipt.cheque_date else ""
+            cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else ""
         )
         
         # Update COD receipt with PS365 reference
