@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     data.orders.forEach(function(order) {
                         const statusBadge = getStatusBadge(order.status);
                         const row = `
-                            <tr class="text-dark">
+                            <tr style="color: #000 !important;">
                                 <td class="text-center">${order.stop_seq || '-'}</td>
                                 <td><strong>${order.invoice_no}</strong></td>
                                 <td>${order.customer_name || '-'}</td>
@@ -395,6 +395,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 .invoice-details-table td {
     font-size: 0.85rem;
+    color: #000 !important;
+}
+.invoice-details-table th {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #000 !important;
 }
 </style>
 
