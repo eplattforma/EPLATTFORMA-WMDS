@@ -6,20 +6,38 @@
     <style>
         @media print {
             .no-print { display: none; }
-            body { font-size: 12pt; }
+            body { 
+                font-size: 9pt; 
+                margin: 0;
+                padding: 10mm;
+            }
+            @page {
+                size: A4;
+                margin: 0;
+            }
+            .stop-block {
+                page-break-inside: avoid;
+            }
         }
+        body { font-size: 10pt; }
         .stop-block {
-            page-break-inside: avoid;
-            border: 2px solid #000;
-            padding: 15px;
-            margin-bottom: 20px;
+            border: 1px solid #000;
+            padding: 5px;
+            margin-bottom: 10px;
         }
         .stop-header {
-            background-color: #000;
-            color: #fff;
-            padding: 10px;
-            margin: -15px -15px 15px -15px;
+            background-color: #f0f0f0;
+            border-bottom: 1px solid #000;
+            padding: 3px 8px;
+            margin: -5px -5px 5px -5px;
+            font-weight: bold;
         }
+        .table-sm th, .table-sm td {
+            padding: 2px 4px !important;
+            font-size: 9pt;
+        }
+        h2 { font-size: 16pt; margin-bottom: 5px; }
+        .header-table td { padding: 2px 8px !important; }
     </style>
 </head>
 <body>
@@ -33,17 +51,17 @@
         </div>
 
         <!-- Header -->
-        <div class="row mb-4">
+        <div class="row mb-2">
             <div class="col-12">
-                <h2>Delivery Run Sheet</h2>
-                <table class="table table-bordered">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2>Delivery Run Sheet</h2>
+                    <span><strong>Date:</strong> {{ route.delivery_date.strftime('%d/%m/%Y') }}</span>
+                </div>
+                <table class="table table-bordered table-sm header-table mb-2">
                     <tr>
                         <td><strong>Driver:</strong> {{ route.driver_name }}</td>
                         <td><strong>Route:</strong> {{ route.route_name or 'N/A' }}</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Date:</strong> {{ route.delivery_date.strftime('%d/%m/%Y') }}</td>
-                        <td><strong>Total Stops:</strong> {{ stops|length }}</td>
+                        <td><strong>Stops:</strong> {{ stops|length }}</td>
                     </tr>
                 </table>
             </div>
@@ -52,59 +70,44 @@
         <!-- Stops -->
         {% for stop in stops %}
         <div class="stop-block">
-            <div class="stop-header">
-                <h4 class="mb-0">Stop #{{ stop.seq_no|format_seq }}: {{ stop.stop_name or 'Unnamed' }}</h4>
+            <div class="stop-header d-flex justify-content-between">
+                <span>Stop #{{ stop.seq_no|format_seq }}: {{ stop.stop_name or 'Unnamed' }}</span>
+                {% if stop.window_start or stop.window_end %}
+                <small>
+                    Window: {{ stop.window_start.strftime('%H:%M') if stop.window_start else '-' }} - 
+                    {{ stop.window_end.strftime('%H:%M') if stop.window_end else '-' }}
+                </small>
+                {% endif %}
             </div>
             
-            <div class="row mb-3">
-                <div class="col-6">
-                    <strong>Address:</strong><br>
-                    {{ stop.stop_addr or 'N/A' }}<br>
-                    {{ stop.stop_city }} {{ stop.stop_postcode }}
-                </div>
-                <div class="col-6">
-                    {% if stop.window_start or stop.window_end %}
-                    <strong>Delivery Window:</strong><br>
-                    {{ stop.window_start.strftime('%H:%M') if stop.window_start else '-' }} to 
-                    {{ stop.window_end.strftime('%H:%M') if stop.window_end else '-' }}
-                    {% endif %}
+            <div class="row mb-1">
+                <div class="col-12">
+                    <small><strong>Address:</strong> {{ stop.stop_addr or 'N/A' }}, {{ stop.stop_city }} {{ stop.stop_postcode }}</small>
+                    {% if stop.notes %} | <small><strong>Notes:</strong> {{ stop.notes }}</small>{% endif %}
                 </div>
             </div>
-
-            {% if stop.notes %}
-            <div class="mb-3">
-                <strong>Notes:</strong> {{ stop.notes }}
-            </div>
-            {% endif %}
 
             {% if stop.invoices|length > 0 %}
-            <div>
-                <strong>Invoices ({{ stop.invoices|length }}):</strong>
-                <table class="table table-sm table-bordered mt-2">
-                    <thead>
-                        <tr>
-                            <th>Invoice No</th>
-                            <th>Customer</th>
-                            <th>Weight (kg)</th>
-                            <th>Status</th>
-                            <th>Signature</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for rsi in stop.invoices %}
-                        <tr>
-                            <td>{{ rsi.invoice_no }}</td>
-                            <td>{{ rsi.invoice.customer_name if rsi.invoice else '-' }}</td>
-                            <td>{{ rsi.weight_kg or '-' }}</td>
-                            <td>{{ rsi.status or 'ASSIGNED' }}</td>
-                            <td style="width: 150px;"></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="alert alert-warning mb-0">No invoices assigned to this stop</div>
+            <table class="table table-sm table-bordered mb-0">
+                <thead>
+                    <tr class="table-light">
+                        <th>Invoice No</th>
+                        <th>Weight</th>
+                        <th>Status</th>
+                        <th>Signature / POD Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rsi in stop.invoices %}
+                    <tr>
+                        <td style="width: 20%;">{{ rsi.invoice_no }}</td>
+                        <td style="width: 15%;">{{ rsi.weight_kg or '-' }} kg</td>
+                        <td style="width: 15%;">{{ rsi.status or 'ASSIGNED' }}</td>
+                        <td></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
             {% endif %}
         </div>
         {% endfor %}
