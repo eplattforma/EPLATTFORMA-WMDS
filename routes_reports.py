@@ -232,7 +232,9 @@ def reserved_stock_777_email_order():
         flash("SMTP not configured. Please set SMTP_HOST, SMTP_EMAIL, and SMTP_PASSWORD.", "danger")
         return redirect(url_for("reports.reserved_stock_777"))
     
-    from models import Ps365ReservedStock777
+    from models import Ps365ReservedStock777, InvoiceItem
+    from app import db
+    from sqlalchemy import func
     
     supplier_filter = request.form.get("supplier_filter", "")
     recipient_email = request.form.get("recipient_email", "").strip()
@@ -242,6 +244,16 @@ def reserved_stock_777_email_order():
         return redirect(url_for("reports.reserved_stock_777"))
     
     rows = Ps365ReservedStock777.query.all()
+    
+    item_codes = [r.item_code_365 for r in rows]
+    barcode_query = db.session.query(
+        InvoiceItem.item_code,
+        func.max(InvoiceItem.barcode).label('barcode')
+    ).filter(
+        InvoiceItem.item_code.in_(item_codes),
+        InvoiceItem.barcode.isnot(None)
+    ).group_by(InvoiceItem.item_code).all()
+    barcode_map = {bc.item_code: bc.barcode for bc in barcode_query}
     
     order_lines = []
     for r in rows:
@@ -261,7 +273,9 @@ def reserved_stock_777_email_order():
                 "item_code": r.item_code_365,
                 "item_name": r.item_name,
                 "required_qty": required,
-                "pieces_per_unit": pieces_per_unit
+                "pieces_per_unit": pieces_per_unit,
+                "supplier_code": r.season_name or "",
+                "barcode": barcode_map.get(r.item_code_365, "")
             })
     
     if not order_lines:
@@ -298,7 +312,9 @@ def reserved_stock_777_email_order():
                     <tr>
                         <th>#</th>
                         <th>Item Code</th>
+                        <th>Barcode</th>
                         <th>Item Name</th>
+                        <th>Supplier</th>
                         <th>Qty Required</th>
                     </tr>
                 </thead>
@@ -310,7 +326,9 @@ def reserved_stock_777_email_order():
                     <tr>
                         <td>{idx}</td>
                         <td>{line['item_code']}</td>
+                        <td>{line['barcode']}</td>
                         <td>{line['item_name']}</td>
+                        <td>{line['supplier_code']}</td>
                         <td style="text-align: right;"><strong>{line['required_qty']}</strong></td>
                     </tr>
             """
@@ -338,7 +356,7 @@ def reserved_stock_777_email_order():
         text_content += f"Requested by: {current_user.username}\n\n"
         text_content += "Items:\n"
         for idx, line in enumerate(order_lines, start=1):
-            text_content += f"{idx}. {line['item_code']} - {line['item_name']} - Qty: {line['required_qty']}\n"
+            text_content += f"{idx}. {line['item_code']} | {line['barcode']} | {line['item_name']} | Supplier: {line['supplier_code']} | Qty: {line['required_qty']}\n"
         text_content += f"\nTotal Items: {len(order_lines)}"
         text_content += f"\nTotal Quantity: {sum(line['required_qty'] for line in order_lines)}"
         
