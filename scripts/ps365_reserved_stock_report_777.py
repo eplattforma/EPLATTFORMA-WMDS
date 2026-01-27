@@ -165,11 +165,13 @@ def build_row_for_item(code: str, r_store: dict) -> dict | None:
 
     stock = r_store["stock"]
     stock_reserved = r_store["stock_reserved"]
+    supplier_item_code = item.get("text_field_2_value") or ""
 
     return {
         "item_code_365": code,
         "item_name": r_store.get("item_name") or item.get("item_name") or "",
         "season_name": season_name or "",
+        "supplier_item_code": supplier_item_code,
         "number_of_pieces": int(d(item.get("number_of_pieces"))),
         "number_field_5_value": int(d(item.get("number_field_5_value"))),
         "store_code_365": STORE_CODE,

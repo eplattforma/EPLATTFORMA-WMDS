@@ -274,7 +274,7 @@ def reserved_stock_777_email_order():
                 "item_name": r.item_name,
                 "required_qty": required,
                 "pieces_per_unit": pieces_per_unit,
-                "supplier_code": r.season_name or "",
+                "supplier_item_code": r.supplier_item_code or "",
                 "barcode": barcode_map.get(r.item_code_365, "")
             })
     
@@ -311,10 +311,9 @@ def reserved_stock_777_email_order():
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Item Code</th>
+                        <th>Supplier Item Code</th>
                         <th>Barcode</th>
                         <th>Item Name</th>
-                        <th>Supplier</th>
                         <th>Qty Required</th>
                     </tr>
                 </thead>
@@ -325,10 +324,9 @@ def reserved_stock_777_email_order():
             html_content += f"""
                     <tr>
                         <td>{idx}</td>
-                        <td>{line['item_code']}</td>
+                        <td>{line['supplier_item_code']}</td>
                         <td>{line['barcode']}</td>
                         <td>{line['item_name']}</td>
-                        <td>{line['supplier_code']}</td>
                         <td style="text-align: right;"><strong>{line['required_qty']}</strong></td>
                     </tr>
             """
@@ -356,7 +354,7 @@ def reserved_stock_777_email_order():
         text_content += f"Requested by: {current_user.username}\n\n"
         text_content += "Items:\n"
         for idx, line in enumerate(order_lines, start=1):
-            text_content += f"{idx}. {line['item_code']} | {line['barcode']} | {line['item_name']} | Supplier: {line['supplier_code']} | Qty: {line['required_qty']}\n"
+            text_content += f"{idx}. {line['supplier_item_code']} | {line['barcode']} | {line['item_name']} | Qty: {line['required_qty']}\n"
         text_content += f"\nTotal Items: {len(order_lines)}"
         text_content += f"\nTotal Quantity: {sum(line['required_qty'] for line in order_lines)}"
         

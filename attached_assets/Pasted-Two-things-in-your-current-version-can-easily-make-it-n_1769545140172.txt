@@ -1,0 +1,124 @@
+Two things in your current version can easily make it “not working” (either crashing immediately or looping/pulling pages wrongly):
+
+1) Potential hard crash: dict | None type hint (Python < 3.10)
+
+If Replit is running Python 3.9, this line will throw SyntaxError at import time:
+
+def build_row_for_item(...) -> dict | None:
+
+Fix (compatible with 3.8/3.9)
+
+At the top add:
+
+from typing import Optional, Dict, Any, List
+
+
+Then change these signatures:
+
+def build_row_for_item(code: str, r_store: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    ...
+
+def build_rows() -> List[Dict[str, Any]]:
+    ...
+
+
+That alone fixes a very common “script doesn’t run” issue.
+
+2) Pagination logic risk: “paginate until empty page”
+
+Your new fetch_reserved_items_index() loops pages until PS365 returns 0 rows.
+
+Many APIs do not return an empty page at the end. Some:
+
+repeat the last page
+
+repeat page 1
+
+always return page_size rows and rely on total_count
+
+In those cases your loop will run until your safety limit (100), waste time, and may appear “stuck”/broken.
+
+Fix: go back to “total_count → pages” (best)
+
+Replace your fetch_reserved_items_index() with this safer version:
+
+def fetch_reserved_items_index() -> dict:
+    print(f"Identifying items with reservations in Store {STORE_CODE}...")
+    reserved_item_data = {}
+
+    def consume_page(page_data: dict):
+        rows = page_data.get("list_stock_stores_item") or page_data.get("list_stock_items_store") or []
+        for r in rows:
+            if d(r.get("stock_reserved")) > 0:
+                code = r.get("item_code_365")
+                if not code:
+                    continue
+                reserved_item_data[code] = {
+                    "stock": d(r.get("stock")),
+                    "stock_reserved": d(r.get("stock_reserved")),
+                    "item_name": r.get("item_name") or "",
+                }
+        return len(rows)
+
+    # page 1 (also used to get total_count)
+    first = ps365_get("list_stock_items_store", {
+        "store_code_365": STORE_CODE,
+        "available_stock_type": "all",
+        "active_type": "all",
+        "ecommerce_type": "all",
+        "page_number": 1,
+        "page_size": PAGE_SIZE,
+    })
+
+    total = int(first.get("total_count_list_items") or 0)
+    consume_page(first)
+
+    if total <= 0:
+        print(f"Found {len(reserved_item_data)} items with reservations (total_count not provided).")
+        return reserved_item_data
+
+    pages = int(math.ceil(total / PAGE_SIZE))
+    for p in range(2, pages + 1):
+        page_data = ps365_get("list_stock_items_store", {
+            "store_code_365": STORE_CODE,
+            "available_stock_type": "all",
+            "active_type": "all",
+            "ecommerce_type": "all",
+            "page_number": p,
+            "page_size": PAGE_SIZE,
+        })
+        consume_page(page_data)
+        if THROTTLE_SECONDS:
+            time.sleep(THROTTLE_SECONDS)
+
+    print(f"Scanned {pages} pages, found {len(reserved_item_data)} items with reservations")
+    return reserved_item_data
+
+
+This prevents the “never-ending pages” problem and is the most likely fix for “it runs but doesn’t finish / doesn’t find items properly”.
+
+3) Add minimal diagnostics (so you see why calls fail)
+
+Right now, GET/POST retries swallow the real error. Add this inside ps365_get and ps365_post_json (just during debugging):
+
+except Exception as e:
+    print(f"[WARN] GET {path} attempt {attempt} failed: {e}")
+
+
+and
+
+except Exception as e:
+    print(f"[WARN] POST {path} attempt {attempt} failed: {e}")
+
+
+This will immediately reveal if you’re hitting 401/403, timeouts, DNS, etc.
+
+Fastest path to “working”
+
+Fix typing (Optional[...]) so it runs on Python 3.9.
+
+Replace pagination with the total_count version above.
+
+Add the [WARN] prints temporarily.
+
+If you paste the first error line you see in Replit’s console (even 1–2 lines), I can pinpoint the exact failing function and give you a precise patch.
