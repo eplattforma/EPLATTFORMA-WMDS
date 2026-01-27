@@ -283,7 +283,15 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <table class="table table-sm table-bordered mb-3">
                                 <tr>
                                     <th width="40%">Method:</th>
-                                    <td><strong>{{ stop_data.cod_receipt.payment_method|upper }}</strong></td>
+                                    <td>
+                                        <strong>{{ stop_data.cod_receipt.payment_method|upper }}</strong>
+                                        {% if stop_data.cod_receipt.payment_method == 'cheque' %}
+                                            <div class="mt-1 small">
+                                                <strong>CHQ:</strong> {{ stop_data.cod_receipt.cheque_number or '-' }}<br>
+                                                <strong>Date:</strong> {{ stop_data.cod_receipt.cheque_date.strftime('%d/%m/%Y') if stop_data.cod_receipt.cheque_date else '-' }}
+                                            </div>
+                                        {% endif %}
+                                    </td>
                                 </tr>
                                 <tr>
                                     <th>Amount Received:</th>
