@@ -1309,6 +1309,8 @@ class CODReceipt(db.Model):
     
     # Payment details
     payment_method = db.Column(db.String(20), nullable=False, default='cash')  # cash, card, cheque, bank_transfer
+    cheque_number = db.Column(db.String(50), nullable=True)
+    cheque_date = db.Column(db.Date, nullable=True)
     note = db.Column(db.Text, nullable=True)
     
     # PS365 integration

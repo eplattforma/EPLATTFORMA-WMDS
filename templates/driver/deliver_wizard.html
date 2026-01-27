@@ -112,6 +112,19 @@ input[type=number]::-webkit-inner-spin-button {
                 </div>
             </div>
             
+            <div id="cheque-details" style="display: none;">
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label">Cheque Number <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="cheque-number" placeholder="Enter number">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Cheque Date <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" id="cheque-date">
+                    </div>
+                </div>
+            </div>
+            
             <div class="mb-2">
                 <label class="form-label">Notes <span class="text-muted small">(required if balance due ≠ 0)</span></label>
                 <textarea class="form-control" id="cod-notes" rows="2" placeholder="Optional"></textarea>
@@ -454,17 +467,27 @@ function togglePaymentControls() {
     const receivedContainer = document.getElementById('cod-received-container');
     const varianceContainer = document.getElementById('cod-variance-container');
     
+    const chequeDetails = document.getElementById('cheque-details');
+    
     if (method === 'online') {
         // Online/Bank Transfer - show expected amount only, no cash collected
         if (amountSection) amountSection.style.display = 'block';
         if (receivedInput) receivedInput.value = '0';
         if (receivedContainer) receivedContainer.style.display = 'none';
         if (varianceContainer) varianceContainer.style.display = 'none';
-    } else {
-        // Cash/Cheque/Card - show full amount collection
+        if (chequeDetails) chequeDetails.style.display = 'none';
+    } else if (method === 'cheque') {
+        // Cheque - show full amount collection and cheque fields
         if (amountSection) amountSection.style.display = 'block';
         if (receivedContainer) receivedContainer.style.display = 'block';
         if (varianceContainer) varianceContainer.style.display = 'block';
+        if (chequeDetails) chequeDetails.style.display = 'block';
+    } else {
+        // Cash/Card - show full amount collection
+        if (amountSection) amountSection.style.display = 'block';
+        if (receivedContainer) receivedContainer.style.display = 'block';
+        if (varianceContainer) varianceContainer.style.display = 'block';
+        if (chequeDetails) chequeDetails.style.display = 'none';
     }
     
     calculateCODVariance();
@@ -573,10 +596,19 @@ async function submitDelivery() {
             const received = method === 'online' ? 0 : (parseFloat(document.getElementById('cod-received').value) || 0);
             const note = document.getElementById('cod-notes').value;
             
+            let chequeNum = null;
+            let chequeDate = null;
+            if (method === 'cheque') {
+                chequeNum = document.getElementById('cheque-number').value.trim();
+                chequeDate = document.getElementById('cheque-date').value;
+            }
+            
             codPayload = {
                 method: method,
                 received: received,
-                note: note
+                note: note,
+                cheque_number: chequeNum,
+                cheque_date: chequeDate
             };
         }
         

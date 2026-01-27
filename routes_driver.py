@@ -605,6 +605,8 @@ def submit_delivery(stop_id):
                 received_amount=received,
                 variance=cod_variance,
                 payment_method=cod_method,
+                cheque_number=cod.get('cheque_number'),
+                cheque_date=datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None,
                 note=cod_note,
                 created_at=utc_now()
             )
