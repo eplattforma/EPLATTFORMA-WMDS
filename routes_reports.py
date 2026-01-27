@@ -20,6 +20,18 @@ PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 @login_required
 def reserved_stock_777():
     from models import Ps365ReservedStock777
+    from scripts.ps365_reserved_stock_report_777 import build_rows, save_to_db, clear_table_for_store, STORE_CODE
+    
+    # Trigger refresh on every visit
+    try:
+        clear_table_for_store(STORE_CODE)
+        rows = build_rows()
+        if rows:
+            save_to_db(rows)
+    except Exception as e:
+        logger.error(f"Auto-refresh failed: {e}")
+        flash("Auto-refresh failed, showing last successful data.", "warning")
+
     rows = Ps365ReservedStock777.query.order_by(Ps365ReservedStock777.stock_reserved.desc(), Ps365ReservedStock777.item_code_365).all()
     seasons = sorted(set(r.season_name for r in rows if r.season_name))
     synced_at = rows[0].synced_at if rows else None
