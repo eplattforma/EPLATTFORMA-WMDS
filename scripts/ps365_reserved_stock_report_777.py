@@ -32,6 +32,9 @@ def d(v) -> Decimal:
     except (InvalidOperation, ValueError, TypeError):
         return Decimal("0")
 
+def non_empty_str(v) -> bool:
+    return v is not None and str(v).strip() != ""
+
 def ps365_get(path: str, params: dict) -> dict:
     url = f"{PS365_BASE_URL}/{path.lstrip('/')}"
     params = dict(params or {})
@@ -119,10 +122,14 @@ def build_rows() -> list:
         item_details = ps365_get("item", {"item_code_365": code})
         item = item_details.get("item") or {}
         
+        season_name = item.get("season_name")
+        if not non_empty_str(season_name):
+            continue
+
         out.append({
             "item_code_365": code,
             "item_name": r_store["item_name"] or item.get("item_name") or "",
-            "season_name": item.get("season_name") or "",
+            "season_name": season_name or "",
             "number_of_pieces": int(d(item.get("number_of_pieces"))),
             "number_field_5_value": int(d(item.get("number_field_5_value"))),
             "stock": r_store["stock"],
@@ -167,6 +174,8 @@ def main():
     if rows:
         save_to_db(rows)
         print(f"Done! {len(rows)} items synced.")
+    else:
+        print("No items to sync (either no reservations or missing season_name).")
 
 if __name__ == "__main__":
     main()
