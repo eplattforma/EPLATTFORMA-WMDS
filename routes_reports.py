@@ -67,18 +67,22 @@ def reserved_stock_777_download():
         stock_val = float(r.stock or 0)
         reserved_val = float(r.stock_reserved or 0)
         ordered_val = float(r.stock_ordered or 0)
-        req = max(0, reserved_val - stock_val - ordered_val)
+        pieces_per_unit = int(r.number_of_pieces or 1)
+        min_order_qty = int(r.number_field_5_value or 0)
+        shortage = reserved_val - stock_val
+        raw_required = int(shortage * pieces_per_unit) if shortage > 0 else 0
+        req = max(raw_required, min_order_qty) if raw_required > 0 else 0
         writer.writerow({
             "item_code_365": r.item_code_365,
             "item_name": r.item_name,
             "supplier": r.season_name or "",
-            "pieces_per_unit": int(r.number_of_pieces or 0),
-            "min_order_qty": int(r.number_field_5_value or 0),
+            "pieces_per_unit": pieces_per_unit,
+            "min_order_qty": min_order_qty,
             "stock": round(stock_val, 1),
             "customer_order": int(reserved_val),
             "available": int(r.available_stock or 0),
             "on_po": int(ordered_val),
-            "required": int(math.ceil(req))
+            "required": req
         })
     return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=reserved_stock_777.csv"})
 
@@ -133,14 +137,16 @@ def reserved_stock_777_create_po():
         
         stock_val = float(r.stock or 0)
         reserved_val = float(r.stock_reserved or 0)
-        ordered_val = float(r.stock_ordered or 0)
-        required = max(0, reserved_val - stock_val - ordered_val)
+        pieces_per_unit = int(r.number_of_pieces or 1)
+        min_order_qty = int(r.number_field_5_value or 0)
+        shortage = reserved_val - stock_val
+        raw_required = int(shortage * pieces_per_unit) if shortage > 0 else 0
+        required = max(raw_required, min_order_qty) if raw_required > 0 else 0
         
         if required > 0:
-            po_qty = Decimal(str(required)).quantize(Decimal("1"), rounding=ROUND_UP)
             po_lines.append({
                 "item_code_365": r.item_code_365,
-                "line_quantity": str(int(po_qty))
+                "line_quantity": str(required)
             })
     
     if not po_lines:

@@ -55,8 +55,11 @@
         </thead>
         <tbody>
           {% for r in rows %}
-          {% set required_val = (r.stock_reserved - r.stock - r.stock_ordered)|float %}
-          {% set required_display = required_val|round(0, 'ceil')|int if required_val > 0 else 0 %}
+          {% set shortage = (r.stock_reserved|float - r.stock|float) %}
+          {% set pieces_per_unit = (r.number_of_pieces|int or 1) %}
+          {% set min_order = (r.number_field_5_value|int or 0) %}
+          {% set raw_required = (shortage * pieces_per_unit)|int if shortage > 0 else 0 %}
+          {% set required_display = ([raw_required, min_order]|max) if raw_required > 0 else 0 %}
           <tr data-season="{{ r.season_name or '' }}" data-required="{{ required_display }}">
             <td>{{ r.item_code_365 }}</td>
             <td>{{ r.item_name }}</td>
