@@ -43,6 +43,6 @@ integrations = ["python_openai:1.0.0", "dropbox:1.0.0"]
 
 [userenv.shared]
 TZ = "Africa/Cairo"
-PS365_RECEIPT_DESC_MAX = "20"
+PS365_RECEIPT_DESC_MAX = "30"
 PS365_CHEQUE_PAYMENT_TYPE_CODE = "CHEQ"
 PS365_RECEIPT_COMMENTS_MAX = "255"
