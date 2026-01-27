@@ -536,7 +536,18 @@ if (!isCredit) {
     
     const receivedInput = document.getElementById('cod-received');
     if (receivedInput) {
-        receivedInput.addEventListener('input', calculateCODVariance);
+        receivedInput.addEventListener('input', function(e) {
+            // Remove non-numeric characters
+            let val = this.value.replace(/\D/g, '');
+            if (val === '') {
+                this.value = '';
+            } else {
+                // Treat as cents (2 decimal points)
+                let floatVal = parseFloat(val) / 100;
+                this.value = floatVal.toFixed(2);
+            }
+            calculateCODVariance();
+        });
         receivedInput.addEventListener('focus', function() {
             this.select();
         });
