@@ -1519,39 +1519,3 @@ def api_refresh_po(po_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "error": f"Failed to refresh: {str(e)}"}), 500
-            supplier_item_code = dw_item.supplier_item_code if dw_item else None
-            
-            if line_number in existing_lines:
-                # Update existing line
-                line = existing_lines[line_number]
-                line.item_code_365 = item_code
-                line.item_name = line_data.get('item_name')
-                line.item_barcode = item_barcode
-                line.line_quantity = line_data.get('line_quantity', 0)
-                line.supplier_item_code = supplier_item_code
-            else:
-                # Create new line
-                new_line = PurchaseOrderLine(
-                    purchase_order_id=po.id,
-                    line_number=line_number,
-                    item_code_365=item_code,
-                    item_name=line_data.get('item_name'),
-                    item_barcode=item_barcode,
-                    line_quantity=line_data.get('line_quantity', 0),
-                    supplier_item_code=supplier_item_code
-                )
-                db.session.add(new_line)
-                print(f"DEBUG: Added new line {line_number}: {item_code}")
-        
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Purchase order {po_code} refreshed successfully'
-        })
-        
-    except Ps365Error as e:
-        return jsonify({'success': False, 'error': f'PS365 Error: {str(e)}'}), 500
-    except Exception as e:
-        print(f"ERROR: Failed to refresh PO: {e}")
-        return jsonify({'success': False, 'error': f'Failed to refresh: {str(e)}'}), 500
