@@ -1344,19 +1344,6 @@ def api_reset_receiving_line(line_id):
     
     # Verify the session hasn't been finished yet
     session = rcv_line.session
-    if session.finished_at:
-        return jsonify({'ok': False, 'error': 'Cannot reset - session already finished'}), 400
-    
-    # Delete the receiving line
-    db.session.delete(rcv_line)
-    db.session.commit()
-    
-    return jsonify({'ok': True, 'message': 'Receiving line reset successfully'})
-
-@po_receiving_bp.route('/update-description/<int:po_id>', methods=['POST'])
-@login_required
-def update_description(po_id):
-    """Update the description for a purchase order"""
     if not check_role_access():
         return jsonify({'success': False, 'error': 'Access denied'}), 403
     
@@ -1410,79 +1397,96 @@ def api_refresh_shelf_locations(po_id):
     try:
         # Fetch fresh shelf location data from PS365
         print(f"DEBUG: Refreshing shelf locations for {len(item_codes)} items from store {PS365_DEFAULT_STORE}")
-        shelves_map = fetch_item_shelves(PS365_DEFAULT_STORE, item_codes)
-        print(f"DEBUG: Received shelf data for {len(shelves_map)} items")
-        
-        # Update each line with fresh shelf data
-        updated_count = 0
-        for line in po.lines:
-            if line.item_code_365 in shelves_map:
-                shelf_data = shelves_map[line.item_code_365]
-                line.shelf_locations = json.dumps(shelf_data) if shelf_data else None
-                updated_count += 1
-        
-        db.session.commit()
-        
-        return jsonify({
-            'ok': True, 
-            'message': f'Refreshed shelf locations and stock for {updated_count} items',
-            'updated_count': updated_count
-        })
-        
-    except Ps365Error as e:
-        return jsonify({'ok': False, 'error': f'PS365 Error: {str(e)}'}), 500
-    except Exception as e:
-        print(f"ERROR: Failed to refresh shelf locations: {e}")
-        return jsonify({'ok': False, 'error': f'Failed to refresh: {str(e)}'}), 500
-
-@po_receiving_bp.route('/api/refresh-po/<int:po_id>', methods=['POST'])
+@po_receiving_bp.route("/api/refresh-po/<int:po_id>", methods=["POST"])
 @login_required
 def api_refresh_po(po_id):
     """Re-download a purchase order from PS365, updating lines while preserving receiving data"""
     if not check_role_access():
-        return jsonify({'success': False, 'error': 'Access denied'}), 403
-    
+        return jsonify({"success": False, "error": "Access denied"}), 403
+
     po = PurchaseOrder.query.get_or_404(po_id)
-    
-    # Get the PO code to re-fetch
+
     po_code = po.code_365 or po.shopping_cart_code
     if not po_code:
-        return jsonify({'success': False, 'error': 'No PO code found'}), 400
-    
-    # Determine if this was a shopping cart
-    is_cart = bool(po.shopping_cart_code)
-    
+        return jsonify({"success": False, "error": "No PO code found"}), 400
+
+    # IMPORTANT: is_cart must match the identifier we are sending
+    is_cart = bool(po.shopping_cart_code) and (po_code == po.shopping_cart_code)
+
     try:
-        # Fetch fresh data from PS365
         order_data = fetch_purchase_order_from_ps365(po_code, is_cart)
-        
-        # Extract header and lines from PS365 response
-        hdr = order_data.get("purchase_order_header", {})
+
+        hdr = order_data.get("purchase_order_header", {}) or {}
         lines_data = order_data.get("list_purchase_order_details", []) or []
-        
-        # Update PO header fields
+
+        # Update header
         po.status_code = hdr.get("order_status_code_365")
         po.status_name = hdr.get("order_status_name")
         po.supplier_code = hdr.get("supplier_code_365")
-        if hdr.get("supplier_name"):
-            po.supplier_name = hdr.get("supplier_name")
-        
-        # Collect item codes to fetch barcodes
-        item_codes = [line.get('item_code_365') for line in lines_data if line.get('item_code_365')]
-        barcodes = fetch_item_barcodes(item_codes) if item_codes else {}
-        
-        # Build map of existing lines by line_number for matching
-        existing_lines = {line.line_number: line for line in po.lines}
-        
-        # Update or create lines from PS365 data
-        for line_data in lines_data:
-            line_number = line_data.get('line_number')
-            item_code = line_data.get('item_code_365')
-            
-            # Look up barcode and supplier code from our DW
+        po.supplier_name = hdr.get("supplier_name") or po.supplier_name
+        po.comments = hdr.get("comments")
+        po.total_sub = to_decimal(hdr.get("total_sub"))
+        po.total_discount = to_decimal(hdr.get("total_discount"))
+        po.total_vat = to_decimal(hdr.get("total_vat"))
+        po.total_grand = to_decimal(hdr.get("total_grand"))
+
+        # Normalize existing lines map by INT line_number
+        existing_lines = {int(l.line_number): l for l in po.lines}
+
+        ps_line_numbers = set()
+        item_codes = []
+
+        for ld in lines_data:
+            ln_no = int(ld.get("line_number") or 0)
+            if ln_no <= 0:
+                continue
+
+            ps_line_numbers.add(ln_no)
+            item_code = (ld.get("item_code_365") or "").strip()
+            if item_code:
+                item_codes.append(item_code)
+
+            # DW lookup (optional)
             from models import DwItem
             dw_item = DwItem.query.get(item_code) if item_code else None
-            item_barcode = barcodes.get(item_code) or (dw_item.barcode if dw_item else None)
+            supplier_item_code = dw_item.supplier_item_code if dw_item else None
+
+            # Update or create
+            if ln_no in existing_lines:
+                line = existing_lines[ln_no]
+            else:
+                line = PurchaseOrderLine(purchase_order_id=po.id, line_number=ln_no)
+                db.session.add(line)
+
+            line.item_code_365 = item_code
+            line.item_name = ld.get("item_name")
+            line.line_quantity = to_decimal(ld.get("line_quantity")) or Decimal("0")
+            line.line_price_excl_vat = to_decimal(ld.get("line_price_excl_vat"))
+            line.line_total_sub = to_decimal(ld.get("line_total_sub"))
+            line.line_total_discount = to_decimal(ld.get("line_total_discount"))
+            line.line_total_discount_percentage = to_decimal(ld.get("line_total_discount_percentage"))
+            line.line_vat_code_365 = ld.get("line_vat_code_365")
+            line.line_total_vat = to_decimal(ld.get("line_total_vat"))
+            line.line_total_vat_percentage = to_decimal(ld.get("line_total_vat_percentage"))
+            line.line_total_grand = to_decimal(ld.get("line_total_grand"))
+
+            if ld.get("line_id_365"):
+                line.line_id_365 = ld.get("line_id_365")
+
+            line.supplier_item_code = supplier_item_code
+
+        # Delete lines removed in PS365 ONLY if they have no receiving
+        for ln_no, line in list(existing_lines.items()):
+            if ln_no not in ps_line_numbers:
+                has_receiving = ReceivingLine.query.filter_by(po_line_id=line.id).first() is not None
+                if not has_receiving:
+                    db.session.delete(line)
+
+        db.session.commit()
+        return jsonify({"success": True, "message": f"Purchase order {po_code} refreshed successfully"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": f"Failed to refresh: {str(e)}"}), 500
             supplier_item_code = dw_item.supplier_item_code if dw_item else None
             
             if line_number in existing_lines:
