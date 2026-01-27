@@ -1397,6 +1397,38 @@ def api_refresh_shelf_locations(po_id):
     try:
         # Fetch fresh shelf location data from PS365
         print(f"DEBUG: Refreshing shelf locations for {len(item_codes)} items from store {PS365_DEFAULT_STORE}")
+        from services_ps365 import fetch_item_shelves
+        shelves_map = fetch_item_shelves(PS365_DEFAULT_STORE, item_codes)
+        
+        # Also fetch stock data for accuracy
+        from services_ps365_stock import fetch_items_stock_for_store
+        stock_map = fetch_items_stock_for_store("777", item_codes)
+        
+        updated_count = 0
+        now = datetime.utcnow()
+        for line in po.lines:
+            # Update shelf locations
+            if line.item_code_365 in shelves_map:
+                shelf_data = shelves_map[line.item_code_365]
+                line.shelf_locations = json.dumps(shelf_data)
+                
+            # Update stock data
+            s = stock_map.get(line.item_code_365)
+            if s:
+                line.stock_qty = Decimal(str(s["stock"]))
+                line.stock_reserved_qty = Decimal(str(s["stock_reserved"]))
+                line.stock_ordered_qty = Decimal(str(s["stock_ordered"]))
+                line.available_qty = Decimal(str(s["stock"] - s["stock_reserved"]))
+                line.stock_synced_at = now
+            
+            updated_count += 1
+            
+        db.session.commit()
+        return jsonify({'ok': True, 'updated_count': updated_count})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
 @po_receiving_bp.route("/api/refresh-po/<int:po_id>", methods=["POST"])
 @login_required
 def api_refresh_po(po_id):
