@@ -23,20 +23,8 @@ PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 @login_required
 def reserved_stock_777():
     from models import Ps365ReservedStock777, SeasonSupplierSetting
-    from scripts.ps365_reserved_stock_report_777 import build_rows, save_to_db, clear_table_for_store, STORE_CODE
     
-    # Always refresh data synchronously when page is accessed
-    try:
-        new_rows = build_rows()
-        clear_table_for_store(STORE_CODE)
-        if new_rows:
-            save_to_db(new_rows)
-            logger.info(f"Refresh completed: {len(new_rows)} items")
-    except Exception as e:
-        logger.error(f"Refresh failed: {e}")
-        flash(f"Error refreshing data: {str(e)}", "warning")
-
-    # Show refreshed data
+    # Show existing data (user clicks Refresh button to update)
     rows = Ps365ReservedStock777.query.order_by(Ps365ReservedStock777.stock_reserved.desc(), Ps365ReservedStock777.item_code_365).all()
     seasons = sorted(set(r.season_name for r in rows if r.season_name))
     synced_at = rows[0].synced_at if rows else None
