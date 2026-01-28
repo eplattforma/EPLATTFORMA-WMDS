@@ -95,6 +95,9 @@
                 <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>Order Summary</h5>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <div style="text-align: center;">
+                        <div id="refresh-countdown" style="font-size: 0.8rem; font-family: 'Courier New', monospace; color: #e0e0e0;">Refresh in 0:30</div>
+                    </div>
+                    <div style="text-align: center;">
                         <div id="clock-time" style="font-size: 0.9rem; font-weight: bold; font-family: 'Courier New', monospace; color: #fff;">--:--</div>
                         <div id="clock-date" style="font-size: 0.65rem; color: #e0e0e0;"></div>
                     </div>
@@ -237,9 +240,9 @@
 <!-- All Orders Card -->
 <div class="card shadow mb-4">
     <div class="card-header d-flex justify-content-between align-items-center bg-primary text-white">
-        <h5 class="mb-0">
+        <span class="mb-0" style="font-size: 0.9rem; font-weight: bold;">
             <i class="fas fa-clipboard-list me-2"></i>Order Management
-        </h5>
+        </span>
     </div>
     <div class="card-body">
         {% if invoices %}
@@ -2158,6 +2161,28 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 60000);
 
+// Countdown timer for auto-refresh
+var refreshCountdown = 30;
+function updateRefreshCountdown() {
+    var el = document.getElementById('refresh-countdown');
+    if (!el) return;
+    
+    if (window.isModalOpen) {
+        el.textContent = 'Paused';
+        return;
+    }
+    
+    var mins = Math.floor(refreshCountdown / 60);
+    var secs = refreshCountdown % 60;
+    el.textContent = 'Refresh in ' + mins + ':' + (secs < 10 ? '0' : '') + secs;
+    
+    if (refreshCountdown > 0) {
+        refreshCountdown--;
+    }
+}
+updateRefreshCountdown();
+setInterval(updateRefreshCountdown, 1000);
+
 // Auto-refresh the dashboard every 30 seconds, but ONLY if no modals are open and we're on the dashboard
 setInterval(function() {
     // Check if we're still on the dashboard page
@@ -2170,6 +2195,7 @@ setInterval(function() {
         location.reload();
     } else {
         console.log('Modal is open - skipping refresh');
+        refreshCountdown = 30; // Reset countdown when modal blocks refresh
     }
 }, 30000);
 </script>
