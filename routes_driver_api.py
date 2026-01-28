@@ -87,6 +87,11 @@ def start_route(route_id):
             'status_updated_at': datetime.utcnow()
         }, synchronize_session=False)
         
+        # Also update all RouteStopInvoice statuses to lowercase
+        db.session.query(RouteStopInvoice).join(RouteStop).filter(
+            RouteStop.shipment_id == route_id
+        ).update({RouteStopInvoice.status: 'out_for_delivery'}, synchronize_session=False)
+        
         db.session.commit()
         
         logger.info(f"Driver {driver_id} started route {route_id}, updated {updated_orders} orders")
@@ -157,9 +162,9 @@ def update_order_status(invoice_no, new_status, driver_id):
     
     # Update ALL RouteStopInvoice rows for this invoice to match
     rsi_status_map = {
-        'delivered': 'DELIVERED',
-        'delivery_failed': 'FAILED',
-        'returned_to_warehouse': 'FAILED'
+        'delivered': 'delivered',
+        'delivery_failed': 'delivery_failed',
+        'returned_to_warehouse': 'returned_to_warehouse'
     }
     if new_status in rsi_status_map:
         db.session.query(RouteStopInvoice).join(RouteStop).filter(
@@ -265,9 +270,15 @@ def complete_route(route_id):
                 'activeOrders': active_orders_count
             }), 409
         
-        # Complete the route
-        route.status = 'COMPLETED'
-        route.completed_at = datetime.utcnow()
+        # Complete the route using the central recompute function
+        result = recompute_route_completion(route_id, commit=False)
+        
+        if result['route_status'] != 'COMPLETED':
+            db.session.rollback()
+            return jsonify({
+                'error': f'Route could not be completed. {result["pending_count"]} invoice(s) still pending.'
+            }), 409
+        
         route.updated_at = datetime.utcnow()
         
         # Automatically send all failed deliveries to Warehouse Intake
