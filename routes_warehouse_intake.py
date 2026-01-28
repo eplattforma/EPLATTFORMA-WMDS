@@ -37,7 +37,8 @@ def intake_dashboard():
     intake_cases = db.session.query(InvoicePostDeliveryCase, Invoice).join(
         Invoice, InvoicePostDeliveryCase.invoice_no == Invoice.invoice_no
     ).filter(
-        InvoicePostDeliveryCase.status.in_(['OPEN', 'INTAKE_RECEIVED'])
+        InvoicePostDeliveryCase.status.in_(['OPEN', 'INTAKE_RECEIVED']),
+        Invoice.status.ilike('delivery_failed')
     ).order_by(InvoicePostDeliveryCase.created_at.desc()).all()
     
     # Transform to list of invoice objects with case info attached
