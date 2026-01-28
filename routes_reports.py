@@ -97,8 +97,10 @@ def reserved_stock_777_refresh():
         return redirect(url_for("reports.reserved_stock_777"))
     
     try:
-        from scripts.ps365_reserved_stock_report_777 import build_rows, save_to_db
+        from scripts.ps365_reserved_stock_report_777 import build_rows, clear_table_for_store, save_to_db, STORE_CODE
         rows = build_rows()
+        # Always clear first, then insert (full refresh pattern)
+        clear_table_for_store(STORE_CODE)
         if rows:
             save_to_db(rows)
             flash(f"Report refreshed successfully. {len(rows)} items synced from PS365.", "success")
