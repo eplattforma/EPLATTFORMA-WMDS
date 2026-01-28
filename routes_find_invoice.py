@@ -276,6 +276,10 @@ def invoice_detail(invoice_no):
             'note': disc.note or ''
         })
     
+    # Sort items based on picking order
+    from sorting_utils import sort_items_for_picking
+    items = sort_items_for_picking(items)
+    
     line_items = []
     for item in items:
         line_items.append({
