@@ -126,7 +126,7 @@
                 {{ route.status }}
             </span>
             
-            {% if route.reconciliation_status %}
+            {% if route.reconciliation_status and route.status != 'PLANNED' %}
             <span class="badge badge-recon-{{ route.reconciliation_status|lower }} ms-2 shadow-sm">
                 <i class="fas fa-file-invoice-dollar me-1"></i>{{ route.reconciliation_status }}
             </span>
