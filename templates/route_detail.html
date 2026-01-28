@@ -205,9 +205,9 @@
                         {% set ns.status = 'picking' %}
                     {% elif rsi.invoice.status in ['awaiting_packing', 'awaiting_batch_items'] %}
                         {% set ns.status = 'awaiting' %}
-                    {% elif rsi.invoice.status in ['DELIVERED', 'delivered'] %}
+                    {% elif rsi.invoice.status|lower in ['delivered'] %}
                         {% set ns.status = 'delivered' %}
-                    {% elif rsi.invoice.status in ['DELIVERY_FAILED', 'RETURNED'] %}
+                    {% elif rsi.invoice.status|lower in ['delivery_failed', 'returned'] %}
                         {% set ns.status = 'failed' %}
                     {% endif %}
                 {% endif %}
