@@ -31,7 +31,7 @@
         <a class="btn btn-secondary" href="{{ url_for('reports.reserved_stock_777_refresh') }}">Refresh</a>
         {% if current_user.role in ['admin', 'warehouse_manager'] %}
         <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#seasonSettingsPanel">
-          <i class="fas fa-cog me-1"></i>Season Settings
+          <i class="fas fa-cog me-1"></i>Cross Shipping Settings
         </button>
         <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createPoModal" id="sendPoBtn">
           <i class="fas fa-paper-plane me-1"></i>Send Order to PS365
