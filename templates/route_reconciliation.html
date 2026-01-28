@@ -198,7 +198,20 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                 <div class="card-header bg-light text-dark">
                     <h6 class="mb-0">
                         Stop #{{ stop_data.stop.seq_no }}: {{ stop_data.stop.stop_name or stop_data.stop.customer_code }}
-                        {% if stop_data.stop.delivered_at %}
+                        {% set all_delivered = true %}
+                        {% set any_failed = false %}
+                        {% for inv in stop_data.invoices %}
+                            {% if inv.status|lower != 'delivered' %}
+                                {% set all_delivered = false %}
+                            {% endif %}
+                            {% if inv.status|lower in ['delivery_failed', 'returned'] %}
+                                {% set any_failed = true %}
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if any_failed %}
+                            <span class="badge bg-danger">Failed / Returned</span>
+                        {% elif all_delivered and stop_data.stop.delivered_at %}
                             <span class="badge bg-success">Delivered</span>
                         {% else %}
                             <span class="badge bg-warning">Pending</span>
