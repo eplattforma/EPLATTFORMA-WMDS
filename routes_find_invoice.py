@@ -286,9 +286,10 @@ def invoice_detail(invoice_no):
     from timezone_utils import localize_datetime
     tracking_records = ItemTimeTracking.query.filter_by(invoice_no=invoice_no).all()
     # Map item_code to actual completion timestamp (converted to local time for display)
+    # 🔧 FIXED: Use item_completed instead of end_time
     tracking_map = {
-        t.item_code: format_local_time(localize_datetime(t.end_time), '%H:%M:%S') 
-        for t in tracking_records if t.end_time
+        t.item_code: format_local_time(localize_datetime(t.item_completed), '%H:%M:%S') 
+        for t in tracking_records if t.item_completed
     }
     
     line_items = []
