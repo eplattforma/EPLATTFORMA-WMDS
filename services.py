@@ -125,24 +125,28 @@ def set_invoice_in_stop_status(route_stop_id: int, invoice_no: str, status: str,
     Optionally also update the invoice's main status.
     Returns the RouteStopInvoice object.
     """
+    from delivery_status import normalize_status
+    
     rsi = RouteStopInvoice.query.filter_by(
         route_stop_id=route_stop_id,
         invoice_no=invoice_no
     ).first_or_404()
     
-    rsi.status = status
+    # Normalize status to lowercase canonical form
+    normalized_status = normalize_status(status) if status else None
+    rsi.status = normalized_status
     db.session.commit()
     
     if mirror_invoice:
         inv = Invoice.query.get(invoice_no)
         if inv:
             now = datetime.utcnow()
-            inv.status = status.lower() if status else inv.status
+            inv.status = normalized_status if normalized_status else inv.status
             inv.status_updated_at = now
             
-            if status == "DELIVERED":
+            if normalized_status == "delivered":
                 inv.delivered_at = now
-            elif status == "DISPATCHED":
+            elif normalized_status == "shipped":
                 inv.shipped_at = now
             
             db.session.commit()
@@ -161,13 +165,13 @@ def route_progress(shipment_id: int):
         .filter(RouteStop.shipment_id == shipment_id)\
         .scalar() or 0
     
-    # Count completed invoices by checking Invoice.status (delivered, returned, delivery_failed)
+    # Count completed invoices by checking Invoice.status (terminal statuses)
     done = db.session.query(func.count(RouteStopInvoice.route_stop_invoice_id))\
         .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)\
         .join(Invoice, Invoice.invoice_no == RouteStopInvoice.invoice_no)\
         .filter(
             RouteStop.shipment_id == shipment_id,
-            Invoice.status.in_(["delivered", "returned", "delivery_failed"])
+            Invoice.status.in_(["delivered", "returned_to_warehouse", "delivery_failed"])
         )\
         .scalar() or 0
     
