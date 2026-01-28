@@ -40,20 +40,20 @@
       </div>
     </div>
 
-    <div style="overflow:auto; border: 1px solid #ddd;">
-      <table class="table table-striped table-sm" id="reportTable" style="min-width: 1400px;">
+    <div style="overflow-x: auto;">
+      <table class="table table-striped table-sm" id="reportTable" style="width: 100%; min-width: 1200px; font-size: 0.9rem;">
         <thead class="table-dark">
           <tr>
-            <th>Item Code</th>
+            <th style="white-space: nowrap;">Item Code</th>
             <th>Item Name</th>
-            <th>Supplier</th>
-            <th style="text-align:right;">Pieces/Unit</th>
-            <th style="text-align:right;">Min Order Qty</th>
-            <th style="text-align:right;">Stock</th>
-            <th style="text-align:right;">Customer Order</th>
-            <th style="text-align:right;">Available</th>
-            <th style="text-align:right;">On PO</th>
-            <th style="text-align:right;">Required</th>
+            <th style="white-space: nowrap;">Supplier</th>
+            <th style="text-align:right; white-space: nowrap;">Pcs/Unit</th>
+            <th style="text-align:right; white-space: nowrap;">Min Qty</th>
+            <th style="text-align:right; white-space: nowrap;">Stock</th>
+            <th style="text-align:right; white-space: nowrap;">Order</th>
+            <th style="text-align:right; white-space: nowrap;">Avail</th>
+            <th style="text-align:right; white-space: nowrap;">On PO</th>
+            <th style="text-align:right; white-space: nowrap;">Required</th>
           </tr>
         </thead>
         <tbody>
@@ -64,9 +64,9 @@
           {% set raw_required = (shortage * pieces_per_unit)|int if shortage > 0 else 0 %}
           {% set required_display = ([raw_required, min_order]|max) if raw_required > 0 else 0 %}
           <tr data-season="{{ r.season_name or '' }}" data-required="{{ required_display }}">
-            <td>{{ r.item_code_365 }}</td>
-            <td>{{ r.item_name }}</td>
-            <td>{{ r.season_name or '' }}</td>
+            <td style="white-space: nowrap;">{{ r.item_code_365 }}</td>
+            <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ r.item_name }}">{{ r.item_name }}</td>
+            <td style="white-space: nowrap;">{{ r.season_name or '' }}</td>
             <td style="text-align:right;">{{ r.number_of_pieces or 0 }}</td>
             <td style="text-align:right;">{{ r.number_field_5_value or 0 }}</td>
             <td style="text-align:right;">{{ "%.1f"|format(r.stock|float) }}</td>
