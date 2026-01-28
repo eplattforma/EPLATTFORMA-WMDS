@@ -271,6 +271,18 @@ def reserved_stock_777_send_po():
         
         if not email_result["success"]:
             logger.warning(f"PO created but email failed: {email_result['error']}")
+        
+        try:
+            from scripts.ps365_reserved_stock_report_777 import build_rows, save_to_db, clear_table_for_store, STORE_CODE
+            new_rows = build_rows()
+            if new_rows:
+                clear_table_for_store(STORE_CODE)
+                save_to_db(new_rows)
+                logger.info(f"Report refreshed after PO creation: {len(new_rows)} items")
+        except Exception as refresh_err:
+            logger.warning(f"Failed to refresh report after PO: {refresh_err}")
+        
+        if not email_result["success"]:
             return jsonify({
                 "success": True,
                 "po_no": po_code,
