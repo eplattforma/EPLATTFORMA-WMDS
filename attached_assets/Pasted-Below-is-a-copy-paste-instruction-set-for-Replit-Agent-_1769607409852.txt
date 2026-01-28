@@ -1,0 +1,436 @@
+Below is a copy-paste instruction set for Replit (Agent / AI) to fix the route reconciliation issues in your scheduler.zip codebase. It’s written as an implementation checklist with exact file targets and code changes.
+
+✅ REPLIT INSTRUCTIONS — Fix Route Reconciliation + Status + Settlement Logic
+Goal (what must be true after fixes)
+
+Route completion (Shipment.status = COMPLETED) is driven only by delivery outcomes of all RouteStopInvoice rows (delivered / delivery_failed / returned_to_warehouse).
+
+Settlement clearance (Shipment.settlement_status = SETTLED) is an admin step and must not change Shipment.status or Shipment.completed_at.
+
+Reconciliation (Shipment.reconciliation_status = RECONCILED) is allowed only when blockers are clear (unless force=true).
+
+All status values are consistent (no mix of DELIVERED/FAILED/OUT_FOR_DELIVERY vs delivered/delivery_failed/out_for_delivery).
+
+Settlement variance uses CODReceipt totals, not Shipment.cash_expected (which currently is often stale/NULL).
+
+1) Add a canonical delivery status helper (new file)
+Create: delivery_status.py
+# delivery_status.py
+from typing import Optional
+
+STATUS_MAP = {
+    "OUT_FOR_DELIVERY": "out_for_delivery",
+    "DELIVERED": "delivered",
+    "FAILED": "delivery_failed",
+    "DELIVERY_FAILED": "delivery_failed",
+    "RETURNED": "returned_to_warehouse",
+    "RETURNED_TO_WAREHOUSE": "returned_to_warehouse",
+    "SHIPPED": "shipped",
+}
+
+TERMINAL_DELIVERY_STATUSES = {"delivered", "delivery_failed", "returned_to_warehouse"}
+
+def normalize_status(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    if s in STATUS_MAP:
+        return STATUS_MAP[s]
+    up = s.upper()
+    if up in STATUS_MAP:
+        return STATUS_MAP[up]
+    low = s.lower()
+    if low == "returned":
+        return "returned_to_warehouse"
+    return low
+
+2) Fix database model fields + add missing settlement fields
+Update: models.py → Shipment model
+
+Add these new columns (right under the existing settlement fields is fine):
+
+cash_collected (numeric) — sum of CODReceipt.received_amount for cash/cheque
+
+settlement_cleared_at
+
+settlement_cleared_by
+
+# Shipment model additions
+cash_collected = db.Column(db.Numeric(12, 2), nullable=True)  # Sum of COD receipts actually collected (cash/cheque)
+settlement_cleared_at = db.Column(UTCDateTime(), nullable=True)
+settlement_cleared_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
+
+
+Also fix the outdated comment on RouteStopInvoice.status to reflect real values:
+
+# RouteStopInvoice.status should be lowercase and mirror Invoice.status where possible:
+# ready_for_dispatch / shipped / out_for_delivery / delivered / delivery_failed / returned_to_warehouse
+status = db.Column(db.String(50))
+
+3) Make recompute_route_completion authoritative + case-safe + atomic
+Update: services_route_lifecycle.py
+3.1 Import SQL helpers + status helper
+
+At top:
+
+from sqlalchemy import func, or_
+from delivery_status import TERMINAL_DELIVERY_STATUSES
+
+3.2 Change recompute_route_completion signature to avoid internal commits
+
+Replace:
+
+def recompute_route_completion(route_id):
+
+
+with:
+
+def recompute_route_completion(route_id, *, commit: bool = True):
+
+
+Then rewrite pending logic to be case-insensitive and treat NULL as pending:
+
+pending_count = RouteStopInvoice.query.join(RouteStop).filter(
+    RouteStop.shipment_id == route_id,
+    or_(
+        RouteStopInvoice.status.is_(None),
+        func.lower(RouteStopInvoice.status).notin_(TERMINAL_DELIVERY_STATUSES)
+    )
+).count()
+
+
+When pending_count == 0:
+
+set route.status = "COMPLETED" (only if not already)
+
+set route.completed_at only if None
+
+set route.reconciliation_status = "PENDING" if currently NOT_READY
+
+IMPORTANT: do not touch route.settlement_status here.
+
+Finally:
+
+if commit:
+    db.session.commit()
+
+
+Return something useful (optional but recommended):
+
+return {"pending_count": pending_count, "route_status": route.status}
+
+3.3 Fix get_route_reconciliation_summary status counting
+
+Right now it counts delivered/failed based on Invoice.status only (fine) but delivery_failed/returned mismatches exist elsewhere.
+
+Update it to use correct statuses:
+
+delivered: "delivered"
+
+failed: "delivery_failed"
+
+returned: "returned_to_warehouse"
+
+Also fix the route_stop_invoice terminal logic (if you use it there) to use func.lower(...).
+
+3.4 Fix reconcile_route() — do NOT force settlement_status
+
+Currently it does:
+
+route.settlement_status = "SETTLED"
+
+
+Remove that entirely.
+
+Instead, enforce:
+
+must be route.status == "COMPLETED"
+
+must be route.settlement_status == "SETTLED" unless force=True
+
+Also: don’t auto-archive unless reconciliation succeeded (keep archiving as-is after success is fine).
+
+4) Fix settlement math (use CODReceipt totals, not route.cash_expected)
+Update: routes_driver.py
+4.1 settlement_form: cleared_at must NOT use route.completed_at
+
+Change:
+
+'cleared_at': route.completed_at,
+'cleared_by': None
+
+
+to:
+
+'cleared_at': route.settlement_cleared_at,
+'cleared_by': route.settlement_cleared_by
+
+4.2 submit_settlement(): compute totals from CODReceipt
+
+Replace:
+
+expected = route.cash_expected or Decimal('0.00')
+variance = amount - expected
+
+
+With:
+
+cod_receipts = CODReceipt.query.filter_by(route_id=route_id).all()
+
+def is_cashlike(m):
+    m = (m or "cash").lower()
+    return m in ("cash", "cheque")
+
+expected_cash = sum((r.expected_amount or 0) for r in cod_receipts if is_cashlike(r.payment_method))
+collected_cash = sum((r.received_amount or 0) for r in cod_receipts if is_cashlike(r.payment_method))
+
+# Store snapshots on the route at submission time
+route.cash_expected = expected_cash
+route.cash_collected = collected_cash
+
+# Variance we care about for settlement: handed in vs collected
+variance = amount - collected_cash
+
+
+Also enforce:
+
+route must be COMPLETED before driver can submit settlement (unless admin)
+
+if variance != 0, require variance note:
+
+variance_note = data.get("variance_note", "").strip()
+if variance != 0 and not variance_note:
+    return jsonify({"error": "Variance note is required when handed-in amount differs from collected COD totals."}), 400
+
+route.cash_variance_note = variance_note
+
+4.3 clear_settlement(): must NOT set route.status or completed_at
+
+Remove:
+
+route.status = 'COMPLETED'
+route.completed_at = utc_now()
+
+
+Replace with:
+
+if route.status != "COMPLETED":
+    return jsonify({"error": "Cannot clear settlement: route is not COMPLETED yet."}), 400
+
+route.settlement_status = "SETTLED"
+route.settlement_cleared_at = utc_now()
+route.settlement_cleared_by = current_user.username
+
+
+(Keep the intake-case creation if you want, but it’s cleaner to run those on completion, not settlement.)
+
+5) Fix RouteStopInvoice status inconsistencies everywhere
+5.1 routes_driver.py
+
+Change in start_route():
+
+rsi.status = 'OUT_FOR_DELIVERY'
+
+
+to:
+
+rsi.status = 'out_for_delivery'
+
+
+Also add a guard to prevent duplicate delivery submissions:
+In submit_delivery() and fail_delivery():
+
+If stop.delivered_at or stop.failed_at already set → return 409 and do not create new CODReceipt/PODRecord rows.
+
+5.2 routes_routes.py (admin UI actions)
+
+Replace all RouteStopInvoice updates:
+
+'OUT_FOR_DELIVERY' → 'out_for_delivery'
+
+'DELIVERED' → 'delivered'
+
+'FAILED' → 'delivery_failed'
+
+Also fix the “returned” action:
+Currently sets:
+
+order.status = "returned"
+...
+RouteStopInvoice.status = 'FAILED'
+
+
+Change to:
+
+order.status = "returned_to_warehouse"
+...
+RouteStopInvoice.status = 'returned_to_warehouse'
+
+
+Also fix terminal sets:
+
+terminal_statuses = {'delivered', 'returned', 'delivery_failed'}
+
+
+→
+
+terminal_statuses = {'delivered', 'returned_to_warehouse', 'delivery_failed'}
+
+
+Fix any display lists like:
+
+picked_statuses = ['ready_for_dispatch', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'delivered']
+
+
+→
+
+picked_statuses = ['ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse']
+
+5.3 routes_driver_api.py (mobile API)
+start_route(): update RouteStopInvoice too
+
+After invoice bulk update, also:
+
+db.session.query(RouteStopInvoice).join(RouteStop).filter(
+    RouteStop.shipment_id == route_id
+).update({RouteStopInvoice.status: 'out_for_delivery'}, synchronize_session=False)
+
+update_order_status(): rsi_status_map must be lowercase and real
+
+Replace:
+
+rsi_status_map = {
+  'delivered': 'DELIVERED',
+  'delivery_failed': 'FAILED',
+  'returned_to_warehouse': 'FAILED'
+}
+
+
+with:
+
+rsi_status_map = {
+  'delivered': 'delivered',
+  'delivery_failed': 'delivery_failed',
+  'returned_to_warehouse': 'returned_to_warehouse'
+}
+
+complete_route(): do NOT set COMPLETED directly
+
+Instead:
+
+compute pending RSI using the same logic as services_route_lifecycle (case-insensitive terminal set)
+
+call recompute_route_completion(route.id, commit=False)
+
+only succeed if route.status becomes COMPLETED
+
+6) Fix services.py progress calculation (“returned” bug)
+Update: services.py
+
+In route_progress() replace:
+
+Invoice.status.in_(["delivered", "returned", "delivery_failed"])
+
+
+with:
+
+Invoice.status.in_(["delivered", "returned_to_warehouse", "delivery_failed"])
+
+
+Also, set_invoice_in_stop_status() is mixing uppercase inputs; normalize it:
+
+import normalize_status() and apply it to both rsi.status and invoice.status.
+
+7) Add migrations (must run once)
+7.1 Add columns migration
+
+Create: update_shipment_settlement_v2_schema.py
+
+Adds: cash_collected, settlement_cleared_at, settlement_cleared_by
+
+7.2 Normalize existing bad statuses
+
+Create: migration_normalize_delivery_statuses.py
+Run SQL updates:
+
+invoices: returned → returned_to_warehouse
+
+route_stop_invoice:
+
+OUT_FOR_DELIVERY → out_for_delivery
+
+DELIVERED → delivered
+
+FAILED → delivery_failed
+
+RETURNED → returned_to_warehouse
+
+SHIPPED → shipped
+
+(Do this BEFORE relying on recompute logic.)
+
+8) Minimal verification checklist (after deploy)
+
+Run these queries (or printouts) in Replit console:
+
+Distinct RouteStopInvoice statuses:
+
+must be lowercase and must not include OUT_FOR_DELIVERY/DELIVERED/FAILED.
+
+Invoices with status=returned:
+
+must be 0 (all should be returned_to_warehouse)
+
+Take a completed route and confirm:
+
+Clearing settlement does not modify completed_at
+
+Reconcile fails when settlement_status != SETTLED (unless force)
+
+Reconcile does not set settlement_status
+
+After Replit applies the fixes: Recommended Route Reconciliation Workflow (operational)
+
+Operational completion (driver side)
+
+Every stop invoice ends in: delivered or delivery_failed or returned_to_warehouse.
+
+System auto-sets Shipment.status = COMPLETED when pending RSI count becomes 0.
+
+Driver settlement submission
+
+Driver submits “handed-in” amount (cash/cheques physically returned).
+
+System calculates:
+
+cash_expected = sum(expected_amount) for CODReceipt cash/cheque
+
+cash_collected = sum(received_amount) for CODReceipt cash/cheque
+
+cash_variance = handed_in − cash_collected
+
+If variance ≠ 0 → variance note required.
+
+Admin settlement clearance
+
+Admin confirms handed-in and marks settlement_status = SETTLED (no route status changes).
+
+Admin reconciliation
+
+Blockers must be clear (unless force):
+
+Route COMPLETED
+
+Settlement SETTLED
+
+No unresolved DeliveryDiscrepancy
+
+No OPEN InvoicePostDeliveryCase (or at least reviewed)
+
+POD/COD records present where required
+
+Then mark reconciliation_status = RECONCILED and archive.
+
+If you want, I can also write the exact migration scripts (update_shipment_settlement_v2_schema.py + migration_normalize_delivery_statuses.py) in full so you can paste them directly into Replit.

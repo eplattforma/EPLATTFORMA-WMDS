@@ -912,14 +912,17 @@ class Shipment(db.Model, SoftDeleteMixin):
     # Driver Settlement fields
     settlement_status = db.Column(db.String(20), default='PENDING')  # PENDING, DRIVER_SUBMITTED, SETTLED
     driver_submitted_at = db.Column(UTCDateTime(), nullable=True)  # When driver submitted settlement
-    cash_expected = db.Column(db.Numeric(12, 2), nullable=True)  # Total COD expected
+    cash_expected = db.Column(db.Numeric(12, 2), nullable=True)  # Total COD expected (computed from CODReceipts)
+    cash_collected = db.Column(db.Numeric(12, 2), nullable=True)  # Sum of COD receipts actually collected (cash/cheque)
     cash_handed_in = db.Column(db.Numeric(12, 2), nullable=True)  # Actual cash from driver
-    cash_variance = db.Column(db.Numeric(12, 2), nullable=True)  # Difference
+    cash_variance = db.Column(db.Numeric(12, 2), nullable=True)  # Difference (handed_in - collected)
     cash_variance_note = db.Column(db.Text, nullable=True)  # Required if variance != 0
     returns_count = db.Column(db.Integer, default=0)  # Number of returned items
     returns_weight = db.Column(db.Float, nullable=True)  # Total weight of returns
     settlement_notes = db.Column(db.Text, nullable=True)  # Driver's settlement notes
     completion_reason = db.Column(db.String(50), nullable=True)  # normal, returned, emergency
+    settlement_cleared_at = db.Column(UTCDateTime(), nullable=True)  # When settlement was cleared by admin
+    settlement_cleared_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)  # Admin who cleared settlement
     
     # Reconciliation fields (administrative closeout separate from operational completion)
     reconciliation_status = db.Column(db.String(20), default='NOT_READY')  # NOT_READY, PENDING, IN_REVIEW, RECONCILED
@@ -990,7 +993,7 @@ class RouteStopInvoice(db.Model):
     route_stop_id = db.Column(db.Integer, db.ForeignKey('route_stop.route_stop_id', ondelete='CASCADE'), nullable=False)
     invoice_no = db.Column(db.String(50), db.ForeignKey('invoices.invoice_no', ondelete='RESTRICT'), nullable=False)
     
-    status = db.Column(db.String(50))  # ASSIGNED/PICKING/READY_TO_DISPATCH/DISPATCHED/DELIVERED/FAILED
+    status = db.Column(db.String(50))  # ready_for_dispatch / shipped / out_for_delivery / delivered / delivery_failed / returned_to_warehouse
     weight_kg = db.Column(db.Float)
     notes = db.Column(db.Text)
     
