@@ -22,28 +22,21 @@ PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 @reports_bp.route("/reserved-stock-777")
 @login_required
 def reserved_stock_777():
-    import threading
     from models import Ps365ReservedStock777, SeasonSupplierSetting
     from scripts.ps365_reserved_stock_report_777 import build_rows, save_to_db, clear_table_for_store, STORE_CODE
-    from app import app
     
-    # Run refresh in background thread to avoid blocking page load
-    def background_refresh():
-        with app.app_context():
-            try:
-                new_rows = build_rows()
-                if new_rows:
-                    clear_table_for_store(STORE_CODE)
-                    save_to_db(new_rows)
-                    logger.info(f"Background refresh completed: {len(new_rows)} items")
-            except Exception as e:
-                logger.error(f"Background refresh failed: {e}")
-    
-    # Start background refresh
-    refresh_thread = threading.Thread(target=background_refresh, daemon=True)
-    refresh_thread.start()
+    # Always refresh data synchronously when page is accessed
+    try:
+        new_rows = build_rows()
+        clear_table_for_store(STORE_CODE)
+        if new_rows:
+            save_to_db(new_rows)
+            logger.info(f"Refresh completed: {len(new_rows)} items")
+    except Exception as e:
+        logger.error(f"Refresh failed: {e}")
+        flash(f"Error refreshing data: {str(e)}", "warning")
 
-    # Show existing data immediately
+    # Show refreshed data
     rows = Ps365ReservedStock777.query.order_by(Ps365ReservedStock777.stock_reserved.desc(), Ps365ReservedStock777.item_code_365).all()
     seasons = sorted(set(r.season_name for r in rows if r.season_name))
     synced_at = rows[0].synced_at if rows else None
@@ -57,9 +50,6 @@ def reserved_stock_777():
             "email_cc": s.email_cc or "",
             "email_comment": s.email_comment or ""
         }
-    
-    if not rows:
-        flash("Report is refreshing in the background. Please reload the page in 2-3 minutes.", "info")
     
     return render_template("reports/reserved_stock_777.html", rows=rows, seasons=seasons, synced_at=synced_at, count=len(rows), season_settings=season_settings)
 
