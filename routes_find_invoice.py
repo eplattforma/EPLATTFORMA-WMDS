@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import or_, and_, desc, asc
 from models import Invoice, InvoiceItem, Shipment
 from app import db
+from timezone_utils import format_local_time
 
 bp = Blueprint("find_invoice", __name__)
 
@@ -280,8 +281,21 @@ def invoice_detail(invoice_no):
     from sorting_utils import sort_items_for_picking
     items = sort_items_for_picking(items)
     
+    # Get picking time tracking for these items
+    from models import ItemTimeTracking
+    from timezone_utils import to_athens_tz
+    tracking_records = ItemTimeTracking.query.filter_by(invoice_no=invoice_no).all()
+    # Map item_code to actual completion timestamp (converted to local time for display)
+    tracking_map = {
+        t.item_code: format_local_time(to_athens_tz(t.end_time), '%H:%M:%S') 
+        for t in tracking_records if t.end_time
+    }
+    
     line_items = []
     for item in items:
+        # Get actual completion time
+        time_display = tracking_map.get(item.item_code, "")
+        
         line_items.append({
             "item_code": item.item_code,
             "item_name": item.item_name or "",
@@ -293,6 +307,7 @@ def invoice_detail(invoice_no):
             "corridor": item.corridor or "",
             "is_picked": item.is_picked,
             "pick_status": item.pick_status,
+            "picking_time": time_display,
             "discrepancies": discrepancy_map.get(item.item_code, [])
         })
     

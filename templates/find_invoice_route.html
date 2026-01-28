@@ -594,6 +594,7 @@ function displayInvoiceDetail(data) {
                         <th>Zone</th>
                         <th>Qty</th>
                         <th>Picked</th>
+                        <th>Time</th>
                         <th>Delivered</th>
                         <th>Status</th>
                     </tr>
@@ -619,14 +620,15 @@ function displayInvoiceDetail(data) {
         
         html += `
             <tr>
-                <td>${item.item_code}</td>
-                <td>${item.item_name}</td>
-                <td>${item.location}</td>
-                <td>${item.zone}</td>
-                <td>${item.qty}</td>
-                <td>${item.picked_qty}</td>
+                <td><strong>${item.item_code}</strong></td>
+                <td><div class="text-truncate" style="max-width: 200px;" title="${item.item_name}">${item.item_name}</div></td>
+                <td>${item.location || '-'}</td>
+                <td>${item.zone || '-'}</td>
+                <td>${item.qty} ${item.unit_type}</td>
+                <td>${item.is_picked ? '<span class="text-success">' + item.picked_qty + '</span>' : '<span class="text-danger">0</span>'}</td>
+                <td>${item.picking_time || '-'}</td>
                 <td>${deliveredInfo}</td>
-                <td>${item.is_picked ? '<span class="badge bg-success">Picked</span>' : '<span class="badge bg-secondary">Not Picked</span>'}</td>
+                <td>${getStatusBadge(item.pick_status || (item.is_picked ? 'picked' : 'not_started'))}</td>
             </tr>
         `;
     });
