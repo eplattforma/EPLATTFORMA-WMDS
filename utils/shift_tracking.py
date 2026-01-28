@@ -474,7 +474,8 @@ def check_for_long_shift_checkouts():
         List of usernames of pickers who were automatically checked out
     """
     try:
-        now = get_utc_now()
+        from timezone_utils import get_utc_now
+        now_utc = get_utc_now()
         checked_out_users = []
         
         # Find shifts that are still active
@@ -483,9 +484,13 @@ def check_for_long_shift_checkouts():
         for shift in active_shifts:
             # Calculate shift duration
             # shift.check_in_time is UTC (naive or aware depending on DB, but usually UTC)
-            from timezone_utils import get_utc_now
-            now_utc = get_utc_now()
-            shift_duration = (now_utc - shift.check_in_time).total_seconds() / 3600  # Convert to hours
+            if shift.check_in_time.tzinfo is None:
+                import pytz
+                check_in_utc = pytz.UTC.localize(shift.check_in_time)
+            else:
+                check_in_utc = shift.check_in_time
+            
+            shift_duration = (now_utc - check_in_utc).total_seconds() / 3600  # Convert to hours
             
             # If shift is longer than 12 hours
             if shift_duration > 12:
@@ -540,6 +545,7 @@ def check_for_missed_checkouts():
         List of usernames of pickers who were automatically checked out
     """
     try:
+        from timezone_utils import get_local_now, to_athens_tz, to_utc, format_utc_datetime_to_local
         # Get the end of business day time setting
         eod_time_str = Setting.get(db.session(), 'end_of_business_day_time', '18:00')
         
@@ -550,12 +556,7 @@ def check_for_missed_checkouts():
         now = get_local_now()
         
         # Create a datetime for today's end of business day in Athens
-        eod_datetime = datetime(now.year, now.month, now.day, hour, minute)
-        # Assuming get_local_now returns aware or we treat it as local
-        if eod_datetime.tzinfo is None:
-            import pytz
-            athens_tz = pytz.timezone('Europe/Athens')
-            eod_datetime = athens_tz.localize(eod_datetime)
+        eod_datetime = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         
         # If we're past the end of business day
         if now >= eod_datetime:
@@ -566,7 +567,6 @@ def check_for_missed_checkouts():
             for shift in active_shifts:
                 # shift.check_in_time is UTC (stored in DB)
                 # Convert shift check-in to local for date comparison
-                from timezone_utils import to_athens_tz
                 shift_local = to_athens_tz(shift.check_in_time)
                 shift_date = shift_local.date()
                 today = now.date()
@@ -574,7 +574,6 @@ def check_for_missed_checkouts():
                 if shift_date == today:
                     # Auto check out the picker
                     # Convert eod_datetime to UTC for storage
-                    from timezone_utils import to_utc
                     eod_utc = to_utc(eod_datetime)
                     
                     shift.check_out_time = eod_utc
@@ -588,18 +587,16 @@ def check_for_missed_checkouts():
                     activity = ActivityLog(
                         picker_username=shift.picker_username,
                         activity_type='auto_checkout',
-                        details=f"Automatic end-of-day checkout at {format_utc_datetime_to_local(eod_utc, '%Y-%m-%d %H:%M:%S')}"
+                        details=f"Automatic end-of-day checkout at {eod_time_str}"
                     )
                     db.session.add(activity)
-                    
                     checked_out_users.append(shift.picker_username)
-                    logging.info(f"Auto checked out picker {shift.picker_username} from shift #{shift.id} at end of business day")
-                    
+                    logging.info(f"Auto checked out picker {shift.picker_username} from shift #{shift.id} (missed checkout)")
+            
             if checked_out_users:
                 db.session.commit()
                 
             return checked_out_users
-                
         return []
     except Exception as e:
         db.session.rollback()
