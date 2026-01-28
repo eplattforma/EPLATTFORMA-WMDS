@@ -52,6 +52,7 @@ def normalize_route_stop_invoice_statuses():
         ("SHIPPED", "shipped"),
         ("RETURNED", "returned_to_warehouse"),
         ("RETURNED_TO_WAREHOUSE", "returned_to_warehouse"),
+        ("ASSIGNED", "ready_for_dispatch"),
     ]
     
     total_updated = 0
@@ -77,12 +78,16 @@ def add_missing_columns():
     
     for col_name, col_type in columns_to_add:
         try:
-            db.session.execute(text(f"SELECT {col_name} FROM shipments LIMIT 1"))
-            logger.info(f"Column 'shipments.{col_name}' already exists")
-        except Exception:
-            logger.info(f"Adding column 'shipments.{col_name}'")
-            db.session.execute(text(f"ALTER TABLE shipments ADD COLUMN {col_name} {col_type}"))
-            db.session.commit()
+            result = db.session.execute(text(f"SELECT column_name FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = :col_name"), {"col_name": col_name})
+            if result.fetchone():
+                logger.info(f"Column 'shipments.{col_name}' already exists")
+            else:
+                logger.info(f"Adding column 'shipments.{col_name}'")
+                db.session.execute(text(f"ALTER TABLE shipments ADD COLUMN {col_name} {col_type}"))
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error checking/adding column {col_name}: {e}")
 
 
 def verify_status_consistency():

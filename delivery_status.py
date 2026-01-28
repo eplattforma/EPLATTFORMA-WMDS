@@ -15,6 +15,7 @@ STATUS_MAP = {
     "RETURNED_TO_WAREHOUSE": "returned_to_warehouse",
     "SHIPPED": "shipped",
     "READY_FOR_DISPATCH": "ready_for_dispatch",
+    "ASSIGNED": "ready_for_dispatch",  # Legacy status, maps to ready_for_dispatch
 }
 
 # Terminal statuses that mean delivery is complete (one way or another)

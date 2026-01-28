@@ -106,11 +106,11 @@ def attach_invoices_to_stop(route_stop_id: int, invoice_nos: list):
             invoice.route_id = stop.shipment_id
             invoice.stop_id = route_stop_id
         
-        # Create new assignment
+        # Create new assignment (use lowercase canonical status)
         rsi = RouteStopInvoice(
             route_stop_id=route_stop_id,
             invoice_no=invoice_no,
-            status="ASSIGNED"
+            status="ready_for_dispatch"
         )
         db.session.add(rsi)
         attached.append(rsi)

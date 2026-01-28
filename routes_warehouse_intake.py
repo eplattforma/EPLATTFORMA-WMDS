@@ -351,7 +351,7 @@ def assign_to_route():
         if reroute_request_id:
             reroute_req = RerouteRequest.query.get(reroute_request_id)
             if reroute_req:
-                reroute_req.status = 'ASSIGNED'
+                reroute_req.status = 'assigned'
                 reroute_req.assigned_route_id = route_id
                 reroute_req.completed_at = datetime.utcnow()
         
