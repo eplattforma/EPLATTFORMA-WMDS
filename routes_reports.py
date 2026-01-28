@@ -25,7 +25,7 @@ def reserved_stock_777():
     from models import Ps365ReservedStock777, SeasonSupplierSetting
     
     # Show existing data (user clicks Refresh button to update)
-    rows = Ps365ReservedStock777.query.order_by(Ps365ReservedStock777.season_name, Ps365ReservedStock777.stock_reserved.desc(), Ps365ReservedStock777.item_code_365).all()
+    rows = Ps365ReservedStock777.query.order_by(Ps365ReservedStock777.stock_reserved.desc(), Ps365ReservedStock777.item_code_365).all()
     seasons = sorted(set(r.season_name for r in rows if r.season_name))
     synced_at = rows[0].synced_at if rows else None
     
