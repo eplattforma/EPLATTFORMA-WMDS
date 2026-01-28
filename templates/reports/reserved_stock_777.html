@@ -225,6 +225,11 @@
 {% endif %}
 
 <script>
+function getCsrfToken() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  return meta ? meta.getAttribute('content') : '';
+}
+
 async function saveSeasonSettings(seasonCode, idx) {
   const supplier = document.getElementById('supplier_' + idx).value;
   const emailTo = document.getElementById('emailto_' + idx).value;
@@ -234,7 +239,10 @@ async function saveSeasonSettings(seasonCode, idx) {
   try {
     const res = await fetch('/reports/reserved-stock-777/settings/save', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCsrfToken()
+      },
       body: JSON.stringify({
         season_code_365: seasonCode,
         supplier_code: supplier,
@@ -260,7 +268,10 @@ async function sendSeasonPO(seasonCode) {
   try {
     const res = await fetch('/reports/reserved-stock-777/send-po', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCsrfToken()
+      },
       body: JSON.stringify({season_code_365: seasonCode})
     });
     const data = await res.json();

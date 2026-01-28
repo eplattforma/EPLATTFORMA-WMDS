@@ -126,6 +126,10 @@ def reserved_stock_777_refresh():
 @login_required
 def reserved_stock_777_save_settings():
     """Save season→supplier mapping and email settings"""
+    from routes import validate_csrf_token
+    if not validate_csrf_token():
+        return jsonify({"success": False, "error": "Invalid CSRF token"}), 403
+    
     if current_user.role not in ['admin', 'warehouse_manager']:
         return jsonify({"success": False, "error": "Access denied"}), 403
     
@@ -161,6 +165,10 @@ def reserved_stock_777_save_settings():
 @login_required
 def reserved_stock_777_send_po():
     """Create PO in PS365 for a season and email supplier"""
+    from routes import validate_csrf_token
+    if not validate_csrf_token():
+        return jsonify({"success": False, "error": "Invalid CSRF token"}), 403
+    
     if current_user.role not in ['admin', 'warehouse_manager']:
         return jsonify({"success": False, "error": "Access denied"}), 403
     
