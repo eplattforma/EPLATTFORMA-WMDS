@@ -1,0 +1,156 @@
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+return meth(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+return self._exec_single_context(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+cursor.execute(statement, parameters)
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 523, in _execute_on_connection
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+2026-01-28 09:14:47.16
+f8702ad2
+User
+[SQL: SELECT purchase_order_lines.id AS purchase_order_lines_id, purchase_order_lines.purchase_order_id AS purchase_order_lines_purchase_order_id, purchase_order_lines.line_number AS purchase_order_lines_line_number, purchase_order_lines.line_id_365 AS purchase_order_lines_line_id_365, purchase_order_lines.item_code_365 AS purchase_order_lines_item_code_365, purchase_order_lines.item_name AS purchase_order_lines_item_name, purchase_order_lines.item_barcode AS purchase_order_lines_item_barcode, purchase_order_lines.supplier_item_code AS purchase_order_lines_supplier_item_code, purchase_order_lines.line_quantity AS purchase_order_lines_line_quantity, purchase_order_lines.line_price_excl_vat AS purchase_order_lines_line_price_excl_vat, purchase_order_lines.line_total_sub AS purchase_order_lines_line_total_sub, purchase_order_lines.line_total_discount AS purchase_order_lines_line_total_discount, purchase_order_lines.line_total_discount_percentage AS purchase_order_lines_line_total_discount_percentage, purchase_order_lines.line_vat_code_365 AS purchase_order_lines_line_vat_code_365, purchase_order_lines.line_total_vat AS purchase_order_lines_line_total_vat, purchase_order_lines.line_total_vat_percentage AS purchase_order_lines_line_total_vat_percentage, purchase_order_lines.line_total_grand AS purchase_order_lines_line_total_grand, purchase_order_lines.item_has_expiration_date AS purchase_order_lines_item_has_expiration_date, purchase_order_lines.item_has_lot_number AS purchase_order_lines_item_has_lot_number, purchase_order_lines.item_has_serial_number AS purchase_order_lines_item_has_serial_number, purchase_order_lines.shelf_locations AS purchase_order_lines_shelf_locations, purchase_order_lines.unit_type AS purchase_order_lines_unit_type, purchase_order_lines.pieces_per_unit AS purchase_order_lines_pieces_per_unit, purchase_order_lines.stock_qty AS purchase_order_lines_stock_qty, purchase_order_lines.stock_reserved_qty AS purchase_order_lines_stock_reserved_qty, purchase_order_lines.stock_ordered_qty AS purchase_order_lines_stock_ordered_qty, purchase_order_lines.available_qty AS purchase_order_lines_available_qty, purchase_order_lines.stock_synced_at AS purchase_order_lines_stock_synced_at
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1982, in _exec_single_context
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1637, in _execute_clauseelement
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2351, in _handle_dbapi_exception
+2026-01-28 09:14:47.16
+f8702ad2
+User
+sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column purchase_order_lines.stock_qty does not exist
+2026-01-28 09:14:47.16
+f8702ad2
+User
+ret = self._execute_context(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+result = conn.execute(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+return self._execute_internal(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+2026-01-28 09:14:47.16
+f8702ad2
+User
+self._handle_dbapi_exception(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1963, in _exec_single_context
+2026-01-28 09:14:47.16
+f8702ad2
+User
+return connection._execute_clauseelement(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1842, in _execute_context
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1415, in execute
+2026-01-28 09:14:47.16
+f8702ad2
+User
+self.dialect.do_execute(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+result: Result[Any] = compile_state_cls.orm_execute_statement(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+2026-01-28 09:14:47.16
+f8702ad2
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-28 09:14:47.16
+f8702ad2
+User
+return meth(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+return self._exec_single_context(
+2026-01-28 09:14:47.16
+f8702ad2
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
