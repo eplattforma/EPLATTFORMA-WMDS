@@ -321,7 +321,7 @@ def detail(shipment_id):
     
     # Compute KPIs for the new UI
     # "Picked" means warehouse work is complete (ready_for_dispatch or beyond)
-    picked_statuses = ['ready_for_dispatch', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'delivered']
+    picked_statuses = ['ready_for_dispatch', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'delivered', 'shipped']
     
     # Calculate POD vs Credit totals by stop
     pod_invoice_count = 0
@@ -345,8 +345,8 @@ def detail(shipment_id):
     kpis = {
         'stops_total': len(stops),
         'invoices_total': len(all_invoices),
-        'picked_count': sum(1 for inv in all_invoices if inv.status in picked_statuses),
-        'ready_count': sum(1 for inv in all_invoices if inv.status == 'ready_for_dispatch'),
+        'picked_count': sum(1 for inv in all_invoices if inv.status.lower() in picked_statuses),
+        'ready_count': sum(1 for inv in all_invoices if inv.status.lower() == 'ready_for_dispatch'),
         'total_due': sum(float(inv.total_grand or 0) for inv in all_invoices),
         'pod_count': pod_invoice_count,
         'pod_value': pod_invoice_value,
