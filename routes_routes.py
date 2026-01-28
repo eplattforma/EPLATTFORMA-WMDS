@@ -321,7 +321,7 @@ def detail(shipment_id):
     
     # Compute KPIs for the new UI
     # "Picked" means warehouse work is complete (ready_for_dispatch or beyond)
-    picked_statuses = ['ready_for_dispatch', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'delivered', 'shipped']
+    picked_statuses = ['ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse']
     
     # Calculate POD vs Credit totals by stop
     pod_invoice_count = 0
@@ -993,7 +993,7 @@ def start_route(shipment_id):
         # Sync to RouteStopInvoice
         db.session.query(RouteStopInvoice).filter(
             RouteStopInvoice.invoice_no == invoice.invoice_no
-        ).update({RouteStopInvoice.status: 'OUT_FOR_DELIVERY'}, synchronize_session=False)
+        ).update({RouteStopInvoice.status: 'out_for_delivery'}, synchronize_session=False)
         
         # Log the status change
         log = ActivityLog()
@@ -1040,7 +1040,7 @@ def deliver_order(shipment_id, invoice_no):
     db.session.query(RouteStopInvoice).join(RouteStop).filter(
         RouteStop.shipment_id == shipment_id,
         RouteStopInvoice.invoice_no == invoice_no
-    ).update({RouteStopInvoice.status: 'DELIVERED'}, synchronize_session=False)
+    ).update({RouteStopInvoice.status: 'delivered'}, synchronize_session=False)
     
     # Log the status change
     log = ActivityLog()
@@ -1083,13 +1083,13 @@ def return_order(shipment_id, invoice_no):
         return redirect(url_for("routes.detail", shipment_id=shipment_id))
     
     # Update order status
-    order.status = "returned"
+    order.status = "returned_to_warehouse"
     
-    # Update ALL RouteStopInvoice rows for this invoice (returned = FAILED for route completion)
+    # Update ALL RouteStopInvoice rows for this invoice
     db.session.query(RouteStopInvoice).join(RouteStop).filter(
         RouteStop.shipment_id == shipment_id,
         RouteStopInvoice.invoice_no == invoice_no
-    ).update({RouteStopInvoice.status: 'FAILED'}, synchronize_session=False)
+    ).update({RouteStopInvoice.status: 'returned_to_warehouse'}, synchronize_session=False)
     
     # Log the status change
     log = ActivityLog()
@@ -1138,7 +1138,7 @@ def fail_order(shipment_id, invoice_no):
     db.session.query(RouteStopInvoice).join(RouteStop).filter(
         RouteStop.shipment_id == shipment_id,
         RouteStopInvoice.invoice_no == invoice_no
-    ).update({RouteStopInvoice.status: 'FAILED'}, synchronize_session=False)
+    ).update({RouteStopInvoice.status: 'delivery_failed'}, synchronize_session=False)
     
     # Log the status change
     log = ActivityLog()
@@ -1231,7 +1231,7 @@ def change_route_status(shipment_id):
     
     # Update order statuses if applicable
     # Terminal statuses that should never be changed
-    terminal_statuses = {'delivered', 'returned', 'delivery_failed'}
+    terminal_statuses = {'delivered', 'returned_to_warehouse', 'delivery_failed'}
     updated_count = 0
     
     if new_order_status:
