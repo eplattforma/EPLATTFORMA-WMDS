@@ -387,13 +387,13 @@ def detail(shipment_id):
                     'count': len(awaiting)
                 })
         
-        # Check for invoices not synced from PS365
-        not_synced = [inv for inv in all_invoices if inv.ps365_synced_at is None]
-        if not_synced:
+        # Check for invoices missing total amounts
+        missing_amounts = [inv for inv in all_invoices if inv.total_grand is None]
+        if missing_amounts:
             dispatch_blockers.append({
                 'type': 'not_synced',
-                'message': f"{len(not_synced)} invoice(s) not synced from PS365",
-                'count': len(not_synced)
+                'message': f"{len(missing_amounts)} invoice(s) missing total amount",
+                'count': len(missing_amounts)
             })
     
     # Handle ?show=issues filter - only applies to PLANNED routes
