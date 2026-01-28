@@ -1715,6 +1715,23 @@ class DwSeason(db.Model):
         return f"<DwSeason {self.season_code_365} - {self.season_name}>"
 
 
+class SeasonSupplierSetting(db.Model):
+    """Settings for season→supplier mapping including email configuration"""
+    __tablename__ = "season_supplier_settings"
+
+    season_code_365 = db.Column(db.String(50), primary_key=True)
+    supplier_code = db.Column(db.String(50), nullable=True)
+
+    email_to = db.Column(db.String(255), nullable=True)
+    email_cc = db.Column(db.String(500), nullable=True)
+    email_comment = db.Column(db.Text, nullable=True)
+
+    updated_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now, onupdate=get_utc_now)
+
+    def __repr__(self):
+        return f"<SeasonSupplierSetting {self.season_code_365} -> {self.supplier_code}>"
+
+
 class DwAttribute1(db.Model):
     """Data warehouse attribute 1 dimension"""
     __tablename__ = "dw_attribute1"

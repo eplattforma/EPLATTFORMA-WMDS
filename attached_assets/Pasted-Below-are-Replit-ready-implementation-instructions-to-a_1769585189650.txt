@@ -1,0 +1,315 @@
+Below are Replit-ready implementation instructions to add the Season→Supplier mapping + email fields + “Send PO + Email + Refresh” workflow directly inside /reports/reserved-stock-777, without needing to locate more files first. These steps are designed so Replit can just implement them even if your project structure differs (they’ll add new model + route + UI blocks and wire them together).
+
+Goal
+
+On /reports/reserved-stock-777, add a Settings panel that lets you maintain per-season:
+
+season_code_365 (existing)
+
+supplier_code (your internal/PS365 supplier code used to build PO)
+
+email_to (main supplier email)
+
+email_cc (comma-separated cc list)
+
+email_comment (free text appended at end of the PO email)
+
+Then, in the same page:
+
+group items by season
+
+allow “Send PO” per season (to PS365)
+
+after PO is created in PS365, automatically send an email to supplier
+
+refresh the screen and mark those items as “On order” (so no further need for ordering)
+
+A) Database: extend seasons settings (new table)
+1) Add a new model (recommended)
+
+Create a new SQLAlchemy model to avoid modifying the PS365-imported seasons table.
+
+File: models.py (or wherever models are)
+Add:
+
+class SeasonSupplierSetting(db.Model):
+    __tablename__ = "season_supplier_settings"
+
+    season_code_365 = db.Column(db.String(50), primary_key=True)  # matches DwSeason.season_code_365
+    supplier_code = db.Column(db.String(50), nullable=True)
+
+    email_to = db.Column(db.String(255), nullable=True)
+    email_cc = db.Column(db.String(500), nullable=True)  # comma-separated
+    email_comment = db.Column(db.Text, nullable=True)
+
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+2) Create migration / table
+
+If you have migrations:
+
+create migration + upgrade
+
+If not:
+
+run db.create_all() path you already use, or add a one-off script to create the table.
+
+B) Backend: endpoints for settings + send PO
+
+We will implement 3 endpoints:
+
+GET /reports/reserved-stock-777 (existing): also loads season settings and merges into UI
+
+POST /reports/reserved-stock-777/settings/save : save mapping + emails + comment
+
+POST /reports/reserved-stock-777/send-po : create PO in PS365 for a season + send email + return success
+
+1) Settings save endpoint
+
+Add route (wherever routes live; if you have a reports blueprint use that):
+
+@reports_bp.route("/reserved-stock-777/settings/save", methods=["POST"])
+@login_required
+def reserved_stock_777_save_settings():
+    payload = request.get_json(force=True) or {}
+    season_code = (payload.get("season_code_365") or "").strip()
+    if not season_code:
+        return jsonify({"success": False, "error": "Missing season_code_365"}), 400
+
+    s = SeasonSupplierSetting.query.get(season_code)
+    if not s:
+        s = SeasonSupplierSetting(season_code_365=season_code)
+        db.session.add(s)
+
+    s.supplier_code = (payload.get("supplier_code") or "").strip() or None
+    s.email_to = (payload.get("email_to") or "").strip() or None
+    s.email_cc = (payload.get("email_cc") or "").strip() or None
+    s.email_comment = (payload.get("email_comment") or "").strip() or None
+
+    db.session.commit()
+    return jsonify({"success": True})
+
+2) Send PO endpoint (PS365 + Email)
+
+Add route:
+
+@reports_bp.route("/reserved-stock-777/send-po", methods=["POST"])
+@login_required
+def reserved_stock_777_send_po():
+    payload = request.get_json(force=True) or {}
+    season_code = (payload.get("season_code_365") or "").strip()
+    if not season_code:
+        return jsonify({"success": False, "error": "Missing season_code_365"}), 400
+
+    # Load settings
+    setting = SeasonSupplierSetting.query.get(season_code)
+    if not setting or not setting.supplier_code or not setting.email_to:
+        return jsonify({"success": False, "error": "Missing supplier_code or email_to in settings for this season"}), 400
+
+    # Load report data (re-use your existing cached JSON OR DB snapshot)
+    # Preferred: read the same JSON your report already uses.
+    report = load_reserved_stock_777_report()  # implement helper: reads reports_cache/reserved_stock_777_latest.json
+    season_rows = [r for r in report["rows"] if (r.get("season_code_365") or "").strip() == season_code]
+
+    # Only items that need ordering:
+    # recommended rule: reserved > ordered_po_777
+    lines = []
+    for r in season_rows:
+        reserved = Decimal(str(r.get("reserved_777") or "0"))
+        ordered = Decimal(str(r.get("ordered_po_777") or "0"))
+        need = reserved - ordered
+        if need > 0:
+            lines.append({
+                "item_code_365": r["item_code_365"],
+                "qty": float(need)  # or int if required by PS365
+            })
+
+    if not lines:
+        return jsonify({"success": False, "error": "No items require ordering (reserved <= ordered)."}), 400
+
+    # 1) Create PO in PS365
+    # Use your existing ps365_client/call_ps365 logic
+    po_no = create_po_in_ps365(
+        supplier_code=setting.supplier_code,
+        store_code="777",
+        lines=lines,
+        season_code=season_code
+    )
+
+    # 2) Send email to supplier
+    send_supplier_email(
+        to=setting.email_to,
+        cc=setting.email_cc,
+        subject=f"Purchase Order {po_no} - Season {season_code}",
+        html_body=render_po_email_html(po_no, season_code, lines, setting.email_comment),
+    )
+
+    # 3) Force refresh of report snapshot (optional but recommended)
+    # run script or rebuild cache so the ordered_po_777 updates on next load
+    trigger_reserved_stock_777_refresh()
+
+    return jsonify({"success": True, "po_no": po_no})
+
+Required helper functions Replit must implement
+
+They must stub/implement these in an appropriate service module:
+
+load_reserved_stock_777_report()
+
+reads the JSON cache file already generated, returns dict
+
+create_po_in_ps365(...)
+
+calls PS365 “create PO” endpoint you already use elsewhere
+
+returns a PO number/reference
+
+send_supplier_email(...)
+
+use SMTP settings or your existing mail utility
+
+render_po_email_html(...)
+
+build a clean HTML table with item codes + qty
+
+trigger_reserved_stock_777_refresh()
+
+run the report generator (subprocess call) OR call existing function that rebuilds cache
+
+Important: If you don’t have email sending infrastructure yet, implement using:
+
+SMTP env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+
+and Python smtplib + email.message.EmailMessage
+
+C) UI: add Settings panel + actions in /reports/reserved-stock-777
+
+In the template for /reports/reserved-stock-777:
+
+1) Show a “Season Settings” section
+
+For each season present in the report, show editable fields:
+
+Supplier code
+
+Email To
+
+Email CC
+
+Comment
+
+And a Save button per season.
+
+2) Add “Send PO” button per season
+
+Disabled if supplier/email missing
+
+On click:
+
+POST to /reports/reserved-stock-777/send-po with {season_code_365}
+
+show spinner
+
+on success: alert “PO created” and window.location.reload()
+
+Example JS wiring (Replit should adapt to your stack)
+<script>
+async function saveSeasonSettings(seasonCode) {
+  const supplier = document.querySelector(`#supplier_${seasonCode}`).value;
+  const emailTo = document.querySelector(`#emailto_${seasonCode}`).value;
+  const emailCc = document.querySelector(`#emailcc_${seasonCode}`).value;
+  const comment = document.querySelector(`#comment_${seasonCode}`).value;
+
+  const res = await fetch('/reports/reserved-stock-777/settings/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      season_code_365: seasonCode,
+      supplier_code: supplier,
+      email_to: emailTo,
+      email_cc: emailCc,
+      email_comment: comment
+    })
+  });
+  const data = await res.json();
+  if (!data.success) alert(data.error || "Save failed");
+  else alert("Saved");
+}
+
+async function sendPO(seasonCode) {
+  if (!confirm("Create PO in PS365 and email supplier?")) return;
+
+  const res = await fetch('/reports/reserved-stock-777/send-po', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({season_code_365: seasonCode})
+  });
+  const data = await res.json();
+  if (!data.success) {
+    alert(data.error || "Send PO failed");
+    return;
+  }
+  alert("PO created: " + data.po_no);
+  window.location.reload();
+}
+</script>
+
+D) Make it “no further need for ordering”
+
+To make the report show “already on order”:
+
+Preferred rule (no DB changes needed)
+
+In your UI logic per item:
+
+need_to_order = max(0, reserved_777 - ordered_po_777)
+
+If need_to_order == 0 → show “OK / Already on order”
+
+Else → show qty needed
+
+After sending PO, since PS365 ordered quantities update, the next refresh should set ordered_po_777 higher and the items will disappear from “needs ordering”.
+
+Make refresh immediate
+
+After creating PO:
+
+call trigger_reserved_stock_777_refresh() in backend OR
+
+frontend calls a “refresh report” endpoint, then reload
+
+E) Safety + robustness requirements (Replit must implement)
+
+Idempotency / double-click protection
+
+store a last_po_sent_at per season (optional but recommended)
+
+or disable button while request in progress
+
+Validation
+
+email format validation
+
+supplier_code required for send
+
+Audit log
+
+create table po_send_log (season_code, po_no, sent_at, user_id, count_lines)
+
+F) What Replit should do right now (task list)
+
+Add SeasonSupplierSetting model + create table
+
+Add POST /reports/reserved-stock-777/settings/save
+
+Add POST /reports/reserved-stock-777/send-po
+
+Modify /reports/reserved-stock-777 rendering to include SeasonSupplierSetting values per season
+
+Update template to show settings form + Save + Send PO buttons
+
+Implement email sender using SMTP env vars (or existing mail util)
+
+Implement trigger_reserved_stock_777_refresh() so page reload shows updated ordered amounts
+
+If you want, I can also provide the exact email HTML (table + totals + comment footer) and a minimal SMTP sender snippet tailored to your env var names—tell me what you currently use to send emails in the project (or if you haven’t implemented email sending yet).
