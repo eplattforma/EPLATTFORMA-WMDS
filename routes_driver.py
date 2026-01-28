@@ -201,8 +201,8 @@ def start_route(route_id):
                 if invoice and (invoice.status == 'shipped' or invoice.status == 'ready_for_dispatch'):
                     invoice.status = 'out_for_delivery'
                     invoice.status_updated_at = utc_now()
-                    # Sync to RouteStopInvoice
-                    rsi.status = 'OUT_FOR_DELIVERY'
+                    # Sync to RouteStopInvoice (lowercase for consistency)
+                    rsi.status = 'out_for_delivery'
         
         # Create event
         create_delivery_event(
@@ -999,8 +999,8 @@ def settlement_form(route_id):
         'submitted_at': route.driver_submitted_at,
         'submitted_amount': route.cash_handed_in,
         'cleared': route.settlement_status == 'SETTLED',
-        'cleared_at': route.completed_at,
-        'cleared_by': None  # Not tracked separately in current model
+        'cleared_at': route.settlement_cleared_at,
+        'cleared_by': route.settlement_cleared_by
     }
     
     return render_template('driver/settlement_form.html',
@@ -1019,6 +1019,7 @@ def submit_settlement(route_id):
         data = request.get_json(force=True)
         amount = Decimal(str(data.get('amount', 0) or 0))
         notes = data.get('notes', '')
+        variance_note = data.get('variance_note', '').strip()
         
         route = Shipment.query.get_or_404(route_id)
         
@@ -1030,14 +1031,32 @@ def submit_settlement(route_id):
         if route.driver_submitted_at:
             return jsonify({'error': 'Settlement already submitted'}), 400
         
-        # Calculate variance
-        expected = route.cash_expected or Decimal('0.00')
-        variance = amount - expected
+        # Compute totals from CODReceipt (authoritative source)
+        cod_receipts = CODReceipt.query.filter_by(route_id=route_id).all()
+        
+        def is_cashlike(m):
+            m = (m or "cash").lower()
+            return m in ("cash", "cheque")
+        
+        expected_cash = sum(Decimal(str(r.expected_amount or 0)) for r in cod_receipts if is_cashlike(r.payment_method))
+        collected_cash = sum(Decimal(str(r.received_amount or 0)) for r in cod_receipts if is_cashlike(r.payment_method))
+        
+        # Store snapshots on the route at submission time
+        route.cash_expected = expected_cash
+        route.cash_collected = collected_cash
+        
+        # Variance is handed_in vs collected (not expected)
+        variance = amount - collected_cash
+        
+        # Require variance note if variance != 0
+        if variance != 0 and not variance_note:
+            return jsonify({'error': 'Variance note is required when handed-in amount differs from collected COD totals.'}), 400
         
         # Update route
         route.driver_submitted_at = utc_now()
         route.cash_handed_in = amount
         route.cash_variance = variance
+        route.cash_variance_note = variance_note if variance != 0 else None
         route.settlement_notes = notes
         route.settlement_status = 'DRIVER_SUBMITTED'
         
@@ -1045,7 +1064,7 @@ def submit_settlement(route_id):
         create_delivery_event(
             route_id=route.id,
             event_type='settlement_submitted',
-            payload={'amount': str(amount), 'notes': notes}
+            payload={'amount': str(amount), 'notes': notes, 'expected': str(expected_cash), 'collected': str(collected_cash), 'variance': str(variance)}
         )
         
         db.session.commit()
@@ -1060,13 +1079,17 @@ def submit_settlement(route_id):
 @driver_bp.route('/routes/<int:route_id>/settlement/clear', methods=['POST'])
 @login_required
 def clear_settlement(route_id):
-    """Admin clears settlement and completes route"""
+    """Admin clears settlement (does NOT change route status or completed_at)"""
     try:
         # Only admin can clear
         if current_user.role != 'admin':
             abort(403)
         
         route = Shipment.query.get_or_404(route_id)
+        
+        # Route must be COMPLETED before clearing settlement
+        if route.status != 'COMPLETED':
+            return jsonify({'error': 'Cannot clear settlement: route is not COMPLETED yet.'}), 400
         
         # Check if submitted
         if not route.driver_submitted_at:
@@ -1076,10 +1099,10 @@ def clear_settlement(route_id):
         if route.settlement_status == 'SETTLED':
             return jsonify({'error': 'Settlement already cleared'}), 400
         
-        # Update route
+        # Update settlement status only - do NOT change route.status or completed_at
         route.settlement_status = 'SETTLED'
-        route.status = 'COMPLETED'
-        route.completed_at = utc_now()
+        route.settlement_cleared_at = utc_now()
+        route.settlement_cleared_by = current_user.username
         
         # Create event
         create_delivery_event(
