@@ -24,59 +24,84 @@
     
     /* Print Styles */
     @media print {
-        /* Hide everything except modal content */
-        body * {
-            visibility: hidden;
+        /* Hide everything except the modal being printed */
+        body > *:not(.modal) {
+            display: none !important;
         }
         
-        .modal-content, .modal-content * {
-            visibility: visible;
+        .modal {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            display: block !important;
+            overflow: visible !important;
+            width: 100% !important;
+            height: auto !important;
         }
         
         .modal-dialog {
-            position: absolute;
-            top: 0;
-            left: 0;
-            margin: 0;
-            padding: 0;
-            max-width: 100%;
-            width: 100%;
+            position: absolute !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            max-width: none !important;
+            width: 100% !important;
+            transform: none !important;
         }
         
         .modal-content {
-            border: none;
-            box-shadow: none;
+            border: none !important;
+            box-shadow: none !important;
+            position: static !important;
+            overflow: visible !important;
         }
         
-        /* Hide modal header buttons */
-        .no-print {
+        .modal-header, .modal-footer {
+            border: none !important;
+        }
+
+        .modal-body {
+            overflow: visible !important;
+            padding: 0 !important;
+        }
+        
+        /* Hide modal header buttons and other non-print elements */
+        .no-print, .btn-close, .modal-header .btn {
             display: none !important;
         }
         
         /* Compact table spacing */
         .table-sm th, .table-sm td {
-            padding: 0.15rem 0.3rem;
-            font-size: 0.75rem;
+            padding: 0.15rem 0.3rem !important;
+            font-size: 0.75rem !important;
         }
         
         h6 {
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-            margin-bottom: 0.25rem;
+            font-size: 0.9rem !important;
+            margin-top: 0.5rem !important;
+            margin-bottom: 0.25rem !important;
         }
         
         p {
-            margin-bottom: 0.2rem;
-            font-size: 0.85rem;
+            margin-bottom: 0.2rem !important;
+            font-size: 0.85rem !important;
         }
         
         .row {
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.5rem !important;
         }
         
-        /* Ensure tables don't break across pages */
+        /* Allow tables to break across pages naturally */
         .table-responsive {
+            overflow: visible !important;
+        }
+        
+        table {
+            page-break-inside: auto;
+        }
+        
+        tr {
             page-break-inside: avoid;
+            page-break-after: auto;
         }
         
         /* Page breaks */
@@ -85,7 +110,7 @@
         }
         
         @page {
-            margin: 1cm;
+            margin: 1.5cm;
             size: A4;
         }
     }
