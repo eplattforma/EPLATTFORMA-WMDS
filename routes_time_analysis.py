@@ -13,6 +13,8 @@ import pytz
 # Set timezone for consistent reporting
 TIMEZONE = pytz.timezone('Europe/Athens')
 
+from timezone_utils import localize_datetime as to_athens_tz
+
 @app.route('/admin/time_analysis')
 @login_required
 def time_analysis_dashboard():
@@ -184,14 +186,7 @@ def detailed_order_analysis(invoice_no):
                          location_metrics=location_metrics)
 
 
-def to_athens_tz(dt):
-    """Convert datetime to Athens timezone for display"""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        # Assume UTC if naive
-        dt = pytz.UTC.localize(dt)
-    return dt.astimezone(TIMEZONE)
+    # Remove local to_athens_tz as it is now imported
 
 
 def calculate_actual_times_from_tracking(invoice, item_tracking):

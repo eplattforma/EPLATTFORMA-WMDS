@@ -545,7 +545,17 @@ def check_for_missed_checkouts():
         List of usernames of pickers who were automatically checked out
     """
     try:
-        from timezone_utils import get_local_now, to_athens_tz, to_utc, format_utc_datetime_to_local
+        from timezone_utils import get_local_now, localize_datetime as to_athens_tz, format_utc_datetime_to_local
+        
+        # Define local to_utc if missing
+        def to_utc(dt):
+            import pytz
+            if dt is None: return None
+            if dt.tzinfo is None:
+                from timezone_utils import get_system_timezone
+                dt = get_system_timezone().localize(dt)
+            return dt.astimezone(pytz.UTC)
+
         # Get the end of business day time setting
         eod_time_str = Setting.get(db.session(), 'end_of_business_day_time', '18:00')
         
