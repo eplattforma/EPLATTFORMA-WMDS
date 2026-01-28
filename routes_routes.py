@@ -171,25 +171,39 @@ def upsert():
                 flash(f"Invalid status transition: Cannot change from {old_status} to {new_status}. Allowed: {', '.join(allowed) if allowed else 'none'}", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
         
-        # Validate DISPATCHED requires all invoices ready
+        # Validation: DISPATCHED requires all invoices to be synced from PS365
         if new_status == 'DISPATCHED':
             invoices = Invoice.query.filter_by(route_id=int(route_id)).all()
             if not invoices:
                 flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
             
+            # Auto-sync invoices that haven't been synced yet
+            from ps365_service import sync_invoice_from_ps365
+            not_synced = [inv for inv in invoices if inv.ps365_synced_at is None]
+            if not_synced:
+                synced_count = 0
+                for inv in not_synced:
+                    success, _ = sync_invoice_from_ps365(inv.invoice_no)
+                    if success:
+                        synced_count += 1
+                
+                if synced_count > 0:
+                    db.session.commit()
+                    # Re-fetch invoices to get updated sync status
+                    invoices = Invoice.query.filter_by(route_id=int(route_id)).all()
+
             not_ready = [inv for inv in invoices if inv.status != 'ready_for_dispatch']
             if not_ready:
                 flash(f"Cannot mark as DISPATCHED: {len(not_ready)} invoice(s) are not ready for dispatch. All invoices must be 'ready_for_dispatch'.", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
             
-            # Validation: DISPATCHED requires all invoices to be synced from PS365
-            not_synced = [inv for inv in invoices if inv.ps365_synced_at is None]
-            if not_synced:
-                invoice_list = ', '.join([inv.invoice_no for inv in not_synced[:5]])  # Show first 5
-                if len(not_synced) > 5:
-                    invoice_list += f" and {len(not_synced) - 5} more"
-                flash(f"Cannot mark as DISPATCHED: {len(not_synced)} invoice(s) have not been synced from PS365 to get total amounts. Please sync these invoices first: {invoice_list}", "danger")
+            still_not_synced = [inv for inv in invoices if inv.ps365_synced_at is None]
+            if still_not_synced:
+                invoice_list = ', '.join([inv.invoice_no for inv in still_not_synced[:5]])  # Show first 5
+                if len(still_not_synced) > 5:
+                    invoice_list += f" and {len(still_not_synced) - 5} more"
+                flash(f"Cannot mark as DISPATCHED: {len(still_not_synced)} invoice(s) could not be synced from PS365. Please sync them manually: {invoice_list}", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
     else:
         # Creating new route - only allow PLANNED or CANCELLED status
