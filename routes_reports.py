@@ -197,9 +197,10 @@ def reserved_stock_777_send_po():
     for r in rows:
         stock_val = float(r.stock or 0)
         reserved_val = float(r.stock_reserved or 0)
+        ordered_val = float(r.stock_ordered or 0)
         pieces_per_unit = int(r.number_of_pieces or 1)
         min_order_qty = int(r.number_field_5_value or 0)
-        shortage = reserved_val - stock_val
+        shortage = reserved_val - stock_val - ordered_val
         raw_required = int(shortage * pieces_per_unit) if shortage > 0 else 0
         required = max(raw_required, min_order_qty) if raw_required > 0 else 0
         
@@ -214,7 +215,7 @@ def reserved_stock_777_send_po():
             })
     
     if not po_lines:
-        return jsonify({"success": False, "error": "No items require ordering (reserved <= stock) for this season"}), 400
+        return jsonify({"success": False, "error": "No items require ordering (all items already on PO)"}), 400
     
     try:
         now_utc = datetime.now(timezone.utc).replace(microsecond=0)
@@ -409,9 +410,10 @@ def reserved_stock_777_create_po():
         
         stock_val = float(r.stock or 0)
         reserved_val = float(r.stock_reserved or 0)
+        ordered_val = float(r.stock_ordered or 0)
         pieces_per_unit = int(r.number_of_pieces or 1)
         min_order_qty = int(r.number_field_5_value or 0)
-        shortage = reserved_val - stock_val
+        shortage = reserved_val - stock_val - ordered_val
         raw_required = int(shortage * pieces_per_unit) if shortage > 0 else 0
         required = max(raw_required, min_order_qty) if raw_required > 0 else 0
         
