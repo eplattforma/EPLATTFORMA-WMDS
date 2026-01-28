@@ -2161,8 +2161,8 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 60000);
 
-// Countdown timer for auto-refresh
-var refreshCountdown = 30;
+// Countdown timer for auto-refresh (5 minutes = 300 seconds)
+var refreshCountdown = 300;
 function updateRefreshCountdown() {
     var el = document.getElementById('refresh-countdown');
     if (!el) return;
@@ -2183,7 +2183,7 @@ function updateRefreshCountdown() {
 updateRefreshCountdown();
 setInterval(updateRefreshCountdown, 1000);
 
-// Auto-refresh the dashboard every 30 seconds, but ONLY if no modals are open and we're on the dashboard
+// Auto-refresh the dashboard every 5 minutes, but ONLY if no modals are open and we're on the dashboard
 setInterval(function() {
     // Check if we're still on the dashboard page
     if (!window.location.pathname.includes('/admin/dashboard')) {
@@ -2195,9 +2195,9 @@ setInterval(function() {
         location.reload();
     } else {
         console.log('Modal is open - skipping refresh');
-        refreshCountdown = 30; // Reset countdown when modal blocks refresh
+        refreshCountdown = 300; // Reset countdown when modal blocks refresh
     }
-}, 30000);
+}, 300000);
 </script>
 
 {% endblock %}
