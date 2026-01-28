@@ -560,31 +560,30 @@ function viewInvoiceDetail(invoiceNo) {
 function displayInvoiceDetail(data) {
     let html = `
         <div class="row mb-4">
-            <div class="col-md-6">
-                <h6 class="text-muted">Invoice Information</h6>
+            <div class="col-4">
+                <h6 class="text-muted border-bottom pb-1">Invoice Information</h6>
                 <p><strong>Invoice #:</strong> ${data.invoice_no}</p>
                 <p><strong>Status:</strong> ${getStatusBadge(data.status)}</p>
-                <p><strong>Picked:</strong> ${data.completed_at ? formatDate(data.completed_at) : '-'}${data.picker_username ? ' by ' + data.picker_username : ''}</p>
-                <p><strong>Shipped:</strong> ${data.shipped_at ? formatDate(data.shipped_at) : '-'}</p>
-                <p><strong>Delivered:</strong> ${data.delivered_at ? formatDate(data.delivered_at) : '-'}</p>
+                <p><strong>Picked:</strong> ${data.completed_at ? formatDate(data.completed_at) : '-'}</p>
+                <p><strong>Picker:</strong> ${data.picker_username || '-'}</p>
             </div>
-            <div class="col-md-6">
-                <h6 class="text-muted">Customer & Route</h6>
+            <div class="col-4 border-start border-end">
+                <h6 class="text-muted border-bottom pb-1">Customer & Route</h6>
                 <p><strong>Customer:</strong> ${data.customer_code ? data.customer_code + ' - ' : ''}${data.customer_name}</p>
                 <p><strong>Route:</strong> ${data.route_name || '-'}</p>
                 <p><strong>Driver:</strong> ${data.driver_name || '-'}</p>
-                <p><strong>Delivery Date:</strong> ${data.delivery_date ? new Date(data.delivery_date).toLocaleDateString('en-GB') : '-'}</p>
+                <p><strong>Delivery:</strong> ${data.delivery_date ? new Date(data.delivery_date).toLocaleDateString('en-GB') : '-'}</p>
+            </div>
+            <div class="col-4">
+                <h6 class="text-muted border-bottom pb-1">Order Logistics</h6>
+                <p><strong>Shipped:</strong> ${data.shipped_at ? formatDate(data.shipped_at) : '-'}</p>
+                <p><strong>Delivered:</strong> ${data.delivered_at ? formatDate(data.delivered_at) : '-'}</p>
+                <p><strong>Lines:</strong> ${data.total_lines}</p>
+                <p><strong>Total Weight:</strong> ${data.total_weight} kg</p>
             </div>
         </div>
         
-        <div class="row mb-3">
-            <div class="col-12">
-                <h6 class="text-muted">Totals</h6>
-                <p><strong>Lines:</strong> ${data.total_lines} | <strong>Items:</strong> ${data.total_items} | <strong>Weight:</strong> ${data.total_weight} kg</p>
-            </div>
-        </div>
-        
-        <h6 class="text-muted mb-3">Line Items</h6>
+        <h6 class="text-muted mb-2 border-bottom pb-1">Line Items</h6>
         <div class="table-responsive">
             <table class="table table-sm table-striped">
                 <thead class="table-dark">
