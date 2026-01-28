@@ -10,47 +10,51 @@ Handles the separation of concerns between:
 from app import db
 from models import Shipment, RouteStop, RouteStopInvoice
 from timezone_utils import get_utc_now
+from sqlalchemy import func
+from delivery_status import TERMINAL_DELIVERY_STATUSES, normalize_status
 import logging
 
-TERMINAL_STATUSES = {"delivered", "delivery_failed"}
 
-
-def recompute_route_completion(route_id):
+def recompute_route_completion(route_id, *, commit: bool = True):
     """
     Automatically determine if a route is operationally complete.
     
     A route is COMPLETED when all RouteStopInvoice statuses are terminal
-    (DELIVERED or FAILED). This is called after every driver action.
+    (delivered, delivery_failed, or returned_to_warehouse). This is called after every driver action.
     
     Args:
         route_id: The shipment/route ID to check
+        commit: Whether to commit the transaction (default True)
     
     Returns:
-        bool: True if route status changed, False otherwise
+        dict: {"pending_count": int, "route_status": str, "status_changed": bool}
     """
     shipment = Shipment.query.get(route_id)
     if not shipment:
         logging.warning(f"Route {route_id} not found for completion check")
-        return False
+        return {"pending_count": -1, "route_status": None, "status_changed": False}
     
     if shipment.status in ("CANCELLED",):
-        return False
+        return {"pending_count": 0, "route_status": shipment.status, "status_changed": False}
     
-    remaining = db.session.query(RouteStopInvoice).join(RouteStop).filter(
+    # Count pending invoices using case-insensitive comparison
+    # An invoice is pending if status is NULL or not in the terminal set
+    pending_count = db.session.query(RouteStopInvoice).join(RouteStop).filter(
         RouteStop.shipment_id == route_id,
         RouteStop.deleted_at == None,
         db.or_(
-            RouteStopInvoice.status == None,
-            RouteStopInvoice.status.notin_(TERMINAL_STATUSES)
+            RouteStopInvoice.status.is_(None),
+            func.lower(RouteStopInvoice.status).notin_(TERMINAL_DELIVERY_STATUSES)
         )
     ).count()
     
     status_changed = False
     
-    if remaining == 0:
+    if pending_count == 0:
         if shipment.status != "COMPLETED":
             shipment.status = "COMPLETED"
-            shipment.completed_at = get_utc_now()
+            if shipment.completed_at is None:
+                shipment.completed_at = get_utc_now()
             status_changed = True
             logging.info(f"Route {route_id} marked as COMPLETED (all invoices terminal)")
         
@@ -65,10 +69,12 @@ def recompute_route_completion(route_id):
             status_changed = True
             logging.info(f"Route {route_id} reopened - status back to IN_TRANSIT")
     
-    # Note: Caller is responsible for committing the transaction
-    # This allows batching multiple operations before commit
-    db.session.flush()
-    return status_changed
+    if commit:
+        db.session.commit()
+    else:
+        db.session.flush()
+    
+    return {"pending_count": pending_count, "route_status": shipment.status, "status_changed": status_changed}
 
 
 def get_route_reconciliation_summary(route_id):
@@ -91,9 +97,11 @@ def get_route_reconciliation_summary(route_id):
 
     invoice_nos = [inv.invoice_no for inv in invoices] if invoices else []
     
-    delivered_count = sum(1 for inv in invoices if inv.status == 'delivered')
-    failed_count = sum(1 for inv in invoices if inv.status == 'delivery_failed')
-    pending_count = sum(1 for inv in invoices if inv.status not in ['delivered', 'delivery_failed'])
+    # Use normalize_status for case-insensitive counting
+    delivered_count = sum(1 for inv in invoices if normalize_status(inv.status) == 'delivered')
+    failed_count = sum(1 for inv in invoices if normalize_status(inv.status) == 'delivery_failed')
+    returned_count = sum(1 for inv in invoices if normalize_status(inv.status) == 'returned_to_warehouse')
+    pending_count = sum(1 for inv in invoices if normalize_status(inv.status) not in TERMINAL_DELIVERY_STATUSES)
     
     cod_receipts = CODReceipt.query.filter(
         CODReceipt.route_id == route_id
@@ -127,6 +135,7 @@ def get_route_reconciliation_summary(route_id):
             "total": len(invoices),
             "delivered": delivered_count,
             "failed": failed_count,
+            "returned": returned_count,
             "pending": pending_count
         },
         "cash": {
@@ -205,6 +214,11 @@ def reconcile_route(route_id, admin_username, force=False):
     """
     Finalize route reconciliation and optionally archive.
     
+    Requirements:
+    - Route must be COMPLETED
+    - Settlement must be SETTLED (unless force=True)
+    - No unresolved issues (unless force=True)
+    
     Args:
         route_id: The shipment/route ID
         admin_username: Username of the admin reconciling
@@ -224,14 +238,19 @@ def reconcile_route(route_id, admin_username, force=False):
         return False, "Route is already reconciled"
     
     if not force:
+        # Check settlement is cleared
+        if shipment.settlement_status != "SETTLED":
+            return False, f"Settlement must be cleared before reconciliation (current: {shipment.settlement_status})"
+        
         if shipment.cash_variance and shipment.cash_variance != 0 and not shipment.cash_variance_note:
             return False, "Cash variance note is required when there is a variance"
     
+    # Set reconciliation status - do NOT change settlement_status here
     shipment.reconciliation_status = "RECONCILED"
     shipment.reconciled_at = get_utc_now()
     shipment.reconciled_by = admin_username
-    shipment.settlement_status = "SETTLED"
     
+    # Archive the route after reconciliation
     shipment.is_archived = True
     shipment.archived_at = get_utc_now()
     shipment.archived_by = admin_username
