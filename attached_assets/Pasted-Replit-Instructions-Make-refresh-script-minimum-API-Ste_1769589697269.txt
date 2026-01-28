@@ -1,0 +1,120 @@
+Replit Instructions: Make refresh script “minimum API”
+Step 1 — Modify fetch_reserved_items_index() to store stock_ordered
+
+In consume_page() add reading of stock_ordered from the same row and store it in reserved_item_data.
+
+Replace your consume_page() body with this version:
+
+def consume_page(page_data: Dict[str, Any]) -> int:
+    rows = page_data.get("list_stock_stores_item") or page_data.get("list_stock_items_store") or []
+    for r in rows:
+        reserved = d(r.get("stock_reserved"))
+        if reserved > 0:
+            code = (r.get("item_code_365") or "").strip()
+            if not code:
+                continue
+
+            # IMPORTANT: take ordered from the SAME response (no /item calls later)
+            ordered = d(r.get("stock_ordered"))  # <-- this is the key optimization
+
+            reserved_item_data[code] = {
+                "stock": d(r.get("stock")),
+                "stock_reserved": reserved,
+                "stock_ordered": ordered,          # <-- store here
+                "item_name": r.get("item_name") or "",
+            }
+    return len(rows)
+
+Step 2 — Delete the per-item ordered fetch function
+
+Remove this entire function (or leave it unused, but better remove):
+
+fetch_stock_ordered_for_items()
+
+Step 3 — In build_rows() use r_store["stock_ordered"]
+
+In your filtered_items.append({...}) replace:
+
+"stock_ordered": Decimal("0"),  # Placeholder - will be filled below
+
+
+with:
+
+"stock_ordered": r_store.get("stock_ordered", Decimal("0")),
+
+Step 4 — Remove the “second pass” that fetches ordered
+
+Delete this whole block:
+
+# Second pass: fetch stock_ordered ONLY for filtered items
+if filtered_items:
+    filtered_codes = [item["item_code_365"] for item in filtered_items]
+    stock_ordered_map = fetch_stock_ordered_for_items(filtered_codes)
+    
+    for item in filtered_items:
+        code = item["item_code_365"]
+        item["stock_ordered"] = stock_ordered_map.get(code, Decimal("0"))
+
+
+✅ After Step 1–4, your PS365 usage becomes:
+
+list_stock_items_store pages only
+
+0 per-item calls
+
+local DB for meta
+
+That’s basically as efficient as it gets.
+
+Step 5 — Add one debug print (once) to confirm PS365 returns stock_ordered
+
+Right after you get the first page in the loop, add:
+
+if page == 1:
+    rows = page_data.get("list_stock_stores_item") or page_data.get("list_stock_items_store") or []
+    if rows:
+        print("[DEBUG] list_stock_items_store keys sample:", list(rows[0].keys()))
+
+
+If you don’t see stock_ordered, tell Replit to implement the fallback below.
+
+Fallback (only if stock_ordered is NOT present)
+
+If list_stock_items_store doesn’t include ordered qty in your PS365 tenant, then the next best low-call method is:
+
+✅ Batch ordered fetch via list_items_stock for 100 items per call (instead of /item per item).
+
+Implement:
+
+fetch_stock_ordered_for_items_batch(item_codes, chunk=100)
+
+1 call per 100 items → huge reduction.
+
+But first do the debug check above—most likely you don’t need this fallback.
+
+Extra micro-optimizations (safe)
+
+Tell Replit to also apply:
+
+Use total_count if PS365 provides it (fewer wasted empty-page calls)
+
+call page 1, read total_count_list_items, compute pages, loop exactly pages.
+
+Set THROTTLE_SECONDS=0 by default
+Only throttle if PS365 starts rate-limiting.
+
+Ensure bulk insert types match DB
+If Ps365ReservedStock777.stock_ordered is Numeric → Decimal ok.
+If it’s Float → cast: float(r_store["stock_ordered"]).
+
+Net result
+
+After the change, refresh becomes:
+
+API calls = number of pages in store 777 stock list
+
+not “pages + items”.
+
+That’s the maximum reduction you can realistically achieve.
+
+If you paste the list_stock_items_store debug keys output here, I can tell you immediately whether you need the fallback batch method or not.

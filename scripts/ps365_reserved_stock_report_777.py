@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-PS365 Reserved Stock Report - Store 777 (Low-API Optimized)
+PS365 Reserved Stock Report - Store 777 (Minimum API Optimized)
 - FULL REFRESH: delete all rows for store 777, then insert snapshot
 - Only includes items where season_name is not null/empty
 - Uses local DW tables to avoid per-item PS365 API calls
+- API calls = number of pages in store 777 stock list only (no per-item calls)
+- stock_ordered is captured directly from list_stock_items_store response
 """
 
 import os
@@ -128,9 +130,10 @@ def ps365_post_json(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def fetch_reserved_items_index() -> Dict[str, Any]:
     """
-    Returns dict[item_code] = {stock, stock_reserved, item_name}
+    Returns dict[item_code] = {stock, stock_reserved, stock_ordered, item_name}
     Only for items with stock_reserved > 0 in store 777.
     Uses pagination with empty-page detection and safety limit.
+    OPTIMIZED: Gets stock_ordered directly from list response (no per-item calls).
     """
     print(f"Identifying items with reservations in Store {STORE_CODE}...")
 
@@ -141,13 +144,19 @@ def fetch_reserved_items_index() -> Dict[str, Any]:
         """Consume a page and return count of rows processed."""
         rows = page_data.get("list_stock_stores_item") or page_data.get("list_stock_items_store") or []
         for r in rows:
-            if d(r.get("stock_reserved")) > 0:
-                code = r.get("item_code_365")
+            reserved = d(r.get("stock_reserved"))
+            if reserved > 0:
+                code = (r.get("item_code_365") or "").strip()
                 if not code:
                     continue
+                
+                # OPTIMIZATION: Get stock_ordered from the SAME response (no /item calls later)
+                ordered = d(r.get("stock_ordered"))
+                
                 reserved_item_data[code] = {
                     "stock": d(r.get("stock")),
-                    "stock_reserved": d(r.get("stock_reserved")),
+                    "stock_reserved": reserved,
+                    "stock_ordered": ordered,  # Now captured here
                     "item_name": r.get("item_name") or "",
                 }
         return len(rows)
@@ -163,6 +172,12 @@ def fetch_reserved_items_index() -> Dict[str, Any]:
             "page_size": PAGE_SIZE,
         })
 
+        # Debug: show available keys on first page
+        if page == 1:
+            rows = page_data.get("list_stock_stores_item") or page_data.get("list_stock_items_store") or []
+            if rows:
+                print(f"[DEBUG] list_stock_items_store keys sample: {list(rows[0].keys())}")
+
         rows_count = consume_page(page_data)
         
         # Stop if empty page
@@ -177,35 +192,12 @@ def fetch_reserved_items_index() -> Dict[str, Any]:
     return reserved_item_data
 
 
-def fetch_stock_ordered_for_items(item_codes: List[str]) -> Dict[str, Decimal]:
-    """
-    Fetch stock_ordered from PS365 /item endpoint for a list of item codes.
-    Returns dict[item_code] = stock_ordered value.
-    """
-    result: Dict[str, Decimal] = {}
-    
-    print(f"Fetching stock_ordered from PS365 for {len(item_codes)} items...")
-    
-    for i, code in enumerate(item_codes):
-        item_details = ps365_get("item", {"item_code_365": code})
-        item = item_details.get("item") or {}
-        result[code] = d(item.get("total_stock_ordered"))
-        
-        if (i + 1) % 10 == 0:
-            print(f"  Progress: {i + 1}/{len(item_codes)}")
-        
-        if THROTTLE_SECONDS:
-            time.sleep(THROTTLE_SECONDS)
-    
-    return result
-
 
 def build_rows() -> List[Dict[str, Any]]:
     """
     Build rows using LOCAL DB lookups instead of per-item PS365 API calls.
-    PS365 is only called for:
-    1. Paginated list_stock_items_store (to find reserved items)
-    2. /item endpoint for filtered items only (to get stock_ordered)
+    OPTIMIZED: PS365 is only called for paginated list_stock_items_store.
+    stock_ordered is now captured directly from the list response.
     """
     reserved_item_data = fetch_reserved_items_index()
     if not reserved_item_data:
@@ -218,7 +210,7 @@ def build_rows() -> List[Dict[str, Any]]:
     # Local DB lookup instead of per-item PS365 calls
     meta_map = load_item_meta_map(item_codes)
 
-    # First pass: filter items with valid season_name
+    # Build filtered items with valid season_name
     filtered_items: List[Dict[str, Any]] = []
     now = datetime.utcnow()
 
@@ -250,21 +242,12 @@ def build_rows() -> List[Dict[str, Any]]:
             "stock": stock,
             "stock_reserved": stock_reserved,
             "available_stock": stock - stock_reserved,
-            "stock_ordered": Decimal("0"),  # Placeholder - will be filled below
+            "stock_ordered": r_store.get("stock_ordered", Decimal("0")),  # From list response
             "synced_at": now,
         })
 
     print(f"Local meta missing for {missing_local} items; filtered (no season) {filtered_no_season}.")
     print(f"Filtered down to {len(filtered_items)} items with valid season_name.")
-
-    # Second pass: fetch stock_ordered ONLY for filtered items
-    if filtered_items:
-        filtered_codes = [item["item_code_365"] for item in filtered_items]
-        stock_ordered_map = fetch_stock_ordered_for_items(filtered_codes)
-        
-        for item in filtered_items:
-            code = item["item_code_365"]
-            item["stock_ordered"] = stock_ordered_map.get(code, Decimal("0"))
 
     return filtered_items
 
