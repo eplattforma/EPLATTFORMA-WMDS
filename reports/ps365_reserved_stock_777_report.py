@@ -65,30 +65,59 @@ def ps365_post(base_url: str, path: str, payload: Dict[str, Any]) -> Dict[str, A
     return r.json()
 
 
-def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 100) -> List[Dict[str, Any]]:
+def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 50) -> List[Dict[str, Any]]:
     """
-    Uses GET list_stock_items_store for store 777.
-    Returns rows where reserved > 0, including stock, reserved, ordered.
+    Uses POST list_items_stock with analytical_per_store=True for store 777.
+    Returns rows where reserved > 0 or ordered > 0, including stock, reserved, ordered.
+    NOTE: When analytical_per_store=True, PS365 max page_size is 50.
     """
     page = 1
     out: List[Dict[str, Any]] = []
 
     while True:
-        resp = ps365_get(
-            base_url,
-            "list_stock_items_store",
-            {
-                "token": token,
-                "store_code_365": STORE_CODE,
-                "available_stock_type": "all",
-                "active_type": "all",
-                "ecommerce_type": "all",
+        payload = {
+            "api_credentials": {"token": token},
+            "filter_define": {
                 "page_number": page,
                 "page_size": page_size,
-            },
-        )
+                "only_counted": "N",
+                "stores_selection": STORE_CODE,
+                "exclude_stores_selection": "",
+                "item_active_type": "all",
+                "ecommerce_type": "all",
+                "categories_selection": "",
+                "departments_selection": "",
+                "items_supplier_selection": "",
+                "brands_selection": "",
+                "seasons_selection": "",
+                "models_selection": "",
+                "items_selection": "",
+                "colours_selection": "",
+                "sizes_selection": "",
+                "sizes_group_selection": "",
+                "attributes_1_selection": "",
+                "attributes_2_selection": "",
+                "attributes_3_selection": "",
+                "attributes_4_selection": "",
+                "attributes_5_selection": "",
+                "attributes_6_selection": "",
+                "last_modified_from": "",
+                "last_modified_to": "",
+                "creation_date_from": "",
+                "creation_date_to": "",
+                "analytical_per_store": True,
+                "model_level": False
+            }
+        }
 
-        rows = _pick_list(resp, ["list_stock_items_store", "list_stock_stores_item", "list_stock_store_items"])
+        resp = ps365_post(base_url, "list_items_stock", payload)
+        
+        api_resp = resp.get("api_response", {})
+        if api_resp.get("response_code") != "1":
+            print(f"API error on page {page}: {api_resp.get('response_msg')}")
+            break
+
+        rows = resp.get("list_items_stock") or []
         if not rows:
             break
 
@@ -97,9 +126,15 @@ def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 1
             if not item_code:
                 continue
 
-            stock = _dec(row.get("stock"))
-            reserved = _dec(row.get("stock_reserved"))
-            ordered = _dec(row.get("stock_ordered"))
+            # Get per-store stock data
+            per_store = row.get("list_stock_store") or []
+            store_data = next((x for x in per_store if str(x.get("store_code_365")) == STORE_CODE), None)
+            if not store_data:
+                continue
+
+            stock = _dec(store_data.get("stock"))
+            reserved = _dec(store_data.get("stock_reserved"))
+            ordered = _dec(store_data.get("stock_ordered"))
 
             # Include items with reserved > 0 OR ordered PO > 0
             if reserved > 0 or ordered > 0:
@@ -116,7 +151,7 @@ def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 1
         if len(rows) < page_size:
             break
         page += 1
-        time.sleep(0.05)
+        time.sleep(0.1)
 
     return out
 
