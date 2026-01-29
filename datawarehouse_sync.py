@@ -232,7 +232,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value",
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,barcode",
             },
         })
         
@@ -271,6 +271,7 @@ def test_fetch_single_item(session: Session):
             "selling_qty": float(item.get("number_field_1_value", 0)) if item.get("number_field_1_value") else None,
             "supplier_item_code": item.get("text_field_2_value") or None,
             "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") else None,
+            "barcode": item.get("barcode") or None,
         }
         
         attr_hash = _compute_hash(core)
@@ -515,7 +516,7 @@ def full_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,barcode",
                 },
             })
 
@@ -568,6 +569,7 @@ def full_dw_update(session: Session):
                         "selling_qty": float(item.get("number_field_1_value")) if item.get("number_field_1_value") else None,
                         "supplier_item_code": item.get("text_field_2_value") or None,
                         "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
+                        "barcode": item.get("barcode") or None,
                     }
 
                     attr_hash = _compute_hash(core)
@@ -597,6 +599,11 @@ def full_dw_update(session: Session):
                             existing.item_width = core["item_width"]
                             existing.item_height = core["item_height"]
                             existing.item_weight = core["item_weight"]
+                            existing.barcode = core["barcode"]
+                            existing.supplier_item_code = core["supplier_item_code"]
+                            existing.min_order_qty = core["min_order_qty"]
+                            existing.number_of_pieces = core["number_of_pieces"]
+                            existing.selling_qty = core["selling_qty"]
                             existing.number_of_pieces = core["number_of_pieces"]
                             existing.selling_qty = core["selling_qty"]
                             existing.supplier_item_code = core["supplier_item_code"]
