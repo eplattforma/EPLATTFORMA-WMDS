@@ -330,7 +330,7 @@ def test_fetch_single_item(session: Session):
         })
         
         logger.info(f"API Response keys: {response.keys()}")
-        items = response.get("list_items", [])
+        items = response.get("list_items") or []
         logger.info(f"Got {len(items)} items from API")
         
         if not items:
@@ -419,7 +419,7 @@ def full_dw_update(session: Session):
     try:
         logger.info("Syncing item categories...")
         response = call_ps365("list_item_categories", {}, method="GET")
-        items = response.get("list_item_categories", [])
+        items = response.get("list_item_categories") or []
 
         for c in items:
             payload = {
@@ -443,7 +443,7 @@ def full_dw_update(session: Session):
     try:
         logger.info("Syncing brands...")
         response = call_ps365("list_brands", {}, method="GET")
-        brands = response.get("list_brands", [])
+        brands = response.get("list_brands") or []
 
         for b in brands:
             payload = {
@@ -466,7 +466,7 @@ def full_dw_update(session: Session):
     try:
         logger.info("Syncing seasons...")
         response = call_ps365("list_seasons", {}, method="GET")
-        seasons = response.get("list_seasons", [])
+        seasons = response.get("list_seasons") or []
 
         for s in seasons:
             payload = {
@@ -515,7 +515,7 @@ def full_dw_update(session: Session):
                     "page_number": page,
                     "page_size": PAGE_SIZE,
                 }, method="GET")
-                attrs = response.get("list_attributes", [])
+                attrs = response.get("list_attributes") or []
                 if not attrs:
                     break
 
@@ -616,12 +616,12 @@ def full_dw_update(session: Session):
                 },
             })
 
-            api_response = response.get("api_response", {})
+            api_response = response.get("api_response", {}) or {}
             if api_response.get("response_code") != "1":
                 logger.error(f"API Error: {api_response.get('response_msg')}")
                 break
 
-            items = response.get("list_items", [])
+            items = response.get("list_items") or []
             logger.info(f"Page {page}: Got {len(items)} items from API")
 
             if not items:
@@ -854,12 +854,12 @@ def incremental_dw_update(session: Session):
                 },
             })
             
-            api_response = response.get("api_response", {})
+            api_response = response.get("api_response") or {}
             if api_response.get("response_code") != "1":
                 logger.error(f"API Error on page {page}: {api_response.get('response_msg', 'Unknown')}")
                 break
             
-            items = response.get("list_items", [])
+            items = response.get("list_items") or []
             if not items:
                 break
             
