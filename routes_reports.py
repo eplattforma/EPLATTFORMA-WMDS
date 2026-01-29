@@ -468,6 +468,26 @@ def reserved_stock_777_create_po():
             po_code = api_response.get("response_id", "Unknown")
             flash(f"Purchase Order created successfully! PO Code: {po_code} ({len(po_lines)} items)", "success")
             logger.info(f"Created PO {po_code} with {len(po_lines)} items for supplier {supplier_code}")
+            
+            # Try to send email if settings are configured for this season/supplier
+            if supplier_filter:
+                from models import SeasonSupplierSetting
+                setting = SeasonSupplierSetting.query.filter_by(season_code=supplier_filter).first()
+                if setting and setting.email_to:
+                    email_result = send_season_po_email(
+                        to=setting.email_to,
+                        cc=setting.email_cc,
+                        po_code=po_code,
+                        season_code=supplier_filter,
+                        lines=po_lines,
+                        comment=setting.email_comment
+                    )
+                    if email_result["success"]:
+                        flash(f"Email sent to {setting.email_to}", "success")
+                    else:
+                        flash(f"PO created but email failed: {email_result['error']}", "warning")
+                else:
+                    flash("PO created but no email configured for this supplier.", "info")
         else:
             error_msg = api_response.get("response_message", "Unknown error")
             flash(f"PS365 error: {error_msg}", "danger")
