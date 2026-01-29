@@ -472,7 +472,7 @@ def reserved_stock_777_create_po():
             # Try to send email if settings are configured for this season/supplier
             if supplier_filter:
                 from models import SeasonSupplierSetting
-                setting = SeasonSupplierSetting.query.filter_by(season_code=supplier_filter).first()
+                setting = SeasonSupplierSetting.query.filter_by(season_code_365=supplier_filter).first()
                 if setting and setting.email_to:
                     email_result = send_season_po_email(
                         to=setting.email_to,
