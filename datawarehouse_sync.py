@@ -863,44 +863,8 @@ def incremental_dw_update(session: Session):
                 if not code:
                     continue
                 
-                # Helper to convert numeric fields safely
-                def to_decimal(val):
-                    if val is None or val == "":
-                        return None
-                    try:
-                        return float(val)
-                    except (ValueError, TypeError):
-                        return None
-                
-                def to_int(val):
-                    if val is None or val == "":
-                        return None
-                    try:
-                        return int(val)
-                    except (ValueError, TypeError):
-                        return None
-                
-                core = {
-                    "item_code_365": code,
-                    "item_name": i.get("item_name", ""),
-                    "active": bool(i.get("active", True)),
-                    "category_code_365": i.get("category_code_365"),
-                    "brand_code_365": i.get("brand_code_365"),
-                    "season_code_365": i.get("season_code_365"),
-                    "attribute_1_code_365": i.get("attribute_1_code_365"),
-                    "attribute_2_code_365": i.get("attribute_2_code_365"),
-                    "attribute_3_code_365": i.get("attribute_3_code_365"),
-                    "attribute_4_code_365": i.get("attribute_4_code_365"),
-                    "attribute_5_code_365": i.get("attribute_5_code_365"),
-                    "attribute_6_code_365": i.get("attribute_6_code_365"),
-                    "item_length": to_decimal(i.get("item_length")),
-                    "item_width": to_decimal(i.get("item_width")),
-                    "item_height": to_decimal(i.get("item_height")),
-                    "item_weight": to_decimal(i.get("item_weight")),
-                    "number_of_pieces": to_int(i.get("number_of_pieces")),
-                    "selling_qty": to_decimal(i.get("number_field_1_value")),
-                    "min_order_qty": to_int(i.get("number_field_5_value")),
-                }
+                # Use the consolidated build_item_core helper for consistency
+                core = build_item_core(i)
                 attr_hash = _compute_hash(core)
                 
                 existing = session.get(DwItem, code)
