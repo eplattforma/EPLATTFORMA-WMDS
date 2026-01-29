@@ -284,8 +284,15 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
     SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
     
+    logger.info(f"Attempting to send PO email: to={to}, cc={cc}, po_code={po_code}")
+    
     if not all([SMTP_HOST, SMTP_EMAIL, SMTP_PASSWORD]):
+        logger.error(f"SMTP not configured: HOST={bool(SMTP_HOST)}, EMAIL={bool(SMTP_EMAIL)}, PASS={bool(SMTP_PASSWORD)}")
         return {"success": False, "error": "SMTP not configured"}
+    
+    if not to or not to.strip():
+        logger.error("No recipient email address provided")
+        return {"success": False, "error": "No recipient email address configured for this supplier"}
     
     try:
         total_qty = sum(ln["required_qty"] for ln in lines)
