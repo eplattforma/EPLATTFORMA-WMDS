@@ -189,7 +189,9 @@ def reserved_stock_777_send_po():
                 "item_name": r.item_name,
                 "line_quantity": str(ps365_qty),
                 "required_qty": required,
-                "pieces_per_unit": pieces_per_unit
+                "pieces_per_unit": pieces_per_unit,
+                "barcode": r.barcode or "",
+                "supplier_item_code": r.supplier_item_code or ""
             })
     
     if not po_lines:
@@ -313,7 +315,7 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
         <body>
             <div class="header">
                 <h2>Purchase Order: {po_code}</h2>
-                <p>Season: {season_code}</p>
+                <p>Supplier: {season_code}</p>
             </div>
             
             <table>
@@ -321,6 +323,8 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
                     <th>#</th>
                     <th>Item Code</th>
                     <th>Description</th>
+                    <th>Barcode</th>
+                    <th>Supplier Item Code</th>
                     <th>Qty (pcs)</th>
                 </tr>
         """
@@ -331,6 +335,8 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
                     <td>{idx}</td>
                     <td>{ln['item_code_365']}</td>
                     <td>{ln['item_name']}</td>
+                    <td>{ln.get('barcode', '')}</td>
+                    <td>{ln.get('supplier_item_code', '')}</td>
                     <td>{ln['required_qty']}</td>
                 </tr>
             """
@@ -353,7 +359,7 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
         """
         
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Purchase Order {po_code} - Season {season_code}"
+        msg["Subject"] = f"Purchase Order {po_code} - Supplier {season_code}"
         msg["From"] = SMTP_EMAIL
         msg["To"] = to
         if cc:
@@ -421,7 +427,9 @@ def reserved_stock_777_create_po():
                 "item_name": r.item_name,
                 "line_quantity": str(ps365_qty),
                 "required_qty": required,
-                "pieces_per_unit": pieces_per_unit
+                "pieces_per_unit": pieces_per_unit,
+                "barcode": r.barcode or "",
+                "supplier_item_code": r.supplier_item_code or ""
             })
     
     if not po_lines:

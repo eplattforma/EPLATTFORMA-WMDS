@@ -2217,6 +2217,7 @@ class Ps365ReservedStock777(db.Model):
 
     season_name = db.Column(db.String(128), nullable=True)
     supplier_item_code = db.Column(db.String(255), nullable=True)  # text_field_2_value from PS365
+    barcode = db.Column(db.String(100), nullable=True)  # Item barcode from PS365
 
     number_of_pieces = db.Column(db.Integer, nullable=True)
     number_field_5_value = db.Column(db.Integer, nullable=True)

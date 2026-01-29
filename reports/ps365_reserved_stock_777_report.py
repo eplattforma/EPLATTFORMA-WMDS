@@ -176,7 +176,7 @@ def fetch_items_season_info(base_url: str, token: str, item_codes: List[str], ch
                 "active_type": "all",
                 "ecommerce_type": "all",
                 "items_selection": ",".join(chunk),
-                "display_fields": "item_code_365,item_name,season_code_365,season_name",
+                "display_fields": "item_code_365,item_name,season_code_365,season_name,barcode,text_field_2_value",
             },
         }
 
@@ -190,6 +190,8 @@ def fetch_items_season_info(base_url: str, token: str, item_codes: List[str], ch
                 "item_name": r.get("item_name") or "",
                 "season_code_365": r.get("season_code_365") or "",
                 "season_name": r.get("season_name") or "",
+                "barcode": r.get("barcode") or "",
+                "supplier_item_code": r.get("text_field_2_value") or "",
             }
 
         time.sleep(0.05)
@@ -208,6 +210,8 @@ def build_report_rows(stock_rows: List[Dict[str, Any]], season_map: Dict[str, Di
                 "item_name": meta.get("item_name", ""),
                 "season_code_365": meta.get("season_code_365", ""),
                 "season_name": meta.get("season_name", ""),
+                "barcode": meta.get("barcode", ""),
+                "supplier_item_code": meta.get("supplier_item_code", ""),
                 "stock_777": str(r["stock_777"]),
                 "reserved_777": str(r["reserved_777"]),
                 "available_now_777": str(r["available_now_777"]),
@@ -241,6 +245,8 @@ def write_json_csv(rows: List[Dict[str, Any]]):
         "item_name",
         "season_code_365",
         "season_name",
+        "barcode",
+        "supplier_item_code",
         "stock_777",
         "reserved_777",
         "available_now_777",
