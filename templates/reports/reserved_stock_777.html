@@ -28,7 +28,10 @@
       </div>
       <div class="col-md-9 d-flex align-items-end flex-wrap gap-2">
         <a class="btn btn-primary" href="{{ url_for('reports.reserved_stock_777_download') }}">Download CSV</a>
-        <a class="btn btn-secondary" href="{{ url_for('reports.reserved_stock_777_refresh') }}">Refresh</a>
+        <a class="btn btn-secondary" href="{{ url_for('reports.reserved_stock_777_refresh') }}" id="refreshBtn" onclick="showRefreshSpinner()">
+          <span id="refreshText">Refresh</span>
+          <span id="refreshSpinner" class="d-none"><i class="fas fa-spinner fa-spin me-1"></i>Refreshing from PS365...</span>
+        </a>
         {% if current_user.role in ['admin', 'warehouse_manager'] %}
         <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#seasonSettingsPanel">
           <i class="fas fa-cog me-1"></i>Cross Shipping Settings
@@ -330,5 +333,14 @@ document.addEventListener('DOMContentLoaded', function() {
   
   updateCounts();
 });
+
+function showRefreshSpinner() {
+  var refreshText = document.getElementById('refreshText');
+  var refreshSpinner = document.getElementById('refreshSpinner');
+  var refreshBtn = document.getElementById('refreshBtn');
+  if (refreshText) refreshText.classList.add('d-none');
+  if (refreshSpinner) refreshSpinner.classList.remove('d-none');
+  if (refreshBtn) refreshBtn.classList.add('disabled');
+}
 </script>
 {% endblock %}
