@@ -445,7 +445,8 @@ def reserved_stock_777_create_po():
                     "agent_code_365": "",
                     "user_code_365": current_user.username,
                     "comments": f"Auto PO from Cross Shipping Report - {len(po_lines)} items",
-                    "search_additional_barcodes": False
+                    "search_additional_barcodes": False,
+                    "status": "CONFIRMED"
                 },
                 "list_purchase_order_details": []
             }
