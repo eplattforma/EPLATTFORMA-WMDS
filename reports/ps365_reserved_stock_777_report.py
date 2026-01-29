@@ -70,6 +70,8 @@ def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 5
     Uses POST list_items_stock with analytical_per_store=True for store 777.
     Returns rows where reserved > 0 or ordered > 0, including stock, reserved, ordered.
     NOTE: When analytical_per_store=True, PS365 max page_size is 50.
+    NOTE: We do NOT filter by stores_selection because it affects the ordered qty incorrectly.
+          Instead we fetch all stores and filter for store 777 in the results.
     """
     page = 1
     out: List[Dict[str, Any]] = []
@@ -81,7 +83,7 @@ def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 5
                 "page_number": page,
                 "page_size": page_size,
                 "only_counted": "N",
-                "stores_selection": STORE_CODE,
+                "stores_selection": "",
                 "exclude_stores_selection": "",
                 "item_active_type": "all",
                 "ecommerce_type": "all",
@@ -126,7 +128,7 @@ def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 5
             if not item_code:
                 continue
 
-            # Get per-store stock data
+            # Get per-store stock data for store 777
             per_store = row.get("list_stock_store") or []
             store_data = next((x for x in per_store if str(x.get("store_code_365")) == STORE_CODE), None)
             if not store_data:
