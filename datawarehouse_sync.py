@@ -630,10 +630,15 @@ def full_dw_update(session: Session):
 
             page_inserted = 0
             page_skipped = 0
+            page_barcodes_found = 0
 
             # Prefetch existing items for this page to avoid N+1 queries
             page_item_codes = [it.get("item_code_365", "").upper() for it in items if it.get("item_code_365")]
             existing_items_map = {it.item_code_365: it for it in session.query(DwItem).filter(DwItem.item_code_365.in_(page_item_codes)).all()} if page_item_codes else {}
+
+            # Debug: Check how many items have list_item_barcodes from API
+            items_with_barcodes_from_api = sum(1 for it in items if it.get("list_item_barcodes"))
+            logger.info(f"Page {page}: API returned {items_with_barcodes_from_api}/{len(items)} items with list_item_barcodes")
 
             for item in items:
                 try:
@@ -644,16 +649,17 @@ def full_dw_update(session: Session):
                         total_skipped += 1
                         continue
                     
+                    # Track barcode extraction
+                    if core.get("barcode"):
+                        page_barcodes_found += 1
+                    
                     attr_hash = _compute_hash(core)
 
                     # Check if already exists from prefetched map
                     existing = existing_items_map.get(code)
                     if existing:
                         # Force update all records by ignoring hash check
-                        # (Original logic: if existing.attr_hash != temp_hash:)
                         if True: # Always update
-                            # UPDATE: Force update all records
-                            logger.info(f"FORCE UPDATING {code}")
                             for k, v in core.items():
                                 setattr(existing, k, v)
                             existing.attr_hash = attr_hash
@@ -681,7 +687,7 @@ def full_dw_update(session: Session):
                 logger.error(f"Commit error on page {page}: {str(e)}")
                 session.rollback()
             
-            logger.info(f"Page {page}: Inserted {page_inserted}, Skipped {page_skipped}")
+            logger.info(f"Page {page}: Inserted {page_inserted}, Skipped {page_skipped}, Barcodes extracted: {page_barcodes_found}")
             
             page += 1
         
