@@ -602,9 +602,14 @@ def full_dw_update(session: Session):
                     existing = existing_items_map.get(code)
                     if existing:
                         # Check if data has changed
-                        if existing.attr_hash != attr_hash:
+                        # Force update if barcode is missing but now available
+                        temp_hash = attr_hash
+                        if core.get("barcode") and not existing.barcode:
+                            temp_hash = "FORCE_UPDATE_" + attr_hash
+
+                        if existing.attr_hash != temp_hash:
                             # UPDATE: Data has changed, update the record
-                            logger.info(f"UPDATING {code}: hash changed from {existing.attr_hash} to {attr_hash}")
+                            logger.info(f"UPDATING {code}: hash changed from {existing.attr_hash} to {temp_hash}")
                             logger.info(f"  Current attr1={existing.attribute_1_code_365}, API attr1={core['attribute_1_code_365']}")
                             logger.info(f"  Current selling_qty={existing.selling_qty}, API selling_qty={core['selling_qty']}")
 
