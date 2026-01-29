@@ -93,20 +93,38 @@ def _compute_hash(data: dict) -> str:
 
 def extract_primary_barcode(item: dict) -> str | None:
     """Extract primary barcode: label barcode preferred, then first in list."""
-    direct_bc = (item.get("barcode") or "").strip()
+    # Ensure item is a dictionary
+    if not isinstance(item, dict):
+        return None
+
+    # First check 'barcode' field directly (some API responses might have it)
+    direct_bc = str(item.get("barcode") or "").strip()
     if direct_bc:
         return direct_bc
 
-    lst = item.get("list_item_barcodes") or []
+    # Then check 'list_item_barcodes' array
+    lst = item.get("list_item_barcodes")
     if not isinstance(lst, list) or not lst:
         return None
+
+    # Preferred: find the one marked as label barcode
     for bc in lst:
+        if not isinstance(bc, dict):
+            continue
         if bc.get("is_label_barcode") is True:
-            v = (bc.get("barcode") or "").strip()
+            v = str(bc.get("barcode") or "").strip()
             if v:
                 return v
-    v = (lst[0].get("barcode") or "").strip()
-    return v or None
+    
+    # Fallback: take the first one available
+    for bc in lst:
+        if not isinstance(bc, dict):
+            continue
+        v = str(bc.get("barcode") or "").strip()
+        if v:
+            return v
+
+    return None
 
 
 def parse_active(v) -> bool:
