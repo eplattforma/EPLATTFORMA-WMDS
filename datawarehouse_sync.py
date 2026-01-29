@@ -469,9 +469,12 @@ def full_dw_update(session: Session):
             else:
                 raise
 
-    # 5) Items – ALL items (required) - Uses proven working approach
+                    # 5) Items – ALL items (required) - Uses proven working approach
     logger.info("Syncing items...")
     
+    # Debug: Print the list_items endpoint payload being sent
+    logger.info("Using display_fields: item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,list_item_barcodes")
+
     page = 1
     total_inserted = 0
     total_skipped = 0
