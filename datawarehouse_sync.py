@@ -88,6 +88,12 @@ def _compute_hash(data: dict) -> str:
 
 def extract_primary_barcode(item: dict) -> str | None:
     """Extract primary barcode: label barcode preferred, then first in list."""
+    # Some items might have the barcode in the top-level 'barcode' field 
+    # even if not explicitly requested in display_fields in some API versions
+    direct_bc = (item.get("barcode") or "").strip()
+    if direct_bc:
+        return direct_bc
+
     lst = item.get("list_item_barcodes") or []
     if not isinstance(lst, list) or not lst:
         return None
@@ -250,7 +256,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,list_item_barcodes",
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,barcode,list_item_barcodes",
             },
         })
         
@@ -534,7 +540,7 @@ def full_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,list_item_barcodes",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,barcode,list_item_barcodes",
                 },
             })
 
@@ -819,7 +825,7 @@ def incremental_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,barcode,list_item_barcodes",
                 },
             })
             
