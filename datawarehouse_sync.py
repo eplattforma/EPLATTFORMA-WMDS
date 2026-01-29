@@ -540,7 +540,7 @@ def full_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,barcode,list_item_barcodes",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,list_item_barcodes",
                 },
             })
 
