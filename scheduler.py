@@ -32,17 +32,20 @@ def setup_scheduler(app):
             
             logger.info("Setting up background scheduled jobs...")
             
-            # Full DW sync - runs every Sunday at 3:00 AM
+            # Full DW sync - runs daily at 3:00 AM
             scheduler.add_job(
                 func=_run_full_sync,
-                trigger=CronTrigger(day_of_week="sun", hour=3, minute=0),
+                trigger=CronTrigger(hour=3, minute=0),
                 id='full_dw_sync',
                 name='Full Data Warehouse Sync',
                 replace_existing=True,
                 max_instances=1,
                 misfire_grace_time=3600
             )
-            logger.info("✓ Full DW sync scheduled: Every Sunday at 3:00 AM")
+            logger.info("✓ Full DW sync scheduled: Daily at 3:00 AM")
+
+            # Daily invoice/customer sync - also daily at 4:00 AM
+            # (Note: we already have incremental below, but user wants daily full update)
             
             # Incremental sync - runs daily at 1:00 AM and 1:00 PM
             scheduler.add_job(

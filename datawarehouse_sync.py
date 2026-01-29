@@ -601,15 +601,11 @@ def full_dw_update(session: Session):
                     # Check if already exists from prefetched map
                     existing = existing_items_map.get(code)
                     if existing:
-                        # Check if data has changed
-                        # Force update if barcode is missing but now available
-                        temp_hash = attr_hash
-                        if core.get("barcode") and not existing.barcode:
-                            temp_hash = "FORCE_UPDATE_" + attr_hash
-
-                        if existing.attr_hash != temp_hash:
-                            # UPDATE: Data has changed, update the record
-                            logger.info(f"UPDATING {code}: hash changed from {existing.attr_hash} to {temp_hash}")
+                        # Force update all records by ignoring hash check
+                        # (Original logic: if existing.attr_hash != temp_hash:)
+                        if True: # Always update
+                            # UPDATE: Force update all records
+                            logger.info(f"FORCE UPDATING {code}")
                             logger.info(f"  Current attr1={existing.attribute_1_code_365}, API attr1={core['attribute_1_code_365']}")
                             logger.info(f"  Current selling_qty={existing.selling_qty}, API selling_qty={core['selling_qty']}")
 
@@ -1537,3 +1533,21 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         logger.error(f"Full traceback:", exc_info=True)
         logger.error(f"{'='*80}\n")
         raise
+
+if __name__ == '__main__':
+    # Standalone execution support
+    import sys
+    from app import app, db
+    
+    with app.app_context():
+        if len(sys.argv) > 1 and sys.argv[1] == '--full':
+            print("Starting manual FULL Data Warehouse Sync...")
+            full_dw_update(db.session)
+            print("Manual FULL Sync Complete.")
+        elif len(sys.argv) > 1 and sys.argv[1] == '--incremental':
+            print("Starting manual INCREMENTAL Data Warehouse Sync...")
+            from datawarehouse_sync import incremental_dw_update
+            incremental_dw_update(db.session)
+            print("Manual Incremental Sync Complete.")
+        else:
+            print("Usage: python datawarehouse_sync.py [--full | --incremental]")
