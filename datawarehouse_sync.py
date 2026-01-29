@@ -91,121 +91,22 @@ def _compute_hash(data: dict) -> str:
     ).hexdigest()
 
 
-def build_item_core(ps_item: dict) -> dict:
-    """
-    Build DwItem core fields consistently for BOTH full and incremental sync.
-    This ensures attr_hash detects changes correctly (including barcode changes).
-    """
-    def to_float(val):
-        if val is None or val == "":
-            return None
-        try:
-            return float(val)
-        except (ValueError, TypeError):
-            return None
+def extract_primary_barcode(item: dict) -> str | None:
+    """Extract primary barcode: label barcode preferred, then first in list."""
+    direct_bc = (item.get("barcode") or "").strip()
+    if direct_bc:
+        return direct_bc
 
-    def to_int(val):
-        if val is None or val == "":
-            return None
-        try:
-            # sometimes comes as "12.0"
-            return int(float(val))
-        except (ValueError, TypeError):
-            return None
-
-    code = (ps_item.get("item_code_365") or "").strip().upper()
-    return {
-        "item_code_365": code,
-        "item_name": (ps_item.get("item_name") or "").strip(),
-        "active": parse_active(ps_item.get("active", True)),
-        "category_code_365": ps_item.get("category_code_365"),
-        "brand_code_365": ps_item.get("brand_code_365"),
-        "season_code_365": ps_item.get("season_code_365"),
-        "attribute_1_code_365": ps_item.get("attribute_1_code_365"),
-        "attribute_2_code_365": ps_item.get("attribute_2_code_365"),
-        "attribute_3_code_365": ps_item.get("attribute_3_code_365"),
-        "attribute_4_code_365": ps_item.get("attribute_4_code_365"),
-        "attribute_5_code_365": ps_item.get("attribute_5_code_365"),
-        "attribute_6_code_365": ps_item.get("attribute_6_code_365"),
-        "item_length": to_float(ps_item.get("item_length")),
-        "item_width": to_float(ps_item.get("item_width")),
-        "item_height": to_float(ps_item.get("item_height")),
-        "item_weight": to_float(ps_item.get("item_weight")),
-        "number_of_pieces": to_int(ps_item.get("number_of_pieces")),
-        "selling_qty": to_float(ps_item.get("number_field_1_value")),
-        "supplier_item_code": ps_item.get("text_field_2_value") or None,
-        "min_order_qty": to_int(ps_item.get("number_field_5_value")),
-        "barcode": extract_primary_barcode(ps_item),
-    }
-
-
-def full_dw_update(session: Session):
-
-
-def parse_active(v) -> bool:
-    """
-    PS365 may return Y/N, 1/0, True/False, or empty.
-    bool("N") is True, so we must parse explicitly.
-    """
-    if v is None:
-        return True
-    if isinstance(v, bool):
-        return v
-    s = str(v).strip().upper()
-    if s in ("1", "Y", "YES", "TRUE", "T"):
-        return True
-    if s in ("0", "N", "NO", "FALSE", "F"):
-        return False
-    # fallback: treat unknown truthy strings as True
-    return bool(s)
-
-
-def build_item_core(ps_item: dict) -> dict:
-    """
-    Build DwItem core fields consistently for BOTH full and incremental sync.
-    This ensures attr_hash detects changes correctly (including barcode changes).
-    """
-    def to_float(val):
-        if val is None or val == "":
-            return None
-        try:
-            return float(val)
-        except (ValueError, TypeError):
-            return None
-
-    def to_int(val):
-        if val is None or val == "":
-            return None
-        try:
-            # sometimes comes as "12.0"
-            return int(float(val))
-        except (ValueError, TypeError):
-            return None
-
-    code = (ps_item.get("item_code_365") or "").strip().upper()
-    return {
-        "item_code_365": code,
-        "item_name": (ps_item.get("item_name") or "").strip(),
-        "active": parse_active(ps_item.get("active", True)),
-        "category_code_365": ps_item.get("category_code_365"),
-        "brand_code_365": ps_item.get("brand_code_365"),
-        "season_code_365": ps_item.get("season_code_365"),
-        "attribute_1_code_365": ps_item.get("attribute_1_code_365"),
-        "attribute_2_code_365": ps_item.get("attribute_2_code_365"),
-        "attribute_3_code_365": ps_item.get("attribute_3_code_365"),
-        "attribute_4_code_365": ps_item.get("attribute_4_code_365"),
-        "attribute_5_code_365": ps_item.get("attribute_5_code_365"),
-        "attribute_6_code_365": ps_item.get("attribute_6_code_365"),
-        "item_length": to_float(ps_item.get("item_length")),
-        "item_width": to_float(ps_item.get("item_width")),
-        "item_height": to_float(ps_item.get("item_height")),
-        "item_weight": to_float(ps_item.get("item_weight")),
-        "number_of_pieces": to_int(ps_item.get("number_of_pieces")),
-        "selling_qty": to_float(ps_item.get("number_field_1_value")),
-        "supplier_item_code": ps_item.get("text_field_2_value") or None,
-        "min_order_qty": to_int(ps_item.get("number_field_5_value")),
-        "barcode": extract_primary_barcode(ps_item),
-    }
+    lst = item.get("list_item_barcodes") or []
+    if not isinstance(lst, list) or not lst:
+        return None
+    for bc in lst:
+        if bc.get("is_label_barcode") is True:
+            v = (bc.get("barcode") or "").strip()
+            if v:
+                return v
+    v = (lst[0].get("barcode") or "").strip()
+    return v or None
 
 
 def parse_active(v) -> bool:
