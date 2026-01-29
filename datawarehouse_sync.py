@@ -77,9 +77,27 @@ PAGE_SIZE = 100  # PS365 docs: maximum allowed is 100 rows
 def _compute_hash(data: dict) -> str:
     """Stable, unicode-safe hash"""
     import hashlib
+    # We exclude list_item_barcodes from hash because it's a list of dicts 
+    # and we already extract the primary barcode into the 'barcode' field
+    # which IS part of the hash.
+    data_to_hash = {k: v for k, v in data.items() if k != 'list_item_barcodes'}
     return hashlib.md5(
-        json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        json.dumps(data_to_hash, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
+
+
+def extract_primary_barcode(item: dict) -> str | None:
+    """Extract primary barcode: label barcode preferred, then first in list."""
+    lst = item.get("list_item_barcodes") or []
+    if not isinstance(lst, list) or not lst:
+        return None
+    for bc in lst:
+        if bc.get("is_label_barcode") is True:
+            v = (bc.get("barcode") or "").strip()
+            if v:
+                return v
+    v = (lst[0].get("barcode") or "").strip()
+    return v or None
 
 
 def _upsert_dimension(session: Session, model, key_field: str, data: dict):
@@ -232,7 +250,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,barcode",
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,barcode,list_item_barcodes",
             },
         })
         
@@ -271,7 +289,7 @@ def test_fetch_single_item(session: Session):
             "selling_qty": float(item.get("number_field_1_value", 0)) if item.get("number_field_1_value") else None,
             "supplier_item_code": item.get("text_field_2_value") or None,
             "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") else None,
-            "barcode": item.get("barcode") or (item.get("list_item_barcodes")[0].get("barcode") if item.get("list_item_barcodes") else None),
+            "barcode": extract_primary_barcode(item),
         }
         
         attr_hash = _compute_hash(core)
@@ -516,7 +534,7 @@ def full_dw_update(session: Session):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,barcode",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,barcode,list_item_barcodes",
                 },
             })
 
@@ -569,7 +587,7 @@ def full_dw_update(session: Session):
                         "selling_qty": float(item.get("number_field_1_value")) if item.get("number_field_1_value") else None,
                         "supplier_item_code": item.get("text_field_2_value") or None,
                         "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
-                        "barcode": item.get("barcode") or (item.get("list_item_barcodes")[0].get("barcode") if item.get("list_item_barcodes") else None),
+                        "barcode": extract_primary_barcode(item),
                     }
 
                     attr_hash = _compute_hash(core)

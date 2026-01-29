@@ -1,0 +1,87 @@
+Your API does return barcodes (list_item_barcodes) — the reason your sync isn’t “bringing them for all products” is how your sync calls /list_items and what it does with the response.
+
+1) You’re using display_fields, and your list does not include list_item_barcodes
+
+Per the docs you pasted:
+
+display_fields = “Comma separated list of the fields to be displayed… If empty/not passed all fields included”
+
+So if you pass display_fields and you don’t include list_item_barcodes, PS365 will omit barcodes from the response.
+
+In the datawarehouse_sync.py you shared earlier, you have multiple display_fields strings like:
+
+"item_code_365,item_name,...,text_field_2_value,number_field_5_value"
+and none include list_item_barcodes.
+
+✅ Fix: either remove display_fields entirely (get all fields), or explicitly include:
+
+list_item_barcodes
+
+2) Even when barcodes are returned, your DW item sync doesn’t save them
+
+Your DwItem model has a barcode column, but your sync builds the core = {...} dict without any barcode extraction, so inserts/updates never populate it.
+
+✅ Fix: extract from list_item_barcodes and store it in core["barcode"] (and update existing records too).
+
+Use the same rule you already use elsewhere:
+
+prefer is_label_barcode == true
+
+else fall back to first barcode
+
+Example:
+
+def extract_primary_barcode(item: dict) -> str | None:
+    lst = item.get("list_item_barcodes") or []
+    if not isinstance(lst, list) or not lst:
+        return None
+    for bc in lst:
+        if bc.get("is_label_barcode") is True:
+            v = (bc.get("barcode") or "").strip()
+            return v or None
+    v = (lst[0].get("barcode") or "").strip()
+    return v or None
+
+
+Then in your DW sync:
+
+core["barcode"] = extract_primary_barcode(item)
+
+
+…and in UPDATE:
+
+existing.barcode = core["barcode"]
+
+3) Your “hash/skip” logic can prevent barcode updates unless barcode is included in the hashed fields
+
+Your sync skips updates when attr_hash is unchanged. If barcode isn’t part of the hashed core dict, then barcode changes won’t trigger updates.
+
+✅ Fix: ensure core includes barcode before computing attr_hash.
+
+Minimal “best” settings for display_fields
+
+If you want performance but still need barcode, include only what you actually store:
+
+item_code_365,item_name,active,
+category_code_365,brand_code_365,season_code_365,
+attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,
+attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,
+item_length,item_width,item_height,item_weight,number_of_pieces,
+number_field_1_value,text_field_2_value,number_field_5_value,
+last_modified_date,creation_date,
+list_item_barcodes
+
+
+(And optionally list_pictures_url if you use it.)
+
+Quick reality-check (so you know if PS365 truly has them)
+
+Pick one SKU missing barcode in your DB and call /list_items without display_fields. If list_item_barcodes is empty/null there too, then PS365 doesn’t have a barcode for that item.
+
+If you want, paste:
+
+one item_code_365 that is missing barcode in WMDS, and
+
+what your sync currently sends as display_fields
+
+…and I’ll tell you exactly what to change (and what you’ll get back from PS365).
