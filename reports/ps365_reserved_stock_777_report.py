@@ -101,7 +101,8 @@ def fetch_stock_position_store_777(base_url: str, token: str, page_size: int = 1
             reserved = _dec(row.get("stock_reserved"))
             ordered = _dec(row.get("stock_ordered"))
 
-            if reserved > 0:
+            # Include items with reserved > 0 OR ordered PO > 0
+            if reserved > 0 or ordered > 0:
                 out.append(
                     {
                         "item_code_365": item_code,
