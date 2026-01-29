@@ -60,6 +60,11 @@ def _setup_file_logging(log_name: str):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(logs_dir, f"{log_name}_{timestamp}.log")
     
+    # Avoid duplicate handlers on repeated runs
+    for h in list(logger.handlers):
+        if isinstance(h, RotatingFileHandler):
+            logger.removeHandler(h)
+
     file_handler = RotatingFileHandler(
         log_file, maxBytes=10*1024*1024, backupCount=5
     )
@@ -86,24 +91,187 @@ def _compute_hash(data: dict) -> str:
     ).hexdigest()
 
 
-def extract_primary_barcode(item: dict) -> str | None:
-    """Extract primary barcode: label barcode preferred, then first in list."""
-    # Some items might have the barcode in the top-level 'barcode' field 
-    # even if not explicitly requested in display_fields in some API versions
-    direct_bc = (item.get("barcode") or "").strip()
-    if direct_bc:
-        return direct_bc
+def build_item_core(ps_item: dict) -> dict:
+    """
+    Build DwItem core fields consistently for BOTH full and incremental sync.
+    This ensures attr_hash detects changes correctly (including barcode changes).
+    """
+    def to_float(val):
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
 
-    lst = item.get("list_item_barcodes") or []
-    if not isinstance(lst, list) or not lst:
-        return None
-    for bc in lst:
-        if bc.get("is_label_barcode") is True:
-            v = (bc.get("barcode") or "").strip()
-            if v:
-                return v
-    v = (lst[0].get("barcode") or "").strip()
-    return v or None
+    def to_int(val):
+        if val is None or val == "":
+            return None
+        try:
+            # sometimes comes as "12.0"
+            return int(float(val))
+        except (ValueError, TypeError):
+            return None
+
+    code = (ps_item.get("item_code_365") or "").strip().upper()
+    return {
+        "item_code_365": code,
+        "item_name": (ps_item.get("item_name") or "").strip(),
+        "active": parse_active(ps_item.get("active", True)),
+        "category_code_365": ps_item.get("category_code_365"),
+        "brand_code_365": ps_item.get("brand_code_365"),
+        "season_code_365": ps_item.get("season_code_365"),
+        "attribute_1_code_365": ps_item.get("attribute_1_code_365"),
+        "attribute_2_code_365": ps_item.get("attribute_2_code_365"),
+        "attribute_3_code_365": ps_item.get("attribute_3_code_365"),
+        "attribute_4_code_365": ps_item.get("attribute_4_code_365"),
+        "attribute_5_code_365": ps_item.get("attribute_5_code_365"),
+        "attribute_6_code_365": ps_item.get("attribute_6_code_365"),
+        "item_length": to_float(ps_item.get("item_length")),
+        "item_width": to_float(ps_item.get("item_width")),
+        "item_height": to_float(ps_item.get("item_height")),
+        "item_weight": to_float(ps_item.get("item_weight")),
+        "number_of_pieces": to_int(ps_item.get("number_of_pieces")),
+        "selling_qty": to_float(ps_item.get("number_field_1_value")),
+        "supplier_item_code": ps_item.get("text_field_2_value") or None,
+        "min_order_qty": to_int(ps_item.get("number_field_5_value")),
+        "barcode": extract_primary_barcode(ps_item),
+    }
+
+
+def full_dw_update(session: Session):
+
+
+def parse_active(v) -> bool:
+    """
+    PS365 may return Y/N, 1/0, True/False, or empty.
+    bool("N") is True, so we must parse explicitly.
+    """
+    if v is None:
+        return True
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().upper()
+    if s in ("1", "Y", "YES", "TRUE", "T"):
+        return True
+    if s in ("0", "N", "NO", "FALSE", "F"):
+        return False
+    # fallback: treat unknown truthy strings as True
+    return bool(s)
+
+
+def build_item_core(ps_item: dict) -> dict:
+    """
+    Build DwItem core fields consistently for BOTH full and incremental sync.
+    This ensures attr_hash detects changes correctly (including barcode changes).
+    """
+    def to_float(val):
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    def to_int(val):
+        if val is None or val == "":
+            return None
+        try:
+            # sometimes comes as "12.0"
+            return int(float(val))
+        except (ValueError, TypeError):
+            return None
+
+    code = (ps_item.get("item_code_365") or "").strip().upper()
+    return {
+        "item_code_365": code,
+        "item_name": (ps_item.get("item_name") or "").strip(),
+        "active": parse_active(ps_item.get("active", True)),
+        "category_code_365": ps_item.get("category_code_365"),
+        "brand_code_365": ps_item.get("brand_code_365"),
+        "season_code_365": ps_item.get("season_code_365"),
+        "attribute_1_code_365": ps_item.get("attribute_1_code_365"),
+        "attribute_2_code_365": ps_item.get("attribute_2_code_365"),
+        "attribute_3_code_365": ps_item.get("attribute_3_code_365"),
+        "attribute_4_code_365": ps_item.get("attribute_4_code_365"),
+        "attribute_5_code_365": ps_item.get("attribute_5_code_365"),
+        "attribute_6_code_365": ps_item.get("attribute_6_code_365"),
+        "item_length": to_float(ps_item.get("item_length")),
+        "item_width": to_float(ps_item.get("item_width")),
+        "item_height": to_float(ps_item.get("item_height")),
+        "item_weight": to_float(ps_item.get("item_weight")),
+        "number_of_pieces": to_int(ps_item.get("number_of_pieces")),
+        "selling_qty": to_float(ps_item.get("number_field_1_value")),
+        "supplier_item_code": ps_item.get("text_field_2_value") or None,
+        "min_order_qty": to_int(ps_item.get("number_field_5_value")),
+        "barcode": extract_primary_barcode(ps_item),
+    }
+
+
+def parse_active(v) -> bool:
+    """
+    PS365 may return Y/N, 1/0, True/False, or empty.
+    bool("N") is True, so we must parse explicitly.
+    """
+    if v is None:
+        return True
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().upper()
+    if s in ("1", "Y", "YES", "TRUE", "T"):
+        return True
+    if s in ("0", "N", "NO", "FALSE", "F"):
+        return False
+    # fallback: treat unknown truthy strings as True
+    return bool(s)
+
+
+def build_item_core(ps_item: dict) -> dict:
+    """
+    Build DwItem core fields consistently for BOTH full and incremental sync.
+    This ensures attr_hash detects changes correctly (including barcode changes).
+    """
+    def to_float(val):
+        if val is None or val == "":
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    def to_int(val):
+        if val is None or val == "":
+            return None
+        try:
+            # sometimes comes as "12.0"
+            return int(float(val))
+        except (ValueError, TypeError):
+            return None
+
+    code = (ps_item.get("item_code_365") or "").strip().upper()
+    return {
+        "item_code_365": code,
+        "item_name": (ps_item.get("item_name") or "").strip(),
+        "active": parse_active(ps_item.get("active", True)),
+        "category_code_365": ps_item.get("category_code_365"),
+        "brand_code_365": ps_item.get("brand_code_365"),
+        "season_code_365": ps_item.get("season_code_365"),
+        "attribute_1_code_365": ps_item.get("attribute_1_code_365"),
+        "attribute_2_code_365": ps_item.get("attribute_2_code_365"),
+        "attribute_3_code_365": ps_item.get("attribute_3_code_365"),
+        "attribute_4_code_365": ps_item.get("attribute_4_code_365"),
+        "attribute_5_code_365": ps_item.get("attribute_5_code_365"),
+        "attribute_6_code_365": ps_item.get("attribute_6_code_365"),
+        "item_length": to_float(ps_item.get("item_length")),
+        "item_width": to_float(ps_item.get("item_width")),
+        "item_height": to_float(ps_item.get("item_height")),
+        "item_weight": to_float(ps_item.get("item_weight")),
+        "number_of_pieces": to_int(ps_item.get("number_of_pieces")),
+        "selling_qty": to_float(ps_item.get("number_field_1_value")),
+        "supplier_item_code": ps_item.get("text_field_2_value") or None,
+        "min_order_qty": to_int(ps_item.get("number_field_5_value")),
+        "barcode": extract_primary_barcode(ps_item),
+    }
 
 
 def _upsert_dimension(session: Session, model, key_field: str, data: dict):
@@ -299,7 +467,7 @@ def test_fetch_single_item(session: Session):
         }
         
         attr_hash = _compute_hash(core)
-        obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=datetime.now())
+        obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=utc_now_for_db())
         session.add(obj)
         session.commit()
         
@@ -568,37 +736,13 @@ def full_dw_update(session: Session):
 
             for item in items:
                 try:
-                    code = item.get("item_code_365", "").upper()
+                    core = build_item_core(item)
+                    code = core["item_code_365"]
                     if not code:
                         page_skipped += 1
                         total_skipped += 1
                         continue
-
-                    # Prepare item data
-                    core = {
-                        "item_code_365": code,
-                        "item_name": item.get("item_name", ""),
-                        "active": bool(item.get("active", True)),
-                        "category_code_365": item.get("category_code_365"),
-                        "brand_code_365": item.get("brand_code_365"),
-                        "season_code_365": item.get("season_code_365"),
-                        "attribute_1_code_365": item.get("attribute_1_code_365"),
-                        "attribute_2_code_365": item.get("attribute_2_code_365"),
-                        "attribute_3_code_365": item.get("attribute_3_code_365"),
-                        "attribute_4_code_365": item.get("attribute_4_code_365"),
-                        "attribute_5_code_365": item.get("attribute_5_code_365"),
-                        "attribute_6_code_365": item.get("attribute_6_code_365"),
-                        "item_length": float(item.get("item_length")) if item.get("item_length") else None,
-                        "item_width": float(item.get("item_width")) if item.get("item_width") else None,
-                        "item_height": float(item.get("item_height")) if item.get("item_height") else None,
-                        "item_weight": float(item.get("item_weight")) if item.get("item_weight") else None,
-                        "number_of_pieces": int(float(item.get("number_of_pieces"))) if item.get("number_of_pieces") else None,
-                        "selling_qty": float(item.get("number_field_1_value")) if item.get("number_field_1_value") else None,
-                        "supplier_item_code": item.get("text_field_2_value") or None,
-                        "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
-                        "barcode": extract_primary_barcode(item),
-                    }
-
+                    
                     attr_hash = _compute_hash(core)
 
                     # Check if already exists from prefetched map
@@ -609,43 +753,13 @@ def full_dw_update(session: Session):
                         if True: # Always update
                             # UPDATE: Force update all records
                             logger.info(f"FORCE UPDATING {code}")
-                            logger.info(f"  Current attr1={existing.attribute_1_code_365}, API attr1={core['attribute_1_code_365']}")
-                            logger.info(f"  Current selling_qty={existing.selling_qty}, API selling_qty={core['selling_qty']}")
-
-                            existing.item_name = core["item_name"]
-                            existing.active = core["active"]
-                            existing.category_code_365 = core["category_code_365"]
-                            existing.brand_code_365 = core["brand_code_365"]
-                            existing.season_code_365 = core["season_code_365"]
-                            existing.attribute_1_code_365 = core["attribute_1_code_365"]
-                            existing.attribute_2_code_365 = core["attribute_2_code_365"]
-                            existing.attribute_3_code_365 = core["attribute_3_code_365"]
-                            existing.attribute_4_code_365 = core["attribute_4_code_365"]
-                            existing.attribute_5_code_365 = core["attribute_5_code_365"]
-                            existing.attribute_6_code_365 = core["attribute_6_code_365"]
-                            existing.item_length = core["item_length"]
-                            existing.item_width = core["item_width"]
-                            existing.item_height = core["item_height"]
-                            existing.item_weight = core["item_weight"]
-                            existing.barcode = core["barcode"]
-                            existing.supplier_item_code = core["supplier_item_code"]
-                            existing.min_order_qty = core["min_order_qty"]
-                            existing.number_of_pieces = core["number_of_pieces"]
-                            existing.selling_qty = core["selling_qty"]
-                            existing.number_of_pieces = core["number_of_pieces"]
-                            existing.selling_qty = core["selling_qty"]
-                            existing.supplier_item_code = core["supplier_item_code"]
-                            existing.min_order_qty = core["min_order_qty"]
+                            for k, v in core.items():
+                                setattr(existing, k, v)
                             existing.attr_hash = attr_hash
                             existing.last_sync_at = now
                             page_inserted += 1
                             total_inserted += 1
-                        else:
-                            # No change, skip
-                            page_skipped += 1
-                            total_skipped += 1
-                            logger.debug(f"SKIPPED {code}: hash unchanged ({existing.attr_hash})")
-                        continue
+                            continue
 
                     # INSERT: New record
                     obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=now)
