@@ -1,0 +1,158 @@
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 1991, in filter_by
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+ERROR:app:Exception on /reports/reserved-stock-777/send-po [POST]
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+The above exception was the direct cause of the following exception:
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/base.py", line 2195, in _entity_namespace_key
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+ERROR:app:Exception on /reports/reserved-stock-777/send-po [POST]
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+rv = self.dispatch_request()
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+AttributeError: type object 'Ps365ReservedStock777' has no attribute 'season_code'
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+sqlalchemy.exc.InvalidRequestError: Entity namespace for "ps365_reserved_stock_777" has no property "season_code"
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/base.py", line 2193, in _entity_namespace_key
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args) # type: ignore[no-any-return]
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+raise exc.InvalidRequestError(
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+return getattr(ns, key) # type: ignore
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+rows = Ps365ReservedStock777.query.filter_by(season_code=season_code).all()
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/routes_reports.py", line 170, in reserved_stock_777_send_po
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+Traceback (most recent call last):
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+rv = self.handle_user_exception(e)
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+_entity_namespace_key(from_entity, key) == value
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+clauses = [
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 1992, in
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+response = self.full_dispatch_request()
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 1991, in filter_by
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+The above exception was the direct cause of the following exception:
+2026-01-29 12:26:25.91
+2a3cf29e
+User
+Traceback (most recent call last):
+Wrap
+Colors

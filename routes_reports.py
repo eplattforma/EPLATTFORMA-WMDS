@@ -167,9 +167,7 @@ def reserved_stock_777_send_po():
     if not setting.email_to:
         return jsonify({"success": False, "error": "Missing email_to in settings for this season"}), 400
     
-    rows = Ps365ReservedStock777.query.filter_by(season_code=season_code).all()
-    if not rows:
-        rows = Ps365ReservedStock777.query.filter_by(season_name=season_code).all()
+    rows = Ps365ReservedStock777.query.filter_by(season_name=season_code).all()
     
     po_lines = []
     for r in rows:
