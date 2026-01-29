@@ -271,7 +271,7 @@ def test_fetch_single_item(session: Session):
             "selling_qty": float(item.get("number_field_1_value", 0)) if item.get("number_field_1_value") else None,
             "supplier_item_code": item.get("text_field_2_value") or None,
             "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") else None,
-            "barcode": item.get("barcode") or None,
+            "barcode": item.get("barcode") or (item.get("list_item_barcodes")[0].get("barcode") if item.get("list_item_barcodes") else None),
         }
         
         attr_hash = _compute_hash(core)
@@ -569,7 +569,7 @@ def full_dw_update(session: Session):
                         "selling_qty": float(item.get("number_field_1_value")) if item.get("number_field_1_value") else None,
                         "supplier_item_code": item.get("text_field_2_value") or None,
                         "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") not in (None, "") else None,
-                        "barcode": item.get("barcode") or None,
+                        "barcode": item.get("barcode") or (item.get("list_item_barcodes")[0].get("barcode") if item.get("list_item_barcodes") else None),
                     }
 
                     attr_hash = _compute_hash(core)
