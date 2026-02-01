@@ -97,17 +97,21 @@ input[type=number]::-webkit-inner-spin-button {
             
             <div id="cod-amount-section">
                 <div class="row g-2 mb-2 align-items-center">
-                    <div class="col-4">
+                    <div class="col-3">
                         <label class="form-label small mb-1">Invoice Total</label>
                         <div class="fs-6">€<span id="cod-expected">0.00</span></div>
                     </div>
-                    <div class="col-4" id="cod-variance-container">
-                        <label class="form-label small mb-1">Balance Due</label>
-                        <div class="fs-6"><span id="cod-variance">€ 0.00</span></div>
+                    <div class="col-3">
+                        <label class="form-label small mb-1 text-danger">Exceptions</label>
+                        <div class="fs-6 text-danger">-€<span id="cod-exceptions">0.00</span></div>
                     </div>
-                    <div class="col-4" id="cod-received-container">
-                        <label class="form-label fw-bold mb-1">Amount Collected</label>
-                        <input type="number" step="0.01" class="form-control form-control-lg fw-bold" id="cod-received" placeholder="0.00" style="font-size: 1.25rem; min-width: 120px; -moz-appearance: textfield;">
+                    <div class="col-3" id="cod-variance-container">
+                        <label class="form-label small mb-1">Balance Due</label>
+                        <div class="fs-6 fw-bold"><span id="cod-variance">€ 0.00</span></div>
+                    </div>
+                    <div class="col-3" id="cod-received-container">
+                        <label class="form-label fw-bold mb-1">Collected</label>
+                        <input type="number" step="0.01" class="form-control form-control-lg fw-bold" id="cod-received" placeholder="0.00" style="font-size: 1.1rem; min-width: 90px; -moz-appearance: textfield;">
                     </div>
                 </div>
             </div>
@@ -396,6 +400,14 @@ function saveException() {
         qty: qty
     } : null;
     
+    // Calculate exception value (proportional to qty if partial)
+    let exceptionValue = 0;
+    if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
+        // For partial exceptions, calculate proportional value
+        const proportion = qty / item.qty_ordered;
+        exceptionValue = item.line_total_incl * proportion;
+    }
+    
     exceptions.push({
         invoice_no: invoiceNo,
         item_code: itemCode,
@@ -406,10 +418,12 @@ function saveException() {
         unit_type: item.unit_type,
         notes: notes,
         damagedAccepted: damagedAccepted,
-        actual: actual
+        actual: actual,
+        exception_value: exceptionValue
     });
     
     renderExceptions();
+    calculateCODVariance();
     bootstrap.Modal.getInstance(document.getElementById('exceptionModal')).hide();
     
     // Reset form
@@ -468,6 +482,7 @@ function renderExceptions() {
 function removeException(index) {
     exceptions.splice(index, 1);
     renderExceptions();
+    calculateCODVariance();
 }
 
 // Toggle payment controls based on method selection
@@ -514,10 +529,16 @@ function calculateCODVariance() {
     if (isCredit) return; // No COD for credit accounts
     
     // Use total invoice amounts as expected
-    const expected = totalInvoicesAmount;
+    const invoiceTotal = totalInvoicesAmount;
+    
+    // Calculate total exception value
+    const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
     
     const codExpected = document.getElementById('cod-expected');
-    if (codExpected) codExpected.textContent = expected.toFixed(2);
+    if (codExpected) codExpected.textContent = invoiceTotal.toFixed(2);
+    
+    const codExceptions = document.getElementById('cod-exceptions');
+    if (codExceptions) codExceptions.textContent = exceptionsTotal.toFixed(2);
     
     const methodEl = document.getElementById('cod-method');
     const method = methodEl ? methodEl.value : 'cash';
@@ -525,9 +546,9 @@ function calculateCODVariance() {
     const receivedInput = document.getElementById('cod-received');
     const received = method === 'online' ? 0 : (parseFloat(receivedInput?.value) || 0);
     
-    // Balance Due = Invoice Total - Amount Collected
+    // Balance Due = Invoice Total - Exceptions - Amount Collected
     // Positive = we're owed money, Negative = customer overpaid, 0 = paid exactly
-    const balanceDue = expected - received;
+    const balanceDue = invoiceTotal - exceptionsTotal - received;
     const varianceEl = document.getElementById('cod-variance');
     if (varianceEl) varianceEl.textContent = `€ ${balanceDue.toFixed(2)}`;
 }
