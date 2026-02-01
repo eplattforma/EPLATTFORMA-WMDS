@@ -94,7 +94,8 @@ def get_route_reconciliation_summary(route_id):
     
     invoices = db.session.query(RouteStopInvoice).join(RouteStop).filter(
         RouteStop.shipment_id == route_id,
-        RouteStop.deleted_at == None
+        RouteStop.deleted_at == None,
+        RouteStopInvoice.is_active == True
     ).all()
 
     invoice_nos = [inv.invoice_no for inv in invoices] if invoices else []
