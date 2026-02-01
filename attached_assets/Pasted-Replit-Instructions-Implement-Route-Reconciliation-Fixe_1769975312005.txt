@@ -1,0 +1,399 @@
+Replit Instructions: Implement Route Reconciliation Fixes (Canonical Mapping + Reroute-safe)
+Goal
+
+Make route_stop_invoice the single source of truth for mapping invoices to route stops, and make reroutes safe without losing history.
+
+We will:
+
+Simplify redundant uniqueness on route_stop_invoice.
+
+Add versioning to support reroutes (active row + history).
+
+Standardize invoice/stop statuses for reconciliation.
+
+Prevent stop-level inconsistent timestamps.
+
+Deprecate shipment_orders usage (or replace with a VIEW if needed).
+
+Add drift checks between route_stop_invoice and invoices.route_id/stop_id (optional sync).
+
+A) DB Migration (SQL)
+A1) Route stop invoice: add versioning + partial unique
+
+Create a migration that runs:
+
+BEGIN;
+
+-- 1) Add versioning columns
+ALTER TABLE route_stop_invoice
+  ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS effective_from timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS effective_to timestamptz,
+  ADD COLUMN IF NOT EXISTS changed_by varchar(64);
+
+-- 2) Drop redundant constraint (route_stop_id, invoice_no) if it exists
+-- Note: your schema shows it's redundant because invoice_no is already unique.
+ALTER TABLE route_stop_invoice
+  DROP CONSTRAINT IF EXISTS route_stop_invoice_route_stop_id_invoice_no_key;
+
+-- 3) Drop the old uniqueness on invoice_no (may exist as constraint and/or index)
+ALTER TABLE route_stop_invoice
+  DROP CONSTRAINT IF EXISTS route_stop_invoice_invoice_no_unique;
+
+DROP INDEX IF EXISTS route_stop_invoice_invoice_no_unique;
+
+-- 4) Create partial unique index to enforce 1 active mapping per invoice
+CREATE UNIQUE INDEX IF NOT EXISTS uq_rsi_active_invoice
+ON route_stop_invoice (invoice_no)
+WHERE is_active = true;
+
+-- 5) Useful indexes for reconciliation queries
+CREATE INDEX IF NOT EXISTS ix_rsi_active_stop
+ON route_stop_invoice (route_stop_id)
+WHERE is_active = true;
+
+CREATE INDEX IF NOT EXISTS ix_rsi_active_status
+ON route_stop_invoice (status)
+WHERE is_active = true;
+
+COMMIT;
+
+A2) Standardize route_stop_invoice.status
+
+Add a CHECK constraint to prevent garbage statuses:
+
+BEGIN;
+
+ALTER TABLE route_stop_invoice
+  DROP CONSTRAINT IF EXISTS chk_rsi_status;
+
+ALTER TABLE route_stop_invoice
+  ADD CONSTRAINT chk_rsi_status
+  CHECK (
+    status IS NULL OR
+    status IN ('PENDING','OUT_FOR_DELIVERY','DELIVERED','FAILED','PARTIAL','SKIPPED','RETURNED')
+  );
+
+COMMIT;
+
+
+(If you already store other values, run a cleanup UPDATE before adding the constraint.)
+
+A3) Prevent invalid stop completion timestamps
+
+You currently have route_stop.delivered_at and failed_at. Enforce not both:
+
+BEGIN;
+
+ALTER TABLE route_stop
+  DROP CONSTRAINT IF EXISTS chk_route_stop_completion;
+
+ALTER TABLE route_stop
+  ADD CONSTRAINT chk_route_stop_completion
+  CHECK (NOT (delivered_at IS NOT NULL AND failed_at IS NOT NULL));
+
+COMMIT;
+
+A4) Optional: Create a VIEW for “active” mappings
+
+This makes code simpler (always join to active mapping):
+
+CREATE OR REPLACE VIEW v_route_stop_invoice_active AS
+SELECT *
+FROM route_stop_invoice
+WHERE is_active = true;
+
+B) SQLAlchemy Model Updates
+B1) Update RouteStopInvoice model
+
+Add fields:
+
+is_active: bool
+
+effective_from: datetime
+
+effective_to: datetime | None
+
+changed_by: str | None
+
+Also update uniqueness: remove any UniqueConstraint(invoice_no) and do not model partial unique in SQLAlchemy constraints; keep it as DB index only.
+
+Example changes (pseudo):
+
+class RouteStopInvoice(db.Model):
+    __tablename__ = "route_stop_invoice"
+
+    route_stop_invoice_id = db.Column(db.Integer, primary_key=True)
+    route_stop_id = db.Column(db.Integer, db.ForeignKey("route_stop.route_stop_id"), nullable=False)
+    invoice_no = db.Column(db.String, db.ForeignKey("invoices.invoice_no"), nullable=False)
+
+    status = db.Column(db.String)
+    weight_kg = db.Column(db.Float)
+    notes = db.Column(db.Text)
+
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    effective_from = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+    effective_to = db.Column(db.DateTime(timezone=True))
+    changed_by = db.Column(db.String(64))
+
+C) Application Logic Changes
+C1) Canonical rule
+
+Stop using shipment_orders for route mapping.
+Route assignment = rows in route_stop_invoice where is_active=true.
+
+If some legacy code still reads invoice route from:
+
+invoices.route_id / stop_id
+then we either:
+
+(Option 1) update those fields whenever route_stop_invoice changes (recommended if UI uses them), or
+
+(Option 2) stop using them in route screens and derive from joins.
+
+C2) Route assignment function (initial assignment)
+
+When you assign an invoice to a stop:
+
+Confirm stop belongs to shipment (route)
+
+Insert one active row in route_stop_invoice
+
+Update invoices.route_id and invoices.stop_id if you keep those columns
+
+Pseudo:
+
+def assign_invoice_to_stop(invoice_no, route_stop_id, actor):
+    # validate invoice exists, stop exists
+    stop = RouteStop.query.get(route_stop_id)
+    inv = Invoice.query.get(invoice_no)
+
+    # close any active mapping (should not exist for new assignment; safe anyway)
+    active = RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+    if active:
+        active.is_active = False
+        active.effective_to = utcnow()
+        active.changed_by = actor
+
+    rsi = RouteStopInvoice(
+        route_stop_id=route_stop_id,
+        invoice_no=invoice_no,
+        status="PENDING",
+        is_active=True,
+        effective_from=utcnow(),
+        changed_by=actor
+    )
+    db.session.add(rsi)
+
+    # optional cache
+    inv.stop_id = route_stop_id
+    inv.route_id = stop.shipment_id
+
+    db.session.commit()
+
+C3) Reroute implementation (this is the big win)
+
+When rerouting an invoice from Stop A to Stop B:
+
+Set old row is_active=false, set effective_to=now()
+
+Create new row is_active=true with new stop
+
+Insert audit row into invoice_route_history (you already have it)
+
+(Optional) create route_delivery_events event REROUTED
+
+Pseudo:
+
+def reroute_invoice(invoice_no, new_route_stop_id, actor, reason=None, notes=None):
+    now = utcnow()
+
+    old = RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+    if not old:
+        raise ValueError("Invoice has no active stop mapping")
+
+    old_stop_id = old.route_stop_id
+
+    # close old mapping
+    old.is_active = False
+    old.effective_to = now
+    old.changed_by = actor
+
+    # new mapping
+    new = RouteStopInvoice(
+        route_stop_id=new_route_stop_id,
+        invoice_no=invoice_no,
+        status=old.status or "PENDING",
+        is_active=True,
+        effective_from=now,
+        changed_by=actor
+    )
+    db.session.add(new)
+
+    # history
+    db.session.add(InvoiceRouteHistory(
+        invoice_no=invoice_no,
+        route_id=None,          # optional; or stop.shipment_id
+        route_stop_id=new_route_stop_id,
+        action="REROUTED",
+        reason=reason,
+        notes=f"from_stop={old_stop_id}; {notes or ''}",
+        actor_username=actor
+    ))
+
+    # optional cache sync
+    inv = Invoice.query.get(invoice_no)
+    stop = RouteStop.query.get(new_route_stop_id)
+    inv.stop_id = new_route_stop_id
+    inv.route_id = stop.shipment_id
+
+    db.session.commit()
+
+D) Reconciliation Computation Updates
+D1) Invoice final status (what reconciliation should trust)
+
+For each invoice, determine outcome using:
+
+route_stop_invoice.status (active row)
+
+plus proofs: pod_records, cod_receipts
+
+plus delivery issues: delivery_discrepancies, invoice_post_delivery_cases
+
+Rule suggestion:
+
+invoice is DELIVERED if there is a matching POD record (for that stop/route) OR status set to DELIVERED by driver workflow
+
+invoice is FAILED if driver marks failed + reason OR has post-delivery open case / discrepancy not resolved
+
+invoice is PARTIAL if discrepancies exist with unresolved items/qty
+
+(Implement exactly per your current workflow; the key change is: always reference the active mapping row.)
+
+D2) Stop status = aggregate of invoices under stop
+
+Compute stop status dynamically:
+
+If all active invoices under stop are DELIVERED → stop = DELIVERED
+
+If all FAILED → stop = FAILED
+
+If mix → stop = PARTIAL
+
+If none finalized → stop = IN_PROGRESS
+
+Implement as a query in code or create a DB view.
+
+Example SQL for stop aggregate:
+
+SELECT
+  rsi.route_stop_id,
+  CASE
+    WHEN SUM(CASE WHEN rsi.status='DELIVERED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DELIVERED'
+    WHEN SUM(CASE WHEN rsi.status='FAILED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'FAILED'
+    WHEN SUM(CASE WHEN rsi.status IN ('DELIVERED','FAILED') THEN 1 ELSE 0 END) > 0 THEN 'PARTIAL'
+    ELSE 'IN_PROGRESS'
+  END AS stop_status
+FROM route_stop_invoice rsi
+WHERE rsi.is_active = true
+GROUP BY rsi.route_stop_id;
+
+D3) Shipment reconciliation readiness
+
+Update shipments.reconciliation_status to READY when:
+
+shipment.status is completed (or your equivalent)
+
+driver_submitted_at is not null (if you use that gate)
+
+all invoices in that shipment have final statuses (DELIVERED/FAILED/PARTIAL) and required proofs:
+
+if invoice is cash/cheque/card → corresponding cod_receipts exists or expected settlement recorded
+
+if POD required → pod_records exists
+
+This logic should use:
+
+route_stop to list stops for shipment
+
+route_stop_invoice (active) to list invoices per stop
+
+invoices only for totals / payment type (if stored)
+
+E) Remove/Deprecate shipment_orders
+E1) Codebase search and remove usage
+
+Search code for shipment_orders
+
+If it is used to list invoices in a shipment, replace with:
+
+SELECT rsi.invoice_no
+FROM route_stop rs
+JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id
+WHERE rs.shipment_id = :shipment_id
+  AND rsi.is_active = true;
+
+E2) Optional: keep backward compatibility with a VIEW
+
+If you want old reports not to break:
+
+CREATE OR REPLACE VIEW v_shipment_orders AS
+SELECT
+  rs.shipment_id,
+  rsi.invoice_no
+FROM route_stop rs
+JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id
+WHERE rsi.is_active = true;
+
+
+Then update legacy code to read v_shipment_orders instead of the table.
+
+F) Drift Detection (must-have if you keep invoices.route_id/stop_id)
+
+Add an admin “health check” query and show it in UI:
+
+SELECT i.invoice_no, i.route_id, i.stop_id, rsi.route_stop_id, rs.shipment_id
+FROM invoices i
+JOIN route_stop_invoice rsi ON rsi.invoice_no = i.invoice_no AND rsi.is_active = true
+JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+WHERE (i.stop_id IS DISTINCT FROM rsi.route_stop_id)
+   OR (i.route_id IS DISTINCT FROM rs.shipment_id);
+
+
+If rows return, show “Route mapping drift detected” and provide a “Fix drift” button that updates invoices.route_id/stop_id from canonical joins.
+
+G) UI/API Changes (minimum set)
+
+Anywhere you show “invoice stop / route”, derive from:
+
+v_route_stop_invoice_active join to route_stop.shipment_id
+
+Reroute screen:
+
+Use the reroute function (close old active, open new active, insert history)
+
+Reconciliation screen:
+
+Compute stop aggregate status
+
+Compute shipment readiness and update shipments.reconciliation_status
+
+H) Verification Checklist (run after deploy)
+
+Confirm partial unique works:
+
+Try reroute same invoice twice (should succeed)
+
+Try creating two active rows for same invoice (should fail)
+
+Confirm no double timestamps on stop:
+
+attempt to set both delivered_at and failed_at (should fail)
+
+Confirm invoice route mapping:
+
+For a shipment, list invoices by joining stops → active RSI
+
+Confirm drift query returns zero rows (or fix them)
+
+If you want, paste your current reconciliation Python/Flask route (the endpoint + queries you use) and I’ll rewrite it to the new canonical logic with minimal disruption.
