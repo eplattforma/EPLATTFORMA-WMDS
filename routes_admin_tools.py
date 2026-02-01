@@ -108,3 +108,99 @@ psql "{database_url_dev}" -c "SELECT COUNT(*) as ps_items_count FROM ps_items_dw
         return jsonify({
             "error": f"Error: {str(e)}"
         }), 500
+
+
+# =============================================================================
+# ROUTE MAPPING DRIFT DETECTION
+# =============================================================================
+
+@bp.route('/route-mapping-drift')
+@login_required
+def route_mapping_drift_page():
+    """Show route mapping drift detection page"""
+    if not is_admin():
+        return "Access denied", 403
+    
+    from services_route_lifecycle import check_route_mapping_drift
+    
+    drift_list = check_route_mapping_drift()
+    
+    return render_template('admin_tools/route_mapping_drift.html', drift_list=drift_list)
+
+
+@bp.route('/route-mapping-drift/check', methods=['GET'])
+@login_required
+def check_drift():
+    """API endpoint to check route mapping drift"""
+    if not is_admin():
+        return jsonify({"error": "Access denied"}), 403
+    
+    from services_route_lifecycle import check_route_mapping_drift
+    
+    route_id = request.args.get('route_id', type=int)
+    drift_list = check_route_mapping_drift(route_id)
+    
+    return jsonify({
+        "drift_count": len(drift_list),
+        "drift_list": drift_list
+    })
+
+
+@bp.route('/route-mapping-drift/fix', methods=['POST'])
+@login_required
+def fix_drift():
+    """Fix route mapping drift by syncing invoice cache columns"""
+    if not is_admin():
+        return jsonify({"error": "Access denied"}), 403
+    
+    from services_route_lifecycle import fix_route_mapping_drift
+    
+    data = request.get_json() or {}
+    route_id = data.get('route_id')
+    
+    try:
+        fixed_count = fix_route_mapping_drift(route_id)
+        logger.info(f"Fixed {fixed_count} route mapping drifts by {current_user.username}")
+        
+        return jsonify({
+            "success": True,
+            "fixed_count": fixed_count,
+            "message": f"Fixed {fixed_count} invoice(s) with route mapping drift"
+        })
+    except Exception as e:
+        logger.error(f"Error fixing route mapping drift: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@bp.route('/run-reconciliation-migration', methods=['POST'])
+@login_required
+def run_reconciliation_migration():
+    """Run the route reconciliation database migration"""
+    if not is_admin():
+        return jsonify({"error": "Access denied"}), 403
+    
+    try:
+        from migrations.route_reconciliation_migration import run_migration, check_migration_status
+        
+        if check_migration_status():
+            return jsonify({
+                "success": True,
+                "message": "Migration already applied"
+            })
+        
+        run_migration()
+        logger.info(f"Route reconciliation migration run by {current_user.username}")
+        
+        return jsonify({
+            "success": True,
+            "message": "Route reconciliation migration completed successfully"
+        })
+    except Exception as e:
+        logger.error(f"Error running migration: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
