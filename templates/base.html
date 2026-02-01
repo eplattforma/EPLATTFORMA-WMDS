@@ -186,6 +186,13 @@
                                     <i class="fas fa-brain me-2"></i>Operational Intelligence
                                 </a>
                             </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'admin_tools.route_mapping_drift_page' %}active{% endif %}" 
+                                   href="{{ url_for('admin_tools.route_mapping_drift_page') }}">
+                                    <i class="fas fa-exchange-alt me-2"></i>Route Mapping Drift
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     {% endif %}
