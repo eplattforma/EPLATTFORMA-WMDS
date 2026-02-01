@@ -1,0 +1,885 @@
+Below are implementation instructions you can paste to your Replit dev/agent. I’m assuming PostgreSQL + Flask + SQLAlchemy.
+
+Replit Instructions: Implement Route Reconciliation Fixes (Canonical Mapping + Reroute-safe)
+Goal
+
+Make route_stop_invoice the single source of truth for mapping invoices to route stops, and make reroutes safe without losing history.
+
+We will:
+
+Simplify redundant uniqueness on route_stop_invoice.
+
+Add versioning to support reroutes (active row + history).
+
+Standardize invoice/stop statuses for reconciliation.
+
+Prevent stop-level inconsistent timestamps.
+
+Deprecate shipment_orders usage (or replace with a VIEW if needed).
+
+Add drift checks between route_stop_invoice and invoices.route_id/stop_id (optional sync).
+
+A) DB Migration (SQL)
+A1) Route stop invoice: add versioning + partial unique
+
+Create a migration that runs:
+
+BEGIN;
+
+-- 1) Add versioning columns
+ALTER TABLE route_stop_invoice
+  ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS effective_from timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS effective_to timestamptz,
+  ADD COLUMN IF NOT EXISTS changed_by varchar(64);
+
+-- 2) Drop redundant constraint (route_stop_id, invoice_no) if it exists
+-- Note: your schema shows it's redundant because invoice_no is already unique.
+ALTER TABLE route_stop_invoice
+  DROP CONSTRAINT IF EXISTS route_stop_invoice_route_stop_id_invoice_no_key;
+
+-- 3) Drop the old uniqueness on invoice_no (may exist as constraint and/or index)
+ALTER TABLE route_stop_invoice
+  DROP CONSTRAINT IF EXISTS route_stop_invoice_invoice_no_unique;
+
+DROP INDEX IF EXISTS route_stop_invoice_invoice_no_unique;
+
+-- 4) Create partial unique index to enforce 1 active mapping per invoice
+CREATE UNIQUE INDEX IF NOT EXISTS uq_rsi_active_invoice
+ON route_stop_invoice (invoice_no)
+WHERE is_active = true;
+
+-- 5) Useful indexes for reconciliation queries
+CREATE INDEX IF NOT EXISTS ix_rsi_active_stop
+ON route_stop_invoice (route_stop_id)
+WHERE is_active = true;
+
+CREATE INDEX IF NOT EXISTS ix_rsi_active_status
+ON route_stop_invoice (status)
+WHERE is_active = true;
+
+COMMIT;
+
+A2) Standardize route_stop_invoice.status
+
+Add a CHECK constraint to prevent garbage statuses:
+
+BEGIN;
+
+ALTER TABLE route_stop_invoice
+  DROP CONSTRAINT IF EXISTS chk_rsi_status;
+
+ALTER TABLE route_stop_invoice
+  ADD CONSTRAINT chk_rsi_status
+  CHECK (
+    status IS NULL OR
+    status IN ('PENDING','OUT_FOR_DELIVERY','DELIVERED','FAILED','PARTIAL','SKIPPED','RETURNED')
+  );
+
+COMMIT;
+
+
+(If you already store other values, run a cleanup UPDATE before adding the constraint.)
+
+A3) Prevent invalid stop completion timestamps
+
+You currently have route_stop.delivered_at and failed_at. Enforce not both:
+
+BEGIN;
+
+ALTER TABLE route_stop
+  DROP CONSTRAINT IF EXISTS chk_route_stop_completion;
+
+ALTER TABLE route_stop
+  ADD CONSTRAINT chk_route_stop_completion
+  CHECK (NOT (delivered_at IS NOT NULL AND failed_at IS NOT NULL));
+
+COMMIT;
+
+A4) Optional: Create a VIEW for “active” mappings
+
+This makes code simpler (always join to active mapping):
+
+CREATE OR REPLACE VIEW v_route_stop_invoice_active AS
+SELECT *
+FROM route_stop_invoice
+WHERE is_active = true;
+
+B) SQLAlchemy Model Updates
+B1) Update RouteStopInvoice model
+
+Add fields:
+
+is_active: bool
+
+effective_from: datetime
+
+effective_to: datetime | None
+
+changed_by: str | None
+
+Also update uniqueness: remove any UniqueConstraint(invoice_no) and do not model partial unique in SQLAlchemy constraints; keep it as DB index only.
+
+Example changes (pseudo):
+
+class RouteStopInvoice(db.Model):
+    __tablename__ = "route_stop_invoice"
+
+    route_stop_invoice_id = db.Column(db.Integer, primary_key=True)
+    route_stop_id = db.Column(db.Integer, db.ForeignKey("route_stop.route_stop_id"), nullable=False)
+    invoice_no = db.Column(db.String, db.ForeignKey("invoices.invoice_no"), nullable=False)
+
+    status = db.Column(db.String)
+    weight_kg = db.Column(db.Float)
+    notes = db.Column(db.Text)
+
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    effective_from = db.Column(db.DateTime(timezone=True), nullable=False, server_default=db.func.now())
+    effective_to = db.Column(db.DateTime(timezone=True))
+    changed_by = db.Column(db.String(64))
+
+C) Application Logic Changes
+C1) Canonical rule
+
+Stop using shipment_orders for route mapping.
+Route assignment = rows in route_stop_invoice where is_active=true.
+
+If some legacy code still reads invoice route from:
+
+invoices.route_id / stop_id
+then we either:
+
+(Option 1) update those fields whenever route_stop_invoice changes (recommended if UI uses them), or
+
+(Option 2) stop using them in route screens and derive from joins.
+
+C2) Route assignment function (initial assignment)
+
+When you assign an invoice to a stop:
+
+Confirm stop belongs to shipment (route)
+
+Insert one active row in route_stop_invoice
+
+Update invoices.route_id and invoices.stop_id if you keep those columns
+
+Pseudo:
+
+def assign_invoice_to_stop(invoice_no, route_stop_id, actor):
+    # validate invoice exists, stop exists
+    stop = RouteStop.query.get(route_stop_id)
+    inv = Invoice.query.get(invoice_no)
+
+    # close any active mapping (should not exist for new assignment; safe anyway)
+    active = RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+    if active:
+        active.is_active = False
+        active.effective_to = utcnow()
+        active.changed_by = actor
+
+    rsi = RouteStopInvoice(
+        route_stop_id=route_stop_id,
+        invoice_no=invoice_no,
+        status="PENDING",
+        is_active=True,
+        effective_from=utcnow(),
+        changed_by=actor
+    )
+    db.session.add(rsi)
+
+    # optional cache
+    inv.stop_id = route_stop_id
+    inv.route_id = stop.shipment_id
+
+    db.session.commit()
+
+C3) Reroute implementation (this is the big win)
+
+When rerouting an invoice from Stop A to Stop B:
+
+Set old row is_active=false, set effective_to=now()
+
+Create new row is_active=true with new stop
+
+Insert audit row into invoice_route_history (you already have it)
+
+(Optional) create route_delivery_events event REROUTED
+
+Pseudo:
+
+def reroute_invoice(invoice_no, new_route_stop_id, actor, reason=None, notes=None):
+    now = utcnow()
+
+    old = RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+    if not old:
+        raise ValueError("Invoice has no active stop mapping")
+
+    old_stop_id = old.route_stop_id
+
+    # close old mapping
+    old.is_active = False
+    old.effective_to = now
+    old.changed_by = actor
+
+    # new mapping
+    new = RouteStopInvoice(
+        route_stop_id=new_route_stop_id,
+        invoice_no=invoice_no,
+        status=old.status or "PENDING",
+        is_active=True,
+        effective_from=now,
+        changed_by=actor
+    )
+    db.session.add(new)
+
+    # history
+    db.session.add(InvoiceRouteHistory(
+        invoice_no=invoice_no,
+        route_id=None,          # optional; or stop.shipment_id
+        route_stop_id=new_route_stop_id,
+        action="REROUTED",
+        reason=reason,
+        notes=f"from_stop={old_stop_id}; {notes or ''}",
+        actor_username=actor
+    ))
+
+    # optional cache sync
+    inv = Invoice.query.get(invoice_no)
+    stop = RouteStop.query.get(new_route_stop_id)
+    inv.stop_id = new_route_stop_id
+    inv.route_id = stop.shipment_id
+
+    db.session.commit()
+
+D) Reconciliation Computation Updates
+D1) Invoice final status (what reconciliation should trust)
+
+For each invoice, determine outcome using:
+
+route_stop_invoice.status (active row)
+
+plus proofs: pod_records, cod_receipts
+
+plus delivery issues: delivery_discrepancies, invoice_post_delivery_cases
+
+Rule suggestion:
+
+invoice is DELIVERED if there is a matching POD record (for that stop/route) OR status set to DELIVERED by driver workflow
+
+invoice is FAILED if driver marks failed + reason OR has post-delivery open case / discrepancy not resolved
+
+invoice is PARTIAL if discrepancies exist with unresolved items/qty
+
+(Implement exactly per your current workflow; the key change is: always reference the active mapping row.)
+
+D2) Stop status = aggregate of invoices under stop
+
+Compute stop status dynamically:
+
+If all active invoices under stop are DELIVERED → stop = DELIVERED
+
+If all FAILED → stop = FAILED
+
+If mix → stop = PARTIAL
+
+If none finalized → stop = IN_PROGRESS
+
+Implement as a query in code or create a DB view.
+
+Example SQL for stop aggregate:
+
+SELECT
+  rsi.route_stop_id,
+  CASE
+    WHEN SUM(CASE WHEN rsi.status='DELIVERED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'DELIVERED'
+    WHEN SUM(CASE WHEN rsi.status='FAILED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'FAILED'
+    WHEN SUM(CASE WHEN rsi.status IN ('DELIVERED','FAILED') THEN 1 ELSE 0 END) > 0 THEN 'PARTIAL'
+    ELSE 'IN_PROGRESS'
+  END AS stop_status
+FROM route_stop_invoice rsi
+WHERE rsi.is_active = true
+GROUP BY rsi.route_stop_id;
+
+D3) Shipment reconciliation readiness
+
+Update shipments.reconciliation_status to READY when:
+
+shipment.status is completed (or your equivalent)
+
+driver_submitted_at is not null (if you use that gate)
+
+all invoices in that shipment have final statuses (DELIVERED/FAILED/PARTIAL) and required proofs:
+
+if invoice is cash/cheque/card → corresponding cod_receipts exists or expected settlement recorded
+
+if POD required → pod_records exists
+
+This logic should use:
+
+route_stop to list stops for shipment
+
+route_stop_invoice (active) to list invoices per stop
+
+invoices only for totals / payment type (if stored)
+
+E) Remove/Deprecate shipment_orders
+E1) Codebase search and remove usage
+
+Search code for shipment_orders
+
+If it is used to list invoices in a shipment, replace with:
+
+SELECT rsi.invoice_no
+FROM route_stop rs
+JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id
+WHERE rs.shipment_id = :shipment_id
+  AND rsi.is_active = true;
+
+E2) Optional: keep backward compatibility with a VIEW
+
+If you want old reports not to break:
+
+CREATE OR REPLACE VIEW v_shipment_orders AS
+SELECT
+  rs.shipment_id,
+  rsi.invoice_no
+FROM route_stop rs
+JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id
+WHERE rsi.is_active = true;
+
+
+Then update legacy code to read v_shipment_orders instead of the table.
+
+F) Drift Detection (must-have if you keep invoices.route_id/stop_id)
+
+Add an admin “health check” query and show it in UI:
+
+SELECT i.invoice_no, i.route_id, i.stop_id, rsi.route_stop_id, rs.shipment_id
+FROM invoices i
+JOIN route_stop_invoice rsi ON rsi.invoice_no = i.invoice_no AND rsi.is_active = true
+JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+WHERE (i.stop_id IS DISTINCT FROM rsi.route_stop_id)
+   OR (i.route_id IS DISTINCT FROM rs.shipment_id);
+
+
+If rows return, show “Route mapping drift detected” and provide a “Fix drift” button that updates invoices.route_id/stop_id from canonical joins.
+
+G) UI/API Changes (minimum set)
+
+Anywhere you show “invoice stop / route”, derive from:
+
+v_route_stop_invoice_active join to route_stop.shipment_id
+
+Reroute screen:
+
+Use the reroute function (close old active, open new active, insert history)
+
+Reconciliation screen:
+
+Compute stop aggregate status
+
+Compute shipment readiness and update shipments.reconciliation_status
+
+H) Verification Checklist (run after deploy)
+
+Confirm partial unique works:
+
+Try reroute same invoice twice (should succeed)
+
+Try creating two active rows for same invoice (should fail)
+
+Confirm no double timestamps on stop:
+
+attempt to set both delivered_at and failed_at (should fail)
+
+Confirm invoice route mapping:
+
+For a shipment, list invoices by joining stops → active RSI
+
+Confirm drift query returns zero rows (or fix them)
+
+If you want, paste your current reconciliation Python/Flask route (the endpoint + queries you use) and I’ll rewrite it to the new canonical logic with minimal disruption.
+
+now that the structure is there.  proceed with the reconciliation steps and reports
+Thought for 1m 51s
+
+Below is the next layer: the actual reconciliation workflow + the reports, implemented on top of your current schema (with the “active mapping” in route_stop_invoice).
+
+I’m writing this as instructions to your Replit implementation (Flask + SQLAlchemy + Postgres), including the core queries you’ll need.
+
+1) Reconciliation lifecycle (state machine)
+
+Use shipments.reconciliation_status as the primary state, and keep shipments.settlement_status for “cash settlement cleared”.
+
+Recommended shipments.reconciliation_status values
+
+NOT_READY (default) – route is still running / missing required data
+
+READY – system says route has everything needed for driver submission
+
+DRIVER_SUBMITTED – driver finished + submitted route (cash handed in recorded)
+
+UNDER_REVIEW – finance/admin reviewing variances/issues
+
+RECONCILED – admin finalized reconciliation
+
+CLEARED – (optional) after receipts synced + settlement cleared (or you can use settlement_status for this)
+
+Recommended shipments.settlement_status values
+
+PENDING (default)
+
+CLEARED
+
+2) Canonical joins (use these everywhere)
+Canonical “invoices on a shipment”
+
+Use active mappings:
+
+-- v_shipment_invoices_active (implement as VIEW or reuse as query)
+SELECT
+  s.id AS shipment_id,
+  rs.route_stop_id,
+  rs.seq_no,
+  rsi.invoice_no,
+  rsi.status AS rsi_status,
+  i.total_grand,
+  i.customer_code_365,
+  i.customer_name
+FROM shipments s
+JOIN route_stop rs
+  ON rs.shipment_id = s.id
+JOIN route_stop_invoice rsi
+  ON rsi.route_stop_id = rs.route_stop_id
+ AND rsi.is_active = true
+JOIN invoices i
+  ON i.invoice_no = rsi.invoice_no
+WHERE s.id = :shipment_id
+  AND rs.deleted_at IS NULL;
+
+
+Rule: route membership comes from route_stop + active route_stop_invoice, not shipment_orders, and not invoices.route_id/stop_id (those can be treated as cached fields only).
+
+3) Reconciliation steps (what the system should do)
+Step A — “Refresh reconciliation” (system computation)
+
+This is a button (admin) and/or runs automatically when:
+
+a stop is marked delivered/failed
+
+a COD receipt is created
+
+a POD is collected
+
+a discrepancy/case is resolved
+
+It computes:
+
+Route completeness (all invoices have final delivery state)
+
+POD completeness (for delivered invoices)
+
+Cash completeness (COD stops have receipts; route totals match)
+
+Open issues (unresolved discrepancies/cases)
+
+Sets:
+
+shipments.reconciliation_status = READY if no blocking issues
+
+else stays NOT_READY
+
+A1) Define “final delivery statuses”
+
+Treat these route_stop_invoice.status as final:
+
+DELIVERED, FAILED, PARTIAL, RETURNED, SKIPPED
+
+Everything else is not final.
+
+A2) Missing final status
+SELECT rsi.invoice_no, rsi.status
+FROM route_stop rs
+JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id AND rsi.is_active = true
+WHERE rs.shipment_id = :shipment_id
+  AND rs.deleted_at IS NULL
+  AND (rsi.status IS NULL OR rsi.status NOT IN ('DELIVERED','FAILED','PARTIAL','RETURNED','SKIPPED'));
+
+
+If any rows → blocking (NOT_READY).
+
+A3) Missing POD for delivered invoices
+
+Your pod_records.invoice_nos is JSON; assume it’s a JSON array of invoice strings.
+
+SELECT rsi.invoice_no, rs.route_stop_id
+FROM route_stop rs
+JOIN route_stop_invoice rsi
+  ON rsi.route_stop_id = rs.route_stop_id
+ AND rsi.is_active = true
+LEFT JOIN pod_records pr
+  ON pr.route_id = rs.shipment_id
+ AND pr.route_stop_id = rs.route_stop_id
+ AND (pr.invoice_nos::jsonb @> to_jsonb(ARRAY[rsi.invoice_no]::text[]))
+WHERE rs.shipment_id = :shipment_id
+  AND rs.deleted_at IS NULL
+  AND rsi.status = 'DELIVERED'
+  AND pr.id IS NULL;
+
+
+If any rows → blocking (NOT_READY) if POD is mandatory for DELIVERED.
+
+A4) Open post-delivery cases (blocking)
+SELECT ipdc.invoice_no, ipdc.status, ipdc.reason
+FROM invoice_post_delivery_cases ipdc
+JOIN route_stop_invoice rsi
+  ON rsi.invoice_no = ipdc.invoice_no
+ AND rsi.is_active = true
+JOIN route_stop rs
+  ON rs.route_stop_id = rsi.route_stop_id
+WHERE rs.shipment_id = :shipment_id
+  AND ipdc.status = 'OPEN';
+
+
+If any rows → blocking (NOT_READY).
+
+A5) Unresolved discrepancies (blocking or warning)
+SELECT d.invoice_no, d.discrepancy_type, d.status, d.is_resolved
+FROM delivery_discrepancies d
+JOIN route_stop_invoice rsi
+  ON rsi.invoice_no = d.invoice_no
+ AND rsi.is_active = true
+JOIN route_stop rs
+  ON rs.route_stop_id = rsi.route_stop_id
+WHERE rs.shipment_id = :shipment_id
+  AND d.is_resolved = false;
+
+
+I’d treat unresolved discrepancies as blocking unless you explicitly allow reconciliation “with open disputes”.
+
+A6) Cash rollup (compute & store route totals)
+
+Use cod_receipts as truth for money captured at stops.
+
+SELECT
+  COALESCE(SUM(expected_amount),0) AS cash_expected,
+  COALESCE(SUM(received_amount),0) AS cash_collected,
+  COALESCE(SUM(variance),0) AS cash_variance_sum
+FROM cod_receipts
+WHERE route_id = :shipment_id;
+
+
+Then update:
+
+shipments.cash_expected
+
+shipments.cash_collected (you have this field)
+
+shipments.cash_variance = cash_collected - cash_expected (recommended meaning)
+
+You also have cash_handed_in. Keep that as what the driver physically hands in to office.
+
+A7) Missing COD receipts (only if COD is mandatory)
+
+Right now your schema does not store payment method per invoice. So you cannot infer which invoices are COD unless:
+
+your driver UI creates cod_receipts for every stop that needs payment, OR
+
+you add a small table for invoice payment expectation (recommended; see §6)
+
+For now implement: “If there are any cod_receipts for the route, enforce completeness per stop that has cash.” (Or enforce based on credit terms if you can infer.)
+
+Step B — Driver submits route
+
+Driver action “Submit Route” should require:
+
+reconciliation_status = READY (or allow submit with warnings)
+
+driver enters cash_handed_in
+
+system sets:
+
+shipments.driver_submitted_at = now()
+
+shipments.reconciliation_status = DRIVER_SUBMITTED
+
+shipments.status = completed (if not already)
+
+shipments.settlement_notes as optional
+
+optionally store “handover variance” = cash_handed_in - cash_collected in notes (since no column)
+
+Step C — Admin/Finance review
+
+Admin sees route issues and can:
+
+mark missing POD (reject delivery status to FAILED/PARTIAL if truly no proof)
+
+resolve discrepancies / close post-delivery cases
+
+check COD variances stop-by-stop (expected vs received)
+
+confirm receipts are PS365-synced (cod_receipts.ps365_receipt_id, ps365_synced_at)
+
+When admin begins review:
+
+set shipments.reconciliation_status = UNDER_REVIEW
+
+Step D — Finalize reconciliation
+
+When everything is correct:
+
+set:
+
+shipments.reconciled_at = now()
+
+shipments.reconciled_by = current_user
+
+shipments.reconciliation_status = RECONCILED
+
+Optionally, after all receipts are synced and cash settlement is cleared:
+
+set:
+
+shipments.settlement_status = CLEARED
+
+shipments.settlement_cleared_at/by
+
+4) Core reports (queries + what to show)
+Report 1 — Route Reconciliation Summary (per shipment)
+
+Show:
+
+delivered/failed/partial counts
+
+missing POD count
+
+open cases count
+
+unresolved discrepancy count
+
+cash expected / collected / handed in / variances
+
+receipt sync health
+
+WITH inv AS (
+  SELECT rsi.invoice_no, rsi.status
+  FROM route_stop rs
+  JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id AND rsi.is_active = true
+  WHERE rs.shipment_id = :shipment_id AND rs.deleted_at IS NULL
+),
+pod_missing AS (
+  SELECT COUNT(*) AS cnt
+  FROM route_stop rs
+  JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id AND rsi.is_active = true
+  LEFT JOIN pod_records pr
+    ON pr.route_id = rs.shipment_id
+   AND pr.route_stop_id = rs.route_stop_id
+   AND (pr.invoice_nos::jsonb @> to_jsonb(ARRAY[rsi.invoice_no]::text[]))
+  WHERE rs.shipment_id = :shipment_id
+    AND rs.deleted_at IS NULL
+    AND rsi.status = 'DELIVERED'
+    AND pr.id IS NULL
+),
+open_cases AS (
+  SELECT COUNT(*) AS cnt
+  FROM invoice_post_delivery_cases ipdc
+  JOIN inv ON inv.invoice_no = ipdc.invoice_no
+  WHERE ipdc.status = 'OPEN'
+),
+unresolved_disc AS (
+  SELECT COUNT(*) AS cnt
+  FROM delivery_discrepancies d
+  JOIN inv ON inv.invoice_no = d.invoice_no
+  WHERE d.is_resolved = false
+),
+cash AS (
+  SELECT
+    COALESCE(SUM(expected_amount),0) expected,
+    COALESCE(SUM(received_amount),0) received,
+    COALESCE(SUM(CASE WHEN ps365_synced_at IS NULL THEN 1 ELSE 0 END),0) not_synced_count
+  FROM cod_receipts
+  WHERE route_id = :shipment_id
+)
+SELECT
+  (SELECT COUNT(*) FROM inv) AS invoices_total,
+  (SELECT COUNT(*) FROM inv WHERE status='DELIVERED') AS delivered,
+  (SELECT COUNT(*) FROM inv WHERE status='FAILED') AS failed,
+  (SELECT COUNT(*) FROM inv WHERE status='PARTIAL') AS partial,
+  (SELECT cnt FROM pod_missing) AS missing_pod,
+  (SELECT cnt FROM open_cases) AS open_cases,
+  (SELECT cnt FROM unresolved_disc) AS unresolved_discrepancies,
+  (SELECT expected FROM cash) AS cash_expected,
+  (SELECT received FROM cash) AS cash_received,
+  (SELECT not_synced_count FROM cash) AS receipts_not_synced;
+
+Report 2 — Stop-by-stop reconciliation (operational)
+
+Show per stop:
+
+stop details (seq, customer, address)
+
+invoices under stop + their final status
+
+POD exists (yes/no)
+
+COD receipt exists (yes/no), expected/received/variance, payment_method, cheque details
+
+Stop header:
+
+SELECT
+  rs.route_stop_id, rs.seq_no, rs.stop_name, rs.stop_addr, rs.stop_city,
+  rs.delivered_at, rs.failed_at, rs.failure_reason
+FROM route_stop rs
+WHERE rs.shipment_id = :shipment_id AND rs.deleted_at IS NULL
+ORDER BY rs.seq_no;
+
+
+Invoices per stop:
+
+SELECT rsi.invoice_no, rsi.status, i.total_grand, i.customer_name
+FROM route_stop_invoice rsi
+JOIN invoices i ON i.invoice_no = rsi.invoice_no
+WHERE rsi.route_stop_id = :route_stop_id AND rsi.is_active = true
+ORDER BY rsi.invoice_no;
+
+
+COD per stop:
+
+SELECT
+  id, payment_method, expected_amount, received_amount, variance,
+  cheque_number, cheque_date, ps365_receipt_id, ps365_synced_at
+FROM cod_receipts
+WHERE route_id = :shipment_id AND route_stop_id = :route_stop_id
+ORDER BY created_at DESC;
+
+
+POD per stop:
+
+SELECT id, collected_at, collected_by, receiver_name, photo_paths, notes
+FROM pod_records
+WHERE route_id = :shipment_id AND route_stop_id = :route_stop_id
+ORDER BY collected_at DESC;
+
+Report 3 — Exceptions report (what needs attention)
+
+invoices not DELIVERED
+
+invoices with open cases / unresolved discrepancies
+
+COD receipts with variance != 0
+
+receipts not synced to PS365
+
+Example:
+
+SELECT
+  rsi.invoice_no,
+  rsi.status,
+  COALESCE(ipdc.status, 'NONE') AS post_delivery_case,
+  COALESCE(d.is_resolved::text, 'N/A') AS discrepancy_resolved,
+  cr.variance AS cod_variance,
+  cr.ps365_synced_at
+FROM route_stop rs
+JOIN route_stop_invoice rsi ON rsi.route_stop_id = rs.route_stop_id AND rsi.is_active = true
+LEFT JOIN invoice_post_delivery_cases ipdc ON ipdc.invoice_no = rsi.invoice_no
+LEFT JOIN delivery_discrepancies d ON d.invoice_no = rsi.invoice_no AND d.is_resolved = false
+LEFT JOIN cod_receipts cr ON cr.route_id = rs.shipment_id AND cr.route_stop_id = rs.route_stop_id
+WHERE rs.shipment_id = :shipment_id
+  AND rs.deleted_at IS NULL
+  AND (
+    rsi.status <> 'DELIVERED'
+    OR ipdc.status = 'OPEN'
+    OR d.id IS NOT NULL
+    OR (cr.variance IS NOT NULL AND cr.variance <> 0)
+    OR (cr.id IS NOT NULL AND cr.ps365_synced_at IS NULL)
+  )
+ORDER BY rs.seq_no, rsi.invoice_no;
+
+Report 4 — Reroute audit (control report)
+SELECT invoice_no, action, reason, notes, actor_username, created_at
+FROM invoice_route_history
+WHERE action='REROUTED'
+  AND created_at::date BETWEEN :d1 AND :d2
+ORDER BY created_at DESC;
+
+5) Replit implementation tasks (endpoints + UI)
+Endpoints (minimum)
+
+POST /reconciliation/shipments/<id>/refresh
+
+runs all checks
+
+updates shipments.cash_expected/cash_collected/cash_variance
+
+sets reconciliation_status to READY or NOT_READY
+
+returns list of issues (blocking vs warning)
+
+POST /reconciliation/shipments/<id>/submit (driver)
+
+requires READY (or allows warnings)
+
+payload: cash_handed_in, optional note
+
+sets driver_submitted_at, reconciliation_status=DRIVER_SUBMITTED
+
+POST /reconciliation/shipments/<id>/start-review (admin)
+
+sets reconciliation_status=UNDER_REVIEW
+
+POST /reconciliation/shipments/<id>/finalize (admin)
+
+requires “no blocking issues”
+
+sets reconciled_at/by, reconciliation_status=RECONCILED
+
+POST /reconciliation/shipments/<id>/clear-settlement (finance)
+
+sets settlement_status=CLEARED, settlement_cleared_at/by
+
+UI pages
+
+Shipment list (by delivery_date): status badges (READY/NOT_READY/…)
+
+Shipment detail:
+
+summary (counts + cash)
+
+issues panel (blocking/warning)
+
+stops table (seq, name, invoice statuses, POD, COD variance)
+
+buttons: Refresh / Submit (driver) / Start Review / Finalize / Clear Settlement
+
+Exports:
+
+CSV export for summary and exceptions
+
+6) One critical gap (fix now if you want “cash completeness” to be correct)
+
+Right now the DB does not store “expected payment method per invoice”. Without that, you can’t reliably say “missing COD receipt” at invoice level.
+
+Recommended small table (adds high value)
+
+Create invoice_payment_expectations:
+
+invoice_no (PK/FK)
+
+expected_payment_method (CASH/CHEQUE/CARD/BANK_TRANSFER/CREDIT)
+
+is_cod boolean
+
+expected_amount numeric (default invoice total)
+
+snapshot fields: customer_code_365, terms_code, due_days, captured_at
+
+Populate it when invoices are imported:
+
+from PS365 payment/terms if available
+
+otherwise infer from credit_terms (customer_code -> allow_cash, allow_cheque, etc.)
+
+Then your “missing COD” becomes deterministic.
+
+If you want, I’ll write the migration + population job using your existing credit_terms and invoices.customer_code_365.

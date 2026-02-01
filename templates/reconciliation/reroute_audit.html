@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Reroute Audit Trail{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+    <h4 class="mb-3">Reroute Audit Trail</h4>
+    
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Date From</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}" required>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Date To</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}" required>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    {% if records %}
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Invoice</th>
+                        <th>Action</th>
+                        <th>Reason</th>
+                        <th>Notes</th>
+                        <th>Actor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                    <tr>
+                        <td>{{ r.created_at }}</td>
+                        <td><strong>{{ r.invoice_no }}</strong></td>
+                        <td><span class="badge bg-info">{{ r.action }}</span></td>
+                        <td>{{ r.reason or '-' }}</td>
+                        <td>{{ r.notes or '-' }}</td>
+                        <td>{{ r.actor_username }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% elif date_from and date_to %}
+    <div class="alert alert-info">No reroute records found for the selected date range.</div>
+    {% else %}
+    <div class="alert alert-secondary">Select a date range to view reroute audit trail.</div>
+    {% endif %}
+</div>
+{% endblock %}

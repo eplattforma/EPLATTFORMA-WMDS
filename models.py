@@ -1046,6 +1046,29 @@ class InvoiceDeliveryEvent(db.Model):
     def __repr__(self):
         return f"<InvoiceDeliveryEvent {self.action} {self.invoice_no} by {self.actor}>"
 
+
+# Invoice Payment Expectations (for COD completeness tracking)
+class InvoicePaymentExpectation(db.Model):
+    __tablename__ = 'invoice_payment_expectations'
+    
+    invoice_no = db.Column(db.String(50), db.ForeignKey('invoices.invoice_no', ondelete='CASCADE'), primary_key=True)
+    expected_payment_method = db.Column(db.String(20), nullable=False)  # CASH, CHEQUE, CARD, BANK_TRANSFER, CREDIT
+    is_cod = db.Column(db.Boolean, nullable=False, default=False)  # True if payment on delivery expected
+    expected_amount = db.Column(db.Numeric(12, 2), nullable=True)  # Default: invoice total
+    
+    # Snapshot fields for audit
+    customer_code_365 = db.Column(db.String(50), nullable=True)
+    terms_code = db.Column(db.String(50), nullable=True)
+    due_days = db.Column(db.Integer, nullable=True)
+    captured_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
+    
+    # Relationship
+    invoice = db.relationship('Invoice', backref=db.backref('payment_expectation', uselist=False))
+    
+    def __repr__(self):
+        return f"<InvoicePaymentExpectation {self.invoice_no}: {self.expected_payment_method} cod={self.is_cod}>"
+
+
 # Delivery Discrepancy Tracking
 class DeliveryDiscrepancy(db.Model):
     __tablename__ = 'delivery_discrepancies'

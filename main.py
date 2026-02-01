@@ -175,6 +175,10 @@ try:
 except ValueError:
     logging.info("Admin Tools blueprint already registered")
 
+# Register the Reconciliation blueprint
+from routes_reconciliation import reconciliation_bp
+app.register_blueprint(reconciliation_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal
