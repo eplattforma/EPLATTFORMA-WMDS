@@ -985,7 +985,7 @@ class RouteStop(db.Model, SoftDeleteMixin):
         return f"<RouteStop {self.seq_no}: {self.stop_name or 'Unnamed'}>"
 
 
-# Route Stop Invoice (invoices at each stop)
+# Route Stop Invoice (invoices at each stop) - CANONICAL SOURCE for invoice-to-stop mapping
 class RouteStopInvoice(db.Model):
     __tablename__ = 'route_stop_invoice'
     
@@ -993,16 +993,23 @@ class RouteStopInvoice(db.Model):
     route_stop_id = db.Column(db.Integer, db.ForeignKey('route_stop.route_stop_id', ondelete='CASCADE'), nullable=False)
     invoice_no = db.Column(db.String(50), db.ForeignKey('invoices.invoice_no', ondelete='RESTRICT'), nullable=False)
     
-    status = db.Column(db.String(50))  # ready_for_dispatch / shipped / out_for_delivery / delivered / delivery_failed / returned_to_warehouse
+    # Status: PENDING, OUT_FOR_DELIVERY, DELIVERED, FAILED, PARTIAL, SKIPPED, RETURNED
+    status = db.Column(db.String(50))
     weight_kg = db.Column(db.Float)
     notes = db.Column(db.Text)
+    
+    # Versioning columns for reroute-safe history
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
+    effective_from = db.Column(UTCDateTime(), nullable=False, default=get_utc_now, server_default=db.func.now())
+    effective_to = db.Column(UTCDateTime(), nullable=True)
+    changed_by = db.Column(db.String(64), nullable=True)
     
     # Relationships
     stop = db.relationship('RouteStop', backref='invoices')
     invoice = db.relationship('Invoice', backref='route_stop_invoices')
     
     def __repr__(self):
-        return f"<RouteStopInvoice {self.invoice_no} @ Stop {self.route_stop_id}>"
+        return f"<RouteStopInvoice {self.invoice_no} @ Stop {self.route_stop_id} active={self.is_active}>"
 
 
 # Shipping Events Table (audit trail for shipping actions)

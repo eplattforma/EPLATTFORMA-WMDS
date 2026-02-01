@@ -39,9 +39,11 @@ def recompute_route_completion(route_id, *, commit: bool = True):
     
     # Count pending invoices using case-insensitive comparison
     # An invoice is pending if status is NULL or not in the terminal set
+    # ONLY consider active mappings (is_active=True)
     pending_count = db.session.query(RouteStopInvoice).join(RouteStop).filter(
         RouteStop.shipment_id == route_id,
         RouteStop.deleted_at == None,
+        RouteStopInvoice.is_active == True,
         db.or_(
             RouteStopInvoice.status.is_(None),
             func.lower(RouteStopInvoice.status).notin_(TERMINAL_DELIVERY_STATUSES)
@@ -322,3 +324,371 @@ def get_dashboard_routes(user_role=None, driver_username=None):
         "pending_reconciliation": pending_reconciliation,
         "archived": archived
     }
+
+
+# =============================================================================
+# CANONICAL INVOICE-TO-STOP MAPPING FUNCTIONS
+# =============================================================================
+
+def assign_invoice_to_stop(invoice_no: str, route_stop_id: int, actor: str, 
+                           status: str = "PENDING", weight_kg: float = None,
+                           notes: str = None, commit: bool = True):
+    """
+    Assign an invoice to a route stop (initial assignment).
+    
+    This creates an active mapping in route_stop_invoice and updates
+    the cache columns on invoices for backward compatibility.
+    
+    Args:
+        invoice_no: The invoice number to assign
+        route_stop_id: The route stop ID to assign to
+        actor: Username performing the action
+        status: Initial status (default PENDING)
+        weight_kg: Optional weight in kg
+        notes: Optional notes
+        commit: Whether to commit the transaction
+    
+    Returns:
+        RouteStopInvoice: The created mapping
+    
+    Raises:
+        ValueError: If invoice or stop not found, or invoice already assigned
+    """
+    from models import Invoice, InvoiceRouteHistory
+    
+    stop = RouteStop.query.get(route_stop_id)
+    if not stop:
+        raise ValueError(f"Route stop {route_stop_id} not found")
+    
+    invoice = Invoice.query.get(invoice_no)
+    if not invoice:
+        raise ValueError(f"Invoice {invoice_no} not found")
+    
+    now = get_utc_now()
+    
+    # Check for existing active mapping
+    active = RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+    if active:
+        # Close existing mapping (this handles re-assignment case)
+        active.is_active = False
+        active.effective_to = now
+        active.changed_by = actor
+        logging.info(f"Closed existing mapping for {invoice_no} from stop {active.route_stop_id}")
+    
+    # Create new active mapping
+    rsi = RouteStopInvoice(
+        route_stop_id=route_stop_id,
+        invoice_no=invoice_no,
+        status=status,
+        weight_kg=weight_kg,
+        notes=notes,
+        is_active=True,
+        effective_from=now,
+        changed_by=actor
+    )
+    db.session.add(rsi)
+    
+    # Update cache columns on invoice for backward compatibility
+    invoice.stop_id = route_stop_id
+    invoice.route_id = stop.shipment_id
+    
+    # Add audit history
+    db.session.add(InvoiceRouteHistory(
+        invoice_no=invoice_no,
+        route_id=stop.shipment_id,
+        route_stop_id=route_stop_id,
+        action="ASSIGNED",
+        reason=None,
+        notes=notes,
+        actor_username=actor
+    ))
+    
+    if commit:
+        db.session.commit()
+    
+    logging.info(f"Invoice {invoice_no} assigned to stop {route_stop_id} by {actor}")
+    return rsi
+
+
+def reroute_invoice(invoice_no: str, new_route_stop_id: int, actor: str,
+                    reason: str = None, notes: str = None, commit: bool = True):
+    """
+    Reroute an invoice from its current stop to a new stop.
+    
+    This closes the old active mapping and creates a new one,
+    preserving full history for reconciliation.
+    
+    Args:
+        invoice_no: The invoice number to reroute
+        new_route_stop_id: The new route stop ID
+        actor: Username performing the action
+        reason: Optional reason for rerouting
+        notes: Optional additional notes
+        commit: Whether to commit the transaction
+    
+    Returns:
+        RouteStopInvoice: The new active mapping
+    
+    Raises:
+        ValueError: If invoice has no active mapping or new stop not found
+    """
+    from models import Invoice, InvoiceRouteHistory
+    
+    now = get_utc_now()
+    
+    # Find current active mapping
+    old = RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+    if not old:
+        raise ValueError(f"Invoice {invoice_no} has no active stop mapping")
+    
+    new_stop = RouteStop.query.get(new_route_stop_id)
+    if not new_stop:
+        raise ValueError(f"Route stop {new_route_stop_id} not found")
+    
+    old_stop_id = old.route_stop_id
+    old_status = old.status or "PENDING"
+    
+    # Close old mapping
+    old.is_active = False
+    old.effective_to = now
+    old.changed_by = actor
+    
+    # Create new mapping (preserve status from old mapping)
+    new_rsi = RouteStopInvoice(
+        route_stop_id=new_route_stop_id,
+        invoice_no=invoice_no,
+        status=old_status,
+        weight_kg=old.weight_kg,
+        notes=old.notes,
+        is_active=True,
+        effective_from=now,
+        changed_by=actor
+    )
+    db.session.add(new_rsi)
+    
+    # Update cache columns on invoice
+    invoice = Invoice.query.get(invoice_no)
+    if invoice:
+        invoice.stop_id = new_route_stop_id
+        invoice.route_id = new_stop.shipment_id
+    
+    # Add audit history
+    history_notes = f"from_stop={old_stop_id}"
+    if notes:
+        history_notes += f"; {notes}"
+    
+    db.session.add(InvoiceRouteHistory(
+        invoice_no=invoice_no,
+        route_id=new_stop.shipment_id,
+        route_stop_id=new_route_stop_id,
+        action="REROUTED",
+        reason=reason,
+        notes=history_notes,
+        actor_username=actor
+    ))
+    
+    if commit:
+        db.session.commit()
+    
+    logging.info(f"Invoice {invoice_no} rerouted from stop {old_stop_id} to stop {new_route_stop_id} by {actor}")
+    return new_rsi
+
+
+def unassign_invoice_from_route(invoice_no: str, actor: str, 
+                                 reason: str = None, commit: bool = True):
+    """
+    Remove an invoice from its current route (close active mapping without creating new one).
+    
+    Args:
+        invoice_no: The invoice number to unassign
+        actor: Username performing the action
+        reason: Optional reason for unassignment
+        commit: Whether to commit the transaction
+    
+    Returns:
+        bool: True if successful
+    
+    Raises:
+        ValueError: If invoice has no active mapping
+    """
+    from models import Invoice, InvoiceRouteHistory
+    
+    now = get_utc_now()
+    
+    active = RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+    if not active:
+        raise ValueError(f"Invoice {invoice_no} has no active stop mapping")
+    
+    old_stop_id = active.route_stop_id
+    old_route_id = active.stop.shipment_id if active.stop else None
+    
+    # Close mapping
+    active.is_active = False
+    active.effective_to = now
+    active.changed_by = actor
+    
+    # Clear cache columns on invoice
+    invoice = Invoice.query.get(invoice_no)
+    if invoice:
+        invoice.stop_id = None
+        invoice.route_id = None
+    
+    # Add audit history
+    db.session.add(InvoiceRouteHistory(
+        invoice_no=invoice_no,
+        route_id=old_route_id,
+        route_stop_id=old_stop_id,
+        action="UNASSIGNED",
+        reason=reason,
+        notes=None,
+        actor_username=actor
+    ))
+    
+    if commit:
+        db.session.commit()
+    
+    logging.info(f"Invoice {invoice_no} unassigned from stop {old_stop_id} by {actor}")
+    return True
+
+
+def get_active_invoice_mapping(invoice_no: str):
+    """
+    Get the current active route mapping for an invoice.
+    
+    Returns:
+        RouteStopInvoice | None: The active mapping or None
+    """
+    return RouteStopInvoice.query.filter_by(invoice_no=invoice_no, is_active=True).first()
+
+
+def get_stop_active_invoices(route_stop_id: int):
+    """
+    Get all active invoice mappings for a stop.
+    
+    Returns:
+        list[RouteStopInvoice]: List of active mappings
+    """
+    return RouteStopInvoice.query.filter_by(
+        route_stop_id=route_stop_id, 
+        is_active=True
+    ).all()
+
+
+def get_route_active_invoices(route_id: int):
+    """
+    Get all active invoice mappings for a route (shipment).
+    
+    Returns:
+        list[RouteStopInvoice]: List of active mappings
+    """
+    return db.session.query(RouteStopInvoice).join(RouteStop).filter(
+        RouteStop.shipment_id == route_id,
+        RouteStop.deleted_at == None,
+        RouteStopInvoice.is_active == True
+    ).all()
+
+
+def compute_stop_status(route_stop_id: int):
+    """
+    Compute aggregate status for a stop based on its active invoices.
+    
+    Returns:
+        str: 'DELIVERED', 'FAILED', 'PARTIAL', or 'IN_PROGRESS'
+    """
+    invoices = get_stop_active_invoices(route_stop_id)
+    if not invoices:
+        return 'IN_PROGRESS'
+    
+    delivered_count = sum(1 for i in invoices if i.status and i.status.upper() == 'DELIVERED')
+    failed_count = sum(1 for i in invoices if i.status and i.status.upper() in ('FAILED', 'RETURNED'))
+    total = len(invoices)
+    
+    if delivered_count == total:
+        return 'DELIVERED'
+    elif failed_count == total:
+        return 'FAILED'
+    elif delivered_count + failed_count > 0:
+        return 'PARTIAL'
+    else:
+        return 'IN_PROGRESS'
+
+
+def check_route_mapping_drift(route_id: int = None):
+    """
+    Check for drift between route_stop_invoice canonical mapping and 
+    invoices.route_id/stop_id cache columns.
+    
+    Args:
+        route_id: Optional route ID to check (None = check all)
+    
+    Returns:
+        list[dict]: List of invoices with drift
+    """
+    from models import Invoice
+    
+    query = db.session.query(
+        Invoice.invoice_no,
+        Invoice.route_id,
+        Invoice.stop_id,
+        RouteStopInvoice.route_stop_id,
+        RouteStop.shipment_id
+    ).join(
+        RouteStopInvoice, 
+        db.and_(
+            RouteStopInvoice.invoice_no == Invoice.invoice_no,
+            RouteStopInvoice.is_active == True
+        )
+    ).join(
+        RouteStop,
+        RouteStop.route_stop_id == RouteStopInvoice.route_stop_id
+    ).filter(
+        db.or_(
+            Invoice.stop_id != RouteStopInvoice.route_stop_id,
+            Invoice.route_id != RouteStop.shipment_id
+        )
+    )
+    
+    if route_id:
+        query = query.filter(RouteStop.shipment_id == route_id)
+    
+    results = query.all()
+    
+    drift_list = []
+    for row in results:
+        drift_list.append({
+            "invoice_no": row.invoice_no,
+            "invoice_route_id": row.route_id,
+            "invoice_stop_id": row.stop_id,
+            "canonical_stop_id": row.route_stop_id,
+            "canonical_route_id": row.shipment_id
+        })
+    
+    return drift_list
+
+
+def fix_route_mapping_drift(route_id: int = None, commit: bool = True):
+    """
+    Fix drift by updating invoice cache columns from canonical mapping.
+    
+    Args:
+        route_id: Optional route ID to fix (None = fix all)
+        commit: Whether to commit the transaction
+    
+    Returns:
+        int: Number of invoices fixed
+    """
+    from models import Invoice
+    
+    drift_list = check_route_mapping_drift(route_id)
+    
+    for drift in drift_list:
+        invoice = Invoice.query.get(drift["invoice_no"])
+        if invoice:
+            invoice.route_id = drift["canonical_route_id"]
+            invoice.stop_id = drift["canonical_stop_id"]
+    
+    if commit and drift_list:
+        db.session.commit()
+    
+    logging.info(f"Fixed route mapping drift for {len(drift_list)} invoices")
+    return len(drift_list)
