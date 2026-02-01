@@ -16,7 +16,7 @@ from models import (
     Shipment, RouteStop, RouteStopInvoice, Invoice, InvoiceItem,
     DeliveryEvent, DeliveryLine, CODReceipt, PODRecord,
     DeliveryDiscrepancy, DeliveryDiscrepancyEvent, User, CreditTerms, utc_now,
-    InvoicePostDeliveryCase, InvoiceRouteHistory
+    InvoicePostDeliveryCase, InvoiceRouteHistory, DwInvoiceLine
 )
 import services_warehouse_intake
 from utils_pdf import generate_driver_receipt_pdf
@@ -396,9 +396,18 @@ def deliver_wizard(stop_id):
             if invoice_total:
                 total_invoices_amount += Decimal(str(invoice_total))
             
-            # Add items
+            # Add items with line totals from DwInvoiceLine
             items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
             for item in items:
+                # Try to get line total with VAT from DwInvoiceLine
+                line_total_incl = None
+                dw_line = DwInvoiceLine.query.filter_by(
+                    invoice_no_365=invoice_no,
+                    item_code_365=item.item_code
+                ).first()
+                if dw_line and dw_line.line_total_incl:
+                    line_total_incl = float(dw_line.line_total_incl)
+                
                 items_data.append({
                     'invoice_no': invoice_no,
                     'item_code': item.item_code,
@@ -406,7 +415,8 @@ def deliver_wizard(stop_id):
                     'qty_ordered': float(item.qty or 0),
                     'unit_type': item.unit_type,
                     'pack': item.pack,
-                    'location': item.location
+                    'location': item.location,
+                    'line_total_incl': line_total_incl
                 })
     
     return render_template('driver/deliver_wizard.html',

@@ -329,6 +329,11 @@ document.getElementById('ex-item').addEventListener('change', function() {
             displayText += ` X${item.pack}`;
         }
         
+        // Add line total with VAT if available
+        if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
+            displayText += ` | Value: ${item.line_total_incl.toFixed(2)}`;
+        }
+        
         expectedDisplay.textContent = displayText;
         expectedDisplay.style.display = 'block';
         qtyContainer.style.display = 'block';
