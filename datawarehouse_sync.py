@@ -20,15 +20,15 @@ logger = logging.getLogger(__name__)
 
 
 class TZFormatter(logging.Formatter):
-    """Custom formatter that converts times to Africa/Cairo timezone"""
+    """Custom formatter that converts times to local timezone (Cyprus)"""
     converter = None
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.tz = pytz.timezone('Africa/Cairo')
+        self.tz = pytz.timezone(os.environ.get('LOCAL_TZ', 'Asia/Nicosia'))
     
     def formatTime(self, record, datefmt=None):
-        """Convert log time to Africa/Cairo timezone"""
+        """Convert log time to local timezone (Cyprus/Asia-Nicosia)"""
         dt = datetime.fromtimestamp(record.created, tz=pytz.UTC)
         dt_local = dt.astimezone(self.tz)
         if datefmt:
@@ -60,10 +60,18 @@ def _setup_file_logging(log_name: str):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(logs_dir, f"{log_name}_{timestamp}.log")
     
-    # Avoid duplicate handlers on repeated runs
+    # Avoid duplicate handlers on repeated runs - check by log file path pattern
+    existing_handlers = []
     for h in list(logger.handlers):
         if isinstance(h, RotatingFileHandler):
-            logger.removeHandler(h)
+            # Check if handler is for similar log type (same prefix)
+            if hasattr(h, 'baseFilename') and log_name in h.baseFilename:
+                existing_handlers.append(h)
+    
+    # Remove old handlers for this log type
+    for h in existing_handlers:
+        logger.removeHandler(h)
+        h.close()
 
     file_handler = RotatingFileHandler(
         log_file, maxBytes=10*1024*1024, backupCount=5
@@ -401,8 +409,14 @@ def test_fetch_single_item(session: Session):
 # FULL UPDATE
 # ----------------------
 
-def full_dw_update(session: Session):
-    """Full refresh of items + all dimensions. Called from menu option."""
+def full_dw_update(session: Session, force_update: bool = False):
+    """Full refresh of items + all dimensions. Called from menu option.
+    
+    Args:
+        session: SQLAlchemy session
+        force_update: If True, update all records regardless of hash match.
+                      If False (default), only update records where hash changed.
+    """
     import io
     import logging as py_logging
     
@@ -433,8 +447,12 @@ def full_dw_update(session: Session):
         except Exception as e:
             logger.error(f"Error updating sync status: {str(e)}", exc_info=True)
 
+    # Update status at start
+    _update_status("Starting full sync...")
+    
     # 1) Categories (optional - skip if not available)
     try:
+        _update_status("Syncing item categories...")
         logger.info("Syncing item categories...")
         response = call_ps365("list_item_categories", {}, method="GET")
         items = response.get("list_item_categories") or []
@@ -451,6 +469,7 @@ def full_dw_update(session: Session):
 
         session.commit()
         logger.info(f"Item categories synced successfully. Total: {len(items)}")
+        _update_status(f"Categories done ({len(items)})")
     except HTTPError as e:
         if e.response.status_code == 404:
             logger.warning("list_item_categories endpoint not available (404)")
@@ -459,6 +478,7 @@ def full_dw_update(session: Session):
 
     # 2) Brands (optional - skip if not available)
     try:
+        _update_status("Syncing brands...")
         logger.info("Syncing brands...")
         response = call_ps365("list_brands", {}, method="GET")
         brands = response.get("list_brands") or []
@@ -474,6 +494,7 @@ def full_dw_update(session: Session):
 
         session.commit()
         logger.info("Brands synced successfully")
+        _update_status("Brands done")
     except HTTPError as e:
         if e.response.status_code == 404:
             logger.warning("list_brands endpoint not available (404)")
@@ -482,6 +503,7 @@ def full_dw_update(session: Session):
 
     # 3) Seasons (optional - skip if not available)
     try:
+        _update_status("Syncing seasons...")
         logger.info("Syncing seasons...")
         response = call_ps365("list_seasons", {}, method="GET")
         seasons = response.get("list_seasons") or []
@@ -497,6 +519,7 @@ def full_dw_update(session: Session):
 
         session.commit()
         logger.info("Seasons synced successfully")
+        _update_status("Seasons done")
     except HTTPError as e:
         if e.response.status_code == 404:
             logger.warning("list_seasons endpoint not available (404)")
@@ -506,6 +529,7 @@ def full_dw_update(session: Session):
     # 4) Attributes 1-6 (optional - skip if not available)
     for attr_no in range(1, 7):
         try:
+            _update_status(f"Syncing attribute {attr_no}...")
             logger.info(f"Syncing attribute {attr_no}...")
             # First, get the total count
             count_response = call_ps365("list_attributes", {
@@ -550,6 +574,7 @@ def full_dw_update(session: Session):
                 session.commit()
                 page += 1
             logger.info(f"Attribute {attr_no} synced successfully")
+            _update_status(f"Attribute {attr_no} done")
         except HTTPError as e:
             if e.response.status_code == 404:
                 logger.warning(f"list_attributes endpoint not available for attribute {attr_no} (404)")
@@ -557,6 +582,7 @@ def full_dw_update(session: Session):
                 raise
 
                     # 5) Items – ALL items (required) - Uses proven working approach
+    _update_status("Syncing items...")
     logger.info("Syncing items...")
     
     # Debug: Print the list_items endpoint payload being sent
@@ -676,8 +702,8 @@ def full_dw_update(session: Session):
                     # Check if already exists from prefetched map
                     existing = existing_items_map.get(code)
                     if existing:
-                        # Force update all records by ignoring hash check
-                        if True: # Always update
+                        # Update only if force_update or hash changed
+                        if force_update or existing.attr_hash != attr_hash:
                             for k, v in core.items():
                                 setattr(existing, k, v)
                             existing.attr_hash = attr_hash
@@ -706,6 +732,7 @@ def full_dw_update(session: Session):
                 session.rollback()
             
             logger.info(f"Page {page}: Inserted {page_inserted}, Skipped {page_skipped}, Barcodes extracted: {page_barcodes_found}")
+            _update_status(f"Items page {page}: {total_inserted} inserted so far")
             
             page += 1
         
@@ -725,6 +752,7 @@ def full_dw_update(session: Session):
     final_item_count = session.query(DwItem).count()
     
     # Log final summary
+    _update_status(f"Completed: {total_inserted} items inserted, {final_item_count} total")
     logger.info(f"\n{'='*80}")
     logger.info(f"✅ FULL DATA WAREHOUSE SYNC COMPLETED SUCCESSFULLY")
     logger.info(f"{'='*80}")
@@ -1111,7 +1139,7 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                     points_earned=inv.get("points_earned"),
                     points_redeemed=inv.get("points_redeemed"),
                     attr_hash=attr_hash,
-                    last_sync_at=datetime.now()
+                    last_sync_at=utc_now_for_db()
                 )
                 session.add(header)
                 inserted += 1
@@ -1325,7 +1353,7 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
                         line_total_vat=line_total_vat,
                         line_total_incl=line_total_incl,
                         attr_hash=attr_hash,
-                        last_sync_at=datetime.now()
+                        last_sync_at=utc_now_for_db()
                     )
                     session.add(invoice_line)
                     inserted += 1
