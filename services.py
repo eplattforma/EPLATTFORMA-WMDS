@@ -171,7 +171,7 @@ def route_progress(shipment_id: int):
         .join(Invoice, Invoice.invoice_no == RouteStopInvoice.invoice_no)\
         .filter(
             RouteStop.shipment_id == shipment_id,
-            Invoice.status.in_(["delivered", "returned_to_warehouse", "delivery_failed"])
+            func.upper(Invoice.status).in_(["DELIVERED", "RETURNED_TO_WAREHOUSE", "DELIVERY_FAILED"])
         )\
         .scalar() or 0
     

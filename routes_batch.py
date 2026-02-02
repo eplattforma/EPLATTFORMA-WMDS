@@ -28,7 +28,7 @@ def get_remaining_locked_items_count(batch_session, invoice_no):
         InvoiceItem.invoice_no == invoice_no,
         InvoiceItem.locked_by_batch_id == batch_session.id,
         InvoiceItem.is_picked == False,
-        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+        func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING'])
     ).count()
 
 def find_next_incomplete_invoice_index(batch_session, invoice_order):
@@ -37,7 +37,7 @@ def find_next_incomplete_invoice_index(batch_session, invoice_order):
     invoices_with_items = db.session.query(InvoiceItem.invoice_no).filter(
         InvoiceItem.locked_by_batch_id == batch_session.id,
         InvoiceItem.is_picked == False,
-        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending'])
+        func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING'])
     ).distinct().all()
     
     # Create a set for fast lookup
@@ -376,7 +376,7 @@ def add_invoices_to_batch(batch_id):
     filter_conditions = [
         InvoiceItem.zone.in_(zones_list),
         InvoiceItem.is_picked == False,
-        InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending']),
+        func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING']),
         InvoiceItem.locked_by_batch_id == None,  # Only unlocked items
         ~Invoice.invoice_no.in_(existing_invoices)  # Exclude invoices already in batch
     ]
@@ -487,9 +487,9 @@ def batch_picking_create_simple():
         invoices_with_items = db.session.query(Invoice.invoice_no, Invoice.routing).join(InvoiceItem).filter(
             InvoiceItem.zone.in_(zone_list),
             InvoiceItem.is_picked == False,
-            InvoiceItem.pick_status.in_(['not_picked', 'reset', 'skipped_pending']),
+            func.upper(InvoiceItem.pick_status).in_(['NOT_PICKED', 'RESET', 'SKIPPED_PENDING']),
             InvoiceItem.locked_by_batch_id == None,  # Only unlocked items
-            Invoice.status.in_(['not_started', 'picking'])
+            func.upper(Invoice.status).in_(['NOT_STARTED', 'PICKING'])
         ).group_by(Invoice.invoice_no, Invoice.routing).all()
         
         # Sort by routing number descending for sequential batch picking order

@@ -178,7 +178,7 @@ def upsert():
                 flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
 
-            not_ready = [inv for inv in invoices if inv.status != 'ready_for_dispatch']
+            not_ready = [inv for inv in invoices if inv.status.upper() != 'READY_FOR_DISPATCH']
             if not_ready:
                 flash(f"Cannot mark as DISPATCHED: {len(not_ready)} invoice(s) are not ready for dispatch. All invoices must be 'ready_for_dispatch'.", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
@@ -313,7 +313,7 @@ def detail(shipment_id):
     
     # Check if all invoices are ready for dispatch (for showing "Mark as Shipped" button)
     all_invoices = Invoice.query.filter_by(route_id=shipment_id).all()
-    all_ready_for_dispatch = len(all_invoices) > 0 and all(inv.status == 'ready_for_dispatch' for inv in all_invoices)
+    all_ready_for_dispatch = len(all_invoices) > 0 and all(inv.status.upper() == 'READY_FOR_DISPATCH' for inv in all_invoices)
     
     # Debug logging
     import logging
@@ -361,18 +361,18 @@ def detail(shipment_id):
     if route.status == 'PLANNED':
         # Only check blockers for routes that haven't been dispatched yet
         # Problem statuses that block dispatch
-        blocking_statuses = ['not_started', 'picking', 'awaiting_packing', 'awaiting_batch_items']
+        blocking_statuses = ['NOT_STARTED', 'PICKING', 'AWAITING_PACKING', 'AWAITING_BATCH_ITEMS']
         
-        not_ready_invoices = [inv for inv in all_invoices if inv.status in blocking_statuses]
+        not_ready_invoices = [inv for inv in all_invoices if inv.status.upper() in blocking_statuses]
         if not_ready_invoices:
             # Find which stops have these invoices
             for stop in stops:
                 for rsi in stop.invoices:
-                    if rsi.invoice.status in blocking_statuses:
+                    if rsi.invoice.status.upper() in blocking_statuses:
                         blocked_stop_ids.add(stop.route_stop_id)
             
-            not_picked = [inv for inv in not_ready_invoices if inv.status in ['not_started', 'picking']]
-            awaiting = [inv for inv in not_ready_invoices if inv.status in ['awaiting_packing', 'awaiting_batch_items']]
+            not_picked = [inv for inv in not_ready_invoices if inv.status.upper() in ['NOT_STARTED', 'PICKING']]
+            awaiting = [inv for inv in not_ready_invoices if inv.status.upper() in ['AWAITING_PACKING', 'AWAITING_BATCH_ITEMS']]
             
             if not_picked:
                 dispatch_blockers.append({

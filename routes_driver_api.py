@@ -81,7 +81,7 @@ def start_route(route_id):
         # Bulk update all orders on this route from 'shipped' to 'out_for_delivery'
         updated_orders = db.session.query(Invoice).filter(
             Invoice.route_id == route_id,
-            Invoice.status == 'shipped'
+            func.upper(Invoice.status) == 'SHIPPED'
         ).update({
             'status': 'out_for_delivery',
             'status_updated_at': datetime.utcnow()
@@ -133,7 +133,7 @@ def update_order_status(invoice_no, new_status, driver_id):
         return None, 'Order does not belong to your route', 403
     
     # Can only update orders that are out for delivery
-    if order.status != 'out_for_delivery':
+    if func.upper(order.status) != 'OUT_FOR_DELIVERY':
         return None, f'Cannot update order from status: {order.status}', 409
     
     # Update order status
@@ -260,7 +260,7 @@ def complete_route(route_id):
         # Check for any remaining active orders
         active_orders_count = db.session.query(Invoice).filter(
             Invoice.route_id == route_id,
-            Invoice.status.in_(['out_for_delivery', 'shipped'])
+            func.upper(Invoice.status).in_(['OUT_FOR_DELIVERY', 'SHIPPED'])
         ).count()
         
         if active_orders_count > 0:
