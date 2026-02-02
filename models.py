@@ -1874,6 +1874,10 @@ class SyncState(db.Model):
 class DwInvoiceHeader(db.Model):
     """Invoice header dimension - one row per invoice"""
     __tablename__ = "dw_invoice_header"
+    __table_args__ = (
+        db.Index('ix_dw_invoice_header_date_customer', 'invoice_date_utc0', 'customer_code_365'),
+        db.Index('ix_dw_invoice_header_date_store', 'invoice_date_utc0', 'store_code_365'),
+    )
     
     invoice_no_365 = db.Column(db.String(64), primary_key=True)  # Primary key instead of id
     invoice_type = db.Column(db.String(64), nullable=False)
