@@ -256,13 +256,14 @@
             <table class="issues-table">
                 <thead>
                     <tr>
-                        <th style="width: 6%;">Issue</th>
-                        <th style="width: 8%;">Date</th>
+                        <th style="width: 5%;">Issue</th>
+                        <th style="width: 5%;">Route</th>
+                        <th style="width: 7%;">Date</th>
                         <th style="width: 8%;">Invoice No</th>
-                        <th style="width: 15%;">Customer</th>
-                        <th style="width: 8%;">Picked Date</th>
+                        <th style="width: 14%;">Customer</th>
+                        <th style="width: 7%;">Picked Date</th>
                         <th style="width: 8%;">Item Code</th>
-                        <th style="width: 15%;">Item Name</th>
+                        <th style="width: 14%;">Item Name</th>
                         <th style="width: 8%;">Shelf Location</th>
                         <th style="width: 10%;">Picker Name</th>
                         <th style="width: 5%;">Exp QTY</th>
@@ -277,6 +278,14 @@
                             <span class="status-badge status-{{ issue.status }} mt-2 d-inline-block">
                                 {{ issue.status.upper() }}
                             </span>
+                        </td>
+                        <td>
+                            {% set route_id = invoice_route_map.get(issue.invoice_no) %}
+                            {% if route_id %}
+                            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=route_id) }}" class="badge bg-primary text-decoration-none">#{{ route_id }}</a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
                         </td>
                         <td>
                             <div>{{ issue.reported_at.strftime('%d/%m/%Y') if issue.reported_at else 'N/A' }}</div>

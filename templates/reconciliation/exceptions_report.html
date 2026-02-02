@@ -8,6 +8,11 @@
             <h4 class="mb-0">Exceptions Report - Route #{{ shipment.id }}</h4>
             <small class="text-muted">{{ shipment.route_name or 'Unnamed' }} | {{ shipment.delivery_date }}</small>
         </div>
+        <div>
+            <a href="{{ url_for('delivery_issues.review_issues', route=shipment.id) }}" class="btn btn-warning">
+                <i class="fas fa-exclamation-triangle me-1"></i>View Delivery Issues for Route #{{ shipment.id }}
+            </a>
+        </div>
     </div>
     
     <div class="card">

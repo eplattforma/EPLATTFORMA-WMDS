@@ -287,6 +287,7 @@ def review_issues():
     """Review and manage delivery discrepancies"""
     status_filter = request.args.get('status', 'all')
     resolved_filter = request.args.get('filter', 'all')  # 'unresolved', 'all'
+    route_filter = request.args.get('route', None)  # Filter by route/shipment ID
     
     query = DeliveryDiscrepancy.query
     
@@ -297,7 +298,34 @@ def review_issues():
     if resolved_filter == 'unresolved':
         query = query.filter_by(is_resolved=False)
     
+    # Apply route filter if specified - join to route_stop_invoice to find route
+    if route_filter:
+        from models import RouteStopInvoice, RouteStop
+        route_invoices = db.session.query(RouteStopInvoice.invoice_no).join(
+            RouteStop, RouteStopInvoice.route_stop_id == RouteStop.route_stop_id
+        ).filter(
+            RouteStop.shipment_id == int(route_filter),
+            RouteStopInvoice.is_active == True
+        ).subquery()
+        query = query.filter(DeliveryDiscrepancy.invoice_no.in_(db.session.query(route_invoices.c.invoice_no)))
+    
     issues = query.order_by(DeliveryDiscrepancy.reported_at.desc()).all()
+    
+    # Get route number for each issue
+    from models import RouteStopInvoice, RouteStop
+    invoice_route_map = {}
+    if issues:
+        invoice_nos = [i.invoice_no for i in issues]
+        route_data = db.session.query(
+            RouteStopInvoice.invoice_no,
+            RouteStop.shipment_id
+        ).join(
+            RouteStop, RouteStopInvoice.route_stop_id == RouteStop.route_stop_id
+        ).filter(
+            RouteStopInvoice.invoice_no.in_(invoice_nos),
+            RouteStopInvoice.is_active == True
+        ).all()
+        invoice_route_map = {r.invoice_no: r.shipment_id for r in route_data}
     
     # Get all discrepancy types and resolutions for dynamic resolution dropdown
     discrepancy_types = DiscrepancyType.query.filter_by(is_active=True).order_by(DiscrepancyType.sort_order).all()
@@ -315,6 +343,8 @@ def review_issues():
                          issues=issues,
                          status_filter=status_filter,
                          resolved_filter=resolved_filter,
+                         route_filter=route_filter,
+                         invoice_route_map=invoice_route_map,
                          resolutions_by_type=resolutions_by_type)
 
 @delivery_issues_bp.route('/admin/delivery-issues/<int:issue_id>/validate', methods=['POST'])
