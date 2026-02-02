@@ -57,7 +57,7 @@ def check_missing_final_status(shipment_id: int) -> List[Dict]:
             AND rsi.is_active = true
         WHERE rs.shipment_id = :shipment_id
           AND rs.deleted_at IS NULL
-          AND (rsi.status IS NULL OR rsi.status NOT IN ('DELIVERED','FAILED','PARTIAL','RETURNED','SKIPPED'))
+          AND (rsi.status IS NULL OR UPPER(rsi.status) NOT IN ('DELIVERED','FAILED','PARTIAL','RETURNED','SKIPPED'))
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
     return [dict(row._mapping) for row in result]
@@ -76,7 +76,7 @@ def check_missing_pod(shipment_id: int) -> List[Dict]:
             AND pr.route_stop_id = rs.route_stop_id
         WHERE rs.shipment_id = :shipment_id
           AND rs.deleted_at IS NULL
-          AND rsi.status = 'DELIVERED'
+          AND UPPER(rsi.status) = 'DELIVERED'
           AND pr.id IS NULL
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
