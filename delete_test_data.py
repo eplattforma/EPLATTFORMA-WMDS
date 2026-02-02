@@ -8,8 +8,8 @@ import sys
 from app import app, db
 from models import (
     Invoice, InvoiceItem, PickingException, BatchPickedItem, 
-    ItemTimeTracking, ActivityLog, ShipmentOrder, BatchSessionInvoice,
-    BatchPickingSession
+    ItemTimeTracking, ActivityLog, BatchSessionInvoice,
+    BatchPickingSession, RouteStopInvoice
 )
 
 def delete_test_data():
@@ -38,7 +38,7 @@ def delete_test_data():
                 'batch_picked_items': 0,
                 'item_time_tracking': 0,
                 'activity_logs': 0,
-                'shipment_orders': 0,
+                'route_stop_invoices': 0,
                 'batch_session_invoices': 0
             }
             
@@ -53,11 +53,11 @@ def delete_test_data():
                     db.session.delete(bsi)
                     deleted_counts['batch_session_invoices'] += 1
                 
-                # Delete shipment orders
-                shipment_orders = ShipmentOrder.query.filter_by(invoice_no=invoice_no).all()
-                for so in shipment_orders:
-                    db.session.delete(so)
-                    deleted_counts['shipment_orders'] += 1
+                # Delete route stop invoice assignments
+                route_stop_invoices = RouteStopInvoice.query.filter_by(invoice_no=invoice_no).all()
+                for rsi in route_stop_invoices:
+                    db.session.delete(rsi)
+                    deleted_counts['route_stop_invoices'] += 1
                 
                 # Delete activity logs
                 activity_logs = ActivityLog.query.filter_by(invoice_no=invoice_no).all()

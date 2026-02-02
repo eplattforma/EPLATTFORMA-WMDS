@@ -937,17 +937,22 @@ class Shipment(db.Model, SoftDeleteMixin):
     # Relationships
     reconciler = db.relationship('User', foreign_keys=[reconciled_by], backref='reconciled_routes')
     archiver = db.relationship('User', foreign_keys=[archived_by], backref='archived_routes')
-    shipment_orders = db.relationship('ShipmentOrder', backref='shipment', lazy=True, cascade='all, delete-orphan')
+    # DEPRECATED: shipment_orders relationship - use RouteStop/RouteStopInvoice instead
+    # shipment_orders = db.relationship('ShipmentOrder', backref='shipment', lazy=True, cascade='all, delete-orphan')
+
 
 class ShipmentOrder(db.Model):
+    """
+    DEPRECATED: This model is obsolete and scheduled for removal.
+    Use RouteStopInvoice instead for invoice-to-route mapping.
+    Table retained temporarily for data migration purposes only.
+    DO NOT USE IN NEW CODE.
+    """
     __tablename__ = 'shipment_orders'
     
     id = db.Column(db.Integer, primary_key=True)
     shipment_id = db.Column(db.Integer, db.ForeignKey('shipments.id'), nullable=False)
     invoice_no = db.Column(db.String(20), db.ForeignKey('invoices.invoice_no'), nullable=False)
-    
-    # Relationships
-    invoice = db.relationship('Invoice', backref='shipment_orders', lazy=True)
 
 
 # Route Stop (delivery route stops)
