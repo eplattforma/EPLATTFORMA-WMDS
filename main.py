@@ -82,7 +82,6 @@ def status_badge_filter(status_value):
 from update_schema_skipped_items import update_database_schema
 import logging
 from routes_batch import batch_bp
-from routes_shipments import shipments_bp
 from routes_help import help_bp
 from routes_delivery_issues import delivery_issues_bp
 from routes_routes import bp as routes_bp
@@ -111,18 +110,6 @@ app.register_blueprint(delivery_dashboard_bp, url_prefix='')
 # Register the PS365 customer sync API blueprint
 app.register_blueprint(bp_powersoft)
 
-# Register the shipment management blueprint (conditionally based on feature flag)
-with app.app_context():
-    from app import db
-    from models import Setting
-    use_shipments_raw = Setting.get(db.session, 'use_shipments', 'false')
-    use_shipments = str(use_shipments_raw).strip().lower() in ('true', '1', 'yes', 'on')
-    
-    if use_shipments:
-        app.register_blueprint(shipments_bp, url_prefix='')
-        logging.info("Shipments blueprint registered - feature enabled")
-    else:
-        logging.info("Shipments blueprint NOT registered - feature disabled")
 
 # Register the help documentation blueprint
 app.register_blueprint(help_bp, url_prefix='')

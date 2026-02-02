@@ -188,14 +188,6 @@
             <i class="fas fa-layer-group mb-1"></i>
             <span>Manage<br>Batches</span>
         </a>
-        {% if use_shipments %}
-        <a href="{{ url_for('shipments.shipments_dashboard') }}" 
-           class="btn btn-info me-2 d-flex flex-column align-items-center justify-content-center" 
-           style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
-            <i class="fas fa-shipping-fast mb-1"></i>
-            <span>Shipments</span>
-        </a>
-        {% endif %}
         <button onclick="openCorrections()" 
            class="btn btn-primary me-2 d-flex flex-column align-items-center justify-content-center" 
            style="width: 110px; height: 70px; font-size: 12px; line-height: 1.2;">
