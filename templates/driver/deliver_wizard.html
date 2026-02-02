@@ -309,6 +309,20 @@ function populateItems() {
         option.dataset.item = JSON.stringify(item);
         itemSelect.appendChild(option);
     });
+
+    // Add Rebate Item
+    const rebateOption = document.createElement('option');
+    rebateOption.value = 'REB-00';
+    rebateOption.textContent = 'REB-00 - Rebate / General Discount';
+    rebateOption.dataset.item = JSON.stringify({
+        item_code: 'REB-00',
+        item_name: 'Rebate / General Discount',
+        qty_ordered: 1,
+        unit_type: 'UNIT',
+        line_total_incl: 0,
+        is_rebate: true
+    });
+    itemSelect.appendChild(rebateOption);
     
     // Reset quantity container when invoice changes
     document.getElementById('qty-container').style.display = 'none';
@@ -327,20 +341,33 @@ document.getElementById('ex-item').addEventListener('change', function() {
         const selectedOption = this.options[this.selectedIndex];
         const item = JSON.parse(selectedOption.dataset.item);
         
-        // Format: "1 CASE X24" (qty_ordered unit_type X pack)
-        let displayText = `${item.qty_ordered} ${item.unit_type || ''}`;
-        if (item.pack) {
-            displayText += ` X${item.pack}`;
+        if (item.is_rebate) {
+            expectedDisplay.textContent = 'Enter rebate amount as negative or positive (it will be subtracted from total)';
+            expectedDisplay.style.display = 'block';
+            qtyContainer.style.display = 'block';
+            document.getElementById('ex-type').value = 'SHORT'; // Default type
+            document.querySelector('#qty-container label[for="ex-qty"]').textContent = 'Amount (€)';
+            document.getElementById('ex-qty').placeholder = '0.00';
+            document.getElementById('ex-qty').step = '0.01';
+        } else {
+            // Format: "1 CASE X24" (qty_ordered unit_type X pack)
+            let displayText = `${item.qty_ordered} ${item.unit_type || ''}`;
+            if (item.pack) {
+                displayText += ` X${item.pack}`;
+            }
+            
+            // Add line total with VAT if available
+            if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
+                displayText += ` | Value: ${item.line_total_incl.toFixed(2)}`;
+            }
+            
+            expectedDisplay.textContent = displayText;
+            expectedDisplay.style.display = 'block';
+            qtyContainer.style.display = 'block';
+            document.querySelector('#qty-container label[for="ex-qty"]').textContent = 'Qty';
+            document.getElementById('ex-qty').placeholder = '0';
+            document.getElementById('ex-qty').step = '0.01';
         }
-        
-        // Add line total with VAT if available
-        if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
-            displayText += ` | Value: ${item.line_total_incl.toFixed(2)}`;
-        }
-        
-        expectedDisplay.textContent = displayText;
-        expectedDisplay.style.display = 'block';
-        qtyContainer.style.display = 'block';
     } else {
         qtyContainer.style.display = 'none';
         expectedDisplay.style.display = 'none';
@@ -402,7 +429,10 @@ function saveException() {
     
     // Calculate exception value (proportional to qty if partial)
     let exceptionValue = 0;
-    if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
+    if (item.is_rebate) {
+        // Rebate uses amount directly
+        exceptionValue = Math.abs(qty);
+    } else if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
         // For partial exceptions, calculate proportional value
         const proportion = qty / item.qty_ordered;
         exceptionValue = item.line_total_incl * proportion;
@@ -413,13 +443,15 @@ function saveException() {
         item_code: itemCode,
         item_name: item.item_name,
         type: type,
-        qty: qty,
+        qty: item.is_rebate ? 1 : qty,
+        amount: item.is_rebate ? qty : null,
         qty_ordered: item.qty_ordered,
         unit_type: item.unit_type,
         notes: notes,
         damagedAccepted: damagedAccepted,
         actual: actual,
-        exception_value: exceptionValue
+        exception_value: exceptionValue,
+        is_rebate: item.is_rebate
     });
     
     renderExceptions();
@@ -456,11 +488,11 @@ function renderExceptions() {
         };
         const typeLabel = typeLabels[ex.type] || ex.type;
         
-        const unitText = ex.unit_type ? ` ${ex.unit_type}` : '';
-        const qtyText = `${ex.qty}${unitText}`;
-        const expectedQty = `${ex.qty_ordered}${unitText}`;
-        const deliveredQty = ex.qty_ordered - ex.qty;
-        const deliveredText = `${deliveredQty}${unitText}`;
+        const unitText = ex.is_rebate ? ' (Amount)' : (ex.unit_type ? ` ${ex.unit_type}` : '');
+        const qtyText = ex.is_rebate ? `€${ex.amount.toFixed(2)}` : `${ex.qty}${unitText}`;
+        const expectedQty = ex.is_rebate ? 'N/A' : `${ex.qty_ordered}${unitText}`;
+        const deliveredQty = ex.is_rebate ? 'N/A' : ex.qty_ordered - ex.qty;
+        const deliveredText = ex.is_rebate ? 'N/A' : `${deliveredQty}${unitText}`;
         
         const notesText = ex.notes ? ` | ${ex.notes}` : '';
         
