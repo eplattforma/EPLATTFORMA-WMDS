@@ -60,7 +60,7 @@ def reserved_stock_777_download():
         ordered_val = float(r.stock_ordered or 0)
         pieces_per_unit = int(r.number_of_pieces or 1)
         min_order_qty = int(r.number_field_5_value or 0)
-        shortage = reserved_val - stock_val
+        shortage = reserved_val - stock_val - ordered_val
         raw_required = int(shortage * pieces_per_unit) if shortage > 0 else 0
         req = max(raw_required, min_order_qty) if raw_required > 0 else 0
         writer.writerow({
