@@ -1,0 +1,218 @@
+es — you can export the Excel fully populated from your Replit system, and you should do it as an auto-generated “Route Reconciliation Report Pack” per shipments.id (route_id).
+
+There’s one key dependency:
+
+The system must store the “Expected” values at dispatch time
+
+Right now you can reliably export:
+
+route + stops + invoice assignments (shipments, route_stop, route_stop_invoice)
+
+invoice totals (invoices.total_grand, etc.)
+
+POD evidence (pod_records)
+
+money/cheque evidence (cod_receipts)
+
+driver-recorded problems (delivery_discrepancies)
+
+return handover confirmations (once you add route_return_handover)
+
+But your schema does not currently store invoice-level expected payment method and expected amount per invoice in a clean “locked manifest” form. Without that, the export can’t produce accurate “EXPECTED by payment type” unless you infer it (which is risky).
+
+Best fix (recommended): add expected fields on route_stop_invoice (because it is your source-of-truth assignment table):
+
+expected_payment_method (CASH / DAY_CHEQUE / POST_DATED / ONLINE / CREDIT)
+
+expected_amount (numeric)
+
+manifest_locked_at (timestamp)
+
+manifest_locked_by (username)
+
+That gives you perfect reconciliation exports forever.
+
+What to build in Replit to export the Excel
+1) Store the template in your repo
+
+Put the file here (example):
+
+reports/templates/WMDS_Route_Reconciliation_Template.xlsx
+
+2) Add an admin endpoint that generates the Excel on-demand
+
+Example endpoint:
+
+GET /admin/routes/<int:route_id>/reconciliation/export.xlsx
+
+Permissions:
+
+allow admin, warehouse_manager, accounting (whatever you use)
+
+3) Build the report dataset using RouteStopInvoice as truth
+
+Do NOT rely on invoices.route_id/stop_id for export (it can drift). Always build from:
+
+route_stop → all stops in route
+
+route_stop_invoice → all invoices in route + their status
+
+invoices → totals/customer meta
+
+pod_records → evidence (join via invoice_nos JSON)
+
+cod_receipts → evidence (join via invoice_nos JSON)
+
+delivery_discrepancies → issues per invoice
+
+route_return_handover → failed invoice return control (driver + warehouse)
+
+Important: pod_records.invoice_nos and cod_receipts.invoice_nos are JSON arrays
+
+So in Python you should read all rows for the route and explode the invoice list into a map:
+
+invoice_no -> pod record
+
+invoice_no -> receipt/evidence
+
+That’s simpler than trying to force a complex SQL json explode (though you can if you prefer).
+
+4) Fill the Excel template (openpyxl)
+
+Use openpyxl to load the template, then write:
+
+Sheet: Summary
+
+Populate:
+
+Route header (route_id, date, driver, status)
+
+Counts: planned, delivered, failed
+
+Settlement by payment type:
+
+EXPECTED = sum(expected_amount per invoice by method) (from your locked manifest fields)
+
+RECEIVED = sum from cod_receipts by payment_method
+
+VARIANCE = received - expected
+
+EVIDENCE COUNT = count of receipts/cheques/acks
+
+Blockers:
+
+missing POD records for invoices
+
+failed invoices without return handover confirmed
+
+discrepancies still OPEN / not validated
+
+missing cheque details, missing receipt numbers, etc.
+
+Sheet: Invoice Detail (one row per invoice)
+
+Columns should come from your joined dataset:
+
+Route, stop seq, customer, invoice no
+
+Expected payment type + expected €
+
+Received € + receipt/ack/cheque details (from cod_receipts)
+
+POD status (from route_stop_invoice.status) + POD timestamp/photo paths
+
+Discrepancy flags/count (from delivery_discrepancies)
+
+Return handover (driver_confirmed_at, warehouse_received_at) for FAILED invoices
+
+Sheet: Stop Summary
+
+Group by route_stop_id:
+
+stop seq, customer, invoices count
+
+delivered vs failed per stop
+
+evidence present counts
+
+Concrete Replit “build instructions” (what to tell the agent)
+A) Schema upgrades (minimum to support correct export)
+
+Add expected manifest fields to route_stop_invoice:
+
+expected_payment_method VARCHAR(20)
+
+expected_amount NUMERIC(12,2)
+
+manifest_locked_at TIMESTAMP
+
+manifest_locked_by VARCHAR(64) FK users(username)
+
+Create return handover table (invoice-level control is enough for your workflow):
+route_return_handover
+
+id SERIAL PK
+
+route_id INT FK shipments(id)
+
+route_stop_id INT FK route_stop(route_stop_id) NULL
+
+invoice_no VARCHAR(50) FK invoices(invoice_no)
+
+driver_confirmed_at TIMESTAMP
+
+warehouse_received_at TIMESTAMP
+
+received_by VARCHAR(64) FK users(username) NULL
+
+notes TEXT
+
+optional: photo_paths JSON, packages_count INT
+
+(You already described this well — keep it invoice-level. Warehouse checks of stock + credit note happens later against discrepancies.)
+
+B) Data integrity rule
+
+When assigning invoices to a stop (creating/updating route_stop_invoice), always set expected fields (payment method + expected amount).
+
+Locking the manifest sets manifest_locked_at/by and prevents edits unless admin unlocks.
+
+C) Export implementation
+
+Create reports/route_reconciliation_export.py
+
+Implement build_route_reconciliation_dataset(route_id):
+
+fetch route
+
+fetch stops
+
+fetch route_stop_invoice list
+
+fetch invoices for those invoice_nos
+
+fetch pod_records for route_id and explode invoice_nos
+
+fetch cod_receipts for route_id and explode invoice_nos
+
+fetch delivery_discrepancies by invoice_no
+
+fetch route_return_handover by invoice_no
+
+compute summary aggregates
+
+Implement render_excel(template_path, dataset) with openpyxl
+
+Add Flask route returning a downloadable file:
+
+send_file(BytesIO(...), as_attachment=True, download_name=f"route_{route_id}_reconciliation.xlsx")
+
+One more practical note
+
+You can also export PDF from the same dataset later, but Excel should be your primary operational artifact because:
+
+accounting can filter exceptions
+
+it’s auditable
+
+it matches your report pack

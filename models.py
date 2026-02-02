@@ -1003,6 +1003,12 @@ class RouteStopInvoice(db.Model):
     weight_kg = db.Column(db.Float)
     notes = db.Column(db.Text)
     
+    # Expected manifest fields (locked at dispatch for reconciliation)
+    expected_payment_method = db.Column(db.String(20), nullable=True)  # CASH, DAY_CHEQUE, POST_DATED, ONLINE, CREDIT
+    expected_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    manifest_locked_at = db.Column(UTCDateTime(), nullable=True)
+    manifest_locked_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
+    
     # Versioning columns for reroute-safe history
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
     effective_from = db.Column(UTCDateTime(), nullable=False, default=get_utc_now, server_default=db.func.now())
@@ -1400,6 +1406,41 @@ class PODRecord(db.Model):
     
     def __repr__(self):
         return f"<PODRecord Stop {self.route_stop_id} by {self.collected_by}>"
+
+
+class RouteReturnHandover(db.Model):
+    """Return handover tracking for failed delivery invoices"""
+    __tablename__ = 'route_return_handover'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    route_id = db.Column(db.Integer, db.ForeignKey('shipments.id'), nullable=False)
+    route_stop_id = db.Column(db.Integer, db.ForeignKey('route_stop.route_stop_id'), nullable=True)
+    invoice_no = db.Column(db.String(50), db.ForeignKey('invoices.invoice_no'), nullable=False)
+    
+    # Driver confirmation (when driver returns to warehouse)
+    driver_confirmed_at = db.Column(UTCDateTime(), nullable=True)
+    driver_username = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
+    
+    # Warehouse receipt confirmation
+    warehouse_received_at = db.Column(UTCDateTime(), nullable=True)
+    received_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
+    
+    # Details
+    packages_count = db.Column(db.Integer, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    photo_paths = db.Column(db.JSON, nullable=True)  # Evidence photos
+    
+    created_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
+    
+    # Relationships
+    route = db.relationship('Shipment', backref='return_handovers')
+    stop = db.relationship('RouteStop', backref='return_handovers')
+    invoice = db.relationship('Invoice', backref='return_handovers')
+    driver = db.relationship('User', foreign_keys=[driver_username], backref='driver_return_handovers')
+    receiver = db.relationship('User', foreign_keys=[received_by], backref='warehouse_return_receipts')
+    
+    def __repr__(self):
+        return f"<RouteReturnHandover {self.invoice_no} route={self.route_id}>"
 
 
 class InvoicePostDeliveryCase(db.Model):

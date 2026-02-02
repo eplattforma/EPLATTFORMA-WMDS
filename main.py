@@ -330,6 +330,14 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating WmsPackingProfile schema: {str(e)}")
     
+    # Update route reconciliation schema
+    try:
+        from update_route_reconciliation_schema import update_route_reconciliation_schema
+        update_route_reconciliation_schema()
+        logging.info("Route reconciliation schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating route reconciliation schema: {str(e)}")
+    
     # Initialize remaining tables
     from app import db
     db.create_all()

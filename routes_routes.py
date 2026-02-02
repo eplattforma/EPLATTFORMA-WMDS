@@ -14,6 +14,65 @@ import ps365_service
 
 bp = Blueprint("routes", __name__)
 
+
+def _lock_route_manifest(shipment_id: int, username: str):
+    """
+    Lock the route manifest by setting expected payment fields on RouteStopInvoice.
+    This captures the expected amounts at dispatch time for reconciliation.
+    """
+    from app import db
+    from models import RouteStop, RouteStopInvoice, Invoice, PaymentCustomer
+    from timezone_utils import utc_now_for_db
+    
+    stops = RouteStop.query.filter_by(shipment_id=shipment_id).all()
+    stop_ids = [s.route_stop_id for s in stops]
+    
+    rsi_list = RouteStopInvoice.query.filter(
+        RouteStopInvoice.route_stop_id.in_(stop_ids),
+        RouteStopInvoice.is_active == True,
+        RouteStopInvoice.manifest_locked_at.is_(None)
+    ).all()
+    
+    invoice_nos = [rsi.invoice_no for rsi in rsi_list]
+    invoices = Invoice.query.filter(Invoice.invoice_no.in_(invoice_nos)).all()
+    invoice_map = {inv.invoice_no: inv for inv in invoices}
+    
+    customer_codes = list(set(inv.customer_code for inv in invoices if inv.customer_code))
+    payment_customers = PaymentCustomer.query.filter(
+        PaymentCustomer.customer_code.in_(customer_codes)
+    ).all() if customer_codes else []
+    payment_map = {pc.customer_code: pc for pc in payment_customers}
+    
+    now = utc_now_for_db()
+    for rsi in rsi_list:
+        invoice = invoice_map.get(rsi.invoice_no)
+        if not invoice:
+            continue
+            
+        rsi.expected_amount = invoice.total_grand if invoice.total_grand else 0
+        
+        payment_method = 'CASH'
+        if invoice.customer_code and invoice.customer_code in payment_map:
+            pc = payment_map[invoice.customer_code]
+            if pc.payment_method:
+                method = pc.payment_method.upper()
+                if 'CREDIT' in method:
+                    payment_method = 'CREDIT'
+                elif 'CHEQUE' in method or 'CHECK' in method:
+                    if 'POST' in method:
+                        payment_method = 'POST DATED CHQ'
+                    else:
+                        payment_method = 'DAY CHEQUE'
+                elif 'ONLINE' in method or 'BANK' in method or 'TRANSFER' in method:
+                    payment_method = 'ONLINE'
+        
+        rsi.expected_payment_method = payment_method
+        rsi.manifest_locked_at = now
+        rsi.manifest_locked_by = username
+    
+    db.session.flush()
+
+
 def admin_required(f):
     @wraps(f)
     @login_required
@@ -934,6 +993,9 @@ def mark_shipped(shipment_id):
     # Only update invoices to shipped status
     route.status = "DISPATCHED"
     
+    # Lock manifest: Set expected payment fields on RouteStopInvoice
+    _lock_route_manifest(shipment_id, current_user.username)
+    
     # Update all invoices to shipped status
     for invoice in invoices:
         old_status = invoice.status
@@ -1564,3 +1626,27 @@ def update_cod_amount(receipt_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp.route("/<int:shipment_id>/reconciliation/export.xlsx")
+@login_required
+@admin_required
+def reconciliation_export_excel(shipment_id):
+    """Export route reconciliation report as Excel file"""
+    from flask import send_file
+    from reports.route_reconciliation_export import generate_route_reconciliation_excel
+    
+    route = Shipment.query.get_or_404(shipment_id)
+    excel_data = generate_route_reconciliation_excel(shipment_id)
+    
+    if not excel_data:
+        flash("Could not generate reconciliation report", "error")
+        return redirect(url_for("routes.reconciliation_report", shipment_id=shipment_id))
+    
+    filename = f"route_{shipment_id}_reconciliation_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(
+        excel_data,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename
+    )
