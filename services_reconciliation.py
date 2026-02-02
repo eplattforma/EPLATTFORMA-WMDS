@@ -162,7 +162,7 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
                 AND pr.route_stop_id = rs.route_stop_id
             WHERE rs.shipment_id = :shipment_id
               AND rs.deleted_at IS NULL
-              AND rsi.status = 'DELIVERED'
+              AND UPPER(rsi.status) = 'DELIVERED'
               AND pr.id IS NULL
         ),
         open_cases AS (
@@ -199,10 +199,10 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
         )
         SELECT
             (SELECT COUNT(*) FROM inv) AS invoices_total,
-            (SELECT COUNT(*) FROM inv WHERE status = 'DELIVERED') AS delivered,
-            (SELECT COUNT(*) FROM inv WHERE status = 'FAILED') AS failed,
-            (SELECT COUNT(*) FROM inv WHERE status = 'PARTIAL') AS partial,
-            (SELECT COUNT(*) FROM inv WHERE status IS NULL OR status NOT IN ('DELIVERED','FAILED','PARTIAL','RETURNED','SKIPPED')) AS pending,
+            (SELECT COUNT(*) FROM inv WHERE UPPER(status) = 'DELIVERED') AS delivered,
+            (SELECT COUNT(*) FROM inv WHERE UPPER(status) = 'FAILED') AS failed,
+            (SELECT COUNT(*) FROM inv WHERE UPPER(status) = 'PARTIAL') AS partial,
+            (SELECT COUNT(*) FROM inv WHERE status IS NULL OR UPPER(status) NOT IN ('DELIVERED','FAILED','PARTIAL','RETURNED','SKIPPED')) AS pending,
             (SELECT cnt FROM pod_missing) AS missing_pod,
             (SELECT cnt FROM open_cases) AS open_cases,
             (SELECT cnt FROM unresolved_disc) AS unresolved_discrepancies,
