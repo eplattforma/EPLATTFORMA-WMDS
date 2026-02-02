@@ -471,6 +471,7 @@ def submit_delivery(stop_id):
         
         # Process exceptions
         discrepancies = []
+        total_rebate_reduction = Decimal('0.00')
         for ex in exceptions:
             ex_type = ex.get('type', '').upper()
             invoice_no = ex.get('invoice_no')
@@ -487,14 +488,20 @@ def submit_delivery(stop_id):
             
             key = (invoice_no, item_code) if invoice_no and item_code else None
             
+            # Special handling for Rebate REB-00
+            is_rebate = (item_code == 'REB-00')
+            rebate_amount = Decimal(str(ex.get('amount', 0) or 0)) if is_rebate else Decimal(0)
+            if is_rebate:
+                total_rebate_reduction += rebate_amount
+
             # Create discrepancy record
             disc_data = {
                 'invoice_no': invoice_no,
                 'item_code_expected': item_code or 'UNKNOWN',
-                'item_name': items_by_key[key]['item'].item_name if key and key in items_by_key else 'Unknown Item',
-                'qty_expected': int(items_by_key[key]['ordered']) if key and key in items_by_key else 0,
-                'qty_actual': float(items_by_key[key]['ordered'] - qty) if key and key in items_by_key else 0,
-                'discrepancy_type': ex_type.lower(),
+                'item_name': 'Rebate / General Discount' if is_rebate else (items_by_key[key]['item'].item_name if key and key in items_by_key else 'Unknown Item'),
+                'qty_expected': 1 if is_rebate else (int(items_by_key[key]['ordered']) if key and key in items_by_key else 0),
+                'qty_actual': 1 if is_rebate else (float(items_by_key[key]['ordered'] - qty) if key and key in items_by_key else 0),
+                'discrepancy_type': 'rebate' if is_rebate else ex_type.lower(),
                 'reported_by': current_user.username,
                 'reported_at': utc_now(),
                 'reported_source': 'driver',
@@ -530,8 +537,10 @@ def submit_delivery(stop_id):
             
             discrepancies.append(disc)
             
-            # Adjust delivered quantities
-            if key and key in items_by_key:
+            if is_rebate:
+                # Rebates don't affect physical quantities of actual items
+                pass
+            elif key and key in items_by_key:
                 if ex_type == 'SHORT':
                     items_by_key[key]['short'] += qty
                 elif ex_type == 'DAMAGED' and not damaged_accepted:
@@ -565,6 +574,9 @@ def submit_delivery(stop_id):
             invoice = Invoice.query.get(invoice_no)
             if invoice and invoice.total_grand:
                 cod_expected += Decimal(str(invoice.total_grand))
+        
+        # Apply rebate reduction
+        cod_expected -= total_rebate_reduction
         
         # Process COD based on credit terms
         cod_receipt = None
