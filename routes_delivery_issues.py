@@ -419,9 +419,32 @@ def resolve_issue(issue_id):
             new_value=new_status
         )
         
+        # Check if all discrepancies for this invoice are now resolved
+        # If so, automatically close the post-delivery case
+        invoice_no = discrepancy.invoice_no
+        unresolved_count = DeliveryDiscrepancy.query.filter(
+            DeliveryDiscrepancy.invoice_no == invoice_no,
+            DeliveryDiscrepancy.is_resolved == False
+        ).count()
+        
+        case_closed = False
+        if unresolved_count == 0:
+            # All discrepancies resolved - close the post-delivery case
+            from models import InvoicePostDeliveryCase
+            open_case = InvoicePostDeliveryCase.query.filter(
+                InvoicePostDeliveryCase.invoice_no == invoice_no,
+                InvoicePostDeliveryCase.status == 'OPEN'
+            ).first()
+            if open_case:
+                open_case.status = 'CLOSED'
+                open_case.notes = (open_case.notes or '') + f"\nAuto-closed: All {DeliveryDiscrepancy.query.filter_by(invoice_no=invoice_no).count()} discrepancies resolved."
+                case_closed = True
+        
         db.session.commit()
         
-        if discrepancy.status == 'review':
+        if case_closed:
+            flash(f'Issue #{issue_id} resolved. All discrepancies for invoice {invoice_no} are now resolved - post-delivery case automatically closed.', 'success')
+        elif discrepancy.status == 'review':
             flash(f'Issue #{issue_id} resolved with action: {resolution_action}. Both validation and resolution complete - moved to REVIEW', 'success')
         else:
             flash(f'Issue #{issue_id} resolved with action: {resolution_action}. Awaiting validation to complete.', 'success')
