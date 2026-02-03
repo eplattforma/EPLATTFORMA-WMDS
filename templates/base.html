@@ -194,7 +194,7 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if 'reconciliation' in request.endpoint %}active{% endif %}" 
+                                <a class="dropdown-item {% if request.endpoint and 'reconciliation' in request.endpoint %}active{% endif %}" 
                                    href="{{ url_for('reconciliation.shipment_list') }}">
                                     <i class="fas fa-check-double me-2"></i>Route Reconciliation
                                 </a>
