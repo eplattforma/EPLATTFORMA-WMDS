@@ -2142,16 +2142,21 @@ def picker_dashboard():
     for inv in invoices_raw:
         # Calculate stop sequence dynamically
         try:
-            stop_seq = db.session.query(text("""
+            # Create a subtransaction/savepoint to handle specific query failures
+            db.session.begin_nested()
+            # Wrap the query in another SELECT to avoid double SELECT syntax error
+            stop_seq = db.session.execute(text("""
                 SELECT (count(*) + 1)::int
                 FROM route_stop rs2 
                 JOIN route_stop rs_curr ON rs2.shipment_id = rs_curr.shipment_id
                 JOIN route_stop_invoice rsi ON rs_curr.route_stop_id = rsi.route_stop_id
                 WHERE rsi.invoice_no = :invoice_no
                 AND rs2.route_stop_id < rs_curr.route_stop_id
-            """)).params(invoice_no=inv.invoice_no).scalar()
+            """), {"invoice_no": inv.invoice_no}).scalar()
             inv.stop_sequence = stop_seq
+            db.session.commit()
         except Exception as e:
+            db.session.rollback()
             current_app.logger.error(f"Error calculating stop sequence for {inv.invoice_no}: {e}")
             inv.stop_sequence = None
         invoices.append(inv)
