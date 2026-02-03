@@ -5,7 +5,7 @@ from flask import Blueprint, request, render_template, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from datetime import datetime
 from functools import wraps
-from models import Shipment, RouteStop, RouteStopInvoice, Invoice, User
+from models import Shipment, RouteStop, RouteStopInvoice, Invoice, User, CreditTerms
 from services_route_lifecycle import recompute_route_completion
 from timezone_utils import utc_now_for_db, get_local_time
 import services
@@ -38,10 +38,12 @@ def _lock_route_manifest(shipment_id: int, username: str):
     invoice_map = {inv.invoice_no: inv for inv in invoices}
     
     customer_codes = list(set(inv.customer_code for inv in invoices if inv.customer_code))
-    payment_customers = PaymentCustomer.query.filter(
-        PaymentCustomer.customer_code.in_(customer_codes)
+    
+    credit_terms = CreditTerms.query.filter(
+        CreditTerms.customer_code.in_(customer_codes),
+        CreditTerms.valid_to.is_(None)
     ).all() if customer_codes else []
-    payment_map = {pc.customer_code: pc for pc in payment_customers}
+    terms_map = {ct.customer_code: ct for ct in credit_terms}
     
     now = utc_now_for_db()
     for rsi in rsi_list:
@@ -52,19 +54,16 @@ def _lock_route_manifest(shipment_id: int, username: str):
         rsi.expected_amount = invoice.total_grand if invoice.total_grand else 0
         
         payment_method = 'CASH'
-        if invoice.customer_code and invoice.customer_code in payment_map:
-            pc = payment_map[invoice.customer_code]
-            if pc.payment_method:
-                method = pc.payment_method.upper()
-                if 'CREDIT' in method:
-                    payment_method = 'CREDIT'
-                elif 'CHEQUE' in method or 'CHECK' in method:
-                    if 'POST' in method:
-                        payment_method = 'POST DATED CHQ'
-                    else:
-                        payment_method = 'DAY CHEQUE'
-                elif 'ONLINE' in method or 'BANK' in method or 'TRANSFER' in method:
-                    payment_method = 'ONLINE'
+        if invoice.customer_code and invoice.customer_code in terms_map:
+            ct = terms_map[invoice.customer_code]
+            if ct.is_credit:
+                payment_method = 'CREDIT'
+            elif ct.allow_cheque and ct.cheque_days_allowed and ct.cheque_days_allowed > 0:
+                payment_method = 'POST DATED CHQ'
+            elif ct.allow_cheque:
+                payment_method = 'DAY CHEQUE'
+            elif ct.allow_bank_transfer:
+                payment_method = 'ONLINE'
         
         rsi.expected_payment_method = payment_method
         rsi.manifest_locked_at = now
