@@ -60,9 +60,9 @@ def _lock_route_manifest(shipment_id: int, username: str):
                 payment_method = 'CREDIT'
             elif ct.allow_cheque and ct.cheque_days_allowed and ct.cheque_days_allowed > 0:
                 payment_method = 'POST DATED CHQ'
-            elif ct.allow_cheque:
+            elif ct.allow_cheque and not ct.allow_cash:
                 payment_method = 'DAY CHEQUE'
-            elif ct.allow_bank_transfer:
+            elif ct.allow_bank_transfer and not ct.allow_cash:
                 payment_method = 'ONLINE'
         
         rsi.expected_payment_method = payment_method
