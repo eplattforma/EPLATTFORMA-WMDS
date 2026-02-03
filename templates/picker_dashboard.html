@@ -66,129 +66,109 @@
     <div class="card-header bg-primary text-white">
         <h5 class="mb-0"><i class="fas fa-box me-2"></i>My Individual Orders</h5>
     </div>
-    <div class="card-body p-0">
+    <div class="card-body p-2">
         {% if invoices %}
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Order ID</th>
-                        <th>Last Updated</th>
-                        <th>Routing</th>
-                        <th>Customer</th>
-                        <th>Lines</th>
-                        <th>Items</th>
-                        <th>Weight (kg)</th>
-                        <th>Est. Time</th>
-                        <th>Actual</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for invoice in invoices %}
-                    <tr class="{% if invoice.status == 'ready_for_dispatch' %}table-success{% elif invoice.status == 'picking' %}table-warning{% elif invoice.status == 'awaiting_batch_items' %}table-info{% elif invoice.status == 'shipped' %}table-info{% endif %}">
-                        <td><strong class="text-primary">{{ invoice.invoice_no.split('IN')[-1] if invoice.invoice_no.startswith('IN') else invoice.invoice_no }}</strong></td>
-                        <td>
-                            <small class="text-dark fw-bold">{{ invoice.status_updated_at|local_time('%d/%m/%y') if invoice.status_updated_at else '-' }}</small>
-                        </td>
-                        <td>{{ invoice.routing or '-' }}</td>
-                        <td>{{ invoice.customer_name or '-' }}</td>
-                        <td>{{ invoice.total_lines }}</td>
-                        <td>{{ invoice.total_items|int }}</td>
-                        <td>{{ invoice.total_weight|round(1) }}</td>
-                        <td>{{ invoice.total_exp_time|round(1) }}</td>
-                        <td>
-                            {% if picking_times and invoice.invoice_no in picking_times %}
-                                <span class="badge bg-info">{{ picking_times[invoice.invoice_no] }}</span>
-                            {% else %}
-                                <span class="text-muted">-</span>
+        {% for invoice in invoices %}
+        <div class="card mb-3 {% if invoice.status == 'ready_for_dispatch' %}border-success{% elif invoice.status == 'picking' %}border-warning{% elif invoice.status == 'awaiting_batch_items' %}border-info{% elif invoice.status == 'shipped' %}border-info{% else %}border-secondary{% endif %}" style="border-width: 2px;">
+            <div class="card-body p-3">
+                <!-- Row 1: Order ID + Customer Name -->
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <span class="fw-bold text-primary fs-5">{{ invoice.invoice_no.split('IN')[-1] if invoice.invoice_no.startswith('IN') else invoice.invoice_no }}</span>
+                    </div>
+                    <div class="text-end">
+                        <span class="text-dark fw-semibold">{{ invoice.customer_name or '-' }}</span>
+                    </div>
+                </div>
+                
+                <!-- Row 2: Lines, Items, Weight, Est Time -->
+                <div class="d-flex flex-wrap gap-2 mb-2 py-2 border-top border-bottom" style="background-color: #f8f9fa;">
+                    <span class="badge bg-light text-dark border"><i class="fas fa-list me-1"></i>{{ invoice.total_lines }} lines</span>
+                    <span class="badge bg-light text-dark border"><i class="fas fa-cubes me-1"></i>{{ invoice.total_items|int }} items</span>
+                    <span class="badge bg-light text-dark border"><i class="fas fa-weight me-1"></i>{{ invoice.total_weight|round(1) }} kg</span>
+                    <span class="badge bg-light text-dark border"><i class="fas fa-clock me-1"></i>{{ invoice.total_exp_time|round(1) }} min</span>
+                </div>
+                
+                <!-- Row 3: Route Number (large) + Notes -->
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        {% if invoice.routing %}
+                        <span class="fw-bold text-success" style="font-size: 1.5rem;"><i class="fas fa-route me-1"></i>{{ invoice.routing }}</span>
+                        {% else %}
+                        <span class="text-muted" style="font-size: 1.2rem;"><i class="fas fa-route me-1"></i>No Route</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-end">
+                        {% if invoice.notes %}
+                        <span class="badge bg-warning text-dark"><i class="fas fa-sticky-note me-1"></i>{{ invoice.notes }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Row 4: Status, Button, Actual Time -->
+                <div class="d-flex justify-content-between align-items-center">
+                    <!-- Status -->
+                    <div>
+                        {% if invoice.status == 'not_started' %}
+                        <span class="badge bg-secondary">Not Started</span>
+                        {% elif invoice.status == 'picking' %}
+                        <div>
+                            <span class="badge bg-warning text-dark mb-1">Picking</span>
+                            {% if invoice.total_lines > 0 %}
+                                {% set picked_items = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
+                                {% set progress_percent = (picked_items / invoice.total_lines * 100)|round|int %}
+                                <div class="progress mt-1" style="height: 6px; width: 80px;">
+                                    <div class="progress-bar bg-warning" role="progressbar" style="width: {{ progress_percent }}%;"></div>
+                                </div>
+                                <small class="text-muted">{{ picked_items }}/{{ invoice.total_lines }}</small>
                             {% endif %}
-                        </td>
-                        <td>
-                            {% if invoice.status == 'not_started' %}
-                            <span class="badge bg-secondary">Not Started</span>
-                            {% elif invoice.status == 'picking' %}
-                            <div>
-                                <span class="badge bg-warning text-dark mb-1">Picking</span>
-                                {% if invoice.total_lines > 0 %}
-                                    {% set picked_items = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
-                                    {% set progress_percent = (picked_items / invoice.total_lines * 100)|round|int %}
-                                    <div class="progress" style="height: 6px;">
-                                        <div class="progress-bar bg-warning" role="progressbar" 
-                                             style="width: {{ progress_percent }}%;" 
-                                             aria-valuenow="{{ progress_percent }}" 
-                                             aria-valuemin="0" 
-                                             aria-valuemax="100"></div>
-                                    </div>
-                                    <small class="d-block mt-1">{{ picked_items }} of {{ invoice.total_lines }} items</small>
-                                {% endif %}
-                            </div>
-                            {% elif invoice.status == 'awaiting_batch_items' %}
-                            <div>
-                                <span class="badge text-white mb-1" style="background-color: #7B68EE;">Awaiting Batch Items</span>
-                                {% if invoice.total_lines > 0 %}
-                                    {% set picked_items = invoice.items|selectattr('is_picked', 'equalto', true)|list|length %}
-                                    {% set progress_percent = (picked_items / invoice.total_lines * 100)|round|int %}
-                                    <div class="progress" style="height: 6px;">
-                                        <div class="progress-bar" style="background-color: #7B68EE;" role="progressbar" 
-                                             style="width: {{ progress_percent }}%;" 
-                                             aria-valuenow="{{ progress_percent }}" 
-                                             aria-valuemin="0" 
-                                             aria-valuemax="100"></div>
-                                    </div>
-                                    <small class="d-block mt-1">{{ picked_items }} of {{ invoice.total_lines }} items (remaining in batch)</small>
-                                {% endif %}
-                            </div>
-                            {% elif invoice.status == 'ready_for_dispatch' %}
-                            <div>
-                                <span class="badge bg-info text-dark mb-1">Ready for Dispatch</span>
-                                <small class="d-block mt-1">Items picked, waiting for dispatch</small>
-                            </div>
-                            {% elif invoice.status == 'awaiting_packing' %}
-                            <div>
-                                <span class="badge bg-warning text-dark mb-1">Awaiting Packing</span>
-                                <small class="d-block mt-1">Picking complete, please pack the order</small>
-                            </div>
-                            {% elif invoice.status == 'shipped' %}
-                            <span class="badge bg-success">Shipped</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if invoice.status == 'not_started' %}
-                            <a href="{{ url_for('start_picking', invoice_no=invoice.invoice_no) }}" class="btn btn-primary btn-sm">
-                                <i class="fas fa-play me-1"></i> Start Picking
-                            </a>
-                            {% elif invoice.status == 'picking' %}
-                            <a href="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}" class="btn btn-warning btn-sm">
-                                <i class="fas fa-sync-alt me-1"></i> Continue
-                            </a>
-                            {% elif invoice.status == 'awaiting_batch_items' %}
-                            <div class="text-center">
-                                <small class="text-muted d-block mb-1">
-                                    <i class="fas fa-layer-group me-1"></i>Remaining items in batch above
-                                </small>
-                                <span class="badge bg-info">See batch sessions</span>
-                            </div>
-                            {% elif invoice.status == 'ready_for_dispatch' %}
-                            <a href="{{ url_for('ready_for_packing', invoice_no=invoice.invoice_no) }}" class="btn btn-info btn-sm">
-                                <i class="fas fa-box me-1"></i> Pack Order
-                            </a>
-                            {% elif invoice.status == 'awaiting_packing' %}
-                            <a href="{{ url_for('ready_for_packing', invoice_no=invoice.invoice_no) }}" class="btn btn-warning btn-sm">
-                                <i class="fas fa-box-open me-1"></i> Pack Order
-                            </a>
-                            {% elif invoice.status == 'shipped' %}
-                            <a href="{{ url_for('picking_completed', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm">
-                                <i class="fas fa-check me-1"></i> View Details
-                            </a>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                        </div>
+                        {% elif invoice.status == 'awaiting_batch_items' %}
+                        <span class="badge text-white" style="background-color: #7B68EE;">Awaiting Batch</span>
+                        {% elif invoice.status == 'ready_for_dispatch' %}
+                        <span class="badge bg-info text-dark">Ready for Dispatch</span>
+                        {% elif invoice.status == 'awaiting_packing' %}
+                        <span class="badge bg-warning text-dark">Awaiting Packing</span>
+                        {% elif invoice.status == 'shipped' %}
+                        <span class="badge bg-success">Shipped</span>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Action Button -->
+                    <div>
+                        {% if invoice.status == 'not_started' %}
+                        <a href="{{ url_for('start_picking', invoice_no=invoice.invoice_no) }}" class="btn btn-primary">
+                            <i class="fas fa-play me-1"></i>Start
+                        </a>
+                        {% elif invoice.status == 'picking' %}
+                        <a href="{{ url_for('pick_item', invoice_no=invoice.invoice_no) }}" class="btn btn-warning">
+                            <i class="fas fa-sync-alt me-1"></i>Continue
+                        </a>
+                        {% elif invoice.status == 'awaiting_batch_items' %}
+                        <span class="badge bg-info">In Batch</span>
+                        {% elif invoice.status == 'ready_for_dispatch' or invoice.status == 'awaiting_packing' %}
+                        <a href="{{ url_for('ready_for_packing', invoice_no=invoice.invoice_no) }}" class="btn btn-info">
+                            <i class="fas fa-box me-1"></i>Pack
+                        </a>
+                        {% elif invoice.status == 'shipped' %}
+                        <a href="{{ url_for('picking_completed', invoice_no=invoice.invoice_no) }}" class="btn btn-success btn-sm">
+                            <i class="fas fa-check me-1"></i>View
+                        </a>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Actual Time -->
+                    <div>
+                        {% if picking_times and invoice.invoice_no in picking_times %}
+                        <span class="badge bg-info fs-6"><i class="fas fa-stopwatch me-1"></i>{{ picking_times[invoice.invoice_no] }}</span>
+                        {% else %}
+                        <span class="text-muted"><i class="fas fa-stopwatch"></i> -</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
         </div>
+        {% endfor %}
         {% else %}
             {% if not batch_sessions %}
             <div class="text-center p-5">
@@ -215,83 +195,82 @@
     <div class="card-header text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
         <h5 class="mb-0"><i class="fas fa-layer-group me-2"></i>Active Batch Picking Sessions</h5>
     </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Batch ID</th>
-                        <th>Created</th>
-                        <th>Name</th>
-                        <th>Orders</th>
-                        <th>Items Progress</th>
-                        <th>Zones/Corridors</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for batch_data in batch_sessions %}
-                    {% set batch = batch_data.session %}
-                    <tr class="table-primary border-start border-4 border-primary">
-                        <td>
-                            <strong class="text-primary">{{ batch.id }}</strong>
-                        </td>
-                        <td>
-                            <small class="text-dark fw-bold">{{ batch.created_at|local_time('%d/%m/%y') }}</small>
-                        </td>
-                        <td>{{ batch.name }}</td>
-                        <td>
-                            <span class="badge bg-primary">{{ batch_data.invoice_count }} orders</span>
-                        </td>
-                        <td>
-                            <div class="d-flex align-items-center">
-                                <span class="me-2 fw-bold text-dark">{{ batch_data.completed_items }}/{{ batch_data.total_items }}</span>
-                                <div class="progress flex-grow-1" style="height: 8px;">
-                                    <div class="progress-bar bg-primary" style="width: {{ batch_data.progress_percent }}%"></div>
-                                </div>
-                                <small class="ms-2 fw-bold text-dark">{{ "%.0f"|format(batch_data.progress_percent) }}%</small>
-                            </div>
-                        </td>
-                        <td>
-                            {% if batch.zones %}
-                                {% set zone_count = batch.zones.split(',')|length %}
-                                {% if zone_count >= 5 %}
-                                    <span class="badge bg-warning text-dark">ALL Zones</span>
-                                {% else %}
-                                    <span class="badge bg-warning text-dark">{{ batch.zones }} Zone</span>
-                                {% endif %}
-                                <br><small class="text-dark fw-bold"><i class="fas fa-filter me-1"></i>Zone filtered batch</small>
+    <div class="card-body p-2">
+        {% for batch_data in batch_sessions %}
+        {% set batch = batch_data.session %}
+        <div class="card mb-3 border-primary" style="border-width: 2px;">
+            <div class="card-body p-3">
+                <!-- Row 1: Batch ID + Name -->
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <span class="fw-bold text-primary fs-5">Batch #{{ batch.id }}</span>
+                    </div>
+                    <div class="text-end">
+                        <span class="text-dark fw-semibold">{{ batch.name }}</span>
+                    </div>
+                </div>
+                
+                <!-- Row 2: Orders, Progress, Date -->
+                <div class="d-flex flex-wrap gap-2 mb-2 py-2 border-top border-bottom" style="background-color: #f8f9fa;">
+                    <span class="badge bg-primary">{{ batch_data.invoice_count }} orders</span>
+                    <span class="badge bg-light text-dark border"><i class="fas fa-cubes me-1"></i>{{ batch_data.completed_items }}/{{ batch_data.total_items }} items</span>
+                    <span class="badge bg-light text-dark border"><i class="fas fa-calendar me-1"></i>{{ batch.created_at|local_time('%d/%m/%y') }}</span>
+                </div>
+                
+                <!-- Row 3: Progress Bar -->
+                <div class="mb-3">
+                    <div class="d-flex align-items-center">
+                        <div class="progress flex-grow-1" style="height: 12px;">
+                            <div class="progress-bar bg-primary" style="width: {{ batch_data.progress_percent }}%"></div>
+                        </div>
+                        <span class="ms-2 fw-bold text-dark fs-5">{{ "%.0f"|format(batch_data.progress_percent) }}%</span>
+                    </div>
+                </div>
+                
+                <!-- Row 4: Zones/Corridors + Status + Action -->
+                <div class="d-flex justify-content-between align-items-center">
+                    <!-- Zones/Corridors -->
+                    <div>
+                        {% if batch.zones %}
+                            {% set zone_count = batch.zones.split(',')|length %}
+                            {% if zone_count >= 5 %}
+                                <span class="badge bg-warning text-dark">ALL Zones</span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark">{{ batch.zones }}</span>
                             {% endif %}
-                            {% if batch.corridors %}
-                                <br><small class="text-dark fw-bold">Corridors: {{ batch.corridors }}</small>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <span class="badge bg-{% if batch.status == 'Active' %}success{% elif batch.status == 'Paused' %}warning{% elif batch.status == 'Completed' %}primary{% else %}secondary{% endif %}">
-                                {{ batch.status }}
-                            </span>
-                        </td>
-                        <td>
-                            {% if batch.status == 'Active' %}
-                            <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-primary btn-sm">
-                                <i class="fas fa-play me-1"></i> Continue Batch
-                            </a>
-                            {% elif batch.status == 'Paused' %}
-                            <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-warning btn-sm">
-                                <i class="fas fa-play me-1"></i> Resume Batch
-                            </a>
-                            {% elif batch.status == 'Completed' %}
-                            <a href="{{ url_for('batch.batch_print_reports', batch_id=batch.id) }}" class="btn btn-success btn-sm">
-                                <i class="fas fa-print me-1"></i> Print Report
-                            </a>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                        {% endif %}
+                        {% if batch.corridors %}
+                            <small class="text-dark d-block">Corr: {{ batch.corridors }}</small>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Status -->
+                    <div>
+                        <span class="badge bg-{% if batch.status == 'Active' %}success{% elif batch.status == 'Paused' %}warning{% elif batch.status == 'Completed' %}primary{% else %}secondary{% endif %} fs-6">
+                            {{ batch.status }}
+                        </span>
+                    </div>
+                    
+                    <!-- Action Button -->
+                    <div>
+                        {% if batch.status == 'Active' %}
+                        <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-primary">
+                            <i class="fas fa-play me-1"></i>Continue
+                        </a>
+                        {% elif batch.status == 'Paused' %}
+                        <a href="{{ url_for('batch.batch_picking_item', batch_id=batch.id) }}" class="btn btn-warning">
+                            <i class="fas fa-play me-1"></i>Resume
+                        </a>
+                        {% elif batch.status == 'Completed' %}
+                        <a href="{{ url_for('batch.batch_print_reports', batch_id=batch.id) }}" class="btn btn-success btn-sm">
+                            <i class="fas fa-print me-1"></i>Print
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
         </div>
+        {% endfor %}
     </div>
 </div>
 {% endif %}
