@@ -68,7 +68,10 @@
                 <a href="{{ url_for('picker_dashboard') }}" class="text-decoration-none">
                     <i class="fas fa-arrow-left me-1"></i>
                 </a>
-                {{ invoice.routing }} <small class="text-muted">{{ invoice.customer_name }}</small>
+                {% if stop_sequence %}
+                <span class="badge bg-success me-1">{{ stop_sequence }}</span>
+                {% endif %}
+                <small class="text-muted">{{ invoice.customer_name }}</small>
             </h2>
             <span class="badge bg-primary" style="font-size: 1.2rem; padding: 0.5rem 0.75rem;">{{ picked_items }}/{{ total_items }}</span>
         </div>

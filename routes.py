@@ -2954,6 +2954,24 @@ def pick_item(invoice_no):
     exception_reasons_text = Setting.get(db.session, 'exception_reasons', default_exception_reasons)
     exception_reasons_list = [reason.strip() for reason in exception_reasons_text.split('\n') if reason.strip()]
     
+    # Calculate stop sequence dynamically for picking screen
+    stop_seq = None
+    try:
+        db.session.begin_nested()
+        result = db.session.execute(text("""
+            SELECT (count(*) + 1)::int
+            FROM route_stop rs2 
+            JOIN route_stop rs_curr ON rs2.shipment_id = rs_curr.shipment_id
+            JOIN route_stop_invoice rsi ON rs_curr.route_stop_id = rsi.route_stop_id
+            WHERE rsi.invoice_no = :invoice_no
+            AND rs2.route_stop_id < rs_curr.route_stop_id
+        """), {"invoice_no": invoice_no}).scalar()
+        stop_seq = result
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error calculating stop sequence for picking item {invoice_no}: {e}")
+
     return render_template('picking.html', 
                           invoice=invoice, 
                           item=current_item, 
@@ -2973,7 +2991,8 @@ def pick_item(invoice_no):
                           is_skipped_resolution=is_skipped_resolution,
                           skip_reason=current_item.skip_reason if is_skipped_resolution else None,
                           tracking_id=tracking_id,
-                          show_multi_qty_warning=show_multi_qty_warning)
+                          show_multi_qty_warning=show_multi_qty_warning,
+                          stop_sequence=stop_seq)
 
 @app.route('/picker/invoice/<invoice_no>/completed')
 @login_required
