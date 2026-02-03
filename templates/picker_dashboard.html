@@ -77,7 +77,7 @@
                         <span class="fw-bold text-primary fs-5">{{ invoice.invoice_no.split('IN')[-1] if invoice.invoice_no.startswith('IN') else invoice.invoice_no }}</span>
                     </div>
                     <div class="text-end">
-                        <span class="text-dark fw-semibold">{{ invoice.customer_name or '-' }}</span>
+                        <span class="text-white fw-semibold">{{ invoice.customer_name or '-' }}</span>
                     </div>
                 </div>
                 
@@ -95,12 +95,12 @@
                         {% if invoice.routing %}
                         <span class="fw-bold text-success" style="font-size: 1.5rem;"><i class="fas fa-route me-1"></i>{{ invoice.routing }}</span>
                         {% else %}
-                        <span class="text-muted" style="font-size: 1.2rem;"><i class="fas fa-route me-1"></i>No Route</span>
+                        <span class="text-muted" style="font-size: 1.2rem;"><i class="fas fa-route me-1"></i>-</span>
                         {% endif %}
                     </div>
                     <div class="text-end">
                         {% if invoice.notes %}
-                        <span class="badge bg-warning text-dark"><i class="fas fa-sticky-note me-1"></i>{{ invoice.notes }}</span>
+                        <small class="text-muted d-block" style="font-size: 0.85rem;"><i class="fas fa-sticky-note me-1"></i>{{ invoice.notes }}</small>
                         {% endif %}
                     </div>
                 </div>
