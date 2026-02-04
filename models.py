@@ -1095,6 +1095,7 @@ class DeliveryDiscrepancy(db.Model):
     qty_actual = db.Column(db.Float, nullable=True)
     discrepancy_type = db.Column(db.String(50), nullable=False)
     reported_value = db.Column(db.Numeric(12, 2), nullable=True)  # Value recorded by driver at time of delivery
+    deduct_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Amount deducted from driver collection
     reported_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=False)
     reported_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
     reported_source = db.Column(db.String(50), nullable=True)
@@ -1170,6 +1171,12 @@ class DiscrepancyType(db.Model):
     display_name = db.Column(db.String(100), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)
+    
+    # Behavior flags for discrepancy-driven settlement
+    deducts_from_collection = db.Column(db.Boolean, default=True, nullable=False)  # Deduct amount from driver collection
+    cn_required = db.Column(db.Boolean, default=True, nullable=False)  # Credit note must be issued
+    return_expected = db.Column(db.Boolean, default=False, nullable=False)  # Physical return expected from customer
+    requires_actual_item = db.Column(db.Boolean, default=False, nullable=False)  # Requires actual_item_code/qty fields
     
     def __repr__(self):
         return f"<DiscrepancyType {self.name}>"
@@ -1388,6 +1395,35 @@ class CODReceipt(db.Model):
     def __repr__(self):
         return f"<CODReceipt Stop {self.route_stop_id}: ${self.received_amount}>"
 
+
+class CODInvoiceAllocation(db.Model):
+    """Per-invoice payment allocation for settlement reconciliation"""
+    __tablename__ = 'cod_invoice_allocations'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    cod_receipt_id = db.Column(db.Integer, db.ForeignKey('cod_receipts.id', ondelete='CASCADE'), nullable=True)
+    invoice_no = db.Column(db.String(50), db.ForeignKey('invoices.invoice_no'), nullable=False)
+    route_id = db.Column(db.Integer, db.ForeignKey('shipments.id'), nullable=False)
+    
+    expected_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Invoice total before deductions
+    received_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Actual amount collected
+    deduct_amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)  # Sum of discrepancy deductions
+    
+    payment_method = db.Column(db.String(30), nullable=False, default='cash')  # cash, cheque, online, postdated
+    is_pending = db.Column(db.Boolean, nullable=False, default=False)  # True for online/postdated
+    cheque_number = db.Column(db.String(50), nullable=True)
+    cheque_date = db.Column(db.Date, nullable=True)
+    
+    created_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
+    
+    # Relationships
+    invoice = db.relationship('Invoice', backref='payment_allocations')
+    route = db.relationship('Shipment', backref='invoice_allocations')
+    cod_receipt = db.relationship('CODReceipt', backref='allocations')
+    
+    def __repr__(self):
+        return f"<CODInvoiceAllocation {self.invoice_no}: {self.payment_method} ${self.received_amount}>"
+
 class PODRecord(db.Model):
     """Proof of Delivery records"""
     __tablename__ = 'pod_records'
@@ -1469,10 +1505,17 @@ class InvoicePostDeliveryCase(db.Model):
     route_id = db.Column(db.BigInteger, db.ForeignKey('shipments.id', ondelete='SET NULL'), nullable=True)
     route_stop_id = db.Column(db.BigInteger, db.ForeignKey('route_stop.route_stop_id', ondelete='SET NULL'), nullable=True)
     
-    # Case status: OPEN, INTAKE_RECEIVED, REROUTE_QUEUED, RETURN_TO_STOCK, CLOSED
+    # Case status: OPEN, VERIFIED, CN_ISSUED, CLOSED
     status = db.Column(db.String(50), nullable=False, default='OPEN')
     reason = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    
+    # Credit note tracking
+    credit_note_required = db.Column(db.Boolean, default=False, nullable=False)  # At least one discrepancy requires CN
+    credit_note_expected_amount = db.Column(db.Numeric(12, 2), default=0)  # Sum of deduct_amount where CN required
+    credit_note_no = db.Column(db.String(64), nullable=True)  # CN reference from PS365
+    credit_note_issued_at = db.Column(UTCDateTime(), nullable=True)
+    credit_note_issued_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
     
     created_by = db.Column(db.String(100), nullable=True)
     created_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
@@ -1482,6 +1525,7 @@ class InvoicePostDeliveryCase(db.Model):
     invoice = db.relationship('Invoice', backref='post_delivery_cases')
     route = db.relationship('Shipment', backref='post_delivery_cases')
     stop = db.relationship('RouteStop', backref='post_delivery_cases')
+    cn_issuer = db.relationship('User', foreign_keys=[credit_note_issued_by], backref='issued_credit_notes')
     
     def __repr__(self):
         return f"<InvoicePostDeliveryCase {self.id}: {self.invoice_no} - {self.status}>"

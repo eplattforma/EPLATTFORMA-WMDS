@@ -590,9 +590,11 @@ def discrepancies_for_route(route_id):
             d.warehouse_checked_by, d.warehouse_checked_at, 
             d.warehouse_result, d.warehouse_note,
             d.credit_note_required, d.credit_note_no, d.credit_note_amount,
-            d.reported_value,
+            d.reported_value, d.deduct_amount,
+            dt.cn_required AS type_cn_required, dt.return_expected,
             rs.seq_no AS stop_seq, rs.stop_name
         FROM delivery_discrepancies d
+        LEFT JOIN discrepancy_types dt ON dt.name = d.discrepancy_type
         JOIN route_stop_invoice rsi ON rsi.invoice_no = d.invoice_no AND rsi.is_active = true
         JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
         WHERE rs.shipment_id = :route_id AND rs.deleted_at IS NULL
@@ -683,9 +685,159 @@ def issue_credit_note():
     disc.resolved_at = now
     disc.resolution_action = f'Credit Note {credit_note_no}'
     
+    # Update post-delivery case if it exists
+    case = InvoicePostDeliveryCase.query.filter_by(invoice_no=disc.invoice_no).first()
+    if case:
+        case.credit_note_no = credit_note_no
+        case.credit_note_issued_at = now
+        case.credit_note_issued_by = current_user.username
+        if credit_note_amount:
+            from decimal import Decimal
+            case.credit_note_expected_amount = Decimal(str(credit_note_amount))
+        
+        # Check if all discrepancies for this invoice are resolved
+        open_discrepancies = DeliveryDiscrepancy.query.filter_by(
+            invoice_no=disc.invoice_no, is_resolved=False
+        ).count()
+        if open_discrepancies == 0:
+            case.status = 'CLOSED'
+    
     db.session.commit()
     
     return jsonify({
         'success': True,
         'message': f'Credit note {credit_note_no} recorded'
+    })
+
+
+@warehouse_bp.route('/cn-worklist')
+@admin_required
+def cn_worklist():
+    """Credit Note Worklist - invoices requiring credit notes after verification"""
+    from sqlalchemy import text
+    from decimal import Decimal
+    
+    # Get all invoices with verified discrepancies requiring CN but not yet issued
+    # Only show discrepancies that have been warehouse-verified AND require CN
+    pending_cn = db.session.execute(text("""
+        SELECT 
+            d.invoice_no,
+            i.customer_name,
+            i.customer_code_365,
+            rs.shipment_id AS route_id,
+            COUNT(d.id) AS discrepancy_count,
+            SUM(COALESCE(d.deduct_amount, 0)) AS total_deduct_amount,
+            MIN(d.reported_at) AS first_reported,
+            MAX(d.warehouse_checked_at) AS last_verified
+        FROM delivery_discrepancies d
+        JOIN invoices i ON i.invoice_no = d.invoice_no
+        LEFT JOIN route_stop_invoice rsi ON rsi.invoice_no = d.invoice_no AND rsi.is_active = true
+        LEFT JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+        LEFT JOIN discrepancy_types dt ON dt.name = d.discrepancy_type
+        WHERE d.warehouse_checked_at IS NOT NULL
+          AND d.warehouse_result IS NOT NULL
+          AND d.warehouse_result IN ('RETURNED', 'LOST', 'DAMAGED', 'NOT_FOUND')
+          AND d.credit_note_no IS NULL
+          AND (d.credit_note_required = true OR dt.cn_required = true)
+          AND d.is_resolved = false
+        GROUP BY d.invoice_no, i.customer_name, i.customer_code_365, rs.shipment_id
+        ORDER BY MAX(d.warehouse_checked_at) DESC
+    """)).fetchall()
+    
+    worklist = [dict(row._mapping) for row in pending_cn]
+    
+    # Get individual discrepancies for each invoice
+    for item in worklist:
+        # Only show verified discrepancies (same filter as main query)
+        item_discrepancies = db.session.execute(text("""
+            SELECT 
+                d.id, d.item_code_expected, d.item_name,
+                d.qty_expected, d.qty_actual, d.discrepancy_type,
+                d.deduct_amount, d.reported_value,
+                d.warehouse_result, d.warehouse_note
+            FROM delivery_discrepancies d
+            LEFT JOIN discrepancy_types dt ON dt.name = d.discrepancy_type
+            WHERE d.invoice_no = :invoice_no
+              AND d.warehouse_checked_at IS NOT NULL
+              AND d.warehouse_result IS NOT NULL
+              AND d.warehouse_result IN ('RETURNED', 'LOST', 'DAMAGED', 'NOT_FOUND')
+              AND d.credit_note_no IS NULL
+              AND (d.credit_note_required = true OR dt.cn_required = true)
+              AND d.is_resolved = false
+        """), {'invoice_no': item['invoice_no']}).fetchall()
+        item['discrepancies'] = [dict(row._mapping) for row in item_discrepancies]
+    
+    return render_template(
+        'admin/cn_worklist.html',
+        worklist=worklist,
+        pending_count=len(worklist)
+    )
+
+
+@warehouse_bp.route('/cn-worklist/issue', methods=['POST'])
+@admin_required
+def issue_cn_for_invoice():
+    """Issue credit note for all pending discrepancies on an invoice"""
+    data = request.get_json()
+    invoice_no = data.get('invoice_no')
+    credit_note_no = data.get('credit_note_no')
+    credit_note_amount = data.get('credit_note_amount')
+    
+    if not invoice_no or not credit_note_no:
+        return jsonify({'error': 'Invoice number and credit note number required'}), 400
+    
+    from decimal import Decimal
+    from sqlalchemy import text
+    
+    now = utc_now_for_db()
+    
+    # Get all pending discrepancies for this invoice that:
+    # 1. Have been warehouse verified (warehouse_result is set)
+    # 2. Require CN (based on type or explicit flag)
+    # 3. Not yet issued CN
+    pending_discrepancies = db.session.execute(text("""
+        SELECT d.id
+        FROM delivery_discrepancies d
+        LEFT JOIN discrepancy_types dt ON dt.name = d.discrepancy_type
+        WHERE d.invoice_no = :invoice_no
+          AND d.warehouse_checked_at IS NOT NULL
+          AND d.warehouse_result IS NOT NULL
+          AND d.warehouse_result IN ('RETURNED', 'LOST', 'DAMAGED', 'NOT_FOUND')
+          AND d.credit_note_no IS NULL
+          AND (d.credit_note_required = true OR dt.cn_required = true)
+          AND d.is_resolved = false
+    """), {'invoice_no': invoice_no}).fetchall()
+    
+    if not pending_discrepancies:
+        return jsonify({'error': 'No verified discrepancies pending CN for this invoice. Ensure discrepancies are warehouse-verified first.'}), 404
+    
+    # Update all pending discrepancies
+    for row in pending_discrepancies:
+        disc = DeliveryDiscrepancy.query.get(row.id)
+        if disc:
+            disc.credit_note_no = credit_note_no
+            disc.credit_note_created_at = now
+            if credit_note_amount:
+                disc.credit_note_amount = Decimal(str(credit_note_amount)) / len(pending_discrepancies)
+            disc.is_resolved = True
+            disc.resolved_by = current_user.username
+            disc.resolved_at = now
+            disc.resolution_action = f'Credit Note {credit_note_no}'
+    
+    # Update post-delivery case
+    case = InvoicePostDeliveryCase.query.filter_by(invoice_no=invoice_no).first()
+    if case:
+        case.credit_note_no = credit_note_no
+        case.credit_note_issued_at = now
+        case.credit_note_issued_by = current_user.username
+        if credit_note_amount:
+            case.credit_note_expected_amount = Decimal(str(credit_note_amount))
+        case.status = 'CLOSED'
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Credit note {credit_note_no} issued for {len(pending_discrepancies)} discrepancies',
+        'discrepancies_updated': len(pending_discrepancies)
     })

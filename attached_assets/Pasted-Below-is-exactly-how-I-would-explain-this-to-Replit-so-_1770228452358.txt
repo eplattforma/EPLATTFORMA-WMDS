@@ -1,0 +1,362 @@
+Below is exactly how I would explain this to Replit so it gets implemented cleanly using your existing tables (delivery_discrepancies, invoice_post_delivery_cases, cod_receipts, pod_records, route_stop_invoice, route_return_handover), and also supports your rules:
+
+No partial delivery status (invoice is delivered or failed for the driver)
+
+Discrepancies reduce what the driver collects
+
+Credit Notes are issued later by admin after warehouse verification
+
+Returns are handed back to warehouse and verified
+
+POD is a “group”; actual payment method can vary (cash/cheque/online/post-dated)
+
+1) Clarify the 3 “flags/statuses” you see
+A) Discrepancy Open
+
+Meaning: There is at least one discrepancy recorded for the invoice that is not resolved.
+
+Rule (query logic):
+
+EXISTS delivery_discrepancies WHERE invoice_no = X AND is_resolved = false
+
+B) Post-Delivery Case Open
+
+Meaning: The invoice requires back-office handling (credit note, investigation, returns check, etc.).
+
+Rule:
+
+EXISTS invoice_post_delivery_cases WHERE invoice_no = X AND status IN ('OPEN','IN_PROGRESS','PENDING_CN') (whatever you standardize)
+
+Creation trigger: when the first discrepancy is created for an invoice.
+
+C) Credit Note Required
+
+Meaning: at least one discrepancy implies a credit note must be issued (missing/damaged/wrong/short pick etc.), but it’s not issued yet.
+
+Rule (recommended):
+
+Store this at the invoice case level:
+
+invoice_post_delivery_cases.credit_note_required = true
+
+invoice_post_delivery_cases.credit_note_no IS NULL (or empty)
+
+Creation trigger: when a discrepancy type that requires CN is recorded.
+
+2) Use your discrepancy types file to drive behavior (this is key)
+
+From your discrepancy_types.xlsx you have:
+
+missing
+
+wrong_item
+
+damaged
+
+short_pick
+
+over_pick
+
+extra_item
+
+other
+
+Replit should implement a type → behavior mapping (either in code, or by extending discrepancy_types with extra columns).
+
+Recommended behavior mapping (baseline)
+type	deduct from collection?	CN required?	physical return expected?	needs “actual item” fields?
+missing	✅	✅	❌	❌
+short_pick	✅	✅	❌	❌
+damaged	✅	✅	✅ (if customer refuses/returns)	❌ (can reuse actual_item_code=expected)
+wrong_item	✅	✅	✅ (return the wrong item)	✅ (actual_item_code/qty)
+over_pick	❌	❌	✅ (extra should return)	✅ (actual_item_code/qty)
+extra_item	❌	❌	✅	✅
+other	configurable	configurable	configurable	optional
+
+Important implementation note (to keep schema simple):
+
+For damaged, set:
+
+actual_item_code = item_code_expected
+
+actual_qty = qty_actual (or qty returned)
+
+For extra_item / over_pick, set:
+
+qty_expected = 0
+
+item_code_expected = actual item code (since schema requires it)
+
+actual_item_code = same as expected
+
+actual_qty = qty returned
+
+This lets you use one structure for line-level returns without adding a new table.
+
+3) Critical missing piece: store the money impact per discrepancy
+
+Right now your delivery_discrepancies table has no amount fields, but your process requires:
+
+“Driver deducts that amount from the collection based on the value on the invoice.”
+
+So Replit must add to delivery_discrepancies:
+
+deduct_amount numeric(12,2) NOT NULL DEFAULT 0
+
+currency varchar(3) DEFAULT 'EUR' (optional)
+
+How it’s filled:
+
+When driver records discrepancy, system auto-looks-up the line value (from your invoice line source: PS365 / DW invoice lines / existing invoice data), calculates the amount for the affected qty, and stores it.
+
+Driver can be allowed to adjust within limits (admin policy), but the stored value becomes the audit source.
+
+Without this, reconciliation will always be “manual math”.
+
+4) How to integrate “warehouse must check everything” (without another table)
+
+You already have:
+
+is_validated, validated_by, validated_at
+
+is_resolved, resolved_by, resolved_at
+
+status
+
+So implement a strict workflow:
+
+Discrepancy workflow (single source of truth)
+
+Driver creates discrepancy
+
+status='OPEN'
+
+is_validated=false
+
+is_resolved=false
+
+deduct_amount saved
+
+if return expected → ensure actual_item_code/actual_qty is filled
+
+Warehouse validates
+
+confirms physical return where applicable
+
+checks stock if “missing/short_pick”
+
+sets:
+
+status='VALIDATED'
+
+is_validated=true
+
+validated_by/at
+
+Admin issues Credit Note
+
+issued only after validation (your rule)
+
+sets:
+
+status='CN_ISSUED' (or RESOLVED)
+
+is_resolved=true
+
+resolved_by/at
+
+resolution_action='CREDIT_NOTE' + store credit note reference (either in discrepancy or in invoice_post_delivery_cases)
+
+Invoice case workflow (invoice_post_delivery_cases)
+
+created on first discrepancy
+
+aggregates what admin needs to do:
+
+credit_note_required (true/false)
+
+credit_note_expected_amount (sum of deduct_amount where CN required)
+
+credit_note_no when done
+
+status moves OPEN → VERIFIED → CN_ISSUED → CLOSED
+
+5) Returns handover (your new route_return_handover) — use it, but not only for FAILED
+
+You said:
+
+driver outcome is only delivered or failed
+
+returns also happen due to discrepancy lines on delivered invoices
+
+So Replit should populate route_return_handover when either:
+
+route_stop_invoice.status='FAILED' OR
+
+invoice has any discrepancy where return expected = true
+
+Driver step (end of route)
+
+Driver sees an auto-list:
+
+All invoices on the route where returns are expected
+
+Driver confirms: packages_count, photos, notes
+
+sets driver_confirmed_at, driver_username
+
+Warehouse step
+
+Warehouse receives & confirms:
+
+sets warehouse_received_at, received_by
+
+then discrepancy validation can proceed
+
+This gives you invoice-level proof that a return was handed in, while discrepancies keep line-level details.
+
+6) “Unsettled invoice” definition (for POD invoices)
+
+You want:
+
+Expected group = POD vs CREDIT
+
+POD breakdown is by actual payment method
+
+online + post-dated remain pending
+
+discrepancies reduce what is due now
+
+Compute per invoice (DELIVERED only)
+
+A) Determine expected group
+
+If invoice is credit terms → group = CREDIT
+
+Else → group = POD
+
+B) Compute due_now
+
+due_now = invoices.total_grand - SUM(discrepancies.deduct_amount where discrepancy implies deduction)
+
+C) Allocate payments
+This is the other big requirement:
+
+Your current cod_receipts has invoice_nos JSON, which makes per-invoice allocation hard if one receipt covers multiple invoices.
+
+Minimum rule to implement immediately:
+
+In driver UI, enforce one COD receipt record per invoice (even if the customer pays 3 invoices together).
+
+Same cheque number can be reused, but each invoice gets its own row.
+
+Then each invoice has clear received_amount and method.
+
+Now you can classify:
+
+Cash collected = sum COD rows where method=CASH
+
+Day cheque collected = method=DAY_CHEQUE
+
+Pending online = method=ONLINE (pending)
+
+Pending post-dated = method=POST_DATED (pending)
+
+D) Unsettled invoice
+An invoice is “unsettled” if:
+
+group = POD
+
+status = delivered
+
+and due_now != (cash + day_cheque + pending_online + pending_postdated)
+OR any pending exists (depending on how strict you want it)
+
+7) What Replit must build (concrete deliverables)
+A) DB migrations
+
+Add deduct_amount to delivery_discrepancies
+
+Extend invoice_post_delivery_cases to support CN tracking (recommended fields):
+
+credit_note_required boolean default false
+
+credit_note_expected_amount numeric(12,2) default 0
+
+credit_note_no varchar(64)
+
+credit_note_issued_at timestamp
+
+credit_note_issued_by varchar(64) references users(username)
+
+Ensure route_return_handover is used for returns on DELIVERED invoices too (logic/UI)
+
+B) Driver UI changes (existing discrepancy screen)
+
+When adding discrepancy:
+
+select discrepancy_type (from discrepancy_types table)
+
+enter qty_actual (what happened)
+
+system calculates deduct_amount
+
+if type requires return → require:
+
+actual_item_code + actual_qty (can be same as expected for damaged)
+
+upload photos (already supported)
+
+COD/Payment UI must:
+
+allow “actual payment method per invoice”
+
+store ONLINE / POSTDATED as pending
+
+store cheque details where required
+
+C) Warehouse UI
+
+“Returns Receiving” (by route)
+
+list invoices from route_return_handover needing warehouse receipt
+
+confirm received, packages_count notes, photos
+
+“Discrepancy Validation”
+
+list discrepancies with status OPEN
+
+validate (stock check / return check)
+
+move to VALIDATED
+
+D) Admin UI
+
+“Credit Note Worklist”
+
+invoices with credit_note_required=true and credit_note_no is null
+
+show expected CN amount (sum deductions)
+
+after issuing CN in PS365: record credit_note_no, issued amount/date
+
+close case
+
+E) Reports / Exports
+
+Route POD vs CREDIT Settlement Summary
+
+expected group totals
+
+POD breakdown by actual payment method
+
+pending totals for ONLINE + POSTDATED
+
+include discrepancy deductions total
+
+Export to Excel: one-click “Export Route Reconciliation Pack”
+
+8) The exact sentence to give Replit (short version)
+
+“Implement discrepancy-driven settlement: each discrepancy records a deduct_amount (value deducted from collection). Discrepancy types determine whether CN is required and whether a physical return is expected. When a discrepancy is created, create/keep invoice_post_delivery_cases OPEN and update CN required + expected amount. Driver settlement for POD must be broken down by actual payment method (cash/day cheque/online/post-dated), with online + post-dated marked pending. Returns must be tracked using route_return_handover not only for FAILED invoices but also for delivered invoices with return-type discrepancies. Warehouse validates discrepancies (stock/return check) before admin issues credit notes and closes the case.”

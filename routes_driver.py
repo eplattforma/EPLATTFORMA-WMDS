@@ -524,6 +524,10 @@ def submit_delivery(stop_id):
             db.session.add(disc)
             db.session.flush()
             
+            # Process discrepancy for settlement (calculate deduct_amount, set CN required)
+            from services_discrepancy import process_discrepancy_for_settlement, create_or_update_post_delivery_case
+            process_discrepancy_for_settlement(disc)
+            
             # Create event
             event_note = 'Reported by driver during delivery'
             if ex_type == 'WRONG' and (actual_barcode or actual_item_code):
@@ -545,8 +549,17 @@ def submit_delivery(stop_id):
             if invoice_no:
                 discrepancy_values_by_invoice[invoice_no] = discrepancy_values_by_invoice.get(invoice_no, Decimal('0')) + exception_value
             
-            # Record reported value on discrepancy
+            # Record reported value on discrepancy (driver-entered value)
             disc.reported_value = exception_value
+            
+            # Create/update post-delivery case for this invoice
+            create_or_update_post_delivery_case(
+                invoice_no=invoice_no,
+                route_id=route.id,
+                route_stop_id=stop.route_stop_id,
+                created_by=current_user.username,
+                reason=f"Discrepancy: {disc.discrepancy_type}"
+            )
             
             if is_rebate:
                 # Rebates don't affect physical quantities of actual items
@@ -645,6 +658,36 @@ def submit_delivery(stop_id):
             )
             db.session.add(cod_receipt)
             db.session.flush()
+            
+            # Create per-invoice payment allocations for reconciliation
+            from models import CODInvoiceAllocation
+            is_pending_method = cod_method in ('online', 'postdated', 'post_dated')
+            for invoice_no in invoice_nos:
+                inv = Invoice.query.get(invoice_no)
+                invoice_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
+                invoice_deduct = discrepancy_values_by_invoice.get(invoice_no, Decimal('0'))
+                invoice_due = invoice_total - invoice_deduct
+                
+                # Allocate received amount proportionally if multiple invoices
+                if cod_expected > 0 and len(invoice_nos) > 1:
+                    proportion = invoice_due / cod_expected
+                    invoice_received = received * proportion
+                else:
+                    invoice_received = received if len(invoice_nos) == 1 else invoice_due
+                
+                allocation = CODInvoiceAllocation(
+                    cod_receipt_id=cod_receipt.id,
+                    invoice_no=invoice_no,
+                    route_id=route.id,
+                    expected_amount=invoice_total,
+                    received_amount=invoice_received,
+                    deduct_amount=invoice_deduct,
+                    payment_method=cod_method,
+                    is_pending=is_pending_method,
+                    cheque_number=cod.get('cheque_number'),
+                    cheque_date=datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
+                )
+                db.session.add(allocation)
         
         # Process POD
         pod_record = PODRecord(

@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Settlement Summary - Route #{{ route.id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=route.id) }}" class="btn btn-sm btn-outline-secondary me-2">
+                <i class="fas fa-arrow-left"></i> Back to Route
+            </a>
+            <span class="badge bg-primary fs-5">Route #{{ route.id }}</span>
+        </div>
+        <h4 class="mb-0"><i class="fas fa-calculator text-primary"></i> Settlement Summary</h4>
+        <div>
+            <span class="text-muted">{{ route.delivery_date }}</span>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-light">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Total Expected</h6>
+                    <h3 class="text-primary">&euro;{{ "%.2f"|format(summary.total_expected|float) }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-light">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Discrepancy Deductions</h6>
+                    <h3 class="text-danger">-&euro;{{ "%.2f"|format(summary.total_deductions|float) }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body text-center">
+                    <h6>Collected</h6>
+                    <h3>&euro;{{ "%.2f"|format(collected_total) }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-dark">
+                <div class="card-body text-center">
+                    <h6>Pending</h6>
+                    <h3>&euro;{{ "%.2f"|format(pending_total) }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <i class="fas fa-money-bill-wave"></i> Payment Method Breakdown
+                </div>
+                <div class="card-body">
+                    {% if payments_by_method %}
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th class="text-end">Expected</th>
+                                <th class="text-end">Received</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for method, data in payments_by_method.items() %}
+                            <tr>
+                                <td>
+                                    <span class="badge 
+                                        {% if method == 'cash' %}bg-success
+                                        {% elif method == 'cheque' or method == 'day_cheque' %}bg-primary
+                                        {% elif method == 'online' %}bg-info
+                                        {% elif method == 'postdated' or method == 'post_dated' %}bg-warning text-dark
+                                        {% elif method == 'card' %}bg-secondary
+                                        {% else %}bg-dark{% endif %}">
+                                        {{ method|replace('_', ' ')|title }}
+                                    </span>
+                                    <small class="text-muted">({{ data.invoice_count }} invoices)</small>
+                                </td>
+                                <td class="text-end">&euro;{{ "%.2f"|format(data.expected) }}</td>
+                                <td class="text-end">&euro;{{ "%.2f"|format(data.received) }}</td>
+                                <td class="text-center">
+                                    {% if data.is_pending %}
+                                    <span class="badge bg-warning text-dark">Pending</span>
+                                    {% else %}
+                                    <span class="badge bg-success">Collected</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted text-center">No payments recorded</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <i class="fas fa-file-invoice"></i> Payment Group Summary
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <h5 class="text-success">POD (Cash/Cheque)</h5>
+                            <p class="mb-1"><strong>{{ pod_invoices|length }}</strong> invoices</p>
+                            <h4>&euro;{{ "%.2f"|format(pod_invoices|sum(attribute='amount_due')|float) if pod_invoices else 0 }}</h4>
+                        </div>
+                        <div class="col-6">
+                            <h5 class="text-info">CREDIT</h5>
+                            <p class="mb-1"><strong>{{ credit_invoices|length }}</strong> invoices</p>
+                            <h4>&euro;{{ "%.2f"|format(credit_invoices|sum(attribute='amount_due')|float) if credit_invoices else 0 }}</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-light d-flex justify-content-between">
+            <span><i class="fas fa-list"></i> Invoice Details</span>
+            <div>
+                <span class="badge bg-primary">{{ summary.invoices|length }} invoices</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Customer</th>
+                        <th>Group</th>
+                        <th class="text-end">Original</th>
+                        <th class="text-end">Deductions</th>
+                        <th class="text-end">Due</th>
+                        <th class="text-center">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inv in summary.invoices %}
+                    <tr class="{% if inv.discrepancy_count > 0 %}table-warning{% endif %}">
+                        <td><strong>{{ inv.invoice_no }}</strong></td>
+                        <td>{{ inv.customer_name or '-' }}</td>
+                        <td>
+                            <span class="badge {% if inv.payment_group == 'POD' %}bg-success{% else %}bg-info{% endif %}">
+                                {{ inv.payment_group }}
+                            </span>
+                        </td>
+                        <td class="text-end">&euro;{{ "%.2f"|format(inv.original_amount|float) }}</td>
+                        <td class="text-end text-danger">
+                            {% if inv.deductions > 0 %}
+                            -&euro;{{ "%.2f"|format(inv.deductions|float) }}
+                            <small class="text-muted">({{ inv.discrepancy_count }})</small>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td class="text-end fw-bold">&euro;{{ "%.2f"|format(inv.amount_due|float) }}</td>
+                        <td class="text-center">
+                            <span class="badge 
+                                {% if inv.delivery_status == 'DELIVERED' %}bg-success
+                                {% elif inv.delivery_status == 'FAILED' %}bg-danger
+                                {% else %}bg-secondary{% endif %}">
+                                {{ inv.delivery_status or 'Unknown' }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="table-dark">
+                        <td colspan="3" class="text-end fw-bold">Totals:</td>
+                        <td class="text-end fw-bold">&euro;{{ "%.2f"|format(summary.total_expected|float) }}</td>
+                        <td class="text-end fw-bold text-danger">-&euro;{{ "%.2f"|format(summary.total_deductions|float) }}</td>
+                        <td class="text-end fw-bold">&euro;{{ "%.2f"|format(summary.total_due|float) }}</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Credit Note Worklist{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="fas fa-file-invoice-dollar text-warning"></i> Credit Note Worklist</h3>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <i class="fas fa-clock"></i> Pending Credit Notes ({{ pending_count }})
+        </div>
+        <div class="card-body">
+            {% if worklist|length == 0 %}
+            <div class="alert alert-success text-center">
+                <i class="fas fa-check-circle fa-2x mb-2"></i>
+                <p class="mb-0">No pending credit notes to issue!</p>
+            </div>
+            {% else %}
+            
+            {% for item in worklist %}
+            <div class="card mb-3 border-warning">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong class="text-primary">{{ item.invoice_no }}</strong>
+                        <span class="text-muted ms-2">{{ item.customer_name or item.customer_code_365 }}</span>
+                        {% if item.route_id %}
+                        <a href="{{ url_for('warehouse.discrepancies_for_route', route_id=item.route_id) }}" 
+                           class="badge bg-secondary ms-2 text-decoration-none">
+                            Route #{{ item.route_id }}
+                        </a>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <span class="badge bg-danger fs-6">
+                            Expected CN: &euro;{{ "%.2f"|format(item.total_deduct_amount|float) }}
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm table-striped mb-3">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Type</th>
+                                <th class="text-center">Expected</th>
+                                <th class="text-center">Actual</th>
+                                <th class="text-end">Deduct Amount</th>
+                                <th>Warehouse Result</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for d in item.discrepancies %}
+                            <tr>
+                                <td>
+                                    <small class="text-muted">{{ d.item_code_expected }}</small><br>
+                                    {{ d.item_name or '-' }}
+                                </td>
+                                <td>
+                                    <span class="badge 
+                                        {% if d.discrepancy_type == 'missing' %}bg-danger
+                                        {% elif d.discrepancy_type == 'damaged' %}bg-warning text-dark
+                                        {% elif d.discrepancy_type == 'wrong_item' %}bg-info
+                                        {% elif d.discrepancy_type == 'short_pick' %}bg-secondary
+                                        {% else %}bg-dark{% endif %}">
+                                        {{ d.discrepancy_type|replace('_', ' ')|title }}
+                                    </span>
+                                </td>
+                                <td class="text-center">{{ d.qty_expected }}</td>
+                                <td class="text-center">{{ d.qty_actual|int if d.qty_actual else 0 }}</td>
+                                <td class="text-end fw-bold text-danger">
+                                    &euro;{{ "%.2f"|format(d.deduct_amount|float if d.deduct_amount else 0) }}
+                                </td>
+                                <td>
+                                    <span class="badge 
+                                        {% if d.warehouse_result == 'FOUND' %}bg-success
+                                        {% elif d.warehouse_result == 'RETURNED' %}bg-info
+                                        {% elif d.warehouse_result == 'LOST' %}bg-danger
+                                        {% elif d.warehouse_result == 'DAMAGED' %}bg-warning text-dark
+                                        {% else %}bg-secondary{% endif %}">
+                                        {{ d.warehouse_result }}
+                                    </span>
+                                    {% if d.warehouse_note %}
+                                    <small class="text-muted ms-1">{{ d.warehouse_note }}</small>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-warning">
+                                <td colspan="4" class="text-end fw-bold">Total CN Amount:</td>
+                                <td class="text-end fw-bold text-danger">
+                                    &euro;{{ "%.2f"|format(item.total_deduct_amount|float) }}
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    
+                    <form class="cn-form" data-invoice="{{ item.invoice_no }}">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label small">Credit Note Number</label>
+                                <input type="text" class="form-control" name="credit_note_no" 
+                                       placeholder="e.g., CN-12345" required>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label small">Amount</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">&euro;</span>
+                                    <input type="number" class="form-control" name="credit_note_amount" 
+                                           step="0.01" value="{{ "%.2f"|format(item.total_deduct_amount|float) }}">
+                                </div>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small">Notes (optional)</label>
+                                <input type="text" class="form-control" name="notes" placeholder="Any additional notes...">
+                            </div>
+                            <div class="col-md-2">
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-check"></i> Issue CN
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+            
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.querySelectorAll('.cn-form').forEach(form => {
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const invoiceNo = this.dataset.invoice;
+        const creditNoteNo = this.querySelector('[name="credit_note_no"]').value.trim();
+        const creditNoteAmount = parseFloat(this.querySelector('[name="credit_note_amount"]').value) || 0;
+        
+        if (!creditNoteNo) {
+            alert('Please enter the credit note number');
+            return;
+        }
+        
+        // Get all discrepancy IDs for this invoice from the form's parent card
+        const card = this.closest('.card');
+        const discrepancyRows = card.querySelectorAll('tbody tr');
+        
+        // For simplicity, we'll issue CN for all discrepancies at once
+        // The backend will handle updating each discrepancy
+        try {
+            // Issue CN for all pending discrepancies for this invoice
+            const response = await fetch('{{ url_for("warehouse.issue_cn_for_invoice") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    invoice_no: invoiceNo,
+                    credit_note_no: creditNoteNo,
+                    credit_note_amount: creditNoteAmount
+                })
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+                // Remove this card from the worklist
+                card.remove();
+                
+                // Update pending count
+                const pendingBadge = document.querySelector('.card-header .fa-clock').parentElement;
+                const currentCount = parseInt(pendingBadge.textContent.match(/\d+/)[0]) - 1;
+                pendingBadge.innerHTML = '<i class="fas fa-clock"></i> Pending Credit Notes (' + currentCount + ')';
+                
+                if (currentCount === 0) {
+                    location.reload();
+                }
+            } else {
+                alert(result.error || 'Error issuing credit note');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error issuing credit note');
+        }
+    });
+});
+</script>
+{% endblock %}

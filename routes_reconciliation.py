@@ -241,3 +241,65 @@ def reroute_audit():
                          date_from=date_from,
                          date_to=date_to,
                          records=audit_records)
+
+
+@reconciliation_bp.route('/shipments/<int:shipment_id>/settlement-summary')
+@login_required
+@admin_or_warehouse_required
+def settlement_summary(shipment_id):
+    """Route settlement summary with POD breakdown by payment method"""
+    from services_discrepancy import get_route_settlement_summary
+    from models import CODReceipt
+    from sqlalchemy import text
+    
+    route = Shipment.query.get_or_404(shipment_id)
+    summary = get_route_settlement_summary(shipment_id)
+    
+    # Get detailed payment breakdown from per-invoice allocations (more accurate)
+    payment_details = db.session.execute(text("""
+        SELECT 
+            cia.payment_method,
+            COUNT(DISTINCT cia.invoice_no) as invoice_count,
+            SUM(cia.expected_amount) as total_expected,
+            SUM(cia.received_amount) as total_received,
+            SUM(cia.deduct_amount) as total_deductions,
+            BOOL_OR(cia.is_pending) as is_pending
+        FROM cod_invoice_allocations cia
+        WHERE cia.route_id = :route_id
+        GROUP BY cia.payment_method
+        ORDER BY cia.payment_method
+    """), {'route_id': shipment_id}).fetchall()
+    
+    payments_by_method = {}
+    pending_total = Decimal('0')
+    collected_total = Decimal('0')
+    
+    for row in payment_details:
+        method = row.payment_method
+        is_pending = row.is_pending or method in ('online', 'postdated', 'post_dated')
+        
+        payments_by_method[method] = {
+            'invoice_count': row.invoice_count,
+            'expected': float(row.total_expected or 0),
+            'received': float(row.total_received or 0),
+            'deductions': float(row.total_deductions or 0),
+            'is_pending': is_pending
+        }
+        
+        if is_pending:
+            pending_total += Decimal(str(row.total_expected or 0)) - Decimal(str(row.total_deductions or 0))
+        else:
+            collected_total += Decimal(str(row.total_received or 0))
+    
+    # Get POD vs Credit group breakdown
+    pod_invoices = [inv for inv in summary['invoices'] if inv['payment_group'] == 'POD']
+    credit_invoices = [inv for inv in summary['invoices'] if inv['payment_group'] == 'CREDIT']
+    
+    return render_template('reconciliation/settlement_summary.html',
+                         route=route,
+                         summary=summary,
+                         payments_by_method=payments_by_method,
+                         pending_total=float(pending_total),
+                         collected_total=float(collected_total),
+                         pod_invoices=pod_invoices,
+                         credit_invoices=credit_invoices)
