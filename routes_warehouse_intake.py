@@ -590,6 +590,7 @@ def discrepancies_for_route(route_id):
             d.warehouse_checked_by, d.warehouse_checked_at, 
             d.warehouse_result, d.warehouse_note,
             d.credit_note_required, d.credit_note_no, d.credit_note_amount,
+            d.reported_value,
             rs.seq_no AS stop_seq, rs.stop_name,
             ii.unit_price as invoice_unit_price
         FROM delivery_discrepancies d

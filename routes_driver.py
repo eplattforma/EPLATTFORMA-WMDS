@@ -545,6 +545,9 @@ def submit_delivery(stop_id):
             if invoice_no:
                 discrepancy_values_by_invoice[invoice_no] = discrepancy_values_by_invoice.get(invoice_no, Decimal('0')) + exception_value
             
+            # Record reported value on discrepancy
+            disc.reported_value = exception_value
+            
             if is_rebate:
                 # Rebates don't affect physical quantities of actual items
                 pass

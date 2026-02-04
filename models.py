@@ -1094,6 +1094,7 @@ class DeliveryDiscrepancy(db.Model):
     qty_expected = db.Column(db.Integer, nullable=False)
     qty_actual = db.Column(db.Float, nullable=True)
     discrepancy_type = db.Column(db.String(50), nullable=False)
+    reported_value = db.Column(db.Numeric(12, 2), nullable=True)  # Value recorded by driver at time of delivery
     reported_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=False)
     reported_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
     reported_source = db.Column(db.String(50), nullable=True)
