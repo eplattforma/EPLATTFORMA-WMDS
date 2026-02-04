@@ -308,6 +308,7 @@ def render_excel(dataset: dict) -> BytesIO:
     - Summary sheet: Route header info (formulas calculate counts)
     - Invoice Detail sheet: One row per invoice
     - StopSummary: Uses formulas from Invoice Detail
+    - Exceptions: Exception rows with discrepancy details
     - PostDated Register: Cheque details
     """
     wb = load_workbook(TEMPLATE_PATH)
@@ -315,6 +316,7 @@ def render_excel(dataset: dict) -> BytesIO:
     _fill_summary_sheet(wb['Summary'], dataset)
     _fill_invoice_detail_sheet(wb['Invoice Detail'], dataset)
     _fill_stop_summary_sheet(wb['StopSummary'], dataset)
+    _fill_exceptions_sheet(wb['Exceptions'], dataset)
     _fill_postdated_sheet(wb['PostDated Register'], dataset)
     
     output = BytesIO()
@@ -383,6 +385,60 @@ def _fill_stop_summary_sheet(ws, dataset: dict):
         ws.cell(row=row, column=3, value=stop.customer_code)
         ws.cell(row=row, column=4, value=stop.stop_name)
         ws.cell(row=row, column=5, value=stop.stop_addr)
+
+
+def _fill_exceptions_sheet(ws, dataset: dict):
+    """Fill Exceptions sheet with exception rows and discrepancy details
+    
+    Template structure:
+    - Rows 1-21: Auto counts using formulas (already in template)
+    - Row 23: Headers for exception register
+    - Row 24+: Exception data rows
+    """
+    invoice_details = dataset['invoice_details']
+    discrepancy_map = dataset.get('discrepancy_map', {})
+    
+    exception_entries = [d for d in invoice_details if d['exception_flag']]
+    
+    start_row = 24
+    row = start_row
+    
+    for entry in exception_entries:
+        ws.cell(row=row, column=1, value=entry['stop_seq'])
+        ws.cell(row=row, column=2, value=entry['invoice_no'])
+        ws.cell(row=row, column=3, value=entry['payment_type'])
+        ws.cell(row=row, column=4, value=entry['expected_amount'])
+        ws.cell(row=row, column=5, value=entry['received_amount'])
+        ws.cell(row=row, column=6, value=entry['pod_status'])
+        ws.cell(row=row, column=7, value='TRUE')
+        ws.cell(row=row, column=8, value=entry['exception_notes'])
+        row += 1
+    
+    discrepancy_start_row = row + 2
+    ws.cell(row=discrepancy_start_row, column=1, value='Discrepancy Details')
+    ws.cell(row=discrepancy_start_row + 1, column=1, value='Invoice No')
+    ws.cell(row=discrepancy_start_row + 1, column=2, value='Type')
+    ws.cell(row=discrepancy_start_row + 1, column=3, value='Qty Claimed')
+    ws.cell(row=discrepancy_start_row + 1, column=4, value='Status')
+    ws.cell(row=discrepancy_start_row + 1, column=5, value='Warehouse Result')
+    ws.cell(row=discrepancy_start_row + 1, column=6, value='Credit Note Required')
+    ws.cell(row=discrepancy_start_row + 1, column=7, value='Credit Note No')
+    ws.cell(row=discrepancy_start_row + 1, column=8, value='Credit Note Amount')
+    ws.cell(row=discrepancy_start_row + 1, column=9, value='Notes')
+    
+    disc_row = discrepancy_start_row + 2
+    for invoice_no, discrepancies in discrepancy_map.items():
+        for disc in discrepancies:
+            ws.cell(row=disc_row, column=1, value=disc.invoice_no)
+            ws.cell(row=disc_row, column=2, value=disc.discrepancy_type)
+            ws.cell(row=disc_row, column=3, value=disc.qty_claimed if hasattr(disc, 'qty_claimed') else None)
+            ws.cell(row=disc_row, column=4, value=disc.status)
+            ws.cell(row=disc_row, column=5, value=disc.warehouse_result if hasattr(disc, 'warehouse_result') else None)
+            ws.cell(row=disc_row, column=6, value='Yes' if (hasattr(disc, 'credit_note_required') and disc.credit_note_required) else 'No')
+            ws.cell(row=disc_row, column=7, value=disc.credit_note_no if hasattr(disc, 'credit_note_no') else None)
+            ws.cell(row=disc_row, column=8, value=float(disc.credit_note_amount) if (hasattr(disc, 'credit_note_amount') and disc.credit_note_amount) else None)
+            ws.cell(row=disc_row, column=9, value=disc.notes if hasattr(disc, 'notes') else None)
+            disc_row += 1
 
 
 def _fill_postdated_sheet(ws, dataset: dict):
