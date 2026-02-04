@@ -50,13 +50,27 @@ def intake_dashboard():
         failed_invoices.append(invoice)
     
     # Also include invoices with delivery_failed status that don't have a case yet
-    # so they can be processed through the intake workflow
+    # Auto-create intake cases so they can be processed through the intake workflow
     delivery_failed_invoices = Invoice.query.filter_by(status='delivery_failed').all()
     for invoice in delivery_failed_invoices:
         # Only add if not already in the list (to avoid duplicates)
         if not any(inv.invoice_no == invoice.invoice_no for inv in failed_invoices):
-            invoice._intake_case = None
+            # Auto-create an intake case for failed deliveries that don't have one
+            new_case = InvoicePostDeliveryCase(
+                invoice_no=invoice.invoice_no,
+                route_id=None,
+                route_stop_id=None,
+                status='OPEN',
+                reason='Delivery failed - auto-created for intake',
+                notes='Auto-created intake case for failed delivery',
+                created_by='system'
+            )
+            db.session.add(new_case)
+            db.session.flush()  # Get the ID
+            invoice._intake_case = new_case
             failed_invoices.append(invoice)
+    
+    db.session.commit()
     
     # Get all reroute requests
     reroute_requests = RerouteRequest.query.filter_by(status='OPEN').all()
