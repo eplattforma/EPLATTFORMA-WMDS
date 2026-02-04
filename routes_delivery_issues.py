@@ -424,6 +424,18 @@ def resolve_issue(issue_id):
                 return redirect(url_for('delivery_issues.review_issues', filter='unresolved'))
             return redirect(url_for('delivery_issues.review_issues'))
         
+        # Check if credit note is required but not yet issued
+        if discrepancy.credit_note_required and not discrepancy.credit_note_no:
+            flash(f'Cannot resolve issue #{issue_id} - Credit Note is required but not yet issued. Please issue the credit note first.', 'error')
+            route_filter = request.args.get('route')
+            return redirect(url_for('delivery_issues.review_issues', route=route_filter))
+        
+        # Check if warehouse verification is required but not yet done
+        if discrepancy.credit_note_required and not discrepancy.warehouse_checked_at:
+            flash(f'Cannot resolve issue #{issue_id} - Warehouse verification is required before resolution.', 'error')
+            route_filter = request.args.get('route')
+            return redirect(url_for('delivery_issues.review_issues', route=route_filter))
+        
         # Mark as resolved
         old_status = discrepancy.status
         discrepancy.is_resolved = True
