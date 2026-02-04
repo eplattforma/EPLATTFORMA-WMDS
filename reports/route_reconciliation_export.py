@@ -102,6 +102,9 @@ def build_route_reconciliation_dataset(route_id: int) -> Optional[dict]:
         has_open_discrepancy = any(d.status not in ('CLOSED', 'RESOLVED') for d in discrepancies)
         has_open_pdc = pdc and pdc.status not in ('CLOSED', 'RETURN_TO_STOCK')
         
+        # Get discrepancy value from RouteStopInvoice
+        discrepancy_value = float(rsi.discrepancy_value) if rsi.discrepancy_value else 0
+        
         detail = {
             'route_id': route_id,
             'stop_seq': float(stop.seq_no) if stop.seq_no else 0,
@@ -110,6 +113,7 @@ def build_route_reconciliation_dataset(route_id: int) -> Optional[dict]:
             'payment_type': rsi.expected_payment_method or _infer_payment_type(invoice),
             'expected_amount': float(expected_amount) if expected_amount else 0,
             'received_amount': float(received_amount) if received_amount else None,
+            'discrepancy_value': discrepancy_value,
             'variance': float(received_amount - expected_amount) if received_amount and expected_amount else None,
             'has_payment_evidence': cod is not None,
             'has_pod_evidence': pod is not None,
@@ -353,6 +357,7 @@ def _fill_invoice_detail_sheet(ws, dataset: dict):
         ws.cell(row=row, column=5, value=detail['payment_type'])
         ws.cell(row=row, column=6, value=detail['expected_amount'])
         ws.cell(row=row, column=7, value=detail['received_amount'])
+        ws.cell(row=row, column=8, value=detail['discrepancy_value'])
         ws.cell(row=row, column=9, value=detail['has_payment_evidence'])
         ws.cell(row=row, column=10, value=detail['has_pod_evidence'])
         ws.cell(row=row, column=11, value=detail['has_receipt_ack'])

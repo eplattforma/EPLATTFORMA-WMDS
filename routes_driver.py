@@ -473,6 +473,8 @@ def submit_delivery(stop_id):
         # Process exceptions
         discrepancies = []
         total_rebate_reduction = Decimal('0.00')
+        # Track discrepancy value per invoice for recording on RouteStopInvoice
+        discrepancy_values_by_invoice = {}
         for ex in exceptions:
             ex_type = ex.get('type', '').upper()
             invoice_no = ex.get('invoice_no')
@@ -537,6 +539,11 @@ def submit_delivery(stop_id):
             ))
             
             discrepancies.append(disc)
+            
+            # Accumulate discrepancy value per invoice
+            exception_value = Decimal(str(ex.get('exception_value', 0) or 0))
+            if invoice_no:
+                discrepancy_values_by_invoice[invoice_no] = discrepancy_values_by_invoice.get(invoice_no, Decimal('0')) + exception_value
             
             if is_rebate:
                 # Rebates don't affect physical quantities of actual items
@@ -664,6 +671,9 @@ def submit_delivery(stop_id):
                 rsi = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, invoice_no=invoice_no).first()
                 if rsi:
                     rsi.status = 'delivered'
+                    # Record the discrepancy value (monetary impact of exceptions)
+                    if invoice_no in discrepancy_values_by_invoice:
+                        rsi.discrepancy_value = discrepancy_values_by_invoice[invoice_no]
         
         # Update stop status
         stop.delivered_at = utc_now()

@@ -1009,6 +1009,9 @@ class RouteStopInvoice(db.Model):
     manifest_locked_at = db.Column(UTCDateTime(), nullable=True)
     manifest_locked_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
     
+    # Discrepancy value (total monetary impact of exceptions on this invoice)
+    discrepancy_value = db.Column(db.Numeric(10, 2), nullable=True, default=0)
+    
     # Versioning columns for reroute-safe history
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
     effective_from = db.Column(UTCDateTime(), nullable=False, default=get_utc_now, server_default=db.func.now())
