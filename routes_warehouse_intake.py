@@ -590,10 +590,12 @@ def discrepancies_for_route(route_id):
             d.warehouse_checked_by, d.warehouse_checked_at, 
             d.warehouse_result, d.warehouse_note,
             d.credit_note_required, d.credit_note_no, d.credit_note_amount,
-            rs.seq_no AS stop_seq, rs.stop_name
+            rs.seq_no AS stop_seq, rs.stop_name,
+            ii.unit_price as invoice_unit_price
         FROM delivery_discrepancies d
         JOIN route_stop_invoice rsi ON rsi.invoice_no = d.invoice_no AND rsi.is_active = true
         JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+        LEFT JOIN invoice_items ii ON ii.invoice_no = d.invoice_no AND ii.item_code = d.item_code_expected
         WHERE rs.shipment_id = :route_id AND rs.deleted_at IS NULL
         ORDER BY rs.seq_no, d.invoice_no
     """), {'route_id': route_id}).fetchall()

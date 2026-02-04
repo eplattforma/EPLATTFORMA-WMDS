@@ -65,7 +65,11 @@
                     <small>Exp: {{ d.qty_expected }} / Act: {{ d.qty_actual or 0 }}</small>
                     {% if d.credit_note_amount %}
                     <br>
-                    <small class="text-info fw-bold">Value: &euro;{{ '%.2f'|format(d.credit_note_amount|float) }}</small>
+                    <small class="text-info fw-bold">CN Value: &euro;{{ '%.2f'|format(d.credit_note_amount|float) }}</small>
+                    {% elif d.invoice_unit_price %}
+                    <br>
+                    {% set diff = (d.qty_expected|float - (d.qty_actual|float if d.qty_actual else 0)) %}
+                    <small class="text-muted">Est. Value: &euro;{{ '%.2f'|format(diff * d.invoice_unit_price|float) }}</small>
                     {% endif %}
                 </div>
                 <div class="col-md-2">
