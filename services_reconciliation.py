@@ -452,11 +452,13 @@ def refresh_reconciliation(shipment_id: int) -> Dict:
         })
     
     # Set reconciliation status based on blocking issues
+    # Only auto-upgrade from NOT_READY to PENDING when route is complete and no blocking issues
     if shipment.status in ('COMPLETED', 'completed') and not issues['blocking']:
         if shipment.reconciliation_status == 'NOT_READY':
             shipment.reconciliation_status = 'PENDING'
+    # Only reset to NOT_READY if currently NOT_READY or PENDING (never downgrade from IN_REVIEW or RECONCILED)
     elif issues['blocking']:
-        if shipment.reconciliation_status not in ('RECONCILED',):
+        if shipment.reconciliation_status in ('NOT_READY', 'PENDING'):
             shipment.reconciliation_status = 'NOT_READY'
     
     # Get summary
