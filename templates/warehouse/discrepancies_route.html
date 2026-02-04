@@ -63,6 +63,10 @@
                     <span class="badge bg-warning text-dark">{{ d.discrepancy_type }}</span>
                     <br>
                     <small>Exp: {{ d.qty_expected }} / Act: {{ d.qty_actual or 0 }}</small>
+                    {% if d.credit_note_amount %}
+                    <br>
+                    <small class="text-info fw-bold">Value: &euro;{{ '%.2f'|format(d.credit_note_amount|float) }}</small>
+                    {% endif %}
                 </div>
                 <div class="col-md-2">
                     {% if is_verified %}
