@@ -326,7 +326,7 @@ def get_exceptions_report(shipment_id: int) -> List[Dict]:
         LEFT JOIN delivery_discrepancies d 
             ON d.invoice_no = rsi.invoice_no AND d.is_resolved = false
         LEFT JOIN discrepancy_types dt
-            ON dt.id = d.discrepancy_type_id
+            ON dt.name = d.discrepancy_type
         LEFT JOIN cod_receipts cr 
             ON cr.route_id = rs.shipment_id AND cr.route_stop_id = rs.route_stop_id
         WHERE rs.shipment_id = :shipment_id
