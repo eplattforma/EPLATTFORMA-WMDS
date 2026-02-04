@@ -356,7 +356,8 @@ def validate_issue(issue_id):
         
         if discrepancy.is_validated:
             flash(f'Issue #{issue_id} has already been validated', 'warning')
-            return redirect(url_for('delivery_issues.review_issues'))
+            route_filter = request.args.get('route')
+            return redirect(url_for('delivery_issues.review_issues', route=route_filter))
         
         note = request.form.get('note', '')
         
@@ -389,13 +390,17 @@ def validate_issue(issue_id):
             flash(f'Issue #{issue_id} validated. Both validation and resolution complete - moved to REVIEW', 'success')
         else:
             flash(f'Issue #{issue_id} validated successfully. Awaiting resolution to complete.', 'success')
-        return redirect(url_for('delivery_issues.review_issues'))
+        
+        # Preserve route filter if present
+        route_filter = request.args.get('route')
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
         
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error validating issue {issue_id}: {str(e)}")
         flash(f'Error validating issue: {str(e)}', 'error')
-        return redirect(url_for('delivery_issues.review_issues'))
+        route_filter = request.args.get('route')
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
 
 @delivery_issues_bp.route('/admin/delivery-issues/<int:issue_id>/resolve', methods=['POST'])
 @admin_required
@@ -461,14 +466,16 @@ def resolve_issue(issue_id):
         if unresolved_count == 0:
             # All discrepancies resolved - close the post-delivery case
             from models import InvoicePostDeliveryCase
-            open_case = InvoicePostDeliveryCase.query.filter(
-                InvoicePostDeliveryCase.invoice_no == invoice_no,
-                InvoicePostDeliveryCase.status == 'OPEN'
-            ).first()
-            if open_case:
-                open_case.status = 'CLOSED'
-                open_case.notes = (open_case.notes or '') + f"\nAuto-closed: All {DeliveryDiscrepancy.query.filter_by(invoice_no=invoice_no).count()} discrepancies resolved."
-                case_closed = True
+            # Skip auto-closing for Rebates as they are handled differently
+            if invoice_no and 'REB-' not in invoice_no:
+                open_case = InvoicePostDeliveryCase.query.filter(
+                    InvoicePostDeliveryCase.invoice_no == invoice_no,
+                    InvoicePostDeliveryCase.status == 'OPEN'
+                ).first()
+                if open_case:
+                    open_case.status = 'CLOSED'
+                    open_case.notes = (open_case.notes or '') + f"\nAuto-closed: All {DeliveryDiscrepancy.query.filter_by(invoice_no=invoice_no).count()} discrepancies resolved."
+                    case_closed = True
         
         db.session.commit()
         
@@ -480,18 +487,20 @@ def resolve_issue(issue_id):
             flash(f'Issue #{issue_id} resolved with action: {resolution_action}. Awaiting validation to complete.', 'success')
         
         # Redirect warehouse managers back to unresolved issues
+        route_filter = request.args.get('route')
         if current_user.role == 'warehouse_manager':
-            return redirect(url_for('delivery_issues.review_issues', filter='unresolved'))
-        return redirect(url_for('delivery_issues.review_issues'))
+            return redirect(url_for('delivery_issues.review_issues', filter='unresolved', route=route_filter))
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
         
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error resolving issue {issue_id}: {str(e)}")
         flash(f'Error resolving issue: {str(e)}', 'error')
         # Redirect warehouse managers back to unresolved issues
+        route_filter = request.args.get('route')
         if current_user.role == 'warehouse_manager':
-            return redirect(url_for('delivery_issues.review_issues', filter='unresolved'))
-        return redirect(url_for('delivery_issues.review_issues'))
+            return redirect(url_for('delivery_issues.review_issues', filter='unresolved', route=route_filter))
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
 
 @delivery_issues_bp.route('/admin/delivery-issues/<int:issue_id>/close', methods=['POST'])
 @admin_only_required
@@ -527,13 +536,15 @@ def close_issue(issue_id):
         db.session.commit()
         
         flash(f'Issue #{issue_id} has been closed', 'success')
-        return redirect(url_for('delivery_issues.review_issues'))
+        route_filter = request.args.get('route')
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
         
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error closing issue {issue_id}: {str(e)}")
         flash(f'Error closing issue: {str(e)}', 'error')
-        return redirect(url_for('delivery_issues.review_issues'))
+        route_filter = request.args.get('route')
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
 
 @delivery_issues_bp.route('/admin/delivery-issues/<int:issue_id>/delete', methods=['POST'])
 @admin_only_required
@@ -554,13 +565,15 @@ def delete_issue(issue_id):
         db.session.commit()
         
         flash(f'Issue #{issue_id} (Invoice: {invoice_no}, Item: {item_code}) has been permanently deleted', 'success')
-        return redirect(url_for('delivery_issues.review_issues'))
+        route_filter = request.args.get('route')
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
         
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error deleting issue {issue_id}: {str(e)}")
         flash(f'Error deleting issue: {str(e)}', 'error')
-        return redirect(url_for('delivery_issues.review_issues'))
+        route_filter = request.args.get('route')
+        return redirect(url_for('delivery_issues.review_issues', route=route_filter))
 
 @delivery_issues_bp.route('/api/invoices/<invoice_no>/items')
 @admin_required

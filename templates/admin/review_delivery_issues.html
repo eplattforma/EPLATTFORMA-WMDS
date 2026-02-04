@@ -558,15 +558,17 @@ const resolutionsByType = {
 };
 
 function validateIssue(issueId) {
+    const routeFilter = new URLSearchParams(window.location.search).get('route');
     const form = document.getElementById('validateForm');
-    form.action = `/admin/delivery-issues/${issueId}/validate`;
+    form.action = `/admin/delivery-issues/${issueId}/validate${routeFilter ? '?route=' + routeFilter : ''}`;
     const modal = new bootstrap.Modal(document.getElementById('validateModal'));
     modal.show();
 }
 
 function resolveIssue(issueId, discrepancyType) {
+    const routeFilter = new URLSearchParams(window.location.search).get('route');
     const form = document.getElementById('resolveForm');
-    form.action = `/admin/delivery-issues/${issueId}/resolve`;
+    form.action = `/admin/delivery-issues/${issueId}/resolve${routeFilter ? '?route=' + routeFilter : ''}`;
     
     // Populate resolution dropdown based on discrepancy type
     const resolutionSelect = document.getElementById('resolution_action');
@@ -620,8 +622,9 @@ document.getElementById('resolveForm').addEventListener('submit', function(e) {
 });
 
 function closeIssue(issueId) {
+    const routeFilter = new URLSearchParams(window.location.search).get('route');
     const form = document.getElementById('closeForm');
-    form.action = `/admin/delivery-issues/${issueId}/close`;
+    form.action = `/admin/delivery-issues/${issueId}/close${routeFilter ? '?route=' + routeFilter : ''}`;
     const modal = new bootstrap.Modal(document.getElementById('closeModal'));
     modal.show();
 }
@@ -638,8 +641,9 @@ document.getElementById('closeForm').addEventListener('submit', function(e) {
 });
 
 function deleteIssue(issueId, itemCode, invoiceNo) {
+    const routeFilter = new URLSearchParams(window.location.search).get('route');
     const form = document.getElementById('deleteForm');
-    form.action = `/admin/delivery-issues/${issueId}/delete`;
+    form.action = `/admin/delivery-issues/${issueId}/delete${routeFilter ? '?route=' + routeFilter : ''}`;
     
     // Populate modal with issue details
     document.getElementById('delete_issue_id').textContent = '#' + issueId;
