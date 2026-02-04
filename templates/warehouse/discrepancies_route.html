@@ -21,7 +21,7 @@
 <div class="container-fluid p-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <a href="{{ request.referrer if request.referrer and ('/reconciliation/shipments/' in request.referrer or '/warehouse/discrepancies' in request.referrer) else url_for('warehouse.discrepancies_dashboard') }}" class="btn btn-sm btn-outline-secondary me-2">
+            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=route.id) }}" class="btn btn-sm btn-outline-secondary me-2">
                 <i class="fas fa-arrow-left"></i> Back
             </a>
             <span class="badge bg-primary fs-6">Route #{{ route.id }}</span>
