@@ -55,15 +55,9 @@ def calculate_deduct_amount(invoice_no, item_code, qty_affected):
     # Try to get unit price from PS365 invoice data
     result = db.session.execute(text("""
         SELECT 
-            COALESCE(
-                (SELECT i.total_grand / NULLIF(
-                    (SELECT SUM(ii2.qty) FROM invoice_items ii2 WHERE ii2.invoice_no = i.invoice_no), 0
-                ), 0),
-                0
-            ) as avg_unit_price,
             i.total_grand,
-            (SELECT SUM(ii2.qty) FROM invoice_items ii2 WHERE ii2.invoice_no = i.invoice_no) as total_qty,
-            (SELECT COUNT(*) FROM invoice_items ii2 WHERE ii2.invoice_no = i.invoice_no) as total_lines
+            COALESCE((SELECT SUM(ii2.qty) FROM invoice_items ii2 WHERE ii2.invoice_no = i.invoice_no), 0) as total_qty,
+            COALESCE((SELECT COUNT(*) FROM invoice_items ii2 WHERE ii2.invoice_no = i.invoice_no), 0) as total_lines
         FROM invoices i
         WHERE i.invoice_no = :invoice_no
     """), {'invoice_no': invoice_no}).fetchone()
