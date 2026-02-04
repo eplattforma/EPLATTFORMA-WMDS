@@ -290,7 +290,7 @@ def get_stop_pod_records(shipment_id: int, route_stop_id: int) -> List[Dict]:
 
 
 def get_exceptions_report(shipment_id: int) -> List[Dict]:
-    """Get exceptions that need attention"""
+    """Get exceptions that need attention including full discrepancy details"""
     sql = text("""
         SELECT
             rsi.invoice_no,
@@ -300,7 +300,23 @@ def get_exceptions_report(shipment_id: int) -> List[Dict]:
             COALESCE(ipdc.status, 'NONE') AS post_delivery_case,
             CASE WHEN d.id IS NOT NULL THEN 'OPEN' ELSE 'N/A' END AS discrepancy_status,
             cr.variance AS cod_variance,
-            cr.ps365_synced_at
+            cr.ps365_synced_at,
+            d.id AS discrepancy_id,
+            d.discrepancy_type,
+            d.item_code_expected,
+            d.item_name,
+            d.qty_expected,
+            d.qty_actual,
+            d.reported_value,
+            d.deduct_amount,
+            d.warehouse_checked_at,
+            d.warehouse_result,
+            d.warehouse_note,
+            d.credit_note_required,
+            d.credit_note_no,
+            d.credit_note_amount,
+            dt.cn_required AS type_cn_required,
+            dt.return_expected AS type_return_expected
         FROM route_stop rs
         JOIN route_stop_invoice rsi 
             ON rsi.route_stop_id = rs.route_stop_id 
@@ -309,6 +325,8 @@ def get_exceptions_report(shipment_id: int) -> List[Dict]:
             ON ipdc.invoice_no = rsi.invoice_no AND ipdc.status = 'OPEN'
         LEFT JOIN delivery_discrepancies d 
             ON d.invoice_no = rsi.invoice_no AND d.is_resolved = false
+        LEFT JOIN discrepancy_types dt
+            ON dt.id = d.discrepancy_type_id
         LEFT JOIN cod_receipts cr 
             ON cr.route_id = rs.shipment_id AND cr.route_stop_id = rs.route_stop_id
         WHERE rs.shipment_id = :shipment_id

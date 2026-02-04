@@ -1,17 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Exceptions Report - Route {{ shipment.id }}{% endblock %}
 {% block content %}
+<style>
+    .disc-row {
+        background-color: rgba(220, 53, 69, 0.05);
+    }
+    .disc-row.verified {
+        background-color: rgba(40, 167, 69, 0.05);
+    }
+    .disc-row.cn-pending {
+        background-color: rgba(255, 193, 7, 0.1);
+    }
+</style>
+
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=shipment.id) }}" class="btn btn-sm btn-outline-secondary mb-2">&larr; Back to Route</a>
+            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=shipment.id) }}" class="btn btn-sm btn-outline-secondary mb-2">&larr; Back to Reconciliation</a>
             <h4 class="mb-0">Exceptions Report - Route #{{ shipment.id }}</h4>
             <small class="text-muted">{{ shipment.route_name or 'Unnamed' }} | {{ shipment.delivery_date }}</small>
         </div>
         <div>
-            <a href="{{ url_for('delivery_issues.review_issues', route=shipment.id) }}" class="btn btn-warning">
-                <i class="fas fa-exclamation-triangle me-1"></i>View Delivery Issues for Route #{{ shipment.id }}
-            </a>
+            {% set pending_verify = exceptions|selectattr('discrepancy_id')|rejectattr('warehouse_checked_at')|list|length %}
+            {% set pending_cn = exceptions|selectattr('credit_note_required')|rejectattr('credit_note_no')|list|length %}
+            <span class="badge bg-danger">{{ pending_verify }} Pending Verification</span>
+            <span class="badge bg-warning text-dark">{{ pending_cn }} Pending CN</span>
         </div>
     </div>
     
@@ -26,19 +39,24 @@
                     <tr>
                         <th>Stop</th>
                         <th>Invoice</th>
-                        <th>Delivery Status</th>
-                        <th>Post-Delivery Case</th>
+                        <th>Delivery</th>
                         <th>Discrepancy</th>
-                        <th>COD Variance</th>
-                        <th>Receipt Sync</th>
+                        <th>Item</th>
+                        <th>Qty</th>
+                        <th>Value</th>
+                        <th>Warehouse</th>
+                        <th>Credit Note</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for ex in exceptions %}
-                    <tr>
+                    {% set is_verified = ex.warehouse_checked_at is not none %}
+                    {% set cn_pending = ex.credit_note_required and not ex.credit_note_no %}
+                    <tr class="{{ 'disc-row verified' if is_verified else ('disc-row cn-pending' if cn_pending else ('disc-row' if ex.discrepancy_id else '')) }}">
                         <td>
                             <span class="badge bg-secondary">{{ ex.seq_no }}</span>
-                            {{ ex.stop_name or '' }}
+                            <small>{{ ex.stop_name[:15] if ex.stop_name else '' }}</small>
                         </td>
                         <td><strong>{{ ex.invoice_no }}</strong></td>
                         <td>
@@ -46,33 +64,70 @@
                             <span class="badge bg-{{ status_colors.get(ex.status, 'secondary') }}">{{ ex.status or 'PENDING' }}</span>
                         </td>
                         <td>
-                            {% if ex.post_delivery_case == 'OPEN' %}
-                            <span class="badge bg-danger">OPEN</span>
-                            {% elif ex.post_delivery_case != 'NONE' %}
-                            <span class="badge bg-secondary">{{ ex.post_delivery_case }}</span>
+                            {% if ex.discrepancy_id %}
+                            <span class="badge bg-warning text-dark">{{ ex.discrepancy_type or 'Unknown' }}</span>
                             {% else %}
                             <span class="text-muted">-</span>
                             {% endif %}
                         </td>
                         <td>
-                            {% if ex.discrepancy_status == 'OPEN' %}
-                            <span class="badge bg-danger">UNRESOLVED</span>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-end">
-                            {% if ex.cod_variance and ex.cod_variance != 0 %}
-                            <span class="text-danger fw-bold">&euro;{{ '%.2f'|format(ex.cod_variance|float) }}</span>
+                            {% if ex.item_code_expected %}
+                            <small><strong>{{ ex.item_code_expected }}</strong></small>
+                            <br><small class="text-muted">{{ (ex.item_name[:25] + '...') if ex.item_name and ex.item_name|length > 25 else (ex.item_name or '') }}</small>
                             {% else %}
                             <span class="text-muted">-</span>
                             {% endif %}
                         </td>
                         <td>
-                            {% if ex.ps365_synced_at %}
-                            <span class="badge bg-success">Synced</span>
-                            {% elif ex.cod_variance is not none %}
-                            <span class="badge bg-warning">Not Synced</span>
+                            {% if ex.discrepancy_id %}
+                            <small>{{ ex.qty_expected or 0 }} → {{ ex.qty_actual or 0 }}</small>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ex.reported_value %}
+                            <small class="text-danger">&euro;{{ '%.2f'|format(ex.reported_value|float) }}</small>
+                            {% elif ex.cod_variance and ex.cod_variance != 0 %}
+                            <small class="text-danger">&euro;{{ '%.2f'|format(ex.cod_variance|float) }}</small>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ex.discrepancy_id %}
+                                {% if is_verified %}
+                                <span class="badge bg-{{ 'success' if ex.warehouse_result in ('FOUND', 'RETURNED') else 'danger' }}">
+                                    {{ ex.warehouse_result }}
+                                </span>
+                                {% else %}
+                                <span class="badge bg-secondary">Pending</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ex.credit_note_no %}
+                            <span class="badge bg-success">{{ ex.credit_note_no }}</span>
+                            <br><small>&euro;{{ '%.2f'|format(ex.credit_note_amount|float) }}</small>
+                            {% elif ex.credit_note_required %}
+                            <span class="badge bg-warning text-dark">Needed</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if ex.discrepancy_id and not is_verified %}
+                            <button class="btn btn-sm btn-danger" onclick="verifyDiscrepancy({{ ex.discrepancy_id }}, '{{ ex.invoice_no }}', '{{ ex.item_code_expected or '' }}')">
+                                <i class="fas fa-check"></i> Verify
+                            </button>
+                            {% elif ex.discrepancy_id and cn_pending and is_verified %}
+                            <button class="btn btn-sm btn-warning" onclick="issueCN({{ ex.discrepancy_id }}, '{{ ex.invoice_no }}', {{ ex.credit_note_amount or ex.reported_value or 0 }})">
+                                <i class="fas fa-receipt"></i> Issue CN
+                            </button>
+                            {% elif ex.discrepancy_id and is_verified %}
+                            <span class="text-success"><i class="fas fa-check-circle"></i></span>
                             {% else %}
                             <span class="text-muted">-</span>
                             {% endif %}
@@ -80,7 +135,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center text-success py-4">
+                        <td colspan="10" class="text-center text-success py-4">
                             No exceptions found - route is clean!
                         </td>
                     </tr>
@@ -90,4 +145,193 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="verifyModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Verify Discrepancy</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="modal-disc-id">
+                <p><strong>Invoice:</strong> <span id="modal-invoice"></span></p>
+                <p><strong>Item:</strong> <span id="modal-item"></span></p>
+                
+                <div class="mb-3">
+                    <label class="form-label">Warehouse Result</label>
+                    <select class="form-select" id="modal-result">
+                        <option value="">-- Select Result --</option>
+                        <option value="FOUND">FOUND - Item was in warehouse</option>
+                        <option value="RETURNED">RETURNED - Item returned by driver</option>
+                        <option value="LOST">LOST - Cannot locate item</option>
+                        <option value="DAMAGED">DAMAGED - Item damaged</option>
+                        <option value="NOT_FOUND">NOT_FOUND - Item missing</option>
+                    </select>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" id="modal-notes" rows="2"></textarea>
+                </div>
+                
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="modal-cn-required">
+                    <label class="form-check-label">Credit Note Required</label>
+                </div>
+                
+                <div class="mb-3" id="cn-amount-group" style="display: none;">
+                    <label class="form-label">Credit Note Amount</label>
+                    <input type="number" class="form-control" id="modal-cn-amount" step="0.01" min="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="submitVerify()">
+                    <i class="fas fa-check"></i> Submit Verification
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="cnModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-receipt"></i> Issue Credit Note</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cn-disc-id">
+                <p><strong>Invoice:</strong> <span id="cn-invoice"></span></p>
+                
+                <div class="mb-3">
+                    <label class="form-label">Credit Note Number</label>
+                    <input type="text" class="form-control" id="cn-number" placeholder="CN-XXXXX">
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Amount</label>
+                    <input type="number" class="form-control" id="cn-amount" step="0.01" min="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="submitCN()">
+                    <i class="fas fa-check"></i> Record Credit Note
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let verifyModal, cnModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    verifyModal = new bootstrap.Modal(document.getElementById('verifyModal'));
+    cnModal = new bootstrap.Modal(document.getElementById('cnModal'));
+    
+    document.getElementById('modal-cn-required').addEventListener('change', function() {
+        document.getElementById('cn-amount-group').style.display = this.checked ? 'block' : 'none';
+    });
+});
+
+function verifyDiscrepancy(id, invoiceNo, itemCode) {
+    document.getElementById('modal-disc-id').value = id;
+    document.getElementById('modal-invoice').textContent = invoiceNo;
+    document.getElementById('modal-item').textContent = itemCode || '-';
+    document.getElementById('modal-result').value = '';
+    document.getElementById('modal-notes').value = '';
+    document.getElementById('modal-cn-required').checked = false;
+    document.getElementById('modal-cn-amount').value = '';
+    document.getElementById('cn-amount-group').style.display = 'none';
+    verifyModal.show();
+}
+
+function submitVerify() {
+    const discrepancyId = document.getElementById('modal-disc-id').value;
+    const result = document.getElementById('modal-result').value;
+    const notes = document.getElementById('modal-notes').value;
+    const cnRequired = document.getElementById('modal-cn-required').checked;
+    const cnAmount = document.getElementById('modal-cn-amount').value;
+    
+    if (!result) {
+        alert('Please select a warehouse result');
+        return;
+    }
+    
+    fetch('{{ url_for("warehouse.verify_discrepancy") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            discrepancy_id: parseInt(discrepancyId),
+            warehouse_result: result,
+            notes: notes,
+            credit_note_required: cnRequired,
+            credit_note_amount: cnAmount ? parseFloat(cnAmount) : null
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            verifyModal.hide();
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to verify discrepancy');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+
+function issueCN(discId, invoiceNo, suggestedAmount) {
+    document.getElementById('cn-disc-id').value = discId;
+    document.getElementById('cn-invoice').textContent = invoiceNo;
+    document.getElementById('cn-number').value = '';
+    document.getElementById('cn-amount').value = suggestedAmount || '';
+    cnModal.show();
+}
+
+function submitCN() {
+    const discrepancyId = document.getElementById('cn-disc-id').value;
+    const cnNumber = document.getElementById('cn-number').value;
+    const cnAmount = document.getElementById('cn-amount').value;
+    
+    if (!cnNumber) {
+        alert('Please enter credit note number');
+        return;
+    }
+    
+    fetch('{{ url_for("warehouse.issue_credit_note") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            discrepancy_id: parseInt(discrepancyId),
+            credit_note_no: cnNumber,
+            credit_note_amount: cnAmount ? parseFloat(cnAmount) : null
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            cnModal.hide();
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to record credit note');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+</script>
 {% endblock %}
