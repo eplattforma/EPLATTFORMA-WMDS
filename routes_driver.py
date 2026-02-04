@@ -16,8 +16,9 @@ from models import (
     Shipment, RouteStop, RouteStopInvoice, Invoice, InvoiceItem,
     DeliveryEvent, DeliveryLine, CODReceipt, PODRecord,
     DeliveryDiscrepancy, DeliveryDiscrepancyEvent, User, CreditTerms, utc_now,
-    InvoicePostDeliveryCase, InvoiceRouteHistory, DwInvoiceLine
+    InvoicePostDeliveryCase, InvoiceRouteHistory, DwInvoiceLine, RouteReturnHandover
 )
+from timezone_utils import utc_now_for_db, get_local_time
 import services_warehouse_intake
 from utils_pdf import generate_driver_receipt_pdf
 
@@ -1203,3 +1204,201 @@ def clear_settlement(route_id):
         db.session.rollback()
         logging.error(f"Error clearing settlement for route {route_id}: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+# --- Return Handover Workflow ---
+
+@driver_bp.route('/routes/<int:route_id>/returns')
+@driver_required
+def returns_screen(route_id):
+    """Driver returns screen for confirming handover of FAILED invoices"""
+    route = Shipment.query.get_or_404(route_id)
+    
+    if route.driver_username != current_user.username and current_user.role != 'admin':
+        flash('This route is not assigned to you.', 'error')
+        return redirect(url_for('driver.my_routes'))
+    
+    failed_invoices = db.session.query(
+        RouteStopInvoice.invoice_no,
+        RouteStop.seq_no,
+        RouteStop.stop_name,
+        RouteStop.customer_code,
+        Invoice.customer_name,
+        Invoice.total_grand,
+        RouteReturnHandover.id.label('handover_id'),
+        RouteReturnHandover.driver_confirmed_at,
+        RouteReturnHandover.packages_count,
+        RouteReturnHandover.notes.label('handover_notes')
+    ).join(
+        RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id
+    ).join(
+        Invoice, Invoice.invoice_no == RouteStopInvoice.invoice_no
+    ).outerjoin(
+        RouteReturnHandover,
+        db.and_(
+            RouteReturnHandover.route_id == route_id,
+            RouteReturnHandover.invoice_no == RouteStopInvoice.invoice_no
+        )
+    ).filter(
+        RouteStop.shipment_id == route_id,
+        RouteStop.deleted_at == None,
+        RouteStopInvoice.is_active == True,
+        db.func.upper(RouteStopInvoice.status) == 'FAILED'
+    ).order_by(RouteStop.seq_no).all()
+    
+    invoices_data = []
+    for inv in failed_invoices:
+        invoices_data.append({
+            'invoice_no': inv.invoice_no,
+            'stop_seq': inv.seq_no,
+            'stop_name': inv.stop_name,
+            'customer_code': inv.customer_code,
+            'customer_name': inv.customer_name,
+            'total': float(inv.total_grand) if inv.total_grand else 0,
+            'handover_id': inv.handover_id,
+            'confirmed': inv.driver_confirmed_at is not None,
+            'confirmed_at': get_local_time(inv.driver_confirmed_at) if inv.driver_confirmed_at else None,
+            'packages_count': inv.packages_count,
+            'notes': inv.handover_notes
+        })
+    
+    confirmed_count = sum(1 for inv in invoices_data if inv['confirmed'])
+    
+    return render_template(
+        'driver/returns.html',
+        route=route,
+        invoices=invoices_data,
+        confirmed_count=confirmed_count,
+        total_count=len(invoices_data)
+    )
+
+
+@driver_bp.route('/routes/<int:route_id>/returns/confirm', methods=['POST'])
+@driver_required
+def confirm_return_handover(route_id):
+    """Confirm return handover for a FAILED invoice"""
+    route = Shipment.query.get_or_404(route_id)
+    
+    if route.driver_username != current_user.username and current_user.role != 'admin':
+        return jsonify({'error': 'Not authorized'}), 403
+    
+    data = request.get_json()
+    invoice_no = data.get('invoice_no')
+    packages_count = data.get('packages_count', 1)
+    notes = data.get('notes', '')
+    
+    if not invoice_no:
+        return jsonify({'error': 'Invoice number required'}), 400
+    
+    rsi = RouteStopInvoice.query.join(RouteStop).filter(
+        RouteStop.shipment_id == route_id,
+        RouteStopInvoice.invoice_no == invoice_no,
+        RouteStopInvoice.is_active == True
+    ).first()
+    
+    if not rsi:
+        return jsonify({'error': 'Invoice not found on this route'}), 404
+    
+    if rsi.status and rsi.status.upper() != 'FAILED':
+        return jsonify({'error': 'Only FAILED invoices can be returned'}), 400
+    
+    existing = RouteReturnHandover.query.filter_by(
+        route_id=route_id,
+        invoice_no=invoice_no
+    ).first()
+    
+    now = utc_now_for_db()
+    
+    if existing:
+        existing.driver_confirmed_at = now
+        existing.driver_username = current_user.username
+        existing.packages_count = packages_count
+        existing.notes = notes
+    else:
+        handover = RouteReturnHandover(
+            route_id=route_id,
+            route_stop_id=rsi.route_stop_id,
+            invoice_no=invoice_no,
+            driver_confirmed_at=now,
+            driver_username=current_user.username,
+            packages_count=packages_count,
+            notes=notes
+        )
+        db.session.add(handover)
+    
+    create_delivery_event(
+        route_id=route_id,
+        event_type='RETURN_HANDOVER_SUBMITTED',
+        payload={'invoice_no': invoice_no, 'packages_count': packages_count},
+        stop_id=rsi.route_stop_id
+    )
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Return handover confirmed for {invoice_no}'
+    })
+
+
+@driver_bp.route('/routes/<int:route_id>/returns/confirm-all', methods=['POST'])
+@driver_required
+def confirm_all_returns(route_id):
+    """Confirm return handover for all FAILED invoices at once"""
+    route = Shipment.query.get_or_404(route_id)
+    
+    if route.driver_username != current_user.username and current_user.role != 'admin':
+        return jsonify({'error': 'Not authorized'}), 403
+    
+    failed_invoices = db.session.query(
+        RouteStopInvoice.invoice_no,
+        RouteStopInvoice.route_stop_id
+    ).join(RouteStop).filter(
+        RouteStop.shipment_id == route_id,
+        RouteStop.deleted_at == None,
+        RouteStopInvoice.is_active == True,
+        db.func.upper(RouteStopInvoice.status) == 'FAILED'
+    ).all()
+    
+    now = utc_now_for_db()
+    confirmed_count = 0
+    
+    for inv in failed_invoices:
+        existing = RouteReturnHandover.query.filter_by(
+            route_id=route_id,
+            invoice_no=inv.invoice_no
+        ).first()
+        
+        if existing and existing.driver_confirmed_at:
+            continue
+        
+        if existing:
+            existing.driver_confirmed_at = now
+            existing.driver_username = current_user.username
+            existing.packages_count = 1
+        else:
+            handover = RouteReturnHandover(
+                route_id=route_id,
+                route_stop_id=inv.route_stop_id,
+                invoice_no=inv.invoice_no,
+                driver_confirmed_at=now,
+                driver_username=current_user.username,
+                packages_count=1
+            )
+            db.session.add(handover)
+        
+        confirmed_count += 1
+    
+    if confirmed_count > 0:
+        create_delivery_event(
+            route_id=route_id,
+            event_type='RETURN_HANDOVER_SUBMITTED',
+            payload={'bulk_confirm': True, 'count': confirmed_count}
+        )
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Confirmed {confirmed_count} return(s)'
+    })

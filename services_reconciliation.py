@@ -15,6 +15,7 @@ from models import (
     Shipment, RouteStop, RouteStopInvoice, Invoice, 
     CODReceipt, PODRecord, DeliveryDiscrepancy, 
     InvoicePostDeliveryCase, InvoicePaymentExpectation,
+    RouteReturnHandover, CreditTerms,
     utc_now, get_utc_now
 )
 
@@ -375,6 +376,42 @@ def refresh_reconciliation(shipment_id: int) -> Dict:
             'details': unresolved
         })
     
+    # Check failed invoices without driver handover
+    failed_no_handover = check_failed_without_driver_handover(shipment_id)
+    if failed_no_handover:
+        issues['blocking'].append({
+            'type': 'FAILED_NO_DRIVER_HANDOVER',
+            'message': f"{len(failed_no_handover)} failed invoice(s) without driver return handover",
+            'details': failed_no_handover
+        })
+    
+    # Check failed invoices without warehouse receipt
+    failed_no_warehouse = check_failed_without_warehouse_receipt(shipment_id)
+    if failed_no_warehouse:
+        issues['blocking'].append({
+            'type': 'FAILED_NO_WAREHOUSE_RECEIPT',
+            'message': f"{len(failed_no_warehouse)} failed invoice(s) without warehouse receipt confirmation",
+            'details': failed_no_warehouse
+        })
+    
+    # Check discrepancies needing warehouse verification
+    disc_need_check = check_discrepancies_needing_warehouse_check(shipment_id)
+    if disc_need_check:
+        issues['blocking'].append({
+            'type': 'DISCREPANCIES_NEED_WAREHOUSE_CHECK',
+            'message': f"{len(disc_need_check)} discrepanc(ies) need warehouse verification",
+            'details': disc_need_check
+        })
+    
+    # Check discrepancies needing credit note issuance
+    cn_pending = check_discrepancies_needing_credit_note(shipment_id)
+    if cn_pending:
+        issues['blocking'].append({
+            'type': 'CREDIT_NOTES_PENDING',
+            'message': f"{len(cn_pending)} discrepanc(ies) need credit note issuance",
+            'details': cn_pending
+        })
+    
     # Get cash totals
     cash = get_cash_totals(shipment_id)
     
@@ -533,3 +570,274 @@ def get_reroute_audit(date_from: str, date_to: str) -> List[Dict]:
     """)
     result = db.session.execute(sql, {'d1': date_from, 'd2': date_to})
     return [dict(row._mapping) for row in result]
+
+
+def check_failed_without_driver_handover(shipment_id: int) -> List[Dict]:
+    """Find FAILED invoices without driver return handover confirmation"""
+    sql = text("""
+        SELECT rsi.invoice_no, rs.seq_no, rs.stop_name
+        FROM route_stop rs
+        JOIN route_stop_invoice rsi 
+            ON rsi.route_stop_id = rs.route_stop_id 
+            AND rsi.is_active = true
+        LEFT JOIN route_return_handover rrh
+            ON rrh.route_id = rs.shipment_id
+            AND rrh.invoice_no = rsi.invoice_no
+        WHERE rs.shipment_id = :shipment_id
+          AND rs.deleted_at IS NULL
+          AND UPPER(rsi.status) = 'FAILED'
+          AND (rrh.driver_confirmed_at IS NULL OR rrh.id IS NULL)
+    """)
+    result = db.session.execute(sql, {'shipment_id': shipment_id})
+    return [dict(row._mapping) for row in result]
+
+
+def check_failed_without_warehouse_receipt(shipment_id: int) -> List[Dict]:
+    """Find FAILED invoices with driver handover but no warehouse receipt"""
+    sql = text("""
+        SELECT rsi.invoice_no, rs.seq_no, rs.stop_name, rrh.driver_confirmed_at
+        FROM route_stop rs
+        JOIN route_stop_invoice rsi 
+            ON rsi.route_stop_id = rs.route_stop_id 
+            AND rsi.is_active = true
+        JOIN route_return_handover rrh
+            ON rrh.route_id = rs.shipment_id
+            AND rrh.invoice_no = rsi.invoice_no
+        WHERE rs.shipment_id = :shipment_id
+          AND rs.deleted_at IS NULL
+          AND UPPER(rsi.status) = 'FAILED'
+          AND rrh.driver_confirmed_at IS NOT NULL
+          AND rrh.warehouse_received_at IS NULL
+    """)
+    result = db.session.execute(sql, {'shipment_id': shipment_id})
+    return [dict(row._mapping) for row in result]
+
+
+def check_discrepancies_needing_credit_note(shipment_id: int) -> List[Dict]:
+    """Find validated discrepancies where credit note is required but not issued"""
+    sql = text("""
+        SELECT d.id, d.invoice_no, d.item_code_expected, d.discrepancy_type, 
+               d.warehouse_result, d.credit_note_amount
+        FROM delivery_discrepancies d
+        JOIN route_stop_invoice rsi
+            ON rsi.invoice_no = d.invoice_no
+            AND rsi.is_active = true
+        JOIN route_stop rs
+            ON rs.route_stop_id = rsi.route_stop_id
+        WHERE rs.shipment_id = :shipment_id
+          AND rs.deleted_at IS NULL
+          AND d.is_validated = true
+          AND d.credit_note_required = true
+          AND d.credit_note_no IS NULL
+    """)
+    result = db.session.execute(sql, {'shipment_id': shipment_id})
+    return [dict(row._mapping) for row in result]
+
+
+def check_discrepancies_needing_warehouse_check(shipment_id: int) -> List[Dict]:
+    """Find discrepancies that need warehouse verification"""
+    sql = text("""
+        SELECT d.id, d.invoice_no, d.item_code_expected, d.discrepancy_type, d.reported_at
+        FROM delivery_discrepancies d
+        JOIN route_stop_invoice rsi
+            ON rsi.invoice_no = d.invoice_no
+            AND rsi.is_active = true
+        JOIN route_stop rs
+            ON rs.route_stop_id = rsi.route_stop_id
+        WHERE rs.shipment_id = :shipment_id
+          AND rs.deleted_at IS NULL
+          AND d.warehouse_checked_at IS NULL
+    """)
+    result = db.session.execute(sql, {'shipment_id': shipment_id})
+    return [dict(row._mapping) for row in result]
+
+
+def build_route_reconciliation(shipment_id: int) -> Dict:
+    """
+    Build complete reconciliation dataset for a route.
+    Powers both the UI and Excel export.
+    
+    Returns:
+        invoice_list: List of invoices with full reconciliation data
+        summary: POD vs CREDIT totals
+        exceptions: Blocking issues
+        return_handover_status: Summary of return handovers
+    """
+    sql = text("""
+        SELECT 
+            rsi.invoice_no,
+            rsi.status AS delivery_status,
+            rsi.expected_payment_method,
+            rsi.expected_amount,
+            rsi.manifest_locked_at,
+            rs.seq_no AS stop_seq,
+            rs.route_stop_id,
+            rs.stop_name,
+            i.customer_code_365 AS customer_code,
+            i.customer_name,
+            i.total_grand AS invoice_total,
+            ct.is_credit,
+            ct.terms_code
+        FROM route_stop rs
+        JOIN route_stop_invoice rsi 
+            ON rsi.route_stop_id = rs.route_stop_id 
+            AND rsi.is_active = true
+        JOIN invoices i ON i.invoice_no = rsi.invoice_no
+        LEFT JOIN credit_terms ct 
+            ON ct.customer_code = i.customer_code_365
+            AND ct.valid_to IS NULL
+        WHERE rs.shipment_id = :shipment_id
+          AND rs.deleted_at IS NULL
+        ORDER BY rs.seq_no, rsi.invoice_no
+    """)
+    invoices_result = db.session.execute(sql, {'shipment_id': shipment_id})
+    invoices_raw = [dict(row._mapping) for row in invoices_result]
+    
+    invoice_nos = [inv['invoice_no'] for inv in invoices_raw]
+    
+    cod_sql = text("""
+        SELECT cr.invoice_nos, cr.payment_method, cr.received_amount, cr.route_stop_id
+        FROM cod_receipts cr
+        WHERE cr.route_id = :shipment_id
+    """)
+    cod_result = db.session.execute(cod_sql, {'shipment_id': shipment_id})
+    
+    invoice_payments = {}
+    for row in cod_result:
+        inv_nos = row.invoice_nos if row.invoice_nos else []
+        if isinstance(inv_nos, str):
+            import json
+            inv_nos = json.loads(inv_nos)
+        for inv_no in inv_nos:
+            if inv_no not in invoice_payments:
+                invoice_payments[inv_no] = []
+            invoice_payments[inv_no].append({
+                'payment_method': row.payment_method,
+                'amount': float(row.received_amount) if row.received_amount else 0,
+                'route_stop_id': row.route_stop_id
+            })
+    
+    pod_sql = text("""
+        SELECT pr.route_stop_id, pr.id
+        FROM pod_records pr
+        WHERE pr.route_id = :shipment_id
+    """)
+    pod_result = db.session.execute(pod_sql, {'shipment_id': shipment_id})
+    stops_with_pod = {row.route_stop_id for row in pod_result}
+    
+    handover_sql = text("""
+        SELECT rrh.invoice_no, rrh.driver_confirmed_at, rrh.warehouse_received_at, 
+               rrh.packages_count, rrh.notes
+        FROM route_return_handover rrh
+        WHERE rrh.route_id = :shipment_id
+    """)
+    handover_result = db.session.execute(handover_sql, {'shipment_id': shipment_id})
+    handovers = {row.invoice_no: dict(row._mapping) for row in handover_result}
+    
+    disc_sql = text("""
+        SELECT d.invoice_no, 
+               COUNT(*) AS disc_count,
+               SUM(CASE WHEN d.is_validated THEN 1 ELSE 0 END) AS validated_count,
+               SUM(CASE WHEN d.credit_note_required AND d.credit_note_no IS NULL THEN 1 ELSE 0 END) AS cn_pending,
+               SUM(CASE WHEN d.warehouse_checked_at IS NULL THEN 1 ELSE 0 END) AS needs_warehouse_check
+        FROM delivery_discrepancies d
+        WHERE d.invoice_no = ANY(:invoice_nos)
+        GROUP BY d.invoice_no
+    """)
+    disc_result = db.session.execute(disc_sql, {'invoice_nos': invoice_nos})
+    discrepancies = {row.invoice_no: dict(row._mapping) for row in disc_result}
+    
+    invoices = []
+    pod_total = Decimal('0')
+    pod_count = 0
+    credit_total = Decimal('0')
+    credit_count = 0
+    
+    for inv in invoices_raw:
+        inv_no = inv['invoice_no']
+        
+        payment_group = 'CREDIT' if inv.get('is_credit') else 'POD'
+        
+        payments = invoice_payments.get(inv_no, [])
+        actual_payment_method = payments[0]['payment_method'] if payments else None
+        payment_amount = sum(p['amount'] for p in payments)
+        
+        has_pod = inv['route_stop_id'] in stops_with_pod
+        
+        handover = handovers.get(inv_no)
+        
+        disc = discrepancies.get(inv_no, {})
+        
+        invoice_data = {
+            'invoice_no': inv_no,
+            'stop_seq': inv['stop_seq'],
+            'customer_code': inv['customer_code'],
+            'customer_name': inv['customer_name'],
+            'invoice_total': float(inv['invoice_total']) if inv['invoice_total'] else 0,
+            'expected_payment_method': inv['expected_payment_method'],
+            'expected_amount': float(inv['expected_amount']) if inv['expected_amount'] else 0,
+            'delivery_status': inv['delivery_status'],
+            'payment_group': payment_group,
+            'actual_payment_method': actual_payment_method,
+            'payment_received': payment_amount,
+            'has_pod_evidence': has_pod,
+            'has_payment_evidence': len(payments) > 0,
+            'return_handover': {
+                'driver_confirmed': handover['driver_confirmed_at'] is not None if handover else False,
+                'warehouse_received': handover['warehouse_received_at'] is not None if handover else False,
+                'packages_count': handover.get('packages_count') if handover else None
+            } if inv['delivery_status'] and inv['delivery_status'].upper() == 'FAILED' else None,
+            'discrepancy_count': disc.get('disc_count', 0),
+            'discrepancies_validated': disc.get('validated_count', 0),
+            'credit_notes_pending': disc.get('cn_pending', 0),
+            'needs_warehouse_check': disc.get('needs_warehouse_check', 0) > 0
+        }
+        
+        if payment_group == 'POD':
+            pod_total += Decimal(str(inv['invoice_total'] or 0))
+            pod_count += 1
+        else:
+            credit_total += Decimal(str(inv['invoice_total'] or 0))
+            credit_count += 1
+        
+        invoices.append(invoice_data)
+    
+    failed_no_driver = check_failed_without_driver_handover(shipment_id)
+    failed_no_warehouse = check_failed_without_warehouse_receipt(shipment_id)
+    disc_need_check = check_discrepancies_needing_warehouse_check(shipment_id)
+    cn_pending = check_discrepancies_needing_credit_note(shipment_id)
+    unresolved_disc = check_unresolved_discrepancies(shipment_id)
+    missing_status = check_missing_final_status(shipment_id)
+    
+    exceptions = {
+        'missing_final_status': missing_status,
+        'failed_without_driver_handover': failed_no_driver,
+        'failed_without_warehouse_receipt': failed_no_warehouse,
+        'discrepancies_need_warehouse_check': disc_need_check,
+        'credit_notes_pending': cn_pending,
+        'unresolved_discrepancies': unresolved_disc
+    }
+    
+    blocking_count = (
+        len(missing_status) + 
+        len(failed_no_driver) + 
+        len(failed_no_warehouse) + 
+        len(disc_need_check) + 
+        len(cn_pending) + 
+        len(unresolved_disc)
+    )
+    
+    return {
+        'invoices': invoices,
+        'summary': {
+            'pod_count': pod_count,
+            'pod_total': float(pod_total),
+            'credit_count': credit_count,
+            'credit_total': float(credit_total),
+            'total_invoices': len(invoices),
+            'total_value': float(pod_total + credit_total)
+        },
+        'exceptions': exceptions,
+        'is_reconcilable': blocking_count == 0,
+        'blocking_count': blocking_count
+    }

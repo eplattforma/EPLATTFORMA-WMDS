@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Returns Receiving - Warehouse{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="fas fa-undo-alt text-warning"></i> Returns Receiving</h3>
+        <a href="{{ url_for('warehouse.intake_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Intake
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <i class="fas fa-clock"></i> Pending Returns ({{ pending_count }})
+        </div>
+        <div class="card-body">
+            {% if returns|length == 0 %}
+            <div class="alert alert-success text-center">
+                <i class="fas fa-check-circle fa-2x mb-2"></i>
+                <p class="mb-0">No pending returns to receive!</p>
+            </div>
+            {% else %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Invoice</th>
+                            <th>Customer</th>
+                            <th>Total</th>
+                            <th>Driver Confirmed</th>
+                            <th>Packages</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in returns %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('warehouse.returns_for_route', route_id=item.route.id) }}" class="text-decoration-none">
+                                    <span class="badge bg-primary">#{{ item.route.id }}</span>
+                                </a>
+                            </td>
+                            <td><strong>{{ item.invoice.invoice_no }}</strong></td>
+                            <td>{{ item.invoice.customer_name or item.invoice.customer_code_365 }}</td>
+                            <td>&euro;{{ "%.2f"|format(item.invoice.total_grand|float) }}</td>
+                            <td>
+                                <span class="text-muted small">
+                                    {{ item.driver_confirmed_at.strftime('%d/%m %H:%M') if item.driver_confirmed_at else '-' }}
+                                </span>
+                            </td>
+                            <td>{{ item.handover.packages_count or 1 }}</td>
+                            <td>
+                                <a href="{{ url_for('warehouse.returns_for_route', route_id=item.route.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-eye"></i> View Route
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

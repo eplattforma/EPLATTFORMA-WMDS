@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Returns - Route #{{ route.id }} - Warehouse{% endblock %}
+
+{% block content %}
+<style>
+    .return-item {
+        border-left: 5px solid #ffc107;
+        border-radius: 8px !important;
+        margin-bottom: 0.75rem;
+        transition: all 0.2s ease;
+    }
+    .return-item.received {
+        border-left-color: #28a745;
+        background-color: rgba(40, 167, 69, 0.05);
+    }
+    .return-item:not(.received) {
+        background-color: rgba(255, 193, 7, 0.05);
+    }
+</style>
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <a href="{{ url_for('warehouse.returns_dashboard') }}" class="btn btn-sm btn-outline-secondary me-2">
+                <i class="fas fa-arrow-left"></i> Back
+            </a>
+            <span class="badge bg-primary fs-6">Route #{{ route.id }}</span>
+        </div>
+        <h4 class="mb-0"><i class="fas fa-undo-alt text-warning"></i> Returns Receiving</h4>
+        <div>
+            <span class="badge bg-success">{{ received_count }} Received</span>
+            <span class="badge bg-warning text-dark">{{ total_count - received_count }} Pending</span>
+        </div>
+    </div>
+
+    {% if total_count > 0 and received_count < total_count %}
+    <div class="mb-3 text-end">
+        <button class="btn btn-success" onclick="receiveAll()">
+            <i class="fas fa-check-double"></i> Receive All
+        </button>
+    </div>
+    {% endif %}
+
+    {% if total_count == 0 %}
+    <div class="alert alert-info text-center">
+        <i class="fas fa-info-circle fa-2x mb-2"></i>
+        <p class="mb-0">No returns confirmed by driver for this route.</p>
+    </div>
+    {% else %}
+    
+    {% for item in returns %}
+    <div class="card return-item shadow-sm {{ 'received' if item.received else '' }}" id="return-{{ item.handover.invoice_no }}">
+        <div class="card-body p-3">
+            <div class="row align-items-center">
+                <div class="col-md-1 text-center">
+                    <span class="badge bg-secondary fs-6">#{{ item.stop_seq }}</span>
+                </div>
+                <div class="col-md-3">
+                    <strong class="text-primary">{{ item.handover.invoice_no }}</strong>
+                    <br>
+                    <small class="text-muted">{{ item.invoice.customer_name or item.invoice.customer_code_365 }}</small>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted"><i class="fas fa-map-marker-alt"></i> {{ item.stop_name }}</small>
+                </div>
+                <div class="col-md-2">
+                    <strong class="text-danger">&euro;{{ "%.2f"|format(item.invoice.total_grand|float if item.invoice.total_grand else 0) }}</strong>
+                    <br>
+                    <small class="text-muted">{{ item.handover.packages_count or 1 }} pkg(s)</small>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted">
+                        <i class="fas fa-user"></i> {{ item.handover.driver_username or 'Driver' }}<br>
+                        {{ item.driver_confirmed_at.strftime('%H:%M') if item.driver_confirmed_at else '-' }}
+                    </small>
+                </div>
+                <div class="col-md-2 text-end">
+                    {% if item.received %}
+                    <span class="badge bg-success">
+                        <i class="fas fa-check"></i> Received
+                    </span>
+                    <br>
+                    <small class="text-muted">{{ item.warehouse_received_at.strftime('%H:%M') if item.warehouse_received_at else '' }}</small>
+                    {% else %}
+                    <button class="btn btn-warning" onclick="receiveReturn('{{ item.handover.invoice_no }}')">
+                        <i class="fas fa-check"></i> Receive
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% if item.handover.notes %}
+            <div class="mt-2">
+                <small class="text-muted"><i class="fas fa-comment"></i> {{ item.handover.notes }}</small>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+    
+    {% endif %}
+
+    {% if received_count == total_count and total_count > 0 %}
+    <div class="alert alert-success text-center mt-4">
+        <i class="fas fa-check-circle fa-2x mb-2"></i>
+        <p class="mb-0">All returns received for this route!</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="receiveModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="fas fa-undo-alt"></i> Confirm Receipt</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="modal-invoice-no">
+                <p>Confirm receipt of return for invoice: <strong id="modal-invoice-display"></strong></p>
+                <div class="mb-3">
+                    <label class="form-label">Notes (optional)</label>
+                    <textarea class="form-control" id="modal-notes" rows="2" placeholder="Any notes about the received goods..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="submitReceive()">
+                    <i class="fas fa-check"></i> Confirm Receipt
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let receiveModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    receiveModal = new bootstrap.Modal(document.getElementById('receiveModal'));
+});
+
+function receiveReturn(invoiceNo) {
+    document.getElementById('modal-invoice-no').value = invoiceNo;
+    document.getElementById('modal-invoice-display').textContent = invoiceNo;
+    document.getElementById('modal-notes').value = '';
+    receiveModal.show();
+}
+
+function submitReceive() {
+    const invoiceNo = document.getElementById('modal-invoice-no').value;
+    const notes = document.getElementById('modal-notes').value;
+    
+    fetch('{{ url_for("warehouse.receive_return", route_id=route.id) }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            invoice_no: invoiceNo,
+            notes: notes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            receiveModal.hide();
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to confirm receipt');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+
+function receiveAll() {
+    if (!confirm('Mark all pending returns as received?')) return;
+    
+    fetch('{{ url_for("warehouse.receive_all_returns", route_id=route.id) }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to receive returns');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+</script>
+{% endblock %}

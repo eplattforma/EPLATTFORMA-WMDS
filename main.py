@@ -338,6 +338,14 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating route reconciliation schema: {str(e)}")
     
+    # Update discrepancy verification schema (warehouse verification + credit notes)
+    try:
+        from update_discrepancy_verification_schema import update_discrepancy_verification_schema
+        update_discrepancy_verification_schema()
+        logging.info("Discrepancy verification schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating discrepancy verification schema: {str(e)}")
+    
     # Initialize remaining tables
     from app import db
     db.create_all()

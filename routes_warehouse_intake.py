@@ -8,7 +8,8 @@ from flask_login import login_required, current_user
 from functools import wraps
 
 from app import db
-from models import InvoicePostDeliveryCase, InvoiceRouteHistory, RerouteRequest, Invoice
+from models import InvoicePostDeliveryCase, InvoiceRouteHistory, RerouteRequest, Invoice, RouteReturnHandover, Shipment, RouteStop, RouteStopInvoice, DeliveryDiscrepancy
+from timezone_utils import utc_now_for_db, get_local_time
 import services_warehouse_intake
 
 warehouse_bp = Blueprint('warehouse', __name__, url_prefix='/warehouse')
@@ -385,3 +386,291 @@ def assign_to_route():
 def receipt_sample():
     """Display sample stop receipt for 70mm thermal printer"""
     return render_template('warehouse/stop_receipt_sample.html')
+
+
+# --- Return Receiving Workflow ---
+
+@warehouse_bp.route('/returns')
+@admin_required
+def returns_dashboard():
+    """Warehouse returns receiving dashboard - list all pending returns across routes"""
+    pending_returns = db.session.query(
+        RouteReturnHandover,
+        Invoice,
+        Shipment
+    ).join(
+        Invoice, Invoice.invoice_no == RouteReturnHandover.invoice_no
+    ).join(
+        Shipment, Shipment.id == RouteReturnHandover.route_id
+    ).filter(
+        RouteReturnHandover.driver_confirmed_at.isnot(None),
+        RouteReturnHandover.warehouse_received_at.is_(None)
+    ).order_by(RouteReturnHandover.driver_confirmed_at.desc()).all()
+    
+    returns_data = []
+    for handover, invoice, route in pending_returns:
+        returns_data.append({
+            'handover': handover,
+            'invoice': invoice,
+            'route': route,
+            'driver_confirmed_at': get_local_time(handover.driver_confirmed_at) if handover.driver_confirmed_at else None
+        })
+    
+    return render_template(
+        'warehouse/returns_dashboard.html',
+        returns=returns_data,
+        pending_count=len(returns_data)
+    )
+
+
+@warehouse_bp.route('/returns/<int:route_id>')
+@admin_required
+def returns_for_route(route_id):
+    """Warehouse returns receiving screen for a specific route"""
+    route = Shipment.query.get_or_404(route_id)
+    
+    returns_list = db.session.query(
+        RouteReturnHandover,
+        Invoice,
+        RouteStop
+    ).join(
+        Invoice, Invoice.invoice_no == RouteReturnHandover.invoice_no
+    ).outerjoin(
+        RouteStop, RouteStop.route_stop_id == RouteReturnHandover.route_stop_id
+    ).filter(
+        RouteReturnHandover.route_id == route_id,
+        RouteReturnHandover.driver_confirmed_at.isnot(None)
+    ).order_by(RouteStop.seq_no).all()
+    
+    returns_data = []
+    for handover, invoice, stop in returns_list:
+        returns_data.append({
+            'handover': handover,
+            'invoice': invoice,
+            'stop': stop,
+            'stop_seq': stop.seq_no if stop else 0,
+            'stop_name': stop.stop_name if stop else 'Unknown',
+            'received': handover.warehouse_received_at is not None,
+            'driver_confirmed_at': get_local_time(handover.driver_confirmed_at) if handover.driver_confirmed_at else None,
+            'warehouse_received_at': get_local_time(handover.warehouse_received_at) if handover.warehouse_received_at else None
+        })
+    
+    received_count = sum(1 for r in returns_data if r['received'])
+    
+    return render_template(
+        'warehouse/returns_route.html',
+        route=route,
+        returns=returns_data,
+        received_count=received_count,
+        total_count=len(returns_data)
+    )
+
+
+@warehouse_bp.route('/returns/<int:route_id>/receive', methods=['POST'])
+@admin_required
+def receive_return(route_id):
+    """Mark a return as received by warehouse"""
+    data = request.get_json()
+    invoice_no = data.get('invoice_no')
+    notes = data.get('notes', '')
+    
+    if not invoice_no:
+        return jsonify({'error': 'Invoice number required'}), 400
+    
+    handover = RouteReturnHandover.query.filter_by(
+        route_id=route_id,
+        invoice_no=invoice_no
+    ).first()
+    
+    if not handover:
+        return jsonify({'error': 'Return handover not found'}), 404
+    
+    if not handover.driver_confirmed_at:
+        return jsonify({'error': 'Driver has not confirmed this return yet'}), 400
+    
+    now = utc_now_for_db()
+    handover.warehouse_received_at = now
+    handover.received_by = current_user.username
+    if notes:
+        existing_notes = handover.notes or ''
+        handover.notes = f"{existing_notes}\n[Warehouse: {notes}]".strip()
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Return received for {invoice_no}'
+    })
+
+
+@warehouse_bp.route('/returns/<int:route_id>/receive-all', methods=['POST'])
+@admin_required
+def receive_all_returns(route_id):
+    """Mark all pending returns for a route as received"""
+    handovers = RouteReturnHandover.query.filter(
+        RouteReturnHandover.route_id == route_id,
+        RouteReturnHandover.driver_confirmed_at.isnot(None),
+        RouteReturnHandover.warehouse_received_at.is_(None)
+    ).all()
+    
+    now = utc_now_for_db()
+    received_count = 0
+    
+    for handover in handovers:
+        handover.warehouse_received_at = now
+        handover.received_by = current_user.username
+        received_count += 1
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Received {received_count} return(s)'
+    })
+
+
+# --- Discrepancy Verification Workflow ---
+
+@warehouse_bp.route('/discrepancies')
+@admin_required
+def discrepancies_dashboard():
+    """Warehouse discrepancy verification dashboard"""
+    from sqlalchemy import text
+    
+    pending_discrepancies = db.session.execute(text("""
+        SELECT 
+            d.id, d.invoice_no, d.item_code_expected, d.item_name, 
+            d.qty_expected, d.qty_actual, d.discrepancy_type,
+            d.reported_by, d.reported_at, d.status, d.is_validated,
+            d.warehouse_checked_at, d.warehouse_result, d.credit_note_required,
+            rs.shipment_id AS route_id
+        FROM delivery_discrepancies d
+        LEFT JOIN route_stop_invoice rsi ON rsi.invoice_no = d.invoice_no AND rsi.is_active = true
+        LEFT JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+        WHERE d.warehouse_checked_at IS NULL
+        ORDER BY d.reported_at DESC
+        LIMIT 100
+    """)).fetchall()
+    
+    discrepancies = [dict(row._mapping) for row in pending_discrepancies]
+    
+    return render_template(
+        'warehouse/discrepancies_dashboard.html',
+        discrepancies=discrepancies,
+        pending_count=len(discrepancies)
+    )
+
+
+@warehouse_bp.route('/discrepancies/<int:route_id>')
+@admin_required
+def discrepancies_for_route(route_id):
+    """Discrepancy verification screen for a specific route"""
+    route = Shipment.query.get_or_404(route_id)
+    from sqlalchemy import text
+    
+    discrepancies = db.session.execute(text("""
+        SELECT 
+            d.id, d.invoice_no, d.item_code_expected, d.item_name, 
+            d.qty_expected, d.qty_actual, d.discrepancy_type,
+            d.reported_by, d.reported_at, d.status, d.is_validated,
+            d.warehouse_checked_by, d.warehouse_checked_at, 
+            d.warehouse_result, d.warehouse_note,
+            d.credit_note_required, d.credit_note_no, d.credit_note_amount,
+            rs.seq_no AS stop_seq, rs.stop_name
+        FROM delivery_discrepancies d
+        JOIN route_stop_invoice rsi ON rsi.invoice_no = d.invoice_no AND rsi.is_active = true
+        JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+        WHERE rs.shipment_id = :route_id AND rs.deleted_at IS NULL
+        ORDER BY rs.seq_no, d.invoice_no
+    """), {'route_id': route_id}).fetchall()
+    
+    discrepancies_data = [dict(row._mapping) for row in discrepancies]
+    
+    checked_count = sum(1 for d in discrepancies_data if d['warehouse_checked_at'])
+    
+    return render_template(
+        'warehouse/discrepancies_route.html',
+        route=route,
+        discrepancies=discrepancies_data,
+        checked_count=checked_count,
+        total_count=len(discrepancies_data)
+    )
+
+
+@warehouse_bp.route('/discrepancies/verify', methods=['POST'])
+@admin_required
+def verify_discrepancy():
+    """Verify a discrepancy and optionally mark credit note required"""
+    data = request.get_json()
+    discrepancy_id = data.get('discrepancy_id')
+    warehouse_result = data.get('warehouse_result')  # FOUND / RETURNED / LOST / DAMAGED / OTHER
+    warehouse_note = data.get('notes', '')
+    credit_note_required = data.get('credit_note_required', False)
+    credit_note_amount = data.get('credit_note_amount')
+    
+    if not discrepancy_id or not warehouse_result:
+        return jsonify({'error': 'Discrepancy ID and result required'}), 400
+    
+    disc = DeliveryDiscrepancy.query.get(discrepancy_id)
+    if not disc:
+        return jsonify({'error': 'Discrepancy not found'}), 404
+    
+    now = utc_now_for_db()
+    disc.warehouse_checked_by = current_user.username
+    disc.warehouse_checked_at = now
+    disc.warehouse_result = warehouse_result
+    disc.warehouse_note = warehouse_note
+    disc.credit_note_required = credit_note_required
+    
+    if credit_note_amount:
+        from decimal import Decimal
+        disc.credit_note_amount = Decimal(str(credit_note_amount))
+    
+    if warehouse_result in ('FOUND', 'RETURNED'):
+        disc.is_validated = True
+        disc.validated_by = current_user.username
+        disc.validated_at = now
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Discrepancy verified: {warehouse_result}'
+    })
+
+
+@warehouse_bp.route('/discrepancies/issue-cn', methods=['POST'])
+@admin_required
+def issue_credit_note():
+    """Record credit note issuance for a discrepancy"""
+    data = request.get_json()
+    discrepancy_id = data.get('discrepancy_id')
+    credit_note_no = data.get('credit_note_no')
+    credit_note_amount = data.get('credit_note_amount')
+    
+    if not discrepancy_id or not credit_note_no:
+        return jsonify({'error': 'Discrepancy ID and credit note number required'}), 400
+    
+    disc = DeliveryDiscrepancy.query.get(discrepancy_id)
+    if not disc:
+        return jsonify({'error': 'Discrepancy not found'}), 404
+    
+    now = utc_now_for_db()
+    disc.credit_note_no = credit_note_no
+    disc.credit_note_created_at = now
+    
+    if credit_note_amount:
+        from decimal import Decimal
+        disc.credit_note_amount = Decimal(str(credit_note_amount))
+    
+    disc.is_resolved = True
+    disc.resolved_by = current_user.username
+    disc.resolved_at = now
+    disc.resolution_action = f'Credit Note {credit_note_no}'
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Credit note {credit_note_no} recorded'
+    })

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Discrepancy Verification - Warehouse{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="fas fa-exclamation-triangle text-danger"></i> Discrepancy Verification</h3>
+        <a href="{{ url_for('warehouse.intake_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Intake
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-danger text-white">
+            <i class="fas fa-clock"></i> Pending Verification ({{ pending_count }})
+        </div>
+        <div class="card-body">
+            {% if discrepancies|length == 0 %}
+            <div class="alert alert-success text-center">
+                <i class="fas fa-check-circle fa-2x mb-2"></i>
+                <p class="mb-0">No pending discrepancies to verify!</p>
+            </div>
+            {% else %}
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Invoice</th>
+                            <th>Item</th>
+                            <th>Type</th>
+                            <th>Expected</th>
+                            <th>Actual</th>
+                            <th>Reported</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for d in discrepancies %}
+                        <tr>
+                            <td>
+                                {% if d.route_id %}
+                                <a href="{{ url_for('warehouse.discrepancies_for_route', route_id=d.route_id) }}" class="text-decoration-none">
+                                    <span class="badge bg-primary">#{{ d.route_id }}</span>
+                                </a>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td><strong>{{ d.invoice_no }}</strong></td>
+                            <td>
+                                <small>{{ d.item_code_expected }}</small><br>
+                                <small class="text-muted">{{ d.item_name[:30] if d.item_name else '-' }}...</small>
+                            </td>
+                            <td><span class="badge bg-warning text-dark">{{ d.discrepancy_type }}</span></td>
+                            <td>{{ d.qty_expected }}</td>
+                            <td>{{ d.qty_actual or 0 }}</td>
+                            <td><small>{{ d.reported_by }}</small></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" onclick="verifyDiscrepancy({{ d.id }}, '{{ d.invoice_no }}', '{{ d.item_code_expected }}')">
+                                    <i class="fas fa-check"></i> Verify
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="verifyModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Verify Discrepancy</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="modal-disc-id">
+                <p><strong>Invoice:</strong> <span id="modal-invoice"></span></p>
+                <p><strong>Item:</strong> <span id="modal-item"></span></p>
+                
+                <div class="mb-3">
+                    <label class="form-label">Warehouse Result</label>
+                    <select class="form-select" id="modal-result">
+                        <option value="">-- Select Result --</option>
+                        <option value="FOUND">FOUND - Item was in warehouse</option>
+                        <option value="RETURNED">RETURNED - Item returned by driver</option>
+                        <option value="LOST">LOST - Cannot locate item</option>
+                        <option value="DAMAGED">DAMAGED - Item damaged</option>
+                        <option value="OTHER">OTHER</option>
+                    </select>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" id="modal-notes" rows="2"></textarea>
+                </div>
+                
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="modal-cn-required">
+                    <label class="form-check-label">Credit Note Required</label>
+                </div>
+                
+                <div class="mb-3" id="cn-amount-group" style="display: none;">
+                    <label class="form-label">Credit Note Amount</label>
+                    <input type="number" class="form-control" id="modal-cn-amount" step="0.01" min="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="submitVerify()">
+                    <i class="fas fa-check"></i> Submit Verification
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let verifyModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    verifyModal = new bootstrap.Modal(document.getElementById('verifyModal'));
+    
+    document.getElementById('modal-cn-required').addEventListener('change', function() {
+        document.getElementById('cn-amount-group').style.display = this.checked ? 'block' : 'none';
+    });
+});
+
+function verifyDiscrepancy(id, invoiceNo, itemCode) {
+    document.getElementById('modal-disc-id').value = id;
+    document.getElementById('modal-invoice').textContent = invoiceNo;
+    document.getElementById('modal-item').textContent = itemCode;
+    document.getElementById('modal-result').value = '';
+    document.getElementById('modal-notes').value = '';
+    document.getElementById('modal-cn-required').checked = false;
+    document.getElementById('modal-cn-amount').value = '';
+    document.getElementById('cn-amount-group').style.display = 'none';
+    verifyModal.show();
+}
+
+function submitVerify() {
+    const discrepancyId = document.getElementById('modal-disc-id').value;
+    const result = document.getElementById('modal-result').value;
+    const notes = document.getElementById('modal-notes').value;
+    const cnRequired = document.getElementById('modal-cn-required').checked;
+    const cnAmount = document.getElementById('modal-cn-amount').value;
+    
+    if (!result) {
+        alert('Please select a warehouse result');
+        return;
+    }
+    
+    fetch('{{ url_for("warehouse.verify_discrepancy") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            discrepancy_id: parseInt(discrepancyId),
+            warehouse_result: result,
+            notes: notes,
+            credit_note_required: cnRequired,
+            credit_note_amount: cnAmount ? parseFloat(cnAmount) : null
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            verifyModal.hide();
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to verify discrepancy');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+</script>
+{% endblock %}

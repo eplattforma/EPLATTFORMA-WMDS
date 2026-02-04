@@ -1117,11 +1117,24 @@ class DeliveryDiscrepancy(db.Model):
     actual_qty = db.Column(db.Numeric(12, 3), nullable=True)
     actual_barcode = db.Column(db.Text, nullable=True)
     
+    # Warehouse verification (for reconciliation workflow)
+    warehouse_checked_by = db.Column(db.String(64), db.ForeignKey('users.username'), nullable=True)
+    warehouse_checked_at = db.Column(UTCDateTime(), nullable=True)
+    warehouse_result = db.Column(db.String(30), nullable=True)  # FOUND / RETURNED / LOST / DAMAGED / OTHER
+    warehouse_note = db.Column(db.Text, nullable=True)
+    
+    # Credit note workflow
+    credit_note_required = db.Column(db.Boolean, default=False, nullable=False)
+    credit_note_no = db.Column(db.String(50), nullable=True)
+    credit_note_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    credit_note_created_at = db.Column(UTCDateTime(), nullable=True)
+    
     invoice = db.relationship('Invoice', backref='delivery_discrepancies')
     reporter = db.relationship('User', foreign_keys=[reported_by], backref='reported_discrepancies')
     validator = db.relationship('User', foreign_keys=[validated_by], backref='validated_discrepancies')
     resolver = db.relationship('User', foreign_keys=[resolved_by], backref='resolved_discrepancies')
     picker = db.relationship('User', foreign_keys=[picker_username], backref='picked_discrepancies')
+    warehouse_checker = db.relationship('User', foreign_keys=[warehouse_checked_by], backref='warehouse_checked_discrepancies')
     events = db.relationship('DeliveryDiscrepancyEvent', backref='discrepancy', cascade='all, delete-orphan', order_by='DeliveryDiscrepancyEvent.timestamp.desc()')
     
     def __repr__(self):
