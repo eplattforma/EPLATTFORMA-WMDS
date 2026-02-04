@@ -1214,7 +1214,7 @@ def returns_screen(route_id):
     """Driver returns screen for confirming handover of FAILED invoices"""
     route = Shipment.query.get_or_404(route_id)
     
-    if route.driver_username != current_user.username and current_user.role != 'admin':
+    if route.driver_name != current_user.username and current_user.role != 'admin':
         flash('This route is not assigned to you.', 'error')
         return redirect(url_for('driver.my_routes'))
     
