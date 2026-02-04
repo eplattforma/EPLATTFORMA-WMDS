@@ -474,8 +474,15 @@ def resolve_issue(issue_id):
             DeliveryDiscrepancy.is_resolved == False
         ).count()
         
+        # Also check for pending credit notes (required but not issued)
+        pending_cn_count = DeliveryDiscrepancy.query.filter(
+            DeliveryDiscrepancy.invoice_no == invoice_no,
+            DeliveryDiscrepancy.credit_note_required == True,
+            DeliveryDiscrepancy.credit_note_no.is_(None)
+        ).count()
+        
         case_closed = False
-        if unresolved_count == 0:
+        if unresolved_count == 0 and pending_cn_count == 0:
             # All discrepancies resolved - close the post-delivery case
             from models import InvoicePostDeliveryCase
             # Skip auto-closing for Rebates as they are handled differently
