@@ -69,10 +69,6 @@
                     {% elif d.reported_value %}
                     <br>
                     <small class="text-primary fw-bold">Driver Value: &euro;{{ '%.2f'|format(d.reported_value|float) }}</small>
-                    {% elif d.invoice_unit_price %}
-                    <br>
-                    {% set diff = (d.qty_expected|float - (d.qty_actual|float if d.qty_actual else 0)) %}
-                    <small class="text-muted">Est. Value: &euro;{{ '%.2f'|format(diff * d.invoice_unit_price|float) }}</small>
                     {% endif %}
                 </div>
                 <div class="col-md-2">
