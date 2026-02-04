@@ -53,17 +53,31 @@ def _lock_route_manifest(shipment_id: int, username: str):
             
         rsi.expected_amount = invoice.total_grand if invoice.total_grand else 0
         
+        # Determine expected payment method with priority:
+        # CREDIT > POST DATED CHQ > DAY CHEQUE > ONLINE > CASH
+        # Priority is based on what's allowed, preferring non-cash options
         payment_method = 'CASH'
         if invoice.customer_code and invoice.customer_code in terms_map:
             ct = terms_map[invoice.customer_code]
             if ct.is_credit:
                 payment_method = 'CREDIT'
             elif ct.allow_cheque and ct.cheque_days_allowed and ct.cheque_days_allowed > 0:
+                # Postdated cheque takes priority when cheque with days is allowed
                 payment_method = 'POST DATED CHQ'
             elif ct.allow_cheque and not ct.allow_cash:
+                # Day cheque only if cheque allowed but cash is not
                 payment_method = 'DAY CHEQUE'
             elif ct.allow_bank_transfer and not ct.allow_cash:
+                # Online only if bank transfer allowed but cash is not
                 payment_method = 'ONLINE'
+            elif ct.allow_bank_transfer and ct.allow_cash:
+                # Both bank transfer and cash allowed - default to ONLINE
+                # (Customer has flexibility but online preferred for tracking)
+                payment_method = 'ONLINE'
+            elif ct.allow_cheque and ct.allow_cash:
+                # Cheque allowed but no postdated days - treat as day cheque option
+                # but with cash also allowed, default to DAY CHEQUE
+                payment_method = 'DAY CHEQUE'
         
         rsi.expected_payment_method = payment_method
         rsi.manifest_locked_at = now
