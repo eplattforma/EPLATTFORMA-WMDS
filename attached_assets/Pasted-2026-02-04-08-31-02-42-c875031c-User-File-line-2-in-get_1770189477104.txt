@@ -1,0 +1,108 @@
+2026-02-04 08:31:02.42
+c875031c
+User
+File "", line 2, in get
+2026-02-04 08:31:02.42
+c875031c
+User
+psycopg2.OperationalError: SSL connection has been closed unexpectedly
+2026-02-04 08:31:02.42
+c875031c
+User
+return self._execute_internal(
+2026-02-04 08:31:02.42
+c875031c
+User
+^^^^^^^
+2026-02-04 08:31:02.42
+c875031c
+User
+return self._get_impl(ident, loading.load_on_pk_identity)
+2026-02-04 08:31:02.42
+c875031c
+User
+ERROR:app:Exception on /static/js/admin.js [GET]
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 1126, in get
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 370, in _get_user
+2026-02-04 08:31:02.42
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-04 08:31:02.42
+c875031c
+User
+^^^^^^^^^^^
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/werkzeug/local.py", line 318, in __get__
+2026-02-04 08:31:02.42
+c875031c
+User
+current_user = LocalProxy(lambda: _get_user())
+2026-02-04 08:31:02.42
+c875031c
+User
+Traceback (most recent call last):
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 915, in full_dispatch_request
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 1135, in _get_impl
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/routes.py", line 139, in handle_shipment_urls
+2026-02-04 08:31:02.42
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-04 08:31:02.42
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-04 08:31:02.42
+c875031c
+User
+current_app.login_manager._load_user()
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+2026-02-04 08:31:02.42
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-04 08:31:02.42
+c875031c
+User
+cursor.execute(statement, parameters)
+2026-02-04 08:31:02.42
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+2026-02-04 08:31:02.42
+c875031c
+User
+user = User.query.get(username)
+2026-02-04 08:31:02.42
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-04 08:31:51.73
+c875031c
+User
+INFO:root:Image for JUI-0019 found in local cache
