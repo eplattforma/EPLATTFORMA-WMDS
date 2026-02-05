@@ -1330,9 +1330,9 @@ def archived():
                            pagination=pagination,
                            search_query=search_query)
 
-@po_receiving_bp.route('/api/reset-receiving-line/<int:line_id>', methods=['POST'])
+@po_receiving_bp.route('/api/reset-lot/<int:line_id>', methods=['POST'])
 @login_required
-def api_reset_receiving_line(line_id):
+def api_reset_lot(line_id):
     """Delete a receiving line to reset/undo a received item"""
     if not check_role_access():
         return jsonify({'ok': False, 'error': 'Access denied'}), 403

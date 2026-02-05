@@ -1,0 +1,84 @@
+2026-02-05 12:00:17.24
+c875031c
+User
+Traceback (most recent call last):
+2026-02-05 12:00:17.24
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+2026-02-05 12:00:17.24
+c875031c
+User
+File "/home/runner/workspace/routes_po_receiving.py", line 1350, in api_reset_receiving_line
+2026-02-05 12:00:17.24
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-05 12:00:17.24
+c875031c
+User
+ERROR:app:Exception on /po-receiving/api/reset-receiving-line/2050 [POST]
+2026-02-05 12:00:17.24
+c875031c
+User
+return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args) # type: ignore[no-any-return]
+2026-02-05 12:00:17.24
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+2026-02-05 12:00:17.24
+c875031c
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+2026-02-05 12:00:17.24
+c875031c
+User
+rv = self.dispatch_request()
+2026-02-05 12:00:17.24
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-05 12:00:17.24
+c875031c
+User
+response = self.full_dispatch_request()
+2026-02-05 12:00:17.24
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+2026-02-05 12:00:17.24
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-05 12:00:17.24
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+2026-02-05 12:00:17.24
+c875031c
+User
+^^^^^
+2026-02-05 12:00:17.24
+c875031c
+User
+rv = self.handle_user_exception(e)
+2026-02-05 12:00:17.24
+c875031c
+User
+NameError: name 'po_id' is not defined
+2026-02-05 12:00:17.24
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-05 12:00:17.24
+c875031c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+2026-02-05 12:00:17.24
+c875031c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-05 12:00:17.24
+c875031c
+User
+po = PurchaseOrder.query.get_or_404(po_id)
