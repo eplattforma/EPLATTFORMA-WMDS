@@ -110,7 +110,7 @@ def build_route_reconciliation_dataset(route_id: int) -> Optional[dict]:
             'stop_seq': float(stop.seq_no) if stop.seq_no else 0,
             'customer_code': invoice.customer_code,
             'invoice_no': rsi.invoice_no,
-            'payment_type': rsi.expected_payment_method or _infer_payment_type(invoice),
+            'payment_type': (cod.payment_method.upper() if cod and cod.payment_method else None) or rsi.expected_payment_method or _infer_payment_type(invoice),
             'expected_amount': float(expected_amount) if expected_amount else 0,
             'received_amount': float(received_amount) if received_amount else None,
             'discrepancy_value': discrepancy_value,
