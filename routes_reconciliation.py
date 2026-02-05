@@ -42,9 +42,12 @@ def pending_payments():
     pending_allocs = db.session.query(
         CODInvoiceAllocation,
         Shipment.driver_name,
-        Shipment.delivery_date
+        Shipment.delivery_date,
+        Invoice.customer_name
     ).join(
         Shipment, CODInvoiceAllocation.route_id == Shipment.id
+    ).join(
+        Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
     ).filter(
         CODInvoiceAllocation.is_pending == True
     ).order_by(

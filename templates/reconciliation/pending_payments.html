@@ -30,7 +30,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for alloc, driver_name, delivery_date in pending_allocs %}
+                        {% for alloc, driver_name, delivery_date, customer_name in pending_allocs %}
                         <tr>
                             <td>{{ delivery_date.strftime('%Y-%m-%d') if delivery_date else 'N/A' }}</td>
                             <td>
@@ -38,7 +38,10 @@
                                     {{ alloc.invoice_no }}
                                 </a>
                             </td>
-                            <td>{{ alloc.customer_code }}</td>
+                            <td>
+                                <div>{{ customer_name }}</div>
+                                <small class="text-muted">{{ alloc.customer_code }}</small>
+                            </td>
                             <td>{{ driver_name }}</td>
                             <td>
                                 <span class="badge {% if alloc.payment_method == 'online' %}bg-info text-dark{% else %}bg-warning text-dark{% endif %}">
