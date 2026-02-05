@@ -659,8 +659,11 @@ def submit_delivery(stop_id):
             
             # Create per-invoice payment allocations for reconciliation
             from models import CODInvoiceAllocation
-            # Cheques (including post-dated) and online payments require clearance
-            is_pending_method = cod_method in ('online', 'postdated', 'post_dated', 'cheque')
+            # Online payments and post-dated cheques require clearance
+            # Same-day cheques are treated like cash (not pending)
+            cheque_date_val = datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
+            is_postdated_cheque = cod_method == 'cheque' and cheque_date_val and cheque_date_val > datetime.now().date()
+            is_pending_method = cod_method in ('online', 'postdated', 'post_dated') or is_postdated_cheque
             for invoice_no in invoice_nos:
                 inv = Invoice.query.get(invoice_no)
                 invoice_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
