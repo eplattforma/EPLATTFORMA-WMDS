@@ -1344,6 +1344,22 @@ def api_reset_receiving_line(line_id):
     
     # Verify the session hasn't been finished yet
     session = rcv_line.session
+    if session and session.status == 'finished':
+        return jsonify({'ok': False, 'error': 'Cannot reset item from a finished session'}), 400
+        
+    try:
+        # Delete the receiving line
+        db.session.delete(rcv_line)
+        db.session.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@po_receiving_bp.route('/api/update-po-description/<int:po_id>', methods=['POST'])
+@login_required
+def update_po_description(po_id):
+    """Update the description for a purchase order"""
     if not check_role_access():
         return jsonify({'success': False, 'error': 'Access denied'}), 403
     
