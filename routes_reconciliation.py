@@ -31,6 +31,29 @@ def admin_or_warehouse_required(f):
     return decorated_function
 
 
+@reconciliation_bp.route('/pending-payments')
+@login_required
+@admin_or_warehouse_required
+def pending_payments():
+    """List all pending payments (online and post-dated)"""
+    from models import CODInvoiceAllocation, Shipment
+    
+    # Get all pending allocations
+    pending_allocs = db.session.query(
+        CODInvoiceAllocation,
+        Shipment.driver_name,
+        Shipment.delivery_date
+    ).join(
+        Shipment, CODInvoiceAllocation.route_id == Shipment.id
+    ).filter(
+        CODInvoiceAllocation.is_pending == True
+    ).order_by(
+        Shipment.delivery_date.desc()
+    ).all()
+    
+    return render_template('reconciliation/pending_payments.html', 
+                         pending_allocs=pending_allocs)
+
 @reconciliation_bp.route('/shipments')
 @login_required
 @admin_or_warehouse_required
