@@ -24,6 +24,7 @@
                             <th>Customer</th>
                             <th>Driver</th>
                             <th>Method</th>
+                            <th class="text-end">Paid</th>
                             <th class="text-end">Amount Due</th>
                             <th>Details</th>
                             <th>Action</th>
@@ -48,6 +49,7 @@
                                     {{ alloc.payment_method|upper }}
                                 </span>
                             </td>
+                            <td class="text-end">€{{ "%.2f"|format(alloc.received_amount or 0) }}</td>
                             <td class="text-end fw-bold">€{{ "%.2f"|format(alloc.expected_amount - (alloc.received_amount or 0) - (alloc.deduct_amount or 0)) }}</td>
                             <td>
                                 <small class="text-muted">
@@ -69,7 +71,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="8" class="text-center py-5 text-muted">
+                            <td colspan="9" class="text-center py-5 text-muted">
                                 <i class="fas fa-check-circle fa-3x mb-3 d-block"></i>
                                 No pending payments found.
                             </td>
