@@ -272,21 +272,19 @@ def stops_list(route_id):
                 terms = get_credit_terms(customer_code)
                 
                 # Logic for display:
-                # If is_credit is False, show allowed methods (Cash/Cheque/etc)
-                # If is_credit is True, show the terms_code (e.g. NET30)
+                # Driver can collect any method allowed by terms
+                methods = []
+                if terms.get('allow_cash'): methods.append('Cash')
+                if terms.get('allow_cheque'): methods.append('Cheque')
+                if terms.get('allow_card_pos'): methods.append('Card')
+                if terms.get('allow_bank_transfer'): methods.append('Transfer')
+                
                 if terms.get('is_credit'):
                     payment_method = terms.get('terms_code', 'Credit')
+                elif methods:
+                    payment_method = "/".join(methods)
                 else:
-                    methods = []
-                    if terms.get('allow_cash'): methods.append('Cash')
-                    if terms.get('allow_cheque'): methods.append('Cheque')
-                    if terms.get('allow_card_pos'): methods.append('Card')
-                    if terms.get('allow_bank_transfer'): methods.append('Transfer')
-                    
-                    if methods:
-                        payment_method = "/".join(methods)
-                    else:
-                        payment_method = terms.get('terms_code', 'COD')
+                    payment_method = terms.get('terms_code', 'COD')
                 
                 invoice_list.append({
                     'invoice_no': invoice.invoice_no,
