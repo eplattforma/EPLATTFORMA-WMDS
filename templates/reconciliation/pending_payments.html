@@ -24,7 +24,7 @@
                             <th>Customer</th>
                             <th>Driver</th>
                             <th>Method</th>
-                            <th class="text-end">Amount</th>
+                            <th class="text-end">Amount Due</th>
                             <th>Details</th>
                             <th>Action</th>
                         </tr>
@@ -48,7 +48,7 @@
                                     {{ alloc.payment_method|upper }}
                                 </span>
                             </td>
-                            <td class="text-end fw-bold">€{{ "%.2f"|format(alloc.received_amount or alloc.expected_amount) }}</td>
+                            <td class="text-end fw-bold">€{{ "%.2f"|format(alloc.expected_amount - (alloc.received_amount or 0) - (alloc.deduct_amount or 0)) }}</td>
                             <td>
                                 <small class="text-muted">
                                     {% if alloc.payment_method == 'online' %}
