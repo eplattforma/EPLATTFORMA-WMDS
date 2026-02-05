@@ -52,6 +52,18 @@ def calculate_deduct_amount(invoice_no, item_code, qty_affected):
     """
     from sqlalchemy import text
     
+    # Try to get exact unit price from dw_invoice_line
+    result = db.session.execute(text("""
+        SELECT price_incl
+        FROM dw_invoice_line
+        WHERE invoice_no_365 = :invoice_no
+          AND item_code_365 = :item_code
+        LIMIT 1
+    """), {'invoice_no': invoice_no, 'item_code': item_code}).fetchone()
+    
+    if result and result.price_incl:
+        return Decimal(str(result.price_incl)) * Decimal(str(qty_affected))
+    
     # Try to get unit price from PS365 invoice data
     result = db.session.execute(text("""
         SELECT 
