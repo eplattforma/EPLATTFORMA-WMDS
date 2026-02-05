@@ -523,6 +523,10 @@ def receive_return(route_id):
     
     db.session.commit()
     
+    # Auto-close the post-delivery case if all discrepancies for this route/invoice are now verified
+    from services_discrepancy import check_and_close_case_if_complete
+    check_and_close_case_if_complete(invoice_no)
+    
     return jsonify({
         'success': True,
         'message': f'Return received for {invoice_no}'
@@ -548,6 +552,11 @@ def receive_all_returns(route_id):
         received_count += 1
     
     db.session.commit()
+
+    # Auto-close cases for all invoices in this route that are now complete
+    from services_discrepancy import check_and_close_case_if_complete
+    for handover in handovers:
+        check_and_close_case_if_complete(handover.invoice_no)
     
     return jsonify({
         'success': True,
@@ -661,6 +670,10 @@ def verify_discrepancy():
         disc.validated_at = now
     
     db.session.commit()
+    
+    # Auto-close the post-delivery case if all conditions are met
+    from services_discrepancy import check_and_close_case_if_complete
+    check_and_close_case_if_complete(disc.invoice_no)
     
     return jsonify({
         'success': True,

@@ -155,6 +155,42 @@ def update_case_cn_requirements(case):
     case.credit_note_expected_amount = cn_expected_amount
 
 
+def check_and_close_case_if_complete(invoice_no):
+    """
+    Checks if all blocking conditions for a post-delivery case are met 
+    (discrepancies verified and returns received) and closes the case.
+    """
+    case = InvoicePostDeliveryCase.query.filter_by(invoice_no=invoice_no).first()
+    if not case or case.status in ('CLOSED', 'CANCELLED'):
+        return
+
+    # Check for unverified discrepancies
+    from models import DeliveryDiscrepancy
+    unverified_discrepancy = DeliveryDiscrepancy.query.filter_by(
+        invoice_no=invoice_no,
+        warehouse_checked_at=None
+    ).first()
+
+    if unverified_discrepancy:
+        return
+
+    # Check for pending returns
+    from models import RouteReturnHandover
+    pending_return = RouteReturnHandover.query.filter(
+        RouteReturnHandover.invoice_no == invoice_no,
+        RouteReturnHandover.driver_confirmed_at.isnot(None),
+        RouteReturnHandover.warehouse_received_at.is_(None)
+    ).first()
+
+    if pending_return:
+        return
+
+    # If we got here, everything is verified/received
+    case.status = 'CLOSED'
+    case.updated_at = get_utc_now()
+    db.session.commit()
+
+
 def process_discrepancy_for_settlement(discrepancy):
     """
     Process a discrepancy for settlement purposes.
