@@ -110,7 +110,7 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
     for inv in invoices:
         if inv.route_id is not None and inv.route_id != shipment_id:
             # Remove from RouteStopInvoice
-            RouteStopInvoice.query.filter_by(invoice_id=inv.id).delete()
+            RouteStopInvoice.query.filter_by(invoice_no=inv.invoice_no).delete()
             # Clear route assignment on invoice
             inv.route_id = None
             inv.stop_id = None
