@@ -143,12 +143,33 @@ def shipment_detail(shipment_id):
             'details': open_cases
         })
     
-    unresolved = recon.check_unresolved_discrepancies(shipment_id)
+    unresolved = check_unresolved_discrepancies(shipment_id)
     if unresolved:
         issues['blocking'].append({
             'type': 'UNRESOLVED_DISCREPANCIES',
             'message': f"{len(unresolved)} unresolved discrepancy(ies)",
             'details': unresolved
+        })
+
+    # Add specific tracking for warehouse verification and credit notes
+    from services_reconciliation import check_discrepancies_needing_warehouse_check, check_discrepancies_needing_credit_note
+    
+    warehouse_pending = check_discrepancies_needing_warehouse_check(shipment_id)
+    if warehouse_pending:
+        issues['blocking'].append({
+            'id': 'WAREHOUSE_VERIFICATION',
+            'type': 'DISCREPANCIES_NEED_WAREHOUSE_CHECK',
+            'message': f"{len(warehouse_pending)} discrepancy(ies) need warehouse verification",
+            'details': warehouse_pending
+        })
+
+    cn_pending = check_discrepancies_needing_credit_note(shipment_id)
+    if cn_pending:
+        issues['blocking'].append({
+            'id': 'CREDIT_NOTE_ISSUANCE',
+            'type': 'CREDIT_NOTES_PENDING',
+            'message': f"{len(cn_pending)} discrepancy(ies) need credit note issuance",
+            'details': cn_pending
         })
     
     return render_template('reconciliation/shipment_detail.html',

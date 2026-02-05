@@ -417,7 +417,7 @@ def refresh_reconciliation(shipment_id: int) -> Dict:
     if disc_need_check:
         issues['blocking'].append({
             'type': 'DISCREPANCIES_NEED_WAREHOUSE_CHECK',
-            'message': f"{len(disc_need_check)} discrepanc(ies) need warehouse verification",
+            'message': f"{len(disc_need_check)} discrepancy(ies) need warehouse verification",
             'details': disc_need_check
         })
     
@@ -426,7 +426,7 @@ def refresh_reconciliation(shipment_id: int) -> Dict:
     if cn_pending:
         issues['blocking'].append({
             'type': 'CREDIT_NOTES_PENDING',
-            'message': f"{len(cn_pending)} discrepanc(ies) need credit note issuance",
+            'message': f"{len(cn_pending)} discrepancy(ies) need credit note issuance",
             'details': cn_pending
         })
     
