@@ -143,7 +143,7 @@ def shipment_detail(shipment_id):
             'details': open_cases
         })
     
-    unresolved = check_unresolved_discrepancies(shipment_id)
+    unresolved = recon.check_unresolved_discrepancies(shipment_id)
     if unresolved:
         issues['blocking'].append({
             'type': 'UNRESOLVED_DISCREPANCIES',
