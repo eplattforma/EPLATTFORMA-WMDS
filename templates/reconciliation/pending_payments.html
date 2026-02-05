@@ -59,8 +59,11 @@
                                 </small>
                             </td>
                             <td>
+                                <button type="button" class="btn btn-sm btn-success clear-payment-btn" data-id="{{ alloc.id }}">
+                                    <i class="fas fa-check me-1"></i>Clear Payment
+                                </button>
                                 <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=alloc.route_id) }}" class="btn btn-sm btn-primary">
-                                    <i class="fas fa-search me-1"></i>Reconcile Route
+                                    <i class="fas fa-search me-1"></i>Reconcile
                                 </a>
                             </td>
                         </tr>
@@ -78,4 +81,65 @@
         </div>
     </div>
 </div>
+
+<!-- Clear Payment Confirmation Modal -->
+<div class="modal fade" id="clearPaymentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Confirm Clearance</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to mark this payment as <strong>CLEARED</strong>?</p>
+                <p class="text-muted small">This will move the payment from pending to received status in the reconciliation reports.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-modal="dismiss">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmClearBtn">Confirm Clearance</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    let currentAllocId = null;
+    const modal = new bootstrap.Modal(document.getElementById('clearPaymentModal'));
+
+    $('.clear-payment-btn').click(function() {
+        currentAllocId = $(this).data('id');
+        modal.show();
+    });
+
+    $('#confirmClearBtn').click(function() {
+        if (!currentAllocId) return;
+        
+        const btn = $(this);
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i>Clearing...');
+
+        $.ajax({
+            url: `/reconciliation/api/pending-payments/${currentAllocId}/clear`,
+            method: 'POST',
+            headers: {
+                'X-CSRF-Token': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(response) {
+                if (response.success) {
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.message);
+                    btn.prop('disabled', false).text('Confirm Clearance');
+                }
+            },
+            error: function() {
+                alert('Server error occurred');
+                btn.prop('disabled', false).text('Confirm Clearance');
+            }
+        });
+    });
+});
+</script>
 {% endblock %}

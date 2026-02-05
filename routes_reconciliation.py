@@ -60,6 +60,18 @@ def pending_payments():
     return render_template('reconciliation/pending_payments.html', 
                          pending_allocs=pending_allocs)
 
+@reconciliation_bp.route('/api/pending-payments/<int:allocation_id>/clear', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_clear_pending(allocation_id):
+    """API: Clear a specific pending payment"""
+    try:
+        result = recon.clear_pending_payment(allocation_id, current_user.username)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error clearing pending payment: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @reconciliation_bp.route('/shipments')
 @login_required
 @admin_or_warehouse_required

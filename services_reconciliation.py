@@ -592,6 +592,33 @@ def get_reroute_audit(date_from: str, date_to: str) -> List[Dict]:
     return [dict(row._mapping) for row in result]
 
 
+def clear_pending_payment(allocation_id: int, actor: str) -> Dict:
+    """Clear a specific pending payment allocation"""
+    from models import CODInvoiceAllocation, CODReceipt
+    alloc = db.session.get(CODInvoiceAllocation, allocation_id)
+    if not alloc:
+        return {'success': False, 'message': 'Allocation not found'}
+    
+    alloc.is_pending = False
+    
+    # Also update the parent receipt if all its allocations are now cleared
+    receipt = db.session.get(CODReceipt, alloc.cod_receipt_id)
+    if receipt:
+        # Check if any other allocations for this receipt are still pending
+        still_pending = CODInvoiceAllocation.query.filter(
+            CODInvoiceAllocation.cod_receipt_id == receipt.id,
+            CODInvoiceAllocation.is_pending == True,
+            CODInvoiceAllocation.id != allocation_id
+        ).count()
+        
+        if still_pending == 0:
+            receipt.is_pending = False
+            
+    db.session.commit()
+    logger.info(f"Pending payment {allocation_id} cleared by {actor}")
+    return {'success': True, 'message': 'Payment cleared successfully'}
+
+
 def check_failed_without_driver_handover(shipment_id: int) -> List[Dict]:
     """Find FAILED invoices without driver return handover confirmation"""
     sql = text("""
