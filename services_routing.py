@@ -101,11 +101,25 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
     
     Returns: dict with success status and details
     """
-    # Load invoices
-    invoices = Invoice.query.filter(Invoice.invoice_no.in_(invoice_nos)).all()
+    # Load invoices - only those not already assigned to a route
+    # Use distinct to prevent duplicate processing if data is messy
+    invoices = Invoice.query.filter(
+        Invoice.invoice_no.in_(list(set(invoice_nos))),
+        Invoice.route_id.is_(None)
+    ).all()
+    
+    # Check if any invoices were already assigned (for better error message)
+    if not invoices and invoice_nos:
+        already_assigned = Invoice.query.filter(
+            Invoice.invoice_no.in_(invoice_nos),
+            Invoice.route_id.is_not(None)
+        ).all()
+        if already_assigned:
+            nos = [inv.invoice_no for inv in already_assigned]
+            return {"ok": False, "message": f"Invoices already assigned to other routes: {', '.join(nos)}"}
     
     if not invoices:
-        return {"ok": False, "message": "No invoices found"}
+        return {"ok": False, "message": "No invoices found for assignment"}
     
     # Ensure all invoices have customer_code
     missing_code_invoices = []
@@ -124,11 +138,17 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
     
     # Group invoices by customer_code
     customer_groups = {}
+    processed_invoices = set()
     for inv in invoices:
+        # Prevent re-assigning if already processed in this batch
+        if inv.invoice_no in processed_invoices:
+            continue
+            
         code = inv.customer_code
         if code not in customer_groups:
             customer_groups[code] = []
         customer_groups[code].append(inv)
+        processed_invoices.add(inv.invoice_no)
     
     # Get current max sequence for this route
     current_max_seq = get_max_stop_sequence(shipment_id)
@@ -184,14 +204,29 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
             inv.route_id = shipment_id
             inv.stop_id = stop.route_stop_id
             
-            # Determine expected payment method from customer terms
+    # Determine expected payment method from customer terms
             from models import PaymentCustomer
-            payment_terms = PaymentCustomer.query.filter_by(customer_code=inv.customer_code).first()
+            payment_terms = PaymentCustomer.query.filter_by(code=inv.customer_code).first()
             expected_method = 'CREDIT'
             if payment_terms:
-                if payment_terms.payment_type_code_365 == 'CASH':
+                # Map the PS365 code to our canonical payment method
+                # The field name is actually 'payment_type_code_365' but we should be safe
+                pt_code = getattr(payment_terms, 'payment_type_code_365', None)
+                
+                # If we don't have the attribute directly, it might be in 'group' or 'name' 
+                # based on common PS365 export patterns
+                if not pt_code:
+                    group_upper = (payment_terms.group or "").upper()
+                    name_upper = (payment_terms.name or "").upper()
+                    
+                    if 'CASH' in group_upper or 'CASH' in name_upper:
+                        pt_code = 'CASH'
+                    elif 'CHEQUE' in group_upper or 'CHEQUE' in name_upper:
+                        pt_code = 'CHEQUE'
+                
+                if pt_code == 'CASH':
                     expected_method = 'CASH'
-                elif payment_terms.payment_type_code_365 == 'CHEQUE':
+                elif pt_code == 'CHEQUE':
                     expected_method = 'CHEQUE'
 
             # Create new RouteStopInvoice link (use lowercase canonical status)
