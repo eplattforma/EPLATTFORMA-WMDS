@@ -36,7 +36,7 @@ def admin_or_warehouse_required(f):
 @admin_or_warehouse_required
 def pending_payments():
     """List all pending payments (online and post-dated)"""
-    from models import CODInvoiceAllocation, Shipment
+    from models import CODInvoiceAllocation, Shipment, Invoice
     
     # Get all pending allocations
     pending_allocs = db.session.query(
