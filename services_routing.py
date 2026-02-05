@@ -184,11 +184,23 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
             inv.route_id = shipment_id
             inv.stop_id = stop.route_stop_id
             
+            # Determine expected payment method from customer terms
+            from models import PaymentCustomer
+            payment_terms = PaymentCustomer.query.filter_by(customer_code_365=inv.customer_code).first()
+            expected_method = 'CREDIT'
+            if payment_terms:
+                if payment_terms.payment_type_code_365 == 'CASH':
+                    expected_method = 'CASH'
+                elif payment_terms.payment_type_code_365 == 'CHEQUE':
+                    expected_method = 'CHEQUE'
+
             # Create new RouteStopInvoice link (use lowercase canonical status)
             link = RouteStopInvoice(
                 route_stop_id=stop.route_stop_id,
                 invoice_no=inv.invoice_no,
-                status="ready_for_dispatch"
+                status="ready_for_dispatch",
+                expected_payment_method=expected_method,
+                expected_amount=inv.total_grand
             )
             db.session.add(link)
             
