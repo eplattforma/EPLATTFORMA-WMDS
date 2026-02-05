@@ -673,6 +673,12 @@ def submit_delivery(stop_id):
                 else:
                     invoice_received = received if len(invoice_nos) == 1 else invoice_due
                 
+                # Mark as pending if:
+                # 1. Payment method requires clearance (online/postdated), OR
+                # 2. Received + deducted is less than expected (underpayment)
+                is_underpaid = (invoice_received + invoice_deduct) < invoice_total
+                is_pending = is_pending_method or is_underpaid
+                
                 allocation = CODInvoiceAllocation(
                     cod_receipt_id=cod_receipt.id,
                     invoice_no=invoice_no,
@@ -681,7 +687,7 @@ def submit_delivery(stop_id):
                     received_amount=invoice_received,
                     deduct_amount=invoice_deduct,
                     payment_method=cod_method,
-                    is_pending=is_pending_method,
+                    is_pending=is_pending,
                     cheque_number=cod.get('cheque_number'),
                     cheque_date=datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
                 )
