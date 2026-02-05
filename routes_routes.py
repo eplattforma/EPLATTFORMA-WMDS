@@ -858,32 +858,20 @@ def auto_assign():
     except ValueError:
         return jsonify({"ok": False, "message": "Invalid date format. Use YYYY-MM-DD"}), 400
     
-    # Use existing route or find/create one
+    # Use existing route or create new one
     if route_id:
-        # Use specified route
+        # Use existing route
         route = Shipment.query.get(route_id)
         if not route:
             return jsonify({"ok": False, "message": f"Route {route_id} not found"}), 404
     else:
-        # Check if a route already exists for this driver and date
-        existing_route = Shipment.query.filter(
-            Shipment.driver_name == driver_name,
-            Shipment.delivery_date == delivery_date,
-            Shipment.deleted_at.is_(None),
-            Shipment.status.in_(['created', 'PLANNED'])
-        ).first()
-        
-        if existing_route:
-            # Use existing route
-            route = existing_route
-        else:
-            # Create new route only if none exists
-            route = services.upsert_route(
-                driver_name=driver_name,
-                route_name=data.get("route_name", f"{driver_name} Route"),
-                delivery_date=delivery_date,
-                status="PLANNED"
-            )
+        # Create new route
+        route = services.upsert_route(
+            driver_name=driver_name,
+            route_name=data.get("route_name", f"{driver_name} Route"),
+            delivery_date=delivery_date,
+            status="PLANNED"
+        )
     
     # Auto-assign invoices grouped by customer
     result = services_routing.assign_invoices_to_route_grouped_by_customer(
