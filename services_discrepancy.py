@@ -161,7 +161,7 @@ def process_discrepancy_for_settlement(discrepancy):
     Called after a discrepancy is created/updated.
     
     Sets:
-    - deduct_amount based on discrepancy type and qty
+    - deduct_amount based ONLY on what driver provided (no fallbacks)
     - credit_note_required based on type
     - Creates/updates post-delivery case
     
@@ -170,19 +170,10 @@ def process_discrepancy_for_settlement(discrepancy):
     """
     behavior = get_discrepancy_type_behavior(discrepancy.discrepancy_type)
     
-    # Use reported_value if provided by driver, otherwise calculate it
+    # Use reported_value if provided by driver, otherwise 0
+    # No fallback calculations allowed
     if discrepancy.reported_value:
         discrepancy.deduct_amount = Decimal(str(discrepancy.reported_value))
-    elif behavior['deducts_from_collection']:
-        qty_affected = abs((discrepancy.qty_expected or 0) - (discrepancy.qty_actual or 0))
-        if qty_affected > 0:
-            discrepancy.deduct_amount = calculate_deduct_amount(
-                discrepancy.invoice_no,
-                discrepancy.item_code_expected,
-                qty_affected
-            )
-        else:
-            discrepancy.deduct_amount = Decimal('0')
     else:
         discrepancy.deduct_amount = Decimal('0')
     
