@@ -101,22 +101,21 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
     
     Returns: dict with success status and details
     """
-    # Load invoices - only those not already assigned to a route
-    # Use distinct to prevent duplicate processing if data is messy
+    # Load all invoices matching the invoice numbers
     invoices = Invoice.query.filter(
-        Invoice.invoice_no.in_(list(set(invoice_nos))),
-        Invoice.route_id.is_(None)
+        Invoice.invoice_no.in_(list(set(invoice_nos)))
     ).all()
     
-    # Check if any invoices were already assigned (for better error message)
-    if not invoices and invoice_nos:
-        already_assigned = Invoice.query.filter(
-            Invoice.invoice_no.in_(invoice_nos),
-            Invoice.route_id.is_not(None)
-        ).all()
-        if already_assigned:
-            nos = [inv.invoice_no for inv in already_assigned]
-            return {"ok": False, "message": f"Invoices already assigned to other routes: {', '.join(nos)}"}
+    # Unassign invoices that are already on other routes
+    for inv in invoices:
+        if inv.route_id is not None and inv.route_id != shipment_id:
+            # Remove from RouteStopInvoice
+            RouteStopInvoice.query.filter_by(invoice_id=inv.id).delete()
+            # Clear route assignment on invoice
+            inv.route_id = None
+            inv.stop_id = None
+    
+    db.session.flush()
     
     if not invoices:
         return {"ok": False, "message": "No invoices found for assignment"}
