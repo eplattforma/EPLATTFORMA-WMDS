@@ -186,7 +186,7 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
             
             # Determine expected payment method from customer terms
             from models import PaymentCustomer
-            payment_terms = PaymentCustomer.query.filter_by(customer_code_365=inv.customer_code).first()
+            payment_terms = PaymentCustomer.query.filter_by(customer_code=inv.customer_code).first()
             expected_method = 'CREDIT'
             if payment_terms:
                 if payment_terms.payment_type_code_365 == 'CASH':
