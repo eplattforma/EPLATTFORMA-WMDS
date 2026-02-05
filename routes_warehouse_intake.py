@@ -251,6 +251,7 @@ def assign_to_route():
     from models import Shipment
     from datetime import datetime
     import services_routing
+    from sqlalchemy.exc import IntegrityError
     
     try:
         data = request.get_json()
@@ -261,6 +262,17 @@ def assign_to_route():
         
         if not invoice_no:
             return jsonify({'error': 'Invoice number required'}), 400
+
+        # Check for existing assignment to prevent duplicates
+        existing_assignment = db.session.query(RouteStopInvoice).filter_by(
+            invoice_no=invoice_no, 
+            is_active=True
+        ).first()
+        if existing_assignment and not warehouse_collection:
+             # Check if the route is still active/planned
+             active_route = Shipment.query.get(existing_assignment.route_stop.shipment_id)
+             if active_route and active_route.status in ['PLANNED', 'DISPATCHED', 'IN_TRANSIT']:
+                 return jsonify({'error': f'Invoice {invoice_no} is already assigned to active route #{active_route.id}'}), 400
         
         # Handle warehouse collection (customer pickup)
         if warehouse_collection:
