@@ -170,8 +170,10 @@ def process_discrepancy_for_settlement(discrepancy):
     """
     behavior = get_discrepancy_type_behavior(discrepancy.discrepancy_type)
     
-    # Calculate deduct amount if type requires deduction
-    if behavior['deducts_from_collection']:
+    # Use reported_value if provided by driver, otherwise calculate it
+    if discrepancy.reported_value:
+        discrepancy.deduct_amount = Decimal(str(discrepancy.reported_value))
+    elif behavior['deducts_from_collection']:
         qty_affected = abs((discrepancy.qty_expected or 0) - (discrepancy.qty_actual or 0))
         if qty_affected > 0:
             discrepancy.deduct_amount = calculate_deduct_amount(
