@@ -203,7 +203,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 'received': display_received,
                 'payment_type': display_payment,
                 'discrepancy': discrepancy if discrepancy > 0.001 else None,
-                'outstanding': float(outstanding),
+                'outstanding': float(outstanding) if abs(outstanding) >= 0.001 else 0.0,
                 'delivery_status': inv['delivery_status'],
                 'is_pending_payment': data.get('has_pending', False) # Check stop-level pending flag
             })
