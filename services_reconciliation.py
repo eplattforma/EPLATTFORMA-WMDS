@@ -185,8 +185,8 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 'expected': expected,
                 'received': display_received,
                 'payment_type': display_payment,
-                'discrepancy': discrepancy if discrepancy > 0 else None,
-                'outstanding': outstanding if abs(outstanding) >= 0.001 else None,
+                'discrepancy': discrepancy if discrepancy > 0.001 else None,
+                'outstanding': float(outstanding),
                 'delivery_status': inv['delivery_status']
             })
     

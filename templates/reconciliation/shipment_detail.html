@@ -216,8 +216,10 @@
                                 {% endif %}
                             </td>
                             <td class="text-end">
-                                {% if row.outstanding %}
-                                    <span class="fw-bold text-danger">&euro; {{ "%.2f"|format(row.outstanding) }}</span>
+                                {% if row.outstanding is not none %}
+                                    <span class="fw-bold {% if row.outstanding > 0.001 %}text-danger{% elif row.outstanding < -0.001 %}text-success{% endif %}">
+                                        &euro; {{ "%.2f"|format(row.outstanding) }}
+                                    </span>
                                 {% else %}
                                     -
                                 {% endif %}
