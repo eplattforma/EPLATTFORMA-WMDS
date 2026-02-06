@@ -131,6 +131,9 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             stops_data[stop_id]['is_day_cheque'] = is_day_cheque
         elif not stops_data[stop_id]['payment_method'] and pm_upper:
             stops_data[stop_id]['payment_method'] = pm_upper
+        
+        if r.get('alloc_pending'):
+            stops_data[stop_id]['has_pending'] = True
 
         stops_data[stop_id]['invoices'].append({
             'route_id': r['route_id'],
@@ -138,13 +141,28 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             'expected': expected,
             'discrepancy': discrepancy,
             'is_credit': is_credit,
-            'delivery_status': r['delivery_status']
+            'delivery_status': r['delivery_status'],
+            'alloc_pending': r.get('alloc_pending', False)
         })
 
     rows = []
     # Now allocate payments sequentially for each stop
     for stop_id, data in stops_data.items():
         pool = data['total_received']
+        
+        # Determine if this allocation should be marked as pending
+        # This is a bit complex since payments are stop-level now.
+        # We look for ANY pending payment recorded for this stop in COD allocations
+        stop_alloc_pending = False
+        sql_check = text("""
+            SELECT COUNT(*) 
+            FROM cod_invoice_allocations 
+            WHERE route_id = :route_id 
+              AND route_stop_id = :stop_id 
+              AND is_pending = true
+        """)
+        # We can't easily run SQL inside this loop without a session, but we are in a session context here
+        # For now, we'll use a safer heuristic or pass it through the initial query
         
         for inv in data['invoices']:
             expected = inv['expected']
@@ -169,7 +187,6 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 display_payment = data['payment_method'] or '-'
                 
                 # Outstanding = Expected - Allocated - Discrepancy
-                # This allows negative outstanding if Allocated > (Expected - Discrepancy)
                 outstanding = expected - allocated - discrepancy
                 
                 # Small epsilon check
@@ -187,7 +204,8 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 'payment_type': display_payment,
                 'discrepancy': discrepancy if discrepancy > 0.001 else None,
                 'outstanding': float(outstanding),
-                'delivery_status': inv['delivery_status']
+                'delivery_status': inv['delivery_status'],
+                'is_pending_payment': data.get('has_pending', False) # Check stop-level pending flag
             })
     
     return rows

@@ -38,7 +38,7 @@ def pending_payments():
     """List all pending payments (online and post-dated)"""
     from models import CODInvoiceAllocation, Shipment, Invoice
     
-    # Get all pending allocations (online OR post-dated)
+    # Get all pending allocations (online OR post-dated OR explicitly flagged)
     pending_allocs = db.session.query(
         CODInvoiceAllocation,
         Shipment.driver_name,
@@ -51,7 +51,7 @@ def pending_payments():
     ).filter(
         db.or_(
             CODInvoiceAllocation.is_pending == True,
-            CODInvoiceAllocation.payment_method.in_(['postdated', 'post_dated', 'POST DATED CHQ'])
+            CODInvoiceAllocation.payment_method.in_(['postdated', 'post_dated', 'POST DATED CHQ', 'ONLINE', 'online'])
         )
     ).order_by(
         Shipment.delivery_date.desc()
