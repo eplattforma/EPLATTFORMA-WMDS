@@ -73,6 +73,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             ca.deduct_amount,
             ca.cheque_date,
             ca.is_pending AS alloc_pending,
+            rsi.route_stop_id,
             COALESCE(disc.discrepancy_total, 0) AS discrepancy_value
         FROM route_stop_invoice rsi
         JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
@@ -93,53 +94,101 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
     
-    rows = []
+    # First, collect all data per stop to handle multi-invoice allocation
+    stops_data = {}
+    
     for row in result:
         r = dict(row._mapping)
-        is_credit = r['is_credit']
+        stop_id = r['route_stop_id']
+        if stop_id not in stops_data:
+            stops_data[stop_id] = {
+                'stop_seq': int(r['stop_seq'] or 0),
+                'customer_name': r['customer_name'] or '',
+                'invoices': [],
+                'total_received': 0,
+                'payment_method': None,
+                'is_day_cheque': False
+            }
+        
         expected = float(r['expected'] or 0)
+        discrepancy = float(r['discrepancy_value'] or 0)
+        is_credit = r['is_credit']
+        
+        # Payment info from allocation (unified per stop if possible)
         payment_method = r['payment_method'] or ''
         received = float(r['received_amount'] or 0)
-        discrepancy = float(r['discrepancy_value'] or 0)
         cheque_date = r['cheque_date']
         
-        if is_credit:
-            terms_label = 'CREDIT'
-            display_received = None
-            display_payment = 'CREDIT'
-            outstanding = 0
-        else:
-            terms_label = 'POD'
-            pm_upper = payment_method.upper() if payment_method else ''
-            is_day_cheque = (pm_upper == 'CHEQUE' and cheque_date and cheque_date <= datetime.now().date())
-            is_cash = pm_upper == 'CASH'
-            
-            if is_cash or is_day_cheque:
-                display_received = received
-                display_payment = pm_upper
-                counted_received = received
-            else:
-                display_received = None
-                display_payment = pm_upper or '-'
-                counted_received = 0
-            
-            outstanding = max(0, expected - counted_received - discrepancy)
-            if outstanding < 0.005:
-                outstanding = 0
+        pm_upper = payment_method.upper() if payment_method else ''
+        is_day_cheque = (pm_upper == 'CHEQUE' and cheque_date and cheque_date <= datetime.now().date())
+        is_cash = pm_upper == 'CASH'
         
-        rows.append({
+        # Update stop-level payment info
+        # In multi-invoice stops, we assume the payment applies to the stop
+        if is_cash or is_day_cheque:
+            stops_data[stop_id]['total_received'] += received
+            stops_data[stop_id]['payment_method'] = pm_upper
+            stops_data[stop_id]['is_day_cheque'] = is_day_cheque
+        elif not stops_data[stop_id]['payment_method'] and pm_upper:
+            stops_data[stop_id]['payment_method'] = pm_upper
+
+        stops_data[stop_id]['invoices'].append({
             'route_id': r['route_id'],
-            'stop_seq': int(r['stop_seq'] or 0),
-            'customer_name': r['customer_name'] or '',
             'invoice_no': r['invoice_no'],
-            'terms': terms_label,
             'expected': expected,
-            'received': display_received,
-            'payment_type': display_payment,
-            'discrepancy': discrepancy if discrepancy > 0 else None,
-            'outstanding': outstanding if outstanding > 0 else None,
+            'discrepancy': discrepancy,
+            'is_credit': is_credit,
             'delivery_status': r['delivery_status']
         })
+
+    rows = []
+    # Now allocate payments sequentially for each stop
+    for stop_id, data in stops_data.items():
+        pool = data['total_received']
+        
+        for inv in data['invoices']:
+            expected = inv['expected']
+            discrepancy = inv['discrepancy']
+            is_credit = inv['is_credit']
+            
+            if is_credit:
+                allocated = 0
+                display_payment = 'CREDIT'
+                outstanding = 0
+                terms_label = 'CREDIT'
+                display_received = None
+            else:
+                terms_label = 'POD'
+                # Allocate from pool
+                # For POD, target is expected - discrepancy
+                target = max(0, expected - discrepancy)
+                allocated = min(pool, target)
+                pool -= allocated
+                
+                display_received = allocated if data['payment_method'] else None
+                display_payment = data['payment_method'] or '-'
+                
+                # Outstanding = Expected - Allocated - Discrepancy
+                # This allows negative outstanding if Allocated > (Expected - Discrepancy)
+                outstanding = expected - allocated - discrepancy
+                
+                # Small epsilon check
+                if abs(outstanding) < 0.005:
+                    outstanding = 0
+            
+            rows.append({
+                'route_id': inv['route_id'],
+                'stop_seq': data['stop_seq'],
+                'customer_name': data['customer_name'],
+                'invoice_no': inv['invoice_no'],
+                'terms': terms_label,
+                'expected': expected,
+                'received': display_received,
+                'payment_type': display_payment,
+                'discrepancy': discrepancy if discrepancy > 0 else None,
+                'outstanding': outstanding if outstanding != 0 else None,
+                'delivery_status': inv['delivery_status']
+            })
     
     return rows
 
