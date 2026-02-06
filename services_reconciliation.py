@@ -482,14 +482,6 @@ def refresh_reconciliation(shipment_id: int) -> Dict:
             'details': open_cases
         })
     
-    unresolved = check_unresolved_discrepancies(shipment_id)
-    if unresolved:
-        issues['blocking'].append({
-            'type': 'UNRESOLVED_DISCREPANCIES',
-            'message': f"{len(unresolved)} unresolved discrepanc(ies)",
-            'details': unresolved
-        })
-    
     # Check failed invoices without driver handover
     failed_no_handover = check_failed_without_driver_handover(shipment_id)
     if failed_no_handover:
@@ -506,24 +498,6 @@ def refresh_reconciliation(shipment_id: int) -> Dict:
             'type': 'FAILED_NO_WAREHOUSE_RECEIPT',
             'message': f"{len(failed_no_warehouse)} failed invoice(s) without warehouse receipt confirmation",
             'details': failed_no_warehouse
-        })
-    
-    # Check discrepancies needing warehouse verification
-    disc_need_check = check_discrepancies_needing_warehouse_check(shipment_id)
-    if disc_need_check:
-        issues['blocking'].append({
-            'type': 'DISCREPANCIES_NEED_WAREHOUSE_CHECK',
-            'message': f"{len(disc_need_check)} discrepancy(ies) need warehouse verification",
-            'details': disc_need_check
-        })
-    
-    # Check discrepancies needing credit note issuance
-    cn_pending = check_discrepancies_needing_credit_note(shipment_id)
-    if cn_pending:
-        issues['blocking'].append({
-            'type': 'CREDIT_NOTES_PENDING',
-            'message': f"{len(cn_pending)} discrepancy(ies) need credit note issuance",
-            'details': cn_pending
         })
     
     # Get cash totals
@@ -947,27 +921,18 @@ def build_route_reconciliation(shipment_id: int) -> Dict:
     
     failed_no_driver = check_failed_without_driver_handover(shipment_id)
     failed_no_warehouse = check_failed_without_warehouse_receipt(shipment_id)
-    disc_need_check = check_discrepancies_needing_warehouse_check(shipment_id)
-    cn_pending = check_discrepancies_needing_credit_note(shipment_id)
-    unresolved_disc = check_unresolved_discrepancies(shipment_id)
     missing_status = check_missing_final_status(shipment_id)
     
     exceptions = {
         'missing_final_status': missing_status,
         'failed_without_driver_handover': failed_no_driver,
         'failed_without_warehouse_receipt': failed_no_warehouse,
-        'discrepancies_need_warehouse_check': disc_need_check,
-        'credit_notes_pending': cn_pending,
-        'unresolved_discrepancies': unresolved_disc
     }
     
     blocking_count = (
         len(missing_status) + 
         len(failed_no_driver) + 
-        len(failed_no_warehouse) + 
-        len(disc_need_check) + 
-        len(cn_pending) + 
-        len(unresolved_disc)
+        len(failed_no_warehouse)
     )
     
     return {
