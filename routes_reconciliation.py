@@ -172,9 +172,12 @@ def shipment_detail(shipment_id):
             'details': cn_pending
         })
     
+    invoice_report = recon.get_invoice_reconciliation_report(shipment_id)
+    
     return render_template('reconciliation/shipment_detail.html',
                          shipment=shipment,
                          summary=summary,
+                         invoice_report=invoice_report,
                          stops=stops,
                          issues=issues)
 

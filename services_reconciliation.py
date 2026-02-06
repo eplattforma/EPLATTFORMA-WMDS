@@ -48,6 +48,102 @@ def get_shipment_invoices(shipment_id: int) -> List[Dict]:
     return [dict(row._mapping) for row in result]
 
 
+def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
+    """Get invoice-level reconciliation report for a route.
+    
+    Returns per-invoice rows with:
+    - Route ID, stop seq, customer name, terms (POD/CREDIT)
+    - Expected amount, received (cash/day cheque only), payment type
+    - Discrepancy value, outstanding amount
+    
+    Outstanding = Expected - Received - Discrepancy (for POD terms)
+    Outstanding = 0 (for CREDIT terms)
+    """
+    sql = text("""
+        SELECT 
+            rs.shipment_id AS route_id,
+            rs.seq_no AS stop_seq,
+            rs.stop_name AS customer_name,
+            rsi.invoice_no,
+            COALESCE(i.total_grand, 0) AS expected,
+            COALESCE(ct.is_credit, false) AS is_credit,
+            rsi.status AS delivery_status,
+            ca.payment_method,
+            ca.received_amount,
+            ca.deduct_amount,
+            ca.cheque_date,
+            ca.is_pending AS alloc_pending,
+            COALESCE(disc.discrepancy_total, 0) AS discrepancy_value
+        FROM route_stop_invoice rsi
+        JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
+        JOIN invoices i ON i.invoice_no = rsi.invoice_no
+        LEFT JOIN credit_terms ct ON ct.customer_code = i.customer_code 
+            AND (ct.valid_to IS NULL OR ct.valid_to >= CURRENT_DATE)
+        LEFT JOIN cod_invoice_allocations ca 
+            ON ca.invoice_no = rsi.invoice_no AND ca.route_id = rs.shipment_id
+        LEFT JOIN (
+            SELECT invoice_no, SUM(COALESCE(reported_value, 0)) AS discrepancy_total
+            FROM delivery_discrepancies
+            GROUP BY invoice_no
+        ) disc ON disc.invoice_no = rsi.invoice_no
+        WHERE rs.shipment_id = :shipment_id
+          AND rs.deleted_at IS NULL
+          AND rsi.is_active = true
+        ORDER BY rs.seq_no, rsi.invoice_no
+    """)
+    result = db.session.execute(sql, {'shipment_id': shipment_id})
+    
+    rows = []
+    for row in result:
+        r = dict(row._mapping)
+        is_credit = r['is_credit']
+        expected = float(r['expected'] or 0)
+        payment_method = r['payment_method'] or ''
+        received = float(r['received_amount'] or 0)
+        discrepancy = float(r['discrepancy_value'] or 0)
+        cheque_date = r['cheque_date']
+        
+        if is_credit:
+            terms_label = 'CREDIT'
+            display_received = None
+            display_payment = 'CREDIT'
+            outstanding = 0
+        else:
+            terms_label = 'POD'
+            pm_upper = payment_method.upper() if payment_method else ''
+            is_day_cheque = (pm_upper == 'CHEQUE' and cheque_date and cheque_date <= datetime.now().date())
+            is_cash = pm_upper == 'CASH'
+            
+            if is_cash or is_day_cheque:
+                display_received = received
+                display_payment = pm_upper
+                counted_received = received
+            else:
+                display_received = None
+                display_payment = pm_upper or '-'
+                counted_received = 0
+            
+            outstanding = max(0, expected - counted_received - discrepancy)
+            if outstanding < 0.005:
+                outstanding = 0
+        
+        rows.append({
+            'route_id': r['route_id'],
+            'stop_seq': int(r['stop_seq'] or 0),
+            'customer_name': r['customer_name'] or '',
+            'invoice_no': r['invoice_no'],
+            'terms': terms_label,
+            'expected': expected,
+            'received': display_received,
+            'payment_type': display_payment,
+            'discrepancy': discrepancy if discrepancy > 0 else None,
+            'outstanding': outstanding if outstanding > 0 else None,
+            'delivery_status': r['delivery_status']
+        })
+    
+    return rows
+
+
 def check_missing_final_status(shipment_id: int) -> List[Dict]:
     """Find invoices without final delivery status (blocking)"""
     sql = text("""

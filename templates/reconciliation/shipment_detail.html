@@ -160,6 +160,102 @@
         </div>
     </div>
     
+    <div class="card mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <strong>Invoice Reconciliation Report</strong>
+            <button class="btn btn-sm btn-outline-secondary" onclick="window.print()">
+                <i class="fas fa-print me-1"></i>Print
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover table-sm mb-0" id="invoiceReconTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Route ID</th>
+                            <th>Stop Seq</th>
+                            <th>Customer Name</th>
+                            <th>TERMS</th>
+                            <th>Invoice No</th>
+                            <th class="text-end">Expected &euro;</th>
+                            <th class="text-end">Received &euro; (Allocated)</th>
+                            <th>Payment Type</th>
+                            <th class="text-end">Discrepancy</th>
+                            <th class="text-end">Outstanding</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ns = namespace(total_expected=0, total_received=0, total_disc=0, total_outstanding=0) %}
+                        {% for row in invoice_report %}
+                        <tr>
+                            <td>{{ row.route_id }}</td>
+                            <td>{{ row.stop_seq }}</td>
+                            <td>{{ row.customer_name }}</td>
+                            <td>
+                                <span class="badge {% if row.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %}">
+                                    {{ row.terms }}
+                                </span>
+                            </td>
+                            <td>
+                                <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=row.invoice_no) }}" class="text-decoration-none">
+                                    {{ row.invoice_no }}
+                                </a>
+                            </td>
+                            <td class="text-end">&euro;{{ "%.2f"|format(row.expected) }}</td>
+                            <td class="text-end">
+                                {% if row.received is not none %}
+                                    &euro;{{ "%.2f"|format(row.received) }}
+                                {% endif %}
+                            </td>
+                            <td>{{ row.payment_type }}</td>
+                            <td class="text-end">
+                                {% if row.discrepancy %}
+                                    <span class="text-danger">&euro; {{ "%.2f"|format(row.discrepancy) }}</span>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if row.outstanding %}
+                                    <span class="fw-bold text-danger">&euro; {{ "%.2f"|format(row.outstanding) }}</span>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% set ns.total_expected = ns.total_expected + row.expected %}
+                        {% if row.received is not none %}
+                            {% set ns.total_received = ns.total_received + row.received %}
+                        {% endif %}
+                        {% if row.discrepancy %}
+                            {% set ns.total_disc = ns.total_disc + row.discrepancy %}
+                        {% endif %}
+                        {% if row.outstanding %}
+                            {% set ns.total_outstanding = ns.total_outstanding + row.outstanding %}
+                        {% endif %}
+                        {% else %}
+                        <tr>
+                            <td colspan="10" class="text-center text-muted py-3">No invoices found for this route.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    {% if invoice_report %}
+                    <tfoot class="table-light">
+                        <tr class="fw-bold">
+                            <td colspan="5" class="text-end">TOTALS</td>
+                            <td class="text-end">&euro;{{ "%.2f"|format(ns.total_expected) }}</td>
+                            <td class="text-end">&euro;{{ "%.2f"|format(ns.total_received) }}</td>
+                            <td></td>
+                            <td class="text-end">&euro;{{ "%.2f"|format(ns.total_disc) }}</td>
+                            <td class="text-end text-danger">&euro;{{ "%.2f"|format(ns.total_outstanding) }}</td>
+                        </tr>
+                    </tfoot>
+                    {% endif %}
+                </table>
+            </div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-header py-2">
             <strong>Stop-by-Stop Details</strong>
