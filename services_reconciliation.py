@@ -161,8 +161,8 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 terms_label = 'POD'
                 # Allocate from pool
                 # For POD, target is expected - discrepancy
-                target = max(0, expected - discrepancy)
-                allocated = min(pool, target)
+                target = expected - discrepancy
+                allocated = min(pool, target) if pool > 0 else 0
                 pool -= allocated
                 
                 display_received = allocated if data['payment_method'] else None
