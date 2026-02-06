@@ -186,12 +186,12 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 display_received = allocated if data['payment_method'] else None
                 display_payment = data['payment_method'] or '-'
                 
-                # Outstanding = Expected - Allocated - Discrepancy
+                # Formula: Expected - Allocated - Discrepancy
                 outstanding = expected - allocated - discrepancy
                 
-                # Small epsilon check
-                if abs(outstanding) < 0.005:
-                    outstanding = 0
+                # Small epsilon check to snap very close values to zero
+                if abs(outstanding) < 0.001:
+                    outstanding = 0.0
             
             rows.append({
                 'route_id': inv['route_id'],
@@ -203,9 +203,9 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 'received': display_received,
                 'payment_type': display_payment,
                 'discrepancy': discrepancy if discrepancy > 0.001 else None,
-                'outstanding': float(outstanding) if abs(outstanding) >= 0.001 else 0.0,
+                'outstanding': float(outstanding),
                 'delivery_status': inv['delivery_status'],
-                'is_pending_payment': data.get('has_pending', False) # Check stop-level pending flag
+                'is_pending_payment': data.get('has_pending', False)
             })
     
     return rows
