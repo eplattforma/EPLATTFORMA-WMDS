@@ -226,14 +226,16 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <span class="text-white-50 d-block" style="font-size: 0.75rem;">METHOD</span>
                             <span class="fw-bold fs-5">{{ stop_recon.payment_type }}</span>
                         </div>
-                        {% if stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
                         <div>
                             <span class="text-white-50 d-block" style="font-size: 0.75rem;">OUTSTANDING</span>
+                            {% if stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
                             <span class="fw-bold fs-5 {% if stop_recon.stop_outstanding > 0.001 %}text-danger{% elif stop_recon.stop_outstanding < -0.001 %}text-success{% endif %}">
                                 &euro;{{ "%.2f"|format(stop_recon.stop_outstanding) }}
                             </span>
+                            {% else %}
+                            <span class="fw-bold fs-5">&nbsp;</span>
+                            {% endif %}
                         </div>
-                        {% endif %}
                     </div>
                 </div>
 
