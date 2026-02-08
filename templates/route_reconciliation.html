@@ -319,8 +319,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <thead style="background-color: #e9ecef;">
                                 <tr>
                                     <th class="ps-2">Type</th>
-                                    <th>Item Code</th>
-                                    <th>Item Name</th>
+                                    <th>Item</th>
                                     <th class="text-end">Ordered</th>
                                     <th class="text-end">Not Delivered</th>
                                     <th class="text-end pe-2">Amount</th>
@@ -331,7 +330,6 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <tr>
                                     <td class="ps-2"><span class="badge bg-warning text-dark" style="font-size: 0.7rem;">Short</span></td>
                                     <td>{{ line.item_code }}</td>
-                                    <td>-</td>
                                     <td class="text-end">{{ line.qty_ordered }}</td>
                                     <td class="text-end text-danger">{{ (line.qty_ordered - line.qty_delivered)|int if line.qty_ordered - line.qty_delivered == (line.qty_ordered - line.qty_delivered)|int else line.qty_ordered - line.qty_delivered }}</td>
                                     <td class="text-end pe-2">-</td>
@@ -344,8 +342,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                         {% set type_colors = {'short': 'warning', 'rejected': 'danger', 'broken': 'danger', 'missing': 'secondary', 'wrong_item': 'info'} %}
                                         <span class="badge bg-{{ type_colors.get(disc.discrepancy_type|lower, 'danger') }} {% if disc.discrepancy_type|lower == 'short' or disc.discrepancy_type|lower == 'wrong_item' %}text-dark{% endif %}" style="font-size: 0.7rem;">{{ disc.discrepancy_type }}</span>
                                     </td>
-                                    <td>{{ disc.item_code_expected }}</td>
-                                    <td>{{ disc.item_name or '-' }}</td>
+                                    <td>{{ disc.item_name or disc.item_code_expected }}</td>
                                     <td class="text-end">{{ disc.qty_expected }}</td>
                                     <td class="text-end text-danger">{{ disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected }}</td>
                                     <td class="text-end pe-2">
