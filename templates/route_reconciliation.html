@@ -343,13 +343,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 {% endfor %}
                                 {% endif %}
 
-                                {% if stop_data_match.cod_receipt and stop_data_match.cod_receipt.variance and stop_data_match.cod_receipt.variance != 0 %}
-                                <div class="alert alert-warning py-1 px-2 mb-1 small">
-                                    <i class="bi bi-cash-coin me-1"></i> Cash Variance: <strong>&euro;{{ "%.2f"|format(stop_data_match.cod_receipt.variance|float) }}</strong>
-                                </div>
-                                {% endif %}
-
-                                {% if not exception_lines and not stop_data_match.discrepancies and not (stop_data_match.cod_receipt and stop_data_match.cod_receipt.variance and stop_data_match.cod_receipt.variance != 0) %}
+                                {% if not exception_lines and not stop_data_match.discrepancies %}
                                 <div class="text-muted small fst-italic">No exceptions recorded</div>
                                 {% endif %}
                             {% else %}
