@@ -235,94 +235,100 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                     </div>
                 </div>
 
-                <!-- Consolidated Invoice Table -->
+                <!-- Invoice Details + Exceptions Side by Side -->
                 {% set stop_data_match = stops_data | selectattr('stop.seq_no', 'equalto', stop_recon.stop_seq) | first %}
-                {% set has_exceptions = false %}
+                {% set exception_lines = [] %}
                 {% if stop_data_match %}
-                    {% for line in stop_data_match.delivery_lines %}
-                        {% if line.qty_delivered != line.qty_ordered %}
-                            {% set has_exceptions = true %}
-                        {% endif %}
-                    {% endfor %}
-                    {% if stop_data_match.discrepancies %}
-                        {% set has_exceptions = true %}
-                    {% endif %}
-                {% endif %}
-
-                <table class="table table-sm table-hover mb-0 small" style="background-color: #f8f9fa;">
-                    <thead style="background-color: #e9ecef;">
-                        <tr>
-                            <th class="ps-3">Invoice</th>
-                            <th>Status</th>
-                            <th class="text-end">Expected</th>
-                            <th class="text-end">Received</th>
-                            <th class="text-end">Discrepancy</th>
-                            <th class="text-end pe-3">Outstanding</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for inv in stop_recon.invoices %}
-                        <tr>
-                            <td class="ps-3">
-                                <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.invoice_no) }}" class="text-decoration-none">
-                                    {{ inv.invoice_no }}
-                                </a>
-                            </td>
-                            <td>
-                                {% set inv_colors = {'DELIVERED': 'success', 'FAILED': 'danger', 'PARTIAL': 'warning'} %}
-                                <span class="badge bg-{{ inv_colors.get(inv.delivery_status, 'secondary') }} py-0" style="font-size: 0.7rem;">
-                                    {{ inv.delivery_status or 'PENDING' }}
-                                </span>
-                            </td>
-                            <td class="text-end">&euro;{{ "%.2f"|format(inv.expected) }}</td>
-                            <td class="text-end">
-                                {% if inv.received is not none %}
-                                    &euro;{{ "%.2f"|format(inv.received) }}
-                                {% else %}-{% endif %}
-                            </td>
-                            <td class="text-end text-danger">
-                                {% if inv.discrepancy %}&euro;{{ "%.2f"|format(inv.discrepancy) }}{% else %}-{% endif %}
-                            </td>
-                            <td class="text-end pe-3 {% if inv.outstanding > 0.001 %}text-danger{% elif inv.outstanding < -0.001 %}text-success{% endif %}">
-                                &euro;{{ "%.2f"|format(inv.outstanding) }}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-
-                <!-- Exceptions (only if any exist) -->
-                {% if stop_data_match %}
-                    {% set exception_lines = [] %}
                     {% for line in stop_data_match.delivery_lines %}
                         {% if line.qty_delivered != line.qty_ordered %}
                             {% set _ = exception_lines.append(line) %}
                         {% endif %}
                     {% endfor %}
-                    {% if exception_lines or stop_data_match.discrepancies %}
-                    <div class="px-3 py-2" style="background-color: #fff3cd; border-top: 1px solid #e9ecef;">
-                        <small class="fw-bold text-dark"><i class="bi bi-exclamation-triangle me-1"></i>EXCEPTIONS</small>
-                        {% if exception_lines %}
-                        <div class="d-flex flex-wrap gap-2 mt-1">
-                            {% for line in exception_lines %}
-                            <span class="badge bg-warning text-dark" style="font-size: 0.7rem;">
-                                {{ line.item_code }}: {{ line.qty_ordered }}&rarr;{{ line.qty_delivered }} ({{ line.qty_delivered - line.qty_ordered }})
-                            </span>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        {% if stop_data_match.discrepancies %}
-                        <div class="d-flex flex-wrap gap-2 mt-1">
-                            {% for disc in stop_data_match.discrepancies %}
-                            <span class="badge bg-danger" style="font-size: 0.7rem;">
-                                {{ disc.discrepancy_type }}: {{ disc.item_code_expected }} x{{ disc.qty_actual }}{% if disc.reported_value %} &euro;{{ "%.2f"|format(disc.reported_value|float) }}{% endif %}
-                            </span>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% endif %}
                 {% endif %}
+
+                <div class="row g-0">
+                    <div class="col-6 border-end">
+                        <table class="table table-sm table-hover mb-0 small" style="background-color: #f8f9fa;">
+                            <thead style="background-color: #e9ecef;">
+                                <tr>
+                                    <th class="ps-3">Invoice</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Expected</th>
+                                    <th class="text-end">Received</th>
+                                    <th class="text-end">Discrepancy</th>
+                                    <th class="text-end pe-3">Outstanding</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for inv in stop_recon.invoices %}
+                                <tr>
+                                    <td class="ps-3">
+                                        <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.invoice_no) }}" class="text-decoration-none">
+                                            {{ inv.invoice_no }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        {% set inv_colors = {'DELIVERED': 'success', 'FAILED': 'danger', 'PARTIAL': 'warning'} %}
+                                        <span class="badge bg-{{ inv_colors.get(inv.delivery_status, 'secondary') }} py-0" style="font-size: 0.7rem;">
+                                            {{ inv.delivery_status or 'PENDING' }}
+                                        </span>
+                                    </td>
+                                    <td class="text-end">&euro;{{ "%.2f"|format(inv.expected) }}</td>
+                                    <td class="text-end">
+                                        {% if inv.received is not none %}
+                                            &euro;{{ "%.2f"|format(inv.received) }}
+                                        {% else %}-{% endif %}
+                                    </td>
+                                    <td class="text-end text-danger">
+                                        {% if inv.discrepancy %}&euro;{{ "%.2f"|format(inv.discrepancy) }}{% else %}-{% endif %}
+                                    </td>
+                                    <td class="text-end pe-3 {% if inv.outstanding > 0.001 %}text-danger{% elif inv.outstanding < -0.001 %}text-success{% endif %}">
+                                        &euro;{{ "%.2f"|format(inv.outstanding) }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-6" style="background-color: #f8f9fa;">
+                        <div class="p-2 small fw-bold text-muted border-bottom" style="background-color: #e9ecef;">DELIVERY EXCEPTIONS</div>
+                        <div class="p-2">
+                            {% if exception_lines %}
+                            <table class="table table-sm table-bordered mb-2 small">
+                                <thead>
+                                    <tr><th>Item</th><th>Ordered</th><th>Delivered</th><th>Diff</th></tr>
+                                </thead>
+                                <tbody>
+                                    {% for line in exception_lines %}
+                                    <tr class="table-warning">
+                                        <td>{{ line.item_code }}</td>
+                                        <td>{{ line.qty_ordered }}</td>
+                                        <td>{{ line.qty_delivered }}</td>
+                                        <td class="{% if line.qty_delivered < line.qty_ordered %}text-danger{% else %}text-success{% endif %}">
+                                            {{ line.qty_delivered - line.qty_ordered }}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            {% endif %}
+
+                            {% if stop_data_match and stop_data_match.discrepancies %}
+                            <div class="d-flex flex-wrap gap-2 mt-1">
+                                {% for disc in stop_data_match.discrepancies %}
+                                <span class="badge bg-danger" style="font-size: 0.7rem;">
+                                    {{ disc.discrepancy_type }}: {{ disc.item_code_expected }} x{{ disc.qty_actual }}{% if disc.reported_value %} &euro;{{ "%.2f"|format(disc.reported_value|float) }}{% endif %}
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+
+                            {% if not exception_lines and not (stop_data_match and stop_data_match.discrepancies) %}
+                            <div class="text-muted small fst-italic">No exceptions recorded</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
             </div>
             {% set ns.grand_expected = ns.grand_expected + stop_recon.stop_expected %}
             {% set ns.grand_received = ns.grand_received + stop_recon.stop_received %}
