@@ -740,12 +740,11 @@ def clear_pending_payment(allocation_id: int, actor: str) -> Dict:
     if not alloc:
         return {'success': False, 'message': 'Allocation not found'}
     
-    alloc.is_pending = False
-    
     # When clearing a payment, set received_amount to cover the full outstanding balance
-    # This ensures the invoice no longer appears as outstanding
+    # and mark it as NOT pending anymore.
     target = (alloc.expected_amount or 0) - (alloc.deduct_amount or 0)
     alloc.received_amount = target
+    alloc.is_pending = False
     
     # Also update the parent receipt if all its allocations are now cleared
     receipt = db.session.get(CODReceipt, alloc.cod_receipt_id)
