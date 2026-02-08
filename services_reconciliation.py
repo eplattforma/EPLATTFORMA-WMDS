@@ -150,20 +150,15 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
     for stop_id, data in stops_data.items():
         pool = data['total_received']
         
-        # Determine if this allocation should be marked as pending
-        # This is a bit complex since payments are stop-level now.
-        # We look for ANY pending payment recorded for this stop in COD allocations
-        stop_alloc_pending = False
-        sql_check = text("""
-            SELECT COUNT(*) 
-            FROM cod_invoice_allocations 
-            WHERE route_id = :route_id 
-              AND route_stop_id = :stop_id 
-              AND is_pending = true
-        """)
-        # We can't easily run SQL inside this loop without a session, but we are in a session context here
-        # For now, we'll use a safer heuristic or pass it through the initial query
+        # Calculate stop-level totals for the header
+        stop_expected = sum(inv['expected'] for inv in data['invoices'])
+        stop_discrepancy = sum(inv['discrepancy'] for inv in data['invoices'])
         
+        # Outstanding at stop level = Expected - Received - Discrepancy
+        # Only CASH and Day Cheques count as received for this formula
+        stop_outstanding = stop_expected - data['total_received'] - stop_discrepancy
+        
+        stop_rows = []
         for inv in data['invoices']:
             expected = inv['expected']
             discrepancy = inv['discrepancy']
@@ -177,7 +172,6 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 display_received = None
             else:
                 terms_label = 'POD'
-                # Allocate from pool
                 # For POD, target is expected - discrepancy
                 target = expected - discrepancy
                 allocated = min(pool, target) if pool > 0 else 0
@@ -189,24 +183,30 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 # Formula: Expected - Allocated - Discrepancy
                 outstanding = expected - allocated - discrepancy
                 
-                # Small epsilon check to snap very close values to zero
                 if abs(outstanding) < 0.001:
                     outstanding = 0.0
             
-            rows.append({
-                'route_id': inv['route_id'],
-                'stop_seq': data['stop_seq'],
-                'customer_name': data['customer_name'],
+            stop_rows.append({
                 'invoice_no': inv['invoice_no'],
-                'terms': terms_label,
                 'expected': expected,
                 'received': display_received,
-                'payment_type': display_payment,
                 'discrepancy': discrepancy if discrepancy > 0.001 else None,
                 'outstanding': float(outstanding),
-                'delivery_status': inv['delivery_status'],
-                'is_pending_payment': data.get('has_pending', False)
+                'delivery_status': inv['delivery_status']
             })
+
+        rows.append({
+            'stop_seq': data['stop_seq'],
+            'customer_name': data['customer_name'],
+            'payment_type': data['payment_method'] or '-',
+            'terms': 'CREDIT' if any(inv['is_credit'] for inv in data['invoices']) else 'POD',
+            'stop_expected': float(stop_expected),
+            'stop_received': float(data['total_received']),
+            'stop_discrepancy': float(stop_discrepancy),
+            'stop_outstanding': float(stop_outstanding),
+            'invoices': stop_rows,
+            'is_pending_payment': data.get('has_pending', False)
+        })
     
     return rows
 

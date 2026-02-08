@@ -161,99 +161,161 @@
     </div>
     
     <div class="card mb-3">
-        <div class="card-header py-2 d-flex justify-content-between align-items-center">
-            <strong>Invoice Reconciliation Report</strong>
-            <button class="btn btn-sm btn-outline-secondary" onclick="window.print()">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center bg-dark text-white">
+            <strong>Stop-by-Stop Reconciliation Report</strong>
+            <button class="btn btn-sm btn-outline-light" onclick="window.print()">
                 <i class="fas fa-print me-1"></i>Print
             </button>
         </div>
         <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-bordered table-hover table-sm mb-0" id="invoiceReconTable">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Route ID</th>
-                            <th>Stop Seq</th>
-                            <th>Customer Name</th>
-                            <th>TERMS</th>
-                            <th>Invoice No</th>
-                            <th class="text-end">Expected &euro;</th>
-                            <th class="text-end">Received &euro; (Allocated)</th>
-                            <th>Payment Type</th>
-                            <th class="text-end">Discrepancy</th>
-                            <th class="text-end">Outstanding</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% set ns = namespace(total_expected=0, total_received=0, total_disc=0, total_outstanding=0) %}
-                        {% for row in invoice_report %}
-                        <tr>
-                            <td>{{ row.route_id }}</td>
-                            <td>{{ row.stop_seq }}</td>
-                            <td>{{ row.customer_name }}</td>
-                            <td>
-                                <span class="badge {% if row.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %}">
-                                    {{ row.terms }}
-                                </span>
-                            </td>
-                            <td>
-                                <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=row.invoice_no) }}" class="text-decoration-none">
-                                    {{ row.invoice_no }}
-                                </a>
-                            </td>
-                            <td class="text-end">&euro;{{ "%.2f"|format(row.expected) }}</td>
-                            <td class="text-end">
-                                {% if row.received is not none %}
-                                    &euro;{{ "%.2f"|format(row.received) }}
+            {% set ns = namespace(total_expected=0, total_received=0, total_disc=0, total_outstanding=0) %}
+            {% for stop in invoice_report %}
+            <div class="stop-reconciliation-block mb-0 border-bottom">
+                <!-- Stop Header -->
+                <div class="bg-light p-2 border-bottom d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="badge bg-secondary fs-6">{{ stop.stop_seq }}</span>
+                        <h5 class="mb-0">{{ stop.customer_name }}</h5>
+                        <span class="badge {% if stop.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %}">
+                            {{ stop.terms }}
+                        </span>
+                    </div>
+                    <div class="d-flex gap-4 text-end">
+                        <div>
+                            <small class="text-muted d-block">Expected</small>
+                            <span class="fw-bold">&euro;{{ "%.2f"|format(stop.stop_expected) }}</span>
+                        </div>
+                        <div>
+                            <small class="text-muted d-block">Received</small>
+                            <span class="fw-bold">&euro;{{ "%.2f"|format(stop.stop_received) }}</span>
+                        </div>
+                        <div>
+                            <small class="text-muted d-block">Payment</small>
+                            <span class="badge bg-light text-dark border">{{ stop.payment_type }}</span>
+                        </div>
+                        <div>
+                            <small class="text-muted d-block">Discrepancy</small>
+                            <span class="text-danger fw-bold">&euro;{{ "%.2f"|format(stop.stop_discrepancy) }}</span>
+                        </div>
+                        <div>
+                            <small class="text-muted d-block">Outstanding</small>
+                            <span class="fw-bold {% if stop.stop_outstanding > 0.001 %}text-danger{% elif stop.stop_outstanding < -0.001 %}text-success{% endif %}">
+                                &euro;{{ "%.2f"|format(stop.stop_outstanding) }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row g-0">
+                    <!-- Invoices Section -->
+                    <div class="col-md-8 border-end">
+                        <div class="p-2 bg-white small fw-bold text-muted border-bottom">INVOICES</div>
+                        <table class="table table-sm table-hover mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Invoice No</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Expected &euro;</th>
+                                    <th class="text-end">Received &euro;</th>
+                                    <th class="text-end">Discrepancy</th>
+                                    <th class="text-end">Outstanding</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for inv in stop.invoices %}
+                                <tr>
+                                    <td>
+                                        <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.invoice_no) }}" class="text-decoration-none">
+                                            {{ inv.invoice_no }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        {% set inv_colors = {'DELIVERED': 'success', 'FAILED': 'danger', 'PARTIAL': 'warning', 'PENDING': 'secondary'} %}
+                                        <span class="badge bg-{{ inv_colors.get(inv.delivery_status, 'secondary') }} py-0" style="font-size: 0.7rem;">
+                                            {{ inv.delivery_status }}
+                                        </span>
+                                    </td>
+                                    <td class="text-end">&euro;{{ "%.2f"|format(inv.expected) }}</td>
+                                    <td class="text-end">
+                                        {% if inv.received is not none %}
+                                            &euro;{{ "%.2f"|format(inv.received) }}
+                                        {% else %}-{% endif %}
+                                    </td>
+                                    <td class="text-end text-danger">
+                                        {% if inv.discrepancy %}&euro;{{ "%.2f"|format(inv.discrepancy) }}{% else %}-{% endif %}
+                                    </td>
+                                    <td class="text-end {% if inv.outstanding > 0.001 %}text-danger{% elif inv.outstanding < -0.001 %}text-success{% endif %}">
+                                        &euro;{{ "%.2f"|format(inv.outstanding) }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Delivery Exceptions Section -->
+                    <div class="col-md-4 bg-light">
+                        <div class="p-2 small fw-bold text-muted border-bottom">DELIVERY EXCEPTIONS</div>
+                        <div class="p-2">
+                            {% set stop_data = (stops | selectattr('seq_no', 'equalto', stop.stop_seq) | first) %}
+                            
+                            {% if stop_data and stop_data.cod_receipts %}
+                                {% for cr in stop_data.cod_receipts %}
+                                    {% if cr.variance and cr.variance != 0 %}
+                                    <div class="alert alert-warning py-1 px-2 mb-1 small">
+                                        <i class="fas fa-coins me-1"></i> Cash Variance: <strong>&euro;{{ "%.2f"|format(cr.variance|float) }}</strong>
+                                    </div>
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+
+                            {% set has_disc = false %}
+                            {% for inv in stop.invoices %}
+                                {% if inv.discrepancy %}
+                                    <div class="small mb-1 text-danger">
+                                        <i class="fas fa-exclamation-circle me-1"></i> {{ inv.invoice_no }}: Discrepancy &euro;{{ "%.2f"|format(inv.discrepancy) }}
+                                    </div>
+                                    {% set has_disc = true %}
                                 {% endif %}
-                            </td>
-                            <td>{{ row.payment_type }}</td>
-                            <td class="text-end">
-                                {% if row.discrepancy %}
-                                    <span class="text-danger">&euro; {{ "%.2f"|format(row.discrepancy) }}</span>
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td class="text-end">
-                                {% if row.outstanding is not none %}
-                                    <span class="fw-bold {% if row.outstanding > 0.001 %}text-danger{% elif row.outstanding < -0.001 %}text-success{% endif %}">
-                                        &euro; {{ "%.2f"|format(row.outstanding) }}
-                                    </span>
-                                {% else %}
-                                    &euro; 0.00
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% set ns.total_expected = ns.total_expected + row.expected %}
-                        {% if row.received is not none %}
-                            {% set ns.total_received = ns.total_received + row.received %}
-                        {% endif %}
-                        {% if row.discrepancy %}
-                            {% set ns.total_disc = ns.total_disc + row.discrepancy %}
-                        {% endif %}
-                        {% if row.outstanding %}
-                            {% set ns.total_outstanding = ns.total_outstanding + row.outstanding %}
-                        {% endif %}
-                        {% else %}
-                        <tr>
-                            <td colspan="10" class="text-center text-muted py-3">No invoices found for this route.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                    {% if invoice_report %}
-                    <tfoot class="table-light">
-                        <tr class="fw-bold">
-                            <td colspan="5" class="text-end">TOTALS</td>
-                            <td class="text-end">&euro;{{ "%.2f"|format(ns.total_expected) }}</td>
-                            <td class="text-end">&euro;{{ "%.2f"|format(ns.total_received) }}</td>
-                            <td></td>
-                            <td class="text-end">&euro;{{ "%.2f"|format(ns.total_disc) }}</td>
-                            <td class="text-end text-danger">&euro;{{ "%.2f"|format(ns.total_outstanding) }}</td>
-                        </tr>
-                    </tfoot>
-                    {% endif %}
-                </table>
+                            {% endfor %}
+
+                            {% if stop_data and stop_data.failed_at %}
+                            <div class="small text-danger fw-bold">
+                                <i class="fas fa-times-circle me-1"></i> Stop Failed: {{ stop_data.failure_reason }}
+                            </div>
+                            {% elif not has_disc and not (stop_data and stop_data.cod_receipts and (stop_data.cod_receipts | selectattr('variance', 'ne', 0) | list | length > 0)) %}
+                            <div class="text-muted small italic">No exceptions recorded</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% set ns.total_expected = ns.total_expected + stop.stop_expected %}
+            {% set ns.total_received = ns.total_received + stop.stop_received %}
+            {% set ns.total_disc = ns.total_disc + stop.stop_discrepancy %}
+            {% set ns.total_outstanding = ns.total_outstanding + stop.stop_outstanding %}
+            {% endfor %}
+            
+            <!-- Global Footer -->
+            <div class="bg-dark text-white p-3 d-flex justify-content-end gap-5">
+                <div class="text-end">
+                    <small class="text-muted d-block">TOTAL EXPECTED</small>
+                    <h4 class="mb-0">&euro;{{ "%.2f"|format(ns.total_expected) }}</h4>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted d-block">TOTAL RECEIVED</small>
+                    <h4 class="mb-0">&euro;{{ "%.2f"|format(ns.total_received) }}</h4>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted d-block">TOTAL DISCREPANCY</small>
+                    <h4 class="mb-0 text-danger">&euro;{{ "%.2f"|format(ns.total_disc) }}</h4>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted d-block">GRAND OUTSTANDING</small>
+                    <h4 class="mb-0 {% if ns.total_outstanding > 0.001 %}text-danger{% else %}text-success{% endif %}">
+                        &euro;{{ "%.2f"|format(ns.total_outstanding) }}
+                    </h4>
+                </div>
             </div>
         </div>
     </div>
