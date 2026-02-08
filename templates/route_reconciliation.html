@@ -415,7 +415,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                 {% set has_exceptions = exception_lines | length > 0 or (stop_data_match and stop_data_match.discrepancies | length > 0) %}
 
                 <div class="d-flex">
-                    <div class="{% if has_exceptions %}flex-grow-1{% else %}w-100{% endif %}" style="min-width: 50%;">
+                    <div style="width: 50%;">
                         <table class="table table-sm recon-table">
                             <thead>
                                 <tr>
@@ -464,9 +464,9 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             </tbody>
                         </table>
                     </div>
-                    {% if has_exceptions %}
                     <div class="recon-divider"></div>
-                    <div class="flex-grow-1" style="min-width: 45%;">
+                    <div style="width: 50%;">
+                        {% if has_exceptions %}
                         <table class="table table-sm recon-table">
                             <thead>
                                 <tr>
@@ -516,8 +516,10 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 {% endif %}
                             </tbody>
                         </table>
+                        {% else %}
+                        <div class="no-exc-placeholder">No exceptions recorded</div>
+                        {% endif %}
                     </div>
-                    {% endif %}
                 </div>
                 </div>
             </div>
