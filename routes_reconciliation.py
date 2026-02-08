@@ -50,11 +50,9 @@ def pending_payments():
         Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
     ).filter(
         db.or_(
-            db.and_(
-                CODInvoiceAllocation.is_pending == True,
-                db.func.lower(CODInvoiceAllocation.payment_method).notin_(['cash', 'cheque', 'day cheque'])
-            ),
-            db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online'])
+            CODInvoiceAllocation.is_pending == True,
+            db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online']),
+            (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01
         )
     ).order_by(
         Invoice.customer_name,
