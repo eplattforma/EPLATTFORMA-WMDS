@@ -158,6 +158,8 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         # Credit invoices are paid on account, so no outstanding at delivery
         pod_expected = sum(inv['expected'] for inv in data['invoices'] if not inv['is_credit'])
         pod_discrepancy = sum(inv['discrepancy'] for inv in data['invoices'] if not inv['is_credit'])
+        
+        # We need to subtract ALL received amounts at the stop, regardless of which invoice they are allocated to
         stop_outstanding = pod_expected - data['total_received'] - pod_discrepancy
         
         stop_rows = []
