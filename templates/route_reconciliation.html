@@ -201,7 +201,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
         <div class="card-body p-0">
             {% set ns = namespace(grand_expected=0, grand_received=0, grand_disc=0, grand_outstanding=0) %}
             {% for stop_recon in invoice_report %}
-            <div style="{% if not loop.last %}border-bottom: 4px solid #343a40;{% endif %}">
+            <div style="{% if not loop.last %}margin-bottom: 1.5rem;{% endif %}">
                 <!-- Compact Stop Header -->
                 <div class="d-flex align-items-center px-3 py-2" style="background-color: #343a40;">
                     <span class="badge bg-light text-dark fs-6 me-3 px-2 py-1">{{ stop_recon.stop_seq }}</span>
