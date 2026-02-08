@@ -273,9 +273,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                     <th class="text-end">Expected</th>
                                     <th class="text-end">Received</th>
                                     <th class="text-end">Discrepancy</th>
-                                    {% if stop_has_outstanding %}
                                     <th class="text-end pe-3">Outstanding</th>
-                                    {% endif %}
                                 </tr>
                             </thead>
                             <tbody>
@@ -305,13 +303,11 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                     <td class="text-end text-danger">
                                         {% if inv.discrepancy and (inv.discrepancy > 0.001 or inv.discrepancy < -0.001) %}&euro;{{ "%.2f"|format(inv.discrepancy) }}{% else %}-{% endif %}
                                     </td>
-                                    {% if stop_has_outstanding %}
                                     <td class="text-end pe-3 {% if inv.outstanding > 0.001 %}text-danger{% elif inv.outstanding < -0.001 %}text-success{% endif %}">
                                         {% if inv.outstanding > 0.001 or inv.outstanding < -0.001 %}
                                             &euro;{{ "%.2f"|format(inv.outstanding) }}
                                         {% else %}-{% endif %}
                                     </td>
-                                    {% endif %}
                                 </tr>
                                 {% endfor %}
                             </tbody>
