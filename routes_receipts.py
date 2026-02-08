@@ -480,6 +480,11 @@ def send_cod_receipt(cod_receipt_id):
         cod_receipt.ps365_synced_at = datetime.utcnow()
         db.session.commit()
         
+        # If called from a form (not AJAX), redirect back to reconciliation page
+        if not request.is_json and request.referrer:
+            flash(f'Receipt sent to PS365: {reference_number}', 'success')
+            return redirect(request.referrer)
+        
         return jsonify({
             'success': True,
             'reference_number': reference_number,
