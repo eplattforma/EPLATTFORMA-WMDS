@@ -43,7 +43,8 @@ def pending_payments():
         CODInvoiceAllocation,
         Shipment.driver_name,
         Shipment.delivery_date,
-        Invoice.customer_name
+        Invoice.customer_name,
+        Invoice.customer_code
     ).join(
         Shipment, CODInvoiceAllocation.route_id == Shipment.id
     ).join(
@@ -62,12 +63,12 @@ def pending_payments():
     # Group by customer for better visual presentation
     from collections import OrderedDict
     grouped = OrderedDict()
-    for alloc, driver_name, delivery_date, customer_name in pending_allocs:
+    for alloc, driver_name, delivery_date, customer_name, customer_code in pending_allocs:
         key = customer_name or 'Unknown'
         if key not in grouped:
             grouped[key] = {
                 'customer_name': customer_name,
-                'customer_code': alloc.customer_code,
+                'customer_code': customer_code,
                 'invoices': [],
                 'total_due': 0
             }
