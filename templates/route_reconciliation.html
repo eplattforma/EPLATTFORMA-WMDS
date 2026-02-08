@@ -225,16 +225,16 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                     <span class="fw-bold fs-5" style="color: #000 !important;">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
                                 </div>
                                 <div class="col border-end">
+                                    <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Discrepancy</small>
+                                    <span class="fw-bold fs-5 {% if stop_recon.stop_discrepancy > 0.001 %}text-danger{% endif %}" style="{% if stop_recon.stop_discrepancy <= 0.001 %}color: #000 !important;{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
+                                </div>
+                                <div class="col border-end">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Received</small>
                                     <span class="fw-bold fs-5 text-success">&euro;{{ "%.2f"|format(stop_recon.stop_received) }}</span>
                                 </div>
                                 <div class="col border-end">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Payment Type</small>
                                     <span class="fw-bold" style="color: #000 !important;">{{ stop_recon.payment_type }}</span>
-                                </div>
-                                <div class="col border-end">
-                                    <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Discrepancy</small>
-                                    <span class="fw-bold fs-5 {% if stop_recon.stop_discrepancy > 0.001 %}text-danger{% endif %}" style="{% if stop_recon.stop_discrepancy <= 0.001 %}color: #000 !important;{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
                                 </div>
                                 <div class="col">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Outstanding</small>
