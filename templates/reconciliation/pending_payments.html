@@ -13,82 +13,83 @@
         </div>
     </div>
 
-    <div class="card shadow-sm">
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Delivery Date</th>
-                            <th>Invoice No</th>
-                            <th>Customer</th>
-                            <th>Driver</th>
-                            <th>Method</th>
-                            <th class="text-end">Paid</th>
-                            <th class="text-end">Amount Due</th>
-                            <th>Details</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% set ns = namespace(prev_customer='') %}
-                        {% for alloc, driver_name, delivery_date, customer_name in pending_allocs %}
-                        {% if customer_name != ns.prev_customer %}
-                        {% if ns.prev_customer != '' %}
-                        <tr><td colspan="9" class="p-0" style="border-bottom: 3px solid #dee2e6;"></td></tr>
-                        {% endif %}
-                        <tr class="table-light">
-                            <td colspan="9" class="fw-bold py-2" style="background-color: #e9ecef;">
-                                <i class="fas fa-user me-2"></i>{{ customer_name }}
-                                <small class="text-muted ms-2">{{ alloc.customer_code }}</small>
-                            </td>
-                        </tr>
-                        {% set ns.prev_customer = customer_name %}
-                        {% endif %}
-                        <tr>
-                            <td>{{ delivery_date.strftime('%Y-%m-%d') if delivery_date else 'N/A' }}</td>
-                            <td>
-                                <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=alloc.invoice_no) }}" class="fw-bold text-decoration-none">
-                                    {{ alloc.invoice_no }}
-                                </a>
-                            </td>
-                            <td></td>
-                            <td>{{ driver_name }}</td>
-                            <td>
-                                <span class="badge {% if alloc.payment_method == 'online' %}bg-info text-dark{% else %}bg-warning text-dark{% endif %}">
-                                    {{ alloc.payment_method|upper }}
-                                </span>
-                            </td>
-                            <td class="text-end">€{{ "%.2f"|format(alloc.received_amount or 0) }}</td>
-                            <td class="text-end fw-bold">€{{ "%.2f"|format(alloc.expected_amount - (alloc.received_amount or 0) - (alloc.deduct_amount or 0)) }}</td>
-                            <td>
-                                <small class="text-muted">
-                                    {% if alloc.payment_method == 'online' %}
-                                    Awaiting Bank Transfer
-                                    {% else %}
-                                    Due: {{ alloc.cheque_date.strftime('%Y-%m-%d') if alloc.cheque_date else 'N/A' }}
-                                    {% endif %}
-                                </small>
-                            </td>
-                            <td>
-                                <button type="button" class="btn btn-sm btn-success clear-payment-btn" data-id="{{ alloc.id }}">
-                                    <i class="fas fa-check me-1"></i>Clear Payment
-                                </button>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="9" class="text-center py-5 text-muted">
-                                <i class="fas fa-check-circle fa-3x mb-3 d-block"></i>
-                                No pending payments found.
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    {% if grouped_customers %}
+    {% for cust_name, cust_data in grouped_customers.items() %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header py-2" style="background-color: #343a40; color: #fff;">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="fas fa-user me-2"></i>
+                    <strong>{{ cust_data.customer_name }}</strong>
+                    <small class="ms-2 opacity-75">{{ cust_data.customer_code }}</small>
+                </div>
+                <div>
+                    <span class="badge bg-danger fs-6 px-3 py-2">
+                        Total Due: &euro;{{ "%.2f"|format(cust_data.total_due) }}
+                    </span>
+                </div>
             </div>
         </div>
+        <div class="card-body p-0">
+            <table class="table table-hover align-middle mb-0">
+                <thead style="background-color: #e9ecef;">
+                    <tr>
+                        <th>Delivery Date</th>
+                        <th>Invoice No</th>
+                        <th>Driver</th>
+                        <th>Method</th>
+                        <th class="text-end">Paid</th>
+                        <th class="text-end">Amount Due</th>
+                        <th>Details</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inv in cust_data.invoices %}
+                    <tr>
+                        <td>{{ inv.delivery_date.strftime('%Y-%m-%d') if inv.delivery_date else 'N/A' }}</td>
+                        <td>
+                            <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.alloc.invoice_no) }}" class="fw-bold text-decoration-none">
+                                {{ inv.alloc.invoice_no }}
+                            </a>
+                        </td>
+                        <td>{{ inv.driver_name }}</td>
+                        <td>
+                            <span class="badge {% if inv.alloc.payment_method == 'online' %}bg-info text-dark{% else %}bg-warning text-dark{% endif %}">
+                                {{ inv.alloc.payment_method|upper }}
+                            </span>
+                        </td>
+                        <td class="text-end">&euro;{{ "%.2f"|format(inv.alloc.received_amount or 0) }}</td>
+                        <td class="text-end fw-bold {% if inv.due > 0 %}text-danger{% endif %}">&euro;{{ "%.2f"|format(inv.due) }}</td>
+                        <td>
+                            <small class="text-muted">
+                                {% if inv.alloc.payment_method == 'online' %}
+                                Awaiting Bank Transfer
+                                {% else %}
+                                Due: {{ inv.alloc.cheque_date.strftime('%Y-%m-%d') if inv.alloc.cheque_date else 'N/A' }}
+                                {% endif %}
+                            </small>
+                        </td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-success clear-payment-btn" data-id="{{ inv.alloc.id }}">
+                                <i class="fas fa-check me-1"></i>Clear
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
+    {% endfor %}
+    {% else %}
+    <div class="card shadow-sm">
+        <div class="card-body text-center py-5 text-muted">
+            <i class="fas fa-check-circle fa-3x mb-3 d-block"></i>
+            No pending payments found.
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <!-- Clear Payment Confirmation Modal -->
@@ -104,7 +105,7 @@
                 <p class="text-muted small">This will move the payment from pending to received status in the reconciliation reports.</p>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-modal="dismiss">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="confirmClearBtn">Confirm Clearance</button>
             </div>
         </div>

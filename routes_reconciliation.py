@@ -59,8 +59,29 @@ def pending_payments():
         Shipment.delivery_date.desc()
     ).all()
     
+    # Group by customer for better visual presentation
+    from collections import OrderedDict
+    grouped = OrderedDict()
+    for alloc, driver_name, delivery_date, customer_name in pending_allocs:
+        key = customer_name or 'Unknown'
+        if key not in grouped:
+            grouped[key] = {
+                'customer_name': customer_name,
+                'customer_code': alloc.customer_code,
+                'invoices': [],
+                'total_due': 0
+            }
+        due = float((alloc.expected_amount or 0) - (alloc.received_amount or 0) - (alloc.deduct_amount or 0))
+        grouped[key]['invoices'].append({
+            'alloc': alloc,
+            'driver_name': driver_name,
+            'delivery_date': delivery_date,
+            'due': due
+        })
+        grouped[key]['total_due'] += due
+    
     return render_template('reconciliation/pending_payments.html', 
-                         pending_allocs=pending_allocs)
+                         grouped_customers=grouped)
 
 @reconciliation_bp.route('/api/pending-payments/<int:allocation_id>/clear', methods=['POST'])
 @login_required
