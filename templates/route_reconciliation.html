@@ -207,7 +207,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                     <span class="badge bg-light text-dark fs-6 me-3 px-2 py-1">{{ stop_recon.stop_seq }}</span>
                     <h6 class="mb-0 text-white fw-bold flex-grow-1">
                         {{ stop_recon.customer_name }}
-                        <span class="badge {% if stop_recon.terms == 'CREDIT' %}bg-info{% else %}bg-primary{% endif %} ms-2" style="font-size: 0.65rem; vertical-align: middle;">{{ stop_recon.terms }}</span>
+                        <span class="badge {% if stop_recon.terms == 'CREDIT' %}bg-info{% else %}bg-primary{% endif %} ms-2 px-2 py-1" style="font-size: 0.85rem; vertical-align: middle;">{{ stop_recon.terms }}</span>
                     </h6>
                     <div class="d-flex gap-4 text-white text-end">
                         <div>
