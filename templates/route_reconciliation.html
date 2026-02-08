@@ -4,191 +4,35 @@
 
 {% block content %}
 <div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2>Route Reconciliation Report</h2>
-            <p class="text-muted mb-0">Route #{{ route.id }}: {{ route.route_name }} - {{ route.driver_name }}</p>
-        </div>
-        <div>
-            <a href="{{ url_for('routes.reconciliation_export_excel', shipment_id=route.id) }}" class="btn btn-success me-2">
-                <i class="bi bi-file-earmark-excel"></i> Export Excel
+    <!-- Compact Route Overview -->
+    <div class="d-flex align-items-center justify-content-between mb-3 px-2 py-2" style="background: #1E293B; border-radius: 8px; border: 1px solid #334155;">
+        <div class="d-flex align-items-center gap-3">
+            <a href="{{ url_for('routes.detail', shipment_id=route.id) }}" class="text-decoration-none" style="color: #94A3B8; font-size: 0.8rem;" title="Back to Route">
+                <i class="bi bi-arrow-left"></i>
             </a>
-            <a href="{{ url_for('routes.detail', shipment_id=route.id) }}" class="btn btn-secondary">
-                <i class="bi bi-arrow-left"></i> Back to Route
+            <span class="text-white fw-bold" style="font-size: 0.95rem;">{{ route.route_name }}</span>
+            <span style="color: #94A3B8; font-size: 0.75rem;">{{ route.driver_name }}</span>
+            <span style="color: #64748B; font-size: 0.72rem;">{{ route.delivery_date }}</span>
+            <span class="badge bg-{{ 'success' if route.status == 'COMPLETED' else 'warning' }}" style="font-size: 0.68rem;">{{ route.status }}</span>
+            {% if settlement_info.cleared %}
+            <span class="badge bg-success" style="font-size: 0.68rem;">SETTLED</span>
+            {% elif settlement_info.submitted %}
+            <span class="badge bg-warning" style="font-size: 0.68rem;">DRIVER SUBMITTED</span>
+            {% else %}
+            <span class="badge bg-secondary" style="font-size: 0.68rem;">PENDING</span>
+            {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            {% if settlement_info.submitted and not settlement_info.cleared %}
+            <button class="btn btn-sm" style="background: rgba(34,197,94,0.15); color: #4ADE80; border: 1px solid rgba(34,197,94,0.3); font-size: 0.7rem; padding: 3px 10px;" onclick="clearSettlement()">
+                <i class="bi bi-check-circle me-1"></i>Clear Settlement
+            </button>
+            {% endif %}
+            <a href="{{ url_for('routes.reconciliation_export_excel', shipment_id=route.id) }}" class="btn btn-sm" style="background: rgba(34,197,94,0.15); color: #4ADE80; border: 1px solid rgba(34,197,94,0.3); font-size: 0.7rem; padding: 3px 10px;">
+                <i class="bi bi-file-earmark-excel me-1"></i>Excel
             </a>
         </div>
     </div>
-
-    <!-- Route Overview -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0">Route Overview</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-sm mb-0">
-                        <tr>
-                            <th width="35%">Driver:</th>
-                            <td>{{ route.driver_name }}</td>
-                        </tr>
-                        <tr>
-                            <th>Date:</th>
-                            <td>{{ route.delivery_date }}</td>
-                        </tr>
-                        <tr>
-                            <th>Status:</th>
-                            <td><span class="badge bg-{{ 'success' if route.status == 'COMPLETED' else 'warning' }}">{{ route.status }}</span></td>
-                        </tr>
-                        <tr>
-                            <th>Started At:</th>
-                            <td>{{ route.started_at.strftime('%H:%M:%S') if route.started_at else 'Not started' }}</td>
-                        </tr>
-                        {% if route.completed_at %}
-                        <tr>
-                            <th>Completed At:</th>
-                            <td>{{ route.completed_at.strftime('%H:%M:%S') }}</td>
-                        </tr>
-                        {% endif %}
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header bg-success text-white">
-                    <h5 class="mb-0">Settlement Summary</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-sm mb-0">
-                        <tr>
-                            <th width="35%">Expected COD:</th>
-                            <td class="text-end">€{{ "%.2f"|format(total_expected) }}</td>
-                        </tr>
-                        <tr>
-                            <th>Received COD:</th>
-                            <td class="text-end">€{{ "%.2f"|format(total_received) }}</td>
-                        </tr>
-                        <tr>
-                            <th>Variance:</th>
-                            <td class="text-end {% if total_variance != 0 %}text-danger{% endif %}">
-                                €{{ "%.2f"|format(total_variance) }}
-                            </td>
-                        </tr>
-                        <tr>
-                            <th>Settlement Status:</th>
-                            <td>
-                                {% if settlement_info.cleared %}
-                                    <span class="badge bg-success">SETTLED</span>
-                                {% elif settlement_info.submitted %}
-                                    <span class="badge bg-warning">DRIVER SUBMITTED</span>
-                                {% else %}
-                                    <span class="badge bg-secondary">PENDING</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% if settlement_info.submitted %}
-                        <tr>
-                            <th>Cash Handed In:</th>
-                            <td class="text-end">€{{ "%.2f"|format(settlement_info.submitted_amount) if settlement_info.submitted_amount else '0.00' }}</td>
-                        </tr>
-                        {% endif %}
-                    </table>
-
-                    {% if settlement_info.submitted and not settlement_info.cleared %}
-                    <div class="mt-3">
-                        <button class="btn btn-success w-100" onclick="clearSettlement()">
-                            <i class="bi bi-check-circle"></i> Clear Settlement
-                        </button>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Delivery Events Audit Trail -->
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white" role="button" data-bs-toggle="collapse" data-bs-target="#deliveryEventsCollapse" aria-expanded="false" aria-controls="deliveryEventsCollapse" style="cursor: pointer;">
-            <h5 class="mb-0">
-                <i class="bi bi-chevron-right me-2" id="auditTrailChevron"></i>Delivery Events (Audit Trail)
-            </h5>
-        </div>
-        <div id="deliveryEventsCollapse" class="collapse card-body" data-bs-parent=".mb-4">
-            <div class="table-responsive">
-                <table class="table table-sm table-hover">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Event</th>
-                            <th>Stop</th>
-                            <th>Details</th>
-                            <th>GPS</th>
-                            <th>Actor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for event in delivery_events %}
-                        <tr>
-                            <td>{{ event.created_at.strftime('%H:%M:%S') }}</td>
-                            <td><span class="badge bg-secondary">{{ event.event_type }}</span></td>
-                            <td>
-                                {% if event.route_stop_id and stop_lookup.get(event.route_stop_id) %}
-                                    {% set stop_info = stop_lookup[event.route_stop_id] %}
-                                    Stop #{{ stop_info['seq_no'] }}: {{ stop_info['stop_name'] or stop_info['customer_code'] }}
-                                {% elif event.route_stop_id %}
-                                    Stop #{{ event.route_stop_id }}
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if event.payload %}
-                                    <small>
-                                        {% if event.payload.invoice_nos %}
-                                            Invoices: {{ event.payload.invoice_nos|join(', ') }}<br>
-                                        {% endif %}
-                                        {% if event.payload.exceptions_count is defined %}
-                                            Exceptions: {{ event.payload.exceptions_count }}<br>
-                                        {% endif %}
-                                        {% if event.payload.cod_received %}
-                                            COD: €{{ event.payload.cod_received }}
-                                        {% endif %}
-                                    </small>
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if event.gps_lat and event.gps_lng %}
-                                    <small>{{ "%.6f"|format(event.gps_lat|float) }}, {{ "%.6f"|format(event.gps_lng|float) }}</small>
-                                    <a href="https://www.google.com/maps?q={{ event.gps_lat }},{{ event.gps_lng }}" target="_blank" class="btn btn-sm btn-link p-0 ms-1" title="View on Google Maps">
-                                        📍
-                                    </a>
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>{{ event.actor_username }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-<script>
-document.getElementById('deliveryEventsCollapse').addEventListener('show.bs.collapse', function() {
-    document.getElementById('auditTrailChevron').classList.remove('bi-chevron-right');
-    document.getElementById('auditTrailChevron').classList.add('bi-chevron-down');
-});
-document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.collapse', function() {
-    document.getElementById('auditTrailChevron').classList.remove('bi-chevron-down');
-    document.getElementById('auditTrailChevron').classList.add('bi-chevron-right');
-});
-</script>
 
     <style>
         .recon-stop-card {
