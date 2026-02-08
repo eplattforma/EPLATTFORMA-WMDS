@@ -356,9 +356,11 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             {% endif %}
                             {% if has_outstanding %}
                             <span class="stop-status-pill stop-has-outstanding ms-2">Has Outstanding</span>
-                            {% elif has_returns %}
+                            {% endif %}
+                            {% if has_returns %}
                             <span class="stop-status-pill stop-has-returns ms-2">Has Returns</span>
-                            {% else %}
+                            {% endif %}
+                            {% if not has_outstanding and not has_returns %}
                             <span class="stop-status-pill stop-ok ms-2">OK</span>
                             {% endif %}
                         </div>
