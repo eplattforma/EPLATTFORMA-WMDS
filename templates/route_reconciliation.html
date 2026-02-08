@@ -327,7 +327,14 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 </tr>
                             </thead>
                             <tbody>
+                                {% set disc_item_codes = [] %}
+                                {% if stop_data_match and stop_data_match.discrepancies %}
+                                    {% for disc in stop_data_match.discrepancies %}
+                                        {% set _ = disc_item_codes.append(disc.item_code_expected) %}
+                                    {% endfor %}
+                                {% endif %}
                                 {% for line in exception_lines %}
+                                {% if line.item_code not in disc_item_codes %}
                                 <tr>
                                     <td class="ps-2"><span class="badge bg-warning text-dark" style="font-size: 0.7rem;">Short</span></td>
                                     <td>{{ line.item_code }}</td>
@@ -336,6 +343,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                     <td class="text-end text-danger">{{ (line.qty_ordered - line.qty_delivered)|int if line.qty_ordered - line.qty_delivered == (line.qty_ordered - line.qty_delivered)|int else line.qty_ordered - line.qty_delivered }}</td>
                                     <td class="text-end pe-2">-</td>
                                 </tr>
+                                {% endif %}
                                 {% endfor %}
                                 {% if stop_data_match and stop_data_match.discrepancies %}
                                 {% for disc in stop_data_match.discrepancies %}
