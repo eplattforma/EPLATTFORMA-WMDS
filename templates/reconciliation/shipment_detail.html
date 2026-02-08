@@ -215,42 +215,47 @@
         <div class="card-body p-0">
             {% set ns = namespace(total_expected=0, total_received=0, total_disc=0, total_outstanding=0) %}
             {% for stop in invoice_report %}
-            <div class="stop-reconciliation-block mb-0 border-bottom">
+            <div class="stop-reconciliation-block mb-4 border-bottom">
                 <!-- Stop Header -->
-                <div class="bg-light p-3 border-bottom">
+                <div class="bg-light p-3 border-bottom shadow-sm">
                     <div class="row align-items-center">
                         <div class="col-md-4">
                             <div class="d-flex align-items-center gap-3">
-                                <span class="badge bg-secondary fs-5 px-3">{{ stop.stop_seq }}</span>
+                                <span class="badge bg-secondary fs-4 px-3 py-2 shadow-sm">{{ stop.stop_seq }}</span>
                                 <div>
-                                    <h5 class="mb-0 fw-bold">{{ stop.customer_name }}</h5>
-                                    <span class="badge {% if stop.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %} mt-1">
-                                        {{ stop.terms }}
-                                    </span>
+                                    <h4 class="mb-0 fw-bold text-dark">{{ stop.customer_name }}</h4>
+                                    <div class="d-flex gap-2 mt-2">
+                                        <span class="badge {% if stop.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %} fs-6 px-3">
+                                            {{ stop.terms }}
+                                        </span>
+                                        {% if stop.is_pending_payment %}
+                                        <span class="badge bg-warning text-dark fs-6 px-3">PENDING</span>
+                                        {% endif %}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         <div class="col-md-8">
-                            <div class="row g-0 text-center">
+                            <div class="row g-2 text-center">
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase" style="font-size: 0.7rem;">Expected</small>
-                                    <span class="fw-bold fs-5">&euro;{{ "%.2f"|format(stop.stop_expected) }}</span>
+                                    <small class="text-muted d-block text-uppercase fw-bold mb-1" style="font-size: 0.75rem;">Expected</small>
+                                    <span class="fw-bold fs-4 text-dark">&euro;{{ "%.2f"|format(stop.stop_expected) }}</span>
                                 </div>
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase" style="font-size: 0.7rem;">Received</small>
-                                    <span class="fw-bold fs-5 text-success">&euro;{{ "%.2f"|format(stop.stop_received) }}</span>
+                                    <small class="text-muted d-block text-uppercase fw-bold mb-1" style="font-size: 0.75rem;">Received</small>
+                                    <span class="fw-bold fs-4 text-success">&euro;{{ "%.2f"|format(stop.stop_received) }}</span>
                                 </div>
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase" style="font-size: 0.7rem;">Payment Type</small>
-                                    <span class="fw-bold fs-6">{{ stop.payment_type }}</span>
+                                    <small class="text-muted d-block text-uppercase fw-bold mb-1" style="font-size: 0.75rem;">Payment Type</small>
+                                    <span class="fw-bold fs-5 text-secondary">{{ stop.payment_type }}</span>
                                 </div>
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase" style="font-size: 0.7rem;">Discrepancy</small>
-                                    <span class="fw-bold fs-5 {% if stop.stop_discrepancy > 0.001 %}text-danger{% endif %}">&euro;{{ "%.2f"|format(stop.stop_discrepancy) }}</span>
+                                    <small class="text-muted d-block text-uppercase fw-bold mb-1" style="font-size: 0.75rem;">Discrepancy</small>
+                                    <span class="fw-bold fs-4 {% if stop.stop_discrepancy > 0.001 %}text-danger{% else %}text-muted{% endif %}">&euro;{{ "%.2f"|format(stop.stop_discrepancy) }}</span>
                                 </div>
                                 <div class="col">
-                                    <small class="text-muted d-block text-uppercase" style="font-size: 0.7rem;">Outstanding</small>
-                                    <span class="fw-bold fs-5 {% if stop.stop_outstanding > 0.001 %}text-danger{% elif stop.stop_outstanding < -0.001 %}text-success{% endif %}">
+                                    <small class="text-muted d-block text-uppercase fw-bold mb-1" style="font-size: 0.75rem;">Outstanding</small>
+                                    <span class="fw-bold fs-4 {% if stop.stop_outstanding > 0.001 %}text-danger{% elif stop.stop_outstanding < -0.001 %}text-success{% else %}text-muted{% endif %}">
                                         &euro;{{ "%.2f"|format(stop.stop_outstanding) }}
                                     </span>
                                 </div>
