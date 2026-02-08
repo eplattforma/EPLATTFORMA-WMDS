@@ -214,9 +214,6 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                         <span class="badge {% if stop_recon.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %} px-2">
                                             {{ stop_recon.terms }}
                                         </span>
-                                        {% if stop_recon.is_pending_payment %}
-                                        <span class="badge bg-warning text-dark px-2">PENDING</span>
-                                        {% endif %}
                                     </div>
                                 </div>
                             </div>
