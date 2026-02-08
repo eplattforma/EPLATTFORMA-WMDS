@@ -190,227 +190,202 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
 });
 </script>
 
-    <!-- Stops Details -->
+    <!-- Stop-by-Stop Reconciliation -->
     <div class="card mb-4">
-        <div class="card-header bg-dark text-white">
-            <h5 class="mb-0">Stop-by-Stop Details</h5>
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Stop-by-Stop Reconciliation</h5>
+            <button class="btn btn-sm btn-outline-light d-print-none" onclick="window.print()">
+                <i class="bi bi-printer me-1"></i>Print
+            </button>
         </div>
-        <div class="card-body">
-            {% for stop_data in stops_data %}
-            <div class="card mb-3 border-primary">
-                <div class="card-header bg-light text-dark">
-                    <h6 class="mb-0">
-                        Stop #{{ stop_data.stop.seq_no }}: {{ stop_data.stop.stop_name or stop_data.stop.customer_code }}
-                        {% set all_delivered = true %}
-                        {% set any_failed = false %}
-                        {% for inv in stop_data.invoices %}
-                            {% if inv.status|lower != 'delivered' %}
-                                {% set all_delivered = false %}
-                            {% endif %}
-                            {% if inv.status|lower in ['delivery_failed', 'returned'] %}
-                                {% set any_failed = true %}
-                            {% endif %}
-                        {% endfor %}
-                        
-                        {% if any_failed %}
-                            <span class="badge bg-danger">Failed / Returned</span>
-                        {% elif all_delivered and stop_data.stop.delivered_at %}
-                            <span class="badge bg-success">Delivered</span>
-                        {% else %}
-                            <span class="badge bg-warning">Pending</span>
-                        {% endif %}
-                    </h6>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <!-- Invoices -->
-                        <div class="col-md-6">
-                            <h6 class="text-primary">Invoices</h6>
-                            <ul class="list-unstyled mb-3">
-                                {% for invoice in stop_data.invoices %}
-                                <li>
-                                    <strong>{{ invoice.invoice_no }}</strong>
-                                    {% if invoice.total_grand %}
-                                        - €{{ "%.2f"|format(invoice.total_grand|float) }}
-                                    {% endif %}
-                                    <span class="badge bg-{{ 'success' if invoice.status == 'delivered' else 'secondary' }}">
-                                        {{ invoice.status }}
-                                    </span>
-                                </li>
-                                {% endfor %}
-                            </ul>
-
-                            <!-- Delivery Lines (Exceptions Only) -->
-                            {% set exception_lines = [] %}
-                            {% for line in stop_data.delivery_lines %}
-                                {% if line.qty_delivered != line.qty_ordered %}
-                                    {% set _ = exception_lines.append(line) %}
-                                {% endif %}
-                            {% endfor %}
-                            {% if exception_lines %}
-                            <h6 class="text-warning">Delivery Exceptions</h6>
-                            <div class="table-responsive">
-                                <table class="table table-sm table-bordered">
-                                    <thead>
-                                        <tr>
-                                            <th>Item</th>
-                                            <th>Ordered</th>
-                                            <th>Delivered</th>
-                                            <th>Difference</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for line in exception_lines %}
-                                        <tr class="table-warning">
-                                            <td>{{ line.item_code }}</td>
-                                            <td>{{ line.qty_ordered }}</td>
-                                            <td>{{ line.qty_delivered }}</td>
-                                            <td class="{% if line.qty_delivered < line.qty_ordered %}text-danger{% else %}text-success{% endif %}">
-                                                {{ line.qty_delivered - line.qty_ordered }}
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
+        <div class="card-body p-0">
+            {% set ns = namespace(grand_expected=0, grand_received=0, grand_disc=0, grand_outstanding=0) %}
+            {% for stop_recon in invoice_report %}
+            <div class="border-bottom mb-0">
+                <!-- Stop Header with financials -->
+                <div class="bg-light p-3 border-bottom">
+                    <div class="row align-items-center">
+                        <div class="col-md-3">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="badge bg-secondary fs-4 px-3 py-2">{{ stop_recon.stop_seq }}</span>
+                                <div>
+                                    <h5 class="mb-0 fw-bold">{{ stop_recon.customer_name }}</h5>
+                                    <div class="d-flex gap-2 mt-1">
+                                        <span class="badge {% if stop_recon.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %} px-2">
+                                            {{ stop_recon.terms }}
+                                        </span>
+                                        {% if stop_recon.is_pending_payment %}
+                                        <span class="badge bg-warning text-dark px-2">PENDING</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
                             </div>
-                            {% endif %}
-
-                            <!-- Discrepancies -->
-                            {% if stop_data.discrepancies %}
-                            <h6 class="text-danger">Discrepancies</h6>
-                            <ul class="list-unstyled">
-                                {% for disc in stop_data.discrepancies %}
-                                <li class="mb-2">
-                                    <span class="badge bg-danger">{{ disc.discrepancy_type }}</span>
-                                    {{ disc.item_name }} ({{ disc.item_code_expected }})
-                                    - Qty: {{ disc.qty_actual }}
-                                    {% if disc.note %}<br><small>Note: {{ disc.note }}</small>{% endif %}
-                                </li>
-                                {% endfor %}
-                            </ul>
-                            {% endif %}
                         </div>
+                        <div class="col-md-9">
+                            <div class="row g-0 text-center">
+                                <div class="col border-end">
+                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Expected</small>
+                                    <span class="fw-bold fs-5">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
+                                </div>
+                                <div class="col border-end">
+                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Received</small>
+                                    <span class="fw-bold fs-5 text-success">&euro;{{ "%.2f"|format(stop_recon.stop_received) }}</span>
+                                </div>
+                                <div class="col border-end">
+                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Payment Type</small>
+                                    <span class="fw-bold">{{ stop_recon.payment_type }}</span>
+                                </div>
+                                <div class="col border-end">
+                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Discrepancy</small>
+                                    <span class="fw-bold fs-5 {% if stop_recon.stop_discrepancy > 0.001 %}text-danger{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
+                                </div>
+                                <div class="col">
+                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Outstanding</small>
+                                    <span class="fw-bold fs-5 {% if stop_recon.stop_outstanding > 0.001 %}text-danger{% elif stop_recon.stop_outstanding < -0.001 %}text-success{% endif %}">
+                                        &euro;{{ "%.2f"|format(stop_recon.stop_outstanding) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-                        <!-- COD & POD -->
-                        <div class="col-md-6">
-                            <!-- Payment Info -->
-                            {% if stop_data.cod_receipt %}
-                            <h6 class="text-success"><i class="bi bi-check-circle-fill me-1"></i>RECEIPT ISSUED</h6>
-                            <table class="table table-sm table-bordered mb-3">
+                <!-- Stop Body: Invoices + Exceptions -->
+                {% set stop_data_match = stops_data | selectattr('stop.seq_no', 'equalto', stop_recon.stop_seq) | first %}
+                <div class="row g-0">
+                    <!-- Invoices -->
+                    <div class="col-md-7 border-end">
+                        <div class="p-2 bg-white small fw-bold text-muted border-bottom">INVOICES</div>
+                        <table class="table table-sm table-hover mb-0 small">
+                            <thead class="table-light">
                                 <tr>
-                                    <th width="40%">Method:</th>
+                                    <th>Invoice No</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Expected</th>
+                                    <th class="text-end">Received</th>
+                                    <th class="text-end">Discrepancy</th>
+                                    <th class="text-end">Outstanding</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for inv in stop_recon.invoices %}
+                                <tr>
                                     <td>
-                                        <strong>{{ stop_data.cod_receipt.payment_method|upper }}</strong>
-                                        {% if stop_data.cod_receipt.payment_method == 'cheque' %}
-                                            <div class="mt-1 small">
-                                                <strong>CHQ:</strong> {{ stop_data.cod_receipt.cheque_number or '-' }}<br>
-                                                <strong>Date:</strong> {{ stop_data.cod_receipt.cheque_date.strftime('%d/%m/%Y') if stop_data.cod_receipt.cheque_date else '-' }}
-                                            </div>
-                                        {% endif %}
+                                        <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.invoice_no) }}" class="text-decoration-none">
+                                            {{ inv.invoice_no }}
+                                        </a>
                                     </td>
-                                </tr>
-                                <tr>
-                                    <th>Amount Received:</th>
                                     <td>
-                                        <div class="d-flex justify-content-between align-items-center">
-                                            <span>€{{ "%.2f"|format(stop_data.cod_receipt.received_amount|float) }}</span>
-                                            {% if not stop_data.cod_receipt.ps365_receipt_id %}
-                                            <button class="btn btn-sm btn-outline-primary ms-2" onclick="editCodAmount({{ stop_data.cod_receipt.id }}, {{ stop_data.cod_receipt.received_amount }})">
-                                                <i class="bi bi-pencil"></i>
-                                            </button>
-                                            {% endif %}
-                                        </div>
+                                        {% set inv_colors = {'DELIVERED': 'success', 'FAILED': 'danger', 'PARTIAL': 'warning'} %}
+                                        <span class="badge bg-{{ inv_colors.get(inv.delivery_status, 'secondary') }} py-0" style="font-size: 0.7rem;">
+                                            {{ inv.delivery_status or 'PENDING' }}
+                                        </span>
+                                    </td>
+                                    <td class="text-end">&euro;{{ "%.2f"|format(inv.expected) }}</td>
+                                    <td class="text-end">
+                                        {% if inv.received is not none %}
+                                            &euro;{{ "%.2f"|format(inv.received) }}
+                                        {% else %}-{% endif %}
+                                    </td>
+                                    <td class="text-end text-danger">
+                                        {% if inv.discrepancy %}&euro;{{ "%.2f"|format(inv.discrepancy) }}{% else %}-{% endif %}
+                                    </td>
+                                    <td class="text-end {% if inv.outstanding > 0.001 %}text-danger{% elif inv.outstanding < -0.001 %}text-success{% endif %}">
+                                        &euro;{{ "%.2f"|format(inv.outstanding) }}
                                     </td>
                                 </tr>
-                                {% if stop_data.cod_receipt.variance and stop_data.cod_receipt.variance != 0 %}
-                                <tr>
-                                    <th>Variance:</th>
-                                    <td class="text-danger fw-bold">
-                                        €{{ "%.2f"|format(stop_data.cod_receipt.variance|float) }}
-                                        (Expected: €{{ "%.2f"|format(stop_data.cod_receipt.expected_amount|float) }})
-                                    </td>
-                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Delivery Exceptions -->
+                    <div class="col-md-5">
+                        <div class="p-2 bg-white small fw-bold text-muted border-bottom">DELIVERY EXCEPTIONS</div>
+                        <div class="p-2">
+                            {% if stop_data_match %}
+                                {% set exception_lines = [] %}
+                                {% for line in stop_data_match.delivery_lines %}
+                                    {% if line.qty_delivered != line.qty_ordered %}
+                                        {% set _ = exception_lines.append(line) %}
+                                    {% endif %}
+                                {% endfor %}
+                                {% if exception_lines %}
+                                <div class="table-responsive mb-2">
+                                    <table class="table table-sm table-bordered mb-0 small">
+                                        <thead>
+                                            <tr><th>Item</th><th>Ordered</th><th>Delivered</th><th>Diff</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for line in exception_lines %}
+                                            <tr class="table-warning">
+                                                <td>{{ line.item_code }}</td>
+                                                <td>{{ line.qty_ordered }}</td>
+                                                <td>{{ line.qty_delivered }}</td>
+                                                <td class="{% if line.qty_delivered < line.qty_ordered %}text-danger{% else %}text-success{% endif %}">
+                                                    {{ line.qty_delivered - line.qty_ordered }}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
                                 {% endif %}
-                                {% if stop_data.cod_receipt.note %}
-                                <tr>
-                                    <th>Note:</th>
-                                    <td>{{ stop_data.cod_receipt.note }}</td>
-                                </tr>
+
+                                {% if stop_data_match.discrepancies %}
+                                {% for disc in stop_data_match.discrepancies %}
+                                <div class="small mb-1 text-danger">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                    <span class="badge bg-danger py-0">{{ disc.discrepancy_type }}</span>
+                                    {{ disc.item_name }} ({{ disc.item_code_expected }}) - Qty: {{ disc.qty_actual }}
+                                    {% if disc.reported_value %} - &euro;{{ "%.2f"|format(disc.reported_value|float) }}{% endif %}
+                                </div>
+                                {% endfor %}
                                 {% endif %}
-                                <tr>
-                                    <th>PS365 Receipt:</th>
-                                    <td>
-                                        {% if stop_data.ps365_receipt %}
-                                            <span class="badge bg-success">{{ stop_data.ps365_receipt.reference_number }}</span>
-                                        {% else %}
-                                            <button class="btn btn-sm btn-primary" onclick="sendReceipt({{ stop_data.cod_receipt.id }})">
-                                                <i class="bi bi-receipt"></i> Send Receipt
-                                            </button>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                            </table>
+
+                                {% if stop_data_match.cod_receipt and stop_data_match.cod_receipt.variance and stop_data_match.cod_receipt.variance != 0 %}
+                                <div class="alert alert-warning py-1 px-2 mb-1 small">
+                                    <i class="bi bi-cash-coin me-1"></i> Cash Variance: <strong>&euro;{{ "%.2f"|format(stop_data_match.cod_receipt.variance|float) }}</strong>
+                                </div>
+                                {% endif %}
+
+                                {% if not exception_lines and not stop_data_match.discrepancies and not (stop_data_match.cod_receipt and stop_data_match.cod_receipt.variance and stop_data_match.cod_receipt.variance != 0) %}
+                                <div class="text-muted small fst-italic">No exceptions recorded</div>
+                                {% endif %}
                             {% else %}
-                            <h6 class="text-info"><i class="bi bi-credit-card me-1"></i>Credit / Online Payment</h6>
-                            <p class="text-muted mb-3">No COD receipt - payment on account or online.</p>
-                            {% endif %}
-
-                            <!-- POD Record -->
-                            {% if stop_data.pod_record %}
-                            <h6 class="text-info">Proof of Delivery</h6>
-                            <table class="table table-sm table-bordered">
-                                <tr>
-                                    <th width="40%">Physical Invoice:</th>
-                                    <td>
-                                        {% if stop_data.pod_record.has_physical_signed_invoice %}
-                                            <i class="bi bi-check-circle text-success"></i> Yes
-                                        {% else %}
-                                            <i class="bi bi-x-circle text-danger"></i> No
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% if stop_data.pod_record.receiver_name %}
-                                <tr>
-                                    <th>Receiver:</th>
-                                    <td>{{ stop_data.pod_record.receiver_name }} ({{ stop_data.pod_record.receiver_relationship }})</td>
-                                </tr>
-                                {% endif %}
-                                <tr>
-                                    <th>Collected At:</th>
-                                    <td>{{ stop_data.pod_record.collected_at.strftime('%H:%M:%S') if stop_data.pod_record.collected_at else '-' }}</td>
-                                </tr>
-                                <tr>
-                                    <th>GPS:</th>
-                                    <td>
-                                        {% if stop_data.pod_record.gps_lat and stop_data.pod_record.gps_lng %}
-                                            {{ "%.6f"|format(stop_data.pod_record.gps_lat|float) }}, {{ "%.6f"|format(stop_data.pod_record.gps_lng|float) }}
-                                            <a href="https://www.google.com/maps?q={{ stop_data.pod_record.gps_lat }},{{ stop_data.pod_record.gps_lng }}" target="_blank" class="btn btn-sm btn-primary ms-2" title="View on Google Maps">
-                                                📍 Map
-                                            </a>
-                                        {% else %}
-                                            -
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% if stop_data.pod_record.notes %}
-                                <tr>
-                                    <th>Notes:</th>
-                                    <td>{{ stop_data.pod_record.notes }}</td>
-                                </tr>
-                                {% endif %}
-                                {% if stop_data.pod_record.photo_paths and stop_data.pod_record.photo_paths|length > 0 %}
-                                <tr>
-                                    <th>Photos:</th>
-                                    <td>{{ stop_data.pod_record.photo_paths|length }} photo(s)</td>
-                                </tr>
-                                {% endif %}
-                            </table>
+                                <div class="text-muted small fst-italic">No exceptions recorded</div>
                             {% endif %}
                         </div>
                     </div>
                 </div>
             </div>
+            {% set ns.grand_expected = ns.grand_expected + stop_recon.stop_expected %}
+            {% set ns.grand_received = ns.grand_received + stop_recon.stop_received %}
+            {% set ns.grand_disc = ns.grand_disc + stop_recon.stop_discrepancy %}
+            {% set ns.grand_outstanding = ns.grand_outstanding + stop_recon.stop_outstanding %}
             {% endfor %}
+
+            <!-- Grand Totals Footer -->
+            <div class="bg-dark text-white p-3 d-flex justify-content-end gap-5">
+                <div class="text-end">
+                    <small class="text-muted d-block">TOTAL EXPECTED</small>
+                    <h5 class="mb-0">&euro;{{ "%.2f"|format(ns.grand_expected) }}</h5>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted d-block">TOTAL RECEIVED</small>
+                    <h5 class="mb-0">&euro;{{ "%.2f"|format(ns.grand_received) }}</h5>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted d-block">TOTAL DISCREPANCY</small>
+                    <h5 class="mb-0 text-danger">&euro;{{ "%.2f"|format(ns.grand_disc) }}</h5>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted d-block">GRAND OUTSTANDING</small>
+                    <h5 class="mb-0 {% if ns.grand_outstanding > 0.001 %}text-danger{% elif ns.grand_outstanding < -0.001 %}text-success{% endif %}">
+                        &euro;{{ "%.2f"|format(ns.grand_outstanding) }}
+                    </h5>
+                </div>
+            </div>
         </div>
     </div>
 </div>

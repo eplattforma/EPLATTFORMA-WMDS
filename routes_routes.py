@@ -1599,11 +1599,15 @@ def reconciliation_report(shipment_id):
         'status': route.settlement_status
     }
     
+    import services_reconciliation as recon
+    invoice_report = recon.get_invoice_reconciliation_report(shipment_id) or []
+    
     return render_template('route_reconciliation.html',
                          route=route,
                          stops_data=stops_data,
                          delivery_events=delivery_events,
                          stop_lookup=stop_lookup,
+                         invoice_report=invoice_report,
                          total_expected=float(total_expected),
                          total_received=float(total_received),
                          total_variance=float(total_variance),
