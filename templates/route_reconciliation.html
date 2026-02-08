@@ -601,12 +601,13 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                     <span style="color: #E2E8F0; font-size: 0.72rem; font-weight: 600;">{{ cr.ps365_receipt_id }}</span>
                                 </div>
                                 {% else %}
-                                <form method="POST" action="{{ url_for('receipts.send_cod_receipt', cod_receipt_id=cr.id) }}" style="display: inline;">
-                                    <button type="submit" class="btn btn-sm" style="background: rgba(59,130,246,0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.3); font-size: 0.7rem; padding: 4px 12px;"
-                                            onclick="this.disabled=true; this.innerHTML='Sending...'; this.form.submit();">
+                                <div id="ps365-btn-wrap-{{ cr.id }}">
+                                    <button type="button" class="btn btn-sm btn-send-ps365" 
+                                            data-cod-id="{{ cr.id }}"
+                                            style="background: rgba(59,130,246,0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.3); font-size: 0.7rem; padding: 4px 12px;">
                                         <i class="bi bi-send me-1"></i>Send to PS365
                                     </button>
-                                </form>
+                                </div>
                                 {% endif %}
                             </div>
                             {% endif %}
