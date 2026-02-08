@@ -57,6 +57,7 @@ def pending_payments():
             db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online'])
         )
     ).order_by(
+        Invoice.customer_name,
         Shipment.delivery_date.desc()
     ).all()
     

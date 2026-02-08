@@ -31,7 +31,20 @@
                         </tr>
                     </thead>
                     <tbody>
+                        {% set ns = namespace(prev_customer='') %}
                         {% for alloc, driver_name, delivery_date, customer_name in pending_allocs %}
+                        {% if customer_name != ns.prev_customer %}
+                        {% if ns.prev_customer != '' %}
+                        <tr><td colspan="9" class="p-0" style="border-bottom: 3px solid #dee2e6;"></td></tr>
+                        {% endif %}
+                        <tr class="table-light">
+                            <td colspan="9" class="fw-bold py-2" style="background-color: #e9ecef;">
+                                <i class="fas fa-user me-2"></i>{{ customer_name }}
+                                <small class="text-muted ms-2">{{ alloc.customer_code }}</small>
+                            </td>
+                        </tr>
+                        {% set ns.prev_customer = customer_name %}
+                        {% endif %}
                         <tr>
                             <td>{{ delivery_date.strftime('%Y-%m-%d') if delivery_date else 'N/A' }}</td>
                             <td>
@@ -39,10 +52,7 @@
                                     {{ alloc.invoice_no }}
                                 </a>
                             </td>
-                            <td>
-                                <div>{{ customer_name }}</div>
-                                <small class="text-muted">{{ alloc.customer_code }}</small>
-                            </td>
+                            <td></td>
                             <td>{{ driver_name }}</td>
                             <td>
                                 <span class="badge {% if alloc.payment_method == 'online' %}bg-info text-dark{% else %}bg-warning text-dark{% endif %}">
