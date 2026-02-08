@@ -438,7 +438,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
 
                 <div class="d-flex">
                     <div style="width: 50%;">
-                        <table class="table table-sm recon-table">
+                        <table class="table table-sm recon-table mb-0">
                             <thead>
                                 <tr>
                                     <th class="ps-3">Invoice</th>
@@ -485,65 +485,68 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 {% endfor %}
                             </tbody>
                         </table>
+                        {% if has_exceptions %}
+                        <div style="border-top: 1px solid #3A4656;">
+                            <table class="table table-sm recon-table mb-0">
+                                <thead>
+                                    <tr>
+                                        <th class="ps-3">Type</th>
+                                        <th>Item</th>
+                                        <th>Item Name</th>
+                                        <th class="text-end">Ordered</th>
+                                        <th class="text-end" title="Not Delivered" style="cursor: help;">ND</th>
+                                        <th class="text-end pe-3">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% set disc_item_codes = [] %}
+                                    {% if stop_data_match and stop_data_match.discrepancies %}
+                                        {% for disc in stop_data_match.discrepancies %}
+                                            {% set _ = disc_item_codes.append(disc.item_code_expected) %}
+                                        {% endfor %}
+                                    {% endif %}
+                                    {% for line in exception_lines %}
+                                    {% if line.item_code not in disc_item_codes %}
+                                    <tr>
+                                        <td class="ps-3"><span class="exc-badge exc-short">Short</span></td>
+                                        <td>{{ line.item_code }}</td>
+                                        <td>{{ line.invoice.items | selectattr('item_code', 'equalto', line.item_code) | map(attribute='item_name') | first | default('-') }}</td>
+                                        <td class="text-end">{{ line.qty_ordered }}</td>
+                                        <td class="text-end" style="color: #EF4444;">{{ "%.0f"|format(line.qty_ordered - line.qty_delivered) if (line.qty_ordered - line.qty_delivered) % 1 == 0 else "%.1f"|format(line.qty_ordered - line.qty_delivered) }}</td>
+                                        <td class="text-end pe-3">-</td>
+                                    </tr>
+                                    {% endif %}
+                                    {% endfor %}
+                                    {% if stop_data_match and stop_data_match.discrepancies %}
+                                    {% for disc in stop_data_match.discrepancies %}
+                                    <tr>
+                                        <td class="ps-3">
+                                            {% set exc_class = {'short': 'exc-short', 'rejected': 'exc-rejected', 'broken': 'exc-broken', 'missing': 'exc-missing', 'wrong_item': 'exc-wrong_item'} %}
+                                            <span class="exc-badge {{ exc_class.get(disc.discrepancy_type|lower, 'exc-default') }}">{{ disc.discrepancy_type }}</span>
+                                        </td>
+                                        <td>{{ disc.item_code_expected }}</td>
+                                        <td>{{ disc.item_name or '-' }}</td>
+                                        <td class="text-end">{{ disc.qty_expected }}</td>
+                                        <td class="text-end" style="color: #EF4444;">
+                                            {% set nd_qty = disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected %}
+                                            {{ "%.0f"|format(nd_qty) if nd_qty % 1 == 0 else "%.1f"|format(nd_qty) }}
+                                        </td>
+                                        <td class="text-end pe-3">
+                                            {% if disc.reported_value %}<span class="cell-disc" style="padding: 1px 5px;">&euro;{{ "%.2f"|format(disc.reported_value|float) }}</span>{% else %}-{% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% endif %}
                     </div>
                     <div class="recon-divider"></div>
                     <div style="width: 50%;">
-                        {% if has_exceptions %}
-                        <table class="table table-sm recon-table">
-                            <thead>
-                                <tr>
-                                    <th class="ps-3">Type</th>
-                                    <th>Item</th>
-                                    <th>Item Name</th>
-                                    <th class="text-end">Ordered</th>
-                                    <th class="text-end" title="Not Delivered" style="cursor: help;">ND</th>
-                                    <th class="text-end pe-3">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% set disc_item_codes = [] %}
-                                {% if stop_data_match and stop_data_match.discrepancies %}
-                                    {% for disc in stop_data_match.discrepancies %}
-                                        {% set _ = disc_item_codes.append(disc.item_code_expected) %}
-                                    {% endfor %}
-                                {% endif %}
-                                {% for line in exception_lines %}
-                                {% if line.item_code not in disc_item_codes %}
-                                <tr>
-                                    <td class="ps-3"><span class="exc-badge exc-short">Short</span></td>
-                                    <td>{{ line.item_code }}</td>
-                                    <td>{{ line.invoice.items | selectattr('item_code', 'equalto', line.item_code) | map(attribute='item_name') | first | default('-') }}</td>
-                                    <td class="text-end">{{ line.qty_ordered }}</td>
-                                    <td class="text-end" style="color: #EF4444;">{{ "%.0f"|format(line.qty_ordered - line.qty_delivered) if (line.qty_ordered - line.qty_delivered) % 1 == 0 else "%.1f"|format(line.qty_ordered - line.qty_delivered) }}</td>
-                                    <td class="text-end pe-3">-</td>
-                                </tr>
-                                {% endif %}
-                                {% endfor %}
-                                {% if stop_data_match and stop_data_match.discrepancies %}
-                                {% for disc in stop_data_match.discrepancies %}
-                                <tr>
-                                    <td class="ps-3">
-                                        {% set exc_class = {'short': 'exc-short', 'rejected': 'exc-rejected', 'broken': 'exc-broken', 'missing': 'exc-missing', 'wrong_item': 'exc-wrong_item'} %}
-                                        <span class="exc-badge {{ exc_class.get(disc.discrepancy_type|lower, 'exc-default') }}">{{ disc.discrepancy_type }}</span>
-                                    </td>
-                                    <td>{{ disc.item_code_expected }}</td>
-                                    <td>{{ disc.item_name or '-' }}</td>
-                                    <td class="text-end">{{ disc.qty_expected }}</td>
-                                    <td class="text-end" style="color: #EF4444;">
-                                        {% set nd_qty = disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected %}
-                                        {{ "%.0f"|format(nd_qty) if nd_qty % 1 == 0 else "%.1f"|format(nd_qty) }}
-                                    </td>
-                                    <td class="text-end pe-3">
-                                        {% if disc.reported_value %}<span class="cell-disc" style="padding: 1px 5px;">&euro;{{ "%.2f"|format(disc.reported_value|float) }}</span>{% else %}-{% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                                {% endif %}
-                            </tbody>
-                        </table>
-                        {% else %}
-                        <div class="no-exc-placeholder">No exceptions recorded</div>
-                        {% endif %}
+                        <div class="p-3 text-center" style="color: #64748B; font-size: 0.75rem;">
+                            Payment receipt information
+                        </div>
                     </div>
                 </div>
                 </div>
