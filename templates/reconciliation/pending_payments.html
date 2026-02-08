@@ -74,9 +74,6 @@
                                 <button type="button" class="btn btn-sm btn-success clear-payment-btn" data-id="{{ alloc.id }}">
                                     <i class="fas fa-check me-1"></i>Clear Payment
                                 </button>
-                                <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=alloc.route_id) }}" class="btn btn-sm btn-primary">
-                                    <i class="fas fa-search me-1"></i>Reconcile
-                                </a>
                             </td>
                         </tr>
                         {% else %}
