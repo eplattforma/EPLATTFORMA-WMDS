@@ -212,15 +212,27 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                     <div class="d-flex gap-4 text-white text-end">
                         <div>
                             <span class="text-white-50 d-block" style="font-size: 0.75rem;">TOTAL</span>
+                            {% if stop_recon.stop_expected > 0.001 or stop_recon.stop_expected < -0.001 %}
                             <span class="fw-bold fs-5">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
+                            {% else %}
+                            <span class="fw-bold fs-5">-</span>
+                            {% endif %}
                         </div>
                         <div>
                             <span class="text-white-50 d-block" style="font-size: 0.75rem;">RETURNS</span>
-                            <span class="fw-bold fs-5 {% if stop_recon.stop_discrepancy > 0.001 %}text-warning{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
+                            {% if stop_recon.stop_discrepancy > 0.001 or stop_recon.stop_discrepancy < -0.001 %}
+                            <span class="fw-bold fs-5 text-warning">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
+                            {% else %}
+                            <span class="fw-bold fs-5">-</span>
+                            {% endif %}
                         </div>
                         <div>
                             <span class="text-white-50 d-block" style="font-size: 0.75rem;">RECEIVED</span>
+                            {% if stop_recon.stop_received > 0.001 or stop_recon.stop_received < -0.001 %}
                             <span class="fw-bold fs-5 text-success">&euro;{{ "%.2f"|format(stop_recon.stop_received) }}</span>
+                            {% else %}
+                            <span class="fw-bold fs-5">-</span>
+                            {% endif %}
                         </div>
                         <div>
                             <span class="text-white-50 d-block" style="font-size: 0.75rem;">METHOD</span>
