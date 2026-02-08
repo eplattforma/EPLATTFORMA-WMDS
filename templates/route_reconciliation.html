@@ -393,17 +393,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <span class="stop-status-pill stop-ok ms-2">OK</span>
                             {% endif %}
                         </div>
-                        <div class="ms-3 d-flex align-items-center" onclick="event.stopPropagation();">
-                            <input type="checkbox" class="stop-check" 
-                                   data-stop-id="{{ stop_recon.stop_seq }}" 
-                                   data-expected="{{ stop_recon.stop_expected }}"
-                                   data-returns="{{ stop_recon.stop_discrepancy }}"
-                                   data-received="{{ stop_recon.stop_received }}"
-                                   data-outstanding="{{ stop_recon.stop_outstanding }}"
-                                   data-method="{{ stop_recon.payment_type or '-' }}"
-                                   style="width: 20px; height: 20px; cursor: pointer; accent-color: #22C55E;">
-                        </div>
-                        <div class="d-flex gap-2 ms-auto">
+                        <div class="d-flex gap-2 ms-auto align-items-center">
                             <div class="recon-kpi-pill kpi-total">
                                 <span class="kpi-label">Total</span>
                                 {% if stop_recon.stop_expected > 0.001 or stop_recon.stop_expected < -0.001 %}
@@ -440,7 +430,17 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <span class="kpi-value">&nbsp;</span>
                                 {% endif %}
                             </div>
-                            <i class="bi bi-chevron-down ms-2 recon-chevron" style="font-size: 0.8rem; color: #94A3B8; transition: transform 0.2s;"></i>
+                            <div class="ms-2" onclick="event.stopPropagation();">
+                                <input type="checkbox" class="stop-check" 
+                                       data-stop-id="{{ stop_recon.stop_seq }}" 
+                                       data-expected="{{ stop_recon.stop_expected }}"
+                                       data-returns="{{ stop_recon.stop_discrepancy }}"
+                                       data-received="{{ stop_recon.stop_received }}"
+                                       data-outstanding="{{ stop_recon.stop_outstanding }}"
+                                       data-method="{{ stop_recon.payment_type or '-' }}"
+                                       style="width: 20px; height: 20px; cursor: pointer; accent-color: #22C55E;">
+                            </div>
+                            <i class="bi bi-chevron-down ms-1 recon-chevron" style="font-size: 0.8rem; color: #94A3B8; transition: transform 0.2s;"></i>
                         </div>
                     </div>
                 </div>
