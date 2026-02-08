@@ -545,9 +545,75 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                     </div>
                     <div class="recon-divider"></div>
                     <div style="width: 50%;">
-                        <div class="p-3 text-center" style="color: #64748B; font-size: 0.75rem;">
-                            Payment receipt information
+                        {% set cr = stop_data_match.cod_receipt if stop_data_match else none %}
+                        {% if cr %}
+                        <div class="px-3 py-2">
+                            <div class="d-flex align-items-center mb-2">
+                                <span style="color: #94A3B8; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600;">Payment Receipt</span>
+                            </div>
+                            <table class="table table-sm recon-table mb-2">
+                                <tbody>
+                                    <tr>
+                                        <td class="ps-3" style="color: #94A3B8; width: 35%;">Method</td>
+                                        <td>
+                                            {% set pm = cr.payment_method|upper if cr.payment_method else '-' %}
+                                            {% if pm == 'CASH' %}
+                                            <span class="badge" style="background: rgba(34,197,94,0.15); color: #4ADE80; font-size: 0.7rem;">CASH</span>
+                                            {% elif pm == 'CARD' %}
+                                            <span class="badge" style="background: rgba(59,130,246,0.15); color: #60A5FA; font-size: 0.7rem;">CARD</span>
+                                            {% elif pm == 'CHEQUE' %}
+                                            <span class="badge" style="background: rgba(234,179,8,0.15); color: #FACC15; font-size: 0.7rem;">CHEQUE</span>
+                                            {% elif pm == 'BANK_TRANSFER' %}
+                                            <span class="badge" style="background: rgba(168,85,247,0.15); color: #C084FC; font-size: 0.7rem;">BANK TRANSFER</span>
+                                            {% else %}
+                                            <span style="color: #64748B;">{{ pm }}</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ps-3" style="color: #94A3B8;">Received</td>
+                                        <td style="color: #E2E8F0; font-weight: 600;">&euro;{{ "%.2f"|format(cr.received_amount|float) }}</td>
+                                    </tr>
+                                    {% if cr.payment_method and cr.payment_method|upper == 'CHEQUE' %}
+                                    <tr>
+                                        <td class="ps-3" style="color: #94A3B8;">Cheque No.</td>
+                                        <td style="color: #E2E8F0;">{{ cr.cheque_number or '-' }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ps-3" style="color: #94A3B8;">Cheque Date</td>
+                                        <td style="color: #E2E8F0;">{{ cr.cheque_date.strftime('%d/%m/%Y') if cr.cheque_date else '-' }}</td>
+                                    </tr>
+                                    {% endif %}
+                                    {% if cr.note %}
+                                    <tr>
+                                        <td class="ps-3" style="color: #94A3B8;">Note</td>
+                                        <td style="color: #CBD5E1; font-style: italic; font-size: 0.7rem;">{{ cr.note }}</td>
+                                    </tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                            <div class="mt-2">
+                                {% if cr.ps365_receipt_id %}
+                                <div class="d-flex align-items-center gap-2" style="background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); border-radius: 6px; padding: 6px 10px;">
+                                    <i class="bi bi-check-circle-fill" style="color: #4ADE80; font-size: 0.8rem;"></i>
+                                    <span style="color: #94A3B8; font-size: 0.68rem;">PS365</span>
+                                    <span style="color: #E2E8F0; font-size: 0.72rem; font-weight: 600;">{{ cr.ps365_receipt_id }}</span>
+                                </div>
+                                {% else %}
+                                <form method="POST" action="{{ url_for('receipts.send_cod_receipt', cod_receipt_id=cr.id) }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-sm" style="background: rgba(59,130,246,0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.3); font-size: 0.7rem; padding: 4px 12px;"
+                                            onclick="this.disabled=true; this.innerHTML='Sending...'; this.form.submit();">
+                                        <i class="bi bi-send me-1"></i>Send to PS365
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
                         </div>
+                        {% else %}
+                        <div class="d-flex align-items-center justify-content-center h-100" style="min-height: 60px;">
+                            <span style="color: #475569; font-size: 0.72rem;">No payment recorded</span>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
                 </div>
