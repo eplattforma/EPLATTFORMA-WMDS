@@ -84,6 +84,11 @@
                         <i class="fas fa-file-invoice me-1"></i>Reconciliation
                     </a>
                     {% endif %}
+                    {% if route.status == 'COMPLETED' or route.reconciliation_status in ['PENDING', 'IN_REVIEW'] %}
+                    <a href="{{ url_for('routes.reconciliation_print', shipment_id=route.id) }}" class="btn btn-outline-secondary" target="_blank">
+                        <i class="fas fa-print me-1"></i>Print Summary
+                    </a>
+                    {% endif %}
                     
                     {% if current_user.role in ['admin', 'warehouse_manager'] %}
                     <a class="btn btn-outline-info" href="{{ url_for('pallets.route_pallets', shipment_id=route.id) }}">
