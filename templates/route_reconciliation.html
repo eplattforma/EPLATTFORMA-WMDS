@@ -315,41 +315,51 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                     </div>
                     <div class="col-6" style="background-color: #f8f9fa;">
                         <div class="p-2 small fw-bold text-muted border-bottom" style="background-color: #e9ecef;">DELIVERY EXCEPTIONS</div>
-                        <div class="p-2">
-                            {% if exception_lines %}
-                            <table class="table table-sm table-bordered mb-2 small">
-                                <thead>
-                                    <tr><th>Item</th><th>Ordered</th><th>Delivered</th><th>Diff</th></tr>
-                                </thead>
-                                <tbody>
-                                    {% for line in exception_lines %}
-                                    <tr class="table-warning">
-                                        <td>{{ line.item_code }}</td>
-                                        <td>{{ line.qty_ordered }}</td>
-                                        <td>{{ line.qty_delivered }}</td>
-                                        <td class="{% if line.qty_delivered < line.qty_ordered %}text-danger{% else %}text-success{% endif %}">
-                                            {{ line.qty_delivered - line.qty_ordered }}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                            {% endif %}
-
-                            {% if stop_data_match and stop_data_match.discrepancies %}
-                            <div class="d-flex flex-wrap gap-2 mt-1">
-                                {% for disc in stop_data_match.discrepancies %}
-                                <span class="badge bg-danger" style="font-size: 0.7rem;">
-                                    {{ disc.discrepancy_type }}: {{ disc.item_code_expected }} x{{ disc.qty_actual }}{% if disc.reported_value %} &euro;{{ "%.2f"|format(disc.reported_value|float) }}{% endif %}
-                                </span>
+                        {% if exception_lines or (stop_data_match and stop_data_match.discrepancies) %}
+                        <table class="table table-sm table-hover mb-0 small">
+                            <thead style="background-color: #e9ecef;">
+                                <tr>
+                                    <th class="ps-2">Type</th>
+                                    <th>Item Code</th>
+                                    <th>Item Name</th>
+                                    <th class="text-end">Ordered</th>
+                                    <th class="text-end">Not Delivered</th>
+                                    <th class="text-end pe-2">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for line in exception_lines %}
+                                <tr>
+                                    <td class="ps-2"><span class="badge bg-warning text-dark" style="font-size: 0.7rem;">Short</span></td>
+                                    <td>{{ line.item_code }}</td>
+                                    <td>-</td>
+                                    <td class="text-end">{{ line.qty_ordered }}</td>
+                                    <td class="text-end text-danger">{{ (line.qty_ordered - line.qty_delivered)|int if line.qty_ordered - line.qty_delivered == (line.qty_ordered - line.qty_delivered)|int else line.qty_ordered - line.qty_delivered }}</td>
+                                    <td class="text-end pe-2">-</td>
+                                </tr>
                                 {% endfor %}
-                            </div>
-                            {% endif %}
-
-                            {% if not exception_lines and not (stop_data_match and stop_data_match.discrepancies) %}
-                            <div class="text-muted small fst-italic">No exceptions recorded</div>
-                            {% endif %}
-                        </div>
+                                {% if stop_data_match and stop_data_match.discrepancies %}
+                                {% for disc in stop_data_match.discrepancies %}
+                                <tr>
+                                    <td class="ps-2">
+                                        {% set type_colors = {'short': 'warning', 'rejected': 'danger', 'broken': 'danger', 'missing': 'secondary', 'wrong_item': 'info'} %}
+                                        <span class="badge bg-{{ type_colors.get(disc.discrepancy_type|lower, 'danger') }} {% if disc.discrepancy_type|lower == 'short' or disc.discrepancy_type|lower == 'wrong_item' %}text-dark{% endif %}" style="font-size: 0.7rem;">{{ disc.discrepancy_type }}</span>
+                                    </td>
+                                    <td>{{ disc.item_code_expected }}</td>
+                                    <td>{{ disc.item_name or '-' }}</td>
+                                    <td class="text-end">{{ disc.qty_expected }}</td>
+                                    <td class="text-end text-danger">{{ disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected }}</td>
+                                    <td class="text-end pe-2">
+                                        {% if disc.reported_value %}&euro;{{ "%.2f"|format(disc.reported_value|float) }}{% else %}-{% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% endif %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <div class="p-2 text-muted small fst-italic">No exceptions recorded</div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
