@@ -198,12 +198,12 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                 <i class="bi bi-printer me-1"></i>Print
             </button>
         </div>
-        <div class="card-body p-0">
+        <div class="card-body p-0" style="background-color: #e9ecef;">
             {% set ns = namespace(grand_expected=0, grand_received=0, grand_disc=0, grand_outstanding=0) %}
             {% for stop_recon in invoice_report %}
             <div class="border-bottom mb-0">
                 <!-- Stop Header with financials -->
-                <div class="bg-light p-3 border-bottom">
+                <div class="p-3 border-bottom" style="background-color: #dee2e6;">
                     <div class="row align-items-center">
                         <div class="col-md-3">
                             <div class="d-flex align-items-center gap-3">
