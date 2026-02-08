@@ -346,7 +346,11 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <span class="badge bg-light text-dark me-3 px-2 py-1" style="font-size: 0.9rem; border-radius: 6px;">{{ stop_recon.stop_seq }}</span>
                         <div class="flex-grow-1">
                             <span class="text-white fw-bold" style="font-size: 0.95rem;">{{ stop_recon.customer_name }}</span>
-                            {% if stop_recon.terms != 'CREDIT' %}
+                            {% if stop_recon.terms == 'CREDIT' %}
+                            <span class="badge ms-2 px-2 py-1" style="font-size: 0.75rem; background: rgba(148,163,184,0.25); color: #CBD5E1;">CREDIT</span>
+                            {% elif stop_recon.terms == 'POD' %}
+                            <span class="badge bg-primary ms-2 px-2 py-1" style="font-size: 0.75rem;">POD</span>
+                            {% elif stop_recon.terms %}
                             <span class="badge bg-primary ms-2 px-2 py-1" style="font-size: 0.75rem;">{{ stop_recon.terms }}</span>
                             {% endif %}
                             {% if has_outstanding %}
