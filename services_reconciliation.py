@@ -676,16 +676,6 @@ def finalize_reconciliation(shipment_id: int, actor: str) -> Dict:
     if not shipment:
         raise ValueError(f"Shipment {shipment_id} not found")
     
-    # Refresh to ensure no blocking issues
-    issues = refresh_reconciliation(shipment_id)
-    
-    if issues['blocking']:
-        return {
-            'success': False,
-            'message': 'Cannot finalize with blocking issues',
-            'issues': issues
-        }
-    
     now = get_utc_now()
     shipment.reconciliation_status = 'RECONCILED'
     shipment.reconciled_at = now
