@@ -30,42 +30,18 @@
         </div>
     </div>
 
-    <!-- Route Overview -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0">Route Overview</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-sm mb-0">
-                        <tr>
-                            <th width="35%">Driver:</th>
-                            <td>{{ route.driver_name }}</td>
-                        </tr>
-                        <tr>
-                            <th>Date:</th>
-                            <td>{{ route.delivery_date }}</td>
-                        </tr>
-                        <tr>
-                            <th>Status:</th>
-                            <td><span class="badge bg-{{ 'success' if route.status == 'COMPLETED' else 'warning' }}">{{ route.status }}</span></td>
-                        </tr>
-                        <tr>
-                            <th>Started At:</th>
-                            <td>{{ route.started_at.strftime('%H:%M:%S') if route.started_at else 'Not started' }}</td>
-                        </tr>
-                        {% if route.completed_at %}
-                        <tr>
-                            <th>Completed At:</th>
-                            <td>{{ route.completed_at.strftime('%H:%M:%S') }}</td>
-                        </tr>
-                        {% endif %}
-                    </table>
-                </div>
-            </div>
-        </div>
-
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-3 px-2" style="font-size: 0.8rem; color: #94A3B8;">
+        <span><strong style="color: #CBD5E1;">Driver:</strong> {{ route.driver_name }}</span>
+        <span style="color: #3A4656;">|</span>
+        <span><strong style="color: #CBD5E1;">Date:</strong> {{ route.delivery_date }}</span>
+        <span style="color: #3A4656;">|</span>
+        <span><strong style="color: #CBD5E1;">Status:</strong> <span class="badge bg-{{ 'success' if route.status == 'COMPLETED' else 'warning' }}" style="font-size: 0.7rem;">{{ route.status }}</span></span>
+        <span style="color: #3A4656;">|</span>
+        <span><strong style="color: #CBD5E1;">Started:</strong> {{ route.started_at.strftime('%H:%M') if route.started_at else '-' }}</span>
+        {% if route.completed_at %}
+        <span style="color: #3A4656;">|</span>
+        <span><strong style="color: #CBD5E1;">Completed:</strong> {{ route.completed_at.strftime('%H:%M') }}</span>
+        {% endif %}
     </div>
 
     <!-- Delivery Events Audit Trail -->
