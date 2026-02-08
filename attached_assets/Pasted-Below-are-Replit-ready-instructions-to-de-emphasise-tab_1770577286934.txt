@@ -1,0 +1,94 @@
+Below are Replit-ready instructions to de-emphasise table headers and add more breathing room (both between header columns and between header row and data) without changing value font sizes.
+
+Instructions for Replit agent (do exactly)
+1) Add a dedicated class to the two tables (invoice + discrepancies)
+
+In the template that renders Stop-by-Stop Reconciliation, find the invoice table and the discrepancy table and add recon-table:
+
+<table class="table recon-table recon-invoices"> ... </table>
+
+<table class="table recon-table recon-discrepancies"> ... </table>
+
+
+(Keep any existing classes. We’re just adding recon-table.)
+
+2) Add CSS that ONLY targets headers + spacing (no tbody font-size changes)
+
+Open your main stylesheet (usually one of these):
+
+static/css/style.css
+
+static/css/app.css
+
+static/css/main.css
+
+Add this block at the end:
+
+/* Recon tables: quieter headers + more space, without changing value sizes */
+.recon-table {
+  border-collapse: separate;            /* allows cleaner spacing control */
+  border-spacing: 0;                    /* keep rows tight unless you want gaps */
+}
+
+/* Header: deemphasise */
+.recon-table thead th {
+  font-size: 11px;                      /* headers smaller (values unchanged) */
+  font-weight: 500;
+  color: rgba(226, 232, 240, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+
+  /* more space between header columns */
+  padding: 10px 18px 10px 12px;         /* right padding creates column breathing */
+  white-space: nowrap;
+}
+
+/* Make header row feel separated, not loud */
+.recon-table thead tr {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Stronger divider under header row (clear separation) */
+.recon-table thead {
+  border-bottom: 2px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Add space between header and the first data row (without changing value size) */
+.recon-table tbody tr:first-child td {
+  padding-top: 14px;
+}
+
+/* Optional: slightly reduce header “visual weight” further */
+.recon-table thead th {
+  text-shadow: none;
+}
+
+
+✅ This does not touch tbody td { font-size: ... }, so values stay the same size.
+
+3) If your existing CSS forces border-collapse: collapse
+
+If you notice the header spacing doesn’t apply (because another rule overrides it), add !important ONLY to the border-collapse line:
+
+.recon-table { border-collapse: separate !important; }
+
+4) (Optional but recommended) Add a tiny table label instead of heavy headers
+
+If you want clear identification that they’re different tables without making headers dominant, add a small chip above each table:
+
+<div class="recon-table-label">Invoices</div>
+<table class="table recon-table recon-invoices">...</table>
+
+<div class="recon-table-label">Discrepancies</div>
+<table class="table recon-table recon-discrepancies">...</table>
+
+
+CSS:
+
+.recon-table-label{
+  margin: 10px 0 6px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(226,232,240,0.55);
+}

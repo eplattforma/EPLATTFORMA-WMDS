@@ -254,17 +254,29 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
         .recon-table {
             font-variant-numeric: tabular-nums;
             margin-bottom: 0 !important;
+            border-collapse: separate !important;
+            border-spacing: 0;
+        }
+        .recon-table thead tr {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .recon-table thead {
+            border-bottom: 2px solid rgba(255, 255, 255, 0.08);
         }
         .recon-table thead th {
-            background: rgba(255,255,255,0.05);
-            color: #94A3B8;
-            font-size: 0.65rem;
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(226, 232, 240, 0.55);
             text-transform: uppercase;
-            letter-spacing: 0.3px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-            padding: 4px 8px;
+            letter-spacing: 0.08em;
+            padding: 10px 18px 10px 12px;
+            white-space: nowrap;
+            text-shadow: none;
+            border-bottom: none;
         }
-
+        .recon-table tbody tr:first-child td {
+            padding-top: 14px;
+        }
         .recon-table tbody td {
             color: #CBD5E1;
             border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -277,6 +289,14 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
         }
         .recon-table tbody tr:hover td {
             background: rgba(255,255,255,0.05);
+        }
+        .recon-table-label {
+            margin: 10px 0 6px;
+            padding-left: 12px;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(226,232,240,0.55);
         }
         .cell-disc {
             background: rgba(239,68,68,0.14) !important;
@@ -439,6 +459,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
 
                 <div class="d-flex">
                     <div style="width: 50%;">
+                        <div class="recon-table-label">Invoices</div>
                         <table class="table table-sm recon-table mb-0">
                             <thead>
                                 <tr>
@@ -488,6 +509,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         </table>
                         {% if has_exceptions %}
                         <div style="border-top: 1px solid #3A4656;">
+                            <div class="recon-table-label">Discrepancies</div>
                             <table class="table table-sm recon-table mb-0">
                                 <thead>
                                     <tr>
@@ -801,6 +823,40 @@ function sendReceipt(codReceiptId) {
         alert(`Error: ${error.message}`);
     });
 }
+
+document.querySelectorAll('.btn-send-ps365').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const codId = this.dataset.codId;
+        const wrap = document.getElementById('ps365-btn-wrap-' + codId);
+        this.disabled = true;
+        this.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Sending...';
+        
+        fetch('/cod_receipts/' + codId + '/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                wrap.innerHTML = '<div class="d-flex align-items-center gap-2" style="background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); border-radius: 6px; padding: 6px 10px;">' +
+                    '<i class="bi bi-check-circle-fill" style="color: #4ADE80; font-size: 0.8rem;"></i>' +
+                    '<span style="color: #94A3B8; font-size: 0.68rem;">PS365</span>' +
+                    '<span style="color: #E2E8F0; font-size: 0.72rem; font-weight: 600;">' + data.reference_number + '</span>' +
+                    '</div>';
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-send me-1"></i>Send to PS365';
+            }
+        })
+        .catch(err => {
+            alert('Error: ' + err.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-send me-1"></i>Send to PS365';
+        });
+    });
+});
 
 function clearSettlement() {
     if (!confirm('Clear this settlement and mark route as complete?')) return;
