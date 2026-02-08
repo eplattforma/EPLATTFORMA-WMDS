@@ -224,23 +224,23 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <div class="col-md-9">
                             <div class="row g-0 text-center">
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Expected</small>
+                                    <small class="text-dark d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Expected</small>
                                     <span class="fw-bold fs-5">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
                                 </div>
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Received</small>
+                                    <small class="text-dark d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Received</small>
                                     <span class="fw-bold fs-5 text-success">&euro;{{ "%.2f"|format(stop_recon.stop_received) }}</span>
                                 </div>
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Payment Type</small>
+                                    <small class="text-dark d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Payment Type</small>
                                     <span class="fw-bold">{{ stop_recon.payment_type }}</span>
                                 </div>
                                 <div class="col border-end">
-                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Discrepancy</small>
+                                    <small class="text-dark d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Discrepancy</small>
                                     <span class="fw-bold fs-5 {% if stop_recon.stop_discrepancy > 0.001 %}text-danger{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
                                 </div>
                                 <div class="col">
-                                    <small class="text-muted d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Outstanding</small>
+                                    <small class="text-dark d-block text-uppercase fw-bold" style="font-size: 0.7rem;">Outstanding</small>
                                     <span class="fw-bold fs-5 {% if stop_recon.stop_outstanding > 0.001 %}text-danger{% elif stop_recon.stop_outstanding < -0.001 %}text-success{% endif %}">
                                         &euro;{{ "%.2f"|format(stop_recon.stop_outstanding) }}
                                     </span>
