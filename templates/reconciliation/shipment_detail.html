@@ -17,6 +17,36 @@
         </div>
     </div>
     
+    <div class="card mb-3">
+        <div class="card-header py-2 bg-dark text-white">
+            <strong>Route Information</strong>
+        </div>
+        <div class="card-body py-2">
+            <div class="row text-center">
+                <div class="col-md-2 border-end">
+                    <small class="text-muted d-block">Route ID</small>
+                    <span class="fw-bold">#{{ shipment.id }}</span>
+                </div>
+                <div class="col-md-3 border-end">
+                    <small class="text-muted d-block">Route Name</small>
+                    <span class="fw-bold">{{ shipment.route_name or 'Unnamed' }}</span>
+                </div>
+                <div class="col-md-2 border-end">
+                    <small class="text-muted d-block">Driver</small>
+                    <span class="fw-bold">{{ shipment.driver_name }}</span>
+                </div>
+                <div class="col-md-2 border-end">
+                    <small class="text-muted d-block">Delivery Date</small>
+                    <span class="fw-bold">{{ shipment.delivery_date }}</span>
+                </div>
+                <div class="col-md-3">
+                    <small class="text-muted d-block">Status</small>
+                    <span class="badge bg-{{ recon_colors.get(shipment.reconciliation_status, 'secondary') }}">{{ shipment.reconciliation_status }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <div class="row mb-3">
         <div class="col-md-8">
             <div class="card h-100">
