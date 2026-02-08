@@ -742,10 +742,10 @@ def clear_pending_payment(allocation_id: int, actor: str) -> Dict:
     
     alloc.is_pending = False
     
-    # Also update the received_amount to match expected_amount if it's currently 0
-    # for post-dated/online payments that are being cleared
-    if alloc.payment_method.lower() in ['postdated', 'post_dated', 'post dated chq', 'online'] and (alloc.received_amount is None or alloc.received_amount == 0):
-        alloc.received_amount = alloc.expected_amount - (alloc.deduct_amount or 0)
+    # When clearing a payment, set received_amount to cover the full outstanding balance
+    # This ensures the invoice no longer appears as outstanding
+    target = (alloc.expected_amount or 0) - (alloc.deduct_amount or 0)
+    alloc.received_amount = target
     
     # Also update the parent receipt if all its allocations are now cleared
     receipt = db.session.get(CODReceipt, alloc.cod_receipt_id)
