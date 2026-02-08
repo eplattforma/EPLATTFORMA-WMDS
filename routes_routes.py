@@ -1647,7 +1647,6 @@ def update_cod_amount(receipt_id):
 
 @bp.route("/<int:shipment_id>/reconciliation/print")
 @login_required
-@admin_required
 def reconciliation_print(shipment_id):
     """Printable route reconciliation summary"""
     from models import DeliveryEvent, DeliveryLine, CODReceipt, PODRecord, DeliveryDiscrepancy, ReceiptLog, Invoice
