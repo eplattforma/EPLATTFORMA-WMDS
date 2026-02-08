@@ -203,6 +203,13 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             padding: 12px 16px 12px 22px;
             background: #2A3340;
         }
+        .recon-stop-header[aria-expanded="true"] .recon-chevron {
+            transform: rotate(180deg);
+        }
+        .recon-stop-header[aria-expanded="false"] .recon-chevron,
+        .recon-stop-header:not([aria-expanded]) .recon-chevron {
+            transform: rotate(-90deg);
+        }
         .recon-stop-header::before {
             content: '';
             position: absolute;
@@ -342,7 +349,8 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             {% set has_returns = stop_recon.stop_discrepancy > 0.001 or stop_recon.stop_discrepancy < -0.001 %}
             {% set has_outstanding = stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
             <div class="recon-stop-card">
-                <div class="recon-stop-header {% if has_outstanding %}accent-outstanding{% elif has_returns %}accent-returns{% else %}accent-ok{% endif %}">
+                <div class="recon-stop-header {% if has_outstanding %}accent-outstanding{% elif has_returns %}accent-returns{% else %}accent-ok{% endif %}" 
+                     role="button" data-bs-toggle="collapse" data-bs-target="#recon-stop-body-{{ loop.index }}" aria-expanded="false" style="cursor: pointer;">
                     <div class="d-flex align-items-center">
                         <span class="badge bg-light text-dark me-3 px-2 py-1" style="font-size: 0.9rem; border-radius: 6px;">{{ stop_recon.stop_seq }}</span>
                         <div class="flex-grow-1">
@@ -364,7 +372,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <span class="stop-status-pill stop-ok ms-2">OK</span>
                             {% endif %}
                         </div>
-                        <div class="ms-3 d-flex align-items-center">
+                        <div class="ms-3 d-flex align-items-center" onclick="event.stopPropagation();">
                             <input type="checkbox" class="stop-check" 
                                    data-stop-id="{{ stop_recon.stop_seq }}" 
                                    data-expected="{{ stop_recon.stop_expected }}"
@@ -411,11 +419,12 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <span class="kpi-value">&nbsp;</span>
                                 {% endif %}
                             </div>
+                            <i class="bi bi-chevron-down ms-2 recon-chevron" style="font-size: 0.8rem; color: #94A3B8; transition: transform 0.2s;"></i>
                         </div>
                     </div>
                 </div>
 
-                <div class="recon-stop-body" style="border-top: 2px solid #3A4656;">
+                <div id="recon-stop-body-{{ loop.index }}" class="collapse recon-stop-body" style="border-top: 2px solid #3A4656;">
                 {% set stop_data_match = stops_data | selectattr('stop.seq_no', 'equalto', stop_recon.stop_seq) | first %}
                 {% set exception_lines = [] %}
                 {% if stop_data_match %}
