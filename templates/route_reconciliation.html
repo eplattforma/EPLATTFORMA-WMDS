@@ -364,7 +364,13 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <span class="stop-status-pill stop-ok ms-2">OK</span>
                             {% endif %}
                         </div>
-                        <div class="d-flex gap-2">
+                        <div class="ms-3 d-flex align-items-center">
+                            <input type="checkbox" class="stop-check" 
+                                   data-stop-id="{{ stop_recon.stop_seq }}" 
+                                   data-expected="{{ stop_recon.stop_expected }}"
+                                   style="width: 20px; height: 20px; cursor: pointer; accent-color: #22C55E;">
+                        </div>
+                        <div class="d-flex gap-2 ms-auto">
                             <div class="recon-kpi-pill kpi-total">
                                 <span class="kpi-label">Total</span>
                                 {% if stop_recon.stop_expected > 0.001 or stop_recon.stop_expected < -0.001 %}
@@ -550,6 +556,10 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <span class="kpi-label">Received</span>
                         <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_received) }}</span>
                     </div>
+                    <div class="recon-kpi-pill" style="background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80;">
+                        <span class="kpi-label" style="color: #4ADE80;">Reconciled</span>
+                        <span class="kpi-value" id="reconciled-total">&euro;0.00</span>
+                    </div>
                     <div class="recon-kpi-pill kpi-method-default">
                         <span class="kpi-label">Method</span>
                         <span class="kpi-value" style="font-size: 0.85rem;">&nbsp;</span>
@@ -562,6 +572,27 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const checkboxes = document.querySelectorAll('.stop-check');
+    const reconciledDisplay = document.getElementById('reconciled-total');
+
+    function updateReconciledTotal() {
+        let total = 0;
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                total += parseFloat(cb.getAttribute('data-expected')) || 0;
+            }
+        });
+        reconciledDisplay.textContent = '€' + total.toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', updateReconciledTotal);
+    });
+});
+</script>
 
 <script>
 function editCodAmount(receiptId, currentAmount) {
