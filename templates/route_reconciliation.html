@@ -280,7 +280,11 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                             {{ inv.delivery_status or 'PENDING' }}
                                         </span>
                                     </td>
-                                    <td class="text-end">&euro;{{ "%.2f"|format(inv.expected) }}</td>
+                                    <td class="text-end">
+                                        {% if inv.expected and (inv.expected > 0.001 or inv.expected < -0.001) %}
+                                            &euro;{{ "%.2f"|format(inv.expected) }}
+                                        {% else %}-{% endif %}
+                                    </td>
                                     <td class="text-end">
                                         {% if inv.received is not none and (inv.received > 0.001 or inv.received < -0.001) %}
                                             &euro;{{ "%.2f"|format(inv.received) }}
