@@ -215,7 +215,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <span class="fw-bold">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
                         </div>
                         <div>
-                            <span class="text-white-50 d-block" style="font-size: 0.65rem;">DISC.</span>
+                            <span class="text-white-50 d-block" style="font-size: 0.65rem;">RETURNS</span>
                             <span class="fw-bold {% if stop_recon.stop_discrepancy > 0.001 %}text-warning{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
                         </div>
                         <div>
