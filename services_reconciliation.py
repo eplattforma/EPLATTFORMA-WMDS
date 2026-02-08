@@ -167,7 +167,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             if is_credit:
                 allocated = 0
                 display_payment = 'CREDIT'
-                outstanding = 0
+                outstanding = expected - discrepancy
                 terms_label = 'CREDIT'
                 display_received = None
             else:
