@@ -17,7 +17,7 @@
         </div>
     </div>
     
-    <div class="card mb-3">
+    <div class="card mb-3 d-print-none">
         <div class="card-header py-2 bg-dark text-white">
             <strong>Route Information</strong>
         </div>
@@ -43,6 +43,21 @@
                     <small class="text-muted d-block">Status</small>
                     <span class="badge bg-{{ recon_colors.get(shipment.reconciliation_status, 'secondary') }}">{{ shipment.reconciliation_status }}</span>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Printable Header (Visible only when printing) -->
+    <div class="d-none d-print-block mb-4 border-bottom pb-2">
+        <div class="d-flex justify-content-between align-items-end">
+            <div>
+                <h3 class="mb-1">Route Reconciliation Receipt</h3>
+                <h5 class="mb-0 text-muted">Route #{{ shipment.id }}: {{ shipment.route_name or 'Unnamed' }}</h5>
+            </div>
+            <div class="text-end">
+                <div class="fw-bold">Driver: {{ shipment.driver_name }}</div>
+                <div>Date: {{ shipment.delivery_date }}</div>
+                <div class="small">Generated: {{ now().strftime('%Y-%m-%d %H:%M') if now else '' }}</div>
             </div>
         </div>
     </div>
