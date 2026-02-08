@@ -51,9 +51,19 @@ def pending_payments():
         Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
     ).filter(
         db.or_(
+            # 1. Explicitly marked as pending by driver/system
             CODInvoiceAllocation.is_pending == True,
-            db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online']),
-            (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01
+            # 2. Has an outstanding balance (catches partial cash/cheque/etc)
+            (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01,
+            # 3. Non-immediate methods that are NOT YET cleared (even if amount matches, we wait for 'is_pending' to be False)
+            # BUT if it is already NOT pending AND has 0 due, we hide it.
+            db.and_(
+                db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online']),
+                db.or_(
+                    CODInvoiceAllocation.is_pending == True,
+                    (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01
+                )
+            )
         )
     ).order_by(
         Invoice.customer_name,
