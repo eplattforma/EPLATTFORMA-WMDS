@@ -154,9 +154,11 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         stop_expected = sum(inv['expected'] for inv in data['invoices'])
         stop_discrepancy = sum(inv['discrepancy'] for inv in data['invoices'])
         
-        # Outstanding at stop level = Expected - Received - Discrepancy
-        # Only CASH and Day Cheques count as received for this formula
-        stop_outstanding = stop_expected - data['total_received'] - stop_discrepancy
+        # For outstanding: only count non-credit (POD) invoices
+        # Credit invoices are paid on account, so no outstanding at delivery
+        pod_expected = sum(inv['expected'] for inv in data['invoices'] if not inv['is_credit'])
+        pod_discrepancy = sum(inv['discrepancy'] for inv in data['invoices'] if not inv['is_credit'])
+        stop_outstanding = pod_expected - data['total_received'] - pod_discrepancy
         
         stop_rows = []
         for inv in data['invoices']:
@@ -167,7 +169,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             if is_credit:
                 allocated = 0
                 display_payment = 'CREDIT'
-                outstanding = expected - discrepancy
+                outstanding = 0
                 terms_label = 'CREDIT'
                 display_received = None
             else:
