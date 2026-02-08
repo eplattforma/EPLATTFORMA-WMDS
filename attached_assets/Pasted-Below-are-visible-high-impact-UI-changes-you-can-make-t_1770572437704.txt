@@ -1,0 +1,201 @@
+Below are visible, high-impact UI changes you can make to get much clearer separation between stops / invoice rows / discrepancy details (lines, colours, spacing). I’ll describe exactly what to change and what it achieves.
+
+1) Make each Stop look like a “card” (strong separation)
+
+Change
+
+Wrap each stop in a card with:
+
+1px border (subtle)
+
+8–12px radius
+
+12–16px outer margin between stops
+
+Optional soft shadow (very subtle on dark theme)
+
+Add a left accent bar (4–6px wide) on the stop header.
+
+Colours
+
+Card border: #2B3440
+
+Card background: slightly different from page, e.g. #1C2430
+
+Accent bar (based on stop health):
+
+OK: #22C55E
+
+Has discrepancy/returns: #F59E0B
+
+Has outstanding: #EF4444
+
+Why
+Stops stop “blending” into one continuous dark block. The left colour bar gives instant scanning.
+
+2) Split Header vs Body with a stronger divider
+
+Change
+
+Stop header background slightly lighter/darker than body.
+
+Add a 2px divider line under the header (not 1px).
+
+Colours
+
+Header bg: #2A3340
+
+Body bg: #1C2430
+
+Divider: #3A4656 (2px)
+
+Why
+Users visually “lock” onto the header, then naturally read down.
+
+3) KPI area (TOTAL/RETURNS/RECEIVED/METHOD/OUTSTANDING) as pills/tiles, not loose text
+
+Change
+
+Put each KPI into a small tile/pill with consistent width.
+
+Keep label small and value big.
+
+Give each KPI a tinted background, not just coloured text.
+
+Colours (tints)
+
+Received (green tint): bg rgba(34,197,94,0.12) text #22C55E
+
+Returns (amber tint): bg rgba(245,158,11,0.12) text #F59E0B
+
+Outstanding (red tint): bg rgba(239,68,68,0.12) text #EF4444
+
+Total (neutral): bg rgba(148,163,184,0.10) text #E5E7EB
+
+Method pill:
+
+CASH: #22C55E tint
+
+ONLINE: #60A5FA tint
+
+Why
+Right now the KPI values float and compete. Tiles make them “readable blocks”.
+
+4) Fix the big empty white area (it breaks the dark UI)
+
+In Stop 1 you have a large white blank panel.
+
+Change (pick one)
+
+Option A (best): If no discrepancy lines exist, collapse/hide the right panel entirely.
+
+Option B: Show a dark placeholder box: “No discrepancy lines” + icon.
+
+Option C: Keep the panel but match the stop body background (never pure white).
+
+Why
+That white rectangle is the biggest visual distraction on the screen.
+
+5) Stronger table readability: zebra + row separators + numeric alignment
+
+Change
+
+Add zebra striping on invoice rows and item rows (very subtle).
+
+Add a 1px row separator across full width.
+
+Right-align all numeric columns and enable tabular numbers.
+
+Colours
+
+Zebra alt row: rgba(255,255,255,0.03)
+
+Row divider: rgba(255,255,255,0.06)
+
+Why
+Makes scanning totals and discrepancies dramatically easier.
+
+6) Highlight discrepancy cells with background, not only red text
+
+Change
+
+When discrepancy > 0, apply a red-tinted cell background.
+
+Same for outstanding.
+
+Example
+
+Discrepancy cell bg: rgba(239,68,68,0.14)
+
+Outstanding cell bg: rgba(239,68,68,0.18)
+
+Normal cell bg: none
+
+Why
+Colour-only text is easy to miss; tinted blocks make issues pop instantly.
+
+7) Make “Type” badges consistent and more meaningful
+
+Right now you have badges like short, rejected.
+
+Change
+
+Use a consistent badge system:
+
+SHORT (amber)
+
+REJECTED (red)
+
+OK (green/neutral)
+
+Same size, same padding, same casing.
+
+Why
+Badges become a reliable visual language.
+
+8) Improve the “Not Delivered” column clarity
+
+“Not Del.” is short but still ambiguous.
+
+Better
+
+Label: ND (very compact) with tooltip “Not Delivered”
+
+Or two columns:
+
+ND Qty
+
+ND € (amount)
+
+Why
+Users understand instantly whether it’s quantity or value.
+
+9) Separate left invoice table and right item table more clearly
+
+Change
+
+Use a visible vertical divider and spacing:
+
+Divider 2px + 16px padding on both sides.
+
+Give the right panel its own mini header: “Discrepancy lines”.
+
+Why
+Currently the two zones feel glued together; this creates a clear “left summary / right details” layout.
+
+10) Add a “Stop status” label near the stop title
+
+Change
+
+Next to the customer name show a single status pill:
+
+OK
+
+Partial
+
+Has Outstanding
+
+Has Returns
+
+Why
+One glance per stop tells you where to focus (especially useful when you have many stops).

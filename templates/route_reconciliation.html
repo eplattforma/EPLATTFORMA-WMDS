@@ -190,68 +190,215 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
 });
 </script>
 
+    <style>
+        .recon-stop-card {
+            border: 1px solid #2B3440;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            margin-bottom: 16px;
+        }
+        .recon-stop-header {
+            position: relative;
+            padding: 12px 16px 12px 22px;
+            background: #2A3340;
+        }
+        .recon-stop-header::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 5px;
+        }
+        .recon-stop-header.accent-ok::before { background: #22C55E; }
+        .recon-stop-header.accent-returns::before { background: #F59E0B; }
+        .recon-stop-header.accent-outstanding::before { background: #EF4444; }
+        .recon-stop-body {
+            background: #1C2430;
+        }
+        .recon-kpi-pill {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 6px 14px;
+            border-radius: 8px;
+            min-width: 90px;
+        }
+        .recon-kpi-pill .kpi-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.7;
+            margin-bottom: 2px;
+        }
+        .recon-kpi-pill .kpi-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .kpi-total { background: rgba(148,163,184,0.10); color: #E5E7EB; }
+        .kpi-returns { background: rgba(245,158,11,0.12); color: #F59E0B; }
+        .kpi-received { background: rgba(34,197,94,0.12); color: #22C55E; }
+        .kpi-outstanding-red { background: rgba(239,68,68,0.12); color: #EF4444; }
+        .kpi-outstanding-green { background: rgba(34,197,94,0.12); color: #22C55E; }
+        .kpi-outstanding-neutral { background: rgba(148,163,184,0.06); color: #94A3B8; }
+        .kpi-method-cash { background: rgba(34,197,94,0.12); color: #22C55E; }
+        .kpi-method-online { background: rgba(96,165,250,0.12); color: #60A5FA; }
+        .kpi-method-default { background: rgba(148,163,184,0.08); color: #CBD5E1; }
+        .recon-table {
+            font-variant-numeric: tabular-nums;
+            margin-bottom: 0 !important;
+        }
+        .recon-table thead th {
+            background: rgba(255,255,255,0.05);
+            color: #94A3B8;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding: 6px 8px;
+        }
+        .recon-table tbody td {
+            color: #CBD5E1;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            padding: 5px 8px;
+            font-size: 0.82rem;
+        }
+        .recon-table tbody tr:nth-child(even) td {
+            background: rgba(255,255,255,0.02);
+        }
+        .recon-table tbody tr:hover td {
+            background: rgba(255,255,255,0.05);
+        }
+        .cell-disc {
+            background: rgba(239,68,68,0.14) !important;
+            border-radius: 3px;
+        }
+        .cell-outstanding-pos {
+            background: rgba(239,68,68,0.18) !important;
+            border-radius: 3px;
+        }
+        .cell-outstanding-neg {
+            background: rgba(34,197,94,0.14) !important;
+            border-radius: 3px;
+        }
+        .recon-divider {
+            width: 2px;
+            background: rgba(255,255,255,0.08);
+            min-height: 100%;
+        }
+        .stop-status-pill {
+            font-size: 0.65rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .stop-ok { background: rgba(34,197,94,0.15); color: #22C55E; }
+        .stop-has-returns { background: rgba(245,158,11,0.15); color: #F59E0B; }
+        .stop-has-outstanding { background: rgba(239,68,68,0.15); color: #EF4444; }
+        .exc-badge {
+            font-size: 0.68rem;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .exc-short { background: rgba(245,158,11,0.2); color: #F59E0B; }
+        .exc-rejected { background: rgba(239,68,68,0.2); color: #EF4444; }
+        .exc-broken { background: rgba(239,68,68,0.2); color: #EF4444; }
+        .exc-missing { background: rgba(148,163,184,0.2); color: #94A3B8; }
+        .exc-wrong_item { background: rgba(96,165,250,0.2); color: #60A5FA; }
+        .exc-default { background: rgba(239,68,68,0.2); color: #EF4444; }
+        .no-exc-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 60px;
+            color: #4B5563;
+            font-size: 0.8rem;
+            font-style: italic;
+        }
+        .recon-grand-footer {
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+    </style>
+
     <!-- Stop-by-Stop Reconciliation -->
-    <div class="card mb-4">
-        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">Stop-by-Stop Reconciliation</h5>
+    <div class="mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0 text-white">Stop-by-Stop Reconciliation</h5>
             <button class="btn btn-sm btn-outline-light d-print-none" onclick="window.print()">
                 <i class="bi bi-printer me-1"></i>Print
             </button>
         </div>
-        <div class="card-body p-0">
+
             {% set ns = namespace(grand_expected=0, grand_received=0, grand_disc=0, grand_outstanding=0) %}
             {% for stop_recon in invoice_report %}
-            <div style="{% if not loop.last %}margin-bottom: 1.5rem;{% endif %}">
-                <!-- Compact Stop Header -->
-                <div class="d-flex align-items-center px-3 py-2" style="background-color: #343a40;">
-                    <span class="badge bg-light text-dark fs-6 me-3 px-2 py-1">{{ stop_recon.stop_seq }}</span>
-                    <h6 class="mb-0 text-white fw-bold flex-grow-1">
-                        {{ stop_recon.customer_name }}
-{% if stop_recon.terms != 'CREDIT' %}<span class="badge bg-primary ms-2 px-2 py-1" style="font-size: 0.85rem; vertical-align: middle;">{{ stop_recon.terms }}</span>{% endif %}
-                    </h6>
-                    <div class="d-flex gap-4 text-white text-end">
-                        <div>
-                            <span class="text-white-50 d-block" style="font-size: 0.75rem;">TOTAL</span>
-                            {% if stop_recon.stop_expected > 0.001 or stop_recon.stop_expected < -0.001 %}
-                            <span class="fw-bold fs-5">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
+            {% set has_returns = stop_recon.stop_discrepancy > 0.001 or stop_recon.stop_discrepancy < -0.001 %}
+            {% set has_outstanding = stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
+            <div class="recon-stop-card">
+                <div class="recon-stop-header {% if has_outstanding %}accent-outstanding{% elif has_returns %}accent-returns{% else %}accent-ok{% endif %}">
+                    <div class="d-flex align-items-center">
+                        <span class="badge bg-light text-dark me-3 px-2 py-1" style="font-size: 0.9rem; border-radius: 6px;">{{ stop_recon.stop_seq }}</span>
+                        <div class="flex-grow-1">
+                            <span class="text-white fw-bold" style="font-size: 0.95rem;">{{ stop_recon.customer_name }}</span>
+                            {% if stop_recon.terms != 'CREDIT' %}
+                            <span class="badge bg-primary ms-2 px-2 py-1" style="font-size: 0.75rem;">{{ stop_recon.terms }}</span>
+                            {% endif %}
+                            {% if has_outstanding %}
+                            <span class="stop-status-pill stop-has-outstanding ms-2">Has Outstanding</span>
+                            {% elif has_returns %}
+                            <span class="stop-status-pill stop-has-returns ms-2">Has Returns</span>
                             {% else %}
-                            <span class="fw-bold fs-5">-</span>
+                            <span class="stop-status-pill stop-ok ms-2">OK</span>
                             {% endif %}
                         </div>
-                        <div>
-                            <span class="text-white-50 d-block" style="font-size: 0.75rem;">RETURNS</span>
-                            {% if stop_recon.stop_discrepancy > 0.001 or stop_recon.stop_discrepancy < -0.001 %}
-                            <span class="fw-bold fs-5 text-warning">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
-                            {% else %}
-                            <span class="fw-bold fs-5">-</span>
-                            {% endif %}
-                        </div>
-                        <div>
-                            <span class="text-white-50 d-block" style="font-size: 0.75rem;">RECEIVED</span>
-                            {% if stop_recon.stop_received > 0.001 or stop_recon.stop_received < -0.001 %}
-                            <span class="fw-bold fs-5 text-success">&euro;{{ "%.2f"|format(stop_recon.stop_received) }}</span>
-                            {% else %}
-                            <span class="fw-bold fs-5">-</span>
-                            {% endif %}
-                        </div>
-                        <div>
-                            <span class="text-white-50 d-block" style="font-size: 0.75rem;">METHOD</span>
-                            <span class="fw-bold fs-5">{{ stop_recon.payment_type }}</span>
-                        </div>
-                        <div>
-                            <span class="text-white-50 d-block" style="font-size: 0.75rem;">OUTSTANDING</span>
-                            {% if stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
-                            <span class="fw-bold fs-5 {% if stop_recon.stop_outstanding > 0.001 %}text-danger{% elif stop_recon.stop_outstanding < -0.001 %}text-success{% endif %}">
-                                &euro;{{ "%.2f"|format(stop_recon.stop_outstanding) }}
-                            </span>
-                            {% else %}
-                            <span class="fw-bold fs-5">&nbsp;</span>
-                            {% endif %}
+                        <div class="d-flex gap-2">
+                            <div class="recon-kpi-pill kpi-total">
+                                <span class="kpi-label">Total</span>
+                                {% if stop_recon.stop_expected > 0.001 or stop_recon.stop_expected < -0.001 %}
+                                <span class="kpi-value">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
+                                {% else %}
+                                <span class="kpi-value">-</span>
+                                {% endif %}
+                            </div>
+                            <div class="recon-kpi-pill kpi-returns">
+                                <span class="kpi-label">Returns</span>
+                                {% if has_returns %}
+                                <span class="kpi-value">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
+                                {% else %}
+                                <span class="kpi-value">-</span>
+                                {% endif %}
+                            </div>
+                            <div class="recon-kpi-pill kpi-received">
+                                <span class="kpi-label">Received</span>
+                                {% if stop_recon.stop_received > 0.001 or stop_recon.stop_received < -0.001 %}
+                                <span class="kpi-value">&euro;{{ "%.2f"|format(stop_recon.stop_received) }}</span>
+                                {% else %}
+                                <span class="kpi-value">-</span>
+                                {% endif %}
+                            </div>
+                            <div class="recon-kpi-pill {% if stop_recon.payment_type == 'CASH' %}kpi-method-cash{% elif stop_recon.payment_type == 'ONLINE' %}kpi-method-online{% else %}kpi-method-default{% endif %}">
+                                <span class="kpi-label">Method</span>
+                                <span class="kpi-value" style="font-size: 0.85rem;">{{ stop_recon.payment_type }}</span>
+                            </div>
+                            <div class="recon-kpi-pill {% if stop_recon.stop_outstanding > 0.001 %}kpi-outstanding-red{% elif stop_recon.stop_outstanding < -0.001 %}kpi-outstanding-green{% else %}kpi-outstanding-neutral{% endif %}">
+                                <span class="kpi-label">Outstanding</span>
+                                {% if has_outstanding %}
+                                <span class="kpi-value">&euro;{{ "%.2f"|format(stop_recon.stop_outstanding) }}</span>
+                                {% else %}
+                                <span class="kpi-value">&nbsp;</span>
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Invoice Details + Exceptions Side by Side -->
+                <div class="recon-stop-body" style="border-top: 2px solid #3A4656;">
                 {% set stop_data_match = stops_data | selectattr('stop.seq_no', 'equalto', stop_recon.stop_seq) | first %}
                 {% set exception_lines = [] %}
                 {% if stop_data_match %}
@@ -261,18 +408,18 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         {% endif %}
                     {% endfor %}
                 {% endif %}
+                {% set has_exceptions = exception_lines | length > 0 or (stop_data_match and stop_data_match.discrepancies | length > 0) %}
 
-                <div class="row g-0">
-                    {% set stop_has_outstanding = stop_recon.invoices | selectattr('outstanding', 'gt', 0.001) | list | length > 0 or stop_recon.invoices | selectattr('outstanding', 'lt', -0.001) | list | length > 0 %}
-                    <div class="col-6 border-end">
-                        <table class="table table-sm table-hover mb-0 small" style="background-color: #f8f9fa;">
-                            <thead style="background-color: #e9ecef;">
+                <div class="d-flex">
+                    <div class="{% if has_exceptions %}flex-grow-1{% else %}w-100{% endif %}" style="min-width: 50%;">
+                        <table class="table table-sm recon-table">
+                            <thead>
                                 <tr>
                                     <th class="ps-3">Invoice</th>
                                     <th>Status</th>
                                     <th class="text-end">Expected</th>
                                     <th class="text-end">Received</th>
-                                    <th class="text-end">Discrepancy</th>
+                                    <th class="text-end">Returns</th>
                                     <th class="text-end pe-3">Outstanding</th>
                                 </tr>
                             </thead>
@@ -280,13 +427,13 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 {% for inv in stop_recon.invoices %}
                                 <tr>
                                     <td class="ps-3">
-                                        <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.invoice_no) }}" class="text-decoration-none">
+                                        <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.invoice_no) }}" class="text-decoration-none" style="color: #60A5FA;">
                                             {{ inv.invoice_no }}
                                         </a>
                                     </td>
                                     <td>
                                         {% set inv_colors = {'DELIVERED': 'success', 'FAILED': 'danger', 'PARTIAL': 'warning'} %}
-                                        <span class="badge bg-{{ inv_colors.get(inv.delivery_status, 'secondary') }} py-0" style="font-size: 0.7rem;">
+                                        <span class="badge bg-{{ inv_colors.get(inv.delivery_status, 'secondary') }} py-0" style="font-size: 0.68rem;">
                                             {{ inv.delivery_status or 'PENDING' }}
                                         </span>
                                     </td>
@@ -300,10 +447,10 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                             &euro;{{ "%.2f"|format(inv.received) }}
                                         {% else %}-{% endif %}
                                     </td>
-                                    <td class="text-end text-danger">
+                                    <td class="text-end {% if inv.discrepancy and (inv.discrepancy > 0.001 or inv.discrepancy < -0.001) %}cell-disc{% endif %}">
                                         {% if inv.discrepancy and (inv.discrepancy > 0.001 or inv.discrepancy < -0.001) %}&euro;{{ "%.2f"|format(inv.discrepancy) }}{% else %}-{% endif %}
                                     </td>
-                                    <td class="text-end pe-3 {% if inv.outstanding > 0.001 %}text-danger{% elif inv.outstanding < -0.001 %}text-success{% endif %}">
+                                    <td class="text-end pe-3 {% if inv.outstanding > 0.001 %}cell-outstanding-pos{% elif inv.outstanding < -0.001 %}cell-outstanding-neg{% endif %}">
                                         {% if inv.outstanding > 0.001 or inv.outstanding < -0.001 %}
                                             &euro;{{ "%.2f"|format(inv.outstanding) }}
                                         {% else %}-{% endif %}
@@ -313,17 +460,18 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             </tbody>
                         </table>
                     </div>
-                    <div class="col-6" style="background-color: #f8f9fa;">
-                        {% if exception_lines or (stop_data_match and stop_data_match.discrepancies) %}
-                        <table class="table table-sm table-hover mb-0 small">
-                            <thead style="background-color: #e9ecef;">
+                    {% if has_exceptions %}
+                    <div class="recon-divider"></div>
+                    <div class="flex-grow-1" style="min-width: 45%;">
+                        <table class="table table-sm recon-table">
+                            <thead>
                                 <tr>
-                                    <th class="ps-2">Type</th>
+                                    <th class="ps-3">Type</th>
                                     <th>Item</th>
                                     <th>Item Name</th>
                                     <th class="text-end">Ordered</th>
                                     <th class="text-end">Not Del.</th>
-                                    <th class="text-end pe-2">Amount</th>
+                                    <th class="text-end pe-3">Amount</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -336,38 +484,37 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 {% for line in exception_lines %}
                                 {% if line.item_code not in disc_item_codes %}
                                 <tr>
-                                    <td class="ps-2"><span class="badge bg-warning text-dark" style="font-size: 0.7rem;">Short</span></td>
+                                    <td class="ps-3"><span class="exc-badge exc-short">Short</span></td>
                                     <td>{{ line.item_code }}</td>
                                     <td>{{ line.invoice.items | selectattr('item_code', 'equalto', line.item_code) | map(attribute='item_name') | first | default('-') }}</td>
                                     <td class="text-end">{{ line.qty_ordered }}</td>
-                                    <td class="text-end text-danger">{{ (line.qty_ordered - line.qty_delivered)|int if line.qty_ordered - line.qty_delivered == (line.qty_ordered - line.qty_delivered)|int else line.qty_ordered - line.qty_delivered }}</td>
-                                    <td class="text-end pe-2">-</td>
+                                    <td class="text-end" style="color: #EF4444;">{{ (line.qty_ordered - line.qty_delivered)|int if line.qty_ordered - line.qty_delivered == (line.qty_ordered - line.qty_delivered)|int else line.qty_ordered - line.qty_delivered }}</td>
+                                    <td class="text-end pe-3">-</td>
                                 </tr>
                                 {% endif %}
                                 {% endfor %}
                                 {% if stop_data_match and stop_data_match.discrepancies %}
                                 {% for disc in stop_data_match.discrepancies %}
                                 <tr>
-                                    <td class="ps-2">
-                                        {% set type_colors = {'short': 'warning', 'rejected': 'danger', 'broken': 'danger', 'missing': 'secondary', 'wrong_item': 'info'} %}
-                                        <span class="badge bg-{{ type_colors.get(disc.discrepancy_type|lower, 'danger') }} {% if disc.discrepancy_type|lower == 'short' or disc.discrepancy_type|lower == 'wrong_item' %}text-dark{% endif %}" style="font-size: 0.7rem;">{{ disc.discrepancy_type }}</span>
+                                    <td class="ps-3">
+                                        {% set exc_class = {'short': 'exc-short', 'rejected': 'exc-rejected', 'broken': 'exc-broken', 'missing': 'exc-missing', 'wrong_item': 'exc-wrong_item'} %}
+                                        <span class="exc-badge {{ exc_class.get(disc.discrepancy_type|lower, 'exc-default') }}">{{ disc.discrepancy_type }}</span>
                                     </td>
                                     <td>{{ disc.item_code_expected }}</td>
                                     <td>{{ disc.item_name or '-' }}</td>
                                     <td class="text-end">{{ disc.qty_expected }}</td>
-                                    <td class="text-end text-danger">{{ disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected }}</td>
-                                    <td class="text-end pe-2">
-                                        {% if disc.reported_value %}&euro;{{ "%.2f"|format(disc.reported_value|float) }}{% else %}-{% endif %}
+                                    <td class="text-end" style="color: #EF4444;">{{ disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected }}</td>
+                                    <td class="text-end pe-3">
+                                        {% if disc.reported_value %}<span class="cell-disc" style="padding: 1px 5px;">&euro;{{ "%.2f"|format(disc.reported_value|float) }}</span>{% else %}-{% endif %}
                                     </td>
                                 </tr>
                                 {% endfor %}
                                 {% endif %}
                             </tbody>
                         </table>
-                        {% else %}
-                        <div class="p-2 text-muted small fst-italic">No exceptions recorded</div>
-                        {% endif %}
                     </div>
+                    {% endif %}
+                </div>
                 </div>
             </div>
             {% set ns.grand_expected = ns.grand_expected + stop_recon.stop_expected %}
@@ -377,31 +524,30 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             {% endfor %}
 
             <!-- Grand Totals Footer -->
-            <div class="bg-dark text-white px-3 py-3 d-flex justify-content-end gap-4">
-                <div class="text-end">
-                    <span class="text-white-50 d-block" style="font-size: 0.75rem;">TOTAL</span>
-                    <span class="fw-bold fs-5">&euro;{{ "%.2f"|format(ns.grand_expected) }}</span>
-                </div>
-                <div class="text-end">
-                    <span class="text-white-50 d-block" style="font-size: 0.75rem;">RETURNS</span>
-                    <span class="fw-bold fs-5 {% if ns.grand_disc > 0.001 %}text-warning{% endif %}">&euro;{{ "%.2f"|format(ns.grand_disc) }}</span>
-                </div>
-                <div class="text-end">
-                    <span class="text-white-50 d-block" style="font-size: 0.75rem;">RECEIVED</span>
-                    <span class="fw-bold fs-5 text-success">&euro;{{ "%.2f"|format(ns.grand_received) }}</span>
-                </div>
-                <div class="text-end">
-                    <span class="text-white-50 d-block" style="font-size: 0.75rem;">METHOD</span>
-                    <span class="fw-bold fs-5">&nbsp;</span>
-                </div>
-                <div class="text-end">
-                    <span class="text-white-50 d-block" style="font-size: 0.75rem;">OUTSTANDING</span>
-                    <span class="fw-bold fs-5 {% if ns.grand_outstanding > 0.001 %}text-danger{% elif ns.grand_outstanding < -0.001 %}text-success{% endif %}">
-                        &euro;{{ "%.2f"|format(ns.grand_outstanding) }}
-                    </span>
+            <div class="recon-grand-footer" style="background: #1E293B; border: 1px solid #334155;">
+                <div class="px-4 py-3 d-flex justify-content-end gap-2">
+                    <div class="recon-kpi-pill kpi-total">
+                        <span class="kpi-label">Total</span>
+                        <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_expected) }}</span>
+                    </div>
+                    <div class="recon-kpi-pill kpi-returns">
+                        <span class="kpi-label">Returns</span>
+                        <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_disc) }}</span>
+                    </div>
+                    <div class="recon-kpi-pill kpi-received">
+                        <span class="kpi-label">Received</span>
+                        <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_received) }}</span>
+                    </div>
+                    <div class="recon-kpi-pill kpi-method-default">
+                        <span class="kpi-label">Method</span>
+                        <span class="kpi-value" style="font-size: 0.85rem;">&nbsp;</span>
+                    </div>
+                    <div class="recon-kpi-pill {% if ns.grand_outstanding > 0.001 %}kpi-outstanding-red{% elif ns.grand_outstanding < -0.001 %}kpi-outstanding-green{% else %}kpi-outstanding-neutral{% endif %}">
+                        <span class="kpi-label">Outstanding</span>
+                        <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_outstanding) }}</span>
+                    </div>
                 </div>
             </div>
-        </div>
     </div>
 </div>
 
