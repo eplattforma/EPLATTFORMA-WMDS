@@ -1645,6 +1645,48 @@ def update_cod_amount(receipt_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@bp.route("/<int:shipment_id>/reconciliation/print")
+@login_required
+@admin_required
+def reconciliation_print(shipment_id):
+    """Printable route reconciliation summary"""
+    from models import DeliveryEvent, DeliveryLine, CODReceipt, PODRecord, DeliveryDiscrepancy, ReceiptLog, Invoice
+    from app import db
+    
+    route = Shipment.query.get_or_404(shipment_id)
+    
+    stops = RouteStop.query.filter_by(shipment_id=shipment_id).order_by(RouteStop.seq_no).all()
+    
+    stops_data = []
+    for stop in stops:
+        stop_invoices = db.session.query(Invoice).join(
+            RouteStopInvoice, Invoice.invoice_no == RouteStopInvoice.invoice_no
+        ).filter(RouteStopInvoice.route_stop_id == stop.route_stop_id).all()
+        
+        delivery_lines = DeliveryLine.query.filter_by(route_stop_id=stop.route_stop_id).all()
+        
+        invoice_nos = [inv.invoice_no for inv in stop_invoices]
+        discrepancies = DeliveryDiscrepancy.query.filter(
+            DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
+        ).all() if invoice_nos else []
+        
+        stops_data.append({
+            'stop': stop,
+            'invoices': stop_invoices,
+            'delivery_lines': delivery_lines,
+            'discrepancies': discrepancies
+        })
+    
+    import services_reconciliation as recon
+    invoice_report = recon.get_invoice_reconciliation_report(shipment_id) or []
+    
+    return render_template('route_reconciliation_print.html',
+                         route=route,
+                         stops_data=stops_data,
+                         invoice_report=invoice_report,
+                         now=datetime.now())
+
+
 @bp.route("/<int:shipment_id>/reconciliation/export.xlsx")
 @login_required
 @admin_required
