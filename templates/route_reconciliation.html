@@ -493,7 +493,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                     <td>{{ line.item_code }}</td>
                                     <td>{{ line.invoice.items | selectattr('item_code', 'equalto', line.item_code) | map(attribute='item_name') | first | default('-') }}</td>
                                     <td class="text-end">{{ line.qty_ordered }}</td>
-                                    <td class="text-end" style="color: #EF4444;">{{ (line.qty_ordered - line.qty_delivered)|int if line.qty_ordered - line.qty_delivered == (line.qty_ordered - line.qty_delivered)|int else line.qty_ordered - line.qty_delivered }}</td>
+                                    <td class="text-end" style="color: #EF4444;">{{ "%.0f"|format(line.qty_ordered - line.qty_delivered) if (line.qty_ordered - line.qty_delivered) % 1 == 0 else "%.1f"|format(line.qty_ordered - line.qty_delivered) }}</td>
                                     <td class="text-end pe-3">-</td>
                                 </tr>
                                 {% endif %}
@@ -508,7 +508,10 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                     <td>{{ disc.item_code_expected }}</td>
                                     <td>{{ disc.item_name or '-' }}</td>
                                     <td class="text-end">{{ disc.qty_expected }}</td>
-                                    <td class="text-end" style="color: #EF4444;">{{ disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected }}</td>
+                                    <td class="text-end" style="color: #EF4444;">
+                                        {% set nd_qty = disc.qty_expected - (disc.qty_actual or 0) if disc.qty_actual is not none else disc.qty_expected %}
+                                        {{ "%.0f"|format(nd_qty) if nd_qty % 1 == 0 else "%.1f"|format(nd_qty) }}
+                                    </td>
                                     <td class="text-end pe-3">
                                         {% if disc.reported_value %}<span class="cell-disc" style="padding: 1px 5px;">&euro;{{ "%.2f"|format(disc.reported_value|float) }}</span>{% else %}-{% endif %}
                                     </td>
