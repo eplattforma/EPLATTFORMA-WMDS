@@ -368,6 +368,9 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <input type="checkbox" class="stop-check" 
                                    data-stop-id="{{ stop_recon.stop_seq }}" 
                                    data-expected="{{ stop_recon.stop_expected }}"
+                                   data-returns="{{ stop_recon.stop_discrepancy }}"
+                                   data-received="{{ stop_recon.stop_received }}"
+                                   data-outstanding="{{ stop_recon.stop_outstanding }}"
                                    style="width: 20px; height: 20px; cursor: pointer; accent-color: #22C55E;">
                         </div>
                         <div class="d-flex gap-2 ms-auto">
@@ -556,10 +559,6 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <span class="kpi-label">Received</span>
                         <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_received) }}</span>
                     </div>
-                    <div class="recon-kpi-pill reconciled-pill" style="background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80; display: none !important;">
-                        <span class="kpi-label" style="color: #4ADE80;">Reconciled</span>
-                        <span class="kpi-value" id="reconciled-total">&euro;0.00</span>
-                    </div>
                     <div class="recon-kpi-pill kpi-method-default">
                         <span class="kpi-label">Method</span>
                         <span class="kpi-value" style="font-size: 0.85rem;">&nbsp;</span>
@@ -569,6 +568,30 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_outstanding) }}</span>
                     </div>
                 </div>
+                
+                <!-- Reconciled Row (Selection Totals) -->
+                <div id="reconciled-row" class="px-4 py-2 d-flex justify-content-end gap-2" style="background: rgba(34,197,94,0.05); border-top: 1px solid rgba(34,197,94,0.2); display: none !important;">
+                    <div class="recon-kpi-pill" style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); color: #4ADE80;">
+                        <span class="kpi-label" style="color: #4ADE80;">Rec. Total</span>
+                        <span class="kpi-value" id="rec-total-val">&euro;0.00</span>
+                    </div>
+                    <div class="recon-kpi-pill" style="background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); color: #F59E0B;">
+                        <span class="kpi-label" style="color: #F59E0B;">Rec. Returns</span>
+                        <span class="kpi-value" id="rec-returns-val">&euro;0.00</span>
+                    </div>
+                    <div class="recon-kpi-pill" style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); color: #22C55E;">
+                        <span class="kpi-label" style="color: #22C55E;">Rec. Received</span>
+                        <span class="kpi-value" id="rec-received-val">&euro;0.00</span>
+                    </div>
+                    <div class="recon-kpi-pill" style="background: rgba(148,163,184,0.05); border: 1px solid rgba(148,163,184,0.1); color: #94A3B8;">
+                        <span class="kpi-label" style="color: #94A3B8;">Method</span>
+                        <span class="kpi-value" style="font-size: 0.85rem;">&nbsp;</span>
+                    </div>
+                    <div class="recon-kpi-pill" id="rec-outstanding-pill" style="background: rgba(148,163,184,0.05); border: 1px solid rgba(148,163,184,0.1); color: #94A3B8;">
+                        <span class="kpi-label">Rec. Outstand.</span>
+                        <span class="kpi-value" id="rec-outstanding-val">&euro;0.00</span>
+                    </div>
+                </div>
             </div>
     </div>
 </div>
@@ -576,29 +599,62 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const checkboxes = document.querySelectorAll('.stop-check');
-    const reconciledDisplay = document.getElementById('reconciled-total');
+    const recRow = document.getElementById('reconciled-row');
+    const recTotalVal = document.getElementById('rec-total-val');
+    const recReturnsVal = document.getElementById('rec-returns-val');
+    const recReceivedVal = document.getElementById('rec-received-val');
+    const recOutstandingVal = document.getElementById('rec-outstanding-val');
+    const recOutstandingPill = document.getElementById('rec-outstanding-pill');
 
-    function updateReconciledTotal() {
+    function formatEuro(val) {
+        return '€' + val.toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function updateReconciledTotals() {
         let total = 0;
+        let returns = 0;
+        let received = 0;
+        let outstanding = 0;
         let checkedCount = 0;
+
         checkboxes.forEach(cb => {
             if (cb.checked) {
                 total += parseFloat(cb.getAttribute('data-expected')) || 0;
+                returns += parseFloat(cb.getAttribute('data-returns')) || 0;
+                received += parseFloat(cb.getAttribute('data-received')) || 0;
+                outstanding += parseFloat(cb.getAttribute('data-outstanding')) || 0;
                 checkedCount++;
             }
         });
-        reconciledDisplay.textContent = '€' + total.toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        
-        const pill = document.querySelector('.reconciled-pill');
+
         if (checkedCount > 0) {
-            pill.setAttribute('style', 'background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80; display: inline-flex !important;');
+            recRow.setAttribute('style', 'background: rgba(34,197,94,0.05); border-top: 1px solid rgba(34,197,94,0.2); display: flex !important;');
+            recTotalVal.textContent = formatEuro(total);
+            recReturnsVal.textContent = formatEuro(returns);
+            recReceivedVal.textContent = formatEuro(received);
+            recOutstandingVal.textContent = formatEuro(outstanding);
+
+            // Dynamic color for outstanding
+            if (outstanding > 0.001) {
+                recOutstandingPill.style.background = 'rgba(239,68,68,0.1)';
+                recOutstandingPill.style.color = '#EF4444';
+                recOutstandingPill.style.border = '1px solid rgba(239,68,68,0.2)';
+            } else if (outstanding < -0.001) {
+                recOutstandingPill.style.background = 'rgba(34,197,94,0.1)';
+                recOutstandingPill.style.color = '#22C55E';
+                recOutstandingPill.style.border = '1px solid rgba(34,197,94,0.2)';
+            } else {
+                recOutstandingPill.style.background = 'rgba(148,163,184,0.05)';
+                recOutstandingPill.style.color = '#94A3B8';
+                recOutstandingPill.style.border = '1px solid rgba(148,163,184,0.1)';
+            }
         } else {
-            pill.setAttribute('style', 'background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80; display: none !important;');
+            recRow.setAttribute('style', 'display: none !important;');
         }
     }
 
     checkboxes.forEach(cb => {
-        cb.addEventListener('change', updateReconciledTotal);
+        cb.addEventListener('change', updateReconciledTotals);
     });
 });
 </script>
