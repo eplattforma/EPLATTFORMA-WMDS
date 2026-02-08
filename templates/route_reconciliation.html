@@ -209,7 +209,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <div class="d-flex align-items-center gap-3">
                                 <span class="badge bg-secondary fs-4 px-3 py-2">{{ stop_recon.stop_seq }}</span>
                                 <div>
-                                    <h5 class="mb-0 fw-bold">{{ stop_recon.customer_name }}</h5>
+                                    <h5 class="mb-0 fw-bold" style="color: #000 !important;">{{ stop_recon.customer_name }}</h5>
                                     <div class="d-flex gap-2 mt-1">
                                         <span class="badge {% if stop_recon.terms == 'CREDIT' %}bg-info text-dark{% else %}bg-primary{% endif %} px-2">
                                             {{ stop_recon.terms }}
@@ -225,7 +225,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                             <div class="row g-0 text-center">
                                 <div class="col border-end">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Expected</small>
-                                    <span class="fw-bold fs-5">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
+                                    <span class="fw-bold fs-5" style="color: #000 !important;">&euro;{{ "%.2f"|format(stop_recon.stop_expected) }}</span>
                                 </div>
                                 <div class="col border-end">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Received</small>
@@ -233,15 +233,15 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 </div>
                                 <div class="col border-end">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Payment Type</small>
-                                    <span class="fw-bold">{{ stop_recon.payment_type }}</span>
+                                    <span class="fw-bold" style="color: #000 !important;">{{ stop_recon.payment_type }}</span>
                                 </div>
                                 <div class="col border-end">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Discrepancy</small>
-                                    <span class="fw-bold fs-5 {% if stop_recon.stop_discrepancy > 0.001 %}text-danger{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
+                                    <span class="fw-bold fs-5 {% if stop_recon.stop_discrepancy > 0.001 %}text-danger{% endif %}" style="{% if stop_recon.stop_discrepancy <= 0.001 %}color: #000 !important;{% endif %}">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
                                 </div>
                                 <div class="col">
                                     <small class="d-block text-uppercase fw-bold" style="font-size: 0.7rem; color: #000 !important;">Outstanding</small>
-                                    <span class="fw-bold fs-5 {% if stop_recon.stop_outstanding > 0.001 %}text-danger{% elif stop_recon.stop_outstanding < -0.001 %}text-success{% endif %}">
+                                    <span class="fw-bold fs-5 {% if stop_recon.stop_outstanding > 0.001 %}text-danger{% elif stop_recon.stop_outstanding < -0.001 %}text-success{% endif %}" style="{% if stop_recon.stop_outstanding >= -0.001 and stop_recon.stop_outstanding <= 0.001 %}color: #000 !important;{% endif %}">
                                         &euro;{{ "%.2f"|format(stop_recon.stop_outstanding) }}
                                     </span>
                                 </div>
