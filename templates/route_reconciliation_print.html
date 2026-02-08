@@ -205,7 +205,7 @@
                         {% if inv.delivery_status == 'FAILED' %}<span class="badge-failed">FAILED</span>{% endif %}
                     {% endfor %}
                 </td>
-                <td>{% set all_credit = stop_recon.invoices | selectattr('is_credit') | list | length == stop_recon.invoices | length %}{{ 'CREDIT' if all_credit else 'COD' }}</td>
+                <td>{{ stop_recon.terms or 'COD' }}</td>
                 <td>{{ stop_recon.payment_type or '-' }}</td>
                 <td class="text-end">{{ "%.2f"|format(stop_recon.stop_expected) }}</td>
                 <td class="text-end">{% if stop_recon.stop_received > 0.001 or stop_recon.stop_received < -0.001 %}{{ "%.2f"|format(stop_recon.stop_received) }}{% else %}-{% endif %}</td>
