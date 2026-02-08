@@ -556,7 +556,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <span class="kpi-label">Received</span>
                         <span class="kpi-value">&euro;{{ "%.2f"|format(ns.grand_received) }}</span>
                     </div>
-                    <div class="recon-kpi-pill" style="background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80;">
+                    <div class="recon-kpi-pill reconciled-pill" style="background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80; display: none !important;">
                         <span class="kpi-label" style="color: #4ADE80;">Reconciled</span>
                         <span class="kpi-value" id="reconciled-total">&euro;0.00</span>
                     </div>
@@ -580,12 +580,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateReconciledTotal() {
         let total = 0;
+        let checkedCount = 0;
         checkboxes.forEach(cb => {
             if (cb.checked) {
                 total += parseFloat(cb.getAttribute('data-expected')) || 0;
+                checkedCount++;
             }
         });
         reconciledDisplay.textContent = '€' + total.toLocaleString('en-IE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        
+        const pill = document.querySelector('.reconciled-pill');
+        if (checkedCount > 0) {
+            pill.setAttribute('style', 'background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80; display: inline-flex !important;');
+        } else {
+            pill.setAttribute('style', 'background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ADE80; display: none !important;');
+        }
     }
 
     checkboxes.forEach(cb => {
