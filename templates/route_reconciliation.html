@@ -412,7 +412,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <span class="kpi-value">-</span>
                                 {% endif %}
                             </div>
-                            <div class="recon-kpi-pill kpi-returns">
+                            <div class="recon-kpi-pill {% if has_returns %}kpi-returns{% endif %}">
                                 <span class="kpi-label">Returns</span>
                                 {% if has_returns %}
                                 <span class="kpi-value">&euro;{{ "%.2f"|format(stop_recon.stop_discrepancy) }}</span>
@@ -420,7 +420,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <span class="kpi-value">-</span>
                                 {% endif %}
                             </div>
-                            <div class="recon-kpi-pill kpi-received">
+                            <div class="recon-kpi-pill {% if stop_recon.stop_received > 0.001 or stop_recon.stop_received < -0.001 %}kpi-received{% endif %}">
                                 <span class="kpi-label">Received</span>
                                 {% if stop_recon.stop_received > 0.001 or stop_recon.stop_received < -0.001 %}
                                 <span class="kpi-value">&euro;{{ "%.2f"|format(stop_recon.stop_received) }}</span>
@@ -428,7 +428,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <span class="kpi-value">-</span>
                                 {% endif %}
                             </div>
-                            <div class="recon-kpi-pill {% if stop_recon.payment_type == 'CASH' %}kpi-method-cash{% elif stop_recon.payment_type == 'ONLINE' %}kpi-method-online{% else %}kpi-method-default{% endif %}">
+                            <div class="recon-kpi-pill {% if stop_recon.payment_type and stop_recon.payment_type != '-' %}{% if stop_recon.payment_type == 'CASH' %}kpi-method-cash{% elif stop_recon.payment_type == 'ONLINE' %}kpi-method-online{% else %}kpi-method-default{% endif %}{% endif %}">
                                 <span class="kpi-label">Method</span>
                                 <span class="kpi-value" style="font-size: 0.85rem;">{{ stop_recon.payment_type }}</span>
                             </div>
