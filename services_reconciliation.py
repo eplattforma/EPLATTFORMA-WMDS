@@ -865,9 +865,14 @@ def build_route_reconciliation(shipment_id: int) -> Dict:
             ON rsi.route_stop_id = rs.route_stop_id 
             AND rsi.is_active = true
         JOIN invoices i ON i.invoice_no = rsi.invoice_no
-        LEFT JOIN credit_terms ct 
-            ON ct.customer_code = i.customer_code_365
-            AND ct.valid_to IS NULL
+        LEFT JOIN LATERAL (
+            SELECT is_credit, terms_code
+            FROM credit_terms ct
+            WHERE ct.customer_code = i.customer_code_365
+              AND ct.valid_to IS NULL
+            ORDER BY ct.id DESC
+            LIMIT 1
+        ) ct ON true
         WHERE rs.shipment_id = :shipment_id
           AND rs.deleted_at IS NULL
         ORDER BY rs.seq_no, rsi.invoice_no
