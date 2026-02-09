@@ -1,0 +1,84 @@
+026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+2026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+2026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/templates/po_receiving/receive.html", line 898, in block 'content'
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1121, in url_for
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^
+2026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/jinja2/environment.py", line 1295, in render
+2026-02-09 09:03:23.07
+ba13f654
+User
+self.environment.handle_exception()
+2026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/templating.py", line 150, in render_template
+2026-02-09 09:03:23.07
+ba13f654
+User
+raise BuildError(endpoint, values, method, self)
+2026-02-09 09:03:23.07
+ba13f654
+User
+rv = template.render(context)
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 09:03:23.07
+ba13f654
+User
+rv = url_adapter.build( # type: ignore[union-attr]
+2026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/templating.py", line 131, in _render
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 09:03:23.07
+ba13f654
+User
+{% block content %}{% endblock %}
+2026-02-09 09:03:23.07
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/jinja2/environment.py", line 942, in handle_exception
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 09:03:23.07
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^
