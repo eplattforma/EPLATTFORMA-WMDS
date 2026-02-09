@@ -78,10 +78,27 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         FROM route_stop_invoice rsi
         JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
         JOIN invoices i ON i.invoice_no = rsi.invoice_no
-        LEFT JOIN credit_terms ct ON ct.customer_code = i.customer_code 
-            AND (ct.valid_to IS NULL OR ct.valid_to >= CURRENT_DATE)
-        LEFT JOIN cod_invoice_allocations ca 
-            ON ca.invoice_no = rsi.invoice_no AND ca.route_id = rs.shipment_id
+        LEFT JOIN LATERAL (
+            SELECT ct2.is_credit, ct2.terms_code
+            FROM credit_terms ct2
+            WHERE ct2.customer_code = i.customer_code
+              AND (ct2.valid_to IS NULL OR ct2.valid_to >= CURRENT_DATE)
+            ORDER BY ct2.id DESC
+            LIMIT 1
+        ) ct ON true
+        LEFT JOIN LATERAL (
+            SELECT 
+                ca2.payment_method,
+                SUM(ca2.received_amount) AS received_amount,
+                SUM(ca2.deduct_amount) AS deduct_amount,
+                MAX(ca2.cheque_date) AS cheque_date,
+                BOOL_OR(ca2.is_pending) AS is_pending
+            FROM cod_invoice_allocations ca2
+            WHERE ca2.invoice_no = rsi.invoice_no 
+              AND ca2.route_id = rs.shipment_id
+            GROUP BY ca2.payment_method
+            LIMIT 1
+        ) ca ON true
         LEFT JOIN (
             SELECT invoice_no, SUM(COALESCE(reported_value, 0)) AS discrepancy_total
             FROM delivery_discrepancies
