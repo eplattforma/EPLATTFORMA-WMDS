@@ -51,6 +51,7 @@ Preferred communication style: Simple, everyday language.
 - **Data Integrity & Soft Delete System**: Implements soft deletes and status changes for critical entities with financial, audit, or proof-of-delivery dependencies to prevent hard deletion and maintain data consistency. Uses SQLAlchemy event listeners (`SoftDeleteMixin`, `ActivatableMixin`) to enforce policies.
 - **Find Invoice/Route**: Advanced search interface with comprehensive filters, detailed invoice view including line items, payment records (COD), proof of delivery (POD), routing history, and delivery discrepancies. Supports compact A4 printing for all invoice details.
 - **Customer Synchronization**: Dedicated screen under Operations menu for syncing customers from PS365 with bulk operations and automatic payment terms creation.
+- **Customer 360 Analytics**: Interactive analytics dashboard at `/analytics/customers/` with customer search, configurable date ranges (presets: Last 30/90, MTD, QTD, YTD, custom), period comparison (Previous Period, Prior Year). Features: KPI summary (sales, invoices, avg invoice, qty, distinct items), top items by sales/qty, invoice history with pagination, Item-RFM stale items analysis, monthly trend chart (Chart.js). Data sourced from `dw_invoice_header` + `dw_invoice_line` + `ps_items_dw` + `ps_customers`. Access: admin, warehouse_manager.
 
 ## External Dependencies
 
