@@ -1,0 +1,156 @@
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+rv = self.dispatch_request()
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+rv = self.handle_user_exception(e)
+2026-02-09 08:50:19.05
+ba13f654
+User
+return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args) # type: ignore[no-any-return]
+2026-02-09 08:50:19.05
+ba13f654
+User
+rv = template.render(context)
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/templating.py", line 150, in render_template
+2026-02-09 08:50:19.05
+ba13f654
+User
+Traceback (most recent call last):
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/templates/po_receiving/receive.html", line 898, in block 'content'
+2026-02-09 08:50:19.05
+ba13f654
+User
+raise rewrite_traceback_stack(source=source)
+2026-02-09 08:50:19.05
+ba13f654
+User
+werkzeug.routing.exceptions.BuildError: Could not build url for endpoint 'po_receiving.api_reset_receiving_line' with values ['line_id']. Did you mean 'po_receiving.api_reset_lot' instead?
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+{% block content %}{% endblock %}
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/werkzeug/routing/map.py", line 924, in build
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+2026-02-09 08:50:19.05
+ba13f654
+User
+ERROR:app:Exception on /po-receiving/receive/282 [GET]
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1121, in url_for
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/templating.py", line 131, in _render
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/jinja2/environment.py", line 1295, in render
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/templates/po_receiving/receive.html", line 1, in top-level template code
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+{% extends "base.html" %}
+2026-02-09 08:50:19.05
+ba13f654
+User
+raise BuildError(endpoint, values, method, self)
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/templates/base.html", line 292, in top-level template code
+2026-02-09 08:50:19.05
+ba13f654
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/routes_po_receiving.py", line 659, in receive
+2026-02-09 08:50:19.05
+ba13f654
+User
+self.environment.handle_exception()
+2026-02-09 08:50:19.05
+ba13f654
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+2026-02-09 08:50:19.05
+ba13f654
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1110, in url_for
+2026-02-09 08:50:19.05
+ba13f654
+User
+const resp = await fetch(`{{ url_for('po_receiving.api_reset_receiving_line', line_id=0) }}`.replace('/0', `/${lotId}`), {

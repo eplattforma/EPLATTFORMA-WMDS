@@ -895,7 +895,7 @@ async function resetLot(lotId) {
     }
     
     try {
-        const resp = await fetch(`{{ url_for('po_receiving.api_reset_receiving_line', line_id=0) }}`.replace('/0', `/${lotId}`), {
+        const resp = await fetch(`{{ url_for('po_receiving.api_reset_lot', line_id=0) }}`.replace('/0', `/${lotId}`), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'}
         });
