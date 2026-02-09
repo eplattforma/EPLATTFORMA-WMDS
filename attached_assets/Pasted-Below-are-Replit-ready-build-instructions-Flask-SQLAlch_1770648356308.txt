@@ -1,0 +1,800 @@
+Below are Replit-ready build instructions (Flask + SQLAlchemy) to implement the Customer 360 analytics screen using only dw_* sales data + ps_customers + ps_items, including PY / Previous-period comparison and Item-RFM (stale items).
+
+0) DB prerequisites (do this first)
+A) Decide the DW “sales lines” source
+
+This implementation assumes you have one DW table/view that represents sales lines with (at minimum):
+
+customer_code_365
+
+invoice_no_365
+
+invoice_date (DATE or TIMESTAMP)
+
+item_code_365
+
+quantity
+
+line_total_excl (or computable from fields you have)
+
+If your table name differs, we’ll make it configurable via env var:
+
+DW_SALES_LINE_TABLE (default: dw_transactions)
+
+B) Add indexes (Postgres) for speed
+
+Run these once in your DB (adjust table name if needed):
+
+-- Replace dw_transactions with your real DW sales line table/view materialization table.
+CREATE INDEX IF NOT EXISTS ix_dwtrx_customer_date
+ON dw_transactions (customer_code_365, invoice_date);
+
+CREATE INDEX IF NOT EXISTS ix_dwtrx_customer_item_date
+ON dw_transactions (customer_code_365, item_code_365, invoice_date);
+
+CREATE INDEX IF NOT EXISTS ix_dwtrx_customer_invoice
+ON dw_transactions (customer_code_365, invoice_no_365);
+
+
+If invoice_date is TIMESTAMP, still fine.
+
+1) Create a new blueprint: blueprints/customer_analytics.py
+
+Create file: blueprints/customer_analytics.py
+
+import os
+from datetime import date, datetime, timedelta
+from flask import Blueprint, request, jsonify, render_template
+from flask_login import login_required, current_user
+from sqlalchemy import text
+from app import db
+
+bp = Blueprint("customer_analytics", __name__, url_prefix="/analytics/customers")
+
+DW_SALES_LINE_TABLE = os.getenv("DW_SALES_LINE_TABLE", "dw_transactions")
+
+# ---- Helpers ---------------------------------------------------------------
+
+def _parse_date(v: str) -> date | None:
+    if not v:
+        return None
+    # expects YYYY-MM-DD
+    return datetime.strptime(v, "%Y-%m-%d").date()
+
+def _safe_shift_year(d: date, years: int) -> date:
+    # handle Feb 29 -> Feb 28 in non-leap years
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        # fallback for Feb 29
+        return d.replace(month=2, day=28, year=d.year + years)
+
+def _resolve_range(args) -> tuple[date, date]:
+    """
+    Priority:
+      1) preset=last90|mtd|qtd|ytd|last30
+      2) from=YYYY-MM-DD & to=YYYY-MM-DD
+    Defaults to last90.
+    """
+    preset = (args.get("preset") or "").lower().strip()
+    today = date.today()
+
+    if preset == "last30":
+        return today - timedelta(days=29), today
+    if preset == "mtd":
+        start = today.replace(day=1)
+        return start, today
+    if preset == "qtd":
+        q = (today.month - 1) // 3 + 1
+        start_month = 1 + (q - 1) * 3
+        start = date(today.year, start_month, 1)
+        return start, today
+    if preset == "ytd":
+        start = date(today.year, 1, 1)
+        return start, today
+    if preset == "last90" or preset == "":
+        return today - timedelta(days=89), today
+
+    # custom
+    d_from = _parse_date(args.get("from"))
+    d_to = _parse_date(args.get("to"))
+    if not d_from or not d_to:
+        # fallback if invalid
+        return today - timedelta(days=89), today
+    if d_to < d_from:
+        d_from, d_to = d_to, d_from
+    return d_from, d_to
+
+def _compare_range(d_from: date, d_to: date, mode: str) -> tuple[date, date] | None:
+    """
+    mode:
+      - prev: previous period of same length immediately preceding d_from
+      - py: same dates one year earlier
+    """
+    mode = (mode or "").lower().strip()
+    if mode not in ("prev", "py"):
+        return None
+
+    if mode == "py":
+        return _safe_shift_year(d_from, -1), _safe_shift_year(d_to, -1)
+
+    # prev
+    length = (d_to - d_from).days + 1
+    prev_end = d_from - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=length - 1)
+    return prev_start, prev_end
+
+def _role_ok() -> bool:
+    # adjust roles to your system
+    r = getattr(current_user, "role", None)
+    return r in ("admin", "warehouse_manager", "manager", "accounting")
+
+# ---- UI --------------------------------------------------------------------
+
+@bp.route("/")
+@login_required
+def customer_analytics_home():
+    if not _role_ok():
+        return render_template("403.html"), 403
+    return render_template("customer_analytics/customer_360.html")
+
+# ---- APIs ------------------------------------------------------------------
+
+@bp.route("/api/search")
+@login_required
+def api_search_customers():
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"items": []})
+
+    # Search both code and name
+    sql = text("""
+        SELECT customer_code_365 AS code,
+               COALESCE(customer_name, customer_name_365, customer_name1, '') AS name
+        FROM ps_customers
+        WHERE customer_code_365 ILIKE :likeq
+           OR COALESCE(customer_name, customer_name_365, customer_name1, '') ILIKE :likeq
+        ORDER BY customer_code_365
+        LIMIT 20
+    """)
+    likeq = f"%{q}%"
+    rows = db.session.execute(sql, {"likeq": likeq}).mappings().all()
+    return jsonify({"items": [dict(r) for r in rows]})
+
+@bp.route("/api/<customer_code>/header")
+@login_required
+def api_customer_header(customer_code):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    sql = text("""
+        SELECT
+            customer_code_365 AS code,
+            COALESCE(customer_name, customer_name_365, customer_name1, '') AS name,
+            vat_no,
+            email,
+            phone,
+            address1,
+            address2,
+            city,
+            postcode,
+            country
+        FROM ps_customers
+        WHERE customer_code_365 = :code
+        LIMIT 1
+    """)
+    row = db.session.execute(sql, {"code": customer_code}).mappings().first()
+    if not row:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"customer": dict(row)})
+
+@bp.route("/api/<customer_code>/summary")
+@login_required
+def api_customer_summary(customer_code):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    d_from, d_to = _resolve_range(request.args)
+    compare = (request.args.get("compare") or "").lower().strip()  # prev|py|empty
+    cmp_range = _compare_range(d_from, d_to, compare)
+
+    # IMPORTANT: Adjust column names here if your DW differs.
+    # We use line_total_excl and invoice_date.
+    base_sql = f"""
+        SELECT
+            COALESCE(SUM(line_total_excl), 0) AS sales_excl,
+            COALESCE(SUM(quantity), 0) AS qty,
+            COUNT(DISTINCT invoice_no_365) AS invoices,
+            COUNT(DISTINCT item_code_365) AS distinct_items
+        FROM {DW_SALES_LINE_TABLE}
+        WHERE customer_code_365 = :code
+          AND invoice_date >= :d_from
+          AND invoice_date <= :d_to
+    """
+
+    cur = db.session.execute(
+        text(base_sql),
+        {"code": customer_code, "d_from": d_from, "d_to": d_to}
+    ).mappings().first()
+
+    cur_sales = float(cur["sales_excl"] or 0)
+    cur_invoices = int(cur["invoices"] or 0)
+    avg_invoice = (cur_sales / cur_invoices) if cur_invoices else 0.0
+
+    payload = {
+        "range": {"from": str(d_from), "to": str(d_to)},
+        "current": {
+            "sales_excl": cur_sales,
+            "qty": float(cur["qty"] or 0),
+            "invoices": cur_invoices,
+            "distinct_items": int(cur["distinct_items"] or 0),
+            "avg_invoice": avg_invoice,
+        },
+        "compare_mode": compare if cmp_range else None,
+        "compare": None,
+        "delta": None
+    }
+
+    if cmp_range:
+        c_from, c_to = cmp_range
+        prev = db.session.execute(
+            text(base_sql),
+            {"code": customer_code, "d_from": c_from, "d_to": c_to}
+        ).mappings().first()
+
+        prev_sales = float(prev["sales_excl"] or 0)
+        prev_invoices = int(prev["invoices"] or 0)
+        prev_avg_invoice = (prev_sales / prev_invoices) if prev_invoices else 0.0
+
+        payload["compare"] = {
+            "range": {"from": str(c_from), "to": str(c_to)},
+            "sales_excl": prev_sales,
+            "qty": float(prev["qty"] or 0),
+            "invoices": prev_invoices,
+            "distinct_items": int(prev["distinct_items"] or 0),
+            "avg_invoice": prev_avg_invoice,
+        }
+
+        def _delta(curv, prevv):
+            dv = curv - prevv
+            pct = (dv / prevv * 100.0) if prevv else None
+            return {"value": dv, "pct": pct}
+
+        payload["delta"] = {
+            "sales_excl": _delta(cur_sales, prev_sales),
+            "invoices": _delta(cur_invoices, prev_invoices),
+            "avg_invoice": _delta(avg_invoice, prev_avg_invoice),
+        }
+
+    return jsonify(payload)
+
+@bp.route("/api/<customer_code>/top-items")
+@login_required
+def api_customer_top_items(customer_code):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    d_from, d_to = _resolve_range(request.args)
+    limit = int(request.args.get("limit") or 20)
+    limit = max(5, min(limit, 200))
+    sort = (request.args.get("sort") or "sales").lower().strip()  # sales|qty
+
+    order_by = "sales_excl DESC" if sort == "sales" else "qty DESC"
+
+    sql = text(f"""
+        SELECT
+            t.item_code_365 AS item_code,
+            COALESCE(i.item_name, i.item_name_365, i.item_description, '') AS item_name,
+            COALESCE(SUM(t.quantity), 0) AS qty,
+            COALESCE(SUM(t.line_total_excl), 0) AS sales_excl,
+            COUNT(DISTINCT t.invoice_no_365) AS invoices
+        FROM {DW_SALES_LINE_TABLE} t
+        LEFT JOIN ps_items i ON i.item_code_365 = t.item_code_365
+        WHERE t.customer_code_365 = :code
+          AND t.invoice_date >= :d_from
+          AND t.invoice_date <= :d_to
+        GROUP BY t.item_code_365, COALESCE(i.item_name, i.item_name_365, i.item_description, '')
+        ORDER BY {order_by}
+        LIMIT :limit
+    """)
+    rows = db.session.execute(sql, {
+        "code": customer_code, "d_from": d_from, "d_to": d_to, "limit": limit
+    }).mappings().all()
+
+    return jsonify({
+        "range": {"from": str(d_from), "to": str(d_to)},
+        "items": [dict(r) for r in rows]
+    })
+
+@bp.route("/api/<customer_code>/invoices")
+@login_required
+def api_customer_invoices(customer_code):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    d_from, d_to = _resolve_range(request.args)
+    page = int(request.args.get("page") or 1)
+    page_size = int(request.args.get("page_size") or 25)
+    page = max(1, page)
+    page_size = max(10, min(page_size, 100))
+    offset = (page - 1) * page_size
+
+    # grouped from sales lines
+    sql = text(f"""
+        SELECT
+            invoice_no_365 AS invoice_no,
+            DATE(invoice_date) AS invoice_date,
+            COALESCE(SUM(line_total_excl), 0) AS sales_excl,
+            COALESCE(SUM(quantity), 0) AS qty,
+            COUNT(DISTINCT item_code_365) AS distinct_items
+        FROM {DW_SALES_LINE_TABLE}
+        WHERE customer_code_365 = :code
+          AND invoice_date >= :d_from
+          AND invoice_date <= :d_to
+        GROUP BY invoice_no_365, DATE(invoice_date)
+        ORDER BY DATE(invoice_date) DESC, invoice_no_365 DESC
+        LIMIT :limit OFFSET :offset
+    """)
+
+    rows = db.session.execute(sql, {
+        "code": customer_code, "d_from": d_from, "d_to": d_to,
+        "limit": page_size, "offset": offset
+    }).mappings().all()
+
+    return jsonify({
+        "range": {"from": str(d_from), "to": str(d_to)},
+        "page": page,
+        "page_size": page_size,
+        "items": [dict(r) for r in rows]
+    })
+
+@bp.route("/api/<customer_code>/item-rfm")
+@login_required
+def api_customer_item_rfm(customer_code):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    lookback_days = int(request.args.get("lookback_days") or 730)  # 2 years default
+    stale_days = int(request.args.get("stale_days") or 90)
+    min_freq = int(request.args.get("min_freq") or 1)
+    stale_only = (request.args.get("stale_only") or "1") == "1"
+
+    today = date.today()
+    d_from = today - timedelta(days=max(30, min(lookback_days, 3650)))
+
+    # Item-RFM per customer:
+    # Recency: days since last purchase
+    # Frequency: distinct invoices
+    # Monetary: sum(line_total_excl)
+    # IMPORTANT: adjust invoice_date/line_total_excl if your DW differs.
+    sql = text(f"""
+        WITH agg AS (
+            SELECT
+                t.item_code_365 AS item_code,
+                MAX(DATE(t.invoice_date)) AS last_purchase_date,
+                COUNT(DISTINCT t.invoice_no_365) AS frequency,
+                COALESCE(SUM(t.line_total_excl), 0) AS monetary
+            FROM {DW_SALES_LINE_TABLE} t
+            WHERE t.customer_code_365 = :code
+              AND t.invoice_date >= :d_from
+              AND t.invoice_date <= :d_to
+            GROUP BY t.item_code_365
+        )
+        SELECT
+            a.item_code,
+            COALESCE(i.item_name, i.item_name_365, i.item_description, '') AS item_name,
+            a.last_purchase_date,
+            (DATE(:d_to) - a.last_purchase_date) AS recency_days,
+            a.frequency,
+            a.monetary
+        FROM agg a
+        LEFT JOIN ps_items i ON i.item_code_365 = a.item_code
+        WHERE a.frequency >= :min_freq
+          AND (:stale_only = 0 OR (DATE(:d_to) - a.last_purchase_date) >= :stale_days)
+        ORDER BY recency_days DESC, monetary DESC
+        LIMIT 500
+    """)
+
+    rows = db.session.execute(sql, {
+        "code": customer_code,
+        "d_from": d_from,
+        "d_to": today,
+        "stale_days": stale_days,
+        "min_freq": min_freq,
+        "stale_only": 1 if stale_only else 0
+    }).mappings().all()
+
+    return jsonify({
+        "lookback_days": lookback_days,
+        "stale_days": stale_days,
+        "min_freq": min_freq,
+        "stale_only": stale_only,
+        "items": [dict(r) for r in rows]
+    })
+
+2) Register the blueprint
+
+Where you register other blueprints (commonly in app.py or routes.py), add:
+
+from blueprints.customer_analytics import bp as customer_analytics_bp
+app.register_blueprint(customer_analytics_bp)
+
+
+(If you use an app factory pattern, register it inside the factory after app creation.)
+
+3) Add the template: templates/customer_analytics/customer_360.html
+
+Create file: templates/customer_analytics/customer_360.html
+
+This is a minimal interactive UI (search, period controls, KPI tiles, tabs). It uses vanilla JS + fetch.
+
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap: 12px; }
+  .kpi { border: 1px solid #ddd; border-radius: 10px; padding: 10px; background: #fff; }
+  .kpi .label { font-size: 12px; color: #666; }
+  .kpi .value { font-size: 20px; font-weight: 700; }
+  .kpi .delta { font-size: 12px; margin-top: 4px; color: #444; }
+  .row-gap { margin-top: 14px; }
+  .tabs { display: flex; gap: 8px; margin-top: 12px; }
+  .tab { padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; background: #fafafa; }
+  .tab.active { background: #fff; border-color: #aaa; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; font-size: 13px; }
+  th { background: #fafafa; }
+  .muted { color: #777; font-size: 12px; }
+  .controls { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .controls .group { display: flex; flex-direction: column; gap: 4px; }
+  input, select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 8px; }
+  button { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; cursor: pointer; background: #fff; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; background: #fff; }
+</style>
+
+<div class="card">
+  <h2 style="margin:0 0 10px 0;">Customer Analytics (Customer 360)</h2>
+
+  <div class="controls">
+    <div class="group">
+      <label>Customer search</label>
+      <input id="custSearch" placeholder="Type code or name..." autocomplete="off" />
+      <div id="custResults" class="muted"></div>
+    </div>
+
+    <div class="group">
+      <label>Preset</label>
+      <select id="preset">
+        <option value="last90">Last 90 days</option>
+        <option value="last30">Last 30 days</option>
+        <option value="mtd">MTD</option>
+        <option value="qtd">QTD</option>
+        <option value="ytd">YTD</option>
+        <option value="">Custom (use From/To)</option>
+      </select>
+    </div>
+
+    <div class="group">
+      <label>From</label>
+      <input id="fromDate" type="date" />
+    </div>
+
+    <div class="group">
+      <label>To</label>
+      <input id="toDate" type="date" />
+    </div>
+
+    <div class="group">
+      <label>Compare</label>
+      <select id="compare">
+        <option value="">None</option>
+        <option value="prev">Previous period</option>
+        <option value="py">PY same period</option>
+      </select>
+    </div>
+
+    <div class="group">
+      <label>&nbsp;</label>
+      <button id="applyBtn">Apply</button>
+    </div>
+  </div>
+
+  <div class="row-gap" id="customerHeader"></div>
+
+  <div class="row-gap kpi-grid" id="kpis"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="topItems">Top Items</div>
+    <div class="tab" data-tab="invoices">Invoices</div>
+    <div class="tab" data-tab="itemRfm">Item-RFM (Stale Items)</div>
+  </div>
+
+  <div class="row-gap" id="tabContent"></div>
+</div>
+
+<script>
+  let selectedCustomerCode = null;
+
+  function money(v) {
+    const n = Number(v || 0);
+    return n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+  function num(v) {
+    const n = Number(v || 0);
+    return n.toLocaleString();
+  }
+  function pct(v) {
+    if (v === null || v === undefined) return "—";
+    return Number(v).toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1}) + "%";
+  }
+
+  function params() {
+    const p = new URLSearchParams();
+    const preset = document.getElementById("preset").value;
+    const from = document.getElementById("fromDate").value;
+    const to = document.getElementById("toDate").value;
+    const compare = document.getElementById("compare").value;
+
+    if (preset) p.set("preset", preset);
+    if (!preset && from) p.set("from", from);
+    if (!preset && to) p.set("to", to);
+    if (compare) p.set("compare", compare);
+    return p.toString();
+  }
+
+  async function searchCustomers(q) {
+    const res = await fetch(`/analytics/customers/api/search?q=${encodeURIComponent(q)}`);
+    return await res.json();
+  }
+
+  async function loadHeader() {
+    const res = await fetch(`/analytics/customers/api/${encodeURIComponent(selectedCustomerCode)}/header`);
+    const data = await res.json();
+    if (data.error) { document.getElementById("customerHeader").innerHTML = `<div class="muted">Not found</div>`; return; }
+
+    const c = data.customer;
+    document.getElementById("customerHeader").innerHTML = `
+      <div class="card" style="margin-top:12px;">
+        <div style="font-weight:700;font-size:16px;">${c.code} — ${c.name || ""}</div>
+        <div class="muted">
+          VAT: ${c.vat_no || "—"} |
+          Email: ${c.email || "—"} |
+          Phone: ${c.phone || "—"}<br/>
+          Address: ${(c.address1||"") + " " + (c.address2||"")} ${c.city||""} ${c.postcode||""} ${c.country||""}
+        </div>
+      </div>
+    `;
+  }
+
+  async function loadSummary() {
+    const res = await fetch(`/analytics/customers/api/${encodeURIComponent(selectedCustomerCode)}/summary?${params()}`);
+    const data = await res.json();
+
+    const cur = data.current || {};
+    const cmp = data.compare || null;
+    const del = data.delta || null;
+
+    function deltaLine(key) {
+      if (!del || !del[key]) return "";
+      const d = del[key];
+      const dv = Number(d.value || 0);
+      const sign = dv > 0 ? "+" : "";
+      return `<div class="delta">Δ ${sign}${money(dv)} (${pct(d.pct)})</div>`;
+    }
+
+    document.getElementById("kpis").innerHTML = `
+      <div class="kpi"><div class="label">Sales excl</div><div class="value">${money(cur.sales_excl)}</div>${cmp ? deltaLine("sales_excl") : ""}</div>
+      <div class="kpi"><div class="label">Invoices</div><div class="value">${num(cur.invoices)}</div>${cmp ? `<div class="delta">Δ ${num(del.invoices.value)} (${pct(del.invoices.pct)})</div>` : ""}</div>
+      <div class="kpi"><div class="label">Avg invoice</div><div class="value">${money(cur.avg_invoice)}</div>${cmp ? `<div class="delta">Δ ${money(del.avg_invoice.value)} (${pct(del.avg_invoice.pct)})</div>` : ""}</div>
+      <div class="kpi"><div class="label">Qty</div><div class="value">${num(cur.qty)}</div></div>
+      <div class="kpi"><div class="label">Distinct items</div><div class="value">${num(cur.distinct_items)}</div></div>
+    `;
+  }
+
+  async function loadTopItems() {
+    const res = await fetch(`/analytics/customers/api/${encodeURIComponent(selectedCustomerCode)}/top-items?${params()}&limit=30&sort=sales`);
+    const data = await res.json();
+    const rows = (data.items || []).map(r => `
+      <tr>
+        <td>${r.item_code}</td>
+        <td>${r.item_name || ""}</td>
+        <td>${num(r.qty)}</td>
+        <td>${money(r.sales_excl)}</td>
+        <td>${num(r.invoices)}</td>
+      </tr>
+    `).join("");
+
+    document.getElementById("tabContent").innerHTML = `
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:8px;">Top items (by sales)</div>
+        <table>
+          <thead><tr><th>Item</th><th>Name</th><th>Qty</th><th>Sales excl</th><th>Invoices</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="5" class="muted">No data</td></tr>`}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function loadInvoices(page=1) {
+    const res = await fetch(`/analytics/customers/api/${encodeURIComponent(selectedCustomerCode)}/invoices?${params()}&page=${page}&page_size=25`);
+    const data = await res.json();
+    const rows = (data.items || []).map(r => `
+      <tr>
+        <td>${r.invoice_date}</td>
+        <td>${r.invoice_no}</td>
+        <td>${money(r.sales_excl)}</td>
+        <td>${num(r.qty)}</td>
+        <td>${num(r.distinct_items)}</td>
+      </tr>
+    `).join("");
+
+    document.getElementById("tabContent").innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-weight:700;">Invoices</div>
+          <div>
+            <button onclick="window.__invPrev()">Prev</button>
+            <button onclick="window.__invNext()">Next</button>
+            <span class="muted">Page ${data.page || 1}</span>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Date</th><th>Invoice</th><th>Sales excl</th><th>Qty</th><th>Items</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="5" class="muted">No data</td></tr>`}</tbody>
+        </table>
+      </div>
+    `;
+
+    window.__invPage = data.page || 1;
+    window.__invPrev = () => loadInvoices(Math.max(1, window.__invPage - 1));
+    window.__invNext = () => loadInvoices(window.__invPage + 1);
+  }
+
+  async function loadItemRfm() {
+    // You can expose these as UI controls later; start with defaults
+    const res = await fetch(`/analytics/customers/api/${encodeURIComponent(selectedCustomerCode)}/item-rfm?lookback_days=730&stale_days=90&min_freq=1&stale_only=1`);
+    const data = await res.json();
+
+    const rows = (data.items || []).map(r => `
+      <tr>
+        <td>${r.item_code}</td>
+        <td>${r.item_name || ""}</td>
+        <td>${r.last_purchase_date || ""}</td>
+        <td>${num(r.recency_days)}</td>
+        <td>${num(r.frequency)}</td>
+        <td>${money(r.monetary)}</td>
+      </tr>
+    `).join("");
+
+    document.getElementById("tabContent").innerHTML = `
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:6px;">Item-RFM (stale items)</div>
+        <div class="muted" style="margin-bottom:8px;">
+          Lookback: ${data.lookback_days} days | Stale threshold: ${data.stale_days} days | Min freq: ${data.min_freq}
+        </div>
+        <table>
+          <thead><tr><th>Item</th><th>Name</th><th>Last purchase</th><th>Recency (days)</th><th>Frequency</th><th>Monetary</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="6" class="muted">No stale items found</td></tr>`}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function refreshActiveTab() {
+    const active = document.querySelector(".tab.active").dataset.tab;
+    await loadHeader();
+    await loadSummary();
+
+    if (active === "topItems") return loadTopItems();
+    if (active === "invoices") return loadInvoices(1);
+    if (active === "itemRfm") return loadItemRfm();
+  }
+
+  // --- Events ---------------------------------------------------------------
+
+  const searchEl = document.getElementById("custSearch");
+  const resultsEl = document.getElementById("custResults");
+
+  let searchTimer = null;
+  searchEl.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    const q = searchEl.value.trim();
+    if (q.length < 2) { resultsEl.innerHTML = ""; return; }
+    searchTimer = setTimeout(async () => {
+      const data = await searchCustomers(q);
+      const items = data.items || [];
+      if (!items.length) { resultsEl.innerHTML = "<div class='muted'>No matches</div>"; return; }
+      resultsEl.innerHTML = items.map(it => `
+        <div style="cursor:pointer;padding:4px 0;" data-code="${it.code}">
+          <strong>${it.code}</strong> — ${it.name || ""}
+        </div>
+      `).join("");
+      resultsEl.querySelectorAll("[data-code]").forEach(el => {
+        el.addEventListener("click", async () => {
+          selectedCustomerCode = el.dataset.code;
+          resultsEl.innerHTML = `<div class="muted">Selected: ${selectedCustomerCode}</div>`;
+          await refreshActiveTab();
+        });
+      });
+    }, 250);
+  });
+
+  document.getElementById("applyBtn").addEventListener("click", async () => {
+    if (!selectedCustomerCode) return;
+    await refreshActiveTab();
+  });
+
+  document.querySelectorAll(".tab").forEach(t => {
+    t.addEventListener("click", async () => {
+      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+      t.classList.add("active");
+      if (!selectedCustomerCode) return;
+      await refreshActiveTab();
+    });
+  });
+</script>
+
+{% endblock %}
+
+4) Add a menu link (optional but recommended)
+
+Where you render your navigation (base template), add:
+
+<a href="/analytics/customers/">Customer Analytics</a>
+
+5) Important “adjust here” points (so you don’t hunt for changes)
+
+In customer_analytics.py you only need to adjust in ONE PLACE if your DW differs:
+
+Table name via env var: DW_SALES_LINE_TABLE
+
+Column names used in queries:
+
+invoice_date
+
+line_total_excl
+
+customer_code_365
+
+invoice_no_365
+
+item_code_365
+
+If your DW table stores totals differently (e.g., price_excl * quantity), replace SUM(line_total_excl) with a computed expression.
+
+6) Smoke test checklist
+
+Set env var (optional):
+
+DW_SALES_LINE_TABLE=dw_transactions
+
+Open:
+
+/analytics/customers/
+
+Search a customer code/name, select.
+
+Confirm:
+
+Header loads (from ps_customers)
+
+KPI tiles show and compare mode works (prev / py)
+
+Top items show item names (from ps_items)
+
+Invoices page paginates
+
+Item-RFM shows stale items
+
+7) Next hardening steps (after MVP works)
+
+Add UI controls for Item-RFM (lookback_days, stale_days, min_freq, stale_only)
+
+Add “Top categories” tab (if DW has category mapping)
+
+Add “Invoice drilldown” endpoint: /api/<customer>/invoice/<invoice_no>/lines
+
+Add optional nightly materialized summary table for instant KPIs (if needed)
