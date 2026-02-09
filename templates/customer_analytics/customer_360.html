@@ -1,0 +1,452 @@
+{% extends "base.html" %}
+{% block title %}Customer 360 Analytics{% endblock %}
+
+{% block head %}
+<style>
+    .ca-search-wrapper { position: relative; }
+    .ca-search-results {
+        position: absolute; top: 100%; left: 0; right: 0; z-index: 1050;
+        background: var(--bs-dark); border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 8px; max-height: 300px; overflow-y: auto; display: none;
+    }
+    .ca-search-results.show { display: block; }
+    .ca-search-item {
+        padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06);
+        font-size: 13px;
+    }
+    .ca-search-item:hover { background: rgba(255,255,255,0.08); }
+    .ca-search-item .code { font-weight: 600; color: var(--bs-primary); margin-right: 8px; }
+
+    .ca-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+    .ca-kpi {
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px; padding: 14px 16px;
+    }
+    .ca-kpi .label { font-size: 11px; color: rgba(226,232,240,0.55); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
+    .ca-kpi .value { font-size: 22px; font-weight: 700; color: #fff; margin-top: 2px; }
+    .ca-kpi .delta { font-size: 12px; margin-top: 4px; }
+    .ca-kpi .delta.positive { color: #22c55e; }
+    .ca-kpi .delta.negative { color: #ef4444; }
+    .ca-kpi .delta.neutral { color: rgba(226,232,240,0.55); }
+
+    .ca-header-card {
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px; padding: 16px 20px;
+    }
+    .ca-header-card .cust-name { font-size: 18px; font-weight: 700; }
+    .ca-header-card .cust-code { font-size: 13px; color: rgba(226,232,240,0.55); }
+    .ca-header-card .cust-detail { font-size: 12px; color: rgba(226,232,240,0.5); margin-top: 6px; }
+
+    .ca-tabs { display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap; }
+    .ca-tab {
+        padding: 7px 14px; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+        cursor: pointer; background: transparent; color: rgba(226,232,240,0.7);
+        font-size: 13px; font-weight: 500; transition: all 0.15s;
+    }
+    .ca-tab:hover { background: rgba(255,255,255,0.06); }
+    .ca-tab.active { background: var(--bs-primary); color: #fff; border-color: var(--bs-primary); }
+
+    .ca-table { width: 100%; border-collapse: collapse; }
+    .ca-table thead th {
+        font-size: 11px; font-weight: 500; color: rgba(226,232,240,0.55);
+        letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 8px 10px; border-bottom: 2px solid rgba(255,255,255,0.1);
+    }
+    .ca-table tbody td {
+        padding: 8px 10px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05);
+        color: rgba(226,232,240,0.85);
+    }
+    .ca-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+    .ca-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .ca-controls .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .ca-controls .form-group label { font-size: 11px; color: rgba(226,232,240,0.55); text-transform: uppercase; letter-spacing: 0.06em; }
+    .ca-controls select, .ca-controls input[type="date"] {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+        color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 13px;
+    }
+
+    .ca-empty { text-align: center; padding: 40px; color: rgba(226,232,240,0.4); font-size: 14px; }
+    .ca-loading { text-align: center; padding: 30px; color: rgba(226,232,240,0.4); }
+
+    .ca-section { margin-top: 16px; }
+
+    .ca-pill-stale {
+        display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+    }
+    .ca-pill-stale.danger { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .ca-pill-stale.warning { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    .ca-pill-stale.ok { background: rgba(34,197,94,0.15); color: #22c55e; }
+
+    .ca-chart-container { height: 250px; margin-top: 12px; }
+
+    .ca-page-controls { display: flex; gap: 8px; align-items: center; }
+    .ca-page-controls button { padding: 4px 10px; font-size: 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0"><i class="fas fa-user-chart me-2"></i>Customer 360 Analytics</h4>
+</div>
+
+<div class="ca-controls mb-3">
+    <div class="form-group" style="min-width:260px;">
+        <label>Customer</label>
+        <div class="ca-search-wrapper">
+            <input id="custSearch" class="form-control form-control-sm" placeholder="Search by code or name..." autocomplete="off" />
+            <div id="custResults" class="ca-search-results"></div>
+        </div>
+    </div>
+    <div class="form-group">
+        <label>Period</label>
+        <select id="preset" class="form-select form-select-sm">
+            <option value="last90">Last 90 days</option>
+            <option value="last30">Last 30 days</option>
+            <option value="mtd">MTD</option>
+            <option value="qtd">QTD</option>
+            <option value="ytd">YTD</option>
+            <option value="">Custom</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>From</label>
+        <input id="fromDate" type="date" class="form-control form-control-sm" />
+    </div>
+    <div class="form-group">
+        <label>To</label>
+        <input id="toDate" type="date" class="form-control form-control-sm" />
+    </div>
+    <div class="form-group">
+        <label>Compare</label>
+        <select id="compare" class="form-select form-select-sm">
+            <option value="">None</option>
+            <option value="prev">Previous period</option>
+            <option value="py">Prior Year</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>&nbsp;</label>
+        <button id="applyBtn" class="btn btn-primary btn-sm"><i class="fas fa-sync-alt me-1"></i>Apply</button>
+    </div>
+</div>
+
+<div id="customerHeader"></div>
+
+<div class="ca-section">
+    <div class="ca-kpi-grid" id="kpis"></div>
+</div>
+
+<div class="ca-tabs" id="tabBar">
+    <div class="ca-tab active" data-tab="topItems"><i class="fas fa-trophy me-1"></i>Top Items</div>
+    <div class="ca-tab" data-tab="invoices"><i class="fas fa-file-invoice me-1"></i>Invoices</div>
+    <div class="ca-tab" data-tab="itemRfm"><i class="fas fa-exclamation-triangle me-1"></i>Stale Items (RFM)</div>
+    <div class="ca-tab" data-tab="trend"><i class="fas fa-chart-line me-1"></i>Monthly Trend</div>
+</div>
+
+<div class="ca-section" id="tabContent">
+    <div class="ca-empty"><i class="fas fa-search me-2"></i>Search for a customer to get started</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+let selectedCode = null;
+let activeTab = 'topItems';
+let trendChart = null;
+
+const BASE = '/analytics/customers';
+
+function money(v) {
+    return Number(v || 0).toLocaleString('en', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function num(v) { return Number(v || 0).toLocaleString(); }
+function pctFmt(v) {
+    if (v === null || v === undefined) return '';
+    return Number(v).toFixed(1) + '%';
+}
+
+function qp() {
+    const p = new URLSearchParams();
+    const preset = document.getElementById('preset').value;
+    if (preset) p.set('preset', preset);
+    if (!preset) {
+        const f = document.getElementById('fromDate').value;
+        const t = document.getElementById('toDate').value;
+        if (f) p.set('from', f);
+        if (t) p.set('to', t);
+    }
+    const cmp = document.getElementById('compare').value;
+    if (cmp) p.set('compare', cmp);
+    return p.toString();
+}
+
+let searchTimeout;
+document.getElementById('custSearch').addEventListener('input', function() {
+    clearTimeout(searchTimeout);
+    const q = this.value.trim();
+    if (q.length < 2) { document.getElementById('custResults').classList.remove('show'); return; }
+    searchTimeout = setTimeout(async () => {
+        const res = await fetch(`${BASE}/api/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        const el = document.getElementById('custResults');
+        if (!data.items || data.items.length === 0) {
+            el.innerHTML = '<div class="ca-search-item" style="color:rgba(226,232,240,0.4)">No results</div>';
+        } else {
+            el.innerHTML = data.items.map(r =>
+                `<div class="ca-search-item" data-code="${r.code}"><span class="code">${r.code}</span>${r.name}</div>`
+            ).join('');
+        }
+        el.classList.add('show');
+    }, 250);
+});
+
+document.getElementById('custResults').addEventListener('click', function(e) {
+    const item = e.target.closest('.ca-search-item');
+    if (!item || !item.dataset.code) return;
+    selectedCode = item.dataset.code;
+    document.getElementById('custSearch').value = item.textContent.trim();
+    this.classList.remove('show');
+    loadAll();
+});
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.ca-search-wrapper')) {
+        document.getElementById('custResults').classList.remove('show');
+    }
+});
+
+document.getElementById('applyBtn').addEventListener('click', function() {
+    if (selectedCode) loadAll();
+});
+
+document.getElementById('tabBar').addEventListener('click', function(e) {
+    const tab = e.target.closest('.ca-tab');
+    if (!tab) return;
+    this.querySelectorAll('.ca-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    activeTab = tab.dataset.tab;
+    if (selectedCode) loadTab();
+});
+
+async function loadAll() {
+    await loadHeader();
+    await loadSummary();
+    await loadTab();
+}
+
+async function loadHeader() {
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/header`);
+    const data = await res.json();
+    if (data.error) {
+        document.getElementById('customerHeader').innerHTML = '';
+        return;
+    }
+    const c = data.customer;
+    const addr = [c.address1, c.address2, c.address3, c.city, c.postcode].filter(Boolean).join(', ');
+    const phone = c.phone || c.mobile || '';
+    const creditLimit = c.credit_limit_amount ? `Credit Limit: €${money(c.credit_limit_amount)}` : '';
+    document.getElementById('customerHeader').innerHTML = `
+        <div class="ca-header-card mb-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="cust-name">${c.name || 'N/A'}</div>
+                    <div class="cust-code">${c.code}${c.category_1_name ? ' · ' + c.category_1_name : ''}${c.agent_name ? ' · Agent: ' + c.agent_name : ''}</div>
+                </div>
+                <div class="text-end">
+                    ${creditLimit ? `<span class="badge bg-secondary">${creditLimit}</span>` : ''}
+                </div>
+            </div>
+            <div class="cust-detail">
+                ${c.vat_no ? '<i class="fas fa-id-card me-1"></i>VAT: ' + c.vat_no + ' · ' : ''}
+                ${phone ? '<i class="fas fa-phone me-1"></i>' + phone + ' · ' : ''}
+                ${addr ? '<i class="fas fa-map-marker-alt me-1"></i>' + addr : ''}
+            </div>
+        </div>`;
+}
+
+async function loadSummary() {
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/summary?${qp()}`);
+    const data = await res.json();
+    const cur = data.current || {};
+    const del = data.delta || null;
+
+    function kpiHtml(label, value, deltaObj) {
+        let deltaHtml = '';
+        if (del && deltaObj) {
+            const dv = Number(deltaObj.value || 0);
+            const cls = dv > 0 ? 'positive' : dv < 0 ? 'negative' : 'neutral';
+            const sign = dv > 0 ? '+' : '';
+            const pctStr = deltaObj.pct !== null && deltaObj.pct !== undefined ? ` (${pctFmt(deltaObj.pct)})` : '';
+            deltaHtml = `<div class="delta ${cls}">${sign}${money(dv)}${pctStr}</div>`;
+        }
+        return `<div class="ca-kpi"><div class="label">${label}</div><div class="value">${value}</div>${deltaHtml}</div>`;
+    }
+
+    document.getElementById('kpis').innerHTML =
+        kpiHtml('Sales (excl VAT)', '€' + money(cur.sales_excl), del ? del.sales_excl : null) +
+        kpiHtml('Invoices', num(cur.invoices), del ? del.invoices : null) +
+        kpiHtml('Avg Invoice', '€' + money(cur.avg_invoice), del ? del.avg_invoice : null) +
+        kpiHtml('Qty', num(cur.qty), null) +
+        kpiHtml('Distinct Items', num(cur.distinct_items), null);
+}
+
+async function loadTab() {
+    if (activeTab === 'topItems') await loadTopItems();
+    else if (activeTab === 'invoices') await loadInvoices(1);
+    else if (activeTab === 'itemRfm') await loadItemRfm();
+    else if (activeTab === 'trend') await loadTrend();
+}
+
+async function loadTopItems() {
+    document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/top-items?${qp()}&limit=30&sort=sales`);
+    const data = await res.json();
+    const items = data.items || [];
+    if (items.length === 0) {
+        document.getElementById('tabContent').innerHTML = '<div class="ca-empty">No items found for this period</div>';
+        return;
+    }
+    let rows = items.map((r, idx) => `
+        <tr>
+            <td style="color:rgba(226,232,240,0.4)">${idx + 1}</td>
+            <td><span style="font-weight:600">${r.item_code}</span></td>
+            <td>${r.item_name || ''}</td>
+            <td class="text-end">${num(r.qty)}</td>
+            <td class="text-end">€${money(r.sales_excl)}</td>
+            <td class="text-end">${num(r.invoices)}</td>
+        </tr>
+    `).join('');
+    document.getElementById('tabContent').innerHTML = `
+        <table class="ca-table">
+            <thead><tr><th>#</th><th>Item Code</th><th>Name</th><th class="text-end">Qty</th><th class="text-end">Sales</th><th class="text-end">Invoices</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+async function loadInvoices(page) {
+    document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/invoices?${qp()}&page=${page}&page_size=25`);
+    const data = await res.json();
+    const items = data.items || [];
+    if (items.length === 0 && page === 1) {
+        document.getElementById('tabContent').innerHTML = '<div class="ca-empty">No invoices found for this period</div>';
+        return;
+    }
+    let rows = items.map(r => `
+        <tr>
+            <td>${r.invoice_date}</td>
+            <td><span style="font-weight:600">${r.invoice_no}</span></td>
+            <td class="text-end">€${money(r.sales_excl)}</td>
+            <td class="text-end">${num(r.qty)}</td>
+            <td class="text-end">${num(r.distinct_items)}</td>
+        </tr>
+    `).join('');
+
+    const curPage = data.page || 1;
+    document.getElementById('tabContent').innerHTML = `
+        <table class="ca-table">
+            <thead><tr><th>Date</th><th>Invoice</th><th class="text-end">Sales (excl)</th><th class="text-end">Qty</th><th class="text-end">Items</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+            <span class="text-muted" style="font-size:12px">Page ${curPage}</span>
+            <div class="ca-page-controls">
+                <button class="btn btn-outline-secondary btn-sm" onclick="loadInvoices(${Math.max(1, curPage - 1)})" ${curPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="loadInvoices(${curPage + 1})" ${items.length < 25 ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>
+            </div>
+        </div>`;
+}
+
+async function loadItemRfm() {
+    document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/item-rfm?lookback_days=730&stale_days=90&stale_only=1`);
+    const data = await res.json();
+    const items = data.items || [];
+    if (items.length === 0) {
+        document.getElementById('tabContent').innerHTML = '<div class="ca-empty">No stale items found (good news!)</div>';
+        return;
+    }
+    let rows = items.map(r => {
+        const days = Number(r.recency_days || 0);
+        let pillCls = 'ok';
+        if (days > 180) pillCls = 'danger';
+        else if (days > 90) pillCls = 'warning';
+        return `
+            <tr>
+                <td><span style="font-weight:600">${r.item_code}</span></td>
+                <td>${r.item_name || ''}</td>
+                <td>${r.last_purchase_date || ''}</td>
+                <td><span class="ca-pill-stale ${pillCls}">${days}d</span></td>
+                <td class="text-end">${num(r.frequency)}</td>
+                <td class="text-end">€${money(r.monetary)}</td>
+            </tr>`;
+    }).join('');
+
+    document.getElementById('tabContent').innerHTML = `
+        <div class="mb-2" style="font-size:12px;color:rgba(226,232,240,0.5)">
+            Items not purchased in last ${data.stale_days} days (lookback: ${data.lookback_days} days)
+        </div>
+        <table class="ca-table">
+            <thead><tr><th>Item Code</th><th>Name</th><th>Last Purchase</th><th>Recency</th><th class="text-end">Frequency</th><th class="text-end">Total Sales</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+async function loadTrend() {
+    document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/monthly-trend?months=12`);
+    const data = await res.json();
+    const months = data.months || [];
+    if (months.length === 0) {
+        document.getElementById('tabContent').innerHTML = '<div class="ca-empty">No trend data available</div>';
+        return;
+    }
+
+    document.getElementById('tabContent').innerHTML = '<div class="ca-chart-container"><canvas id="trendCanvas"></canvas></div>';
+
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
+
+    const ctx = document.getElementById('trendCanvas').getContext('2d');
+    trendChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: months.map(m => m.month),
+            datasets: [{
+                label: 'Sales (excl VAT)',
+                data: months.map(m => Number(m.sales_excl || 0)),
+                backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                borderColor: 'rgba(59, 130, 246, 1)',
+                borderWidth: 1,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => '€' + money(ctx.raw)
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    ticks: { color: 'rgba(226,232,240,0.5)', font: { size: 11 } }
+                },
+                y: {
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    ticks: {
+                        color: 'rgba(226,232,240,0.5)',
+                        font: { size: 11 },
+                        callback: v => '€' + Number(v).toLocaleString()
+                    }
+                }
+            }
+        }
+    });
+}
+</script>
+{% endblock %}
