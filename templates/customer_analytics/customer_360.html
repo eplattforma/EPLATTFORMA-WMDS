@@ -247,7 +247,6 @@ async function loadHeader() {
     const c = data.customer;
     const addr = [c.address1, c.address2, c.address3, c.city, c.postcode].filter(Boolean).join(', ');
     const phone = c.phone || c.mobile || '';
-    const creditLimit = c.credit_limit_amount ? `Credit Limit: €${money(c.credit_limit_amount)}` : '';
     document.getElementById('customerHeader').innerHTML = `
         <div class="ca-header-card mb-3">
             <div class="d-flex justify-content-between align-items-start">
@@ -256,12 +255,10 @@ async function loadHeader() {
                     <div class="cust-code">${c.code}${c.category_1_name ? ' · ' + c.category_1_name : ''}${c.agent_name ? ' · Agent: ' + c.agent_name : ''}</div>
                 </div>
                 <div class="text-end d-flex gap-2 align-items-start">
-                    ${creditLimit ? `<span class="badge bg-secondary">${creditLimit}</span>` : ''}
                     <a href="/pricing/customer/${encodeURIComponent(c.code)}" class="btn btn-outline-primary btn-sm"><i class="fas fa-chart-bar me-1"></i>Pricing Analytics</a>
                 </div>
             </div>
             <div class="cust-detail">
-                ${c.vat_no ? '<i class="fas fa-id-card me-1"></i>VAT: ' + c.vat_no + ' · ' : ''}
                 ${phone ? '<i class="fas fa-phone me-1"></i>' + phone + ' · ' : ''}
                 ${addr ? '<i class="fas fa-map-marker-alt me-1"></i>' + addr : ''}
             </div>
