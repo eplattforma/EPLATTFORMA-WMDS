@@ -1,0 +1,18 @@
+{
+    "version": "0.1",
+    "connections": [
+        {
+            "details": {
+                "protocol": "postgresql",
+                "address": {
+                    "server": "YOUR_SERVER_HERE",
+                    "database": "YOUR_DATABASE_HERE"
+                }
+            },
+            "options": {
+                "encrypt": true
+            },
+            "mode": "Import"
+        }
+    ]
+}
