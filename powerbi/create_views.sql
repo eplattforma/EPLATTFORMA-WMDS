@@ -266,13 +266,13 @@ FROM delivery_discrepancies dd;
 DROP MATERIALIZED VIEW IF EXISTS dw_sales_lines_mv;
 CREATE MATERIALIZED VIEW dw_sales_lines_mv AS
 SELECT
-  h.invoice_date_utc0 AS sale_date,
-  h.customer_code_365,
-  l.item_code_365,
-  l.quantity AS qty,
-  l.line_total_excl AS net_excl
+  h.invoice_date_utc0::date   AS sale_date,
+  h.customer_code_365::text   AS customer_code_365,
+  l.item_code_365::text       AS item_code_365,
+  l.quantity::numeric         AS qty,
+  l.line_total_excl::numeric  AS net_excl
 FROM dw_invoice_header h
-JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365;
+JOIN dw_invoice_line   l ON l.invoice_no_365 = h.invoice_no_365;
 
 CREATE INDEX IF NOT EXISTS idx_sales_mv_customer_date
   ON dw_sales_lines_mv (customer_code_365, sale_date);

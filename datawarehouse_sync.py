@@ -1534,6 +1534,8 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         try:
             session.execute(sa_text("REFRESH MATERIALIZED VIEW dw_sales_lines_mv"))
             session.commit()
+            session.execute(sa_text("ANALYZE dw_sales_lines_mv"))
+            session.commit()
             logger.info("Refreshed dw_sales_lines_mv materialized view")
         except Exception as mv_err:
             logger.warning(f"Could not refresh dw_sales_lines_mv: {mv_err}")
