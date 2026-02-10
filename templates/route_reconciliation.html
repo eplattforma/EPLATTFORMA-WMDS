@@ -312,7 +312,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                 <div class="recon-stop-header {% if has_outstanding %}accent-outstanding{% elif has_returns %}accent-returns{% else %}accent-ok{% endif %}" 
                      role="button" data-bs-toggle="collapse" data-bs-target="#recon-stop-body-{{ loop.index }}" aria-expanded="false" style="cursor: pointer;">
                     <div class="d-flex align-items-center">
-                        <span class="badge bg-light text-dark me-3 px-2 py-1" style="font-size: 0.9rem; border-radius: 6px;">{{ stop_recon.stop_seq }}</span>
+                        <span class="badge bg-light text-dark me-3 px-2 py-1" style="font-size: 0.9rem; border-radius: 6px;">{{ stop_recon.stop_seq | int if stop_recon.stop_seq == stop_recon.stop_seq | int else "%.1f"|format(stop_recon.stop_seq) }}</span>
                         <div class="flex-grow-1">
                             <span class="text-white fw-bold" style="font-size: 0.95rem;">{{ stop_recon.customer_name }}</span>
                             {% if stop_recon.terms == 'CREDIT' %}

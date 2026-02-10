@@ -119,7 +119,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         stop_id = r['route_stop_id']
         if stop_id not in stops_data:
             stops_data[stop_id] = {
-                'stop_seq': int(r['stop_seq'] or 0),
+                'stop_seq': float(r['stop_seq'] or 0),
                 'customer_name': r['customer_name'] or '',
                 'invoices': [],
                 'total_received': 0,

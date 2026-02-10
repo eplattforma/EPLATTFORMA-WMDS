@@ -197,7 +197,7 @@
             {% set has_disc = stop_recon.stop_discrepancy > 0.001 or stop_recon.stop_discrepancy < -0.001 %}
             {% set has_outstanding = stop_recon.stop_outstanding > 0.001 or stop_recon.stop_outstanding < -0.001 %}
             <tr class="stop-row {% if has_disc %}has-disc{% endif %}">
-                <td class="text-center">{{ stop_recon.stop_seq }}</td>
+                <td class="text-center">{{ stop_recon.stop_seq | int if stop_recon.stop_seq == stop_recon.stop_seq | int else "%.1f"|format(stop_recon.stop_seq) }}</td>
                 <td>
                     {{ stop_recon.customer_name }}
                     {% for inv in stop_recon.invoices %}
@@ -255,7 +255,7 @@
                 {% if stop_data_match and stop_data_match.discrepancies %}
                     {% for disc in stop_data_match.discrepancies %}
                     <tr>
-                        <td class="text-center">{{ stop_recon.stop_seq }}</td>
+                        <td class="text-center">{{ stop_recon.stop_seq | int if stop_recon.stop_seq == stop_recon.stop_seq | int else "%.1f"|format(stop_recon.stop_seq) }}</td>
                         <td>{{ stop_recon.customer_name }}</td>
                         <td>{{ disc.invoice_no }}</td>
                         <td>{{ disc.discrepancy_type or 'Return' }}</td>
@@ -270,7 +270,7 @@
                     {% for line in stop_data_match.delivery_lines %}
                         {% if line.exception_type %}
                     <tr>
-                        <td class="text-center">{{ stop_recon.stop_seq }}</td>
+                        <td class="text-center">{{ stop_recon.stop_seq | int if stop_recon.stop_seq == stop_recon.stop_seq | int else "%.1f"|format(stop_recon.stop_seq) }}</td>
                         <td>{{ stop_recon.customer_name }}</td>
                         <td>{{ line.invoice_no or '-' }}</td>
                         <td>{{ line.exception_type }}</td>

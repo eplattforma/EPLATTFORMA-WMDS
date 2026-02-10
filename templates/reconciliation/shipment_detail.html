@@ -221,7 +221,7 @@
                     <div class="row align-items-center">
                         <div class="col-md-4">
                             <div class="d-flex align-items-center gap-3">
-                                <span class="badge bg-secondary fs-4 px-3 py-2 shadow-sm">{{ stop.stop_seq }}</span>
+                                <span class="badge bg-secondary fs-4 px-3 py-2 shadow-sm">{{ stop.stop_seq | int if stop.stop_seq == stop.stop_seq | int else "%.1f"|format(stop.stop_seq) }}</span>
                                 <div>
                                     <h4 class="mb-0 fw-bold text-dark">{{ stop.customer_name }}</h4>
                                     <div class="d-flex gap-2 mt-2">
