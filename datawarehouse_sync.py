@@ -1126,6 +1126,10 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 invoice_type = inv.get("invoice_type")
                 sign = _get_invoice_type_sign(invoice_type)
                 
+                total_sub_val = (inv.get("total_sub") or 0) * sign
+                total_discount_val = (inv.get("total_discount") or 0) * sign
+                total_net_val = total_sub_val - total_discount_val
+
                 header = DwInvoiceHeader(
                     invoice_no_365=invoice_no,
                     invoice_type=invoice_type,
@@ -1133,8 +1137,9 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                     customer_code_365=inv.get("customer_code_365"),
                     store_code_365=inv.get("store_code_365"),
                     user_code_365=inv.get("user_code_365"),
-                    total_sub=(inv.get("total_sub") or 0) * sign,
-                    total_discount=(inv.get("total_discount") or 0) * sign,
+                    total_sub=total_sub_val,
+                    total_discount=total_discount_val,
+                    total_net=total_net_val,
                     total_vat=(inv.get("total_vat") or 0) * sign,
                     total_grand=(inv.get("total_grand") or 0) * sign,
                     points_earned=inv.get("points_earned"),

@@ -1996,6 +1996,7 @@ class DwInvoiceHeader(db.Model):
     
     total_sub = db.Column(db.Numeric(18, 4), nullable=True)
     total_discount = db.Column(db.Numeric(18, 4), nullable=True)
+    total_net = db.Column(db.Numeric(18, 4), nullable=True)
     total_vat = db.Column(db.Numeric(18, 4), nullable=True)
     total_grand = db.Column(db.Numeric(18, 4), nullable=True)
     
