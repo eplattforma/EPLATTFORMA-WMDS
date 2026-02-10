@@ -150,11 +150,11 @@ async function loadIndex(url) {
         '<td style="font-size:12px">' + lookupItemName(it.item_code_365) + '</td>' +
         '<td class="text-end">' + fmt(it.qty, 0) + '</td>' +
         '<td class="text-end">' + fmt(it.revenue) + '</td>' +
-        '<td class="text-end">' + fmt(it.cust_price, 4) + '</td>' +
-        '<td class="text-end">' + fmt(it.market_median_price, 4) + '</td>' +
-        '<td class="text-end">' + fmt(it.market_max_price, 4) + '</td>' +
+        '<td class="text-end">' + fmt(it.cust_price, 2) + '</td>' +
+        '<td class="text-end">' + fmt(it.market_median_price, 2) + '</td>' +
+        '<td class="text-end">' + fmt(it.market_max_price, 2) + '</td>' +
         '<td class="text-end">' + indexBadge(it.index) + '</td>' +
-        '<td class="text-end">' + fmtSigned(it.delta_per_unit, 4) + '</td>' +
+        '<td class="text-end">' + fmtSigned(it.delta_per_unit, 2) + '</td>' +
         '<td class="text-end ' + deltaClass(it.delta_total) + '">' + fmtSigned(it.delta_total) + '</td>';
       tb.appendChild(tr);
     }
