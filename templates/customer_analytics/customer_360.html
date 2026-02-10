@@ -406,11 +406,11 @@ async function loadItemRfm(brand) {
         let pillCls = 'ok';
         if (days > 180) pillCls = 'danger';
         else if (days > 90) pillCls = 'warning';
+        const brandBadge = r.brand ? `<span class="badge text-bg-secondary" style="cursor:pointer;font-size:10px;vertical-align:middle;margin-left:6px" onclick="loadItemRfm('${r.brand.replace(/'/g, "\\'")}')">${r.brand}</span>` : '';
         return `
             <tr>
                 <td><span style="font-weight:600">${r.item_code}</span></td>
-                <td>${r.item_name || ''}</td>
-                <td>${r.brand || ''}</td>
+                <td>${r.item_name || ''}${brandBadge}</td>
                 <td>${fmtDateDMY(r.last_purchase_date)}</td>
                 <td><span class="ca-pill-stale ${pillCls}">${days}d</span></td>
                 <td class="text-end">${num(r.frequency)}</td>
@@ -423,7 +423,7 @@ async function loadItemRfm(brand) {
             <span style="font-size:12px;color:rgba(226,232,240,0.5)">Items not purchased in last ${data.stale_days} days (lookback: ${data.lookback_days} days)</span>
         </div>
         <table class="ca-table">
-            <thead><tr><th>Item Code</th><th>Name</th><th>Brand</th><th>Last Purchase</th><th>Recency</th><th class="text-end">Frequency</th><th class="text-end">Total Sales</th></tr></thead>
+            <thead><tr><th>Item Code</th><th>Name</th><th>Last Purchase</th><th>Recency</th><th class="text-end">Frequency</th><th class="text-end">Total Sales</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
 }
