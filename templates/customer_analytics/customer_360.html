@@ -376,7 +376,8 @@ function fmtDateDMY(s) {
 async function loadItemRfm(brand) {
     if (brand !== undefined) rfmSelectedBrand = brand;
     document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
-    let url = `${BASE}/api/${encodeURIComponent(selectedCode)}/item-rfm?lookback_days=730&stale_days=90&stale_only=1`;
+    const staleOnly = rfmSelectedBrand ? '0' : '1';
+    let url = `${BASE}/api/${encodeURIComponent(selectedCode)}/item-rfm?lookback_days=730&stale_days=90&stale_only=${staleOnly}`;
     if (rfmSelectedBrand) url += `&brand=${encodeURIComponent(rfmSelectedBrand)}`;
     const res = await fetch(url);
     const data = await res.json();
@@ -406,9 +407,9 @@ async function loadItemRfm(brand) {
     if (items.length === 0) {
         document.getElementById('tabContent').innerHTML = `
             <div class="d-flex align-items-center gap-2 mb-2">${brandSelect}
-                <span style="font-size:12px;color:rgba(226,232,240,0.5)">Items not purchased in last ${data.stale_days} days</span>
+                <span style="font-size:12px;color:rgba(226,232,240,0.5)">${rfmSelectedBrand ? 'All items for this brand' : 'Items not purchased in last ' + data.stale_days + ' days'}</span>
             </div>
-            <div class="ca-empty">No stale items found${rfmSelectedBrand ? ' for this brand' : ' (good news!)'}</div>`;
+            <div class="ca-empty">No items found${rfmSelectedBrand ? ' for this brand' : ' (good news!)'}</div>`;
         return;
     }
     let rows = items.map(r => {
@@ -432,7 +433,7 @@ async function loadItemRfm(brand) {
 
     document.getElementById('tabContent').innerHTML = `
         <div class="d-flex align-items-center gap-2 mb-2">${brandSelect}
-            <span style="font-size:12px;color:rgba(226,232,240,0.5)">Items not purchased in last ${data.stale_days} days (lookback: ${data.lookback_days} days)</span>
+            <span style="font-size:12px;color:rgba(226,232,240,0.5)">${rfmSelectedBrand ? 'All items for this brand' : 'Items not purchased in last ' + data.stale_days + ' days'} (lookback: ${data.lookback_days} days)</span>
         </div>
         <table class="ca-table">
             <thead><tr><th>Item Code</th><th>Name</th><th>Last Purchase</th><th>Recency</th><th class="text-end">Frequency</th><th class="text-end">Total Sales</th></tr></thead>
