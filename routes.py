@@ -2146,12 +2146,11 @@ def picker_dashboard():
             db.session.begin_nested()
             # Wrap the query in another SELECT to avoid double SELECT syntax error
             stop_seq = db.session.execute(text("""
-                SELECT (count(*) + 1)::int
-                FROM route_stop rs2 
-                JOIN route_stop rs_curr ON rs2.shipment_id = rs_curr.shipment_id
-                JOIN route_stop_invoice rsi ON rs_curr.route_stop_id = rsi.route_stop_id
+                SELECT rs.seq_no
+                FROM route_stop rs
+                JOIN route_stop_invoice rsi ON rs.route_stop_id = rsi.route_stop_id
                 WHERE rsi.invoice_no = :invoice_no
-                AND rs2.route_stop_id < rs_curr.route_stop_id
+                LIMIT 1
             """), {"invoice_no": inv.invoice_no}).scalar()
             inv.stop_sequence = stop_seq
             db.session.commit()

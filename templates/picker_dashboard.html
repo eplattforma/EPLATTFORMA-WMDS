@@ -93,7 +93,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                         {% if invoice.stop_sequence %}
-                        <span class="fw-bold text-success" style="font-size: 2.5rem; line-height: 1;"><i class="fas fa-route me-1" style="font-size: 1.5rem;"></i>{{ invoice.stop_sequence }}</span>
+                        <span class="fw-bold text-success" style="font-size: 2.5rem; line-height: 1;"><i class="fas fa-route me-1" style="font-size: 1.5rem;"></i>{{ invoice.stop_sequence | int if invoice.stop_sequence == invoice.stop_sequence | int else "%.1f"|format(invoice.stop_sequence) }}</span>
                         {% elif invoice.routing and invoice.routing.replace('.','').isdigit() %}
                         <span class="fw-bold text-success" style="font-size: 2.5rem; line-height: 1;"><i class="fas fa-route me-1" style="font-size: 1.5rem;"></i>{{ invoice.routing }}</span>
                         {% else %}
