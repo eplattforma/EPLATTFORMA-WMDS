@@ -963,6 +963,7 @@ def invoice_sync():
     if request.method == 'POST':
         date_from = request.form.get('date_from', '')
         date_to = request.form.get('date_to', '')
+        delete_first = request.form.get('delete_reimport') == 'on'
         
         if not date_from:
             flash('Please select a start date', 'error')
@@ -972,6 +973,28 @@ def invoice_sync():
         def run_sync():
             with app.app_context():
                 try:
+                    if delete_first:
+                        from sqlalchemy import text as sa_text
+                        from datawarehouse_sync import _update_invoice_sync_status
+                        from datetime import datetime
+                        effective_to = date_to if date_to else datetime.now().strftime("%Y-%m-%d")
+                        _update_invoice_sync_status(db.session, "RUNNING", f"Deleting invoices from {date_from} to {effective_to}...")
+                        logger.info(f"DELETE & REIMPORT: Removing invoices for {date_from} to {effective_to}")
+                        del_lines = db.session.execute(sa_text(
+                            "DELETE FROM dw_invoice_line WHERE invoice_no_365 IN "
+                            "(SELECT invoice_no_365 FROM dw_invoice_header "
+                            "WHERE invoice_date_utc0 >= CAST(:d_from AS date) "
+                            "AND invoice_date_utc0 <= CAST(:d_to AS date))"
+                        ), {"d_from": date_from, "d_to": effective_to})
+                        del_headers = db.session.execute(sa_text(
+                            "DELETE FROM dw_invoice_header "
+                            "WHERE invoice_date_utc0 >= CAST(:d_from AS date) "
+                            "AND invoice_date_utc0 <= CAST(:d_to AS date)"
+                        ), {"d_from": date_from, "d_to": effective_to})
+                        db.session.commit()
+                        logger.info(f"Deleted {del_lines.rowcount} lines and {del_headers.rowcount} headers")
+                        _update_invoice_sync_status(db.session, "RUNNING",
+                            f"Deleted {del_headers.rowcount} headers, {del_lines.rowcount} lines. Now re-importing...")
                     sync_invoices_from_date(db.session, date_from, date_to if date_to else None)
                     logger.info("Invoice sync completed successfully")
                 except Exception as e:
@@ -981,7 +1004,8 @@ def invoice_sync():
         thread.start()
         
         date_range_msg = f'{date_from} to {date_to}' if date_to else f'{date_from} to today'
-        flash(f'Invoice sync started for dates {date_range_msg}. Check logs for progress.', 'success')
+        mode_label = "Delete & Re-import" if delete_first else "Invoice sync"
+        flash(f'{mode_label} started for dates {date_range_msg}. Check logs for progress.', 'success')
         return render_template_string("""
         <!DOCTYPE html>
         <html>
@@ -1113,6 +1137,20 @@ def invoice_sync():
                     <label for="date_to">To (YYYY-MM-DD) - Optional:</label>
                     <input type="date" id="date_to" name="date_to" value=\"""" + today + """\" placeholder="Leave empty for today">
                 </div>
+                <div class="form-group" style="margin-top:15px;">
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:normal;">
+                        <input type="checkbox" id="delete_reimport" name="delete_reimport" style="width:18px; height:18px;">
+                        <span><strong>Delete &amp; Re-import</strong> &mdash; Remove existing invoices for this period before syncing</span>
+                    </label>
+                    <p id="delete_warning" style="display:none; margin:10px 0 0 28px; padding:10px; background:#fff3cd; border:1px solid #ffc107; border-radius:4px; color:#856404; font-size:0.9em;">
+                        ⚠️ This will permanently delete all invoice headers and lines for the selected date range and re-import them from PS365. Use this if data looks incorrect or out of sync.
+                    </p>
+                </div>
+                <script>
+                document.getElementById('delete_reimport').addEventListener('change', function() {
+                    document.getElementById('delete_warning').style.display = this.checked ? 'block' : 'none';
+                });
+                </script>
                 <button type="submit">Start Invoice Sync</button>
             </form>
             <div class="back-link">
