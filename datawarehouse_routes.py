@@ -192,25 +192,27 @@ def dw_menu():
                     .then(function(d) {
                         if (!d.success) { document.getElementById('validationBody').innerHTML = '<p style="color:red;">Error: ' + d.message + '</p>'; return; }
                         var rows = d.data;
-                        var totBD = 0, totDisc = 0, totNet = 0, totIncl = 0, totInv = 0, totLines = 0;
+                        var totBD = 0, totDisc = 0, totNet = 0, totVat = 0, totIncl = 0, totInv = 0, totLines = 0;
                         var html = '<table style="width:100%; border-collapse:collapse; font-size:0.9em;">';
                         html += '<thead><tr style="background:#f0f0f0;">';
                         html += '<th style="padding:8px; border:1px solid #ddd; text-align:left;">Month</th>';
                         html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Before Discount</th>';
                         html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Discount</th>';
                         html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Net Value</th>';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">VAT</th>';
                         html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Total Incl VAT</th>';
                         html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Invoices</th>';
                         html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Lines</th>';
                         html += '</tr></thead><tbody>';
                         for (var i = 0; i < rows.length; i++) {
                             var r = rows[i];
-                            totBD += r.before_discount; totDisc += r.discount; totNet += r.net_value; totIncl += r.total_incl; totInv += r.invoices; totLines += r.lines;
+                            totBD += r.before_discount; totDisc += r.discount; totNet += r.net_value; totVat += r.vat; totIncl += r.total_incl; totInv += r.invoices; totLines += r.lines;
                             html += '<tr>';
                             html += '<td style="padding:8px; border:1px solid #ddd;">' + r.month + '</td>';
                             html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(r.before_discount) + '</td>';
                             html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(r.discount) + '</td>';
                             html += '<td style="padding:8px; border:1px solid #ddd; text-align:right; font-weight:600;">' + fmt(r.net_value) + '</td>';
+                            html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(r.vat) + '</td>';
                             html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(r.total_incl) + '</td>';
                             html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + r.invoices.toLocaleString() + '</td>';
                             html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + r.lines.toLocaleString() + '</td>';
@@ -221,6 +223,7 @@ def dw_menu():
                         html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totBD) + '</td>';
                         html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totDisc) + '</td>';
                         html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totNet) + '</td>';
+                        html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totVat) + '</td>';
                         html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totIncl) + '</td>';
                         html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + totInv.toLocaleString() + '</td>';
                         html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + totLines.toLocaleString() + '</td>';
@@ -264,6 +267,7 @@ def api_monthly_validation():
                 ROUND(COALESCE(SUM(l.line_total_excl), 0)::numeric, 2) AS before_discount,
                 ROUND(COALESCE(SUM(l.line_total_discount), 0)::numeric, 2) AS discount,
                 ROUND(COALESCE(SUM(l.line_net_value), 0)::numeric, 2) AS net_value,
+                ROUND(COALESCE(SUM(l.line_total_vat), 0)::numeric, 2) AS vat,
                 ROUND(COALESCE(SUM(l.line_total_incl), 0)::numeric, 2) AS total_incl,
                 COUNT(DISTINCT h.invoice_no_365) AS invoices,
                 COUNT(l.id) AS lines
@@ -277,6 +281,7 @@ def api_monthly_validation():
             r['before_discount'] = float(r['before_discount'])
             r['discount'] = float(r['discount'])
             r['net_value'] = float(r['net_value'])
+            r['vat'] = float(r['vat'])
             r['total_incl'] = float(r['total_incl'])
         return jsonify({'success': True, 'data': data})
     except Exception as e:
