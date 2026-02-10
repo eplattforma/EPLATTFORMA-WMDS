@@ -291,11 +291,14 @@ def api_customer_item_rfm(customer_code):
     stale_days = int(request.args.get("stale_days") or 90)
     min_freq = int(request.args.get("min_freq") or 1)
     stale_only = (request.args.get("stale_only") or "1") == "1"
+    brand_filter = (request.args.get("brand") or "").strip()
 
     today = date.today()
     d_from = today - timedelta(days=max(30, min(lookback_days, 3650)))
 
-    sql = text("""
+    brand_clause = "AND i.brand_code_365 = :brand" if brand_filter else ""
+
+    sql = text(f"""
         WITH agg AS (
             SELECT
                 l.item_code_365 AS item_code,
@@ -311,6 +314,7 @@ def api_customer_item_rfm(customer_code):
         SELECT
             a.item_code,
             COALESCE(i.item_name, '') AS item_name,
+            COALESCE(i.brand_code_365, '') AS brand,
             a.last_purchase_date,
             (DATE(:d_to) - a.last_purchase_date) AS recency_days,
             a.frequency,
@@ -320,24 +324,33 @@ def api_customer_item_rfm(customer_code):
         WHERE a.frequency >= :min_freq
           AND (i.active IS NULL OR i.active = true)
           AND (:stale_only_flag = 0 OR (DATE(:d_to) - a.last_purchase_date) >= :stale_days)
+          {brand_clause}
         ORDER BY recency_days DESC, monetary DESC
         LIMIT 500
     """)
 
-    rows = db.session.execute(sql, {
+    params = {
         "code": customer_code,
         "d_from": d_from,
         "d_to": today,
         "stale_days": stale_days,
         "min_freq": min_freq,
         "stale_only_flag": 1 if stale_only else 0
-    }).mappings().all()
+    }
+    if brand_filter:
+        params["brand"] = brand_filter
+
+    rows = db.session.execute(sql, params).mappings().all()
+
+    brands = sorted(set(r["brand"] for r in rows if r["brand"]))
 
     return jsonify({
         "lookback_days": lookback_days,
         "stale_days": stale_days,
         "min_freq": min_freq,
         "stale_only": stale_only,
+        "brand": brand_filter,
+        "brands": brands,
         "items": [dict(r) for r in rows]
     })
 

@@ -358,13 +358,47 @@ async function loadInvoices(page) {
         </div>`;
 }
 
-async function loadItemRfm() {
+let rfmBrands = [];
+let rfmSelectedBrand = '';
+let rfmData = null;
+
+function fmtDateDMY(s) {
+    if (!s) return '';
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}-${mm}-${yy}`;
+}
+
+async function loadItemRfm(brand) {
+    if (brand !== undefined) rfmSelectedBrand = brand;
     document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
-    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/item-rfm?lookback_days=730&stale_days=90&stale_only=1`);
+    let url = `${BASE}/api/${encodeURIComponent(selectedCode)}/item-rfm?lookback_days=730&stale_days=90&stale_only=1`;
+    if (rfmSelectedBrand) url += `&brand=${encodeURIComponent(rfmSelectedBrand)}`;
+    const res = await fetch(url);
     const data = await res.json();
+    rfmData = data;
     const items = data.items || [];
+
+    if (!rfmSelectedBrand && data.brands) rfmBrands = data.brands;
+
+    const brandOpts = rfmBrands.map(b =>
+        `<option value="${b}" ${b === rfmSelectedBrand ? 'selected' : ''}>${b}</option>`
+    ).join('');
+    const brandSelect = `
+        <select id="rfmBrandFilter" class="form-select form-select-sm" style="width:auto;display:inline-block;min-width:140px;background:rgba(30,41,59,0.8);color:#e2e8f0;border-color:rgba(100,116,139,0.3)" onchange="loadItemRfm(this.value)">
+            <option value="">All Brands</option>
+            ${brandOpts}
+        </select>`;
+
     if (items.length === 0) {
-        document.getElementById('tabContent').innerHTML = '<div class="ca-empty">No stale items found (good news!)</div>';
+        document.getElementById('tabContent').innerHTML = `
+            <div class="d-flex align-items-center gap-2 mb-2">${brandSelect}
+                <span style="font-size:12px;color:rgba(226,232,240,0.5)">Items not purchased in last ${data.stale_days} days</span>
+            </div>
+            <div class="ca-empty">No stale items found${rfmSelectedBrand ? ' for this brand' : ' (good news!)'}</div>`;
         return;
     }
     let rows = items.map(r => {
@@ -376,7 +410,8 @@ async function loadItemRfm() {
             <tr>
                 <td><span style="font-weight:600">${r.item_code}</span></td>
                 <td>${r.item_name || ''}</td>
-                <td>${r.last_purchase_date || ''}</td>
+                <td>${r.brand || ''}</td>
+                <td>${fmtDateDMY(r.last_purchase_date)}</td>
                 <td><span class="ca-pill-stale ${pillCls}">${days}d</span></td>
                 <td class="text-end">${num(r.frequency)}</td>
                 <td class="text-end">€${money(r.monetary)}</td>
@@ -384,11 +419,11 @@ async function loadItemRfm() {
     }).join('');
 
     document.getElementById('tabContent').innerHTML = `
-        <div class="mb-2" style="font-size:12px;color:rgba(226,232,240,0.5)">
-            Items not purchased in last ${data.stale_days} days (lookback: ${data.lookback_days} days)
+        <div class="d-flex align-items-center gap-2 mb-2">${brandSelect}
+            <span style="font-size:12px;color:rgba(226,232,240,0.5)">Items not purchased in last ${data.stale_days} days (lookback: ${data.lookback_days} days)</span>
         </div>
         <table class="ca-table">
-            <thead><tr><th>Item Code</th><th>Name</th><th>Last Purchase</th><th>Recency</th><th class="text-end">Frequency</th><th class="text-end">Total Sales</th></tr></thead>
+            <thead><tr><th>Item Code</th><th>Name</th><th>Brand</th><th>Last Purchase</th><th>Recency</th><th class="text-end">Frequency</th><th class="text-end">Total Sales</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
 }
