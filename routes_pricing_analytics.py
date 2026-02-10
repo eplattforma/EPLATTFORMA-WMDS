@@ -67,9 +67,11 @@ def _json_rows(result):
         d = dict(r._mapping)
         for k, v in d.items():
             if hasattr(v, "as_tuple"):
-                d[k] = float(v)
+                d[k] = round(float(v), 2)
             elif v is not None and isinstance(v, float) and math.isnan(v):
                 d[k] = None
+            elif isinstance(v, float):
+                d[k] = round(v, 2)
         rows.append(d)
     return rows
 
@@ -179,12 +181,12 @@ def api_price_index():
         items_out.append({
             "item_code_365": code,
             "qty": qty,
-            "revenue": revenue,
-            "cust_price": cust_price,
-            "market_price": market_price,
-            "index": index_val,
-            "delta_per_unit": delta_per_unit,
-            "delta_total": delta_total,
+            "revenue": round(revenue, 2),
+            "cust_price": round(cust_price, 2) if cust_price is not None else None,
+            "market_price": round(market_price, 2) if market_price is not None else None,
+            "index": round(index_val, 2) if index_val is not None else None,
+            "delta_per_unit": round(delta_per_unit, 2) if delta_per_unit is not None else None,
+            "delta_total": round(delta_total, 2) if delta_total is not None else None,
         })
 
     overall_index = (total_revenue / total_market_cost) if total_market_cost else None
@@ -192,10 +194,10 @@ def api_price_index():
         "customer_code_365": customer,
         "from": str(d_from),
         "to": str(d_to),
-        "total_revenue": total_revenue,
-        "total_market_cost": total_market_cost,
-        "overall_index": overall_index,
-        "estimated_overpay": (total_revenue - total_market_cost) if total_market_cost else None,
+        "total_revenue": round(total_revenue, 2),
+        "total_market_cost": round(total_market_cost, 2),
+        "overall_index": round(overall_index, 2) if overall_index is not None else None,
+        "estimated_overpay": round(total_revenue - total_market_cost, 2) if total_market_cost else None,
     }
 
     return jsonify({"summary": summary, "items": items_out})
