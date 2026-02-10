@@ -66,8 +66,7 @@ def pending_payments():
             )
         )
     ).order_by(
-        Invoice.customer_name,
-        Shipment.delivery_date.desc()
+        Shipment.delivery_date.asc()
     ).all()
     
     # Group by customer for better visual presentation
