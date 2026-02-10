@@ -266,7 +266,7 @@ def api_monthly_validation():
                 TO_CHAR(h.invoice_date_utc0, 'YYYY-MM') AS month,
                 ROUND(COALESCE(SUM(l.line_total_excl), 0)::numeric, 2) AS before_discount,
                 ROUND(COALESCE(SUM(l.line_total_discount), 0)::numeric, 2) AS discount,
-                ROUND(COALESCE(SUM(l.line_net_value), 0)::numeric, 2) AS net_value,
+                ROUND(COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0)::numeric, 2) AS net_value,
                 ROUND(COALESCE(SUM(l.line_total_vat), 0)::numeric, 2) AS vat,
                 ROUND(COALESCE(SUM(l.line_total_incl), 0)::numeric, 2) AS total_incl,
                 COUNT(DISTINCT h.invoice_no_365) AS invoices,
