@@ -322,6 +322,7 @@ def api_customer_item_rfm(customer_code):
         FROM agg a
         LEFT JOIN ps_items_dw i ON i.item_code_365 = a.item_code
         WHERE a.frequency >= :min_freq
+          AND (i.active IS NULL OR i.active = true)
           AND (:stale_only_flag = 0 OR (DATE(:d_to) - a.last_purchase_date) >= :stale_days)
         ORDER BY recency_days DESC, monetary DESC
         LIMIT 500
