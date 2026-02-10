@@ -359,6 +359,7 @@ async function loadInvoices(page) {
 }
 
 let rfmBrands = [];
+let rfmBrandNameMap = {};
 let rfmSelectedBrand = '';
 let rfmData = null;
 
@@ -382,16 +383,25 @@ async function loadItemRfm(brand) {
     rfmData = data;
     const items = data.items || [];
 
-    if (!rfmSelectedBrand && data.brands) rfmBrands = data.brands;
+    if (!rfmSelectedBrand && data.brands) {
+        rfmBrands = data.brands;
+        rfmBrandNameMap = {};
+        data.brands.forEach(b => { rfmBrandNameMap[b.code] = b.name || ''; });
+    }
 
-    const brandOpts = rfmBrands.map(b =>
-        `<option value="${b}" ${b === rfmSelectedBrand ? 'selected' : ''}>${b}</option>`
-    ).join('');
+    const brandOpts = rfmBrands.map(b => {
+        const label = b.name ? `${b.code} - ${b.name}` : b.code;
+        return `<option value="${b.code}" ${b.code === rfmSelectedBrand ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+    const clearBtn = rfmSelectedBrand
+        ? `<button class="btn btn-outline-secondary btn-sm" onclick="loadItemRfm('')" title="Show all brands"><i class="fas fa-times me-1"></i>Clear</button>`
+        : '';
     const brandSelect = `
-        <select id="rfmBrandFilter" class="form-select form-select-sm" style="width:auto;display:inline-block;min-width:140px;background:rgba(30,41,59,0.8);color:#e2e8f0;border-color:rgba(100,116,139,0.3)" onchange="loadItemRfm(this.value)">
+        <select id="rfmBrandFilter" class="form-select form-select-sm" style="width:auto;display:inline-block;min-width:200px;background:rgba(30,41,59,0.8);color:#e2e8f0;border-color:rgba(100,116,139,0.3)" onchange="loadItemRfm(this.value)">
             <option value="">All Brands</option>
             ${brandOpts}
-        </select>`;
+        </select>
+        ${clearBtn}`;
 
     if (items.length === 0) {
         document.getElementById('tabContent').innerHTML = `
@@ -406,7 +416,9 @@ async function loadItemRfm(brand) {
         let pillCls = 'ok';
         if (days > 180) pillCls = 'danger';
         else if (days > 90) pillCls = 'warning';
-        const brandBadge = r.brand ? `<span class="badge text-bg-secondary" style="cursor:pointer;font-size:10px;vertical-align:middle;margin-left:6px" onclick="loadItemRfm('${r.brand.replace(/'/g, "\\'")}')">${r.brand}</span>` : '';
+        const bName = rfmBrandNameMap[r.brand] || '';
+        const badgeLabel = bName ? `${r.brand} - ${bName}` : r.brand;
+        const brandBadge = r.brand ? `<span class="badge text-bg-secondary" style="cursor:pointer;font-size:10px;vertical-align:middle;margin-left:6px" onclick="loadItemRfm('${r.brand.replace(/'/g, "\\'")}')">${badgeLabel}</span>` : '';
         return `
             <tr>
                 <td><span style="font-weight:600">${r.item_code}</span></td>

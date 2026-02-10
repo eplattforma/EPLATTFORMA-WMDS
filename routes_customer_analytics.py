@@ -342,7 +342,14 @@ def api_customer_item_rfm(customer_code):
 
     rows = db.session.execute(sql, params).mappings().all()
 
-    brands = sorted(set(r["brand"] for r in rows if r["brand"]))
+    brand_codes = sorted(set(r["brand"] for r in rows if r["brand"]))
+    brand_name_map = {}
+    if brand_codes:
+        bn_sql = text("SELECT brand_code_365, brand_name FROM dw_brands WHERE brand_code_365 = ANY(CAST(:codes AS text[]))")
+        bn_rows = db.session.execute(bn_sql, {"codes": brand_codes}).mappings().all()
+        brand_name_map = {r["brand_code_365"]: r["brand_name"] or "" for r in bn_rows}
+
+    brands = [{"code": c, "name": brand_name_map.get(c, "")} for c in brand_codes]
 
     return jsonify({
         "lookback_days": lookback_days,
