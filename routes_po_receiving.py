@@ -1344,7 +1344,7 @@ def api_reset_lot(line_id):
     
     # Verify the session hasn't been finished yet
     rcv_session = ReceivingSession.query.get(rcv_line.session_id)
-    if rcv_session and rcv_session.status == 'finished':
+    if rcv_session and rcv_session.finished_at is not None:
         return jsonify({'ok': False, 'error': 'Cannot reset item from a finished session'}), 400
         
     try:
