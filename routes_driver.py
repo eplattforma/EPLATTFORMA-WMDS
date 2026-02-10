@@ -635,9 +635,18 @@ def submit_delivery(stop_id):
                 cod_note = cod.get('note', '')
             cod_variance = received - cod_expected
             
-            # Note is optional - driver can explain variance if needed
-            # if cod_variance != 0 and not cod_note:
-            #     abort(422, description="Variance note is required when variance ≠ 0")
+            recent_cutoff = utc_now() - timedelta(seconds=10)
+            existing_receipt = CODReceipt.query.filter(
+                CODReceipt.route_id == route.id,
+                CODReceipt.route_stop_id == stop_id,
+                CODReceipt.invoice_nos == invoice_nos,
+                CODReceipt.received_amount == received,
+                CODReceipt.payment_method == cod_method,
+                CODReceipt.created_at >= recent_cutoff
+            ).first()
+            if existing_receipt:
+                db.session.rollback()
+                return jsonify({'success': True, 'message': 'Already recorded'}), 200
             
             # Create COD receipt
             cod_receipt = CODReceipt(

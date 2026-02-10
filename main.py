@@ -24,6 +24,7 @@ import routes_time_analysis  # noqa: F401  # Time Analysis dashboard
 import pytz
 from timezone_utils import get_utc_now
 from datetime import datetime, timezone, timedelta
+import flask_login
 
 # Import is_production from app
 from app import is_production
@@ -386,7 +387,7 @@ with app.app_context():
         db.session.rollback()
 
 # Add download route for project export
-from flask import send_file
+from flask import send_file, abort, flash, redirect, url_for, render_template_string, request
 import os as os_module
 
 @app.route('/download-project-export')
@@ -397,6 +398,78 @@ def download_project_export():
         return send_file(file_path, as_attachment=True, download_name='warehouse-system-export.zip')
     else:
         return "Export file not found. Please create it first.", 404
+
+@app.route('/admin/maintenance/dedup-cod', methods=['GET', 'POST'])
+@flask_login.login_required
+def admin_dedup_cod():
+    """Admin maintenance: find and remove exact duplicate COD receipts from double-submit."""
+    if flask_login.current_user.role != 'admin':
+        abort(403)
+    from app import db
+    from sqlalchemy import text
+    
+    find_sql = text("""
+        SELECT c1.id, c1.route_id, c1.route_stop_id, c1.invoice_nos::text,
+               c1.received_amount, c1.payment_method, c1.created_at,
+               c2.id AS kept_id, c2.created_at AS kept_created_at
+        FROM cod_receipts c1
+        INNER JOIN cod_receipts c2
+            ON c1.route_id = c2.route_id
+            AND c1.route_stop_id = c2.route_stop_id
+            AND c1.invoice_nos::text = c2.invoice_nos::text
+            AND c1.received_amount = c2.received_amount
+            AND c1.payment_method = c2.payment_method
+            AND c1.id > c2.id
+            AND ABS(EXTRACT(EPOCH FROM (c1.created_at - c2.created_at))) < 5
+        ORDER BY c1.id
+    """)
+    
+    if request.method == 'POST':
+        result = db.session.execute(find_sql)
+        dup_ids = [row[0] for row in result]
+        if dup_ids:
+            for dup_id in dup_ids:
+                db.session.execute(text(
+                    "DELETE FROM cod_invoice_allocations WHERE cod_receipt_id = :rid"
+                ), {'rid': dup_id})
+                db.session.execute(text(
+                    "DELETE FROM cod_receipts WHERE id = :rid"
+                ), {'rid': dup_id})
+            db.session.commit()
+            flash(f"Removed {len(dup_ids)} duplicate COD receipts: {dup_ids}", "success")
+        else:
+            flash("No duplicates found", "info")
+        return redirect(url_for('admin_dedup_cod'))
+    
+    result = db.session.execute(find_sql)
+    duplicates = [dict(row._mapping) for row in result]
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block content %}
+    <div class="container mt-4">
+        <h3>COD Receipt Deduplication</h3>
+        <p>Found <strong>{{ duplicates|length }}</strong> duplicate COD receipt(s) to remove.</p>
+        {% if duplicates %}
+        <table class="table table-sm table-dark">
+            <tr><th>Dup ID</th><th>Route</th><th>Stop</th><th>Invoices</th><th>Amount</th><th>Method</th><th>Created</th><th>Keeping ID</th></tr>
+            {% for d in duplicates %}
+            <tr>
+                <td>{{ d.id }}</td><td>{{ d.route_id }}</td><td>{{ d.route_stop_id }}</td>
+                <td>{{ d.invoice_nos }}</td><td>&euro;{{ "%.2f"|format(d.received_amount) }}</td>
+                <td>{{ d.payment_method }}</td><td>{{ d.created_at }}</td><td>{{ d.kept_id }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-danger" onclick="return confirm('Delete {{ duplicates|length }} duplicate records?')">Remove Duplicates</button>
+        </form>
+        {% else %}
+        <div class="alert alert-success">No duplicates found. All clean!</div>
+        {% endif %}
+    </div>
+    {% endblock %}
+    """, duplicates=duplicates)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
