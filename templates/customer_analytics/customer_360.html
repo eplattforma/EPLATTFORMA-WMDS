@@ -267,6 +267,10 @@ async function loadHeader() {
 
 async function loadSummary() {
     const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/summary?${qp()}`);
+    if (!res.ok) {
+        document.getElementById('kpis').innerHTML = '<div class="ca-empty">Failed to load KPIs</div>';
+        return;
+    }
     const data = await res.json();
     const cur = data.current || {};
     const del = data.delta || null;
