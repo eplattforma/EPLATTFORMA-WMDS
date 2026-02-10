@@ -109,6 +109,7 @@ function buildBaseParams() {
 async function loadAll() {
   var customer = window.CUSTOMER_CODE_365;
   var base = buildBaseParams();
+  var compare = document.getElementById("compare").value;
 
   indexSelectedBrand = "";
 
@@ -116,6 +117,7 @@ async function loadAll() {
   setLoading("tblDisp");
   setLoading("tblPvm");
   setLoading("tblSens");
+  setLoading("tblStale");
   document.getElementById("indexSummary").innerHTML = "";
   document.getElementById("pvmSummary").innerHTML = "";
 
@@ -123,7 +125,8 @@ async function loadAll() {
     loadIndex("/pricing/api/price-index?" + base + "&top_n=50"),
     loadDisp("/pricing/api/price-dispersion?" + base),
     compare !== "none" ? loadPvm("/pricing/api/pvm?" + base) : showPvmNotice(),
-    loadSens("/pricing/api/price-sensitivity?customer_code_365=" + encodeURIComponent(customer) + "&months=18")
+    loadSens("/pricing/api/price-sensitivity?customer_code_365=" + encodeURIComponent(customer) + "&months=18"),
+    loadStale(buildStaleUrl())
   ]);
 }
 
@@ -303,6 +306,51 @@ async function loadPvm(url) {
   }
 }
 
+function buildStaleUrl() {
+  var customer = window.CUSTOMER_CODE_365;
+  var benchmark = document.getElementById("benchmark").value;
+  var staleMin = document.getElementById("staleMin") ? document.getElementById("staleMin").value : 300;
+  var staleMax = document.getElementById("staleMax") ? document.getElementById("staleMax").value : 400;
+  var marketDays = document.getElementById("marketDays") ? document.getElementById("marketDays").value : 90;
+  return "/pricing/api/stale-pricing?customer_code_365=" + encodeURIComponent(customer) +
+    "&stale_min=" + staleMin + "&stale_max=" + staleMax +
+    "&market_days=" + marketDays + "&benchmark=" + benchmark;
+}
+
+async function loadStale(url) {
+  try {
+    var j = await safeFetch(url);
+    var items = j.items || [];
+
+    if (items.length === 0) {
+      setEmpty("tblStale", "No stale items found in the specified day range");
+      return;
+    }
+
+    var tb = document.querySelector("#tblStale tbody");
+    tb.innerHTML = "";
+
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td style="font-weight:600;font-size:12px">' + (it.item_code_365 || "") + '</td>' +
+        '<td style="font-size:12px">' + (it.item_name || "") + '</td>' +
+        '<td class="text-end">' + (it.last_purchase_date || "") + '</td>' +
+        '<td class="text-end">' + fmt(it.recency_days, 0) + '</td>' +
+        '<td class="text-end">' + fmt(it.last_unit_price, 2) + '</td>' +
+        '<td class="text-end">' + fmt(it.ref_at_last, 2) + '</td>' +
+        '<td class="text-end ' + deltaClass(it.delta_vs_ref_at_last) + '">' + fmtSigned(it.delta_vs_ref_at_last, 2) + '</td>' +
+        '<td class="text-end">' + fmt(it.ref_current, 2) + '</td>' +
+        '<td class="text-end ' + deltaClass(it.delta_vs_ref_current) + '">' + fmtSigned(it.delta_vs_ref_current, 2) + '</td>' +
+        '<td class="text-end">' + fmt(it.suggested_winback_price, 2) + '</td>';
+      tb.appendChild(tr);
+    }
+  } catch(e) {
+    setEmpty("tblStale", e.message || "Error loading data");
+  }
+}
+
 async function loadSens(url) {
   try {
     var j = await safeFetch(url);
@@ -351,6 +399,14 @@ document.addEventListener("DOMContentLoaded", function() {
   document.getElementById("dTo").disabled = true;
 
   document.getElementById("btnLoad").addEventListener("click", loadAll);
+
+  var btnStale = document.getElementById("btnLoadStale");
+  if (btnStale) {
+    btnStale.addEventListener("click", function() {
+      setLoading("tblStale");
+      loadStale(buildStaleUrl());
+    });
+  }
 
   var tabs = document.querySelectorAll(".pa-tab");
   tabs.forEach(function(tab) {

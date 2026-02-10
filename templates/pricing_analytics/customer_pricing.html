@@ -145,6 +145,7 @@
         <button class="pa-tab" data-tab="tDisp">Price Dispersion</button>
         <button class="pa-tab" data-tab="tPvm">PVM Analysis</button>
         <button class="pa-tab" data-tab="tSens">Price Sensitivity</button>
+        <button class="pa-tab" data-tab="tStale">Stale Pricing</button>
     </div>
 
     <div class="pa-section">
@@ -217,6 +218,43 @@
                 </table>
             </div>
             <div class="pa-note">Negative correlation = customer buys less when price rises (price sensitive). Minimum 6 month-pairs required. Signal only, not true elasticity.</div>
+        </div>
+
+        <div class="pa-tab-content" id="tStale">
+            <div class="d-flex align-items-end gap-2 mb-3 flex-wrap">
+                <div class="form-group">
+                    <label style="font-size:11px;color:rgba(226,232,240,0.55);text-transform:uppercase;letter-spacing:0.06em">Stale min days</label>
+                    <input type="number" id="staleMin" class="form-control form-control-sm" value="300" style="width:100px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff">
+                </div>
+                <div class="form-group">
+                    <label style="font-size:11px;color:rgba(226,232,240,0.55);text-transform:uppercase;letter-spacing:0.06em">Stale max days</label>
+                    <input type="number" id="staleMax" class="form-control form-control-sm" value="400" style="width:100px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff">
+                </div>
+                <div class="form-group">
+                    <label style="font-size:11px;color:rgba(226,232,240,0.55);text-transform:uppercase;letter-spacing:0.06em">Market days</label>
+                    <input type="number" id="marketDays" class="form-control form-control-sm" value="90" style="width:100px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff">
+                </div>
+                <button class="btn btn-outline-primary btn-sm" id="btnLoadStale" style="height:31px">Reload</button>
+            </div>
+            <div class="table-responsive">
+                <table class="pa-table" id="tblStale">
+                    <thead>
+                        <tr>
+                            <th>Item</th><th>Name</th>
+                            <th class="text-end">Last Date</th>
+                            <th class="text-end">Recency</th>
+                            <th class="text-end">Last Price</th>
+                            <th class="text-end">Ref at Last</th>
+                            <th class="text-end">&Delta; vs Ref (last)</th>
+                            <th class="text-end">Ref Current</th>
+                            <th class="text-end">&Delta; vs Ref (current)</th>
+                            <th class="text-end">Suggest</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="pa-note">Shows items this customer hasn't purchased in the specified day range. "Ref" = selected benchmark (median or max). "Suggest" = min(last price, current market median) as a conservative win-back price.</div>
         </div>
     </div>
 </div>

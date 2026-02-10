@@ -506,3 +506,160 @@ def api_price_sensitivity():
 
     res = db.session.execute(sql, {"customer": customer, "months": months, "step": step}).fetchall()
     return jsonify({"customer_code_365": customer, "months": months, "price_step": step, "items": _json_rows(res)})
+
+
+@pricing_bp.route("/api/stale-pricing")
+@login_required
+def api_stale_pricing():
+    if not _require_role("admin", "warehouse_manager"):
+        return jsonify({"error": "forbidden"}), 403
+
+    customer = (request.args.get("customer_code_365") or "").strip()
+
+    stale_min = int(request.args.get("stale_min", "300"))
+    stale_max = int(request.args.get("stale_max", "400"))
+    if stale_min < 0:
+        stale_min = 0
+    if stale_max < stale_min:
+        stale_max = stale_min
+
+    market_days = int(request.args.get("market_days", "90"))
+    market_days = max(14, min(market_days, 365))
+
+    benchmark = (request.args.get("benchmark", "median") or "median").lower().strip()
+    if benchmark not in ("median", "max"):
+        benchmark = "median"
+
+    limit = int(request.args.get("limit", "200"))
+    limit = max(20, min(limit, 500))
+
+    sql = text("""
+      WITH cust_items AS (
+        SELECT
+          item_code_365,
+          MAX(sale_date) AS last_purchase_date
+        FROM dw_sales_lines_mv
+        WHERE customer_code_365 = :customer
+          AND qty > 0 AND net_excl > 0
+        GROUP BY item_code_365
+      ),
+      stale AS (
+        SELECT
+          ci.item_code_365,
+          ci.last_purchase_date,
+          (CURRENT_DATE - ci.last_purchase_date) AS recency_days,
+          date_trunc('month', ci.last_purchase_date)::date AS last_month_start,
+          (date_trunc('month', ci.last_purchase_date) + interval '1 month' - interval '1 day')::date AS last_month_end
+        FROM cust_items ci
+        WHERE (CURRENT_DATE - ci.last_purchase_date) BETWEEN :stale_min AND :stale_max
+      ),
+      last_paid AS (
+        SELECT
+          s.item_code_365,
+          SUM(v.qty) AS last_qty,
+          SUM(v.net_excl) AS last_revenue,
+          CASE WHEN SUM(v.qty) <> 0 THEN SUM(v.net_excl)/SUM(v.qty) ELSE NULL END AS last_unit_price
+        FROM stale s
+        JOIN dw_sales_lines_mv v
+          ON v.customer_code_365 = :customer
+         AND v.item_code_365 = s.item_code_365
+         AND v.sale_date = s.last_purchase_date
+        WHERE v.qty > 0 AND v.net_excl > 0
+        GROUP BY s.item_code_365
+      )
+      SELECT
+        s.item_code_365,
+        COALESCE(i.item_name, '') AS item_name,
+        s.last_purchase_date,
+        s.recency_days,
+        lp.last_qty,
+        lp.last_revenue,
+        lp.last_unit_price,
+
+        m_last.market_median_price AS market_median_at_last,
+        m_last.market_max_price    AS market_max_at_last,
+
+        m_cur.market_median_price  AS market_median_current,
+        m_cur.market_max_price     AS market_max_current
+
+      FROM stale s
+      LEFT JOIN last_paid lp ON lp.item_code_365 = s.item_code_365
+      LEFT JOIN ps_items_dw i ON i.item_code_365 = s.item_code_365
+
+      LEFT JOIN LATERAL (
+        WITH cust_item AS (
+          SELECT
+            customer_code_365,
+            CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS cust_item_price
+          FROM dw_sales_lines_mv
+          WHERE sale_date BETWEEN s.last_month_start AND s.last_month_end
+            AND item_code_365 = s.item_code_365
+            AND qty > 0 AND net_excl > 0
+          GROUP BY customer_code_365
+        )
+        SELECT
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY cust_item_price) AS market_median_price,
+          MAX(cust_item_price) AS market_max_price
+        FROM cust_item
+        WHERE cust_item_price IS NOT NULL
+      ) m_last ON true
+
+      LEFT JOIN LATERAL (
+        WITH cust_item AS (
+          SELECT
+            customer_code_365,
+            CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS cust_item_price
+          FROM dw_sales_lines_mv
+          WHERE sale_date >= (CURRENT_DATE - CAST(:market_days AS integer) * INTERVAL '1 day')
+            AND item_code_365 = s.item_code_365
+            AND qty > 0 AND net_excl > 0
+          GROUP BY customer_code_365
+        )
+        SELECT
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY cust_item_price) AS market_median_price,
+          MAX(cust_item_price) AS market_max_price
+        FROM cust_item
+        WHERE cust_item_price IS NOT NULL
+      ) m_cur ON true
+
+      ORDER BY s.recency_days DESC, COALESCE(lp.last_revenue,0) DESC
+      LIMIT :lim
+    """)
+
+    res = db.session.execute(sql, {
+        "customer": customer,
+        "stale_min": stale_min,
+        "stale_max": stale_max,
+        "market_days": market_days,
+        "lim": limit,
+    }).fetchall()
+
+    rows = _json_rows(res)
+
+    for r in rows:
+        last_price = r.get("last_unit_price")
+        if benchmark == "median":
+            ref_at_last = r.get("market_median_at_last")
+            ref_current = r.get("market_median_current")
+        else:
+            ref_at_last = r.get("market_max_at_last")
+            ref_current = r.get("market_max_current")
+
+        r["benchmark"] = benchmark
+        r["ref_at_last"] = round(ref_at_last, 2) if ref_at_last is not None else None
+        r["ref_current"] = round(ref_current, 2) if ref_current is not None else None
+
+        r["delta_vs_ref_at_last"] = round(last_price - ref_at_last, 2) if (last_price is not None and ref_at_last is not None) else None
+        r["delta_vs_ref_current"] = round(last_price - ref_current, 2) if (last_price is not None and ref_current is not None) else None
+
+        cur_med = r.get("market_median_current")
+        r["suggested_winback_price"] = round(min(last_price, cur_med), 2) if (last_price is not None and cur_med is not None) else None
+
+    return jsonify({
+        "customer_code_365": customer,
+        "stale_min": stale_min,
+        "stale_max": stale_max,
+        "market_days": market_days,
+        "benchmark": benchmark,
+        "items": rows
+    })
