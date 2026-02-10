@@ -1,0 +1,186 @@
+Yes — the clean way is to add a “Benchmark” selector (Median vs Max) and have Price Index compute Index + Δs against whichever benchmark is selected.
+
+Below are Replit-ready instructions (backend + frontend). This keeps both prices available (median + max), but the deltas/summary use the selected reference.
+
+1) Backend: add benchmark=median|max to /pricing/api/price-index
+
+Open blueprints/pricing_analytics.py → api_price_index().
+
+1.1 Read the benchmark param
+
+Add near the top of api_price_index():
+
+benchmark = (request.args.get("benchmark", "median") or "median").lower().strip()
+if benchmark not in ("median", "max"):
+    benchmark = "median"
+
+1.2 Ensure your market query returns both median and max
+
+Use (or keep) this query (note the ::text[] cast):
+
+sql_market = text("""
+  WITH cust_item AS (
+    SELECT
+      item_code_365,
+      customer_code_365,
+      CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS cust_item_price
+    FROM dw_sales_lines_mv
+    WHERE sale_date BETWEEN :d_from AND :d_to
+      AND item_code_365 = ANY(:item_codes::text[])
+      AND qty > 0 AND net_excl > 0
+    GROUP BY item_code_365, customer_code_365
+  )
+  SELECT
+    item_code_365,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY cust_item_price) AS market_median_price,
+    MAX(cust_item_price) AS market_max_price
+  FROM cust_item
+  WHERE cust_item_price IS NOT NULL
+  GROUP BY item_code_365
+""")
+
+
+Build a map like:
+
+market_map = {}
+for m in market:
+    code = m._mapping["item_code_365"]
+    med = m._mapping["market_median_price"]
+    mx  = m._mapping["market_max_price"]
+    market_map[code] = {
+        "median": float(med) if med is not None else None,
+        "max": float(mx) if mx is not None else None,
+    }
+
+1.3 Compute deltas/index using the selected benchmark
+
+Inside your loop where you currently compute index, delta_per_unit, delta_total, replace the market price selection logic with:
+
+mm = market_map.get(code, {})
+market_median = mm.get("median")
+market_max = mm.get("max")
+
+ref_price = market_median if benchmark == "median" else market_max
+
+index_val = None
+delta_per_unit = None
+delta_total = None
+
+if cust_price is not None and ref_price is not None and ref_price != 0:
+    index_val = cust_price / ref_price
+    delta_per_unit = cust_price - ref_price
+    delta_total = delta_per_unit * qty
+
+
+And for summary totals use the selected ref:
+
+if ref_price is not None:
+    total_market_cost += ref_price * qty
+
+1.4 Return both prices + the selected reference
+
+In items_out.append(...), include:
+
+items_out.append({
+    "item_code_365": code,
+    "qty": qty,
+    "revenue": revenue,
+    "cust_price": cust_price,
+
+    # always return both
+    "market_median_price": market_median,
+    "market_max_price": market_max,
+
+    # selected reference used for index/deltas
+    "benchmark": benchmark,
+    "market_ref_price": ref_price,
+
+    "index": index_val,
+    "delta_per_unit": delta_per_unit,
+    "delta_total": delta_total,
+})
+
+
+In summary, add:
+
+summary["benchmark"] = benchmark
+summary["total_market_cost"] = total_market_cost
+summary["overall_index"] = (total_revenue / total_market_cost) if total_market_cost else None
+summary["estimated_overpay"] = (total_revenue - total_market_cost) if total_market_cost else None
+
+
+✅ Backend done.
+
+2) Frontend: add Benchmark dropdown and pass it to the API
+2.1 Add dropdown in customer_pricing.html
+
+In your filter card (near Compare), add:
+
+<div class="col-md-3">
+  <label class="form-label">Benchmark</label>
+  <select id="benchmark" class="form-select">
+    <option value="median" selected>Market Median</option>
+    <option value="max">Market Max</option>
+  </select>
+</div>
+
+
+(Adjust column widths as needed.)
+
+2.2 Pass benchmark in JS
+
+In static/js/customer_pricing.js inside loadAll():
+
+const benchmark = document.getElementById("benchmark").value;
+const base = `customer_code_365=${encodeURIComponent(customer)}&from=${from}&to=${to}&compare=${compare}&include_credits=${includeCredits}&benchmark=${benchmark}`;
+
+2.3 Update the table to show both prices and the selected reference
+
+In the Price Index table header, use these columns (or add them):
+
+Cust Price
+
+Market Median
+
+Market Max
+
+Ref (selected)
+
+Index
+
+Δ€/unit
+
+Δ€ total
+
+Then update the row rendering in loadIndex():
+
+tr.innerHTML = `
+  <td>${it.item_code_365}</td>
+  <td class="text-end">${fmt(it.qty,2)}</td>
+  <td class="text-end">${fmt(it.revenue,2)}</td>
+  <td class="text-end">${fmt(it.cust_price,4)}</td>
+
+  <td class="text-end">${fmt(it.market_median_price,4)}</td>
+  <td class="text-end">${fmt(it.market_max_price,4)}</td>
+  <td class="text-end">${fmt(it.market_ref_price,4)}</td>
+
+  <td class="text-end">${fmt(it.index,3)}</td>
+  <td class="text-end">${fmt(it.delta_per_unit,4)}</td>
+  <td class="text-end">${fmt(it.delta_total,2)}</td>
+`;
+
+2.4 Label the summary so users know which benchmark is active
+
+In loadIndex() summary block, include s.benchmark (or the dropdown value) in the label, e.g.:
+
+“Market cost (basket, median)” or “Market cost (basket, max)”
+
+“Overpay vs median/max”
+
+3) Interpretation note (important)
+
+Δ vs Median tells you over/under typical market.
+
+Δ vs Max usually becomes negative (because max is a ceiling). It’s still valid, but it’s better mentally as “distance from ceiling”.
+
+If you want, we can also output headroom_to_max = max - cust_price to show it as a positive “headroom” metric when benchmark=max.

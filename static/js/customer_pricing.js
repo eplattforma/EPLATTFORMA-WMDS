@@ -90,7 +90,8 @@ async function loadAll() {
   var compare = document.getElementById("compare").value;
   var includeCredits = document.getElementById("includeCredits").checked ? "1" : "0";
 
-  var base = "customer_code_365=" + encodeURIComponent(customer) + "&from=" + from + "&to=" + to + "&compare=" + compare + "&include_credits=" + includeCredits;
+  var benchmark = document.getElementById("benchmark").value;
+  var base = "customer_code_365=" + encodeURIComponent(customer) + "&from=" + from + "&to=" + to + "&compare=" + compare + "&include_credits=" + includeCredits + "&benchmark=" + benchmark;
 
   setLoading("tblIndex");
   setLoading("tblDisp");
@@ -128,13 +129,15 @@ async function loadIndex(url) {
     await fetchItemNames(codes);
 
     var s = j.summary || {};
+    var bm = s.benchmark === "max" ? "max" : "median";
+    var bmLabel = bm === "max" ? "Market Max" : "Market Median";
     var overpayClass = (s.estimated_overpay || 0) > 0 ? "negative" : "positive";
     document.getElementById("indexSummary").innerHTML =
       '<div class="pa-kpi-grid">' +
         '<div class="pa-kpi"><div class="label">Revenue (excl VAT)</div><div class="value">' + fmt(s.total_revenue) + '</div></div>' +
-        '<div class="pa-kpi"><div class="label">Market cost (basket)</div><div class="value">' + fmt(s.total_market_cost) + '</div></div>' +
-        '<div class="pa-kpi"><div class="label">Overall Index</div><div class="value">' + indexBadge(s.overall_index) + '</div></div>' +
-        '<div class="pa-kpi"><div class="label">Est. over/under pay</div><div class="value ' + overpayClass + '">' + fmtSigned(s.estimated_overpay) + '</div></div>' +
+        '<div class="pa-kpi"><div class="label">Market cost (basket, ' + bm + ')</div><div class="value">' + fmt(s.total_market_cost) + '</div></div>' +
+        '<div class="pa-kpi"><div class="label">Overall Index vs ' + bmLabel + '</div><div class="value">' + indexBadge(s.overall_index) + '</div></div>' +
+        '<div class="pa-kpi"><div class="label">Est. over/under pay vs ' + bm + '</div><div class="value ' + overpayClass + '">' + fmtSigned(s.estimated_overpay) + '</div></div>' +
       '</div>';
 
     var tb = document.querySelector("#tblIndex tbody");
@@ -148,7 +151,8 @@ async function loadIndex(url) {
         '<td class="text-end">' + fmt(it.qty, 0) + '</td>' +
         '<td class="text-end">' + fmt(it.revenue) + '</td>' +
         '<td class="text-end">' + fmt(it.cust_price, 4) + '</td>' +
-        '<td class="text-end">' + fmt(it.market_price, 4) + '</td>' +
+        '<td class="text-end">' + fmt(it.market_median_price, 4) + '</td>' +
+        '<td class="text-end">' + fmt(it.market_max_price, 4) + '</td>' +
         '<td class="text-end">' + indexBadge(it.index) + '</td>' +
         '<td class="text-end">' + fmtSigned(it.delta_per_unit, 4) + '</td>' +
         '<td class="text-end ' + deltaClass(it.delta_total) + '">' + fmtSigned(it.delta_total) + '</td>';

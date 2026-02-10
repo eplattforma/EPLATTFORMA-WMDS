@@ -100,6 +100,9 @@ def api_price_index():
         return jsonify({"error": "forbidden"}), 403
     customer, d_from, d_to, _, _, _, include_credits = _get_filters()
     top_n = int(request.args.get("top_n", "50"))
+    benchmark = (request.args.get("benchmark", "median") or "median").lower().strip()
+    if benchmark not in ("median", "max"):
+        benchmark = "median"
 
     line_where = "sale_date BETWEEN :d_from AND :d_to AND customer_code_365 = :customer"
     if include_credits:
@@ -143,7 +146,8 @@ def api_price_index():
       )
       SELECT
         item_code_365,
-        percentile_cont(0.5) WITHIN GROUP (ORDER BY cust_item_price) AS market_median_price
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY cust_item_price) AS market_median_price,
+        MAX(cust_item_price) AS market_max_price
       FROM cust_item
       WHERE cust_item_price IS NOT NULL
       GROUP BY item_code_365
@@ -151,8 +155,13 @@ def api_price_index():
     market = db.session.execute(sql_market, {"d_from": d_from, "d_to": d_to, "item_codes": item_codes}).fetchall()
     market_map = {}
     for m in market:
-        mp = m._mapping["market_median_price"]
-        market_map[m._mapping["item_code_365"]] = float(mp) if mp is not None else None
+        code = m._mapping["item_code_365"]
+        med = m._mapping["market_median_price"]
+        mx = m._mapping["market_max_price"]
+        market_map[code] = {
+            "median": float(med) if med is not None else None,
+            "max": float(mx) if mx is not None else None,
+        }
 
     total_revenue = 0.0
     total_market_cost = 0.0
@@ -163,27 +172,34 @@ def api_price_index():
         qty = float(r["qty"] or 0)
         revenue = float(r["revenue"] or 0)
         cust_price = float(r["cust_price"]) if r["cust_price"] is not None else None
-        market_price = market_map.get(code)
+
+        mm = market_map.get(code, {})
+        market_median = mm.get("median")
+        market_max = mm.get("max")
+        ref_price = market_median if benchmark == "median" else market_max
 
         index_val = None
         delta_per_unit = None
         delta_total = None
 
-        if cust_price is not None and market_price and market_price != 0:
-            index_val = cust_price / market_price
-            delta_per_unit = cust_price - market_price
+        if cust_price is not None and ref_price is not None and ref_price != 0:
+            index_val = cust_price / ref_price
+            delta_per_unit = cust_price - ref_price
             delta_total = delta_per_unit * qty
 
         total_revenue += revenue
-        if market_price is not None:
-            total_market_cost += market_price * qty
+        if ref_price is not None:
+            total_market_cost += ref_price * qty
 
         items_out.append({
             "item_code_365": code,
             "qty": qty,
             "revenue": round(revenue, 2),
             "cust_price": round(cust_price, 2) if cust_price is not None else None,
-            "market_price": round(market_price, 2) if market_price is not None else None,
+            "market_median_price": round(market_median, 2) if market_median is not None else None,
+            "market_max_price": round(market_max, 2) if market_max is not None else None,
+            "benchmark": benchmark,
+            "market_ref_price": round(ref_price, 2) if ref_price is not None else None,
             "index": round(index_val, 2) if index_val is not None else None,
             "delta_per_unit": round(delta_per_unit, 2) if delta_per_unit is not None else None,
             "delta_total": round(delta_total, 2) if delta_total is not None else None,
@@ -194,6 +210,7 @@ def api_price_index():
         "customer_code_365": customer,
         "from": str(d_from),
         "to": str(d_to),
+        "benchmark": benchmark,
         "total_revenue": round(total_revenue, 2),
         "total_market_cost": round(total_market_cost, 2),
         "overall_index": round(overall_index, 2) if overall_index is not None else None,
