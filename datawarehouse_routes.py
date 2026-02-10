@@ -159,12 +159,80 @@ def dw_menu():
                 </a>
             </div>
             
-            <div class="menu-option">
-                <a href="/datawarehouse/invoice-sync">
+            <div class="menu-option" style="display:flex; align-items:center; justify-content:space-between;">
+                <a href="/datawarehouse/invoice-sync" style="flex:1;">
                     <h3>Sync Invoices from PS365</h3>
                     <p>Load invoice headers and line items from PS365 for a specific date range into the data warehouse.</p>
                 </a>
+                <button onclick="showValidation()" style="margin-left:15px; padding:10px 18px; background:#0066cc; color:#fff; border:none; border-radius:5px; cursor:pointer; white-space:nowrap; font-size:0.9em;">
+                    <b>&#x2713; Validate Import</b>
+                </button>
             </div>
+
+            <!-- Validation Modal -->
+            <div id="validationOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; justify-content:center; align-items:center;">
+                <div style="background:#fff; border-radius:8px; max-width:900px; width:95%; max-height:85vh; overflow:auto; padding:0; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:15px 20px; background:#0066cc; color:#fff; border-radius:8px 8px 0 0;">
+                        <h3 style="margin:0;">Monthly Invoice Validation</h3>
+                        <button onclick="closeValidation()" style="background:none; border:none; color:#fff; font-size:1.5em; cursor:pointer; padding:0 5px;">&times;</button>
+                    </div>
+                    <div id="validationBody" style="padding:20px;">
+                        <p style="text-align:center; color:#666;">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+            function showValidation() {
+                var overlay = document.getElementById('validationOverlay');
+                overlay.style.display = 'flex';
+                document.getElementById('validationBody').innerHTML = '<p style="text-align:center; color:#666;">Loading...</p>';
+                fetch('/datawarehouse/api/monthly-validation')
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (!d.success) { document.getElementById('validationBody').innerHTML = '<p style="color:red;">Error: ' + d.message + '</p>'; return; }
+                        var rows = d.data;
+                        var totBD = 0, totDisc = 0, totNet = 0, totIncl = 0, totInv = 0, totLines = 0;
+                        var html = '<table style="width:100%; border-collapse:collapse; font-size:0.9em;">';
+                        html += '<thead><tr style="background:#f0f0f0;">';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:left;">Month</th>';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Before Discount</th>';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Discount</th>';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Net Value</th>';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Total Incl VAT</th>';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Invoices</th>';
+                        html += '<th style="padding:8px; border:1px solid #ddd; text-align:right;">Lines</th>';
+                        html += '</tr></thead><tbody>';
+                        for (var i = 0; i < rows.length; i++) {
+                            var r = rows[i];
+                            totBD += r.before_discount; totDisc += r.discount; totNet += r.net_value; totIncl += r.total_incl; totInv += r.invoices; totLines += r.lines;
+                            html += '<tr>';
+                            html += '<td style="padding:8px; border:1px solid #ddd;">' + r.month + '</td>';
+                            html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(r.before_discount) + '</td>';
+                            html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(r.discount) + '</td>';
+                            html += '<td style="padding:8px; border:1px solid #ddd; text-align:right; font-weight:600;">' + fmt(r.net_value) + '</td>';
+                            html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(r.total_incl) + '</td>';
+                            html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + r.invoices.toLocaleString() + '</td>';
+                            html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + r.lines.toLocaleString() + '</td>';
+                            html += '</tr>';
+                        }
+                        html += '<tr style="background:#f8f9fa; font-weight:700; border-top:2px solid #333;">';
+                        html += '<td style="padding:8px; border:1px solid #ddd;">TOTAL</td>';
+                        html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totBD) + '</td>';
+                        html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totDisc) + '</td>';
+                        html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totNet) + '</td>';
+                        html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + fmt(totIncl) + '</td>';
+                        html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + totInv.toLocaleString() + '</td>';
+                        html += '<td style="padding:8px; border:1px solid #ddd; text-align:right;">' + totLines.toLocaleString() + '</td>';
+                        html += '</tr></tbody></table>';
+                        document.getElementById('validationBody').innerHTML = html;
+                    })
+                    .catch(function(e) { document.getElementById('validationBody').innerHTML = '<p style="color:red;">Failed to load data.</p>'; });
+            }
+            function closeValidation() { document.getElementById('validationOverlay').style.display = 'none'; }
+            function fmt(n) { return '\\u20ac' + n.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+            document.getElementById('validationOverlay').addEventListener('click', function(e) { if (e.target === this) closeValidation(); });
+            </script>
             
             <div class="menu-option">
                 <a href="/datawarehouse/database-settings">
@@ -181,6 +249,39 @@ def dw_menu():
     </html>
     """
     return render_template_string(html)
+
+
+@dw_bp.route('/api/monthly-validation', methods=['GET'])
+@login_required
+def api_monthly_validation():
+    if current_user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Admin only'}), 403
+    try:
+        from sqlalchemy import text
+        rows = db.session.execute(text("""
+            SELECT
+                TO_CHAR(h.invoice_date_utc0, 'YYYY-MM') AS month,
+                ROUND(COALESCE(SUM(l.line_total_excl), 0)::numeric, 2) AS before_discount,
+                ROUND(COALESCE(SUM(l.line_total_discount), 0)::numeric, 2) AS discount,
+                ROUND(COALESCE(SUM(l.line_net_value), 0)::numeric, 2) AS net_value,
+                ROUND(COALESCE(SUM(l.line_total_incl), 0)::numeric, 2) AS total_incl,
+                COUNT(DISTINCT h.invoice_no_365) AS invoices,
+                COUNT(l.id) AS lines
+            FROM dw_invoice_header h
+            JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+            GROUP BY TO_CHAR(h.invoice_date_utc0, 'YYYY-MM')
+            ORDER BY month
+        """)).mappings().all()
+        data = [dict(r) for r in rows]
+        for r in data:
+            r['before_discount'] = float(r['before_discount'])
+            r['discount'] = float(r['discount'])
+            r['net_value'] = float(r['net_value'])
+            r['total_incl'] = float(r['total_incl'])
+        return jsonify({'success': True, 'data': data})
+    except Exception as e:
+        logger.error(f"Monthly validation error: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @dw_bp.route('/test-one-item', methods=['GET', 'POST'])
