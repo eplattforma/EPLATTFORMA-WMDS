@@ -204,3 +204,51 @@ def run_reconciliation_migration():
             "success": False,
             "error": str(e)
         }), 500
+
+
+@bp.route('/backfill-net-values', methods=['POST'])
+@login_required
+def backfill_net_values():
+    if not is_admin():
+        return jsonify({"success": False, "error": "Access denied"}), 403
+    try:
+        from app import db
+        from sqlalchemy import text
+
+        lines_result = db.session.execute(text("""
+            UPDATE dw_invoice_line
+            SET line_net_value = line_total_incl - line_total_vat
+            WHERE line_net_value IS NULL
+              AND line_total_incl IS NOT NULL
+              AND line_total_vat IS NOT NULL
+        """))
+        lines_updated = lines_result.rowcount
+
+        headers_result = db.session.execute(text("""
+            UPDATE dw_invoice_header
+            SET total_net = total_sub - total_discount
+            WHERE total_net IS NULL
+              AND total_sub IS NOT NULL
+              AND total_discount IS NOT NULL
+        """))
+        headers_updated = headers_result.rowcount
+
+        mv_refreshed = False
+        try:
+            db.session.execute(text("REFRESH MATERIALIZED VIEW dw_sales_lines_mv"))
+            mv_refreshed = True
+        except Exception:
+            logger.warning("Could not refresh dw_sales_lines_mv - may not exist yet")
+
+        db.session.commit()
+        logger.info(f"Backfill net values: {lines_updated} lines, {headers_updated} headers updated, mv_refreshed={mv_refreshed}")
+        return jsonify({
+            "success": True,
+            "lines_updated": lines_updated,
+            "headers_updated": headers_updated,
+            "mv_refreshed": mv_refreshed
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error backfilling net values: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
