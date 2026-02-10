@@ -383,7 +383,7 @@ def api_item_names():
     codes = [c.strip() for c in codes_param.split(",") if c.strip()]
     if not codes or len(codes) > 500:
         return jsonify({"names": {}})
-    sql = text("SELECT item_code_365, item_name FROM ps_items_dw WHERE item_code_365 = ANY(:codes::text[])")
+    sql = text("SELECT item_code_365, item_name FROM ps_items_dw WHERE item_code_365 = ANY(CAST(:codes AS text[]))")
     rows = db.session.execute(sql, {"codes": codes}).fetchall()
     names = {r._mapping["item_code_365"]: r._mapping["item_name"] or "" for r in rows}
     return jsonify({"names": names})

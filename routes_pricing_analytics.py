@@ -135,7 +135,7 @@ def api_price_index():
           CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS cust_item_price
         FROM dw_sales_lines_mv
         WHERE sale_date BETWEEN :d_from AND :d_to
-          AND item_code_365 = ANY(:item_codes::text[])
+          AND item_code_365 = ANY(CAST(:item_codes AS text[]))
           AND qty > 0 AND net_excl > 0
         GROUP BY item_code_365, customer_code_365
       )
