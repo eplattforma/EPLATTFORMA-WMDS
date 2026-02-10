@@ -33,7 +33,7 @@ def _resolve_range(args):
         return date(today.year, start_month, 1), today
     if preset == "ytd":
         return date(today.year, 1, 1), today
-    if preset == "last90" or preset == "":
+    if preset == "last90":
         return today - timedelta(days=89), today
 
     d_from = _parse_date(args.get("from"))

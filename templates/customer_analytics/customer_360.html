@@ -498,6 +498,14 @@ async function loadTrend() {
     });
 }
 
+document.getElementById('preset').addEventListener('change', function() {
+    const custom = this.value === '';
+    document.getElementById('fromDate').disabled = !custom;
+    document.getElementById('toDate').disabled = !custom;
+});
+document.getElementById('fromDate').disabled = true;
+document.getElementById('toDate').disabled = true;
+
 (function() {
     const params = new URLSearchParams(window.location.search);
     const autoCode = params.get('autoload') || params.get('customer');
