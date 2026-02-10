@@ -170,6 +170,10 @@ app.register_blueprint(reconciliation_bp)
 from routes_customer_analytics import customer_analytics_bp
 app.register_blueprint(customer_analytics_bp)
 
+# Register the Pricing Analytics blueprint
+from routes_pricing_analytics import pricing_bp
+app.register_blueprint(pricing_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal

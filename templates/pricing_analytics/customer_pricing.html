@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Pricing Analytics - {{ customer_name }}{% endblock %}
+
+{% block head %}
+<style>
+    .pa-kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+    .pa-kpi {
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px; padding: 14px 16px;
+    }
+    .pa-kpi .label { font-size: 11px; color: rgba(226,232,240,0.55); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
+    .pa-kpi .value { font-size: 22px; font-weight: 700; color: #fff; margin-top: 2px; }
+    .pa-kpi .value.positive { color: #22c55e; }
+    .pa-kpi .value.negative { color: #ef4444; }
+
+    .pa-header-card {
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px; padding: 16px 20px;
+    }
+    .pa-header-card .cust-name { font-size: 18px; font-weight: 700; }
+    .pa-header-card .cust-code { font-size: 13px; color: rgba(226,232,240,0.55); }
+
+    .pa-tabs { display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap; }
+    .pa-tab {
+        padding: 7px 14px; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+        cursor: pointer; background: transparent; color: rgba(226,232,240,0.7);
+        font-size: 13px; font-weight: 500; transition: all 0.15s;
+    }
+    .pa-tab:hover { background: rgba(255,255,255,0.06); }
+    .pa-tab.active { background: var(--bs-primary); color: #fff; border-color: var(--bs-primary); }
+
+    .pa-table { width: 100%; border-collapse: collapse; }
+    .pa-table thead th {
+        font-size: 11px; font-weight: 500; color: rgba(226,232,240,0.55);
+        letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 8px 10px; border-bottom: 2px solid rgba(255,255,255,0.1);
+    }
+    .pa-table tbody td {
+        padding: 8px 10px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05);
+        color: rgba(226,232,240,0.85);
+    }
+    .pa-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+    .pa-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .pa-controls .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .pa-controls .form-group label { font-size: 11px; color: rgba(226,232,240,0.55); text-transform: uppercase; letter-spacing: 0.06em; }
+    .pa-controls select, .pa-controls input[type="date"] {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+        color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 13px;
+    }
+    .pa-controls .btn-load {
+        padding: 6px 18px; border-radius: 6px; font-size: 13px; font-weight: 600;
+    }
+    .pa-controls .form-check { display: flex; align-items: center; gap: 6px; padding-bottom: 4px; }
+    .pa-controls .form-check-label { font-size: 12px; color: rgba(226,232,240,0.7); }
+
+    .pa-empty { text-align: center; padding: 40px; color: rgba(226,232,240,0.4); font-size: 14px; }
+    .pa-loading { text-align: center; padding: 30px; color: rgba(226,232,240,0.4); }
+    .pa-section { margin-top: 16px; }
+    .pa-tab-content { display: none; }
+    .pa-tab-content.active { display: block; }
+
+    .pa-index-badge {
+        display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+    }
+    .pa-index-badge.above { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .pa-index-badge.below { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .pa-index-badge.at { background: rgba(226,232,240,0.1); color: rgba(226,232,240,0.6); }
+
+    .pa-bar-cell { position: relative; min-width: 80px; }
+    .pa-bar {
+        position: absolute; top: 2px; bottom: 2px; border-radius: 3px; opacity: 0.2;
+    }
+    .pa-bar.pos { background: #22c55e; left: 50%; }
+    .pa-bar.neg { background: #ef4444; right: 50%; }
+
+    .pa-note {
+        font-size: 12px; color: rgba(226,232,240,0.4); margin-top: 8px; padding: 8px 12px;
+        background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3" style="max-width: 1400px;">
+    <div class="pa-header-card mb-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <div class="cust-name">{{ customer_name }}</div>
+                <div class="cust-code">{{ customer_code_365 }} &middot; Pricing Analytics</div>
+            </div>
+            <a href="/analytics/customers/?customer={{ customer_code_365 }}" class="btn btn-outline-secondary btn-sm">
+                <i data-feather="arrow-left" style="width:14px;height:14px;"></i> Back to Customer 360
+            </a>
+        </div>
+    </div>
+
+    <div class="pa-header-card mb-3">
+        <div class="pa-controls">
+            <div class="form-group">
+                <label>From</label>
+                <input type="date" id="dFrom">
+            </div>
+            <div class="form-group">
+                <label>To</label>
+                <input type="date" id="dTo">
+            </div>
+            <div class="form-group">
+                <label>Compare</label>
+                <select id="compare">
+                    <option value="none">None</option>
+                    <option value="prev">Previous period</option>
+                    <option value="py" selected>Prior Year (same dates)</option>
+                </select>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="includeCredits">
+                <label class="form-check-label" for="includeCredits">Include credits</label>
+            </div>
+            <button class="btn btn-primary btn-load" id="btnLoad">Load</button>
+        </div>
+    </div>
+
+    <div class="pa-tabs" id="tabBar">
+        <button class="pa-tab active" data-tab="tIndex">Price Index vs Market</button>
+        <button class="pa-tab" data-tab="tDisp">Price Dispersion</button>
+        <button class="pa-tab" data-tab="tPvm">PVM Analysis</button>
+        <button class="pa-tab" data-tab="tSens">Price Sensitivity</button>
+    </div>
+
+    <div class="pa-section">
+        <div class="pa-tab-content active" id="tIndex">
+            <div id="indexSummary" class="mb-3"></div>
+            <div class="table-responsive">
+                <table class="pa-table" id="tblIndex">
+                    <thead>
+                        <tr>
+                            <th>Item</th><th>Name</th>
+                            <th class="text-end">Qty</th><th class="text-end">Revenue</th>
+                            <th class="text-end">Cust Price</th><th class="text-end">Market Median</th>
+                            <th class="text-end">Index</th><th class="text-end">Delta/unit</th><th class="text-end">Delta total</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="pa-tab-content" id="tDisp">
+            <div class="table-responsive">
+                <table class="pa-table" id="tblDisp">
+                    <thead>
+                        <tr>
+                            <th>Item</th><th>Name</th>
+                            <th class="text-end">Lines</th>
+                            <th class="text-end">Min</th><th class="text-end">Median</th><th class="text-end">Max</th>
+                            <th class="text-end">Dispersion %</th><th class="text-end">CV</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="pa-note">Dispersion % = (Max - Min) / Median. CV = StdDev / Mean. Higher values indicate inconsistent pricing.</div>
+        </div>
+
+        <div class="pa-tab-content" id="tPvm">
+            <div id="pvmSummary" class="mb-3"></div>
+            <div class="table-responsive">
+                <table class="pa-table" id="tblPvm">
+                    <thead>
+                        <tr>
+                            <th>Item</th><th>Name</th>
+                            <th class="text-end">Delta Rev</th>
+                            <th class="text-end">Price Effect</th><th class="text-end">Volume Effect</th><th class="text-end">Mix Effect</th>
+                            <th class="text-end">Q curr</th><th class="text-end">P curr</th>
+                            <th class="text-end">Q base</th><th class="text-end">P base</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="pa-note">PVM = Price-Volume-Mix decomposition. Requires Compare mode (Previous period or Prior Year).</div>
+        </div>
+
+        <div class="pa-tab-content" id="tSens">
+            <div class="table-responsive">
+                <table class="pa-table" id="tblSens">
+                    <thead>
+                        <tr>
+                            <th>Item</th><th>Name</th>
+                            <th class="text-end">Month Pairs</th>
+                            <th class="text-end">Corr(dP, dQ next)</th>
+                            <th class="text-end">Dropouts after +8%</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="pa-note">Negative correlation = customer buys less when price rises (price sensitive). Minimum 6 month-pairs required. Signal only, not true elasticity.</div>
+        </div>
+    </div>
+</div>
+
+<script>
+  window.CUSTOMER_CODE_365 = "{{ customer_code_365 }}";
+  window.ITEM_NAMES_CACHE = {};
+</script>
+<script src="{{ url_for('static', filename='js/customer_pricing.js') }}"></script>
+{% endblock %}

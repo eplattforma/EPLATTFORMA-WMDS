@@ -377,3 +377,18 @@ def api_customer_monthly_trend(customer_code):
     }).mappings().all()
 
     return jsonify({"months": [dict(r) for r in rows]})
+
+
+@customer_analytics_bp.route("/api/item-names")
+@login_required
+def api_item_names():
+    codes_param = request.args.get("codes", "").strip()
+    if not codes_param:
+        return jsonify({"names": {}})
+    codes = [c.strip() for c in codes_param.split(",") if c.strip()]
+    if not codes or len(codes) > 500:
+        return jsonify({"names": {}})
+    sql = text("SELECT item_code_365, item_name FROM ps_items_dw WHERE item_code_365 = ANY(:codes)")
+    rows = db.session.execute(sql, {"codes": codes}).fetchall()
+    names = {r._mapping["item_code_365"]: r._mapping["item_name"] or "" for r in rows}
+    return jsonify({"names": names})
