@@ -40,13 +40,34 @@ def _daterange_py(d1, d2):
         return clamp(d1), clamp(d2)
 
 
+def _resolve_preset(preset_str):
+    today = date.today()
+    p = (preset_str or "").lower().strip()
+    if p == "last30":
+        return today - timedelta(days=29), today
+    if p == "mtd":
+        return today.replace(day=1), today
+    if p == "qtd":
+        q = (today.month - 1) // 3 + 1
+        start_month = 1 + (q - 1) * 3
+        return date(today.year, start_month, 1), today
+    if p == "ytd":
+        return date(today.year, 1, 1), today
+    if p == "last90":
+        return today - timedelta(days=89), today
+    return None, None
+
+
 def _get_filters():
     customer = request.args.get("customer_code_365", "").strip()
-    d_from = _parse_date(request.args.get("from"))
-    d_to = _parse_date(request.args.get("to"))
+    preset = request.args.get("preset", "").strip()
+    d_from, d_to = _resolve_preset(preset)
+    if d_from is None or d_to is None:
+        d_from = _parse_date(request.args.get("from"))
+        d_to = _parse_date(request.args.get("to"))
     if not d_from or not d_to:
         today = date.today()
-        d_from = d_from or today.replace(day=1)
+        d_from = d_from or (today - timedelta(days=89))
         d_to = d_to or today
     compare = request.args.get("compare", "none").lower()
     include_credits = request.args.get("include_credits", "0") == "1"

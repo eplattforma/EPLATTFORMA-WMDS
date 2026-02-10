@@ -90,7 +90,7 @@
                 <div class="cust-name">{{ customer_name }}</div>
                 <div class="cust-code">{{ customer_code_365 }} &middot; Pricing Analytics</div>
             </div>
-            <a href="/analytics/customers/?customer={{ customer_code_365 }}" class="btn btn-outline-secondary btn-sm">
+            <a href="/analytics/customers/?autoload={{ customer_code_365 }}" class="btn btn-outline-secondary btn-sm">
                 <i data-feather="arrow-left" style="width:14px;height:14px;"></i> Back to Customer 360
             </a>
         </div>
@@ -98,6 +98,17 @@
 
     <div class="pa-header-card mb-3">
         <div class="pa-controls">
+            <div class="form-group">
+                <label>Period</label>
+                <select id="preset">
+                    <option value="last90" selected>Last 90 days</option>
+                    <option value="last30">Last 30 days</option>
+                    <option value="mtd">MTD</option>
+                    <option value="qtd">QTD</option>
+                    <option value="ytd">YTD</option>
+                    <option value="">Custom</option>
+                </select>
+            </div>
             <div class="form-group">
                 <label>From</label>
                 <input type="date" id="dFrom">

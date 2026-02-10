@@ -86,15 +86,29 @@ function setEmpty(tabId, msg) {
   if (el) el.innerHTML = '<tr><td colspan="12" class="pa-empty">' + (msg || "No data") + '</td></tr>';
 }
 
-async function loadAll() {
+function buildBaseParams() {
   var customer = window.CUSTOMER_CODE_365;
-  var from = document.getElementById("dFrom").value;
-  var to = document.getElementById("dTo").value;
+  var preset = document.getElementById("preset").value;
   var compare = document.getElementById("compare").value;
   var includeCredits = document.getElementById("includeCredits").checked ? "1" : "0";
-
   var benchmark = document.getElementById("benchmark").value;
-  var base = "customer_code_365=" + encodeURIComponent(customer) + "&from=" + from + "&to=" + to + "&compare=" + compare + "&include_credits=" + includeCredits + "&benchmark=" + benchmark;
+  var p = new URLSearchParams();
+  p.set("customer_code_365", customer);
+  if (preset) {
+    p.set("preset", preset);
+  } else {
+    p.set("from", document.getElementById("dFrom").value);
+    p.set("to", document.getElementById("dTo").value);
+  }
+  p.set("compare", compare);
+  p.set("include_credits", includeCredits);
+  p.set("benchmark", benchmark);
+  return p.toString();
+}
+
+async function loadAll() {
+  var customer = window.CUSTOMER_CODE_365;
+  var base = buildBaseParams();
 
   indexSelectedBrand = "";
 
@@ -115,13 +129,7 @@ async function loadAll() {
 
 function reloadIndex(brand) {
   if (brand !== undefined) indexSelectedBrand = brand;
-  var customer = window.CUSTOMER_CODE_365;
-  var from = document.getElementById("dFrom").value;
-  var to = document.getElementById("dTo").value;
-  var compare = document.getElementById("compare").value;
-  var includeCredits = document.getElementById("includeCredits").checked ? "1" : "0";
-  var benchmark = document.getElementById("benchmark").value;
-  var base = "customer_code_365=" + encodeURIComponent(customer) + "&from=" + from + "&to=" + to + "&compare=" + compare + "&include_credits=" + includeCredits + "&benchmark=" + benchmark;
+  var base = buildBaseParams();
   var url = "/pricing/api/price-index?" + base + "&top_n=200";
   if (indexSelectedBrand) url += "&brand=" + encodeURIComponent(indexSelectedBrand);
   setLoading("tblIndex");
@@ -333,6 +341,14 @@ async function loadSens(url) {
 document.addEventListener("DOMContentLoaded", function() {
   document.getElementById("dFrom").value = ninetyDaysAgoISO();
   document.getElementById("dTo").value = todayISO();
+
+  document.getElementById("preset").addEventListener("change", function() {
+    var custom = this.value === "";
+    document.getElementById("dFrom").disabled = !custom;
+    document.getElementById("dTo").disabled = !custom;
+  });
+  document.getElementById("dFrom").disabled = true;
+  document.getElementById("dTo").disabled = true;
 
   document.getElementById("btnLoad").addEventListener("click", loadAll);
 

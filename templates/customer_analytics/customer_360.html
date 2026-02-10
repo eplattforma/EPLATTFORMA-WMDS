@@ -497,5 +497,15 @@ async function loadTrend() {
         }
     });
 }
+
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    const autoCode = params.get('autoload') || params.get('customer');
+    if (autoCode) {
+        selectedCode = autoCode;
+        document.getElementById('custSearch').value = autoCode;
+        loadAll();
+    }
+})();
 </script>
 {% endblock %}
