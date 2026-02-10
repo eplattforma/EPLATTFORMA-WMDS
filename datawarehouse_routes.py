@@ -274,7 +274,7 @@ def api_monthly_validation():
             FROM dw_invoice_header h
             JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
             GROUP BY TO_CHAR(h.invoice_date_utc0, 'YYYY-MM')
-            ORDER BY month
+            ORDER BY month DESC
         """)).mappings().all()
         data = [dict(r) for r in rows]
         for r in data:
