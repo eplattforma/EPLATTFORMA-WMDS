@@ -1339,6 +1339,10 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
                     }
                     attr_hash = _compute_hash(hash_data)
                     
+                    line_net_value = None
+                    if line_total_incl is not None and line_total_vat is not None:
+                        line_net_value = float(line_total_incl) - float(line_total_vat)
+
                     invoice_line = DwInvoiceLine(
                         invoice_no_365=invoice_no,
                         line_number=line_number,
@@ -1353,6 +1357,7 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
                         line_total_discount=line_total_discount,
                         line_total_vat=line_total_vat,
                         line_total_incl=line_total_incl,
+                        line_net_value=line_net_value,
                         attr_hash=attr_hash,
                         last_sync_at=utc_now_for_db()
                     )

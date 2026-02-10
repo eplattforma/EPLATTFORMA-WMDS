@@ -2035,6 +2035,7 @@ class DwInvoiceLine(db.Model):
     line_total_discount = db.Column(db.Numeric(18, 4), nullable=True)
     line_total_vat = db.Column(db.Numeric(18, 4), nullable=True)
     line_total_incl = db.Column(db.Numeric(18, 4), nullable=True)
+    line_net_value = db.Column(db.Numeric(18, 4), nullable=True)
     
     attr_hash = db.Column(db.String(32), nullable=False)
     last_sync_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
