@@ -83,11 +83,17 @@ def pending_payments():
                 'total_due': 0
             }
         due = float((alloc.expected_amount or 0) - (alloc.received_amount or 0) - (alloc.deduct_amount or 0))
+        from datetime import date as date_type
+        if delivery_date:
+            age_days = (date_type.today() - (delivery_date if isinstance(delivery_date, date_type) else delivery_date.date())).days
+        else:
+            age_days = 999
         grouped[key]['invoices'].append({
             'alloc': alloc,
             'driver_name': driver_name,
             'delivery_date': delivery_date,
-            'due': due
+            'due': due,
+            'age_days': age_days
         })
         grouped[key]['total_due'] += due
     

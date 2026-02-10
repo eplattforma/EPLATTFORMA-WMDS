@@ -30,6 +30,7 @@
                 <thead style="background-color: #e9ecef;">
                     <tr>
                         <th>Delivery Date</th>
+                        <th>Age</th>
                         <th>Invoice No</th>
                         <th>Driver</th>
                         <th>Method</th>
@@ -43,6 +44,16 @@
                     {% for inv in cust_data.invoices %}
                     <tr>
                         <td>{{ inv.delivery_date.strftime('%Y-%m-%d') if inv.delivery_date else 'N/A' }}</td>
+                        <td class="text-center">
+                            {% set days = inv.age_days %}
+                            {% if days <= 2 %}
+                            <span class="badge rounded-pill" style="background-color:#28a745; min-width:55px;">{{ days }}d</span>
+                            {% elif days <= 6 %}
+                            <span class="badge rounded-pill" style="background-color:#fd7e14; min-width:55px;">{{ days }}d</span>
+                            {% else %}
+                            <span class="badge rounded-pill" style="background-color:#dc3545; min-width:55px;">{{ days }}d</span>
+                            {% endif %}
+                        </td>
                         <td>
                             <a href="{{ url_for('find_invoice.find_invoice_route', invoice_no=inv.alloc.invoice_no) }}" class="fw-bold text-decoration-none">
                                 {{ inv.alloc.invoice_no }}
