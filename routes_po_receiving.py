@@ -1343,8 +1343,8 @@ def api_reset_lot(line_id):
         return jsonify({'ok': False, 'error': 'Receiving line not found'}), 404
     
     # Verify the session hasn't been finished yet
-    session = rcv_line.session
-    if session and session.status == 'finished':
+    rcv_session = ReceivingSession.query.get(rcv_line.session_id)
+    if rcv_session and rcv_session.status == 'finished':
         return jsonify({'ok': False, 'error': 'Cannot reset item from a finished session'}), 400
         
     try:

@@ -1,0 +1,68 @@
+2026-02-10 14:05:03.37
+89c2f71d
+User
+Traceback (most recent call last):
+2026-02-10 14:05:03.37
+89c2f71d
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+2026-02-10 14:05:03.37
+89c2f71d
+User
+ERROR:app:Exception on /po-receiving/api/reset-lot/2089 [POST]
+2026-02-10 14:05:03.37
+89c2f71d
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-10 14:05:03.37
+89c2f71d
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-10 14:05:03.37
+89c2f71d
+User
+return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args) # type: ignore[no-any-return]
+2026-02-10 14:05:03.37
+89c2f71d
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+2026-02-10 14:05:03.37
+89c2f71d
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-10 14:05:03.37
+89c2f71d
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+2026-02-10 14:05:03.37
+89c2f71d
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+2026-02-10 14:05:03.37
+89c2f71d
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+2026-02-10 14:05:03.37
+89c2f71d
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-10 14:05:03.37
+89c2f71d
+User
+File "/home/runner/workspace/routes_po_receiving.py", line 1347, in api_reset_lot
+2026-02-10 14:05:25.79
+89c2f71d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): api.powersoft365.com:80
+2026-02-10 14:05:25.79
+89c2f71d
+User
+DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): api.powersoft365.com:80
+2026-02-10 14:05:26.25
+89c2f71d
+User
+DEBUG:urllib3.connectionpool:http://api.powersoft365.com:80 "GET /purchaseorder?token=14760.9EDE6CDE-2FC2-46AC-8069-444E2977765A.777.1001&purchase_order_code=PO10008643&is_shopping_cart_code=N HTTP/1.1" 200 2797
+2026-02-10 14:05:26.25
+89c2f71d
+User
+DEBUG:urllib3.connectionpool:http://api.powersoft365.com:80 "GET /purchaseorder?token=14760.9EDE6CDE-2FC
