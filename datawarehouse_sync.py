@@ -1128,7 +1128,6 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 
                 total_sub_val = (inv.get("total_sub") or 0) * sign
                 total_discount_val = (inv.get("total_discount") or 0) * sign
-                total_net_val = total_sub_val - total_discount_val
 
                 header = DwInvoiceHeader(
                     invoice_no_365=invoice_no,
@@ -1139,7 +1138,6 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                     user_code_365=inv.get("user_code_365"),
                     total_sub=total_sub_val,
                     total_discount=total_discount_val,
-                    total_net=total_net_val,
                     total_vat=(inv.get("total_vat") or 0) * sign,
                     total_grand=(inv.get("total_grand") or 0) * sign,
                     points_earned=inv.get("points_earned"),
@@ -1344,10 +1342,6 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
                     }
                     attr_hash = _compute_hash(hash_data)
                     
-                    line_net_value = None
-                    if line_total_incl is not None and line_total_vat is not None:
-                        line_net_value = float(line_total_incl) - float(line_total_vat)
-
                     invoice_line = DwInvoiceLine(
                         invoice_no_365=invoice_no,
                         line_number=line_number,
@@ -1362,7 +1356,6 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
                         line_total_discount=line_total_discount,
                         line_total_vat=line_total_vat,
                         line_total_incl=line_total_incl,
-                        line_net_value=line_net_value,
                         attr_hash=attr_hash,
                         last_sync_at=utc_now_for_db()
                     )

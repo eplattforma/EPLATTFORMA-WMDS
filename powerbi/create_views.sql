@@ -101,7 +101,7 @@ SELECT
     l.line_total_discount,
     l.line_total_vat,
     l.line_total_incl,
-    l.line_net_value,
+    (COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)) AS line_net_value,
     EXTRACT(YEAR FROM h.invoice_date_utc0) AS year,
     EXTRACT(MONTH FROM h.invoice_date_utc0) AS month,
     EXTRACT(QUARTER FROM h.invoice_date_utc0) AS quarter,
@@ -122,7 +122,7 @@ SELECT
     h.user_code_365 AS salesperson_code,
     h.total_sub AS total_excl_vat,
     h.total_discount,
-    h.total_net,
+    (COALESCE(h.total_sub, 0) - COALESCE(h.total_discount, 0)) AS total_net,
     h.total_vat,
     h.total_grand AS total_incl_vat,
     h.points_earned,
@@ -137,7 +137,7 @@ FROM dw_invoice_header h
 LEFT JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
 GROUP BY h.invoice_no_365, h.invoice_type, h.invoice_date_utc0,
          h.customer_code_365, h.store_code_365, h.user_code_365,
-         h.total_sub, h.total_discount, h.total_net, h.total_vat, h.total_grand,
+         h.total_sub, h.total_discount, h.total_vat, h.total_grand,
          h.points_earned, h.points_redeemed;
 
 -- ===== FACT: Routes =====
@@ -272,7 +272,7 @@ SELECT
   h.customer_code_365::text   AS customer_code_365,
   l.item_code_365::text       AS item_code_365,
   l.quantity::numeric         AS qty,
-  l.line_net_value::numeric   AS net_excl
+  (COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0))::numeric   AS net_excl
 FROM dw_invoice_header h
 JOIN dw_invoice_line   l ON l.invoice_no_365 = h.invoice_no_365;
 

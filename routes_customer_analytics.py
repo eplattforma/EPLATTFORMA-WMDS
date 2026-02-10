@@ -135,7 +135,7 @@ def api_customer_summary(customer_code):
 
     base_sql = """
         SELECT
-            COALESCE(SUM(l.line_net_value), 0) AS sales_excl,
+            COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0) AS sales_excl,
             COALESCE(SUM(l.quantity), 0) AS qty,
             COUNT(DISTINCT h.invoice_no_365) AS invoices,
             COUNT(DISTINCT l.item_code_365) AS distinct_items
@@ -220,7 +220,7 @@ def api_customer_top_items(customer_code):
             l.item_code_365 AS item_code,
             COALESCE(i.item_name, '') AS item_name,
             COALESCE(SUM(l.quantity), 0) AS qty,
-            COALESCE(SUM(l.line_net_value), 0) AS sales_excl,
+            COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0) AS sales_excl,
             COUNT(DISTINCT h.invoice_no_365) AS invoices
         FROM dw_invoice_header h
         JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
@@ -256,7 +256,7 @@ def api_customer_invoices(customer_code):
         SELECT
             h.invoice_no_365 AS invoice_no,
             h.invoice_date_utc0 AS invoice_date,
-            COALESCE(SUM(l.line_net_value), 0) AS sales_excl,
+            COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0) AS sales_excl,
             COALESCE(SUM(l.quantity), 0) AS qty,
             COUNT(DISTINCT l.item_code_365) AS distinct_items
         FROM dw_invoice_header h
@@ -304,7 +304,7 @@ def api_customer_item_rfm(customer_code):
                 l.item_code_365 AS item_code,
                 MAX(h.invoice_date_utc0) AS last_purchase_date,
                 COUNT(DISTINCT h.invoice_no_365) AS frequency,
-                COALESCE(SUM(l.line_net_value), 0) AS monetary
+                COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0) AS monetary
             FROM dw_invoice_header h
             JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
             WHERE h.customer_code_365 = :code
@@ -376,7 +376,7 @@ def api_customer_monthly_trend(customer_code):
     sql = text("""
         SELECT
             TO_CHAR(h.invoice_date_utc0, 'YYYY-MM') AS month,
-            COALESCE(SUM(l.line_net_value), 0) AS sales_excl,
+            COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0) AS sales_excl,
             COALESCE(SUM(l.quantity), 0) AS qty,
             COUNT(DISTINCT h.invoice_no_365) AS invoices
         FROM dw_invoice_header h
