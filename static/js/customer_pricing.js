@@ -35,6 +35,9 @@ function deltaClass(v) {
 }
 
 var itemNamesCache = {};
+var indexSelectedBrand = "";
+var indexBrands = [];
+var indexBrandNameMap = {};
 
 function lookupItemName(code) {
   return itemNamesCache[code] || "";
@@ -93,6 +96,8 @@ async function loadAll() {
   var benchmark = document.getElementById("benchmark").value;
   var base = "customer_code_365=" + encodeURIComponent(customer) + "&from=" + from + "&to=" + to + "&compare=" + compare + "&include_credits=" + includeCredits + "&benchmark=" + benchmark;
 
+  indexSelectedBrand = "";
+
   setLoading("tblIndex");
   setLoading("tblDisp");
   setLoading("tblPvm");
@@ -106,6 +111,22 @@ async function loadAll() {
     compare !== "none" ? loadPvm("/pricing/api/pvm?" + base) : showPvmNotice(),
     loadSens("/pricing/api/price-sensitivity?customer_code_365=" + encodeURIComponent(customer) + "&months=18")
   ]);
+}
+
+function reloadIndex(brand) {
+  if (brand !== undefined) indexSelectedBrand = brand;
+  var customer = window.CUSTOMER_CODE_365;
+  var from = document.getElementById("dFrom").value;
+  var to = document.getElementById("dTo").value;
+  var compare = document.getElementById("compare").value;
+  var includeCredits = document.getElementById("includeCredits").checked ? "1" : "0";
+  var benchmark = document.getElementById("benchmark").value;
+  var base = "customer_code_365=" + encodeURIComponent(customer) + "&from=" + from + "&to=" + to + "&compare=" + compare + "&include_credits=" + includeCredits + "&benchmark=" + benchmark;
+  var url = "/pricing/api/price-index?" + base + "&top_n=200";
+  if (indexSelectedBrand) url += "&brand=" + encodeURIComponent(indexSelectedBrand);
+  setLoading("tblIndex");
+  document.getElementById("indexSummary").innerHTML = "";
+  loadIndex(url);
 }
 
 function showPvmNotice() {
@@ -128,11 +149,28 @@ async function loadIndex(url) {
     var codes = items.map(function(it) { return it.item_code_365; });
     await fetchItemNames(codes);
 
+    if (j.brands && j.brands.length > 0) {
+      indexBrands = j.brands;
+      indexBrandNameMap = {};
+      j.brands.forEach(function(b) { indexBrandNameMap[b.code] = b.name || ""; });
+    }
+
+    var brandOpts = indexBrands.map(function(b) {
+      var label = b.name ? b.code + " - " + b.name : b.code;
+      return '<option value="' + b.code + '"' + (b.code === indexSelectedBrand ? ' selected' : '') + '>' + label + '</option>';
+    }).join("");
+    var clearBtn = indexSelectedBrand
+      ? ' <button class="btn btn-outline-secondary btn-sm" onclick="reloadIndex(\'\')" title="Show all brands" style="font-size:11px;padding:2px 8px"><i class="fas fa-times me-1"></i>Clear</button>'
+      : "";
+    var brandSelect = '<select class="form-select form-select-sm" style="width:auto;display:inline-block;min-width:200px;background:rgba(30,41,59,0.8);color:#e2e8f0;border-color:rgba(100,116,139,0.3)" onchange="reloadIndex(this.value)">' +
+      '<option value="">All Brands</option>' + brandOpts + '</select>' + clearBtn;
+
     var s = j.summary || {};
     var bm = s.benchmark === "max" ? "max" : "median";
     var bmLabel = bm === "max" ? "Market Max" : "Market Median";
     var overpayClass = (s.estimated_overpay || 0) > 0 ? "negative" : "positive";
     document.getElementById("indexSummary").innerHTML =
+      '<div class="d-flex align-items-center gap-2 mb-2">' + brandSelect + '</div>' +
       '<div class="pa-kpi-grid">' +
         '<div class="pa-kpi"><div class="label">Revenue (excl VAT)</div><div class="value">' + fmt(s.total_revenue) + '</div></div>' +
         '<div class="pa-kpi"><div class="label">Market cost (basket, ' + bm + ')</div><div class="value">' + fmt(s.total_market_cost) + '</div></div>' +
@@ -144,10 +182,16 @@ async function loadIndex(url) {
     tb.innerHTML = "";
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
+      var brandBadge = "";
+      if (it.brand) {
+        var bName = indexBrandNameMap[it.brand] || "";
+        var badgeLabel = bName ? it.brand + " - " + bName : it.brand;
+        brandBadge = ' <span class="badge text-bg-secondary" style="cursor:pointer;font-size:10px;vertical-align:middle;margin-left:6px" onclick="reloadIndex(\'' + it.brand.replace(/'/g, "\\'") + '\')">' + badgeLabel + '</span>';
+      }
       var tr = document.createElement("tr");
       tr.innerHTML =
         '<td style="font-weight:600;font-size:12px">' + it.item_code_365 + '</td>' +
-        '<td style="font-size:12px">' + lookupItemName(it.item_code_365) + '</td>' +
+        '<td style="font-size:12px">' + lookupItemName(it.item_code_365) + brandBadge + '</td>' +
         '<td class="text-end">' + fmt(it.qty, 0) + '</td>' +
         '<td class="text-end">' + fmt(it.revenue) + '</td>' +
         '<td class="text-end">' + fmt(it.cust_price, 2) + '</td>' +

@@ -103,12 +103,19 @@ def api_price_index():
     benchmark = (request.args.get("benchmark", "median") or "median").lower().strip()
     if benchmark not in ("median", "max"):
         benchmark = "median"
+    brand_filter = (request.args.get("brand", "") or "").strip()
 
     line_where = "sale_date BETWEEN :d_from AND :d_to AND customer_code_365 = :customer"
     if include_credits:
         line_where += " AND qty <> 0"
     else:
         line_where += " AND qty > 0 AND net_excl > 0"
+
+    brand_join = ""
+    brand_clause = ""
+    if brand_filter:
+        brand_join = "JOIN ps_items_dw i ON i.item_code_365 = cust.item_code_365"
+        brand_clause = "WHERE i.brand_code_365 = :brand"
 
     sql_top = text(f"""
       WITH cust AS (
@@ -121,16 +128,21 @@ def api_price_index():
         WHERE {line_where}
         GROUP BY item_code_365
       )
-      SELECT *
+      SELECT cust.*
       FROM cust
+      {brand_join}
+      {brand_clause}
       ORDER BY revenue DESC
       LIMIT :top_n
     """)
-    top = db.session.execute(sql_top, {"customer": customer, "d_from": d_from, "d_to": d_to, "top_n": top_n}).fetchall()
+    params = {"customer": customer, "d_from": d_from, "d_to": d_to, "top_n": top_n}
+    if brand_filter:
+        params["brand"] = brand_filter
+    top = db.session.execute(sql_top, params).fetchall()
     top_rows = _json_rows(top)
     item_codes = [r["item_code_365"] for r in top_rows]
     if not item_codes:
-        return jsonify({"summary": {}, "items": []})
+        return jsonify({"summary": {}, "items": [], "brands": []})
 
     sql_market = text("""
       WITH cust_item AS (
@@ -163,6 +175,22 @@ def api_price_index():
             "max": float(mx) if mx is not None else None,
         }
 
+    item_brand_sql = text("""
+        SELECT item_code_365, COALESCE(brand_code_365, '') AS brand
+        FROM ps_items_dw
+        WHERE item_code_365 = ANY(CAST(:codes AS text[]))
+    """)
+    ib_rows = db.session.execute(item_brand_sql, {"codes": item_codes}).mappings().all()
+    item_brand_map = {r["item_code_365"]: r["brand"] for r in ib_rows}
+
+    brand_codes = sorted(set(v for v in item_brand_map.values() if v))
+    brand_name_map = {}
+    if brand_codes:
+        bn_sql = text("SELECT brand_code_365, brand_name FROM dw_brands WHERE brand_code_365 = ANY(CAST(:codes AS text[]))")
+        bn_rows = db.session.execute(bn_sql, {"codes": brand_codes}).mappings().all()
+        brand_name_map = {r["brand_code_365"]: r["brand_name"] or "" for r in bn_rows}
+    brands_list = [{"code": c, "name": brand_name_map.get(c, "")} for c in brand_codes]
+
     total_revenue = 0.0
     total_market_cost = 0.0
     items_out = []
@@ -193,6 +221,7 @@ def api_price_index():
 
         items_out.append({
             "item_code_365": code,
+            "brand": item_brand_map.get(code, ""),
             "qty": qty,
             "revenue": round(revenue, 2),
             "cust_price": round(cust_price, 2) if cust_price is not None else None,
@@ -217,7 +246,7 @@ def api_price_index():
         "estimated_overpay": round(total_revenue - total_market_cost, 2) if total_market_cost else None,
     }
 
-    return jsonify({"summary": summary, "items": items_out})
+    return jsonify({"summary": summary, "items": items_out, "brands": brands_list})
 
 
 @pricing_bp.route("/api/price-dispersion")
