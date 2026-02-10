@@ -142,8 +142,7 @@ def api_customer_summary(customer_code):
         FROM dw_invoice_header h
         JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
         WHERE h.customer_code_365 = :code
-          AND h.invoice_date_utc0 >= :d_from
-          AND h.invoice_date_utc0 <= :d_to
+          AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
     """
 
     cur = db.session.execute(
@@ -227,8 +226,7 @@ def api_customer_top_items(customer_code):
         JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
         LEFT JOIN ps_items_dw i ON i.item_code_365 = l.item_code_365
         WHERE h.customer_code_365 = :code
-          AND h.invoice_date_utc0 >= :d_from
-          AND h.invoice_date_utc0 <= :d_to
+          AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
         GROUP BY l.item_code_365, COALESCE(i.item_name, '')
         ORDER BY {order_col} DESC
         LIMIT :lim
@@ -264,8 +262,7 @@ def api_customer_invoices(customer_code):
         FROM dw_invoice_header h
         JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
         WHERE h.customer_code_365 = :code
-          AND h.invoice_date_utc0 >= :d_from
-          AND h.invoice_date_utc0 <= :d_to
+          AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
         GROUP BY h.invoice_no_365, h.invoice_date_utc0
         ORDER BY h.invoice_date_utc0 DESC, h.invoice_no_365 DESC
         LIMIT :lim OFFSET :off
@@ -308,8 +305,7 @@ def api_customer_item_rfm(customer_code):
             FROM dw_invoice_header h
             JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
             WHERE h.customer_code_365 = :code
-              AND h.invoice_date_utc0 >= :d_from
-              AND h.invoice_date_utc0 <= :d_to
+              AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
             GROUP BY l.item_code_365
         )
         SELECT
@@ -366,8 +362,7 @@ def api_customer_monthly_trend(customer_code):
         FROM dw_invoice_header h
         JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
         WHERE h.customer_code_365 = :code
-          AND h.invoice_date_utc0 >= :d_from
-          AND h.invoice_date_utc0 <= :d_to
+          AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
         GROUP BY TO_CHAR(h.invoice_date_utc0, 'YYYY-MM')
         ORDER BY month
     """)
@@ -388,7 +383,7 @@ def api_item_names():
     codes = [c.strip() for c in codes_param.split(",") if c.strip()]
     if not codes or len(codes) > 500:
         return jsonify({"names": {}})
-    sql = text("SELECT item_code_365, item_name FROM ps_items_dw WHERE item_code_365 = ANY(:codes)")
+    sql = text("SELECT item_code_365, item_name FROM ps_items_dw WHERE item_code_365 = ANY(:codes::text[])")
     rows = db.session.execute(sql, {"codes": codes}).fetchall()
     names = {r._mapping["item_code_365"]: r._mapping["item_name"] or "" for r in rows}
     return jsonify({"names": names})

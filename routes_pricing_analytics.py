@@ -112,7 +112,7 @@ def api_price_index():
           SUM(qty) AS qty,
           SUM(net_excl) AS revenue,
           CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS cust_price
-        FROM dw_sales_lines_v
+        FROM dw_sales_lines_mv
         WHERE {line_where}
         GROUP BY item_code_365
       )
@@ -133,9 +133,9 @@ def api_price_index():
           item_code_365,
           customer_code_365,
           CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS cust_item_price
-        FROM dw_sales_lines_v
+        FROM dw_sales_lines_mv
         WHERE sale_date BETWEEN :d_from AND :d_to
-          AND item_code_365 = ANY(:item_codes)
+          AND item_code_365 = ANY(:item_codes::text[])
           AND qty > 0 AND net_excl > 0
         GROUP BY item_code_365, customer_code_365
       )
@@ -219,7 +219,7 @@ def api_price_dispersion():
         SELECT
           item_code_365,
           (net_excl / NULLIF(qty,0))::numeric AS unit_price
-        FROM dw_sales_lines_v
+        FROM dw_sales_lines_mv
         WHERE {line_where}
           AND qty <> 0
       ),
@@ -274,7 +274,7 @@ def api_pvm():
           SUM(qty) AS q1,
           SUM(net_excl) AS r1,
           CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE 0 END AS p1
-        FROM dw_sales_lines_v s
+        FROM dw_sales_lines_mv s
         WHERE s.sale_date BETWEEN :d_from AND :d_to
           AND s.customer_code_365 = :customer
           {credit_filter_cur}
@@ -286,7 +286,7 @@ def api_pvm():
           SUM(qty) AS q0,
           SUM(net_excl) AS r0,
           CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE 0 END AS p0
-        FROM dw_sales_lines_v s
+        FROM dw_sales_lines_mv s
         WHERE s.sale_date BETWEEN :b_from AND :b_to
           AND s.customer_code_365 = :customer
           {credit_filter_base}
@@ -353,20 +353,34 @@ def api_price_sensitivity():
         return jsonify({"error": "forbidden"}), 403
     customer = request.args.get("customer_code_365", "").strip()
     months = int(request.args.get("months", "18"))
+    step = float(request.args.get("price_step", "0.05") or 0.05)
+    if step < 0.05:
+        step = 0.05
 
     sql = text("""
-      WITH base AS (
+      WITH base0 AS (
         SELECT
           date_trunc('month', sale_date)::date AS m,
           item_code_365,
           SUM(qty) AS q,
           SUM(net_excl) AS r,
-          CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS p
-        FROM dw_sales_lines_v
+          CASE WHEN SUM(qty) <> 0 THEN (SUM(net_excl)/SUM(qty)) ELSE NULL END AS p_raw
+        FROM dw_sales_lines_mv
         WHERE customer_code_365 = :customer
-          AND sale_date >= (CURRENT_DATE - (:months || ' months')::interval)
+          AND sale_date >= (CURRENT_DATE - (:months * INTERVAL '1 month'))
           AND qty > 0 AND net_excl > 0
         GROUP BY 1, 2
+      ),
+      base AS (
+        SELECT
+          m,
+          item_code_365,
+          q, r,
+          CASE
+            WHEN p_raw IS NULL THEN NULL
+            ELSE (ROUND(p_raw / :step) * :step)
+          END AS p
+        FROM base0
       ),
       seq AS (
         SELECT
@@ -374,8 +388,7 @@ def api_price_sensitivity():
           m,
           q, r, p,
           LAG(p) OVER (PARTITION BY item_code_365 ORDER BY m) AS p_prev,
-          LEAD(q) OVER (PARTITION BY item_code_365 ORDER BY m) AS q_next,
-          LEAD(p) OVER (PARTITION BY item_code_365 ORDER BY m) AS p_next
+          LEAD(q) OVER (PARTITION BY item_code_365 ORDER BY m) AS q_next
         FROM base
       ),
       feats AS (
@@ -384,11 +397,20 @@ def api_price_sensitivity():
           m,
           q,
           p,
-          CASE WHEN p_prev IS NULL OR p_prev = 0 THEN NULL ELSE (p - p_prev) / p_prev END AS dP,
-          CASE WHEN q IS NULL OR q = 0 THEN NULL ELSE (q_next - q) / q END AS dQnext,
           CASE
-            WHEN p_prev IS NOT NULL AND p_prev > 0 AND ((p - p_prev)/p_prev) >= 0.08
-                 AND COALESCE(q_next,0) = 0
+            WHEN p_prev IS NULL OR p_prev = 0 THEN NULL
+            WHEN ABS(p - p_prev) < :step THEN NULL
+            ELSE (p - p_prev) / p_prev
+          END AS dP,
+          CASE
+            WHEN q IS NULL OR q = 0 THEN NULL
+            ELSE (q_next - q) / q
+          END AS dQnext,
+          CASE
+            WHEN p_prev IS NOT NULL AND p_prev > 0
+             AND ABS(p - p_prev) >= :step
+             AND ((p - p_prev)/p_prev) >= 0.08
+             AND COALESCE(q_next,0) = 0
             THEN 1 ELSE 0
           END AS dropout_after_rise
         FROM seq
@@ -413,5 +435,5 @@ def api_price_sensitivity():
       LIMIT 200
     """)
 
-    res = db.session.execute(sql, {"customer": customer, "months": months}).fetchall()
-    return jsonify({"customer_code_365": customer, "months": months, "items": _json_rows(res)})
+    res = db.session.execute(sql, {"customer": customer, "months": months, "step": step}).fetchall()
+    return jsonify({"customer_code_365": customer, "months": months, "price_step": step, "items": _json_rows(res)})

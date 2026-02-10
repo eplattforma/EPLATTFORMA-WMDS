@@ -1,0 +1,249 @@
+A) Fix the DW sales dataset (view vs indexes) — choose ONE path
+Option A1 (recommended): create a materialized view + indexes (fast)
+
+Create migration SQL (or run once in Postgres console):
+
+-- 1) Materialized view (replace table names/joins to match your DW)
+DROP MATERIALIZED VIEW IF EXISTS dw_sales_lines_mv;
+
+CREATE MATERIALIZED VIEW dw_sales_lines_mv AS
+SELECT
+  i.invoice_date::date        AS sale_date,
+  i.customer_code_365         AS customer_code_365,
+  l.item_code_365             AS item_code_365,
+  l.quantity::numeric         AS qty,
+  l.line_total_excl::numeric  AS net_excl
+FROM dw_invoices i
+JOIN dw_transactions l
+  ON l.invoice_no_365 = i.invoice_no_365;
+
+-- 2) Indexes (now allowed)
+CREATE INDEX IF NOT EXISTS idx_sales_mv_customer_date
+  ON dw_sales_lines_mv (customer_code_365, sale_date);
+
+CREATE INDEX IF NOT EXISTS idx_sales_mv_item_date
+  ON dw_sales_lines_mv (item_code_365, sale_date);
+
+CREATE INDEX IF NOT EXISTS idx_sales_mv_customer_item_date
+  ON dw_sales_lines_mv (customer_code_365, item_code_365, sale_date);
+
+
+Then change all pricing SQL: replace dw_sales_lines_v → dw_sales_lines_mv in pricing_analytics.py.
+
+Add refresh job (nightly or hourly if needed):
+
+REFRESH MATERIALIZED VIEW CONCURRENTLY dw_sales_lines_mv;
+
+
+If CONCURRENTLY errors, create a unique index first, or use non-concurrently refresh.
+
+Option A2: keep a normal VIEW and index underlying tables
+
+If you insist on a view, do not try to index the view. Instead index the base tables used by the view:
+
+invoice header table: (customer_code_365, invoice_date)
+
+invoice lines: (invoice_no_365, item_code_365)
+
+B) Fix SQLAlchemy ANY() array binding (prevents runtime errors)
+Patch 1: in pricing_analytics.py market query
+
+Change:
+
+AND item_code_365 = ANY(:item_codes)
+
+
+to:
+
+AND item_code_365 = ANY(:item_codes::text[])
+
+Patch 2: in customer_analytics_bp item names endpoint
+
+Change:
+
+WHERE item_code_365 = ANY(:codes)
+
+
+to:
+
+WHERE item_code_365 = ANY(:codes::text[])
+
+
+No other code changes needed.
+
+C) Fix “date-to” bug in customer analytics (timestamp vs date)
+
+Your dw_invoice_header.invoice_date_utc0 looks like a timestamp. Your current filter:
+
+h.invoice_date_utc0 >= :d_from AND h.invoice_date_utc0 <= :d_to
+
+
+will exclude most of the “to” day.
+
+Change all date filters in customer_analytics_bp to:
+h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
+
+
+Apply this replacement in these endpoints:
+
+/api/<customer_code>/summary
+
+/api/<customer_code>/top-items
+
+/api/<customer_code>/invoices
+
+/api/<customer_code>/item-rfm (already uses date math; still OK to cast)
+
+/api/<customer_code>/monthly-trend
+
+Example patch (one place):
+
+WHERE h.customer_code_365 = :code
+  AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
+
+D) Implement sensitivity rule: no distinction beyond €0.05
+Requirement
+
+Treat monthly unit prices in steps of €0.05. Ignore changes smaller than €0.05.
+
+Patch api_price_sensitivity() in pricing_analytics.py
+
+Add price_step parsing and enforce minimum 0.05:
+
+step = float(request.args.get("price_step", "0.05") or 0.05)
+if step < 0.05:
+    step = 0.05
+
+
+Replace the SQL inside api_price_sensitivity() with:
+
+sql = text("""
+  WITH base0 AS (
+    SELECT
+      date_trunc('month', sale_date)::date AS m,
+      item_code_365,
+      SUM(qty) AS q,
+      SUM(net_excl) AS r,
+      CASE WHEN SUM(qty) <> 0 THEN (SUM(net_excl)/SUM(qty)) ELSE NULL END AS p_raw
+    FROM dw_sales_lines_mv
+    WHERE customer_code_365 = :customer
+      AND sale_date >= (CURRENT_DATE - (:months * INTERVAL '1 month'))
+      AND qty > 0 AND net_excl > 0
+    GROUP BY 1, 2
+  ),
+  base AS (
+    SELECT
+      m,
+      item_code_365,
+      q, r,
+      CASE
+        WHEN p_raw IS NULL THEN NULL
+        ELSE (ROUND(p_raw / :step) * :step)
+      END AS p
+    FROM base0
+  ),
+  seq AS (
+    SELECT
+      item_code_365,
+      m,
+      q, r, p,
+      LAG(p) OVER (PARTITION BY item_code_365 ORDER BY m) AS p_prev,
+      LEAD(q) OVER (PARTITION BY item_code_365 ORDER BY m) AS q_next
+    FROM base
+  ),
+  feats AS (
+    SELECT
+      item_code_365,
+      m,
+      q,
+      p,
+      CASE
+        WHEN p_prev IS NULL OR p_prev = 0 THEN NULL
+        WHEN ABS(p - p_prev) < :step THEN NULL
+        ELSE (p - p_prev) / p_prev
+      END AS dP,
+      CASE
+        WHEN q IS NULL OR q = 0 THEN NULL
+        ELSE (q_next - q) / q
+      END AS dQnext,
+      CASE
+        WHEN p_prev IS NOT NULL AND p_prev > 0
+         AND ABS(p - p_prev) >= :step
+         AND ((p - p_prev)/p_prev) >= 0.08
+         AND COALESCE(q_next,0) = 0
+        THEN 1 ELSE 0
+      END AS dropout_after_rise
+    FROM seq
+  ),
+  agg AS (
+    SELECT
+      item_code_365,
+      COUNT(*) FILTER (WHERE dP IS NOT NULL AND dQnext IS NOT NULL) AS pairs,
+      CORR(dP, dQnext) FILTER (WHERE dP IS NOT NULL AND dQnext IS NOT NULL) AS sensitivity_corr,
+      SUM(dropout_after_rise) AS dropouts_after_rise
+    FROM feats
+    GROUP BY item_code_365
+  )
+  SELECT
+    item_code_365,
+    pairs,
+    sensitivity_corr,
+    dropouts_after_rise
+  FROM agg
+  WHERE pairs >= 6
+  ORDER BY sensitivity_corr ASC NULLS LAST
+  LIMIT 200
+""")
+
+
+Execute with step:
+
+res = db.session.execute(sql, {"customer": customer, "months": months, "step": step}).fetchall()
+return jsonify({"customer_code_365": customer, "months": months, "price_step": step, "items": _json_rows(res)})
+
+
+✅ Now 3.10 and 3.15 become the same bucket and no “false” dP.
+
+E) Ensure the pricing template path matches your render()
+
+Your current route renders:
+
+render_template("pricing_analytics/customer_pricing.html", ...)
+
+
+So the template must be located at:
+
+templates/pricing_analytics/customer_pricing.html
+
+
+Move/rename accordingly (or change the render path).
+
+F) Register blueprint + add navigation link
+
+In app.py:
+
+from blueprints.pricing_analytics import pricing_bp
+app.register_blueprint(pricing_bp)
+
+
+Add button where customer details show:
+
+<a class="btn btn-outline-primary btn-sm" href="/pricing/customer/{{ customer.customer_code_365 }}">
+  Pricing Analytics
+</a>
+
+G) Quick verification checklist (Replit)
+
+Hit: /pricing/customer/<code> loads the page (no template errors).
+
+Call directly (in browser):
+
+/pricing/api/price-index?customer_code_365=XXX&from=2026-01-01&to=2026-02-10
+
+/pricing/api/price-dispersion?...
+
+/pricing/api/pvm?...&compare=prev
+
+/pricing/api/price-sensitivity?customer_code_365=XXX&months=18&price_step=0.05
+
+Confirm price_step appears in response and pairs drop when price moves are < 0.05.

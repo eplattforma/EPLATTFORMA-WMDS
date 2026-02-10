@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta, timezone
 import time
 from logging.handlers import RotatingFileHandler
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 from requests.exceptions import HTTPError
 import pytz
@@ -1529,7 +1530,15 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         _update_invoice_sync_status(session, "RUNNING", "Syncing cashiers...")
         u_ins, u_upd = sync_invoice_cashiers(session)
         
-        # Set completed status with summary
+        _update_invoice_sync_status(session, "RUNNING", "Refreshing materialized views...")
+        try:
+            session.execute(sa_text("REFRESH MATERIALIZED VIEW dw_sales_lines_mv"))
+            session.commit()
+            logger.info("Refreshed dw_sales_lines_mv materialized view")
+        except Exception as mv_err:
+            logger.warning(f"Could not refresh dw_sales_lines_mv: {mv_err}")
+            session.rollback()
+        
         summary = f"Headers: {h_ins}, Lines: {l_ins}, Stores: {s_ins}, Cashiers: {u_ins}"
         _update_invoice_sync_status(session, "COMPLETE", summary)
         
