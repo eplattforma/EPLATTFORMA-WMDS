@@ -16,45 +16,41 @@ Preferred communication style: Simple, everyday language.
 - **Backend**: Flask (Python).
 - **Database**: PostgreSQL (production), SQLite (development).
 - **ORM**: SQLAlchemy with Flask-SQLAlchemy.
-- **Authentication**: Flask-Login with role-based access control (`admin`, `picker`, `warehouse_manager`, `driver`). User management includes enable/disable functionality with automatic session invalidation for inactive accounts.
+- **Authentication**: Flask-Login with role-based access control (`admin`, `picker`, `warehouse_manager`, `driver`).
 - **Deployment**: Gunicorn.
-- **Core Models**: Users, Invoices, InvoiceItems, BatchPickingSession, ItemTimeTracking, DeliveryDiscrepancy, DeliveryDiscrepancyEvent, Settings, RouteStop, RouteStopInvoice, PSCustomer, Shipment, PaymentCustomer, CreditTerms, PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine, WmsPackingProfile, WmsPallet, WmsPalletOrder, RouteReturnHandover, CODReceipt, PODRecord.
-- **Picking System**: Supports individual and batch picking, skip/collect later, real-time updates, and exception handling. Displays item codes and barcodes (normalized from PS365) in format "ITEM-CODE / BARCODE" for improved picker efficiency.
-- **Time Tracking & Analytics**: Phase-based per-item time tracking capturing walking_time (between items), picking_time (arrival to confirmation), and confirmation_time (batch confirmation screens). Supports shift management, KPI calculation, AI analysis. For batch picks, walking_time is divided by number of source invoices to prevent time multiplication.
-- **Batch Processing**: Zone/corridor-based batch creation, item locking, sequential/optimized picking modes.
-- **Delivery Issue Tracking**: Admin-only system for recording, validating, and resolving discrepancies with photo uploads, configurable types, stock resolutions, and audit trails.
-- **Delivery Route Management**: Comprehensive route planning, driver assignment, stop sequencing, invoice assignment, progress tracking, and printable run sheets. Includes warehouse collection option that automatically marks orders as DELIVERED for customer pickup scenarios.
-- **Driver App**: Mobile-optimized delivery execution with exception-only delivery workflow, COD collection, receipt printing (A5 PDF via ReportLab), Proof of Delivery (POD) capture, delivery discrepancy integration, and settlement flow.
-- **Route Reconciliation Report Pack**: Excel export system for comprehensive route reconciliation. RouteStopInvoice stores expected_payment_method, expected_amount, and manifest lock timestamp at dispatch. Export endpoint `/routes/<id>/reconciliation/export.xlsx` generates multi-sheet Excel with Summary, Invoice Detail, Stop Summary, Exceptions, and PostDated Register. Uses RouteReturnHandover table for failed delivery return tracking. Template at `reports/templates/WMDS_Route_Reconciliation_Template.xlsx`.
-- **Return Handover Workflow**: Two-step confirmation process for failed deliveries: (1) Driver confirms handover via `/driver/routes/<id>/returns` with package counts, reason, and notes; (2) Warehouse staff confirms receipt via `/warehouse/returns/<route_id>` with package verification. Both steps required before reconciliation can complete.
-- **Discrepancy Verification Workflow**: Warehouse verification of delivery discrepancies via `/warehouse/discrepancies/<route_id>`. Captures warehouse_result (FOUND/RETURNED/LOST/DAMAGED), determines if credit note required, and tracks credit_note_no/credit_note_amount when issued. All discrepancies must be warehouse-verified before reconciliation finalization.
-- **Customer Payment Terms Management**: Tracks credit terms, payment methods, and financial limits, with auto-creation for new customers, configurable defaults, version history, and Excel import/export.
-- **PO Receiving**: Mobile-optimized warehouse receiving for purchase orders with PS365 integration for PO and shelf location lookup, barcode scanning (QuaggaJS), dynamic PO modification, multi-lot support, resume capability, conditional expiration date tracking (only required for items flagged by PS365), configurable receiving notes (e.g., "Wrong Barcode", "Barcode not in system", "New Product", "Repacking", "Needs Labels") with display on receiving screen and printouts, automatic goods receipt submission back to PS365 via order_pick_list API upon session completion, PO archiving for organizing completed orders, editable PO descriptions for better organization, smart re-import system with confirmation warnings, duplicate receiving prevention with reset capability, automatic row reordering (recently received items move to top of main order table), and printable PO sheets with actual barcodes from PS365 and notes displayed under barcodes.
-- **OI Dynamic Rules Engine**: Rule-based classification system allowing admins to define conditions on item fields (item_name, brand_code_365, attribute_1..6_code_365, item_weight) to automatically set WMS attributes. Supports operators like contains, in, gt/lt for different field types. Precedence: MANUAL > DYNAMIC_RULE > CATEGORY_DEFAULT > RULES. Rules are evaluated by priority (higher first) during reclassification. Evidence stores matched rule_id and rule_name for audit. **Auto-Refresh**: Classification automatically runs after saving category defaults (category-scoped), SKU overrides (single-item), or dynamic rules (full refresh), eliminating manual reclassification. Supports "__EMPTY__" pseudo-category for items without category assignment.
-- **Palletization System**: Complete pallet management for delivery routes with visual 8-bit grid allocation (4x2 blocks), order-level hints (weight, fragility, spill risk, base corridors), packing profiles auto-computed during reclassification. Features: create/seal/unseal pallets, assign/unassign orders, weight limits (65kg/block standard, 120kg base, 500kg max), pallet roles (BASE/MIDDLE/TOP_ONLY/OFF_PALLET). Admin/warehouse_manager access via Pallets button on route detail page.
-- **SKU-Level Packing Profiles**: Derived pack_mode classification (DIRECT_PALLET, CARTON_HEAVY, CARTON_SMALL, OFF_PALLET) computed during OI reclassification. Order packing summary shows carton estimates (heavy 14-16kg target, small ~25 items/carton) and warnings (spill risk, fragile, crushable, heat/cool sensitive). Displayed on pallet management UI as badges.
-- **Order Processing Flow**: Import (Excel) → Assignment → Picking → Completion → Shipping → Analytics.
-- **Invoice Import (PS365)**: Optimized single-pass synchronization logic with data normalization (_norm_code, _norm_barcode), batch lookups for shelf locations and barcodes, and automated invoice total recalculation. Prevents duplicates and ensures high data integrity for barcodes.
-- **Shelf Location Format**: Locations are stored as 7-character codes (e.g., "1006A01") and displayed as "CORRIDOR-SHELF-LEVEL BIN" (e.g., "10-06-A 01"). NULL locations default to "No Location" for sorting consistency.
-- **Batch Processing Flow**: Creation → Locking → Assignment → Execution → Completion.
-- **Order Status Lifecycle**: `not_started` → `picking` → `awaiting_batch_items` → `awaiting_packing` → `ready_for_dispatch` → `SHIPPED` → `OUT_FOR_DELIVERY` → `DELIVERED`/`RETURNED`/`DELIVERY_FAILED` → (`cancelled`/`returned_to_warehouse`). Note: Orders move to `awaiting_packing` after all items are picked, then to `ready_for_dispatch` only after packing is confirmed.
-- **Route Status Lifecycle**: Three-phase lifecycle separating operational and administrative concerns:
-  - **Operational Status** (`Shipment.status`): `created` → `PLANNED` → `DISPATCHED` → `IN_TRANSIT` → `COMPLETED` (or `CANCELLED`). Routes auto-complete when all RouteStopInvoice statuses are terminal (DELIVERED or FAILED).
-  - **Reconciliation Status** (`Shipment.reconciliation_status`): `NOT_READY` → `PENDING` → `IN_REVIEW` → `RECONCILED`. Becomes PENDING when route completes; requires admin verification of cash, POD, returns, and discrepancies.
-  - **Archiving** (`Shipment.is_archived`): Routes remain visible until reconciled and archived. `services_route_lifecycle.py` contains `recompute_route_completion()` (auto-triggered after driver actions), `reconcile_route()`, and `get_dashboard_routes()`.
+- **Core Features**:
+    - **Picking System**: Supports individual and batch picking, skip/collect later, real-time updates, and exception handling. Displays normalized item codes and barcodes.
+    - **Time Tracking & Analytics**: Phase-based per-item time tracking for walking, picking, and confirmation. Supports shift management and KPI calculation.
+    - **Batch Processing**: Zone/corridor-based batch creation, item locking, sequential/optimized picking modes.
+    - **Delivery Issue Tracking**: Admin-only system for recording, validating, and resolving discrepancies with photo uploads and audit trails.
+    - **Delivery Route Management**: Route planning, driver assignment, stop sequencing, invoice assignment, progress tracking, and printable run sheets. Includes warehouse collection.
+    - **Driver App**: Mobile-optimized delivery execution with exception-only workflow, COD collection, PDF receipt printing, Proof of Delivery (POD) capture, and discrepancy integration.
+    - **Route Reconciliation Report Pack**: Excel export system for comprehensive route reconciliation, including summary, invoice detail, stop summary, exceptions, and post-dated register.
+    - **Return Handover Workflow**: Two-step confirmation process for failed deliveries (driver and warehouse staff).
+    - **Discrepancy Verification Workflow**: Warehouse verification of delivery discrepancies to determine credit note requirements.
+    - **Customer Payment Terms Management**: Tracks credit terms, payment methods, and financial limits with version history and import/export.
+    - **PO Receiving**: Mobile-optimized receiving for purchase orders with PS365 integration, barcode scanning, dynamic PO modification, multi-lot support, and automated goods receipt submission.
+    - **OI Dynamic Rules Engine**: Rule-based classification system for setting WMS attributes based on item fields. Supports auto-refresh upon changes.
+    - **Palletization System**: Complete pallet management for delivery routes with visual 8-bit grid allocation, order-level hints, and packing profiles.
+    - **SKU-Level Packing Profiles**: Derived pack_mode classification (DIRECT_PALLET, CARTON_HEAVY, CARTON_SMALL, OFF_PALLET) with carton estimates and warnings.
+    - **Order Processing Flow**: Import (Excel) → Assignment → Picking → Completion → Shipping → Analytics.
+    - **Invoice Import (PS365)**: Optimized single-pass synchronization logic with data normalization, batch lookups, and automated invoice total recalculation.
+    - **Order Status Lifecycle**: `not_started` to `DELIVERED`/`RETURNED`/`DELIVERY_FAILED` with intermediate states for picking, packing, and dispatch.
+    - **Route Status Lifecycle**: Three-phase lifecycle: Operational (`Shipment.status`), Reconciliation (`Shipment.reconciliation_status`), and Archiving.
 
 ### System Design Choices
-- **UTC Timestamp Consistency**: All database timestamp writes use UTC via `utc_now_for_db()` helper from `timezone_utils.py`. Duration calculations performed in UTC to avoid DST issues. Athens timezone (`Europe/Athens`) used ONLY for display conversions via `to_athens_tz()` helper. Context fields (time_of_day, day_of_week, peak_hours) derived from local time for analytics.
-- **Performance Optimizations**: Connection pooling, query optimization, database tuning, Gunicorn configuration. Bulk SQL operations for customer synchronization and payment terms reconciliation to prevent worker timeouts.
+- **UTC Timestamp Consistency**: All database timestamp writes use UTC; local timezone for display.
+- **Performance Optimizations**: Connection pooling, query optimization, database tuning, Gunicorn configuration, and bulk SQL operations.
 - **User Roles**: `admin`, `picker`, `warehouse_manager`, `driver` with specific access controls.
-- **Delivery Dashboard**: Provides an overview of dispatched routes with on-demand loading via AJAX.
-- **Data Integrity & Soft Delete System**: Implements soft deletes and status changes for critical entities with financial, audit, or proof-of-delivery dependencies to prevent hard deletion and maintain data consistency. Uses SQLAlchemy event listeners (`SoftDeleteMixin`, `ActivatableMixin`) to enforce policies.
-- **Find Invoice/Route**: Advanced search interface with comprehensive filters, detailed invoice view including line items, payment records (COD), proof of delivery (POD), routing history, and delivery discrepancies. Supports compact A4 printing for all invoice details.
-- **Customer Synchronization**: Dedicated screen under Operations menu for syncing customers from PS365 with bulk operations and automatic payment terms creation.
-- **Customer 360 Analytics**: Interactive analytics dashboard at `/analytics/customers/` with customer search, configurable date ranges (presets: Last 30/90, MTD, QTD, YTD, custom), period comparison (Previous Period, Prior Year). Features: KPI summary (sales, invoices, avg invoice, qty, distinct items), top items by sales/qty, invoice history with pagination, Item-RFM stale items analysis, monthly trend chart (Chart.js). Data sourced from `dw_invoice_header` + `dw_invoice_line` + `ps_items_dw` + `ps_customers`. Access: admin, warehouse_manager.
-- **Net Value Calculation**: All net values are calculated on-the-fly, NEVER from stored columns. Line net = `COALESCE(line_total_incl, 0) - COALESCE(line_total_vat, 0)`. Header net = `COALESCE(total_sub, 0) - COALESCE(total_discount, 0)`. The columns `line_net_value` and `total_net` exist in the DB schema but are NOT populated during sync and must NOT be used in queries. This applies to Customer 360, Pricing Analytics, Power BI views, and the materialized view `dw_sales_lines_mv`.
-- **Pricing Analytics**: Customer-level pricing analysis at `/pricing/customer/<code>` with 4 modules: (1) Price Index vs Market - compares customer prices to market median with overpay estimation; (2) Price Dispersion - identifies inconsistent pricing via min/max/CV analysis; (3) PVM (Price-Volume-Mix) - decomposes revenue changes vs baseline into price/volume/mix effects; (4) Price Sensitivity signals - monthly correlation with €0.05 price step bucketing to ignore sub-cent noise. Uses `dw_sales_lines_mv` materialized view (indexed, refreshed after DW sync). Access: admin, warehouse_manager.
-- **Power BI Integration**: Database views (pbi_*) providing star-schema data model for Power BI reporting. Dimensions: customers, products, stores, dates. Facts: sales, invoices, routes, deliveries, picking, discrepancies. Setup files in `powerbi/` folder.
+- **Delivery Dashboard**: Overview of dispatched routes with on-demand AJAX loading.
+- **Data Integrity & Soft Delete System**: Soft deletes and status changes for critical entities to maintain data consistency and audit trails.
+- **Find Invoice/Route**: Advanced search with filters, detailed invoice view, payment records, POD, routing history, and discrepancy details.
+- **Customer Synchronization**: Dedicated screen for syncing customers from PS365 with bulk operations.
+- **Customer 360 Analytics**: Interactive dashboard with KPIs, top items, invoice history, and Item-RFM analysis.
+- **Net Value Calculation**: All net values calculated on-the-fly from line and header totals, not from stored columns.
+- **Customer Benchmark**: Comparison of customer performance against peer groups, including White Space, Lapsed Items, Category Mix, Price vs Peers, and Item Recency analysis.
+- **Pricing Analytics**: Customer-level pricing analysis with modules for Price Index vs Market, Price Dispersion, PVM, and Price Sensitivity signals.
+- **Power BI Integration**: Database views providing a star-schema data model for Power BI reporting.
 
 ## External Dependencies
 
@@ -69,12 +65,11 @@ Preferred communication style: Simple, everyday language.
 - **PyTZ**: Timezone handling.
 - **Gunicorn**: WSGI server.
 - **Openpyxl, Xlsxwriter**: Excel file handling.
-- **ReportLab**: PDF generation for receipts and reports.
+- **ReportLab**: PDF generation.
 
 ### Database Dependencies
 - **PostgreSQL 16**: Production database.
 
 ### Integrations
-- **PS365**: Used for automatic shelf location lookup, PO receiving, customer data synchronization, integrated receipt system, and zone (Attribute #3) synchronization.
-- **Zone Auto-Sync**: Attribute #3 (Zones) automatically syncs from PS365 during incremental updates. InvoiceItem.zone stores the PS365 zone CODE (e.g., "STNR") rather than the name. OI dynamic rules load zone options dynamically from dw_attribute3 table. Migration endpoint `/admin/oi/normalize-zones` converts legacy zone names to codes.
-- **SMTP Email**: Configured via environment variables (SMTP_HOST, SMTP_PORT, SMTP_EMAIL, SMTP_PASSWORD) for sending supplier purchase orders via email. Uses SSL on port 465.
+- **PS365**: Used for shelf location lookup, PO receiving, customer data synchronization, integrated receipt system, and zone synchronization.
+- **SMTP Email**: Configured for sending supplier purchase orders.

@@ -1,0 +1,692 @@
+{% extends "base.html" %}
+{% block title %}Customer vs Peer Group{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+    .cb-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 16px 20px;
+    }
+    .cb-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .cb-controls .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .cb-controls .form-group label {
+        font-size: 11px; color: rgba(226,232,240,0.55);
+        text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500;
+    }
+    .cb-controls select, .cb-controls input {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+        color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 13px;
+    }
+    .cb-controls select option { background: #1e293b; color: #e2e8f0; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 16px; }
+    .kpi-card {
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px; padding: 14px 16px;
+    }
+    .kpi-label { font-size: 11px; color: rgba(226,232,240,0.55); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+    .kpi-value { font-size: 20px; font-weight: 600; color: #e2e8f0; }
+    .kpi-sub { font-size: 12px; color: rgba(226,232,240,0.45); margin-top: 2px; }
+    .kpi-delta-pos { color: #34d399; }
+    .kpi-delta-neg { color: #f87171; }
+
+    .tab-bar { display: flex; gap: 0; margin-top: 20px; border-bottom: 2px solid rgba(255,255,255,0.08); }
+    .tab-btn {
+        padding: 8px 18px; font-size: 13px; font-weight: 500; color: rgba(226,232,240,0.55);
+        background: none; border: none; border-bottom: 2px solid transparent;
+        cursor: pointer; margin-bottom: -2px; transition: all 0.15s;
+    }
+    .tab-btn:hover { color: #e2e8f0; }
+    .tab-btn.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+
+    .tab-pane { display: none; margin-top: 14px; }
+    .tab-pane.active { display: block; }
+
+    .cb-table { width: 100%; border-collapse: collapse; }
+    .cb-table thead th {
+        font-size: 11px; font-weight: 500; color: rgba(226,232,240,0.55);
+        letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 8px 10px; border-bottom: 2px solid rgba(255,255,255,0.1);
+        position: sticky; top: 0; background: #0f172a; text-align: left;
+    }
+    .cb-table tbody td {
+        padding: 7px 10px; font-size: 13px; color: #e2e8f0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .cb-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+    .cb-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .suggest-box {
+        border: 1px solid rgba(255,255,255,0.15); display: none; position: absolute;
+        background: #1e293b; z-index: 50; width: 300px; max-height: 250px; overflow-y: auto;
+        border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .suggest-item { padding: 8px 12px; cursor: pointer; font-size: 13px; color: #e2e8f0; }
+    .suggest-item:hover { background: rgba(96,165,250,0.15); }
+    .suggest-item .code { font-weight: 600; color: #60a5fa; }
+    .suggest-item .grp { font-size: 11px; color: rgba(226,232,240,0.4); margin-left: 8px; }
+
+    .section-label { font-size: 13px; color: rgba(226,232,240,0.55); margin-bottom: 8px; font-weight: 500; }
+
+    .tab-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+    .tab-controls label { font-size: 11px; color: rgba(226,232,240,0.55); }
+    .tab-controls input { width: 80px; }
+
+    .delta-info { font-size: 13px; color: rgba(226,232,240,0.5); margin-top: 8px; }
+    .delta-info .pos { color: #34d399; }
+    .delta-info .neg { color: #f87171; }
+
+    .chart-container { max-width: 800px; height: 300px; margin-top: 16px; }
+
+    .load-btn {
+        background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3);
+        padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;
+    }
+    .load-btn:hover { background: rgba(96,165,250,0.25); }
+
+    .run-btn {
+        background: #2563eb; color: #fff; border: none;
+        padding: 6px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .run-btn:hover { background: #1d4ed8; }
+
+    .empty-msg { color: rgba(226,232,240,0.4); font-size: 13px; padding: 20px; text-align: center; }
+
+    .price-overpay { background: rgba(248,113,113,0.1); }
+    .price-underpay { background: rgba(52,211,153,0.1); }
+
+    @media (max-width: 768px) {
+        .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+        .cb-controls { flex-direction: column; align-items: stretch; }
+        .tab-bar { overflow-x: auto; flex-wrap: nowrap; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1200px; padding: 20px;">
+    <h4 style="color: #e2e8f0; margin-bottom: 16px;">
+        <i class="fas fa-chart-bar me-2" style="color: #60a5fa;"></i>Customer vs Peer Group
+    </h4>
+
+    <div class="cb-card">
+        <div class="cb-controls">
+            <div class="form-group" style="position: relative;">
+                <label>Customer</label>
+                <input id="custSearch" placeholder="Type name or code..." style="width: 280px;" autocomplete="off" />
+                <div id="custSuggest" class="suggest-box"></div>
+                <input id="customerCode" type="hidden" />
+                <div id="custLabel" style="font-size: 12px; color: #60a5fa; margin-top: 2px; min-height: 16px;"></div>
+            </div>
+
+            <div class="form-group">
+                <label>Peer Group</label>
+                <select id="groupName" style="width: 200px;"></select>
+            </div>
+
+            <div class="form-group">
+                <label>Period</label>
+                <select id="periodPreset" style="width: 130px;">
+                    <option value="30">Last 30 days</option>
+                    <option value="90" selected>Last 90 days</option>
+                    <option value="180">Last 180 days</option>
+                    <option value="365">Last 365 days</option>
+                    <option value="custom">Custom</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="customDateGroup" style="display: none;">
+                <label>Start</label>
+                <input type="date" id="startDate" />
+            </div>
+            <div class="form-group" id="customDateGroup2" style="display: none;">
+                <label>End</label>
+                <input type="date" id="endDate" />
+            </div>
+
+            <div class="form-group">
+                <label>Compare</label>
+                <select id="compareMode" style="width: 160px;">
+                    <option value="prev">Previous Period</option>
+                    <option value="py">Same Period PY</option>
+                    <option value="none">None</option>
+                </select>
+            </div>
+
+            <button class="run-btn" id="runBtn"><i class="fas fa-play me-1"></i>Run</button>
+        </div>
+    </div>
+
+    <div id="kpiSection" style="display: none;">
+        <div id="kpis" class="kpi-grid"></div>
+        <div id="deltaInfo" class="delta-info"></div>
+    </div>
+
+    <div id="trendSection" style="display: none;">
+        <div class="cb-card" style="margin-top: 16px;">
+            <div class="section-label">Monthly Trend: Customer vs Peer Avg</div>
+            <div class="chart-container">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-bar" id="tabBar" style="display: none;">
+        <button class="tab-btn active" data-tab="nb"><i class="fas fa-search-plus me-1"></i>White Space</button>
+        <button class="tab-btn" data-tab="lapsed"><i class="fas fa-clock me-1"></i>Lapsed Items</button>
+        <button class="tab-btn" data-tab="mix"><i class="fas fa-chart-pie me-1"></i>Category Mix</button>
+        <button class="tab-btn" data-tab="price"><i class="fas fa-tags me-1"></i>Price vs Peers</button>
+        <button class="tab-btn" data-tab="rfm"><i class="fas fa-history me-1"></i>Item Recency</button>
+    </div>
+
+    <div id="tab_nb" class="tab-pane active">
+        <div class="cb-card">
+            <div class="section-label">Items peers buy but this customer doesn't</div>
+            <div class="tab-controls">
+                <div class="form-group">
+                    <label>Min peer penetration</label>
+                    <input id="penMin" type="number" step="0.05" value="0.30" style="width: 80px;" />
+                </div>
+                <button class="load-btn" id="loadNB"><i class="fas fa-download me-1"></i>Load</button>
+                <span id="nbCount" style="font-size: 12px; color: rgba(226,232,240,0.4);"></span>
+            </div>
+            <div style="max-height: 500px; overflow-y: auto;">
+                <table class="cb-table">
+                    <thead>
+                        <tr>
+                            <th>Item Code</th><th>Name</th><th>Category</th><th>Brand</th>
+                            <th class="num">Penetration</th><th class="num">Peer Avg Sales</th><th class="num">Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nbBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab_lapsed" class="tab-pane">
+        <div class="cb-card">
+            <div class="section-label">Items customer bought in comparison period but not in current period</div>
+            <div class="tab-controls">
+                <button class="load-btn" id="loadLapsed"><i class="fas fa-download me-1"></i>Load</button>
+                <span id="lapsedInfo" style="font-size: 12px; color: rgba(226,232,240,0.4);"></span>
+            </div>
+            <div style="max-height: 500px; overflow-y: auto;">
+                <table class="cb-table">
+                    <thead>
+                        <tr>
+                            <th>Item Code</th><th>Name</th><th>Category</th><th>Brand</th>
+                            <th class="num">Comp Qty</th><th class="num">Comp Sales</th><th class="num">Peer Pen.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="lapsedBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab_mix" class="tab-pane">
+        <div class="cb-card">
+            <div class="section-label">Category share: Customer vs Peers</div>
+            <div class="tab-controls">
+                <button class="load-btn" id="loadMix"><i class="fas fa-download me-1"></i>Load</button>
+                <span id="mixCount" style="font-size: 12px; color: rgba(226,232,240,0.4);"></span>
+            </div>
+            <div style="max-height: 500px; overflow-y: auto;">
+                <table class="cb-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th class="num">Cust Sales</th><th class="num">Cust Share</th>
+                            <th class="num">Peer Sales</th><th class="num">Peer Share</th>
+                            <th class="num">Diff (pp)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mixBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab_price" class="tab-pane">
+        <div class="cb-card">
+            <div class="section-label">Unit price comparison (Gross, excl. returns)</div>
+            <div class="tab-controls">
+                <div class="form-group">
+                    <label>Min qty</label>
+                    <input id="minQty" type="number" step="1" value="1" style="width: 80px;" />
+                </div>
+                <button class="load-btn" id="loadPrice"><i class="fas fa-download me-1"></i>Load</button>
+                <span id="priceCount" style="font-size: 12px; color: rgba(226,232,240,0.4);"></span>
+            </div>
+            <div style="max-height: 500px; overflow-y: auto;">
+                <table class="cb-table">
+                    <thead>
+                        <tr>
+                            <th>Item Code</th><th>Name</th>
+                            <th class="num">Cust Unit</th><th class="num">Peer Unit</th>
+                            <th class="num">Index</th><th class="num">Cust Qty</th><th class="num">Peer Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody id="priceBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab_rfm" class="tab-pane">
+        <div class="cb-card">
+            <div class="section-label">Item recency, frequency & monetary (RFM-lite)</div>
+            <div class="tab-controls">
+                <div class="form-group">
+                    <label>Lookback days</label>
+                    <input id="rfmLookback" type="number" step="1" value="365" style="width: 80px;" />
+                </div>
+                <button class="load-btn" id="loadRfm"><i class="fas fa-download me-1"></i>Load</button>
+                <span id="rfmCount" style="font-size: 12px; color: rgba(226,232,240,0.4);"></span>
+            </div>
+            <div style="max-height: 500px; overflow-y: auto;">
+                <table class="cb-table">
+                    <thead>
+                        <tr>
+                            <th>Item Code</th><th>Name</th><th>Category</th>
+                            <th class="num">Last Purchase</th><th class="num">Recency (d)</th>
+                            <th class="num">Frequency</th><th class="num">Monetary</th>
+                            <th class="num">Qty</th><th class="num">Peer Pen.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rfmBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const BASE = "/admin/customer-benchmark";
+let trendChartInstance = null;
+
+function fmt(n, dec) {
+    if (n === null || n === undefined) return "-";
+    dec = dec !== undefined ? dec : 2;
+    if (typeof n === "number") return n.toLocaleString(undefined, {minimumFractionDigits: dec, maximumFractionDigits: dec});
+    return n;
+}
+function fmtPct(n) {
+    if (n === null || n === undefined) return "-";
+    return (n * 100).toFixed(1) + "%";
+}
+function fmtInt(n) {
+    if (n === null || n === undefined) return "-";
+    return Math.round(n).toLocaleString();
+}
+
+function getDates() {
+    const preset = document.getElementById("periodPreset").value;
+    let start, end;
+    if (preset === "custom") {
+        start = document.getElementById("startDate").value;
+        end = document.getElementById("endDate").value;
+    } else {
+        const endD = new Date();
+        const startD = new Date(endD.getTime() - parseInt(preset) * 24 * 3600 * 1000);
+        start = startD.toISOString().slice(0, 10);
+        end = endD.toISOString().slice(0, 10);
+    }
+    return {start, end};
+}
+
+function qsBase() {
+    const customer_code = document.getElementById("customerCode").value.trim();
+    const group_name = document.getElementById("groupName").value;
+    const compare_mode = document.getElementById("compareMode").value;
+    const {start, end} = getDates();
+    return {customer_code, group_name, start, end, compare_mode};
+}
+
+document.getElementById("periodPreset").addEventListener("change", function() {
+    const custom = this.value === "custom";
+    document.getElementById("customDateGroup").style.display = custom ? "" : "none";
+    document.getElementById("customDateGroup2").style.display = custom ? "" : "none";
+    if (!custom) {
+        const {start, end} = getDates();
+        document.getElementById("startDate").value = start;
+        document.getElementById("endDate").value = end;
+    }
+});
+
+async function loadMeta() {
+    try {
+        const r = await fetch(BASE + "/api/meta");
+        const j = await r.json();
+        const sel = document.getElementById("groupName");
+        sel.innerHTML = '<option value="">(Auto from customer)</option>' +
+            (j.groups || []).map(g => '<option>' + g + '</option>').join("");
+
+        const {start, end} = getDates();
+        document.getElementById("startDate").value = start;
+        document.getElementById("endDate").value = end;
+    } catch (e) {
+        console.error("loadMeta error", e);
+    }
+}
+
+let lookupTimer = null;
+document.getElementById("custSearch").addEventListener("input", function() {
+    clearTimeout(lookupTimer);
+    const q = this.value.trim();
+    const box = document.getElementById("custSuggest");
+    if (q.length < 2) { box.style.display = "none"; return; }
+    lookupTimer = setTimeout(async () => {
+        try {
+            const r = await fetch(BASE + "/api/customer-lookup?q=" + encodeURIComponent(q));
+            const j = await r.json();
+            if (!j.rows || j.rows.length === 0) { box.style.display = "none"; return; }
+            box.innerHTML = j.rows.map(x =>
+                '<div class="suggest-item" data-code="' + x.customer_code_365 + '" data-name="' + (x.company_name || '') + '" data-grp="' + (x.reporting_group || '') + '">' +
+                '<span class="code">' + x.customer_code_365 + '</span> &mdash; ' + (x.company_name || '') +
+                (x.reporting_group ? '<span class="grp">[' + x.reporting_group + ']</span>' : '') +
+                '</div>'
+            ).join("");
+            box.style.display = "block";
+            box.querySelectorAll(".suggest-item").forEach(d => {
+                d.onclick = function() {
+                    document.getElementById("customerCode").value = this.dataset.code;
+                    document.getElementById("custSearch").value = this.dataset.code + " - " + this.dataset.name;
+                    document.getElementById("custLabel").textContent = this.dataset.name;
+                    if (this.dataset.grp && document.getElementById("groupName").value === "") {
+                    }
+                    box.style.display = "none";
+                };
+            });
+        } catch (e) { console.error(e); }
+    }, 250);
+});
+
+document.addEventListener("click", function(e) {
+    if (!e.target.closest("#custSearch") && !e.target.closest("#custSuggest")) {
+        document.getElementById("custSuggest").style.display = "none";
+    }
+});
+
+function renderKpis(j) {
+    document.getElementById("kpiSection").style.display = "";
+    const el = document.getElementById("kpis");
+    el.innerHTML = "";
+
+    const cards = [
+        {label: "Customer Net Sales", val: fmt(j.customer.net_sales), sub: "Net (incl. returns)"},
+        {label: "Customer Orders", val: fmtInt(j.customer.orders), sub: fmtInt(j.customer.uniq_items) + " unique items"},
+        {label: "Customer AOV", val: fmt(j.customer.aov), sub: "Avg order value"},
+        {label: "Peers Count", val: fmtInt(j.peers.peer_customers), sub: "in " + (j.group_name || "group")},
+        {label: "Peers Avg Sales/Cust", val: fmt(j.peers.avg_sales_per_customer), sub: "Peer average"},
+        {label: "Peers AOV", val: fmt(j.peers.aov), sub: "Peer avg order value"},
+        {label: "Sales Index", val: fmt(j.indexes.sales_index_vs_peer_avg), sub: "vs peer avg (1.0 = avg)", highlight: true},
+        {label: "Price Index (Gross)", val: fmt(j.indexes.price_index_gross), sub: "vs peer avg (1.0 = same)", highlight: true},
+    ];
+
+    cards.forEach(c => {
+        const div = document.createElement("div");
+        div.className = "kpi-card";
+        if (c.highlight) {
+            const v = parseFloat(String(c.val).replace(/,/g, ""));
+            if (!isNaN(v) && v !== 0) {
+                if (c.label === "Sales Index") {
+                    div.style.borderColor = v >= 1 ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)";
+                } else {
+                    div.style.borderColor = v <= 1.05 ? "rgba(52,211,153,0.3)" : "rgba(248,113,113,0.3)";
+                }
+            }
+        }
+        div.innerHTML = '<div class="kpi-label">' + c.label + '</div>' +
+            '<div class="kpi-value">' + c.val + '</div>' +
+            '<div class="kpi-sub">' + (c.sub || '') + '</div>';
+        el.appendChild(div);
+    });
+
+    const di = document.getElementById("deltaInfo");
+    if (j.deltas) {
+        const nsCls = (j.deltas.net_sales_abs || 0) >= 0 ? "pos" : "neg";
+        const ordCls = (j.deltas.orders_abs || 0) >= 0 ? "pos" : "neg";
+        const sign = (v) => v >= 0 ? "+" : "";
+        di.innerHTML = 'vs comparison: <span class="' + nsCls + '">' + sign(j.deltas.net_sales_abs) + fmt(j.deltas.net_sales_abs) +
+            ' (' + (j.deltas.net_sales_pct !== null ? fmtPct(j.deltas.net_sales_pct) : 'n/a') + ')</span> sales' +
+            ' &nbsp;|&nbsp; <span class="' + ordCls + '">' + sign(j.deltas.orders_abs) + fmtInt(j.deltas.orders_abs) +
+            ' (' + (j.deltas.orders_pct !== null ? fmtPct(j.deltas.orders_pct) : 'n/a') + ')</span> orders';
+        if (j.compare_period) {
+            di.innerHTML += ' &nbsp;<span style="color:rgba(226,232,240,0.35)">(' + j.compare_period.start + ' to ' + j.compare_period.end + ')</span>';
+        }
+    } else {
+        di.innerHTML = "";
+    }
+}
+
+async function loadTrends() {
+    const p = qsBase();
+    if (!p.customer_code) return;
+    try {
+        const r = await fetch(BASE + "/api/trends-monthly?" + new URLSearchParams(p));
+        const j = await r.json();
+        if (!r.ok || !j.rows || j.rows.length === 0) {
+            document.getElementById("trendSection").style.display = "none";
+            return;
+        }
+        document.getElementById("trendSection").style.display = "";
+        const labels = j.rows.map(x => x.month_start ? x.month_start.slice(0, 7) : "");
+        const custData = j.rows.map(x => parseFloat(x.cust_net_sales) || 0);
+        const peerData = j.rows.map(x => parseFloat(x.peer_avg_sales_per_customer) || 0);
+
+        if (trendChartInstance) trendChartInstance.destroy();
+        const ctx = document.getElementById("trendChart").getContext("2d");
+        trendChartInstance = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: "Customer Net Sales",
+                        data: custData,
+                        borderColor: "#60a5fa",
+                        backgroundColor: "rgba(96,165,250,0.1)",
+                        fill: true,
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 3
+                    },
+                    {
+                        label: "Peer Avg Sales/Cust",
+                        data: peerData,
+                        borderColor: "#a78bfa",
+                        backgroundColor: "rgba(167,139,250,0.1)",
+                        fill: true,
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        borderDash: [5, 3]
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {position: "top", labels: {color: "rgba(226,232,240,0.7)", font: {size: 12}}},
+                    tooltip: {mode: "index", intersect: false}
+                },
+                scales: {
+                    x: {ticks: {color: "rgba(226,232,240,0.5)"}, grid: {color: "rgba(255,255,255,0.05)"}},
+                    y: {ticks: {color: "rgba(226,232,240,0.5)", callback: v => v.toLocaleString()}, grid: {color: "rgba(255,255,255,0.05)"}}
+                }
+            }
+        });
+    } catch (e) {
+        console.error("loadTrends error", e);
+    }
+}
+
+async function runKpis() {
+    const p = qsBase();
+    if (!p.customer_code) { alert("Select a customer first"); return; }
+    document.getElementById("runBtn").disabled = true;
+    document.getElementById("runBtn").innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading...';
+    try {
+        const r = await fetch(BASE + "/api/kpis?" + new URLSearchParams(p));
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || "Error loading KPIs"); return; }
+        renderKpis(j);
+        document.getElementById("tabBar").style.display = "flex";
+        loadTrends();
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        document.getElementById("runBtn").disabled = false;
+        document.getElementById("runBtn").innerHTML = '<i class="fas fa-play me-1"></i>Run';
+    }
+}
+
+async function loadNotBought() {
+    const p = qsBase();
+    if (!p.customer_code) { alert("Select a customer first"); return; }
+    p.penetration_min = document.getElementById("penMin").value;
+    try {
+        const r = await fetch(BASE + "/api/not-bought?" + new URLSearchParams(p));
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || "Error"); return; }
+        const rows = j.rows || [];
+        document.getElementById("nbCount").textContent = rows.length + " items";
+        document.getElementById("nbBody").innerHTML = rows.length === 0
+            ? '<tr><td colspan="7" class="empty-msg">No white space items found at this penetration threshold</td></tr>'
+            : rows.map(x =>
+                '<tr><td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
+                '<td>' + (x.category || '') + '</td><td>' + (x.brand || '') + '</td>' +
+                '<td class="num">' + fmtPct(x.penetration) + '</td>' +
+                '<td class="num">' + fmt(x.peer_avg_sales_per_customer) + '</td>' +
+                '<td class="num">' + fmt(x.opportunity_score) + '</td></tr>'
+            ).join("");
+    } catch (e) { alert("Error: " + e.message); }
+}
+
+async function loadLapsed() {
+    const p = qsBase();
+    if (!p.customer_code) { alert("Select a customer first"); return; }
+    if (p.compare_mode === "none") { alert("Lapsed items requires a comparison period. Select Previous Period or Same Period PY."); return; }
+    try {
+        const r = await fetch(BASE + "/api/lapsed-items?" + new URLSearchParams(p));
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || "Error"); return; }
+        const rows = j.rows || [];
+        let info = rows.length + " items";
+        if (j.compare_period) info += " (comp: " + j.compare_period.start + " to " + j.compare_period.end + ")";
+        document.getElementById("lapsedInfo").textContent = info;
+        document.getElementById("lapsedBody").innerHTML = rows.length === 0
+            ? '<tr><td colspan="7" class="empty-msg">No lapsed items found</td></tr>'
+            : rows.map(x =>
+                '<tr><td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
+                '<td>' + (x.category || '') + '</td><td>' + (x.brand || '') + '</td>' +
+                '<td class="num">' + fmt(x.comp_qty_gross, 0) + '</td>' +
+                '<td class="num">' + fmt(x.comp_sales_gross) + '</td>' +
+                '<td class="num">' + fmtPct(x.peer_penetration_curr) + '</td></tr>'
+            ).join("");
+    } catch (e) { alert("Error: " + e.message); }
+}
+
+async function loadMix() {
+    const p = qsBase();
+    if (!p.customer_code) { alert("Select a customer first"); return; }
+    try {
+        const r = await fetch(BASE + "/api/category-mix?" + new URLSearchParams(p));
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || "Error"); return; }
+        const rows = j.rows || [];
+        document.getElementById("mixCount").textContent = rows.length + " categories";
+        document.getElementById("mixBody").innerHTML = rows.length === 0
+            ? '<tr><td colspan="6" class="empty-msg">No category data found</td></tr>'
+            : rows.map(x => {
+                const diff = x.share_diff || 0;
+                const cls = Math.abs(diff) > 0.05 ? (diff > 0 ? 'style="color:#34d399"' : 'style="color:#f87171"') : '';
+                return '<tr><td>' + (x.category || '') + '</td>' +
+                    '<td class="num">' + fmt(x.cust_sales) + '</td>' +
+                    '<td class="num">' + fmtPct(x.cust_share) + '</td>' +
+                    '<td class="num">' + fmt(x.peer_sales) + '</td>' +
+                    '<td class="num">' + fmtPct(x.peer_share) + '</td>' +
+                    '<td class="num" ' + cls + '>' + (diff >= 0 ? '+' : '') + (diff * 100).toFixed(1) + 'pp</td></tr>';
+            }).join("");
+    } catch (e) { alert("Error: " + e.message); }
+}
+
+async function loadPrice() {
+    const p = qsBase();
+    if (!p.customer_code) { alert("Select a customer first"); return; }
+    p.min_qty = document.getElementById("minQty").value;
+    try {
+        const r = await fetch(BASE + "/api/price-outliers?" + new URLSearchParams(p));
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || "Error"); return; }
+        const rows = j.rows || [];
+        document.getElementById("priceCount").textContent = rows.length + " items";
+        document.getElementById("priceBody").innerHTML = rows.length === 0
+            ? '<tr><td colspan="7" class="empty-msg">No price data found</td></tr>'
+            : rows.map(x => {
+                const idx = x.price_index || 0;
+                const rowCls = idx > 1.05 ? "price-overpay" : (idx < 0.95 ? "price-underpay" : "");
+                return '<tr class="' + rowCls + '">' +
+                    '<td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
+                    '<td class="num">' + fmt(x.cust_unit_price) + '</td>' +
+                    '<td class="num">' + fmt(x.peer_unit_price) + '</td>' +
+                    '<td class="num" style="font-weight:600;' + (idx > 1.05 ? 'color:#f87171' : idx < 0.95 ? 'color:#34d399' : '') + '">' + fmt(x.price_index) + '</td>' +
+                    '<td class="num">' + fmt(x.cust_qty, 0) + '</td>' +
+                    '<td class="num">' + fmt(x.peer_qty, 0) + '</td></tr>';
+            }).join("");
+    } catch (e) { alert("Error: " + e.message); }
+}
+
+async function loadRfm() {
+    const p = qsBase();
+    if (!p.customer_code) { alert("Select a customer first"); return; }
+    const lookback = document.getElementById("rfmLookback").value;
+    const qs = new URLSearchParams({customer_code: p.customer_code, group_name: p.group_name, end: p.end, lookback_days: lookback});
+    try {
+        const r = await fetch(BASE + "/api/item-rfm?" + qs);
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || "Error"); return; }
+        const rows = j.rows || [];
+        document.getElementById("rfmCount").textContent = rows.length + " items (" + j.lookback_days + "d lookback)";
+        document.getElementById("rfmBody").innerHTML = rows.length === 0
+            ? '<tr><td colspan="9" class="empty-msg">No item purchase data found</td></tr>'
+            : rows.map(x => {
+                const rec = x.recency_days;
+                const recStyle = rec !== null && rec > 90 ? 'color:#f87171' : rec !== null && rec > 30 ? 'color:#fbbf24' : 'color:#34d399';
+                return '<tr><td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
+                    '<td>' + (x.category || '') + '</td>' +
+                    '<td class="num">' + (x.last_purchase_date || '-') + '</td>' +
+                    '<td class="num" style="' + recStyle + '">' + (x.recency_days !== null ? x.recency_days : '-') + '</td>' +
+                    '<td class="num">' + fmtInt(x.frequency) + '</td>' +
+                    '<td class="num">' + fmt(x.monetary) + '</td>' +
+                    '<td class="num">' + fmt(x.total_qty, 0) + '</td>' +
+                    '<td class="num">' + fmtPct(x.peer_penetration) + '</td></tr>';
+            }).join("");
+    } catch (e) { alert("Error: " + e.message); }
+}
+
+document.querySelectorAll(".tab-btn").forEach(b => {
+    b.onclick = function() {
+        document.querySelectorAll(".tab-btn").forEach(x => x.classList.remove("active"));
+        document.querySelectorAll(".tab-pane").forEach(x => x.classList.remove("active"));
+        this.classList.add("active");
+        document.getElementById("tab_" + this.dataset.tab).classList.add("active");
+    };
+});
+
+document.getElementById("runBtn").onclick = runKpis;
+document.getElementById("loadNB").onclick = loadNotBought;
+document.getElementById("loadLapsed").onclick = loadLapsed;
+document.getElementById("loadMix").onclick = loadMix;
+document.getElementById("loadPrice").onclick = loadPrice;
+document.getElementById("loadRfm").onclick = loadRfm;
+
+loadMeta();
+</script>
+{% endblock %}
