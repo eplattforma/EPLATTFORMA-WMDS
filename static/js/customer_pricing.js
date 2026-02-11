@@ -106,12 +106,82 @@ function buildBaseParams() {
   return p.toString();
 }
 
+function resolveCurrentDates() {
+  var preset = document.getElementById("preset").value;
+  var today = new Date();
+  var d_from, d_to;
+  if (preset === "last90") {
+    d_to = new Date(today);
+    d_from = new Date(today);
+    d_from.setDate(d_from.getDate() - 89);
+  } else if (preset === "last30") {
+    d_to = new Date(today);
+    d_from = new Date(today);
+    d_from.setDate(d_from.getDate() - 29);
+  } else if (preset === "mtd") {
+    d_to = new Date(today);
+    d_from = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else if (preset === "qtd") {
+    d_to = new Date(today);
+    var q = Math.floor(today.getMonth() / 3);
+    d_from = new Date(today.getFullYear(), q * 3, 1);
+  } else if (preset === "ytd") {
+    d_to = new Date(today);
+    d_from = new Date(today.getFullYear(), 0, 1);
+  } else {
+    var fv = document.getElementById("dFrom").value;
+    var tv = document.getElementById("dTo").value;
+    d_from = fv ? new Date(fv + "T00:00:00") : new Date(today.getTime() - 89 * 86400000);
+    d_to = tv ? new Date(tv + "T00:00:00") : new Date(today);
+  }
+  return { from: d_from, to: d_to };
+}
+
+function resolveCompareDates(d_from, d_to, compare) {
+  if (compare === "prev") {
+    var days = Math.round((d_to - d_from) / 86400000);
+    var prev_end = new Date(d_from.getTime() - 86400000);
+    var prev_start = new Date(prev_end.getTime() - days * 86400000);
+    return { from: prev_start, to: prev_end };
+  } else if (compare === "py") {
+    var pyFrom = new Date(d_from);
+    pyFrom.setFullYear(pyFrom.getFullYear() - 1);
+    var pyTo = new Date(d_to);
+    pyTo.setFullYear(pyTo.getFullYear() - 1);
+    return { from: pyFrom, to: pyTo };
+  }
+  return null;
+}
+
+function fmtDateDMY(d) {
+  var dd = String(d.getDate()).padStart(2, '0');
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var yyyy = d.getFullYear();
+  return dd + '/' + mm + '/' + yyyy;
+}
+
+function updateDateRangeDisplay() {
+  var drEl = document.getElementById("dateRangeInfo");
+  if (!drEl) return;
+  var cur = resolveCurrentDates();
+  var compare = document.getElementById("compare").value;
+  var html = '<i class="fas fa-calendar-alt me-1"></i> <strong>Period:</strong> ' + fmtDateDMY(cur.from) + ' \u2013 ' + fmtDateDMY(cur.to);
+  var comp = resolveCompareDates(cur.from, cur.to, compare);
+  if (comp) {
+    html += '&nbsp;&nbsp;|&nbsp;&nbsp;<i class="fas fa-exchange-alt me-1"></i> <strong>vs:</strong> ' + fmtDateDMY(comp.from) + ' \u2013 ' + fmtDateDMY(comp.to);
+  }
+  drEl.innerHTML = html;
+  drEl.style.display = 'block';
+}
+
 async function loadAll() {
   var customer = window.CUSTOMER_CODE_365;
   var base = buildBaseParams();
   var compare = document.getElementById("compare").value;
 
   indexSelectedBrand = "";
+
+  updateDateRangeDisplay();
 
   setLoading("tblIndex");
   setLoading("tblDisp");
