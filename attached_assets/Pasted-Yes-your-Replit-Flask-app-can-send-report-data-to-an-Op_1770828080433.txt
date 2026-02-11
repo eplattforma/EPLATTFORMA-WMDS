@@ -1,0 +1,943 @@
+Yes — your Replit (Flask) app can send “report data” to an OpenAI model via the OpenAI API and receive back structured feedback (insights, risks, opportunities, talking points for reps). This is the clean way to make an “Ask AI” button inside your WMDS analytics UI. 
+What you can’t do is “connect Replit directly to this specific ChatGPT chat session”. What you can do is call the same model family through the API from your backend. 
+________________________________________
+Replit implementation blueprint (Flask)
+1) Replit Secrets
+Add these in Replit Secrets (never in code):
+•	OPENAI_API_KEY
+•	OPENAI_MODEL = gpt-5.2 (or gpt-5.2-mini for cheaper) 
+2) Create a new Blueprint: ai_report_feedback.py
+Server-side only (do NOT call OpenAI from browser JS).
+# ai_report_feedback.py
+import os, json, hashlib
+from flask import Blueprint, request, jsonify
+from flask_login import login_required, current_user
+from openai import OpenAI
+
+bp = Blueprint("ai_report_feedback", __name__, url_prefix="/api/ai")
+
+SYSTEM_PROMPT = """
+You are a B2B sales analytics assistant for STEP EPLATTFORMA.
+You will receive a JSON payload describing a report (KPIs, period, peer group, trends, lists).
+Rules:
+- Use ONLY the provided numbers. If something is missing, say "insufficient data".
+- Be practical for a sales rep: what to say, what to do next.
+- Keep English terminology used in the report (e.g., Net Sales, Peer Avg, Price Index).
+- Output MUST follow the provided JSON schema strictly.
+"""
+
+# JSON Schema the model must return (stable output for your UI)
+INSIGHT_SCHEMA = {
+  "name": "report_feedback",
+  "schema": {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+      "executive_summary": {"type": "string"},
+      "key_findings": {"type": "array", "items": {"type": "string"}},
+      "opportunities": {"type": "array", "items": {"type": "string"}},
+      "risks": {"type": "array", "items": {"type": "string"}},
+      "questions_to_validate": {"type": "array", "items": {"type": "string"}},
+      "recommended_actions": {"type": "array", "items": {"type": "string"}},
+      "chart_notes": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": [
+      "executive_summary","key_findings","opportunities",
+      "risks","questions_to_validate","recommended_actions","chart_notes"
+    ]
+  },
+  "strict": True
+}
+
+def _is_allowed():
+    return getattr(current_user, "role", None) in ["admin", "sales_manager", "warehouse_manager"]
+
+@bp.post("/report-feedback")
+@login_required
+def report_feedback():
+    if not _is_allowed():
+        return jsonify({"error": "forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    # Basic guardrails
+    raw = json.dumps(payload, ensure_ascii=False)
+    if len(raw) > 250_000:
+        return jsonify({"error": "payload too large; send aggregates/top-N only"}), 400
+
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    model = os.getenv("OPENAI_MODEL", "gpt-5.2")
+
+    resp = client.responses.create(
+        model=model,
+        input=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": raw}
+        ],
+        # keep it concise; adjust as you like
+        text={
+            "verbosity": "low",
+            "format": {"type": "json_schema", "json_schema": INSIGHT_SCHEMA}
+        },
+        # prevents storing the interaction as a “stored conversation”
+        store=False,
+        metadata={"app": "wmds", "feature": "report_feedback"}
+    )
+
+    # The SDK returns text; parse JSON
+    out_text = resp.output_text or "{}"
+    try:
+        out = json.loads(out_text)
+    except Exception:
+        out = {"executive_summary": out_text, "key_findings": [], "opportunities": [],
+               "risks": [], "questions_to_validate": [], "recommended_actions": [], "chart_notes": []}
+
+    return jsonify(out)
+This uses the Responses API and Structured Outputs (JSON schema) so your UI is deterministic. 
+3) Register blueprint in your app
+In app.py (or wherever you register blueprints):
+from ai_report_feedback import bp as ai_report_feedback_bp
+app.register_blueprint(ai_report_feedback_bp)
+4) Frontend: add an “Ask AI” button on the report page
+Example JS:
+<button id="askAiBtn">Ask AI (Report Feedback)</button>
+<pre id="aiOut" style="white-space:pre-wrap;"></pre>
+
+<script>
+document.getElementById("askAiBtn").onclick = async () => {
+  // Build a SMALL payload: KPIs + period + peer definition + top lists (top 20-50)
+  const payload = window.currentReportPayload; // you build this object from your page state
+
+  const r = await fetch("/api/ai/report-feedback", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  const j = await r.json();
+  if (!r.ok) return alert(j.error || "AI error");
+
+  document.getElementById("aiOut").textContent = JSON.stringify(j, null, 2);
+};
+</script>
+5) What data to send (important)
+Send aggregates/top-N, not raw invoice lines.
+Good payload example for Customer vs Peer:
+{
+  "report":"Customer vs Peer",
+  "customer_code":"77701293",
+  "period":{"from":"2025-08-14","to":"2025-11-12","compare_mode":"PY"},
+  "peer_group":{"definition":"same business_activity + region + size tier","peer_count":49},
+  "kpis":{
+    "customer_net_sales":264.07,
+    "customer_orders":4,
+    "customer_aov":66.02,
+    "peers_avg_sales_per_customer":436.63,
+    "peers_aov":122.26,
+    "sales_index_vs_peers":0.60,
+    "price_index_gross_vs_peers":1.24
+  },
+  "trend_monthly":[
+    {"month":"2025-11","customer_net_sales":0,"peer_avg_sales_per_cust":96.59}
+  ],
+  "white_space_top":[
+    {"item_code":"X","item_name":"Y","peer_penetration":0.42,"peer_avg_spend_per_cust":12.4}
+  ],
+  "lapsed_top":[
+    {"item_code":"A","last_bought_days_ago":210,"lost_value_est":58.0}
+  ]
+}
+________________________________________
+Privacy / retention (so you’re comfortable)
+•	OpenAI’s API data is not used to train models by default. 
+•	Using store=false avoids storing the request/response as a stored conversation state in the Responses API. 
+________________________________________
+Practical upgrades (you’ll want these)
+1.	Caching: store response by (report_type + filters_hash) so repeated clicks don’t re-spend tokens.
+2.	Role-based access: only admin/sales_manager can call /api/ai/report-feedback.
+3.	“Follow-up” mode: keep previous_response_id to ask a second question about the same report without resending everything. 
+________________________________________
+If you paste (a) the payload object you can easily build from your current Customer vs Peer page, and (b) where you want the AI panel to appear (tab / modal / right sidebar), I’ll tailor the exact payload builder + UI rendering so it feels native to your existing dashboard.
+can you give instructions to replit to built 
+Thought for 6m 2s
+Yes — you can make your Replit app send a compact “report snapshot” JSON to an endpoint, have the backend call the OpenAI API, and return structured feedback that you render back inside the report screen.
+Below are exact Replit instructions (Flask + SQLAlchemy) to implement this.
+________________________________________
+Replit Instructions — “AI Feedback” for Customer vs Peer Report
+0) What we are building
+•	A new backend endpoint: POST /api/ai/feedback
+•	The report UI sends a snapshot of the currently-viewed report (KPIs + trend + top tables)
+•	Backend calls OpenAI Responses API and returns strict JSON feedback (bullets, risks, opportunities, next actions)
+•	UI shows the feedback in a modal / right drawer
+(We will set store: false so responses are not stored via API.) 
+(We will use Structured Outputs via text.format: json_schema.) 
+________________________________________
+1) Add Secrets (Replit → Secrets)
+Add:
+•	OPENAI_API_KEY = your key
+•	OPENAI_MODEL = a model you want to use (example: gpt-5-pro or whichever you use in your account)
+The Responses API supports “store” control and model selection. 
+________________________________________
+2) Add dependency
+Update requirements.txt:
+openai>=1.0.0
+You’ll use the official Python SDK with OpenAI() and client.responses.create(...). 
+________________________________________
+3) Create DB table for caching (recommended)
+Why: prevent repeated calls when user clicks multiple times.
+Add a one-time migration script (or use your migration system) to create:
+CREATE TABLE IF NOT EXISTS ai_feedback_cache (
+  id SERIAL PRIMARY KEY,
+  payload_hash VARCHAR(64) UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  response_json JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_feedback_cache_expires ON ai_feedback_cache(expires_at);
+(If you prefer SQLAlchemy model, add it in models.py — either approach is fine.)
+________________________________________
+4) Backend: add service services/ai_feedback_service.py
+Create file: services/ai_feedback_service.py
+import os, json, hashlib
+from datetime import datetime, timedelta, timezone
+
+from openai import OpenAI
+from sqlalchemy import text
+from app import db
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "").strip()
+
+CACHE_TTL_HOURS = 12
+MAX_ROWS = 80  # keep payload compact
+
+JSON_SCHEMA = {
+  "type": "object",
+  "additionalProperties": False,
+  "properties": {
+    "summary": {"type": "string"},
+    "peer_context": {"type": "string"},
+    "key_findings": {"type": "array", "items": {"type": "string"}},
+    "risks": {"type": "array", "items": {"type": "string"}},
+    "opportunities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+          "title": {"type": "string"},
+          "why": {"type": "string"},
+          "expected_impact": {"type": "string"},
+          "confidence": {"type": "number"}
+        },
+        "required": ["title", "why", "expected_impact", "confidence"]
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+          "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
+          "action": {"type": "string"},
+          "script_hint": {"type": "string"}
+        },
+        "required": ["priority", "action", "script_hint"]
+      }
+    }
+  },
+  "required": ["summary", "peer_context", "key_findings", "risks", "opportunities", "next_actions"]
+}
+
+
+def _hash_payload(payload: dict) -> str:
+    s = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _clip_payload(payload: dict) -> dict:
+    """Keep arrays small to avoid huge token usage."""
+    p = dict(payload)
+    for k in ["white_space", "lapsed_items", "top_items", "price_outliers"]:
+        if isinstance(p.get(k), list):
+            p[k] = p[k][:MAX_ROWS]
+    return p
+
+
+def get_cached_feedback(payload_hash: str):
+    q = text("""
+      SELECT response_json
+      FROM ai_feedback_cache
+      WHERE payload_hash = :h AND expires_at > NOW()
+      LIMIT 1
+    """)
+    row = db.session.execute(q, {"h": payload_hash}).fetchone()
+    return row[0] if row else None
+
+
+def save_cached_feedback(payload_hash: str, response_json: dict):
+    q = text("""
+      INSERT INTO ai_feedback_cache(payload_hash, expires_at, response_json)
+      VALUES (:h, :exp, :j)
+      ON CONFLICT (payload_hash) DO UPDATE
+      SET expires_at = EXCLUDED.expires_at,
+          response_json = EXCLUDED.response_json
+    """)
+    exp = datetime.now(timezone.utc) + timedelta(hours=CACHE_TTL_HOURS)
+    db.session.execute(q, {"h": payload_hash, "exp": exp, "j": json.dumps(response_json)})
+    db.session.commit()
+
+
+def generate_feedback(report_snapshot: dict, language: str = "el") -> dict:
+    if not OPENAI_MODEL:
+        raise ValueError("OPENAI_MODEL is not set")
+
+    snapshot = _clip_payload(report_snapshot)
+    payload_hash = _hash_payload(snapshot)
+
+    cached = get_cached_feedback(payload_hash)
+    if cached:
+        # cached is JSONB (already dict-like in many drivers). If string, json.loads it.
+        return cached if isinstance(cached, dict) else json.loads(cached)
+
+    # Prompt: Greek narrative, keep metric names in English as in the report
+    system = (
+      "You are a sales analytics assistant for a B2B wholesaler. "
+      "You receive a compact JSON snapshot of a Customer vs Peer Group dashboard. "
+      "Return actionable insights for a sales rep. "
+      "Write in Greek, but keep the metric/section names in English exactly as provided (e.g., Sales Index, Price Index). "
+      "Be concrete and reference numbers from the snapshot."
+    )
+
+    user = json.dumps(snapshot, ensure_ascii=False)
+
+    # Structured Outputs via JSON Schema (strict)
+    resp = client.responses.create(
+        model=OPENAI_MODEL,
+        input=[
+          {"role": "system", "content": [{"type": "input_text", "text": system}]},
+          {"role": "user", "content": [{"type": "input_text", "text": user}]},
+        ],
+        text={
+          "format": {
+            "type": "json_schema",
+            "name": "customer_peer_feedback",
+            "schema": JSON_SCHEMA,
+            "strict": True
+          }
+        },
+        store=False
+    )
+
+    out = json.loads(resp.output_text)
+    save_cached_feedback(payload_hash, out)
+    return out
+Notes:
+•	client.responses.create(...) usage is per OpenAI docs. 
+•	text.format with json_schema + strict is the Structured Outputs pattern. 
+•	store: false is supported on Responses create. 
+________________________________________
+5) Backend: add blueprint blueprints/ai_feedback.py
+Create file: blueprints/ai_feedback.py
+from flask import Blueprint, request, jsonify
+from flask_login import login_required, current_user
+
+from services.ai_feedback_service import generate_feedback
+
+bp = Blueprint("ai_feedback", __name__, url_prefix="/api/ai")
+
+ALLOWED_ROLES = {"admin", "sales_manager", "sales_rep"}
+
+@bp.route("/feedback", methods=["POST"])
+@login_required
+def feedback():
+    if getattr(current_user, "role", None) not in ALLOWED_ROLES:
+        return jsonify({"error": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    snapshot = data.get("snapshot")
+    if not isinstance(snapshot, dict):
+        return jsonify({"error": "Missing snapshot (dict)"}), 400
+
+    # Optional: limit payload size (basic guard)
+    # If you want stricter: measure len(json.dumps(snapshot)) and reject > e.g. 200KB.
+
+    try:
+        out = generate_feedback(snapshot, language=data.get("language", "el"))
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+________________________________________
+6) Register blueprint
+In your app setup (often app.py or routes/__init__.py):
+from blueprints.ai_feedback import bp as ai_feedback_bp
+app.register_blueprint(ai_feedback_bp)
+________________________________________
+7) Frontend: add “Ask AI” button to your Customer vs Peer page
+Wherever your customer benchmark template is (example: templates/customer_peer_benchmark.html):
+7.1 Add UI (button + modal)
+Add near the top KPI area:
+<button id="aiBtn" class="btn btn-outline">Ask AI</button>
+
+<div id="aiModal" class="modal" style="display:none;">
+  <div class="modal-content">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3>AI Feedback</h3>
+      <button onclick="closeAi()">X</button>
+    </div>
+    <div id="aiBody" class="muted" style="white-space:pre-wrap;"></div>
+  </div>
+</div>
+7.2 Add JS that sends the snapshot
+In your page JS, you already have the data used to render:
+•	KPI cards (customer + peers)
+•	Monthly trend chart series
+•	White Space / Lapsed Items / Price vs Peers tables
+Make sure you store them in one object after you load them, e.g.:
+window.reportSnapshot = {
+  report_type: "customer_peer_benchmark",
+  customer_code: currentCustomerCode,
+  date_from: filters.date_from,
+  date_to: filters.date_to,
+  peer_group: filters.peer_group,
+  kpis: kpisData,
+  monthly_trend: trendSeries,
+  white_space: whiteSpaceRows,
+  lapsed_items: lapsedRows,
+  price_outliers: priceOutliersRows,
+  top_items: topItemsRows
+};
+Then add:
+document.getElementById("aiBtn").addEventListener("click", async () => {
+  const snap = window.reportSnapshot;
+  if (!snap) return alert("Snapshot not ready yet.");
+
+  openAi("Generating feedback...");
+
+  const r = await fetch("/api/ai/feedback", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ snapshot: snap, language: "el" })
+  });
+
+  const j = await r.json();
+  if (!r.ok) {
+    openAi("Error: " + (j.error || "unknown"));
+    return;
+  }
+
+  // Render nicely (simple version)
+  const txt =
+`SUMMARY
+${j.summary}
+
+PEER CONTEXT
+${j.peer_context}
+
+KEY FINDINGS
+- ${j.key_findings.join("\n- ")}
+
+RISKS
+- ${j.risks.join("\n- ")}
+
+OPPORTUNITIES
+- ${j.opportunities.map(x => `${x.title} | ${x.expected_impact}\n  ${x.why} (conf ${x.confidence})`).join("\n- ")}
+
+NEXT ACTIONS
+- ${j.next_actions.map(a => `${a.priority}: ${a.action}\n  Script: ${a.script_hint}`).join("\n- ")}
+`;
+  openAi(txt);
+});
+
+function openAi(text){
+  document.getElementById("aiBody").textContent = text;
+  document.getElementById("aiModal").style.display = "block";
+}
+function closeAi(){
+  document.getElementById("aiModal").style.display = "none";
+}
+________________________________________
+8) Test checklist
+1.	Open customer benchmark page → wait until charts/tables loaded
+2.	Click Ask AI
+3.	Confirm you get structured output with:
+o	Summary
+o	Findings
+o	Opportunities + next actions
+4.	Click multiple times → should return cached response (fast)
+________________________________________
+Two quick clarifications (from your earlier questions)
+What is “Min Peer Penetration”?
+It’s the minimum % of peers that must buy an item for it to qualify as a “peer staple” in White Space.
+•	Example: peers_count = 50, min_peer_penetration = 30%
+→ item must be bought by ≥ 15 peers to appear as “Peers buy it, customer doesn’t”.
+Your “Monthly Trend: Customer vs Peer Avg” graph
+•	Blue line = this customer’s Net Sales per month (often net of returns)
+•	Purple dotted = Peer Avg Sales / Customer per month
+If blue is consistently below purple, the customer is underperforming vs similar accounts; if it spikes then drops, it’s “bulk purchase then inactive” behavior (a rep follow-up trigger).
+________________________________________
+If you want, next step is I give Replit instructions to make the AI output appear inside each tab (White Space tab gets “AI pitch text”, Price tab gets “price risk narrative”, etc.) instead of one generic modal.
+yes include in each tab
+Thought for 5m 33s
+Min peer penetration (για White Space)
+Min peer penetration = το ελάχιστο ποσοστό των peers που πρέπει να έχουν αγοράσει ένα item, ώστε να θεωρηθεί “standard / common” στο peer group και άρα καλή ευκαιρία αν ο selected customer δεν το αγοράζει.
+Παράδειγμα:
+•	Peer group = 49 customers
+•	Min peer penetration = 25%
+•	Για να περάσει ένα SKU το φίλτρο πρέπει να το έχουν αγοράσει τουλάχιστον 13 (49×0.25=12.25 → 13) customers.
+________________________________________
+Τι δείχνει το γράφημα “Monthly Trend: Customer vs Peer Avg”
+•	Μπλε γραμμή/area: Customer Net Sales ανά μήνα (net, δηλ. μετά και από returns αν οι επιστροφές περνάνε αρνητικά).
+•	Μωβ διακεκομμένη: Peer Avg Sales/Cust ανά μήνα = (σύνολο peer sales) / (αριθμός peers), δηλαδή “τι θα περίμενες” για έναν μέσο peer customer.
+•	Αν η μπλε είναι κάτω από τη μωβ → ο customer είναι underperforming vs peers εκείνον τον μήνα.
+•	Τα KPI από πάνω (Sales Index, Peers AOV κλπ) είναι συνοψίσεις για το selected period (και το compare period που γράφεις από κάτω).
+________________________________________
+Power BI measures (για τα tables που έχεις: DimCustomers, DimDates, DimProducts, DimStores, FactSales)
+Αφού είπες “looks like returns are subtracted”, ξεκινάμε με assumption ότι τα Sales Return είναι αρνητικά στο line_total_excl. Αν δεν είναι, σου δίνω και εναλλακτικό.
+-- Core
+Net Sales :=
+SUM ( FactSales[line_total_excl] )
+
+Gross Sales (no returns) :=
+CALCULATE ( [Net Sales], FactSales[invoice_type] <> "SALES RETURN" )
+
+Returns (value) :=
+CALCULATE ( [Net Sales], FactSales[invoice_type] = "SALES RETURN" )   -- συνήθως αρνητικό
+
+Returns (abs) :=
+ABS ( [Returns (value)] )
+
+Orders :=
+DISTINCTCOUNT ( FactSales[invoice_no] )
+
+Total Qty :=
+SUM ( FactSales[quantity] )
+
+Unique Items :=
+DISTINCTCOUNT ( FactSales[item_code] )
+
+AOV :=
+DIVIDE ( [Net Sales], [Orders] )
+
+Unit Price (avg) :=
+DIVIDE ( [Net Sales], [Total Qty] )
+
+Active Customers :=
+DISTINCTCOUNT ( FactSales[customer_code] )
+
+-- Time intel (με DimDates[date_key] ως Date table)
+Net Sales PY :=
+CALCULATE ( [Net Sales], SAMEPERIODLASTYEAR ( DimDates[date_key] ) )
+
+YoY % :=
+DIVIDE ( [Net Sales] - [Net Sales PY], [Net Sales PY] )
+
+Net Sales Prev Month :=
+CALCULATE ( [Net Sales], DATEADD ( DimDates[date_key], -1, MONTH ) )
+
+MoM % :=
+DIVIDE ( [Net Sales] - [Net Sales Prev Month], [Net Sales Prev Month] )
+Αν τα returns δεν είναι αρνητικά και έρχονται ως θετικά lines με invoice_type="SALES RETURN", τότε:
+Net Sales (forced) :=
+VAR sales =
+    CALCULATE ( SUM ( FactSales[line_total_excl] ), FactSales[invoice_type] <> "SALES RETURN" )
+VAR returns =
+    CALCULATE ( SUM ( FactSales[line_total_excl] ), FactSales[invoice_type] = "SALES RETURN" )
+RETURN
+sales - returns
+Peer measures (αν έχεις DimCustomers[reporting_group] ή peer group field):
+Peer Count :=
+VAR grp = SELECTEDVALUE ( DimCustomers[reporting_group] )
+VAR cust = SELECTEDVALUE ( DimCustomers[customer_code] )
+RETURN
+CALCULATE (
+    DISTINCTCOUNT ( DimCustomers[customer_code] ),
+    FILTER ( ALL ( DimCustomers ),
+        DimCustomers[reporting_group] = grp &&
+        DimCustomers[customer_code] <> cust
+    )
+)
+
+Peer Net Sales :=
+VAR grp = SELECTEDVALUE ( DimCustomers[reporting_group] )
+VAR cust = SELECTEDVALUE ( DimCustomers[customer_code] )
+RETURN
+CALCULATE (
+    [Net Sales],
+    FILTER ( ALL ( DimCustomers ),
+        DimCustomers[reporting_group] = grp &&
+        DimCustomers[customer_code] <> cust
+    )
+)
+
+Peer Avg Sales/Cust :=
+DIVIDE ( [Peer Net Sales], [Peer Count] )
+
+Sales Index (vs peer avg = 1.0) :=
+DIVIDE ( [Net Sales], [Peer Avg Sales/Cust] )
+
+Peer Unit Price :=
+VAR grp = SELECTEDVALUE ( DimCustomers[reporting_group] )
+VAR cust = SELECTEDVALUE ( DimCustomers[customer_code] )
+VAR peer_sales =
+    CALCULATE (
+        SUM ( FactSales[line_total_excl] ),
+        FILTER ( ALL ( DimCustomers ),
+            DimCustomers[reporting_group] = grp &&
+            DimCustomers[customer_code] <> cust
+        )
+    )
+VAR peer_qty =
+    CALCULATE (
+        SUM ( FactSales[quantity] ),
+        FILTER ( ALL ( DimCustomers ),
+            DimCustomers[reporting_group] = grp &&
+            DimCustomers[customer_code] <> cust
+        )
+    )
+RETURN
+DIVIDE ( peer_sales, peer_qty )
+
+Price Index (gross) :=
+DIVIDE ( [Unit Price (avg)], [Peer Unit Price] )
+________________________________________
+Replit instructions: “AI feedback” panel inside each tab (White Space / Lapsed / Category Mix / Price vs Peers / Item Recency)
+Goal
+Στο customer-vs-peers screen σου, σε κάθε tab να υπάρχει ένα “AI Insights” box που:
+•	τραβάει μόνο τα relevant aggregates/top rows του tab (όχι όλο το dataset),
+•	στέλνει request στο OpenAI API,
+•	παίρνει structured JSON (με schema) και το εμφανίζει.
+Θα το κάνουμε με Structured Outputs (text.format: json_schema, strict: true) για να μην παίρνεις “free text” που χαλάει rendering. 
+________________________________________
+A) Secrets (Replit)
+Add secrets:
+•	OPENAI_API_KEY
+•	OPENAI_MODEL (ό,τι χρησιμοποιείτε ήδη στο API)
+•	AI_INSIGHTS_ENABLED=true
+•	AI_INSIGHTS_TTL_MIN=1440 (24h cache)
+________________________________________
+B) DB table for caching (Postgres)
+Add model + migration:
+models.py
+from sqlalchemy.dialects.postgresql import JSONB
+from datetime import datetime
+
+class AiInsightCache(db.Model):
+    __tablename__ = "ai_insight_cache"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cache_key = db.Column(db.String(200), unique=True, nullable=False, index=True)
+
+    customer_code = db.Column(db.String(64), nullable=False, index=True)
+    peer_key = db.Column(db.String(64), nullable=False, index=True)
+    tab = db.Column(db.String(40), nullable=False, index=True)
+
+    date_from = db.Column(db.Date, nullable=False)
+    date_to = db.Column(db.Date, nullable=False)
+    compare_mode = db.Column(db.String(10), nullable=True)  # "PP" | "PY" | None
+
+    model = db.Column(db.String(80), nullable=True)
+    prompt_version = db.Column(db.String(20), nullable=False, default="v1")
+
+    snapshot_json = db.Column(JSONB, nullable=False)   # what we sent
+    insight_json = db.Column(JSONB, nullable=False)    # what we got back
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+________________________________________
+C) Backend endpoint (Flask)
+Create: routes_ai_insights.py (or add to your customer benchmark blueprint)
+Routes:
+•	GET /admin/customer-benchmark/api/ai-insights (returns cached if exists & fresh)
+•	POST /admin/customer-benchmark/api/ai-insights (force refresh)
+routes_ai_insights.py
+import os
+from datetime import datetime, timedelta
+from flask import Blueprint, request, jsonify
+from flask_login import login_required, current_user
+from app import db
+from models import AiInsightCache
+from services_ai_insights import build_snapshot_for_tab, generate_ai_insight, make_cache_key
+
+bp_ai = Blueprint("ai_insights", __name__, url_prefix="/admin/customer-benchmark/api")
+
+TTL_MIN = int(os.getenv("AI_INSIGHTS_TTL_MIN", "1440"))
+
+def _allowed():
+    return getattr(current_user, "role", None) in ("admin", "sales_manager", "sales")
+
+@bp_ai.get("/ai-insights")
+@login_required
+def get_ai_insights():
+    if not _allowed():
+        return jsonify({"error": "Access denied"}), 403
+
+    customer_code = request.args.get("customer_code", "").strip()
+    peer_key = request.args.get("peer_key", "").strip()
+    tab = request.args.get("tab", "").strip()
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+    compare_mode = request.args.get("compare_mode")
+
+    cache_key = make_cache_key(customer_code, peer_key, tab, date_from, date_to, compare_mode)
+    row = AiInsightCache.query.filter_by(cache_key=cache_key).first()
+
+    if not row:
+        return jsonify({"found": False})
+
+    if row.created_at < (datetime.utcnow() - timedelta(minutes=TTL_MIN)):
+        return jsonify({"found": False, "stale": True})
+
+    return jsonify({"found": True, "insight": row.insight_json, "created_at": row.created_at.isoformat()})
+
+@bp_ai.post("/ai-insights")
+@login_required
+def refresh_ai_insights():
+    if not _allowed():
+        return jsonify({"error": "Access denied"}), 403
+
+    payload = request.get_json(force=True) or {}
+    customer_code = (payload.get("customer_code") or "").strip()
+    peer_key = (payload.get("peer_key") or "").strip()
+    tab = (payload.get("tab") or "").strip()
+    date_from = payload.get("date_from")
+    date_to = payload.get("date_to")
+    compare_mode = payload.get("compare_mode")
+
+    # Build snapshot on server (do NOT trust client rows)
+    snapshot = build_snapshot_for_tab(
+        customer_code=customer_code,
+        peer_key=peer_key,
+        tab=tab,
+        date_from=date_from,
+        date_to=date_to,
+        compare_mode=compare_mode,
+        params=payload.get("params") or {}
+    )
+
+    insight = generate_ai_insight(tab=tab, snapshot=snapshot)
+
+    cache_key = make_cache_key(customer_code, peer_key, tab, date_from, date_to, compare_mode)
+    row = AiInsightCache.query.filter_by(cache_key=cache_key).first()
+    if not row:
+        row = AiInsightCache(
+            cache_key=cache_key,
+            customer_code=customer_code,
+            peer_key=peer_key,
+            tab=tab,
+            date_from=snapshot["context"]["date_from"],
+            date_to=snapshot["context"]["date_to"],
+            compare_mode=compare_mode,
+        )
+        db.session.add(row)
+
+    row.snapshot_json = snapshot
+    row.insight_json = insight
+    row.model = os.getenv("OPENAI_MODEL", "")
+    row.created_at = datetime.utcnow()
+
+    db.session.commit()
+    return jsonify({"ok": True, "insight": insight})
+________________________________________
+D) OpenAI call service (Structured Outputs)
+Create services_ai_insights.py.
+We will call Responses API with text.format: { type: "json_schema", strict: true, schema: ... } so the model is forced to return valid JSON matching schema. 
+import os, json, hashlib
+from datetime import date
+from openai import OpenAI
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+
+PROMPT_VERSION = "v1"
+
+BASE_SCHEMA = {
+  "type": "object",
+  "additionalProperties": False,
+  "properties": {
+    "headline": {"type": "string"},
+    "insights": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+          "title": {"type": "string"},
+          "detail": {"type": "string"},
+          "why_it_matters": {"type": "string"},
+          "action": {"type": "string"},
+          "confidence": {"type": "number"}
+        },
+        "required": ["title","detail","why_it_matters","action","confidence"]
+      }
+    },
+    "talk_track": {"type": "array", "items": {"type": "string"}},
+    "data_checks": {"type": "array", "items": {"type": "string"}},
+    "priority_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+          "item_code": {"type": "string"},
+          "item_name": {"type": "string"},
+          "metric": {"type": "string"},
+          "value": {"type": "number"},
+          "next_step": {"type": "string"}
+        },
+        "required": ["item_code","item_name","metric","value","next_step"]
+      }
+    }
+  },
+  "required": ["headline","insights","talk_track","data_checks","priority_items"]
+}
+
+def make_cache_key(customer_code, peer_key, tab, date_from, date_to, compare_mode):
+    raw = f"{customer_code}|{peer_key}|{tab}|{date_from}|{date_to}|{compare_mode}|{PROMPT_VERSION}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+def _tab_instructions(tab: str) -> str:
+    return {
+      "white_space": "Focus on items peers buy but customer doesn't. Explain min_peer_penetration.",
+      "lapsed": "Focus on items customer bought before but not recently; suggest reactivation.",
+      "category_mix": "Focus on under-index categories vs peers; cross-sell.",
+      "price_vs_peers": "Focus on overpay/underpay outliers; churn risk vs margin leakage.",
+      "item_recency": "Focus on recency/frequency signals per item; reorder cadence."
+    }.get(tab, "Focus on actionable benchmarking insights.")
+
+def generate_ai_insight(tab: str, snapshot: dict) -> dict:
+    model = os.getenv("OPENAI_MODEL", "")
+    if not model:
+        raise RuntimeError("OPENAI_MODEL missing")
+
+    system = (
+      "You are a B2B sales analytics assistant. "
+      "Return JSON ONLY. Use English field names. "
+      "Write the narrative text (headline/detail/action/talk_track) in Greek, "
+      "but keep business terms in English (AOV, Price Index, peer penetration, etc)."
+    )
+
+    user = {
+      "tab": tab,
+      "instructions": _tab_instructions(tab),
+      "snapshot": snapshot
+    }
+
+    resp = client.responses.create(
+      model=model,
+      input=[
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False)}
+      ],
+      text={
+        "format": {
+          "type": "json_schema",
+          "name": "customer_peer_tab_insight",
+          "schema": BASE_SCHEMA,
+          "strict": True
+        }
+      },
+      # If you don't want OpenAI to store outputs, explicitly disable:
+      store=False
+    )
+    # With structured outputs, the response text is valid JSON matching schema
+    return json.loads(resp.output_text)
+Notes:
+•	text.format + strict: true είναι το key για “hard schema”. 
+•	Το store μπορεί να μπει false για να μη γίνεται storage από πλευράς API. 
+________________________________________
+E) build_snapshot_for_tab (server-side)
+Το σημαντικό: μην στέλνεις όλα τα rows. Στείλε top-N (π.χ. 30–50) + aggregates.
+def build_snapshot_for_tab(customer_code, peer_key, tab, date_from, date_to, compare_mode, params):
+    # Reuse YOUR existing SQLAlchemy/SQL queries that already feed each tab
+    # Return a small JSON with:
+    # context + kpis + tab_data (top rows)
+    return {
+      "context": {
+        "customer_code": customer_code,
+        "peer_key": peer_key,
+        "date_from": date.fromisoformat(date_from),
+        "date_to": date.fromisoformat(date_to),
+        "compare_mode": compare_mode,
+        "params": params
+      },
+      "kpis": {
+        "customer_net_sales": 0,
+        "customer_orders": 0,
+        "customer_aov": 0,
+        "peers_count": 0,
+        "peers_avg_sales_cust": 0,
+        "sales_index": 0,
+        "price_index_gross": 0
+      },
+      "tab_data": {
+        "rows": []   # top 30 rows for the tab, with only needed columns
+      }
+    }
+________________________________________
+F) Front-end: add AI panel to each tab
+In your customer benchmark template:
+1.	Add an AI box container in every tab:
+<div class="ai-panel">
+  <div class="ai-head">
+    <div class="ai-title">AI Insights</div>
+    <button class="btn btn-sm" onclick="aiRefresh(currentTab)">Generate / Refresh</button>
+  </div>
+  <div class="ai-meta" id="ai_meta"></div>
+  <div class="ai-body" id="ai_body"></div>
+</div>
+2.	JS:
+•	On tab change: call aiLoad(tab) (loads cached if exists)
+•	On click: aiRefresh(tab) (POST)
+async function aiLoad(tab) {
+  const url = `/admin/customer-benchmark/api/ai-insights?customer_code=${encodeURIComponent(selectedCustomer)}&peer_key=${encodeURIComponent(peerKey)}&tab=${encodeURIComponent(tab)}&date_from=${dateFrom}&date_to=${dateTo}&compare_mode=${compareMode}`;
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!j.found) {
+    document.getElementById('ai_body').innerHTML = '<div class="muted">No AI insights yet.</div>';
+    return;
+  }
+  renderAi(j.insight, j.created_at);
+}
+
+async function aiRefresh(tab) {
+  document.getElementById('ai_body').innerHTML = '<div class="muted">Generating…</div>';
+  const r = await fetch('/admin/customer-benchmark/api/ai-insights', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      customer_code: selectedCustomer,
+      peer_key: peerKey,
+      tab,
+      date_from: dateFrom,
+      date_to: dateTo,
+      compare_mode: compareMode,
+      params: currentTabParams()   // e.g. min_peer_penetration etc
+    })
+  });
+  const j = await r.json();
+  if (!r.ok) return alert(j.error || 'AI error');
+  renderAi(j.insight);
+}
+
+function renderAi(insight, createdAt=null) {
+  const meta = createdAt ? `Last updated: ${createdAt}` : '';
+  document.getElementById('ai_meta').textContent = meta;
+
+  const blocks = [];
+  blocks.push(`<div class="ai-headline">${escapeHtml(insight.headline)}</div>`);
+
+  blocks.push('<ul class="ai-list">');
+  (insight.insights || []).forEach(x => {
+    blocks.push(`<li><b>${escapeHtml(x.title)}</b><br>${escapeHtml(x.detail)}<br><i>${escapeHtml(x.action)}</i></li>`);
+  });
+  blocks.push('</ul>');
+
+  blocks.push('<div class="ai-sub">Talk track</div><ul>');
+  (insight.talk_track || []).forEach(t => blocks.push(`<li>${escapeHtml(t)}</li>`));
+  blocks.push('</ul>');
+
+  document.getElementById('ai_body').innerHTML = blocks.join('');
+}
+________________________________________
+G) Important: keep your model “clean”
+Για να μην ξαναβγάλεις ambiguous relationships (Power BI concept, αλλά ισχύει και νοητικά εδώ):
+•	No fact-to-fact joins για analysis (π.χ. FactSales ↔ FactInvoices). Κράτα star: dims → fact.
+
