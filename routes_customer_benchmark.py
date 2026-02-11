@@ -149,7 +149,7 @@ def kpis():
         END AS sales_excl_gross
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
     ),
     cust AS (
       SELECT
@@ -254,7 +254,7 @@ def kpis():
             CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net
           FROM dw_invoice_header h
           JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-          WHERE h.invoice_date_utc0::date BETWEEN :cs::date AND :ce::date
+          WHERE h.invoice_date_utc0::date BETWEEN CAST(:cs AS date) AND CAST(:ce AS date)
         )
         SELECT
           SUM(sales_net) AS comp_net_sales,
@@ -308,7 +308,7 @@ def not_bought():
         CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
     ),
     peerset AS (
       SELECT customer_code_365
@@ -396,7 +396,7 @@ def lapsed_items():
         SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.line_total_excl,0),0) END) AS comp_sales_gross
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :cs::date AND :ce::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:cs AS date) AND CAST(:ce AS date)
         AND h.customer_code_365 = :cust
       GROUP BY l.item_code_365
       HAVING SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END) > 0
@@ -407,7 +407,7 @@ def lapsed_items():
         SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END) AS curr_qty_gross
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
         AND h.customer_code_365 = :cust
       GROUP BY l.item_code_365
     ),
@@ -419,7 +419,7 @@ def lapsed_items():
         ) AS buyers
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
         AND h.customer_code_365 IN (SELECT customer_code_365 FROM peerset)
       GROUP BY l.item_code_365
     )
@@ -477,7 +477,7 @@ def category_mix():
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
       LEFT JOIN ps_items_dw i ON i.item_code_365 = l.item_code_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
     ),
     peerset AS (
       SELECT customer_code_365
@@ -559,7 +559,7 @@ def price_outliers():
         SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.line_total_excl,0),0) END) AS sales_gross
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
       GROUP BY h.customer_code_365, l.item_code_365
     ),
     cust_item AS (
@@ -640,7 +640,7 @@ def trends_monthly():
         CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE 1 END AS is_purchase_line
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
     ),
     cust_m AS (
       SELECT
@@ -719,14 +719,14 @@ def item_rfm():
         CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE 1 END AS is_purchase
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
         AND h.customer_code_365 = :cust
     ),
     cust_rfm AS (
       SELECT
         item_code_365,
         MAX(inv_date) FILTER (WHERE is_purchase = 1) AS last_purchase_date,
-        (:end::date - MAX(inv_date) FILTER (WHERE is_purchase = 1)) AS recency_days,
+        (CAST(:end AS date) - MAX(inv_date) FILTER (WHERE is_purchase = 1)) AS recency_days,
         COUNT(DISTINCT inv_date) FILTER (WHERE is_purchase = 1) AS frequency,
         SUM(sales_net) AS monetary,
         SUM(qty_net) AS total_qty
@@ -739,7 +739,7 @@ def item_rfm():
         COUNT(DISTINCT h.customer_code_365) FILTER (WHERE NOT ({RETURN_PREDICATE})) AS peer_buyers
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
-      WHERE h.invoice_date_utc0::date BETWEEN :start::date AND :end::date
+      WHERE h.invoice_date_utc0::date BETWEEN CAST(:start AS date) AND CAST(:end AS date)
         AND h.customer_code_365 IN (SELECT customer_code_365 FROM peerset)
       GROUP BY l.item_code_365
     )
