@@ -97,8 +97,17 @@ SYSTEM_PROMPT = (
     "Return actionable insights for a sales rep. "
     "Write in English. Keep metric/section names exactly as provided (e.g., Sales Index, Price Index, Penetration). "
     "Be concrete and reference specific numbers from the snapshot. "
-    "Focus on practical actions: what to say to the customer, what products to push, what risks to address. "
-    "Output MUST be valid JSON matching the required schema."
+    "Focus on practical actions: what to say to the customer, what products to push, what risks to address.\n\n"
+    "You MUST return valid JSON with EXACTLY these top-level keys:\n"
+    "{\n"
+    '  "summary": "string - 2-3 sentence executive summary of the customer vs peers",\n'
+    '  "peer_context": "string - describe the peer group and how this customer compares",\n'
+    '  "key_findings": ["string array - 3-5 bullet-point findings with specific numbers"],\n'
+    '  "risks": ["string array - 2-4 risks or concerns to address"],\n'
+    '  "opportunities": [{"title": "string", "why": "string explanation", "expected_impact": "string", "confidence": 0.85}],\n'
+    '  "next_actions": [{"priority": "P0 or P1 or P2", "action": "string - what to do", "script_hint": "string - what to say to the customer"}]\n'
+    "}\n\n"
+    "Do NOT nest these keys inside any wrapper object. The response must have summary, peer_context, key_findings, risks, opportunities, and next_actions as TOP-LEVEL keys."
 )
 
 
