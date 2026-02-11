@@ -395,7 +395,7 @@ async function loadItemRfm(brand) {
     if (brand !== undefined) rfmSelectedBrand = brand;
     document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
     const staleOnly = rfmSelectedBrand ? '0' : '1';
-    let url = `${BASE}/api/${encodeURIComponent(selectedCode)}/item-rfm?lookback_days=730&stale_days=90&stale_only=${staleOnly}`;
+    let url = `${BASE}/api/${encodeURIComponent(selectedCode)}/item-rfm?${qp()}&stale_only=${staleOnly}`;
     if (rfmSelectedBrand) url += `&brand=${encodeURIComponent(rfmSelectedBrand)}`;
     const res = await fetch(url);
     const data = await res.json();

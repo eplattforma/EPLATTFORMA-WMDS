@@ -287,8 +287,11 @@ def api_customer_item_rfm(customer_code):
     if not _role_ok():
         return jsonify({"error": "forbidden"}), 403
 
-    lookback_days = int(request.args.get("lookback_days") or 730)
-    stale_days = int(request.args.get("stale_days") or 90)
+    d_range_from, d_range_to = _resolve_range(request.args)
+    period_days = (d_range_to - d_range_from).days + 1
+
+    stale_days = int(request.args.get("stale_days") or period_days)
+    lookback_days = int(request.args.get("lookback_days") or max(730, period_days * 2))
     min_freq = int(request.args.get("min_freq") or 1)
     stale_only = (request.args.get("stale_only") or "1") == "1"
     brand_filter = (request.args.get("brand") or "").strip()
