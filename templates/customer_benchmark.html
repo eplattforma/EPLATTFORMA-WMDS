@@ -487,7 +487,7 @@ async function loadTrends() {
             if (!x.month_start) return "";
             const s = String(x.month_start).slice(0, 10);
             const parts = s.split("-");
-            if (parts.length >= 2) return monthNames[parseInt(parts[1], 10) - 1] + " " + parts[0].slice(2);
+            if (parts.length >= 2) return monthNames[parseInt(parts[1], 10) - 1];
             return s;
         });
         const custData = j.rows.map(x => parseFloat(x.cust_net_sales) || 0);
