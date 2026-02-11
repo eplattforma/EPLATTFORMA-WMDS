@@ -2958,12 +2958,11 @@ def pick_item(invoice_no):
     try:
         db.session.begin_nested()
         result = db.session.execute(text("""
-            SELECT (count(*) + 1)::int
-            FROM route_stop rs2 
-            JOIN route_stop rs_curr ON rs2.shipment_id = rs_curr.shipment_id
-            JOIN route_stop_invoice rsi ON rs_curr.route_stop_id = rsi.route_stop_id
+            SELECT rs.seq_no::int
+            FROM route_stop rs
+            JOIN route_stop_invoice rsi ON rs.route_stop_id = rsi.route_stop_id
             WHERE rsi.invoice_no = :invoice_no
-            AND rs2.route_stop_id < rs_curr.route_stop_id
+            LIMIT 1
         """), {"invoice_no": invoice_no}).scalar()
         stop_seq = result
         db.session.commit()
