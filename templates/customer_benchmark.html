@@ -198,7 +198,7 @@
                     <thead>
                         <tr>
                             <th>Item Code</th><th>Name</th><th>Category</th><th>Brand</th>
-                            <th class="num">Penetration</th><th class="num">Peer Avg Sales</th><th class="num">Score</th>
+                            <th class="num">Penetration</th><th class="num">Peer Avg Sales</th><th class="num">Score</th><th>Last Bought</th>
                         </tr>
                     </thead>
                     <tbody id="nbBody"></tbody>
@@ -565,13 +565,14 @@ async function loadNotBought() {
         const rows = j.rows || [];
         document.getElementById("nbCount").textContent = rows.length + " items";
         document.getElementById("nbBody").innerHTML = rows.length === 0
-            ? '<tr><td colspan="7" class="empty-msg">No white space items found at this penetration threshold</td></tr>'
+            ? '<tr><td colspan="8" class="empty-msg">No white space items found at this penetration threshold</td></tr>'
             : rows.map(x =>
                 '<tr><td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
                 '<td>' + (x.category || '') + '</td><td>' + (x.brand || '') + '</td>' +
                 '<td class="num">' + fmtPct(x.penetration) + '</td>' +
                 '<td class="num">' + fmt(x.peer_avg_sales_per_customer) + '</td>' +
-                '<td class="num">' + fmt(x.opportunity_score) + '</td></tr>'
+                '<td class="num">' + fmt(x.opportunity_score) + '</td>' +
+                '<td>' + (x.last_bought ? String(x.last_bought).slice(0,10) : 'Never') + '</td></tr>'
             ).join("");
     } catch (e) { alert("Error: " + e.message); }
 }

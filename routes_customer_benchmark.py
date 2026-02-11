@@ -333,6 +333,14 @@ def not_bought():
       FROM base
       WHERE customer_code_365 = :cust
       GROUP BY item_code_365
+    ),
+    cust_last_buy AS (
+      SELECT l.item_code_365, MAX(h.invoice_date_utc0::date) AS last_bought
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.customer_code_365 = :cust
+        AND NOT ({RETURN_PREDICATE})
+      GROUP BY l.item_code_365
     )
     SELECT
       pi.item_code_365,
@@ -342,9 +350,11 @@ def not_bought():
       (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) AS penetration,
       (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_avg_sales_per_customer,
       COALESCE(ci.cust_qty,0) AS cust_qty,
-      ((pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) * (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0))) AS opportunity_score
+      ((pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) * (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0))) AS opportunity_score,
+      clb.last_bought
     FROM peer_item pi
     LEFT JOIN cust_item ci ON ci.item_code_365 = pi.item_code_365
+    LEFT JOIN cust_last_buy clb ON clb.item_code_365 = pi.item_code_365
     LEFT JOIN ps_items_dw i ON i.item_code_365 = pi.item_code_365
     WHERE COALESCE(ci.cust_qty,0) = 0
       AND (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) >= :pen
