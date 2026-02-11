@@ -5,12 +5,14 @@ from openai import OpenAI
 from sqlalchemy import text
 from app import db
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-# the newest OpenAI model is "gpt-5" which was released August 7, 2025.
-# do not change this unless explicitly requested by the user
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o").strip()
+AI_INTEGRATIONS_OPENAI_API_KEY = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY")
+AI_INTEGRATIONS_OPENAI_BASE_URL = os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL")
+OPENAI_MODEL = "gpt-4o-mini"
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(
+    api_key=AI_INTEGRATIONS_OPENAI_API_KEY,
+    base_url=AI_INTEGRATIONS_OPENAI_BASE_URL
+)
 
 CACHE_TTL_HOURS = 12
 MAX_ROWS = 50
@@ -101,10 +103,8 @@ SYSTEM_PROMPT = (
 
 
 def generate_feedback(report_snapshot: dict) -> dict:
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY is not set")
-    if not OPENAI_MODEL:
-        raise ValueError("OPENAI_MODEL is not set")
+    if not AI_INTEGRATIONS_OPENAI_API_KEY or not AI_INTEGRATIONS_OPENAI_BASE_URL:
+        raise ValueError("AI Integrations are not configured. Please ensure the OpenAI integration is set up.")
 
     snapshot = _clip_payload(report_snapshot)
     payload_hash = _hash_payload(snapshot)
