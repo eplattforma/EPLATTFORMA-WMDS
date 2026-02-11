@@ -639,15 +639,19 @@ async function loadPrice() {
         document.getElementById("priceBody").innerHTML = rows.length === 0
             ? '<tr><td colspan="7" class="empty-msg">No price data found</td></tr>'
             : rows.map(x => {
-                const idx = x.price_index || 0;
+                const idx = parseFloat(x.price_index) || 0;
+                const cup = parseFloat(x.cust_unit_price) || 0;
+                const pup = parseFloat(x.peer_unit_price) || 0;
+                const cq = parseFloat(x.cust_qty) || 0;
+                const pq = parseFloat(x.peer_qty) || 0;
                 const rowCls = idx > 1.05 ? "price-overpay" : (idx < 0.95 ? "price-underpay" : "");
                 return '<tr class="' + rowCls + '">' +
                     '<td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
-                    '<td class="num">' + fmt(x.cust_unit_price) + '</td>' +
-                    '<td class="num">' + fmt(x.peer_unit_price) + '</td>' +
-                    '<td class="num" style="font-weight:600;' + (idx > 1.05 ? 'color:#f87171' : idx < 0.95 ? 'color:#34d399' : '') + '">' + fmt(x.price_index) + '</td>' +
-                    '<td class="num">' + fmt(x.cust_qty, 0) + '</td>' +
-                    '<td class="num">' + fmt(x.peer_qty, 0) + '</td></tr>';
+                    '<td class="num">' + cup.toFixed(2) + '</td>' +
+                    '<td class="num">' + pup.toFixed(2) + '</td>' +
+                    '<td class="num" style="font-weight:600;' + (idx > 1.05 ? 'color:#f87171' : idx < 0.95 ? 'color:#34d399' : '') + '">' + idx.toFixed(2) + '</td>' +
+                    '<td class="num">' + cq.toLocaleString(undefined, {maximumFractionDigits:0}) + '</td>' +
+                    '<td class="num">' + pq.toLocaleString(undefined, {maximumFractionDigits:0}) + '</td></tr>';
             }).join("");
     } catch (e) { alert("Error: " + e.message); }
 }
