@@ -556,6 +556,8 @@ async function loadTrends() {
         const custData = j.rows.map(x => parseFloat(x.cust_net_sales) || 0);
         const peerData = j.rows.map(x => parseFloat(x.peer_avg_sales_per_customer) || 0);
 
+        if (window.reportSnapshot) window.reportSnapshot.trend_monthly = j.rows.map(x => ({month: String(x.month_start).slice(0,7), customer_net_sales: x.cust_net_sales, peer_avg_sales: x.peer_avg_sales_per_customer}));
+
         if (trendChartInstance) trendChartInstance.destroy();
         const ctx = document.getElementById("trendChart").getContext("2d");
         trendChartInstance = new Chart(ctx, {
@@ -669,6 +671,7 @@ async function loadNotBought() {
                 '<td class="num">' + fmt(x.opportunity_score) + '</td>' +
                 '<td>' + (x.last_bought ? fmtDate(x.last_bought) : 'Never') + '</td></tr>'
             ).join("");
+        if (window.reportSnapshot) window.reportSnapshot.white_space = rows.slice(0, 20).map(x => ({item: x.item_code_365, name: x.item_name, penetration: x.penetration, peer_avg_sales: x.peer_avg_sales_per_customer, score: x.opportunity_score}));
     } catch (e) { alert("Error: " + e.message); }
 }
 
@@ -693,6 +696,7 @@ async function loadLapsed() {
                 '<td class="num">' + fmt(x.comp_sales_gross) + '</td>' +
                 '<td class="num">' + fmtPct(x.peer_penetration_curr) + '</td></tr>'
             ).join("");
+        if (window.reportSnapshot) window.reportSnapshot.lapsed_items = rows.slice(0, 20).map(x => ({item: x.item_code_365, name: x.item_name, prev_qty: x.comp_qty_gross, prev_sales: x.comp_sales_gross, peer_penetration: x.peer_penetration_curr}));
     } catch (e) { alert("Error: " + e.message); }
 }
 
@@ -719,6 +723,7 @@ async function loadMix() {
                     '<td class="num">' + fmtPct(x.peer_share) + '</td>' +
                     '<td class="num" ' + cls + '>' + (diff >= 0 ? '+' : '') + (diff * 100).toFixed(1) + 'pp</td></tr>';
             }).join("");
+        if (window.reportSnapshot) window.reportSnapshot.category_mix = rows.map(x => ({category: x.category, cust_sales: x.cust_sales, cust_share: x.cust_share, peer_share: x.peer_share, share_diff: x.share_diff}));
     } catch (e) { alert("Error: " + e.message); }
 }
 
@@ -749,6 +754,7 @@ async function loadPrice() {
                     '<td class="num">' + cq.toLocaleString() + '</td>' +
                     '<td class="num">' + pq.toLocaleString() + '</td></tr>';
             }).join("");
+        if (window.reportSnapshot) window.reportSnapshot.price_vs_peers = rows.slice(0, 30).map(x => ({item: x.item_code_365, name: x.item_name, cust_price: x.cust_unit_price, peer_price: x.peer_unit_price, price_index: x.price_index, cust_qty: x.cust_qty}));
     } catch (e) { alert("Error: " + e.message); }
 }
 

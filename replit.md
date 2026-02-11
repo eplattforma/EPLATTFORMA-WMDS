@@ -48,7 +48,7 @@ Preferred communication style: Simple, everyday language.
 - **Customer Synchronization**: Dedicated screen for syncing customers from PS365 with bulk operations.
 - **Customer 360 Analytics**: Interactive dashboard with KPIs, top items, invoice history, and Item-RFM analysis.
 - **Net Value Calculation**: All net values calculated on-the-fly from line and header totals, not from stored columns.
-- **Customer Benchmark**: Comparison of customer performance against peer groups, including White Space, Lapsed Items, Category Mix, Price vs Peers, and Item Recency analysis.
+- **Customer Benchmark**: Comparison of customer performance against peer groups, including White Space, Lapsed Items, Category Mix, Price vs Peers, and Item Recency analysis. Includes AI-powered feedback via OpenAI API with response caching (12h TTL in `ai_feedback_cache` table).
 - **Pricing Analytics**: Customer-level pricing analysis with modules for Price Index vs Market, Price Dispersion, PVM, and Price Sensitivity signals.
 - **Power BI Integration**: Database views providing a star-schema data model for Power BI reporting.
 
