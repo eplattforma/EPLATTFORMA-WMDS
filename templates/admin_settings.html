@@ -114,6 +114,21 @@
                                     whenever the quantity to pick is not equal to 1. This helps prevent mistakes when picking multiple units.
                                 </div>
                             </div>
+
+                            <div class="mb-4">
+                                <label for="enable_ai_feedback" class="form-label">Customer Benchmark AI Insights</label>
+                                <select class="form-select" id="enable_ai_feedback" name="enable_ai_feedback">
+                                    <option value="true" {% if enable_ai_feedback == 'true' %}selected{% endif %}>
+                                        Enabled - Show "Ask AI" button on benchmarks
+                                    </option>
+                                    <option value="false" {% if enable_ai_feedback == 'false' %}selected{% endif %}>
+                                        Disabled - Hide AI insights
+                                    </option>
+                                </select>
+                                <div class="form-text text-body-secondary">
+                                    When enabled, the "Ask AI" button will be available on the Customer Benchmark page to generate automated insights.
+                                </div>
+                            </div>
                             
                             <!-- Batch picking settings removed - will be rebuilt -->
                         </div>

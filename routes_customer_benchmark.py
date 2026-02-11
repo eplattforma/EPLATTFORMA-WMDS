@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from flask_login import login_required, current_user
 from sqlalchemy import text
 from app import db
+from models import Setting
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,10 @@ def page():
     if getattr(current_user, "role", None) not in ALLOWED_ROLES:
         flash("Access denied. Admin or warehouse manager privileges required.", "danger")
         return redirect(url_for("index"))
-    return render_template("customer_benchmark.html")
+    
+    from models import Setting
+    enable_ai_feedback = Setting.get(db.session, 'enable_ai_feedback', 'true')
+    return render_template("customer_benchmark.html", enable_ai_feedback=enable_ai_feedback)
 
 
 @benchmark_bp.route("/api/meta")

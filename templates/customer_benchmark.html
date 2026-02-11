@@ -209,7 +209,7 @@
             </div>
 
             <button class="run-btn" id="runBtn"><i class="fas fa-play me-1"></i>Run</button>
-            <button class="ai-btn" id="aiBtn" disabled title="Run report first"><i class="fas fa-robot me-1"></i>Ask AI</button>
+            <button class="ai-btn" id="aiBtn" {% if enable_ai_feedback == 'false' %}style="display:none;"{% endif %} disabled title="Run report first"><i class="fas fa-robot me-1"></i>Ask AI</button>
         </div>
     </div>
 
@@ -447,11 +447,13 @@ document.getElementById("periodPreset").addEventListener("change", function() {
 });
 
 async function loadMeta() {
-    // Init tooltips
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
+    // Init tooltips safely when bootstrap is available
+    if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }
     try {
         const r = await fetch(BASE + "/api/meta");
         const j = await r.json();

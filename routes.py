@@ -1544,6 +1544,7 @@ def admin_settings():
         save_setting('skip_reasons', skip_reasons)
         save_setting('exception_reasons', exception_reasons)
         save_setting('receiving_notes', receiving_notes)
+        save_setting('enable_ai_feedback', request.form.get('enable_ai_feedback', 'true'))
         
         db.session.commit()
         flash('Settings updated successfully', 'success')
@@ -1568,6 +1569,8 @@ def admin_settings():
     default_receiving_notes = "Wrong Barcode\nBarcode not in system\nNew Product\nRepacking\nNeeds Labels"
     receiving_notes = Setting.get(db.session, 'receiving_notes', default_receiving_notes)
     
+    enable_ai_feedback = Setting.get(db.session, 'enable_ai_feedback', 'true')
+    
     # Get current alert settings for display
     from time_alerts import get_alert_settings
     alert_settings = get_alert_settings()
@@ -1581,6 +1584,7 @@ def admin_settings():
                          skip_reasons=skip_reasons,
                          exception_reasons=exception_reasons,
                          receiving_notes=receiving_notes,
+                         enable_ai_feedback=enable_ai_feedback,
                          alert_settings=alert_settings)
 
 @app.route('/admin/discrepancy-config', methods=['GET', 'POST'])
