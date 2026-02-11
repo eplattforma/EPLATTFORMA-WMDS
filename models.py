@@ -1228,6 +1228,7 @@ class PSCustomer(db.Model, SoftDeleteMixin, ActivatableMixin):
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
     last_synced_at = db.Column(UTCDateTime(), nullable=True)
+    reporting_group = db.Column(db.Text, nullable=True)
     
     def __repr__(self):
         return f"<PSCustomer {self.customer_code_365}: {self.company_name}>"
