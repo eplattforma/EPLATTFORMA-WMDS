@@ -136,6 +136,7 @@
 
 <div id="customerHeader"></div>
 
+<div id="dateRangeInfo" style="display:none; padding: 6px 14px; margin-bottom: 4px; font-size: 0.82rem; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.04); border-radius: 6px;"></div>
 <div class="ca-section">
     <div class="ca-kpi-grid" id="kpis"></div>
 </div>
@@ -293,6 +294,19 @@ async function loadSummary() {
         kpiHtml('Avg Invoice', '€' + money(cur.avg_invoice), del ? del.avg_invoice : null) +
         kpiHtml('Qty', num(cur.qty), null) +
         kpiHtml('Distinct Items', num(cur.distinct_items), null);
+
+    const drEl = document.getElementById('dateRangeInfo');
+    if (data.range) {
+        const fmtD = d => { const p = d.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; };
+        let html = `<i class="fas fa-calendar-alt me-1"></i> <strong>Period:</strong> ${fmtD(data.range.from)} – ${fmtD(data.range.to)}`;
+        if (data.compare && data.compare.range) {
+            html += `&nbsp;&nbsp;|&nbsp;&nbsp;<i class="fas fa-exchange-alt me-1"></i> <strong>vs:</strong> ${fmtD(data.compare.range.from)} – ${fmtD(data.compare.range.to)}`;
+        }
+        drEl.innerHTML = html;
+        drEl.style.display = 'block';
+    } else {
+        drEl.style.display = 'none';
+    }
 }
 
 async function loadTab() {
