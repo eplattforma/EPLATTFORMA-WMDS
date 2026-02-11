@@ -692,8 +692,8 @@ async function loadLapsed() {
             : rows.map(x =>
                 '<tr><td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
                 '<td>' + (x.category || '') + '</td><td>' + (x.brand || '') + '</td>' +
-                '<td class="num">' + fmt(x.comp_qty_gross, 0) + '</td>' +
-                '<td class="num">' + fmt(x.comp_sales_gross) + '</td>' +
+                '<td class="num">' + fmt(parseFloat(x.comp_qty_gross) || 0, 0) + '</td>' +
+                '<td class="num">' + fmt(parseFloat(x.comp_sales_gross) || 0, 2) + '</td>' +
                 '<td class="num">' + fmtPct(x.peer_penetration_curr) + '</td></tr>'
             ).join("");
         if (window.reportSnapshot) window.reportSnapshot.lapsed_items = rows.slice(0, 20).map(x => ({item: x.item_code_365, name: x.item_name, prev_qty: x.comp_qty_gross, prev_sales: x.comp_sales_gross, peer_penetration: x.peer_penetration_curr}));
