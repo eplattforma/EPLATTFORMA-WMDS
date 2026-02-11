@@ -37,7 +37,7 @@ localPort = 8000
 externalPort = 8000
 
 [agent]
-integrations = ["python_openai:1.0.0", "dropbox:1.0.0"]
+integrations = ["python_openai:1.0.0", "dropbox:1.0.0", "python_openai_ai_integrations:1.0.0"]
 
 [userenv]
 
