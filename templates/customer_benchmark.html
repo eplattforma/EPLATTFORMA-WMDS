@@ -98,6 +98,58 @@
     .price-overpay { background: rgba(248,113,113,0.1); }
     .price-underpay { background: rgba(52,211,153,0.1); }
 
+    .ai-btn {
+        background: rgba(168,85,247,0.15); color: #a855f7; border: 1px solid rgba(168,85,247,0.3);
+        padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;
+        transition: all 0.15s;
+    }
+    .ai-btn:hover { background: rgba(168,85,247,0.25); }
+    .ai-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .ai-overlay {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.6); z-index: 9999; justify-content: center; align-items: flex-start;
+        padding-top: 60px;
+    }
+    .ai-overlay.show { display: flex; }
+    .ai-panel {
+        background: #1e293b; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+        width: 90%; max-width: 700px; max-height: 80vh; overflow-y: auto; padding: 24px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .ai-panel-header {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
+        padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .ai-panel-header h3 { color: #a855f7; margin: 0; font-size: 16px; }
+    .ai-close { background: none; border: none; color: rgba(226,232,240,0.5); font-size: 20px; cursor: pointer; }
+    .ai-close:hover { color: #e2e8f0; }
+
+    .ai-section { margin-bottom: 16px; }
+    .ai-section-title {
+        font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+        color: #a855f7; margin-bottom: 6px;
+    }
+    .ai-section-body { font-size: 13px; color: #e2e8f0; line-height: 1.6; }
+    .ai-section-body ul { margin: 4px 0; padding-left: 18px; }
+    .ai-section-body li { margin-bottom: 4px; }
+    .ai-opp { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+    .ai-opp-title { font-weight: 600; color: #60a5fa; font-size: 13px; }
+    .ai-opp-detail { font-size: 12px; color: rgba(226,232,240,0.6); margin-top: 4px; }
+    .ai-action {
+        display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px;
+        background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 6px;
+    }
+    .ai-priority {
+        font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+    }
+    .ai-priority-P0 { background: rgba(248,113,113,0.2); color: #f87171; }
+    .ai-priority-P1 { background: rgba(251,191,36,0.2); color: #fbbf24; }
+    .ai-priority-P2 { background: rgba(96,165,250,0.2); color: #60a5fa; }
+    .ai-loading { text-align: center; padding: 40px; color: rgba(226,232,240,0.5); }
+    .ai-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid rgba(168,85,247,0.2); border-top-color: #a855f7; border-radius: 50%; animation: aispin 0.8s linear infinite; margin-bottom: 10px; }
+    @keyframes aispin { to { transform: rotate(360deg); } }
+
     @media (max-width: 768px) {
         .kpi-grid { grid-template-columns: repeat(2, 1fr); }
         .cb-controls { flex-direction: column; align-items: stretch; }
@@ -157,6 +209,17 @@
             </div>
 
             <button class="run-btn" id="runBtn"><i class="fas fa-play me-1"></i>Run</button>
+            <button class="ai-btn" id="aiBtn" disabled title="Run report first"><i class="fas fa-robot me-1"></i>Ask AI</button>
+        </div>
+    </div>
+
+    <div class="ai-overlay" id="aiOverlay">
+        <div class="ai-panel">
+            <div class="ai-panel-header">
+                <h3><i class="fas fa-robot me-2"></i>AI Feedback</h3>
+                <button class="ai-close" id="aiClose">&times;</button>
+            </div>
+            <div id="aiBody"></div>
         </div>
     </div>
 
@@ -541,11 +604,15 @@ async function loadTrends() {
     }
 }
 
+window.reportSnapshot = null;
+
 async function runKpis() {
     const p = qsBase();
     if (!p.customer_code) { alert("Select a customer first"); return; }
     document.getElementById("runBtn").disabled = true;
     document.getElementById("runBtn").innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading...';
+    document.getElementById("aiBtn").disabled = true;
+    window.reportSnapshot = null;
     try {
         const r = await fetch(BASE + "/api/kpis?" + new URLSearchParams(p));
         const j = await r.json();
@@ -553,6 +620,27 @@ async function runKpis() {
         renderKpis(j);
         document.getElementById("tabBar").style.display = "flex";
         loadTrends();
+        window.reportSnapshot = {
+            report_type: "customer_peer_benchmark",
+            customer_code: p.customer_code,
+            group_name: p.group_name,
+            date_from: p.start,
+            date_to: p.end,
+            kpis: {
+                customer_net_sales: j.customer.net_sales,
+                customer_orders: j.customer.orders,
+                customer_unique_items: j.customer.uniq_items,
+                customer_aov: j.customer.aov,
+                peers_count: j.peers.peer_customers,
+                peers_avg_sales_per_customer: j.peers.avg_sales_per_customer,
+                peers_aov: j.peers.aov,
+                sales_index: j.indexes.sales_index_vs_peer_avg,
+                price_index_gross: j.indexes.price_index_gross
+            },
+            deltas: j.deltas || null,
+            compare_period: j.compare_period || null
+        };
+        document.getElementById("aiBtn").disabled = false;
     } catch (e) {
         alert("Error: " + e.message);
     } finally {
@@ -709,5 +797,85 @@ document.getElementById("loadPrice").onclick = loadPrice;
 document.getElementById("loadRfm").onclick = loadRfm;
 
 loadMeta();
+
+function renderAiFeedback(j) {
+    let html = '';
+
+    if (j.error) {
+        html = '<div class="ai-section"><div class="ai-section-body" style="color:#f87171;">' + j.error + '</div></div>';
+        document.getElementById("aiBody").innerHTML = html;
+        return;
+    }
+
+    if (j.summary) {
+        html += '<div class="ai-section"><div class="ai-section-title">Summary</div>';
+        html += '<div class="ai-section-body">' + j.summary + '</div></div>';
+    }
+    if (j.peer_context) {
+        html += '<div class="ai-section"><div class="ai-section-title">Peer Context</div>';
+        html += '<div class="ai-section-body">' + j.peer_context + '</div></div>';
+    }
+    if (j.key_findings && j.key_findings.length) {
+        html += '<div class="ai-section"><div class="ai-section-title">Key Findings</div>';
+        html += '<div class="ai-section-body"><ul>' + j.key_findings.map(f => '<li>' + f + '</li>').join('') + '</ul></div></div>';
+    }
+    if (j.risks && j.risks.length) {
+        html += '<div class="ai-section"><div class="ai-section-title">Risks</div>';
+        html += '<div class="ai-section-body"><ul>' + j.risks.map(r => '<li>' + r + '</li>').join('') + '</ul></div></div>';
+    }
+    if (j.opportunities && j.opportunities.length) {
+        html += '<div class="ai-section"><div class="ai-section-title">Opportunities</div><div class="ai-section-body">';
+        j.opportunities.forEach(o => {
+            html += '<div class="ai-opp"><div class="ai-opp-title">' + (o.title || '') + '</div>';
+            html += '<div class="ai-opp-detail">' + (o.why || '') + '</div>';
+            html += '<div class="ai-opp-detail">Expected impact: ' + (o.expected_impact || '') +
+                    (o.confidence !== undefined ? ' (confidence: ' + (o.confidence * 100).toFixed(0) + '%)' : '') + '</div></div>';
+        });
+        html += '</div></div>';
+    }
+    if (j.next_actions && j.next_actions.length) {
+        html += '<div class="ai-section"><div class="ai-section-title">Recommended Actions</div><div class="ai-section-body">';
+        j.next_actions.forEach(a => {
+            html += '<div class="ai-action"><span class="ai-priority ai-priority-' + (a.priority || 'P2') + '">' + (a.priority || 'P2') + '</span>';
+            html += '<div><div style="font-weight:500;">' + (a.action || '') + '</div>';
+            if (a.script_hint) html += '<div style="font-size:12px;color:rgba(226,232,240,0.5);margin-top:2px;"><i class="fas fa-comment me-1"></i>' + a.script_hint + '</div>';
+            html += '</div></div>';
+        });
+        html += '</div></div>';
+    }
+
+    if (!html) {
+        html = '<div class="ai-section"><div class="ai-section-body">No feedback generated. Try running the report with more data.</div></div>';
+    }
+    document.getElementById("aiBody").innerHTML = html;
+}
+
+document.getElementById("aiBtn").addEventListener("click", async () => {
+    const snap = window.reportSnapshot;
+    if (!snap) { alert("Run the report first to generate data."); return; }
+
+    document.getElementById("aiOverlay").classList.add("show");
+    document.getElementById("aiBody").innerHTML = '<div class="ai-loading"><div class="ai-spinner"></div><div>Analyzing report data...</div></div>';
+    document.getElementById("aiBtn").disabled = true;
+
+    try {
+        const r = await fetch("/api/ai/feedback", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ snapshot: snap })
+        });
+        const j = await r.json();
+        renderAiFeedback(r.ok ? j : {error: j.error || "AI request failed"});
+    } catch (e) {
+        renderAiFeedback({error: "Network error: " + e.message});
+    } finally {
+        document.getElementById("aiBtn").disabled = false;
+    }
+});
+
+document.getElementById("aiClose").onclick = () => document.getElementById("aiOverlay").classList.remove("show");
+document.getElementById("aiOverlay").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("aiOverlay")) document.getElementById("aiOverlay").classList.remove("show");
+});
 </script>
 {% endblock %}

@@ -183,6 +183,10 @@ app.register_blueprint(crg_bp)
 from routes_customer_benchmark import benchmark_bp
 app.register_blueprint(benchmark_bp)
 
+# Register the AI Feedback blueprint
+from routes_ai_feedback import ai_feedback_bp
+app.register_blueprint(ai_feedback_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal
