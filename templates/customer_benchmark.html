@@ -323,6 +323,13 @@ function fmtInt(n) {
     if (n === null || n === undefined) return "-";
     return Math.round(n).toLocaleString();
 }
+function fmtDate(d) {
+    if (!d) return "-";
+    const dt = new Date(d);
+    if (isNaN(dt)) return "-";
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return String(dt.getUTCDate()).padStart(2,'0') + ' ' + months[dt.getUTCMonth()] + ' ' + dt.getUTCFullYear();
+}
 
 function getDates() {
     const preset = document.getElementById("periodPreset").value;
@@ -572,7 +579,7 @@ async function loadNotBought() {
                 '<td class="num">' + fmtPct(x.penetration) + '</td>' +
                 '<td class="num">' + fmt(x.peer_avg_sales_per_customer) + '</td>' +
                 '<td class="num">' + fmt(x.opportunity_score) + '</td>' +
-                '<td>' + (x.last_bought ? String(x.last_bought).slice(0,10) : 'Never') + '</td></tr>'
+                '<td>' + (x.last_bought ? fmtDate(x.last_bought) : 'Never') + '</td></tr>'
             ).join("");
     } catch (e) { alert("Error: " + e.message); }
 }
@@ -675,11 +682,11 @@ async function loadRfm() {
                 const recStyle = rec !== null && rec > 90 ? 'color:#f87171' : rec !== null && rec > 30 ? 'color:#fbbf24' : 'color:#34d399';
                 return '<tr><td>' + (x.item_code_365 || '') + '</td><td>' + (x.item_name || '') + '</td>' +
                     '<td>' + (x.category || '') + '</td>' +
-                    '<td class="num">' + (x.last_purchase_date || '-') + '</td>' +
+                    '<td class="num">' + fmtDate(x.last_purchase_date) + '</td>' +
                     '<td class="num" style="' + recStyle + '">' + (x.recency_days !== null ? x.recency_days : '-') + '</td>' +
                     '<td class="num">' + fmtInt(x.frequency) + '</td>' +
-                    '<td class="num">' + fmt(x.monetary) + '</td>' +
-                    '<td class="num">' + fmt(x.total_qty, 0) + '</td>' +
+                    '<td class="num">' + fmt(x.monetary, 2) + '</td>' +
+                    '<td class="num">' + fmtInt(x.total_qty) + '</td>' +
                     '<td class="num">' + fmtPct(x.peer_penetration) + '</td></tr>';
             }).join("");
     } catch (e) { alert("Error: " + e.message); }
