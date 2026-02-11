@@ -607,10 +607,12 @@ async function loadMix() {
             : rows.map(x => {
                 const diff = x.share_diff || 0;
                 const cls = Math.abs(diff) > 0.05 ? (diff > 0 ? 'style="color:#34d399"' : 'style="color:#f87171"') : '';
+                const cs = parseFloat(x.cust_sales) || 0;
+                const ps = parseFloat(x.peer_sales) || 0;
                 return '<tr><td>' + (x.category || '') + '</td>' +
-                    '<td class="num">' + fmt(x.cust_sales) + '</td>' +
+                    '<td class="num">' + cs.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>' +
                     '<td class="num">' + fmtPct(x.cust_share) + '</td>' +
-                    '<td class="num">' + fmt(x.peer_sales) + '</td>' +
+                    '<td class="num">' + ps.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>' +
                     '<td class="num">' + fmtPct(x.peer_share) + '</td>' +
                     '<td class="num" ' + cls + '>' + (diff >= 0 ? '+' : '') + (diff * 100).toFixed(1) + 'pp</td></tr>';
             }).join("");

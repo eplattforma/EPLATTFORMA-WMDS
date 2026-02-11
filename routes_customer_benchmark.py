@@ -472,7 +472,7 @@ def category_mix():
     WITH base AS (
       SELECT
         h.customer_code_365,
-        COALESCE(i.category_code_365,'(Uncategorized)') AS category,
+        COALESCE(i.category_code_365,'(Uncategorized)') AS category_code,
         CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net
       FROM dw_invoice_header h
       JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
@@ -486,16 +486,16 @@ def category_mix():
         AND customer_code_365 <> :cust
     ),
     cust_cat AS (
-      SELECT category, SUM(sales_net) AS sales
+      SELECT category_code, SUM(sales_net) AS sales
       FROM base
       WHERE customer_code_365 = :cust
-      GROUP BY category
+      GROUP BY category_code
     ),
     peer_cat AS (
-      SELECT category, SUM(sales_net) AS sales
+      SELECT category_code, SUM(sales_net) AS sales
       FROM base
       WHERE customer_code_365 IN (SELECT customer_code_365 FROM peerset)
-      GROUP BY category
+      GROUP BY category_code
     ),
     totals AS (
       SELECT
@@ -503,7 +503,8 @@ def category_mix():
         (SELECT SUM(sales) FROM peer_cat) AS peer_total
     )
     SELECT
-      COALESCE(c.category, p.category) AS category,
+      COALESCE(c.category_code, p.category_code) AS category_code,
+      COALESCE(cat.category_name, c.category_code, p.category_code) AS category,
       COALESCE(c.sales,0) AS cust_sales,
       COALESCE(p.sales,0) AS peer_sales,
       COALESCE(c.sales,0) / NULLIF((SELECT cust_total FROM totals),0) AS cust_share,
@@ -511,7 +512,8 @@ def category_mix():
       (COALESCE(c.sales,0) / NULLIF((SELECT cust_total FROM totals),0))
         - (COALESCE(p.sales,0) / NULLIF((SELECT peer_total FROM totals),0)) AS share_diff
     FROM cust_cat c
-    FULL OUTER JOIN peer_cat p ON p.category = c.category
+    FULL OUTER JOIN peer_cat p ON p.category_code = c.category_code
+    LEFT JOIN dw_item_categories cat ON cat.category_code_365 = COALESCE(c.category_code, p.category_code)
     ORDER BY ABS(
       (COALESCE(c.sales,0) / NULLIF((SELECT cust_total FROM totals),0))
       - (COALESCE(p.sales,0) / NULLIF((SELECT peer_total FROM totals),0))
