@@ -1,0 +1,1921 @@
+Yes — with the Reporting Group UI now working, the next step is to build the Customer vs Peer Group comparison analysis screen in your Replit app (using only dw_*, ps_customers, ps_items_dw).
+
+Below are “instructions to Replit” to implement it as a separate Analytics UI.
+
+Replit Instructions: Customer vs Peer Group (Customers / Items / Sales)
+0) What you will deliver (1 new screen)
+
+URL: /admin/customer-benchmark/
+
+User flow
+
+Select Customer
+
+Select Peer Group (defaults to customer’s reporting group if exists)
+
+Select Period (Last 30/90/180/365 or custom range)
+
+Toggle Compare: Previous Period / Same Period PY
+
+See:
+
+KPI cards (Customer vs Peers + deltas)
+
+Trend chart (monthly)
+
+Tabs:
+
+White Space (Peers buy, customer doesn’t)
+
+Lapsed Items (customer stopped buying)
+
+Category mix vs peers
+
+Price vs peers (unit price index)
+
+Returns: Use Net (includes Sales Return) for sales KPIs, and Gross (Sales only) for price metrics.
+
+1) Database assumptions
+
+You already have:
+
+dw_invoice_header (invoice_no_365, invoice_date, customer_code, invoice_type, store_code)
+
+dw_invoice_line (invoice_no_365, line_number, item_code_365, quantity, line_total_excl, discount_percent?)
+
+ps_customers (customer_code, customer_name, …)
+
+ps_items_dw (item_code_365, item_name, category, brand, attributes…)
+
+And you already created the reporting group assignment tables for the UI you implemented.
+✅ Reuse the same membership table (whatever you used in /admin/customer-reporting-groups/).
+
+If you don’t have a clean “membership” table yet, create one:
+
+CREATE TABLE IF NOT EXISTS customer_reporting_group_members (
+  customer_code VARCHAR(64) PRIMARY KEY,
+  group_name    VARCHAR(128) NOT NULL,
+  updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_crgm_group ON customer_reporting_group_members(group_name);
+
+2) Add indexes (critical for speed)
+
+Run once:
+
+CREATE INDEX IF NOT EXISTS idx_dwh_hdr_date_customer
+ON dw_invoice_header(invoice_date, customer_code);
+
+CREATE INDEX IF NOT EXISTS idx_dwh_hdr_invoice
+ON dw_invoice_header(invoice_no_365);
+
+CREATE INDEX IF NOT EXISTS idx_dwl_invoice_item
+ON dw_invoice_line(invoice_no_365, item_code_365);
+
+CREATE INDEX IF NOT EXISTS idx_dwl_item
+ON dw_invoice_line(item_code_365);
+
+3) Backend: new blueprint blueprints/customer_benchmark.py
+3.1 Create file
+
+Create: blueprints/customer_benchmark.py
+
+import os
+from datetime import date, datetime, timedelta
+from flask import Blueprint, render_template, request, jsonify
+from flask_login import login_required
+from sqlalchemy import text
+from app import db
+
+bp = Blueprint("customer_benchmark", __name__, url_prefix="/admin/customer-benchmark")
+
+# ---- helpers ----
+def parse_date(s: str) -> date:
+    return datetime.strptime(s, "%Y-%m-%d").date()
+
+def period_prev(start: date, end: date):
+    days = (end - start).days + 1
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=days - 1)
+    return prev_start, prev_end
+
+def period_py(start: date, end: date):
+    # Same period last year (simple -365; OK operationally)
+    return start - timedelta(days=365), end - timedelta(days=365)
+
+def get_customer_group(customer_code: str):
+    # IMPORTANT: adjust table name if yours differs
+    q = text("""
+        SELECT group_name
+        FROM customer_reporting_group_members
+        WHERE customer_code = :c
+        LIMIT 1
+    """)
+    r = db.session.execute(q, {"c": customer_code}).fetchone()
+    return r[0] if r else None
+
+# ---- routes ----
+@bp.route("/")
+@login_required
+def page():
+    return render_template("customer_benchmark.html")
+
+@bp.route("/api/meta")
+@login_required
+def meta():
+    groups = db.session.execute(text("""
+        SELECT DISTINCT group_name
+        FROM customer_reporting_group_members
+        ORDER BY group_name
+    """)).fetchall()
+    return jsonify({
+        "groups": [g[0] for g in groups],
+        "defaults": {"days": 90, "compare_mode": "prev"}
+    })
+
+@bp.route("/api/kpis")
+@login_required
+def kpis():
+    customer_code = request.args.get("customer_code", "").strip()
+    group_name = request.args.get("group_name", "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+    compare_mode = request.args.get("compare_mode", "prev")  # prev|py|none
+
+    if not customer_code:
+        return jsonify({"error": "customer_code required"}), 400
+
+    if not group_name:
+        group_name = get_customer_group(customer_code) or ""
+
+    comp_start = comp_end = None
+    if compare_mode == "prev":
+        comp_start, comp_end = period_prev(start, end)
+    elif compare_mode == "py":
+        comp_start, comp_end = period_py(start, end)
+
+    sql = text("""
+    WITH
+    params AS (
+      SELECT :start::date AS start_date, :end::date AS end_date
+    ),
+    base AS (
+      SELECT
+        h.invoice_date::date AS invoice_date,
+        h.customer_code,
+        h.invoice_no_365,
+        l.item_code_365,
+        CASE
+          WHEN COALESCE(h.invoice_type,'') ILIKE '%RETURN%' THEN -ABS(COALESCE(l.quantity,0))
+          ELSE COALESCE(l.quantity,0)
+        END AS qty_net,
+        CASE
+          WHEN COALESCE(h.invoice_type,'') ILIKE '%RETURN%' THEN -ABS(COALESCE(l.line_total_excl,0))
+          ELSE COALESCE(l.line_total_excl,0)
+        END AS sales_excl_net,
+        CASE
+          WHEN COALESCE(h.invoice_type,'') ILIKE '%RETURN%' THEN 0
+          ELSE GREATEST(COALESCE(l.quantity,0),0)
+        END AS qty_gross,
+        CASE
+          WHEN COALESCE(h.invoice_type,'') ILIKE '%RETURN%' THEN 0
+          ELSE GREATEST(COALESCE(l.line_total_excl,0),0)
+        END AS sales_excl_gross
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l
+        ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.invoice_date::date BETWEEN (SELECT start_date FROM params) AND (SELECT end_date FROM params)
+    ),
+    cust AS (
+      SELECT
+        SUM(sales_excl_net) AS net_sales,
+        SUM(qty_net)        AS net_qty,
+        COUNT(DISTINCT invoice_no_365) AS orders,
+        COUNT(*) AS lines,
+        COUNT(DISTINCT item_code_365) AS uniq_items,
+        SUM(sales_excl_gross) AS gross_sales,
+        NULLIF(SUM(qty_gross),0) AS gross_qty
+      FROM base
+      WHERE customer_code = :cust
+    ),
+    peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    peer_base AS (
+      SELECT b.*
+      FROM base b
+      JOIN peerset p ON p.customer_code = b.customer_code
+    ),
+    peer AS (
+      SELECT
+        SUM(sales_excl_net) AS net_sales,
+        SUM(qty_net)        AS net_qty,
+        COUNT(DISTINCT invoice_no_365) AS orders,
+        COUNT(*) AS lines,
+        COUNT(DISTINCT item_code_365) AS uniq_items,
+        SUM(sales_excl_gross) AS gross_sales,
+        NULLIF(SUM(qty_gross),0) AS gross_qty,
+        (SELECT COUNT(*) FROM peerset) AS peer_customers
+      FROM peer_base
+    )
+    SELECT
+      (SELECT net_sales FROM cust) AS cust_net_sales,
+      (SELECT net_qty FROM cust) AS cust_net_qty,
+      (SELECT orders FROM cust) AS cust_orders,
+      (SELECT lines FROM cust) AS cust_lines,
+      (SELECT uniq_items FROM cust) AS cust_uniq_items,
+      (SELECT gross_sales FROM cust) AS cust_gross_sales,
+      (SELECT gross_qty FROM cust) AS cust_gross_qty,
+
+      (SELECT net_sales FROM peer) AS peer_net_sales,
+      (SELECT net_qty FROM peer) AS peer_net_qty,
+      (SELECT orders FROM peer) AS peer_orders,
+      (SELECT lines FROM peer) AS peer_lines,
+      (SELECT uniq_items FROM peer) AS peer_uniq_items,
+      (SELECT gross_sales FROM peer) AS peer_gross_sales,
+      (SELECT gross_qty FROM peer) AS peer_gross_qty,
+      (SELECT peer_customers FROM peer) AS peer_customers
+    """)
+    row = db.session.execute(sql, {
+        "start": start, "end": end,
+        "cust": customer_code,
+        "grp": group_name
+    }).mappings().first()
+
+    if not row:
+        return jsonify({"error": "no data"}), 404
+
+    def safe_div(a, b):
+        return float(a) / float(b) if a is not None and b not in (None, 0) else None
+
+    # KPIs
+    cust_aov = safe_div(row["cust_net_sales"], row["cust_orders"])
+    peer_aov = safe_div(row["peer_net_sales"], row["peer_orders"])
+    peer_avg_sales_per_customer = safe_div(row["peer_net_sales"], row["peer_customers"])
+
+    cust_unit_price_gross = safe_div(row["cust_gross_sales"], row["cust_gross_qty"])
+    peer_unit_price_gross = safe_div(row["peer_gross_sales"], row["peer_gross_qty"])
+
+    out = {
+      "customer_code": customer_code,
+      "group_name": group_name,
+      "period": {"start": str(start), "end": str(end), "compare_mode": compare_mode},
+      "customer": {
+        "net_sales": float(row["cust_net_sales"] or 0),
+        "orders": int(row["cust_orders"] or 0),
+        "aov": cust_aov,
+        "uniq_items": int(row["cust_uniq_items"] or 0),
+        "unit_price_gross": cust_unit_price_gross
+      },
+      "peers": {
+        "peer_customers": int(row["peer_customers"] or 0),
+        "net_sales_total": float(row["peer_net_sales"] or 0),
+        "avg_sales_per_customer": peer_avg_sales_per_customer,
+        "aov": peer_aov,
+        "unit_price_gross": peer_unit_price_gross
+      },
+      "indexes": {
+        "sales_index_vs_peer_avg": safe_div(float(row["cust_net_sales"] or 0), peer_avg_sales_per_customer),
+        "price_index_gross": safe_div(cust_unit_price_gross, peer_unit_price_gross)
+      }
+    }
+
+    # optional compare period block
+    if compare_mode in ("prev", "py"):
+        cs, ce = comp_start, comp_end
+        out["compare_period"] = {"start": str(cs), "end": str(ce)}
+
+    return jsonify(out)
+
+@bp.route("/api/not-bought")
+@login_required
+def not_bought():
+    customer_code = request.args.get("customer_code", "").strip()
+    group_name = request.args.get("group_name", "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+    penetration_min = float(request.args.get("penetration_min", "0.30"))
+    limit = int(request.args.get("limit", "200"))
+
+    if not group_name:
+        group_name = get_customer_group(customer_code) or ""
+
+    sql = text("""
+    WITH base AS (
+      SELECT
+        h.customer_code,
+        l.item_code_365,
+        CASE WHEN COALESCE(h.invoice_type,'') ILIKE '%RETURN%' THEN -ABS(COALESCE(l.quantity,0)) ELSE COALESCE(l.quantity,0) END AS qty_net,
+        CASE WHEN COALESCE(h.invoice_type,'') ILIKE '%RETURN%' THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.invoice_date::date BETWEEN :start::date AND :end::date
+    ),
+    peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    peer_cnt AS (
+      SELECT COUNT(*) AS n FROM peerset
+    ),
+    peer_item AS (
+      SELECT
+        b.item_code_365,
+        COUNT(DISTINCT b.customer_code) FILTER (WHERE b.qty_net > 0) AS buyers,
+        SUM(b.sales_net) AS peer_sales
+      FROM base b
+      JOIN peerset p ON p.customer_code = b.customer_code
+      GROUP BY b.item_code_365
+    ),
+    cust_item AS (
+      SELECT item_code_365, SUM(qty_net) AS cust_qty
+      FROM base
+      WHERE customer_code = :cust
+      GROUP BY item_code_365
+    )
+    SELECT
+      pi.item_code_365,
+      i.item_name,
+      i.category,
+      i.brand,
+      (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) AS penetration,
+      (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_avg_sales_per_customer,
+      COALESCE(ci.cust_qty,0) AS cust_qty,
+      ((pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) * (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0))) AS opportunity_score
+    FROM peer_item pi
+    LEFT JOIN cust_item ci ON ci.item_code_365 = pi.item_code_365
+    LEFT JOIN ps_items_dw i ON i.item_code_365 = pi.item_code_365
+    WHERE COALESCE(ci.cust_qty,0) = 0
+      AND (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) >= :pen
+    ORDER BY opportunity_score DESC NULLS LAST
+    LIMIT :lim
+    """)
+    rows = db.session.execute(sql, {
+      "start": start, "end": end,
+      "cust": customer_code, "grp": group_name,
+      "pen": penetration_min, "lim": limit
+    }).mappings().all()
+    return jsonify({"rows": [dict(r) for r in rows]})
+
+3.2 Register blueprint
+
+In wherever you register blueprints (usually app.py):
+
+from blueprints.customer_benchmark import bp as customer_benchmark_bp
+app.register_blueprint(customer_benchmark_bp)
+
+4) Frontend: template templates/customer_benchmark.html
+
+Create: templates/customer_benchmark.html
+
+Minimum skeleton (keep simple; you can style like your other admin pages):
+
+{% extends "base.html" %}
+{% block content %}
+
+<h3>Customer vs Peer Group</h3>
+
+<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end;">
+  <div>
+    <label>Customer</label><br/>
+    <input id="customerCode" placeholder="Customer code (e.g. 77700123)" />
+  </div>
+
+  <div>
+    <label>Peer Group</label><br/>
+    <select id="groupName"></select>
+  </div>
+
+  <div>
+    <label>Start</label><br/>
+    <input type="date" id="startDate" />
+  </div>
+
+  <div>
+    <label>End</label><br/>
+    <input type="date" id="endDate" />
+  </div>
+
+  <div>
+    <label>Compare</label><br/>
+    <select id="compareMode">
+      <option value="prev">Previous Period</option>
+      <option value="py">Same Period PY</option>
+      <option value="none">None</option>
+    </select>
+  </div>
+
+  <button id="runBtn">Run</button>
+</div>
+
+<hr/>
+
+<div id="kpis" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+
+<h4 style="margin-top:16px;">White Space (Peers buy, customer doesn’t)</h4>
+<div style="display:flex; gap:10px; align-items:end;">
+  <div>
+    <label>Min peer penetration</label><br/>
+    <input id="penMin" type="number" step="0.05" value="0.30" />
+  </div>
+  <button id="loadNB">Load</button>
+</div>
+
+<table class="table table-sm" style="margin-top:10px;">
+  <thead>
+    <tr>
+      <th>Item</th><th>Name</th><th>Category</th><th>Brand</th>
+      <th>Penetration</th><th>Peer €/cust</th><th>Score</th>
+    </tr>
+  </thead>
+  <tbody id="nbBody"></tbody>
+</table>
+
+<script>
+function fmt(n){
+  if(n === null || n === undefined) return "";
+  return (typeof n === "number") ? n.toLocaleString(undefined,{maximumFractionDigits:2}) : n;
+}
+
+async function loadMeta(){
+  const r = await fetch("/admin/customer-benchmark/api/meta");
+  const j = await r.json();
+  const sel = document.getElementById("groupName");
+  sel.innerHTML = `<option value="">(Auto from customer)</option>` + (j.groups||[]).map(g=>`<option>${g}</option>`).join("");
+  const end = new Date();
+  const start = new Date(end.getTime() - 90*24*3600*1000);
+  document.getElementById("endDate").value = end.toISOString().slice(0,10);
+  document.getElementById("startDate").value = start.toISOString().slice(0,10);
+}
+
+function renderKpis(j){
+  const el = document.getElementById("kpis");
+  el.innerHTML = "";
+  const cards = [
+    ["Customer Net Sales", j.customer.net_sales],
+    ["Customer Orders", j.customer.orders],
+    ["Customer AOV", j.customer.aov],
+    ["Peers Avg Sales/Cust", j.peers.avg_sales_per_customer],
+    ["Sales Index vs Peer Avg", j.indexes.sales_index_vs_peer_avg],
+    ["Price Index (Gross)", j.indexes.price_index_gross],
+  ];
+  cards.forEach(([k,v])=>{
+    const d = document.createElement("div");
+    d.style.border="1px solid #ddd"; d.style.borderRadius="10px"; d.style.padding="10px 12px";
+    d.innerHTML = `<div style="font-size:12px;color:#666">${k}</div><div style="font-size:18px;font-weight:600">${fmt(v)}</div>`;
+    el.appendChild(d);
+  });
+}
+
+async function runKpis(){
+  const customer_code = document.getElementById("customerCode").value.trim();
+  const group_name = document.getElementById("groupName").value;
+  const start = document.getElementById("startDate").value;
+  const end = document.getElementById("endDate").value;
+  const compare_mode = document.getElementById("compareMode").value;
+
+  const qs = new URLSearchParams({customer_code, group_name, start, end, compare_mode});
+  const r = await fetch("/admin/customer-benchmark/api/kpis?" + qs.toString());
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+  window._lastKpis = j;
+  renderKpis(j);
+}
+
+async function loadNotBought(){
+  const customer_code = document.getElementById("customerCode").value.trim();
+  const group_name = document.getElementById("groupName").value;
+  const start = document.getElementById("startDate").value;
+  const end = document.getElementById("endDate").value;
+  const penetration_min = document.getElementById("penMin").value;
+
+  const qs = new URLSearchParams({customer_code, group_name, start, end, penetration_min});
+  const r = await fetch("/admin/customer-benchmark/api/not-bought?" + qs.toString());
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+
+  const body = document.getElementById("nbBody");
+  body.innerHTML = (j.rows||[]).map(x => `
+    <tr>
+      <td>${x.item_code_365||""}</td>
+      <td>${x.item_name||""}</td>
+      <td>${x.category||""}</td>
+      <td>${x.brand||""}</td>
+      <td>${fmt(x.penetration)}</td>
+      <td>${fmt(x.peer_avg_sales_per_customer)}</td>
+      <td>${fmt(x.opportunity_score)}</td>
+    </tr>
+  `).join("");
+}
+
+document.getElementById("runBtn").onclick = runKpis;
+document.getElementById("loadNB").onclick = loadNotBought;
+
+loadMeta();
+</script>
+
+{% endblock %}
+
+5) Add the next 3 endpoints (after KPIs + Not Bought)
+
+After the above is working, add:
+
+/api/lapsed-items
+Items bought in compare period but not in current, plus “lost €”.
+
+/api/category-mix
+Customer share vs peers share by category.
+
+/api/price-outliers
+Customer unit price (gross) vs peer unit price (gross) by item, show top overpay/underpay.
+
+(If you want, I’ll give you those 3 SQL blocks in the same style as above — they’re straightforward extensions.)
+
+6) Test checklist
+
+Pick a customer that definitely has invoices in the period → KPIs show.
+
+If customer has a reporting group → leaving group blank should still work.
+
+Not Bought tab returns items with penetration ≥ 0.30.
+
+Confirm returns handling:
+
+Net sales uses signed return logic
+
+Price uses Gross only
+
+If you want, I can now give you the exact 3 additional endpoints (Lapsed, Category Mix, Price vs Peers) in one drop-in patch, matching your DB fields exactly.
+
+ok give instructions to replit to build
+Thought for 1m 2s
+
+Below are drop-in “instructions to Replit” to build the Customer vs Peer Group (customers + items + sales) analysis screen in your Replit Flask app, using only dw_*, ps_customers, ps_items_dw + your reporting group membership table from the UI you already implemented.
+
+1) Create DB objects (run on BOTH dev + production)
+1.1 Confirm reporting-group membership table
+
+Re-use the same table your /admin/customer-reporting-groups/ UI writes to.
+
+If your existing table is not clearly a “membership” table (one row per customer), create this and update your reporting-groups UI to write here:
+
+CREATE TABLE IF NOT EXISTS customer_reporting_group_members (
+  customer_code VARCHAR(64) PRIMARY KEY,
+  group_name    VARCHAR(128) NOT NULL,
+  updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_crgm_group
+ON customer_reporting_group_members(group_name);
+
+1.2 Add performance indexes (critical)
+CREATE INDEX IF NOT EXISTS idx_dwh_hdr_date_customer
+ON dw_invoice_header(invoice_date, customer_code);
+
+CREATE INDEX IF NOT EXISTS idx_dwh_hdr_invoice
+ON dw_invoice_header(invoice_no_365);
+
+CREATE INDEX IF NOT EXISTS idx_dwl_invoice_item
+ON dw_invoice_line(invoice_no_365, item_code_365);
+
+CREATE INDEX IF NOT EXISTS idx_dwl_item
+ON dw_invoice_line(item_code_365);
+
+
+Run these with whatever method you use for SQL changes (psql / admin migration script). Must be applied on dev + prod.
+
+2) Backend: create new blueprint
+2.1 Create file
+
+Create: blueprints/customer_benchmark.py
+
+Important: you MUST align one thing: how we detect returns in dw_invoice_header.
+
+Default below assumes h.invoice_type contains “RETURN”.
+
+If your header uses another field (e.g. doc_type, invoice_kind, inv_type, etc.), change the predicate in one place: RETURN_PREDICATE.
+
+from datetime import date, datetime, timedelta
+from flask import Blueprint, render_template, request, jsonify
+from flask_login import login_required, current_user
+from sqlalchemy import text
+from app import db
+
+bp = Blueprint("customer_benchmark", __name__, url_prefix="/admin/customer-benchmark")
+
+# --- ACCESS CONTROL (match your roles) ---
+ALLOWED_ROLES = {"admin", "sales_manager", "sales"}  # adjust to your app roles
+
+def require_role():
+    if getattr(current_user, "role", None) not in ALLOWED_ROLES:
+        return jsonify({"error": "Access denied"}), 403
+    return None
+
+# --- CHANGE THIS IF YOUR RETURNS FIELD DIFFERS ---
+RETURN_PREDICATE = "COALESCE(h.invoice_type,'') ILIKE '%RETURN%'"  # adjust if needed
+
+def parse_date(s: str) -> date:
+    return datetime.strptime(s, "%Y-%m-%d").date()
+
+def period_prev(start: date, end: date):
+    days = (end - start).days + 1
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=days - 1)
+    return prev_start, prev_end
+
+def period_py(start: date, end: date):
+    return start - timedelta(days=365), end - timedelta(days=365)
+
+def get_customer_group(customer_code: str) -> str | None:
+    q = text("""
+      SELECT group_name
+      FROM customer_reporting_group_members
+      WHERE customer_code = :c
+      LIMIT 1
+    """)
+    r = db.session.execute(q, {"c": customer_code}).fetchone()
+    return r[0] if r else None
+
+@bp.route("/")
+@login_required
+def page():
+    denied = require_role()
+    if denied: return denied
+    return render_template("customer_benchmark.html")
+
+@bp.route("/api/meta")
+@login_required
+def meta():
+    denied = require_role()
+    if denied: return denied
+
+    groups = db.session.execute(text("""
+      SELECT DISTINCT group_name
+      FROM customer_reporting_group_members
+      ORDER BY group_name
+    """)).fetchall()
+
+    return jsonify({
+      "groups": [g[0] for g in groups],
+      "defaults": {"days": 90, "compare_mode": "prev", "penetration_min": 0.30}
+    })
+
+@bp.route("/api/customer-lookup")
+@login_required
+def customer_lookup():
+    denied = require_role()
+    if denied: return denied
+
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"rows": []})
+
+    rows = db.session.execute(text("""
+      SELECT customer_code, customer_name
+      FROM ps_customers
+      WHERE customer_code ILIKE :q
+         OR customer_name ILIKE :q
+      ORDER BY customer_name
+      LIMIT 20
+    """), {"q": f"%{q}%"}).mappings().all()
+
+    return jsonify({"rows": [dict(r) for r in rows]})
+
+@bp.route("/api/kpis")
+@login_required
+def kpis():
+    denied = require_role()
+    if denied: return denied
+
+    cust = (request.args.get("customer_code") or "").strip()
+    grp = (request.args.get("group_name") or "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+    compare_mode = (request.args.get("compare_mode") or "prev").strip()  # prev|py|none
+
+    if not cust:
+        return jsonify({"error": "customer_code required"}), 400
+
+    if not grp:
+        grp = get_customer_group(cust) or ""
+
+    comp_start = comp_end = None
+    if compare_mode == "prev":
+        comp_start, comp_end = period_prev(start, end)
+    elif compare_mode == "py":
+        comp_start, comp_end = period_py(start, end)
+
+    # load both windows in one query (curr + comp)
+    min_date = comp_start if comp_start and comp_start < start else start
+    max_date = end
+
+    sql = text(f"""
+    WITH base AS (
+      SELECT
+        h.invoice_date::date AS d,
+        h.customer_code,
+        h.invoice_no_365,
+        l.item_code_365,
+
+        CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.quantity,0)) ELSE COALESCE(l.quantity,0) END AS qty_net,
+        CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net,
+
+        CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END AS qty_gross,
+        CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.line_total_excl,0),0) END AS sales_gross
+
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.invoice_date::date BETWEEN :min_date::date AND :max_date::date
+    ),
+    tagged AS (
+      SELECT *,
+        CASE
+          WHEN d BETWEEN :start::date AND :end::date THEN 'curr'
+          WHEN :has_comp = 1 AND d BETWEEN :comp_start::date AND :comp_end::date THEN 'comp'
+          ELSE NULL
+        END AS period_tag
+      FROM base
+    ),
+    peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    peer_cnt AS (
+      SELECT COUNT(*) AS n FROM peerset
+    ),
+    agg AS (
+      SELECT
+        period_tag,
+
+        -- customer
+        SUM(sales_net) FILTER (WHERE customer_code = :cust) AS cust_net_sales,
+        COUNT(DISTINCT invoice_no_365) FILTER (WHERE customer_code = :cust) AS cust_orders,
+        COUNT(DISTINCT item_code_365) FILTER (WHERE customer_code = :cust) AS cust_uniq_items,
+        SUM(sales_gross) FILTER (WHERE customer_code = :cust) AS cust_gross_sales,
+        NULLIF(SUM(qty_gross) FILTER (WHERE customer_code = :cust),0) AS cust_gross_qty,
+
+        -- peers total
+        SUM(sales_net) FILTER (WHERE customer_code IN (SELECT customer_code FROM peerset)) AS peer_net_sales_total,
+        COUNT(DISTINCT invoice_no_365) FILTER (WHERE customer_code IN (SELECT customer_code FROM peerset)) AS peer_orders_total,
+        SUM(sales_gross) FILTER (WHERE customer_code IN (SELECT customer_code FROM peerset)) AS peer_gross_sales_total,
+        NULLIF(SUM(qty_gross) FILTER (WHERE customer_code IN (SELECT customer_code FROM peerset)),0) AS peer_gross_qty_total
+
+      FROM tagged
+      WHERE period_tag IS NOT NULL
+      GROUP BY period_tag
+    )
+    SELECT
+      (SELECT n FROM peer_cnt) AS peer_customers,
+      jsonb_build_object(
+        'cust_net_sales', COALESCE((SELECT cust_net_sales FROM agg WHERE period_tag='curr'),0),
+        'cust_orders', COALESCE((SELECT cust_orders FROM agg WHERE period_tag='curr'),0),
+        'cust_uniq_items', COALESCE((SELECT cust_uniq_items FROM agg WHERE period_tag='curr'),0),
+        'cust_gross_sales', COALESCE((SELECT cust_gross_sales FROM agg WHERE period_tag='curr'),0),
+        'cust_gross_qty', (SELECT cust_gross_qty FROM agg WHERE period_tag='curr'),
+        'peer_net_sales_total', COALESCE((SELECT peer_net_sales_total FROM agg WHERE period_tag='curr'),0),
+        'peer_orders_total', COALESCE((SELECT peer_orders_total FROM agg WHERE period_tag='curr'),0),
+        'peer_gross_sales_total', COALESCE((SELECT peer_gross_sales_total FROM agg WHERE period_tag='curr'),0),
+        'peer_gross_qty_total', (SELECT peer_gross_qty_total FROM agg WHERE period_tag='curr')
+      ) AS curr,
+      CASE WHEN :has_comp = 1 THEN jsonb_build_object(
+        'cust_net_sales', COALESCE((SELECT cust_net_sales FROM agg WHERE period_tag='comp'),0),
+        'cust_orders', COALESCE((SELECT cust_orders FROM agg WHERE period_tag='comp'),0),
+        'cust_uniq_items', COALESCE((SELECT cust_uniq_items FROM agg WHERE period_tag='comp'),0)
+      ) ELSE NULL END AS comp
+    ;
+    """)
+
+    has_comp = 1 if (compare_mode in ("prev", "py")) else 0
+
+    row = db.session.execute(sql, {
+      "cust": cust,
+      "grp": grp,
+      "start": start,
+      "end": end,
+      "has_comp": has_comp,
+      "comp_start": comp_start or start,
+      "comp_end": comp_end or start,
+      "min_date": min_date,
+      "max_date": max_date,
+    }).mappings().first()
+
+    if not row:
+        return jsonify({"error": "no data"}), 404
+
+    peer_customers = int(row["peer_customers"] or 0)
+    curr = row["curr"] or {}
+    comp = row["comp"]
+
+    def safe_div(a, b):
+        return (float(a) / float(b)) if a is not None and b not in (None, 0) else None
+
+    cust_net_sales = float(curr.get("cust_net_sales", 0))
+    cust_orders = int(curr.get("cust_orders", 0))
+    cust_uniq_items = int(curr.get("cust_uniq_items", 0))
+
+    peer_net_sales_total = float(curr.get("peer_net_sales_total", 0))
+    peer_avg_sales_per_customer = safe_div(peer_net_sales_total, peer_customers)
+
+    cust_aov = safe_div(cust_net_sales, cust_orders)
+    peer_aov = safe_div(peer_net_sales_total, int(curr.get("peer_orders_total", 0)))
+
+    cust_unit_price_gross = safe_div(float(curr.get("cust_gross_sales", 0)), curr.get("cust_gross_qty"))
+    peer_unit_price_gross = safe_div(float(curr.get("peer_gross_sales_total", 0)), curr.get("peer_gross_qty_total"))
+
+    out = {
+      "customer_code": cust,
+      "group_name": grp,
+      "period": {"start": str(start), "end": str(end), "compare_mode": compare_mode},
+      "customer": {
+        "net_sales": cust_net_sales,
+        "orders": cust_orders,
+        "aov": cust_aov,
+        "uniq_items": cust_uniq_items,
+        "unit_price_gross": cust_unit_price_gross
+      },
+      "peers": {
+        "peer_customers": peer_customers,
+        "net_sales_total": peer_net_sales_total,
+        "avg_sales_per_customer": peer_avg_sales_per_customer,
+        "aov": peer_aov,
+        "unit_price_gross": peer_unit_price_gross
+      },
+      "indexes": {
+        "sales_index_vs_peer_avg": safe_div(cust_net_sales, peer_avg_sales_per_customer),
+        "price_index_gross": safe_div(cust_unit_price_gross, peer_unit_price_gross),
+      }
+    }
+
+    if comp is not None:
+        comp_sales = float(comp.get("cust_net_sales", 0))
+        comp_orders = int(comp.get("cust_orders", 0))
+        out["compare_period"] = {"start": str(comp_start), "end": str(comp_end)}
+        out["deltas"] = {
+          "net_sales_abs": cust_net_sales - comp_sales,
+          "net_sales_pct": safe_div((cust_net_sales - comp_sales), comp_sales),
+          "orders_abs": cust_orders - comp_orders,
+          "orders_pct": safe_div((cust_orders - comp_orders), comp_orders),
+        }
+
+    return jsonify(out)
+
+@bp.route("/api/not-bought")
+@login_required
+def not_bought():
+    denied = require_role()
+    if denied: return denied
+
+    cust = (request.args.get("customer_code") or "").strip()
+    grp = (request.args.get("group_name") or "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+    penetration_min = float(request.args.get("penetration_min", "0.30"))
+    limit = int(request.args.get("limit", "200"))
+
+    if not grp:
+        grp = get_customer_group(cust) or ""
+
+    sql = text(f"""
+    WITH base AS (
+      SELECT
+        h.customer_code,
+        l.item_code_365,
+        CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.quantity,0)) ELSE COALESCE(l.quantity,0) END AS qty_net,
+        CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.invoice_date::date BETWEEN :start::date AND :end::date
+    ),
+    peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    peer_cnt AS (SELECT COUNT(*) AS n FROM peerset),
+    peer_item AS (
+      SELECT
+        b.item_code_365,
+        COUNT(DISTINCT b.customer_code) FILTER (WHERE b.qty_net > 0) AS buyers,
+        SUM(b.sales_net) FILTER (WHERE b.qty_net > 0) AS peer_sales
+      FROM base b
+      JOIN peerset p ON p.customer_code = b.customer_code
+      GROUP BY b.item_code_365
+    ),
+    cust_item AS (
+      SELECT item_code_365, SUM(qty_net) AS cust_qty
+      FROM base
+      WHERE customer_code = :cust
+      GROUP BY item_code_365
+    )
+    SELECT
+      pi.item_code_365,
+      i.item_name,
+      i.category,
+      i.brand,
+      (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) AS penetration,
+      (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_avg_sales_per_customer,
+      COALESCE(ci.cust_qty,0) AS cust_qty,
+      ((pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) * (pi.peer_sales::float / NULLIF((SELECT n FROM peer_cnt),0))) AS opportunity_score
+    FROM peer_item pi
+    LEFT JOIN cust_item ci ON ci.item_code_365 = pi.item_code_365
+    LEFT JOIN ps_items_dw i ON i.item_code_365 = pi.item_code_365
+    WHERE COALESCE(ci.cust_qty,0) = 0
+      AND (pi.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) >= :pen
+    ORDER BY opportunity_score DESC NULLS LAST
+    LIMIT :lim
+    """)
+    rows = db.session.execute(sql, {
+      "start": start, "end": end,
+      "cust": cust, "grp": grp,
+      "pen": penetration_min, "lim": limit
+    }).mappings().all()
+
+    return jsonify({"rows": [dict(r) for r in rows]})
+
+@bp.route("/api/lapsed-items")
+@login_required
+def lapsed_items():
+    denied = require_role()
+    if denied: return denied
+
+    cust = (request.args.get("customer_code") or "").strip()
+    grp = (request.args.get("group_name") or "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+    compare_mode = (request.args.get("compare_mode") or "prev").strip()
+    limit = int(request.args.get("limit", "200"))
+
+    if compare_mode == "none":
+        return jsonify({"error": "compare_mode must be prev or py for lapsed"}), 400
+
+    if not grp:
+        grp = get_customer_group(cust) or ""
+
+    comp_start, comp_end = (period_prev(start, end) if compare_mode == "prev" else period_py(start, end))
+
+    sql = text(f"""
+    WITH comp AS (
+      SELECT l.item_code_365,
+             SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END) AS comp_qty_gross,
+             SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.line_total_excl,0),0) END) AS comp_sales_gross
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.customer_code = :cust
+        AND h.invoice_date::date BETWEEN :cs::date AND :ce::date
+      GROUP BY l.item_code_365
+      HAVING SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END) > 0
+    ),
+    curr AS (
+      SELECT l.item_code_365,
+             SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END) AS curr_qty_gross
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.customer_code = :cust
+        AND h.invoice_date::date BETWEEN :start::date AND :end::date
+      GROUP BY l.item_code_365
+    ),
+    peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    peer_cnt AS (SELECT COUNT(*) AS n FROM peerset),
+    peer_curr_buyers AS (
+      SELECT l.item_code_365,
+             COUNT(DISTINCT h.customer_code) FILTER (WHERE NOT ({RETURN_PREDICATE}) AND COALESCE(l.quantity,0) > 0) AS buyers
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      JOIN peerset p ON p.customer_code = h.customer_code
+      WHERE h.invoice_date::date BETWEEN :start::date AND :end::date
+      GROUP BY l.item_code_365
+    )
+    SELECT
+      c.item_code_365,
+      i.item_name,
+      i.category,
+      i.brand,
+      c.comp_qty_gross,
+      c.comp_sales_gross,
+      (pcb.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_penetration_curr
+    FROM comp c
+    LEFT JOIN curr k ON k.item_code_365 = c.item_code_365
+    LEFT JOIN peer_curr_buyers pcb ON pcb.item_code_365 = c.item_code_365
+    LEFT JOIN ps_items_dw i ON i.item_code_365 = c.item_code_365
+    WHERE COALESCE(k.curr_qty_gross,0) = 0
+    ORDER BY c.comp_sales_gross DESC NULLS LAST
+    LIMIT :lim
+    """)
+    rows = db.session.execute(sql, {
+      "cust": cust, "grp": grp,
+      "start": start, "end": end,
+      "cs": comp_start, "ce": comp_end,
+      "lim": limit
+    }).mappings().all()
+
+    return jsonify({"compare_period": {"start": str(comp_start), "end": str(comp_end)},
+                    "rows": [dict(r) for r in rows]})
+
+@bp.route("/api/category-mix")
+@login_required
+def category_mix():
+    denied = require_role()
+    if denied: return denied
+
+    cust = (request.args.get("customer_code") or "").strip()
+    grp = (request.args.get("group_name") or "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+    limit = int(request.args.get("limit", "200"))
+
+    if not grp:
+        grp = get_customer_group(cust) or ""
+
+    sql = text(f"""
+    WITH base AS (
+      SELECT
+        h.customer_code,
+        COALESCE(i.category,'(Uncategorized)') AS category,
+        CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      LEFT JOIN ps_items_dw i ON i.item_code_365 = l.item_code_365
+      WHERE h.invoice_date::date BETWEEN :start::date AND :end::date
+    ),
+    peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    cust_cat AS (
+      SELECT category, SUM(sales_net) AS sales
+      FROM base
+      WHERE customer_code = :cust
+      GROUP BY category
+    ),
+    peer_cat AS (
+      SELECT category, SUM(sales_net) AS sales
+      FROM base
+      WHERE customer_code IN (SELECT customer_code FROM peerset)
+      GROUP BY category
+    ),
+    totals AS (
+      SELECT
+        (SELECT SUM(sales) FROM cust_cat) AS cust_total,
+        (SELECT SUM(sales) FROM peer_cat) AS peer_total
+    )
+    SELECT
+      COALESCE(c.category, p.category) AS category,
+      COALESCE(c.sales,0) AS cust_sales,
+      COALESCE(p.sales,0) AS peer_sales,
+      COALESCE(c.sales,0) / NULLIF((SELECT cust_total FROM totals),0) AS cust_share,
+      COALESCE(p.sales,0) / NULLIF((SELECT peer_total FROM totals),0) AS peer_share,
+      (COALESCE(c.sales,0) / NULLIF((SELECT cust_total FROM totals),0))
+        -
+      (COALESCE(p.sales,0) / NULLIF((SELECT peer_total FROM totals),0)) AS share_diff
+    FROM cust_cat c
+    FULL OUTER JOIN peer_cat p ON p.category = c.category
+    ORDER BY ABS(
+      (COALESCE(c.sales,0) / NULLIF((SELECT cust_total FROM totals),0))
+      -
+      (COALESCE(p.sales,0) / NULLIF((SELECT peer_total FROM totals),0))
+    ) DESC NULLS LAST
+    LIMIT :lim
+    """)
+    rows = db.session.execute(sql, {
+      "cust": cust, "grp": grp,
+      "start": start, "end": end,
+      "lim": limit
+    }).mappings().all()
+
+    return jsonify({"rows": [dict(r) for r in rows]})
+
+@bp.route("/api/price-outliers")
+@login_required
+def price_outliers():
+    denied = require_role()
+    if denied: return denied
+
+    cust = (request.args.get("customer_code") or "").strip()
+    grp = (request.args.get("group_name") or "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+    min_qty = float(request.args.get("min_qty", "1"))
+    limit = int(request.args.get("limit", "100"))
+
+    if not grp:
+        grp = get_customer_group(cust) or ""
+
+    sql = text(f"""
+    WITH peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    base_gross AS (
+      SELECT
+        h.customer_code,
+        l.item_code_365,
+        SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END) AS qty_gross,
+        SUM(CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.line_total_excl,0),0) END) AS sales_gross
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.invoice_date::date BETWEEN :start::date AND :end::date
+      GROUP BY h.customer_code, l.item_code_365
+    ),
+    cust_item AS (
+      SELECT item_code_365,
+             SUM(qty_gross) AS qty,
+             SUM(sales_gross) AS sales
+      FROM base_gross
+      WHERE customer_code = :cust
+      GROUP BY item_code_365
+      HAVING SUM(qty_gross) >= :min_qty
+    ),
+    peer_item AS (
+      SELECT item_code_365,
+             SUM(qty_gross) AS qty,
+             SUM(sales_gross) AS sales
+      FROM base_gross
+      WHERE customer_code IN (SELECT customer_code FROM peerset)
+      GROUP BY item_code_365
+      HAVING SUM(qty_gross) >= :min_qty
+    )
+    SELECT
+      c.item_code_365,
+      i.item_name,
+      i.category,
+      i.brand,
+      (c.sales / NULLIF(c.qty,0)) AS cust_unit_price,
+      (p.sales / NULLIF(p.qty,0)) AS peer_unit_price,
+      (c.sales / NULLIF(c.qty,0)) / NULLIF((p.sales / NULLIF(p.qty,0)),0) AS price_index,
+      c.qty AS cust_qty,
+      p.qty AS peer_qty
+    FROM cust_item c
+    JOIN peer_item p ON p.item_code_365 = c.item_code_365
+    LEFT JOIN ps_items_dw i ON i.item_code_365 = c.item_code_365
+    ORDER BY ABS(((c.sales / NULLIF(c.qty,0)) / NULLIF((p.sales / NULLIF(p.qty,0)),0)) - 1) DESC NULLS LAST
+    LIMIT :lim
+    """)
+    rows = db.session.execute(sql, {
+      "cust": cust, "grp": grp,
+      "start": start, "end": end,
+      "min_qty": min_qty,
+      "lim": limit
+    }).mappings().all()
+
+    return jsonify({"rows": [dict(r) for r in rows]})
+
+2.2 Register blueprint
+
+In your app bootstrap (usually app.py or __init__.py):
+
+from blueprints.customer_benchmark import bp as customer_benchmark_bp
+app.register_blueprint(customer_benchmark_bp)
+
+2.3 Add to admin menu/navigation
+
+Wherever you render admin links, add:
+
+Customer Benchmark → /admin/customer-benchmark/
+
+3) Frontend: create the template
+
+Create: templates/customer_benchmark.html
+
+Use a simple UI (cards + tabs). Paste this:
+
+{% extends "base.html" %}
+{% block content %}
+
+<h3>Customer vs Peer Group</h3>
+
+<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end;">
+  <div>
+    <label>Customer (code or name)</label><br/>
+    <input id="custSearch" placeholder="Type name/code..." style="width:260px"/>
+    <div id="custSuggest" style="border:1px solid #ddd; display:none; position:absolute; background:#fff; z-index:10; width:260px;"></div>
+    <input id="customerCode" placeholder="Selected code" style="width:140px; margin-top:6px" readonly />
+  </div>
+
+  <div>
+    <label>Peer Group</label><br/>
+    <select id="groupName" style="width:220px"></select>
+    <div style="font-size:12px;color:#666">Blank = auto from customer</div>
+  </div>
+
+  <div>
+    <label>Start</label><br/>
+    <input type="date" id="startDate" />
+  </div>
+
+  <div>
+    <label>End</label><br/>
+    <input type="date" id="endDate" />
+  </div>
+
+  <div>
+    <label>Compare</label><br/>
+    <select id="compareMode">
+      <option value="prev">Previous Period</option>
+      <option value="py">Same Period PY</option>
+      <option value="none">None</option>
+    </select>
+  </div>
+
+  <button id="runBtn">Run</button>
+</div>
+
+<hr/>
+
+<div id="kpis" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+<div id="deltaInfo" style="margin-top:8px; color:#666;"></div>
+
+<hr/>
+
+<div style="display:flex; gap:10px; flex-wrap:wrap;">
+  <button class="tabBtn" data-tab="nb">White Space (Not Bought)</button>
+  <button class="tabBtn" data-tab="lapsed">Lapsed Items</button>
+  <button class="tabBtn" data-tab="mix">Category Mix</button>
+  <button class="tabBtn" data-tab="price">Price vs Peers</button>
+</div>
+
+<div id="tab_nb" class="tabPane" style="margin-top:12px;">
+  <div style="display:flex; gap:10px; align-items:end;">
+    <div>
+      <label>Min peer penetration</label><br/>
+      <input id="penMin" type="number" step="0.05" value="0.30" />
+    </div>
+    <button id="loadNB">Load</button>
+  </div>
+
+  <table class="table table-sm" style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th>Item</th><th>Name</th><th>Category</th><th>Brand</th>
+        <th>Penetration</th><th>Peer €/cust</th><th>Score</th>
+      </tr>
+    </thead>
+    <tbody id="nbBody"></tbody>
+  </table>
+</div>
+
+<div id="tab_lapsed" class="tabPane" style="display:none; margin-top:12px;">
+  <button id="loadLapsed">Load</button>
+  <table class="table table-sm" style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th>Item</th><th>Name</th><th>Category</th><th>Brand</th>
+        <th>Comp Qty</th><th>Comp €</th><th>Peer Penetration</th>
+      </tr>
+    </thead>
+    <tbody id="lapsedBody"></tbody>
+  </table>
+</div>
+
+<div id="tab_mix" class="tabPane" style="display:none; margin-top:12px;">
+  <button id="loadMix">Load</button>
+  <table class="table table-sm" style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th>Category</th><th>Cust €</th><th>Cust Share</th>
+        <th>Peers €</th><th>Peers Share</th><th>Diff (pp)</th>
+      </tr>
+    </thead>
+    <tbody id="mixBody"></tbody>
+  </table>
+</div>
+
+<div id="tab_price" class="tabPane" style="display:none; margin-top:12px;">
+  <div style="display:flex; gap:10px; align-items:end;">
+    <div>
+      <label>Min qty</label><br/>
+      <input id="minQty" type="number" step="1" value="1" />
+    </div>
+    <button id="loadPrice">Load</button>
+  </div>
+  <table class="table table-sm" style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th>Item</th><th>Name</th><th>Cust Unit</th><th>Peer Unit</th><th>Index</th><th>Cust Qty</th><th>Peer Qty</th>
+      </tr>
+    </thead>
+    <tbody id="priceBody"></tbody>
+  </table>
+</div>
+
+<script>
+function fmt(n){
+  if(n === null || n === undefined) return "";
+  if(typeof n === "number") return n.toLocaleString(undefined,{maximumFractionDigits:2});
+  return n;
+}
+
+function qsBase(){
+  const customer_code = document.getElementById("customerCode").value.trim();
+  const group_name = document.getElementById("groupName").value;
+  const start = document.getElementById("startDate").value;
+  const end = document.getElementById("endDate").value;
+  const compare_mode = document.getElementById("compareMode").value;
+  return { customer_code, group_name, start, end, compare_mode };
+}
+
+function renderKpis(j){
+  const el = document.getElementById("kpis");
+  el.innerHTML = "";
+  const cards = [
+    ["Customer Net Sales", j.customer.net_sales],
+    ["Customer Orders", j.customer.orders],
+    ["Customer AOV", j.customer.aov],
+    ["Peers Avg Sales/Cust", j.peers.avg_sales_per_customer],
+    ["Sales Index vs Peer Avg", j.indexes.sales_index_vs_peer_avg],
+    ["Price Index (Gross)", j.indexes.price_index_gross],
+  ];
+  cards.forEach(([k,v])=>{
+    const d = document.createElement("div");
+    d.style.border="1px solid #ddd";
+    d.style.borderRadius="10px";
+    d.style.padding="10px 12px";
+    d.innerHTML = `<div style="font-size:12px;color:#666">${k}</div>
+                   <div style="font-size:18px;font-weight:600">${fmt(v)}</div>`;
+    el.appendChild(d);
+  });
+
+  const di = document.getElementById("deltaInfo");
+  if(j.deltas){
+    di.textContent = `Δ Net Sales: ${fmt(j.deltas.net_sales_abs)} (${fmt((j.deltas.net_sales_pct||0)*100)}%) | Δ Orders: ${fmt(j.deltas.orders_abs)} (${fmt((j.deltas.orders_pct||0)*100)}%)`;
+  } else {
+    di.textContent = "";
+  }
+}
+
+async function loadMeta(){
+  const r = await fetch("/admin/customer-benchmark/api/meta");
+  const j = await r.json();
+  const sel = document.getElementById("groupName");
+  sel.innerHTML = `<option value="">(Auto from customer)</option>` + (j.groups||[]).map(g=>`<option>${g}</option>`).join("");
+
+  const end = new Date();
+  const start = new Date(end.getTime() - (j.defaults.days||90)*24*3600*1000);
+  document.getElementById("endDate").value = end.toISOString().slice(0,10);
+  document.getElementById("startDate").value = start.toISOString().slice(0,10);
+  document.getElementById("compareMode").value = j.defaults.compare_mode || "prev";
+  document.getElementById("penMin").value = j.defaults.penetration_min || 0.30;
+}
+
+async function runKpis(){
+  const p = qsBase();
+  if(!p.customer_code){ alert("Select customer first"); return; }
+  const r = await fetch("/admin/customer-benchmark/api/kpis?" + new URLSearchParams(p));
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+  renderKpis(j);
+}
+
+async function loadNotBought(){
+  const p = qsBase();
+  if(!p.customer_code){ alert("Select customer first"); return; }
+  p.penetration_min = document.getElementById("penMin").value;
+  const r = await fetch("/admin/customer-benchmark/api/not-bought?" + new URLSearchParams(p));
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+  document.getElementById("nbBody").innerHTML = (j.rows||[]).map(x => `
+    <tr>
+      <td>${x.item_code_365||""}</td>
+      <td>${x.item_name||""}</td>
+      <td>${x.category||""}</td>
+      <td>${x.brand||""}</td>
+      <td>${fmt(x.penetration)}</td>
+      <td>${fmt(x.peer_avg_sales_per_customer)}</td>
+      <td>${fmt(x.opportunity_score)}</td>
+    </tr>
+  `).join("");
+}
+
+async function loadLapsed(){
+  const p = qsBase();
+  if(!p.customer_code){ alert("Select customer first"); return; }
+  const r = await fetch("/admin/customer-benchmark/api/lapsed-items?" + new URLSearchParams(p));
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+  document.getElementById("lapsedBody").innerHTML = (j.rows||[]).map(x => `
+    <tr>
+      <td>${x.item_code_365||""}</td>
+      <td>${x.item_name||""}</td>
+      <td>${x.category||""}</td>
+      <td>${x.brand||""}</td>
+      <td>${fmt(x.comp_qty_gross)}</td>
+      <td>${fmt(x.comp_sales_gross)}</td>
+      <td>${fmt(x.peer_penetration_curr)}</td>
+    </tr>
+  `).join("");
+}
+
+async function loadMix(){
+  const p = qsBase();
+  if(!p.customer_code){ alert("Select customer first"); return; }
+  const r = await fetch("/admin/customer-benchmark/api/category-mix?" + new URLSearchParams(p));
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+  document.getElementById("mixBody").innerHTML = (j.rows||[]).map(x => `
+    <tr>
+      <td>${x.category||""}</td>
+      <td>${fmt(x.cust_sales)}</td>
+      <td>${fmt((x.cust_share||0)*100)}%</td>
+      <td>${fmt(x.peer_sales)}</td>
+      <td>${fmt((x.peer_share||0)*100)}%</td>
+      <td>${fmt((x.share_diff||0)*100)}pp</td>
+    </tr>
+  `).join("");
+}
+
+async function loadPrice(){
+  const p = qsBase();
+  if(!p.customer_code){ alert("Select customer first"); return; }
+  p.min_qty = document.getElementById("minQty").value;
+  const r = await fetch("/admin/customer-benchmark/api/price-outliers?" + new URLSearchParams(p));
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+  document.getElementById("priceBody").innerHTML = (j.rows||[]).map(x => `
+    <tr>
+      <td>${x.item_code_365||""}</td>
+      <td>${x.item_name||""}</td>
+      <td>${fmt(x.cust_unit_price)}</td>
+      <td>${fmt(x.peer_unit_price)}</td>
+      <td>${fmt(x.price_index)}</td>
+      <td>${fmt(x.cust_qty)}</td>
+      <td>${fmt(x.peer_qty)}</td>
+    </tr>
+  `).join("");
+}
+
+/* Tabs */
+document.querySelectorAll(".tabBtn").forEach(b=>{
+  b.onclick = ()=>{
+    const t = b.getAttribute("data-tab");
+    document.querySelectorAll(".tabPane").forEach(p=>p.style.display="none");
+    document.getElementById("tab_"+t).style.display="block";
+  };
+});
+
+/* Customer lookup */
+let lookupTimer = null;
+document.getElementById("custSearch").addEventListener("input", ()=>{
+  clearTimeout(lookupTimer);
+  lookupTimer = setTimeout(async ()=>{
+    const q = document.getElementById("custSearch").value.trim();
+    const box = document.getElementById("custSuggest");
+    if(q.length < 2){ box.style.display="none"; return; }
+    const r = await fetch("/admin/customer-benchmark/api/customer-lookup?q=" + encodeURIComponent(q));
+    const j = await r.json();
+    box.innerHTML = (j.rows||[]).map(x=>`
+      <div style="padding:6px 8px; cursor:pointer" data-code="${x.customer_code}">
+        <b>${x.customer_code}</b> — ${x.customer_name||""}
+      </div>
+    `).join("");
+    box.style.display = "block";
+    box.querySelectorAll("div[data-code]").forEach(d=>{
+      d.onclick = ()=>{
+        document.getElementById("customerCode").value = d.getAttribute("data-code");
+        box.style.display = "none";
+      };
+    });
+  }, 250);
+});
+
+document.getElementById("runBtn").onclick = runKpis;
+document.getElementById("loadNB").onclick = loadNotBought;
+document.getElementById("loadLapsed").onclick = loadLapsed;
+document.getElementById("loadMix").onclick = loadMix;
+document.getElementById("loadPrice").onclick = loadPrice;
+
+loadMeta();
+</script>
+
+{% endblock %}
+
+4) Align 2 schema field names (mandatory)
+
+Replit must verify these fields exist and adjust if different:
+
+4.1 Returns detection
+
+In customer_benchmark.py:
+
+If dw_invoice_header does NOT have invoice_type, update:
+
+RETURN_PREDICATE = "COALESCE(h.<YOUR_FIELD>,'') ILIKE '%RETURN%'"
+
+4.2 Item attributes columns
+
+The UI queries ps_items_dw.category, ps_items_dw.brand, ps_items_dw.item_name.
+If your columns differ, change the SELECTs accordingly.
+
+5) Deploy + test checklist
+
+Apply SQL indexes on dev + prod
+
+Deploy code
+
+Open /admin/customer-benchmark/
+
+Search customer by name → select
+
+Leave group blank → should auto use customer’s assigned reporting group
+
+Click Run → KPI cards should load
+
+Tab White Space → Load → items appear
+
+Tab Lapsed → (works only if compare_mode ≠ none)
+
+Tab Category mix → loads
+
+Tab Price vs peers → loads and shows index
+
+If you want the next upgrade immediately after this build: I can give you one more endpoint + UI block for a clean monthly trend chart (Customer vs Peer Avg) and an Item Recency (RFM-lite) list per customer (days since last purchase, frequency, monetary).
+
+yes include that as well.  
+Thought for 52s
+
+Below are Replit instructions to add the two upgrades to the existing /admin/customer-benchmark/ implementation:
+
+Monthly Trend (Customer vs Peer Avg)
+
+Item Recency (RFM-lite per item)
+
+Everything stays within: dw_*, ps_customers, ps_items_dw, and your reporting group membership table.
+
+A) Backend: add 2 new API endpoints
+A1) Update blueprints/customer_benchmark.py
+
+Add these routes below your existing endpoints (keep using the same RETURN_PREDICATE + require_role() helpers).
+
+1) Monthly trend endpoint
+@bp.route("/api/trends-monthly")
+@login_required
+def trends_monthly():
+    denied = require_role()
+    if denied: return denied
+
+    cust = (request.args.get("customer_code") or "").strip()
+    grp = (request.args.get("group_name") or "").strip()
+    start = parse_date(request.args["start"])
+    end = parse_date(request.args["end"])
+
+    if not cust:
+        return jsonify({"error": "customer_code required"}), 400
+
+    if not grp:
+        grp = get_customer_group(cust) or ""
+
+    sql = text(f"""
+    WITH peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    peer_cnt AS (SELECT COUNT(*)::int AS n FROM peerset),
+    base AS (
+      SELECT
+        date_trunc('month', h.invoice_date)::date AS month_start,
+        h.customer_code,
+        h.invoice_no_365,
+        CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net,
+        CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE 1 END AS is_purchase_line
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.invoice_date::date BETWEEN :start::date AND :end::date
+    ),
+    cust_m AS (
+      SELECT
+        month_start,
+        SUM(sales_net) AS cust_net_sales,
+        COUNT(DISTINCT invoice_no_365) FILTER (WHERE is_purchase_line=1) AS cust_orders
+      FROM base
+      WHERE customer_code = :cust
+      GROUP BY month_start
+    ),
+    peer_m AS (
+      SELECT
+        month_start,
+        SUM(sales_net) AS peer_net_sales_total,
+        COUNT(DISTINCT invoice_no_365) FILTER (WHERE is_purchase_line=1) AS peer_orders_total
+      FROM base
+      WHERE customer_code IN (SELECT customer_code FROM peerset)
+      GROUP BY month_start
+    )
+    SELECT
+      COALESCE(c.month_start, p.month_start) AS month_start,
+      COALESCE(c.cust_net_sales,0) AS cust_net_sales,
+      COALESCE(c.cust_orders,0) AS cust_orders,
+      COALESCE(p.peer_net_sales_total,0) AS peer_net_sales_total,
+      COALESCE(p.peer_orders_total,0) AS peer_orders_total,
+      (COALESCE(p.peer_net_sales_total,0) / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_avg_sales_per_customer,
+      (COALESCE(p.peer_orders_total,0)::float / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_avg_orders_per_customer,
+      (SELECT n FROM peer_cnt) AS peer_customers
+    FROM cust_m c
+    FULL OUTER JOIN peer_m p ON p.month_start = c.month_start
+    ORDER BY month_start
+    """)
+
+    rows = db.session.execute(sql, {
+      "cust": cust, "grp": grp, "start": start, "end": end
+    }).mappings().all()
+
+    return jsonify({"rows": [dict(r) for r in rows]})
+
+2) Item Recency (RFM-lite) endpoint
+
+Recency is measured vs the selected end date (so the screen is consistent).
+
+“Last purchase date” is computed from non-return purchases (gross logic).
+
+Monetary is net sales (returns reduce it).
+
+@bp.route("/api/item-rfm")
+@login_required
+def item_rfm():
+    denied = require_role()
+    if denied: return denied
+
+    cust = (request.args.get("customer_code") or "").strip()
+    grp = (request.args.get("group_name") or "").strip()
+    end = parse_date(request.args["end"])
+    lookback_days = int(request.args.get("lookback_days", "365"))
+    limit = int(request.args.get("limit", "300"))
+
+    if not cust:
+        return jsonify({"error": "customer_code required"}), 400
+
+    if not grp:
+        grp = get_customer_group(cust) or ""
+
+    start = end - timedelta(days=lookback_days - 1)
+
+    sql = text(f"""
+    WITH peerset AS (
+      SELECT customer_code
+      FROM customer_reporting_group_members
+      WHERE group_name = :grp
+        AND customer_code <> :cust
+    ),
+    peer_cnt AS (SELECT COUNT(*)::int AS n FROM peerset),
+
+    base AS (
+      SELECT
+        h.customer_code,
+        h.invoice_no_365,
+        h.invoice_date::date AS d,
+        l.item_code_365,
+
+        -- net monetary (returns reduce)
+        CASE WHEN {RETURN_PREDICATE} THEN -ABS(COALESCE(l.line_total_excl,0)) ELSE COALESCE(l.line_total_excl,0) END AS sales_net,
+
+        -- gross purchase qty: returns excluded
+        CASE WHEN {RETURN_PREDICATE} THEN 0 ELSE GREATEST(COALESCE(l.quantity,0),0) END AS qty_gross
+      FROM dw_invoice_header h
+      JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
+      WHERE h.invoice_date::date BETWEEN :start::date AND :end::date
+    ),
+
+    cust_item AS (
+      SELECT
+        item_code_365,
+        MAX(d) FILTER (WHERE qty_gross > 0) AS last_purchase_date,
+        COUNT(DISTINCT invoice_no_365) FILTER (WHERE qty_gross > 0) AS purchase_orders,
+        SUM(qty_gross) AS qty_gross,
+        SUM(sales_net) AS sales_net
+      FROM base
+      WHERE customer_code = :cust
+      GROUP BY item_code_365
+    ),
+
+    peer_buyers AS (
+      SELECT
+        item_code_365,
+        COUNT(DISTINCT customer_code) FILTER (WHERE qty_gross > 0) AS buyers
+      FROM base
+      WHERE customer_code IN (SELECT customer_code FROM peerset)
+      GROUP BY item_code_365
+    )
+
+    SELECT
+      ci.item_code_365,
+      i.item_name,
+      i.category,
+      i.brand,
+      ci.last_purchase_date,
+      (EXTRACT(day FROM (:end::date - ci.last_purchase_date)))::int AS days_since_last_purchase,
+      ci.purchase_orders,
+      ci.qty_gross,
+      ci.sales_net,
+      (ci.sales_net / NULLIF(ci.purchase_orders,0)) AS avg_sales_per_order,
+      (ci.sales_net / NULLIF(ci.qty_gross,0)) AS avg_unit_price,
+      (pb.buyers::float / NULLIF((SELECT n FROM peer_cnt),0)) AS peer_penetration
+    FROM cust_item ci
+    LEFT JOIN peer_buyers pb ON pb.item_code_365 = ci.item_code_365
+    LEFT JOIN ps_items_dw i ON i.item_code_365 = ci.item_code_365
+    ORDER BY days_since_last_purchase DESC NULLS LAST, ci.sales_net DESC NULLS LAST
+    LIMIT :lim
+    """)
+
+    rows = db.session.execute(sql, {
+      "cust": cust, "grp": grp, "start": start, "end": end, "lim": limit
+    }).mappings().all()
+
+    return jsonify({
+      "lookback": {"start": str(start), "end": str(end), "days": lookback_days},
+      "rows": [dict(r) for r in rows]
+    })
+
+B) Frontend: add 2 new tabs + renderers (no external libraries)
+B1) Update templates/customer_benchmark.html
+1) Add two new tab buttons
+
+Find the tab buttons block and add:
+
+<button class="tabBtn" data-tab="trend">Monthly Trend</button>
+<button class="tabBtn" data-tab="rfm">Item Recency (RFM-lite)</button>
+
+2) Add two new tab panes
+
+Add below your existing panes:
+
+<div id="tab_trend" class="tabPane" style="display:none; margin-top:12px;">
+  <button id="loadTrend">Load</button>
+  <div id="trendSpark" style="margin-top:10px;"></div>
+  <table class="table table-sm" style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th>Month</th><th>Cust €</th><th>Cust Orders</th>
+        <th>Peers Avg €/cust</th><th>Peers Avg Orders/cust</th><th>Peer Customers</th>
+      </tr>
+    </thead>
+    <tbody id="trendBody"></tbody>
+  </table>
+</div>
+
+<div id="tab_rfm" class="tabPane" style="display:none; margin-top:12px;">
+  <div style="display:flex; gap:10px; align-items:end;">
+    <div>
+      <label>Lookback days</label><br/>
+      <input id="rfmLookback" type="number" value="365" step="30" />
+    </div>
+    <div>
+      <label>Stale days threshold</label><br/>
+      <input id="rfmStale" type="number" value="120" step="10" />
+    </div>
+    <button id="loadRfm">Load</button>
+  </div>
+
+  <table class="table table-sm" style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th>Item</th><th>Name</th><th>Category</th><th>Brand</th>
+        <th>Last Purchase</th><th>Days Since</th><th>Orders</th><th>Qty</th><th>Net €</th><th>Peer Penetration</th>
+      </tr>
+    </thead>
+    <tbody id="rfmBody"></tbody>
+  </table>
+</div>
+
+3) Add JS helpers: sparkline + loaders
+
+Inside the <script> (same file), add:
+
+function sparklineSVG(seriesA, seriesB, w=520, h=90){
+  // seriesA: customer, seriesB: peer avg
+  const pad = 6;
+  const all = [...seriesA, ...seriesB].filter(x => x !== null && x !== undefined);
+  if(!all.length) return "";
+
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  const den = (max-min) || 1;
+
+  function pts(series){
+    return series.map((v,i)=>{
+      const x = pad + (i*(w-2*pad)/(Math.max(series.length-1,1)));
+      const y = h - pad - ((v-min)/den)*(h-2*pad);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+  }
+
+  const pA = pts(seriesA.map(v=>v??min));
+  const pB = pts(seriesB.map(v=>v??min));
+
+  return `
+  <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="border:1px solid #ddd;border-radius:10px;">
+    <polyline fill="none" stroke="black" stroke-width="2" points="${pA}" />
+    <polyline fill="none" stroke="#888" stroke-width="2" stroke-dasharray="4 3" points="${pB}" />
+    <text x="10" y="16" font-size="12" fill="#000">Customer</text>
+    <text x="90" y="16" font-size="12" fill="#888">Peers avg</text>
+  </svg>`;
+}
+
+async function loadTrend(){
+  const p = qsBase();
+  if(!p.customer_code){ alert("Select customer first"); return; }
+  const r = await fetch("/admin/customer-benchmark/api/trends-monthly?" + new URLSearchParams(p));
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+
+  const rows = j.rows || [];
+  document.getElementById("trendBody").innerHTML = rows.map(x => `
+    <tr>
+      <td>${(x.month_start||"").slice(0,7)}</td>
+      <td>${fmt(x.cust_net_sales)}</td>
+      <td>${fmt(x.cust_orders)}</td>
+      <td>${fmt(x.peer_avg_sales_per_customer)}</td>
+      <td>${fmt(x.peer_avg_orders_per_customer)}</td>
+      <td>${fmt(x.peer_customers)}</td>
+    </tr>
+  `).join("");
+
+  const custSeries = rows.map(x => Number(x.cust_net_sales||0));
+  const peerSeries = rows.map(x => Number(x.peer_avg_sales_per_customer||0));
+  document.getElementById("trendSpark").innerHTML = sparklineSVG(custSeries, peerSeries);
+}
+
+async function loadRfm(){
+  const p = qsBase();
+  if(!p.customer_code){ alert("Select customer first"); return; }
+
+  const lookback_days = document.getElementById("rfmLookback").value;
+  const stale_days = Number(document.getElementById("rfmStale").value);
+
+  const params = new URLSearchParams({
+    customer_code: p.customer_code,
+    group_name: p.group_name,
+    end: p.end,
+    lookback_days: lookback_days
+  });
+
+  const r = await fetch("/admin/customer-benchmark/api/item-rfm?" + params);
+  const j = await r.json();
+  if(!r.ok){ alert(j.error || "Error"); return; }
+
+  document.getElementById("rfmBody").innerHTML = (j.rows||[]).map(x => {
+    const ds = x.days_since_last_purchase;
+    const tag = (ds !== null && ds !== undefined && ds >= stale_days)
+      ? `<span style="padding:2px 6px;border:1px solid #ddd;border-radius:10px;">STALE</span>`
+      : ``;
+
+    return `
+    <tr>
+      <td>${x.item_code_365||""}</td>
+      <td>${x.item_name||""}</td>
+      <td>${x.category||""}</td>
+      <td>${x.brand||""}</td>
+      <td>${x.last_purchase_date||""}</td>
+      <td>${fmt(ds)} ${tag}</td>
+      <td>${fmt(x.purchase_orders)}</td>
+      <td>${fmt(x.qty_gross)}</td>
+      <td>${fmt(x.sales_net)}</td>
+      <td>${fmt((x.peer_penetration||0)*100)}%</td>
+    </tr>`;
+  }).join("");
+}
+
+document.getElementById("loadTrend").onclick = loadTrend;
+document.getElementById("loadRfm").onclick = loadRfm;
+
+C) Quick test checklist (Replit must run)
+
+Open /admin/customer-benchmark/
+
+Select a customer (search)
+
+Click Run (KPIs load)
+
+Go Monthly Trend → Load
+
+Table fills
+
+Sparkline shows 2 lines: Customer vs Peers avg
+
+Go Item Recency → set Lookback 365 → Load
+
+Rows appear
+
+Items beyond stale threshold show STALE tag
+
+Peer penetration column shows %
+
+D) One critical alignment check (do this now)
+
+Returns field: confirm your dw_invoice_header column used in RETURN_PREDICATE.
+If your DB doesn’t have invoice_type, change it once (same as earlier) and everything above works.
