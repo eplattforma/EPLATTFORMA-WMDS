@@ -243,8 +243,8 @@ def upsert():
                 flash(f"Invalid status transition: Cannot change from {old_status} to {new_status}. Allowed: {', '.join(allowed) if allowed else 'none'}", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
         
-        # Validation: DISPATCHED requires all invoices to be synced from PS365
-        if new_status == 'DISPATCHED':
+        # Validation: only when transitioning TO DISPATCHED (not when already DISPATCHED and editing other fields)
+        if new_status == 'DISPATCHED' and old_status != 'DISPATCHED':
             invoices = Invoice.query.filter_by(route_id=int(route_id)).all()
             if not invoices:
                 flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
@@ -255,9 +255,6 @@ def upsert():
                 flash(f"Cannot mark as DISPATCHED: {len(not_ready)} invoice(s) are not ready for dispatch. All invoices must be 'ready_for_dispatch'.", "danger")
                 return redirect(url_for("routes.detail", shipment_id=route_id))
             
-            # Since the user confirmed the import script is now correct, we no longer need 
-            # to block dispatch on the ps365_synced_at field or force auto-sync.
-            # However, we still check for total_grand to ensure financial data exists.
             missing_amounts = [inv for inv in invoices if inv.total_grand is None]
             if missing_amounts:
                 invoice_list = ', '.join([inv.invoice_no for inv in missing_amounts[:5]])
@@ -1270,8 +1267,8 @@ def change_route_status(shipment_id):
             flash(f"Invalid status transition: Cannot change from {old_status} to {new_status}. Allowed: {', '.join(allowed) if allowed else 'none'}", "danger")
             return redirect(url_for("routes.detail", shipment_id=shipment_id))
     
-    # Validation: DISPATCHED requires all invoices to be ready_for_dispatch
-    if new_status == 'DISPATCHED':
+    # Validation: only when transitioning TO DISPATCHED (not when already DISPATCHED)
+    if new_status == 'DISPATCHED' and old_status != 'DISPATCHED':
         if not invoices:
             flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
             return redirect(url_for("routes.detail", shipment_id=shipment_id))
@@ -1281,10 +1278,9 @@ def change_route_status(shipment_id):
             flash(f"Cannot mark as DISPATCHED: {len(not_ready)} invoice(s) are not ready for dispatch. All invoices must be 'ready_for_dispatch'.", "danger")
             return redirect(url_for("routes.detail", shipment_id=shipment_id))
         
-        # Validation: DISPATCHED requires all invoices to be synced from PS365
         not_synced = [inv for inv in invoices if inv.ps365_synced_at is None]
         if not_synced:
-            invoice_list = ', '.join([inv.invoice_no for inv in not_synced[:5]])  # Show first 5
+            invoice_list = ', '.join([inv.invoice_no for inv in not_synced[:5]])
             if len(not_synced) > 5:
                 invoice_list += f" and {len(not_synced) - 5} more"
             flash(f"Cannot mark as DISPATCHED: {len(not_synced)} invoice(s) have not been synced from PS365 to get total amounts. Please sync these invoices first: {invoice_list}", "danger")
