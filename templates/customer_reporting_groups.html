@@ -1,0 +1,511 @@
+{% extends "base.html" %}
+{% block title %}Customer Reporting Groups{% endblock %}
+
+{% block head %}
+<style>
+    .crg-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 16px 20px;
+    }
+    .crg-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .crg-controls .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .crg-controls .form-group label {
+        font-size: 11px; color: rgba(226,232,240,0.55);
+        text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500;
+    }
+    .crg-controls select, .crg-controls input[type="text"] {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+        color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 13px;
+    }
+    .crg-controls select option { background: #1e293b; color: #e2e8f0; }
+
+    .crg-table { width: 100%; border-collapse: collapse; }
+    .crg-table thead th {
+        font-size: 11px; font-weight: 500; color: rgba(226,232,240,0.55);
+        letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 8px 10px; border-bottom: 2px solid rgba(255,255,255,0.1);
+        position: sticky; top: 0; background: #0f172a;
+    }
+    .crg-table tbody td {
+        padding: 8px 10px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05);
+        color: rgba(226,232,240,0.85);
+    }
+    .crg-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+    .crg-table .check-col { width: 36px; text-align: center; }
+
+    .crg-group-badge {
+        display: inline-block; padding: 2px 10px; border-radius: 10px;
+        font-size: 11px; font-weight: 600;
+        background: rgba(99,102,241,0.15); color: #818cf8;
+    }
+    .crg-group-badge.empty {
+        background: rgba(226,232,240,0.06); color: rgba(226,232,240,0.35);
+        font-style: italic;
+    }
+
+    .crg-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .crg-chip {
+        padding: 6px 14px; border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
+        cursor: pointer; background: rgba(255,255,255,0.04); color: rgba(226,232,240,0.8);
+        font-size: 12px; font-weight: 500; transition: all 0.15s;
+    }
+    .crg-chip:hover { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); color: #fff; }
+    .crg-chip.clear-chip { border-color: rgba(239,68,68,0.3); color: rgba(239,68,68,0.7); }
+    .crg-chip.clear-chip:hover { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .crg-chip.typed-chip { border-color: rgba(34,197,94,0.3); color: rgba(34,197,94,0.7); }
+    .crg-chip.typed-chip:hover { background: rgba(34,197,94,0.15); color: #22c55e; }
+
+    .crg-sel-info {
+        font-size: 12px; color: rgba(226,232,240,0.55); padding: 4px 0;
+    }
+    .crg-sel-info.active { color: #818cf8; font-weight: 600; }
+
+    .crg-pagination { display: flex; gap: 6px; align-items: center; justify-content: center; margin-top: 12px; }
+    .crg-pagination button {
+        padding: 5px 12px; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+        background: rgba(255,255,255,0.04); color: rgba(226,232,240,0.7);
+        font-size: 12px; cursor: pointer;
+    }
+    .crg-pagination button:hover { background: rgba(255,255,255,0.08); }
+    .crg-pagination button.active { background: var(--bs-primary); color: #fff; border-color: var(--bs-primary); }
+    .crg-pagination button:disabled { opacity: 0.3; cursor: default; }
+    .crg-pagination .page-info { font-size: 12px; color: rgba(226,232,240,0.5); }
+
+    .crg-empty { text-align: center; padding: 40px; color: rgba(226,232,240,0.4); font-size: 14px; }
+    .crg-loading { text-align: center; padding: 30px; color: rgba(226,232,240,0.4); }
+
+    .crg-sel-actions { display: flex; gap: 8px; align-items: center; }
+    .crg-sel-actions button {
+        padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer;
+    }
+
+    .crg-assign-input {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+        color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px; min-width: 200px;
+    }
+
+    .crg-filter-summary {
+        font-size: 11px; color: rgba(226,232,240,0.4); padding: 4px 10px;
+        background: rgba(255,255,255,0.02); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);
+        margin-top: 6px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3" style="max-width: 1400px;">
+    <div class="crg-card mb-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <div style="font-size:18px;font-weight:700;">Customer Reporting Groups</div>
+                <div style="font-size:13px;color:rgba(226,232,240,0.55);">Manage reporting group assignments for customers</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="crg-card mb-3">
+        <div class="crg-controls">
+            <div class="form-group">
+                <label>Search</label>
+                <input type="text" id="fSearch" placeholder="Code or name..." style="min-width:180px;">
+            </div>
+            <div class="form-group">
+                <label>Reporting Group</label>
+                <select id="fGroup" style="min-width:160px;">
+                    <option value="">All</option>
+                    <option value="__NONE__">No group assigned</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="fCategory" style="min-width:140px;">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Agent</label>
+                <select id="fAgent" style="min-width:140px;">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Town</label>
+                <select id="fTown" style="min-width:120px;">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Status</label>
+                <select id="fActive" style="min-width:90px;">
+                    <option value="">All</option>
+                    <option value="1" selected>Active</option>
+                    <option value="0">Inactive</option>
+                </select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="loadPage(1)" style="height:31px;padding:0 18px;">
+                <i class="fas fa-search me-1"></i>Search
+            </button>
+        </div>
+        <div id="filterSummary" class="crg-filter-summary" style="display:none;"></div>
+    </div>
+
+    <div class="crg-card mb-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="form-group" style="display:flex;flex-direction:column;gap:4px;">
+                    <label style="font-size:11px;color:rgba(226,232,240,0.55);text-transform:uppercase;letter-spacing:0.06em;font-weight:500;">Set Reporting Group</label>
+                    <input type="text" id="assignGroup" list="group_suggest" placeholder="Type group name..."
+                           class="crg-assign-input">
+                    <datalist id="group_suggest"></datalist>
+                </div>
+                <div class="crg-sel-actions" style="padding-top:16px;">
+                    <button class="btn btn-outline-info btn-sm" onclick="selectAllFiltered()">
+                        <i class="fas fa-check-double me-1"></i>Select ALL Filtered
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="clearSelection()">
+                        <i class="fas fa-times me-1"></i>Clear Selection
+                    </button>
+                </div>
+            </div>
+            <div id="selInfo" class="crg-sel-info"></div>
+        </div>
+        <div style="margin-top:8px;">
+            <div style="font-size:11px;color:rgba(226,232,240,0.4);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Quick assign (click to apply to selected):</div>
+            <div id="groupChips" class="crg-chips"></div>
+        </div>
+    </div>
+
+    <div class="crg-card">
+        <div class="table-responsive">
+            <table class="crg-table" id="mainTable">
+                <thead>
+                    <tr>
+                        <th class="check-col"><input type="checkbox" id="checkAll"></th>
+                        <th>Code</th>
+                        <th>Company Name</th>
+                        <th>Category</th>
+                        <th>Agent</th>
+                        <th>Town</th>
+                        <th>Status</th>
+                        <th>Reporting Group</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr><td colspan="8" class="crg-empty">Use filters above and click Search</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="pagination" class="crg-pagination"></div>
+    </div>
+</div>
+
+<script>
+var currentPage = 1;
+var lastTotal = 0;
+var selectionMode = "rows";
+var metaGroups = [];
+
+function filtersPayload() {
+    return {
+        q: document.getElementById('fSearch').value.trim(),
+        reporting_group: document.getElementById('fGroup').value,
+        category: document.getElementById('fCategory').value,
+        agent: document.getElementById('fAgent').value,
+        town: document.getElementById('fTown').value,
+        active: document.getElementById('fActive').value,
+    };
+}
+
+function filterQueryString() {
+    var f = filtersPayload();
+    var p = new URLSearchParams();
+    for (var k in f) { if (f[k]) p.set(k, f[k]); }
+    return p.toString();
+}
+
+function getSelectedCodes() {
+    var checks = document.querySelectorAll('.rowCheck:checked');
+    return Array.from(checks).map(function(c) { return c.dataset.code; });
+}
+
+function updateSelectedInfo() {
+    var el = document.getElementById('selInfo');
+    if (selectionMode === "all_filtered") {
+        el.textContent = "ALL filtered selected (" + lastTotal + ")";
+        el.className = "crg-sel-info active";
+        return;
+    }
+    var n = getSelectedCodes().length;
+    el.textContent = n ? n + " selected" : "";
+    el.className = n ? "crg-sel-info active" : "crg-sel-info";
+}
+
+function selectAllFiltered() {
+    if (!lastTotal) {
+        alert("No customers in current filter.");
+        return;
+    }
+    selectionMode = "all_filtered";
+    document.querySelectorAll('.rowCheck').forEach(function(x) { x.checked = false; });
+    document.getElementById('checkAll').checked = false;
+    updateSelectedInfo();
+}
+
+function clearSelection() {
+    selectionMode = "rows";
+    document.querySelectorAll('.rowCheck').forEach(function(x) { x.checked = false; });
+    document.getElementById('checkAll').checked = false;
+    updateSelectedInfo();
+}
+
+function updateFilterSummary() {
+    var f = filtersPayload();
+    var parts = [];
+    if (f.q) parts.push("Search: \"" + f.q + "\"");
+    if (f.reporting_group === "__NONE__") parts.push("Group: (none assigned)");
+    else if (f.reporting_group) parts.push("Group: " + f.reporting_group);
+    if (f.category) parts.push("Category: " + f.category);
+    if (f.agent) parts.push("Agent: " + f.agent);
+    if (f.town) parts.push("Town: " + f.town);
+    if (f.active === "1") parts.push("Status: Active");
+    else if (f.active === "0") parts.push("Status: Inactive");
+    var el = document.getElementById('filterSummary');
+    if (parts.length) {
+        el.innerHTML = '<i class="fas fa-filter me-1"></i>' + parts.join(' &middot; ');
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+async function loadPage(page) {
+    currentPage = page;
+    selectionMode = "rows";
+    var qs = filterQueryString();
+    qs += "&page=" + page + "&per_page=50";
+    document.getElementById('tableBody').innerHTML = '<tr><td colspan="8" class="crg-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>';
+    updateFilterSummary();
+
+    try {
+        var r = await fetch('/admin/customer-reporting-groups/api/search?' + qs);
+        var data = await r.json();
+        lastTotal = data.total || 0;
+        renderRows(data.items || []);
+        renderPagination(data.page, data.pages, data.total);
+        updateSelectedInfo();
+    } catch (e) {
+        document.getElementById('tableBody').innerHTML = '<tr><td colspan="8" class="crg-empty">Error loading data</td></tr>';
+    }
+}
+
+function renderRows(items) {
+    var tb = document.getElementById('tableBody');
+    if (!items.length) {
+        tb.innerHTML = '<tr><td colspan="8" class="crg-empty">No customers found</td></tr>';
+        return;
+    }
+    var html = '';
+    items.forEach(function(it) {
+        var grpBadge = it.reporting_group
+            ? '<span class="crg-group-badge">' + escHtml(it.reporting_group) + '</span>'
+            : '<span class="crg-group-badge empty">—</span>';
+        var statusBadge = it.active
+            ? '<span style="color:#22c55e;font-size:11px;font-weight:600;">Active</span>'
+            : '<span style="color:#ef4444;font-size:11px;font-weight:600;">Inactive</span>';
+        html += '<tr>' +
+            '<td class="check-col"><input type="checkbox" class="rowCheck" data-code="' + escAttr(it.customer_code_365) + '"></td>' +
+            '<td style="font-weight:600;font-size:12px;">' + escHtml(it.customer_code_365) + '</td>' +
+            '<td>' + escHtml(it.company_name) + '</td>' +
+            '<td style="font-size:12px;">' + escHtml(it.category ? it.category + (it.category_name ? ' - ' + it.category_name : '') : '') + '</td>' +
+            '<td style="font-size:12px;">' + escHtml(it.agent ? it.agent + (it.agent_name ? ' - ' + it.agent_name : '') : '') + '</td>' +
+            '<td style="font-size:12px;">' + escHtml(it.town) + '</td>' +
+            '<td>' + statusBadge + '</td>' +
+            '<td>' + grpBadge + '</td>' +
+            '</tr>';
+    });
+    tb.innerHTML = html;
+
+    document.querySelectorAll('.rowCheck').forEach(function(x) {
+        x.addEventListener('change', function() {
+            if (selectionMode === "all_filtered") selectionMode = "rows";
+            updateSelectedInfo();
+        });
+    });
+}
+
+function renderPagination(page, pages, total) {
+    var el = document.getElementById('pagination');
+    if (pages <= 1) { el.innerHTML = '<span class="page-info">' + total + ' customers</span>'; return; }
+    var html = '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="loadPage(' + (page-1) + ')">&laquo;</button>';
+    var start = Math.max(1, page - 3);
+    var end = Math.min(pages, page + 3);
+    for (var i = start; i <= end; i++) {
+        html += '<button class="' + (i === page ? 'active' : '') + '" onclick="loadPage(' + i + ')">' + i + '</button>';
+    }
+    html += '<button ' + (page >= pages ? 'disabled' : '') + ' onclick="loadPage(' + (page+1) + ')">&raquo;</button>';
+    html += '<span class="page-info">' + total + ' customers</span>';
+    el.innerHTML = html;
+}
+
+function renderGroupChips(groups) {
+    var el = document.getElementById('groupChips');
+    el.innerHTML = '';
+    var clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'crg-chip clear-chip';
+    clearBtn.innerHTML = '<i class="fas fa-eraser me-1"></i>(Clear group)';
+    clearBtn.onclick = function() { quickAssign(''); };
+    el.appendChild(clearBtn);
+
+    groups.forEach(function(g) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'crg-chip';
+        btn.textContent = g;
+        btn.onclick = function() { quickAssign(g); };
+        el.appendChild(btn);
+    });
+
+    var typedBtn = document.createElement('button');
+    typedBtn.type = 'button';
+    typedBtn.className = 'crg-chip typed-chip';
+    typedBtn.innerHTML = '<i class="fas fa-plus me-1"></i>(Use typed value)';
+    typedBtn.onclick = function() {
+        var typed = document.getElementById('assignGroup').value.trim();
+        if (!typed) { alert('Type a group name in the input field first.'); return; }
+        quickAssign(typed);
+    };
+    el.appendChild(typedBtn);
+}
+
+async function quickAssign(reporting_group) {
+    if (selectionMode === "all_filtered") {
+        var label = reporting_group || "(clear)";
+        var msg = 'Assign ' + lastTotal + ' filtered customers to group: "' + label + '" ?';
+        if (!confirm(msg)) return;
+        await assignAllFiltered(reporting_group);
+        return;
+    }
+    var codes = getSelectedCodes();
+    if (!codes.length) {
+        alert("Select customers (checkboxes) OR click 'Select ALL Filtered'.");
+        return;
+    }
+    await assignSelected(reporting_group, codes);
+}
+
+async function assignSelected(reporting_group, codes) {
+    if (!codes || !codes.length) { alert('Select at least one customer.'); return; }
+    try {
+        var r = await fetch('/admin/customer-reporting-groups/api/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reporting_group: reporting_group, customer_codes: codes })
+        });
+        var j = await r.json();
+        if (!r.ok) { alert(j.error || 'Error'); return; }
+        selectionMode = "rows";
+        await loadPage(currentPage);
+        await loadMeta();
+        alert('OK. matched=' + j.matched + ', updated=' + j.updated);
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function assignAllFiltered(reporting_group) {
+    try {
+        var r = await fetch('/admin/customer-reporting-groups/api/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                reporting_group: reporting_group,
+                apply_to_filter: true,
+                filters: filtersPayload()
+            })
+        });
+        var j = await r.json();
+        if (!r.ok) { alert(j.error || 'Error'); return; }
+        selectionMode = "rows";
+        await loadPage(1);
+        await loadMeta();
+        alert('OK. matched=' + j.matched + ', updated=' + j.updated);
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function loadMeta() {
+    try {
+        var r = await fetch('/admin/customer-reporting-groups/api/metadata');
+        var meta = await r.json();
+        metaGroups = meta.groups || [];
+
+        var gSel = document.getElementById('fGroup');
+        var curVal = gSel.value;
+        gSel.innerHTML = '<option value="">All</option><option value="__NONE__">No group assigned</option>';
+        metaGroups.forEach(function(g) {
+            gSel.innerHTML += '<option value="' + escAttr(g) + '">' + escHtml(g) + '</option>';
+        });
+        gSel.value = curVal;
+
+        var dl = document.getElementById('group_suggest');
+        dl.innerHTML = '';
+        metaGroups.forEach(function(g) {
+            dl.innerHTML += '<option value="' + escAttr(g) + '">';
+        });
+
+        var catSel = document.getElementById('fCategory');
+        var curCat = catSel.value;
+        catSel.innerHTML = '<option value="">All</option>';
+        (meta.categories || []).forEach(function(c) {
+            catSel.innerHTML += '<option value="' + escAttr(c.code) + '">' + escHtml(c.code + (c.name ? ' - ' + c.name : '')) + '</option>';
+        });
+        catSel.value = curCat;
+
+        var agSel = document.getElementById('fAgent');
+        var curAg = agSel.value;
+        agSel.innerHTML = '<option value="">All</option>';
+        (meta.agents || []).forEach(function(a) {
+            agSel.innerHTML += '<option value="' + escAttr(a.code) + '">' + escHtml(a.code + (a.name ? ' - ' + a.name : '')) + '</option>';
+        });
+        agSel.value = curAg;
+
+        var twSel = document.getElementById('fTown');
+        var curTw = twSel.value;
+        twSel.innerHTML = '<option value="">All</option>';
+        (meta.towns || []).forEach(function(t) {
+            twSel.innerHTML += '<option value="' + escAttr(t) + '">' + escHtml(t) + '</option>';
+        });
+        twSel.value = curTw;
+
+        renderGroupChips(metaGroups);
+    } catch (e) {
+        console.error('Failed to load metadata:', e);
+    }
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function escAttr(s) {
+    if (!s) return '';
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+document.getElementById('checkAll').addEventListener('change', function() {
+    var checked = this.checked;
+    if (selectionMode === "all_filtered") selectionMode = "rows";
+    document.querySelectorAll('.rowCheck').forEach(function(x) { x.checked = checked; });
+    updateSelectedInfo();
+});
+
+document.getElementById('fSearch').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') loadPage(1);
+});
+
+loadMeta().then(function() { loadPage(1); });
+</script>
+{% endblock %}

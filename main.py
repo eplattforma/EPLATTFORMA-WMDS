@@ -175,6 +175,10 @@ app.register_blueprint(customer_analytics_bp)
 from routes_pricing_analytics import pricing_bp
 app.register_blueprint(pricing_bp)
 
+# Register the Customer Reporting Groups blueprint
+from routes_customer_reporting_groups import crg_bp
+app.register_blueprint(crg_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal
