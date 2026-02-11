@@ -636,10 +636,11 @@ def submit_delivery(stop_id):
             cod_variance = received - cod_expected
             
             recent_cutoff = utc_now() - timedelta(seconds=10)
+            from sqlalchemy import cast, String
             existing_receipt = CODReceipt.query.filter(
                 CODReceipt.route_id == route.id,
                 CODReceipt.route_stop_id == stop_id,
-                CODReceipt.invoice_nos == invoice_nos,
+                cast(CODReceipt.invoice_nos, String) == cast(invoice_nos, String),
                 CODReceipt.received_amount == received,
                 CODReceipt.payment_method == cod_method,
                 CODReceipt.created_at >= recent_cutoff
