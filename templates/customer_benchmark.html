@@ -475,7 +475,14 @@ async function loadTrends() {
             return;
         }
         document.getElementById("trendSection").style.display = "";
-        const labels = j.rows.map(x => x.month_start ? x.month_start.slice(0, 7) : "");
+        const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const labels = j.rows.map(x => {
+            if (!x.month_start) return "";
+            const s = String(x.month_start).slice(0, 10);
+            const parts = s.split("-");
+            if (parts.length >= 2) return monthNames[parseInt(parts[1], 10) - 1] + " " + parts[0].slice(2);
+            return s;
+        });
         const custData = j.rows.map(x => parseFloat(x.cust_net_sales) || 0);
         const peerData = j.rows.map(x => parseFloat(x.peer_avg_sales_per_customer) || 0);
 
@@ -517,8 +524,8 @@ async function loadTrends() {
                     tooltip: {mode: "index", intersect: false}
                 },
                 scales: {
-                    x: {ticks: {color: "rgba(226,232,240,0.5)"}, grid: {color: "rgba(255,255,255,0.05)"}},
-                    y: {ticks: {color: "rgba(226,232,240,0.5)", callback: v => v.toLocaleString()}, grid: {color: "rgba(255,255,255,0.05)"}}
+                    x: {ticks: {color: "rgba(226,232,240,0.5)", maxRotation: 0}, grid: {color: "rgba(255,255,255,0.05)"}},
+                    y: {title: {display: true, text: "Net Sales", color: "rgba(226,232,240,0.5)"}, ticks: {color: "rgba(226,232,240,0.5)", callback: v => v.toLocaleString()}, grid: {color: "rgba(255,255,255,0.05)"}}
                 }
             }
         });
