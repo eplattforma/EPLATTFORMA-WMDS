@@ -152,17 +152,17 @@ def api_customer_summary(customer_code):
         {"code": customer_code, "d_from": d_from, "d_to": d_to}
     ).mappings().first()
 
-    cur_sales = float(cur["sales_excl"] or 0)
-    cur_invoices = int(cur["invoices"] or 0)
+    cur_sales = float(cur["sales_excl"] if cur and cur["sales_excl"] is not None else 0)
+    cur_invoices = int(cur["invoices"] if cur and cur["invoices"] is not None else 0)
     avg_invoice = (cur_sales / cur_invoices) if cur_invoices else 0.0
 
     payload = {
         "range": {"from": str(d_from), "to": str(d_to)},
         "current": {
             "sales_excl": cur_sales,
-            "qty": float(cur["qty"] or 0),
+            "qty": float(cur["qty"] if cur and cur["qty"] is not None else 0),
             "invoices": cur_invoices,
-            "distinct_items": int(cur["distinct_items"] or 0),
+            "distinct_items": int(cur["distinct_items"] if cur and cur["distinct_items"] is not None else 0),
             "avg_invoice": avg_invoice,
         },
         "compare_mode": compare if cmp_range else None,
@@ -177,16 +177,16 @@ def api_customer_summary(customer_code):
             {"code": customer_code, "d_from": c_from, "d_to": c_to}
         ).mappings().first()
 
-        prev_sales = float(prev["sales_excl"] or 0)
-        prev_invoices = int(prev["invoices"] or 0)
+        prev_sales = float(prev["sales_excl"] if prev and prev["sales_excl"] is not None else 0)
+        prev_invoices = int(prev["invoices"] if prev and prev["invoices"] is not None else 0)
         prev_avg_invoice = (prev_sales / prev_invoices) if prev_invoices else 0.0
 
         payload["compare"] = {
             "range": {"from": str(c_from), "to": str(c_to)},
             "sales_excl": prev_sales,
-            "qty": float(prev["qty"] or 0),
+            "qty": float(prev["qty"] if prev and prev["qty"] is not None else 0),
             "invoices": prev_invoices,
-            "distinct_items": int(prev["distinct_items"] or 0),
+            "distinct_items": int(prev["distinct_items"] if prev and prev["distinct_items"] is not None else 0),
             "avg_invoice": prev_avg_invoice,
         }
 
@@ -257,7 +257,7 @@ def api_customer_invoices(customer_code):
     sql = text("""
         SELECT
             h.invoice_no_365 AS invoice_no,
-            h.invoice_date_utc0 AS invoice_date,
+            TO_CHAR(h.invoice_date_utc0, 'DD Mon YYYY') AS invoice_date,
             COALESCE(SUM(COALESCE(l.line_total_incl, 0) - COALESCE(l.line_total_vat, 0)), 0) AS sales_excl,
             COALESCE(SUM(l.quantity), 0) AS qty,
             COUNT(DISTINCT l.item_code_365) AS distinct_items
