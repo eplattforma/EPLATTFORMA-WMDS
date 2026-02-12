@@ -1,0 +1,194 @@
+Replit Instructions: PVM should reconcile to Net Sales (incl CN) + explain differences
+1) Backend: extend /pricing/api/pvm summary to include CN/credits totals
+File
+
+blueprints/pricing_analytics.py
+
+Change
+
+Inside api_pvm() keep your existing PVM SQL as-is (it explains Gross Positive Sales).
+
+Add two extra totals queries: one for current period and one for baseline period, that compute:
+
+net_sales (includes CN/returns): sum(net_excl) where qty <> 0
+
+gross_positive_sales: sum(net_excl) where qty > 0 AND net_excl > 0
+
+credits_sales: sum(net_excl) where net_excl < 0 OR qty < 0 (this will be negative)
+
+1.1 Add this helper SQL (inside api_pvm)
+
+Paste near the top of api_pvm() after you validate compare mode:
+
+totals_sql = text("""
+  SELECT
+    COALESCE(SUM(CASE WHEN qty <> 0 THEN net_excl ELSE 0 END), 0) AS net_sales,
+    COALESCE(SUM(CASE WHEN qty > 0 AND net_excl > 0 THEN net_excl ELSE 0 END), 0) AS gross_positive_sales,
+    COALESCE(SUM(CASE WHEN (net_excl < 0 OR qty < 0) THEN net_excl ELSE 0 END), 0) AS credits_sales
+  FROM dw_sales_lines_mv
+  WHERE sale_date BETWEEN :d_from AND :d_to
+    AND customer_code_365 = :customer
+""")
+
+1.2 Execute it for current + baseline
+
+After you run your existing PVM query and build rows, add:
+
+cur_tot = db.session.execute(totals_sql, {
+    "customer": customer, "d_from": d_from, "d_to": d_to
+}).mappings().first()
+
+base_tot = db.session.execute(totals_sql, {
+    "customer": customer, "d_from": b_from, "d_to": b_to
+}).mappings().first()
+
+net_cur = float(cur_tot["net_sales"] or 0)
+net_base = float(base_tot["net_sales"] or 0)
+
+gross_cur = float(cur_tot["gross_positive_sales"] or 0)
+gross_base = float(base_tot["gross_positive_sales"] or 0)
+
+credits_cur = float(cur_tot["credits_sales"] or 0)   # usually negative
+credits_base = float(base_tot["credits_sales"] or 0)
+
+1.3 Set your PVM totals to explain gross, not net
+
+Right now you do:
+
+r1 = sum(r["r1"] for r in rows)
+r0 = sum(r["r0"] for r in rows)
+
+
+Those sums can be impacted by your LIMIT and by missing tail items.
+
+Replace your “revenue_current / revenue_baseline” in the summary with the totals query values:
+
+Use gross_cur/gross_base as the “PVM explained revenue”
+
+Use net_cur/net_base as the reconciled “true net revenue”
+
+1.4 Extend the JSON summary
+
+Update your summary to include both sets + reconciliation:
+
+summary = {
+    "customer_code_365": customer,
+    "from": str(d_from), "to": str(d_to),
+    "baseline_from": str(b_from), "baseline_to": str(b_to),
+    "compare": compare,
+
+    # NET (includes CN/returns)
+    "net_revenue_current": net_cur,
+    "net_revenue_baseline": net_base,
+    "delta_net_revenue": net_cur - net_base,
+
+    # GROSS positive sales (what PVM explains)
+    "gross_revenue_current": gross_cur,
+    "gross_revenue_baseline": gross_base,
+    "delta_gross_revenue": gross_cur - gross_base,
+
+    # CREDITS/RETURNS effect (negative)
+    "credits_current": credits_cur,
+    "credits_baseline": credits_base,
+    "delta_credits": credits_cur - credits_base,
+
+    # PVM components explain delta_gross_revenue
+    "price_effect": price_eff,
+    "volume_effect": vol_eff,
+    "mix_effect": mix_eff,
+}
+
+
+✅ Result:
+
+The “headline” can be Δ Net Revenue
+
+PVM explains Δ Gross Revenue
+
+Credits explain the gap.
+
+2) Frontend: show Δ Net + Credits effect alongside Price/Volume/Mix
+File
+
+static/js/customer_pricing.js
+
+Change
+
+In loadPvm(), update the summary cards to show 5 cards:
+
+Δ Net Revenue
+
+Credits effect (Δ Credits)
+
+Price effect
+
+Volume effect
+
+Mix effect
+
+Example:
+
+const s = j.summary || {};
+document.getElementById("pvmSummary").innerHTML = `
+  <div class="row g-2">
+    <div class="col-md-3"><div class="card p-2">
+      <div class="text-muted small">Δ Net Revenue (incl CN)</div>
+      <div><b>${fmt(s.delta_net_revenue,2)}</b></div>
+    </div></div>
+
+    <div class="col-md-3"><div class="card p-2">
+      <div class="text-muted small">Credits / Returns effect</div>
+      <div><b>${fmt(s.delta_credits,2)}</b></div>
+    </div></div>
+
+    <div class="col-md-2"><div class="card p-2">
+      <div class="text-muted small">Price effect</div>
+      <div><b>${fmt(s.price_effect,2)}</b></div>
+    </div></div>
+
+    <div class="col-md-2"><div class="card p-2">
+      <div class="text-muted small">Volume effect</div>
+      <div><b>${fmt(s.volume_effect,2)}</b></div>
+    </div></div>
+
+    <div class="col-md-2"><div class="card p-2">
+      <div class="text-muted small">Mix effect</div>
+      <div><b>${fmt(s.mix_effect,2)}</b></div>
+    </div></div>
+  </div>
+
+  <div class="mt-2 text-muted small">
+    PVM explains <b>Gross Positive Sales</b> (excludes credits). Net change = Gross change + Credits change.
+  </div>
+`;
+
+
+(Adjust column widths if you prefer 2 rows.)
+
+3) Help text: add a short PVM clarification (so sales don’t get confused)
+File
+
+templates/pricing_analytics/customer_pricing.html (your PVM Help modal body)
+
+Add this paragraph:
+
+Net vs Gross (Credit Notes)
+The headline “Δ Net Revenue” includes credit notes/returns.
+PVM (Price/Volume/Mix) explains the change in Gross Positive Sales only (normal sales lines).
+The difference between Net and Gross is shown as Credits/Returns effect.
+
+4) Why this approach is the right one
+
+If you include CN directly inside PVM unit price math:
+
+you create negative quantities and negative revenues,
+
+unit prices become nonsensical,
+
+“price effect” becomes misleading (because credits aren’t a price change).
+
+With the split approach you get:
+
+correct accounting reconciliation (net totals match 360)
+
+correct commercial explanation (P/V/M on real sales)

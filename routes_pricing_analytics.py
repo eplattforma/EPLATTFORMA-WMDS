@@ -334,6 +334,16 @@ def api_pvm():
     if compare == "none":
         return jsonify({"error": "compare must be 'prev' or 'py' for PVM"}), 400
 
+    totals_sql = text("""
+      SELECT
+        COALESCE(SUM(CASE WHEN qty <> 0 THEN net_excl ELSE 0 END), 0) AS net_sales,
+        COALESCE(SUM(CASE WHEN qty > 0 AND net_excl > 0 THEN net_excl ELSE 0 END), 0) AS gross_positive_sales,
+        COALESCE(SUM(CASE WHEN (net_excl < 0 OR qty < 0) THEN net_excl ELSE 0 END), 0) AS credits_sales
+      FROM dw_sales_lines_mv
+      WHERE sale_date BETWEEN :d_from AND :d_to
+        AND customer_code_365 = :customer
+    """)
+
     credit_filter_cur = "AND s.qty <> 0" if include_credits else "AND s.qty > 0 AND s.net_excl > 0"
     credit_filter_base = credit_filter_cur
 
@@ -394,9 +404,23 @@ def api_pvm():
     }).fetchall()
     rows = _json_rows(res)
 
-    r1 = sum(r["r1"] for r in rows)
-    r0 = sum(r["r0"] for r in rows)
-    delta = r1 - r0
+    cur_tot = db.session.execute(totals_sql, {
+        "customer": customer, "d_from": d_from, "d_to": d_to
+    }).mappings().first()
+
+    base_tot = db.session.execute(totals_sql, {
+        "customer": customer, "d_from": b_from, "d_to": b_to
+    }).mappings().first()
+
+    net_cur = float(cur_tot["net_sales"] or 0) if cur_tot else 0.0
+    net_base = float(base_tot["net_sales"] or 0) if base_tot else 0.0
+
+    gross_cur = float(cur_tot["gross_positive_sales"] or 0) if cur_tot else 0.0
+    gross_base = float(base_tot["gross_positive_sales"] or 0) if base_tot else 0.0
+
+    credits_cur = float(cur_tot["credits_sales"] or 0) if cur_tot else 0.0
+    credits_base = float(base_tot["credits_sales"] or 0) if base_tot else 0.0
+
     price_eff = sum(r["price_effect"] for r in rows)
     vol_eff = sum(r["volume_effect"] for r in rows)
     mix_eff = sum(r["mix_effect"] for r in rows)
@@ -406,9 +430,23 @@ def api_pvm():
         "from": str(d_from), "to": str(d_to),
         "baseline_from": str(b_from), "baseline_to": str(b_to),
         "compare": compare,
-        "revenue_current": r1,
-        "revenue_baseline": r0,
-        "delta_revenue": delta,
+
+        # NET (includes CN/returns)
+        "net_revenue_current": net_cur,
+        "net_revenue_baseline": net_base,
+        "delta_net_revenue": net_cur - net_base,
+
+        # GROSS positive sales (what PVM explains)
+        "gross_revenue_current": gross_cur,
+        "gross_revenue_baseline": gross_base,
+        "delta_gross_revenue": gross_cur - gross_base,
+
+        # CREDITS/RETURNS effect (negative)
+        "credits_current": credits_cur,
+        "credits_baseline": credits_base,
+        "delta_credits": credits_cur - credits_base,
+
+        # PVM components explain delta_gross_revenue
         "price_effect": price_eff,
         "volume_effect": vol_eff,
         "mix_effect": mix_eff,

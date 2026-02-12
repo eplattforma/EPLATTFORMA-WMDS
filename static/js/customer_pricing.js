@@ -313,14 +313,38 @@ async function loadPvm(url) {
     await fetchItemNames(codes);
 
     var s = j.summary || {};
-    document.getElementById("pvmSummary").innerHTML =
-      '<div class="pa-kpi-grid">' +
-        '<div class="pa-kpi"><div class="label">Delta Revenue</div><div class="value ' + deltaClass(s.delta_revenue) + '">' + fmtSigned(s.delta_revenue) + '</div></div>' +
-        '<div class="pa-kpi"><div class="label">Price Effect</div><div class="value ' + deltaClass(s.price_effect) + '">' + fmtSigned(s.price_effect) + '</div></div>' +
-        '<div class="pa-kpi"><div class="label">Volume Effect</div><div class="value ' + deltaClass(s.volume_effect) + '">' + fmtSigned(s.volume_effect) + '</div></div>' +
-        '<div class="pa-kpi"><div class="label">Mix Effect</div><div class="value ' + deltaClass(s.mix_effect) + '">' + fmtSigned(s.mix_effect) + '</div></div>' +
-      '</div>' +
-      '<div class="pa-note" style="margin-top:8px">Baseline: ' + s.baseline_from + ' to ' + s.baseline_to + ' (' + s.compare + ')</div>';
+    document.getElementById("pvmSummary").innerHTML = `
+      <div class="row g-2">
+        <div class="col-md-3"><div class="card p-2">
+          <div class="text-muted small">Δ Net Revenue (incl CN)</div>
+          <div class="value ${deltaClass(s.delta_net_revenue)}"><b>${fmtSigned(s.delta_net_revenue)}</b></div>
+        </div></div>
+
+        <div class="col-md-3"><div class="card p-2">
+          <div class="text-muted small">Credits / Returns effect</div>
+          <div class="value ${deltaClass(s.delta_credits)}"><b>${fmtSigned(s.delta_credits)}</b></div>
+        </div></div>
+
+        <div class="col-md-2"><div class="card p-2">
+          <div class="text-muted small">Price effect</div>
+          <div class="value ${deltaClass(s.price_effect)}"><b>${fmtSigned(s.price_effect)}</b></div>
+        </div></div>
+
+        <div class="col-md-2"><div class="card p-2">
+          <div class="text-muted small">Volume effect</div>
+          <div class="value ${deltaClass(s.volume_effect)}"><b>${fmtSigned(s.volume_effect)}</b></div>
+        </div></div>
+
+        <div class="col-md-2"><div class="card p-2">
+          <div class="text-muted small">Mix effect</div>
+          <div class="value ${deltaClass(s.mix_effect)}"><b>${fmtSigned(s.mix_effect)}</b></div>
+        </div></div>
+      </div>
+
+      <div class="mt-2 text-muted small">
+        PVM explains <b>Gross Positive Sales</b> (excludes credits). Net change = Gross change + Credits change.
+      </div>
+      <div class="pa-note" style="margin-top:8px">Baseline: ${s.baseline_from} to ${s.baseline_to} (${s.compare})</div>`;
 
     var tb = document.querySelector("#tblPvm tbody");
     tb.innerHTML = "";
