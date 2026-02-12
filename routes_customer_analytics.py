@@ -159,47 +159,25 @@ def api_customer_summary(customer_code):
     # Calculate Deliveries KPI (Invoices within 1 day of each other)
     deliveries_count = 0
     avg_delivery = 0.0
+    delivery_sql = text("""
+        WITH inv AS (
+            SELECT DISTINCT invoice_date_utc0::date as d
+            FROM dw_invoice_header
+            WHERE customer_code_365 = :code
+              AND invoice_date_utc0::date BETWEEN :d_from AND :d_to
+        ),
+        with_prev AS (
+            SELECT d, LAG(d) OVER (ORDER BY d) as prev_d
+            FROM inv
+        ),
+        islands AS (
+            SELECT d,
+                   CASE WHEN prev_d IS NULL OR (d - prev_d) > 1 THEN 1 ELSE 0 END as is_new
+            FROM with_prev
+        )
+        SELECT SUM(is_new) FROM islands
+    """)
     if cur_invoices > 0:
-        delivery_sql = text("""
-            WITH dated_invoices AS (
-                SELECT invoice_date_utc0::date as idate
-                FROM dw_invoice_header
-                WHERE customer_code_365 = :code
-                  AND invoice_date_utc0::date BETWEEN :d_from AND :d_to
-                GROUP BY invoice_date_utc0::date
-                ORDER BY invoice_date_utc0::date
-            ),
-            grouped AS (
-                SELECT idate,
-                       idate - (row_number() OVER (ORDER BY idate))::int as grp
-                FROM dated_invoices
-            )
-            SELECT COUNT(DISTINCT grp) FROM grouped
-        """)
-        # Note: This is a simplified grouping (consecutive days). 
-        # For "1 day apart" logic more strictly, we use a gap-and-island or recursive query.
-        # Let's use a simpler python-side logic for the KPI if possible, or a more robust SQL.
-        # The user's "1 day apart" usually means if date B - date A <= 1 day, they are one delivery.
-        
-        # Updated SQL for <= 1 day gap
-        delivery_sql = text("""
-            WITH inv AS (
-                SELECT DISTINCT invoice_date_utc0::date as d
-                FROM dw_invoice_header
-                WHERE customer_code_365 = :code
-                  AND invoice_date_utc0::date BETWEEN :d_from AND :d_to
-            ),
-            with_prev AS (
-                SELECT d, LAG(d) OVER (ORDER BY d) as prev_d
-                FROM inv
-            ),
-            islands AS (
-                SELECT d,
-                       CASE WHEN prev_d IS NULL OR (d - prev_d) > 1 THEN 1 ELSE 0 END as is_new
-                FROM with_prev
-            )
-            SELECT SUM(is_new) FROM islands
-        """)
         res_del = db.session.execute(delivery_sql, {"code": customer_code, "d_from": d_from, "d_to": d_to}).scalar()
         deliveries_count = int(res_del or 0)
         avg_delivery = (cur_sales / deliveries_count) if deliveries_count else 0.0
@@ -231,11 +209,21 @@ def api_customer_summary(customer_code):
         prev_invoices = int(prev["invoices"] if prev and prev["invoices"] is not None else 0)
         prev_avg_invoice = (prev_sales / prev_invoices) if prev_invoices else 0.0
 
+        # Previous Period Deliveries
+        prev_deliveries = 0
+        prev_avg_delivery = 0.0
+        if prev_invoices > 0:
+            res_prev_del = db.session.execute(delivery_sql, {"code": customer_code, "d_from": c_from, "d_to": c_to}).scalar()
+            prev_deliveries = int(res_prev_del or 0)
+            prev_avg_delivery = (prev_sales / prev_deliveries) if prev_deliveries else 0.0
+
         payload["compare"] = {
             "range": {"from": str(c_from), "to": str(c_to)},
             "sales_excl": prev_sales,
             "qty": float(prev["qty"] if prev and prev["qty"] is not None else 0),
             "invoices": prev_invoices,
+            "deliveries": prev_deliveries,
+            "avg_delivery": prev_avg_delivery,
             "distinct_items": int(prev["distinct_items"] if prev and prev["distinct_items"] is not None else 0),
             "avg_invoice": prev_avg_invoice,
         }
@@ -249,6 +237,8 @@ def api_customer_summary(customer_code):
             "sales_excl": _delta(cur_sales, prev_sales),
             "invoices": _delta(cur_invoices, prev_invoices),
             "avg_invoice": _delta(avg_invoice, prev_avg_invoice),
+            "deliveries": _delta(deliveries_count, prev_deliveries),
+            "avg_delivery": _delta(avg_delivery, prev_avg_delivery),
         }
 
     return jsonify(payload)
