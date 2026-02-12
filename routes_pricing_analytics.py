@@ -552,6 +552,11 @@ def api_stale_pricing():
     limit = int(request.args.get("limit", "200"))
     limit = max(20, min(limit, 500))
 
+    # Use the max sale date in the entire DB as 'today' for recency if current date has no data
+    # This ensures the demo/dev data works even if it's old
+    today_sql = text("SELECT MAX(sale_date) FROM dw_sales_lines_mv")
+    max_date = db.session.execute(today_sql).scalar() or date.today()
+
     sql = text("""
       WITH cust_items AS (
         SELECT
@@ -566,11 +571,11 @@ def api_stale_pricing():
         SELECT
           ci.item_code_365,
           ci.last_purchase_date,
-          (CURRENT_DATE - ci.last_purchase_date) AS recency_days,
+          (:today - ci.last_purchase_date) AS recency_days,
           date_trunc('month', ci.last_purchase_date)::date AS last_month_start,
           (date_trunc('month', ci.last_purchase_date) + interval '1 month' - interval '1 day')::date AS last_month_end
         FROM cust_items ci
-        WHERE (CURRENT_DATE - ci.last_purchase_date) BETWEEN :stale_min AND :stale_max
+        WHERE (:today - ci.last_purchase_date) BETWEEN :stale_min AND :stale_max
       ),
       last_paid AS (
         SELECT
@@ -629,7 +634,7 @@ def api_stale_pricing():
             customer_code_365,
             CASE WHEN SUM(qty) <> 0 THEN SUM(net_excl)/SUM(qty) ELSE NULL END AS cust_item_price
           FROM dw_sales_lines_mv
-          WHERE sale_date >= (CURRENT_DATE - CAST(:market_days AS integer) * INTERVAL '1 day')
+          WHERE sale_date >= (:today - CAST(:market_days AS integer) * INTERVAL '1 day')
             AND item_code_365 = s.item_code_365
             AND qty > 0 AND net_excl > 0
           GROUP BY customer_code_365
@@ -651,6 +656,7 @@ def api_stale_pricing():
         "stale_max": stale_max,
         "market_days": market_days,
         "lim": limit,
+        "today": max_date
     }).fetchall()
 
     rows = _json_rows(res)
