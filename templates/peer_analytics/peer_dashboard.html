@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Peer Group Analysis - {{ customer_name }}{% endblock %}
+
+{% block head %}
+<style>
+    .peer-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .peer-tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
+    .peer-tab { padding: 8px 16px; border-radius: 8px; cursor: pointer; background: transparent; color: rgba(255,255,255,0.6); font-size: 14px; font-weight: 500; border: none; }
+    .peer-tab.active { background: var(--bs-primary); color: #fff; }
+    .peer-tab:hover:not(.active) { background: rgba(255,255,255,0.05); }
+    .peer-table { width: 100%; border-collapse: collapse; }
+    .peer-table th { font-size: 11px; text-transform: uppercase; color: rgba(255,255,255,0.5); padding: 8px; border-bottom: 2px solid rgba(255,255,255,0.1); }
+    .peer-table td { padding: 8px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .gap-neg { color: #ef4444; font-weight: bold; }
+    .gap-pos { color: #22c55e; font-weight: bold; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    <div class="peer-card">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h4 class="mb-0">{{ customer_name }}</h4>
+                <small class="text-muted">{{ customer_code }} &middot; Peer Group Analysis</small>
+            </div>
+            <a href="/analytics/customers/?autoload={{ customer_code }}" class="btn btn-outline-secondary btn-sm">Back to Customer 360</a>
+        </div>
+    </div>
+
+    <div class="peer-card">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-2">
+                <label class="small text-muted text-uppercase">Period</label>
+                <select id="peerPreset" class="form-select form-select-sm bg-dark text-white border-secondary">
+                    <option value="last90">Last 90 Days</option>
+                    <option value="last30">Last 30 Days</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="small text-muted text-uppercase">Peer Group</label>
+                <select id="peerGroup" class="form-select form-select-sm bg-dark text-white border-secondary">
+                    <option value="auto">Auto (Same Segment)</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button id="btnRunPeer" class="btn btn-primary btn-sm w-100">Run Analysis</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="peer-tabs">
+        <button class="peer-tab active" data-target="tabMissing">Missing Items</button>
+        <button class="peer-tab" data-target="tabCategory">Category Mix</button>
+        <button class="peer-tab" data-target="tabBrand">Brand Mix</button>
+    </div>
+
+    <div id="tabMissing" class="peer-content">
+        <div class="peer-card">
+            <h5>Items Peers Buy (Customer Doesn't)</h5>
+            <div class="table-responsive">
+                <table class="peer-table" id="tblMissing">
+                    <thead>
+                        <tr>
+                            <th>Item</th><th>Name</th><th>Category</th><th>Penetration</th><th>Peer Avg €</th><th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tabCategory" class="peer-content d-none">
+        <div class="peer-card">
+            <h5>Category Share vs Peers</h5>
+            <div class="table-responsive">
+                <table class="peer-table" id="tblCategory">
+                    <thead>
+                        <tr>
+                            <th>Category</th><th>Cust Sales</th><th>Cust Share %</th><th>Peer Share %</th><th>Share Gap %</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tabBrand" class="peer-content d-none">
+        <div class="peer-card">
+            <h5>Brand Preference vs Peers</h5>
+            <div class="table-responsive">
+                <table class="peer-table" id="tblBrand">
+                    <thead>
+                        <tr>
+                            <th>Brand</th><th>Cust Sales</th><th>Cust Share %</th><th>Peer Share %</th><th>Share Gap %</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CUSTOMER_CODE = "{{ customer_code }}";
+</script>
+<script src="/static/js/peer_analytics/peer_dashboard.js"></script>
+{% endblock %}

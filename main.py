@@ -175,6 +175,10 @@ app.register_blueprint(customer_analytics_bp)
 from routes_pricing_analytics import pricing_bp
 app.register_blueprint(pricing_bp)
 
+# Register the Peer Analytics blueprint
+from blueprints.peer_analytics import peer_bp
+app.register_blueprint(peer_bp)
+
 # Register the Customer Reporting Groups blueprint
 from routes_customer_reporting_groups import crg_bp
 app.register_blueprint(crg_bp)
