@@ -145,8 +145,6 @@ def api_customer_summary(customer_code):
         JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
         WHERE h.customer_code_365 = :code
           AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
-          AND (l.line_total_incl - l.line_total_vat) > 0
-          AND l.quantity > 0
     """
 
     cur = db.session.execute(
@@ -271,8 +269,6 @@ def api_customer_top_items(customer_code):
         LEFT JOIN ps_items_dw i ON i.item_code_365 = l.item_code_365
         WHERE h.customer_code_365 = :code
           AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
-          AND (l.line_total_incl - l.line_total_vat) > 0
-          AND l.quantity > 0
         GROUP BY l.item_code_365, COALESCE(i.item_name, '')
         ORDER BY {order_col} DESC
         LIMIT :lim
@@ -309,8 +305,6 @@ def api_customer_invoices(customer_code):
         JOIN dw_invoice_line l ON l.invoice_no_365 = h.invoice_no_365
         WHERE h.customer_code_365 = :code
           AND h.invoice_date_utc0::date BETWEEN :d_from AND :d_to
-          AND (l.line_total_incl - l.line_total_vat) > 0
-          AND l.quantity > 0
         GROUP BY h.invoice_no_365, h.invoice_date_utc0
         ORDER BY h.invoice_date_utc0 DESC, h.invoice_no_365 DESC
         LIMIT :lim OFFSET :off
