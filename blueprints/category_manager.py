@@ -26,17 +26,26 @@ def _parse_date(v):
 def _resolve_range(args):
     preset = (args.get("preset") or "last90").lower().strip()
     today = date.today()
-    if preset == "last90":
-        return today - timedelta(days=89), today
+
     if preset == "last30":
         return today - timedelta(days=29), today
-    d_from = args.get("from")
-    d_to = args.get("to")
-    if d_from and d_to:
-        d1, d2 = _parse_date(d_from), _parse_date(d_to)
-        if d1 and d2:
-            return (d1, d2) if d1 <= d2 else (d2, d1)
-    return today - timedelta(days=89), today
+    if preset in ("last90", ""):
+        return today - timedelta(days=89), today
+
+    d_from = _parse_date(args.get("from"))
+    d_to = _parse_date(args.get("to"))
+    if not d_from or not d_to:
+        return today - timedelta(days=89), today
+    if d_to < d_from:
+        d_from, d_to = d_to, d_from
+    return d_from, d_to
+
+def _safe_shift_year(d, years):
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        # handles Feb 29
+        return d.replace(year=d.year + years, month=2, day=28)
 
 def _bind_array(name, vals):
     return bindparam(name, value=vals, type_=ARRAY(String()))
@@ -85,14 +94,14 @@ def api_category_gaps():
       ),
       cust_cat AS (
         SELECT COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category,
-               SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS cust_sales
+               SUM(s.net_excl) AS cust_sales
         FROM {SALES_SRC} s LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
         WHERE s.customer_code_365 = :customer AND s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
         GROUP BY 1
       ),
       peer_cat AS (
         SELECT COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category,
-               SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS peer_sales
+               SUM(s.net_excl) AS peer_sales
         FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
         WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
@@ -132,9 +141,30 @@ def api_category_gaps():
       LEFT JOIN missing m ON m.category = COALESCE(c.category,p.category)
       ORDER BY share_gap ASC, peer_sales DESC LIMIT 200
     """)
-    rows = db.session.execute(sql.bindparams(_bind_array("peer_customers", peers)),
-                              {"peer_customers": peers, "customer": customer, "d_from": d_from, "d_to": d_to, "min_pen": min_pen}).mappings().all()
-    return jsonify({"meta": {"customer": customer, "peer_group": peer_group, "peer_customers": len(peers), "from": str(d_from), "to": str(d_to), "min_penetration": min_pen}, "items": [dict(r) for r in rows]})
+    sql = sql.bindparams(_bind_array("peer_customers", peers))
+    try:
+        rows = db.session.execute(sql, {
+            "peer_customers": peers,
+            "customer": customer,
+            "d_from": d_from,
+            "d_to": d_to,
+            "min_pen": min_pen
+        }).mappings().all()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "query_failed", "detail": str(e)[:400]}), 500
+
+    return jsonify({
+        "meta": {
+            "customer": customer,
+            "peer_group": peer_group,
+            "peer_customers": len(peers),
+            "from": str(d_from),
+            "to": str(d_to),
+            "min_penetration": min_pen
+        },
+        "items": [dict(r) for r in rows]
+    })
 
 @catmgr_bp.route("/api/category-suggestions")
 @login_required
@@ -161,7 +191,7 @@ def api_category_suggestions():
         WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
       ),
       peer_item AS (
-        SELECT s.item_code_365, COUNT(DISTINCT s.customer_code_365) AS buyers, SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS peer_sales
+        SELECT s.item_code_365, COUNT(DISTINCT s.customer_code_365) AS buyers, SUM(s.net_excl) AS peer_sales
         FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
         WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter} AND COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') = :category
@@ -188,8 +218,20 @@ def api_category_suggestions():
       WHERE cb.item_code_365 IS NULL AND pa.n >= 5 AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :variety_pen
       ORDER BY score DESC NULLS LAST, penetration DESC LIMIT :lim
     """)
-    rows = db.session.execute(sql.bindparams(_bind_array("peer_customers", peers)),
-                              {"peer_customers": peers, "customer": customer, "category": category, "d_from": d_from, "d_to": d_to, "variety_pen": variety_pen, "lim": limit}).mappings().all()
+    sql = sql.bindparams(_bind_array("peer_customers", peers))
+    try:
+        rows = db.session.execute(sql, {
+            "peer_customers": peers,
+            "customer": customer,
+            "category": category,
+            "d_from": d_from,
+            "d_to": d_to,
+            "variety_pen": variety_pen,
+            "lim": limit
+        }).mappings().all()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "query_failed", "detail": str(e)[:400]}), 500
 
     must, should, variety = [], [], []
     for r in rows:

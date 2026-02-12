@@ -27,25 +27,34 @@ def _parse_date(v):
 def _resolve_range(args):
     preset = (args.get("preset") or "last90").lower().strip()
     today = date.today()
-    if preset == "last90":
-        return today - timedelta(days=89), today
+
     if preset == "last30":
         return today - timedelta(days=29), today
-    d_from = args.get("from")
-    d_to = args.get("to")
-    if d_from and d_to:
-        return _parse_date(d_from), _parse_date(d_to)
-    return today - timedelta(days=89), today
+    if preset in ("last90", ""):
+        return today - timedelta(days=89), today
+
+    d_from = _parse_date(args.get("from"))
+    d_to = _parse_date(args.get("to"))
+    if not d_from or not d_to:
+        return today - timedelta(days=89), today
+    if d_to < d_from:
+        d_from, d_to = d_to, d_from
+    return d_from, d_to
+
+def _safe_shift_year(d, years):
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        # handles Feb 29
+        return d.replace(year=d.year + years, month=2, day=28)
 
 def _compare_range(d_from, d_to, mode):
     mode = (mode or "").lower().strip()
     if mode not in ("prev", "py"):
         return None
     if mode == "py":
-        try:
-            return d_from.replace(year=d_from.year-1), d_to.replace(year=d_to.year-1)
-        except ValueError:
-            return d_from.replace(year=d_from.year-1, month=2, day=28), d_to.replace(year=d_to.year-1, month=2, day=28)
+        return _safe_shift_year(d_from, -1), _safe_shift_year(d_to, -1)
+
     length = (d_to - d_from).days + 1
     prev_end = d_from - timedelta(days=1)
     prev_start = prev_end - timedelta(days=length - 1)
@@ -137,7 +146,7 @@ def api_missing_items():
         SELECT
           s.item_code_365,
           COUNT(DISTINCT s.customer_code_365) AS buyers,
-          SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS peer_sales
+          SUM(s.net_excl) AS peer_sales
         FROM {SALES_SRC} s
         JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
         WHERE s.sale_date BETWEEN :d_from AND :d_to
@@ -184,13 +193,17 @@ def api_missing_items():
     """)
 
     sql = sql.bindparams(_bind_array("peer_customers", peers))
-    rows = db.session.execute(sql, {
-        "peer_customers": peers,
-        "customer": customer,
-        "d_from": d_from, "d_to": d_to,
-        "min_pen": min_pen,
-        "lim": limit
-    }).mappings().all()
+    try:
+        rows = db.session.execute(sql, {
+            "peer_customers": peers,
+            "customer": customer,
+            "d_from": d_from, "d_to": d_to,
+            "min_pen": min_pen,
+            "lim": limit
+        }).mappings().all()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "query_failed", "detail": str(e)[:400]}), 500
 
     return jsonify({
         "meta": {
@@ -229,13 +242,13 @@ def _api_mix(col, label):
         sql = text(f"""
           WITH peer_customers AS (SELECT unnest(:peer_customers::text[]) AS customer_code_365),
           cust AS (
-            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS sales
+            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(s.net_excl) AS sales
             FROM {SALES_SRC} s LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
             WHERE s.customer_code_365 = :customer AND s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
             GROUP BY 1
           ),
           peer AS (
-            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS sales
+            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(s.net_excl) AS sales
             FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
             LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
             WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}

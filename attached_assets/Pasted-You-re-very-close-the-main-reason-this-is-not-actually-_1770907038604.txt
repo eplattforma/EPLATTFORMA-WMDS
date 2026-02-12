@@ -1,0 +1,175 @@
+You’re very close — the main reason this “is not actually working” is almost certainly column mismatch / inconsistent revenue field.
+
+✅ The #1 issue (will cause 500 errors)
+
+Your SALES_SRC is dw_sales_lines_mv, and your filters use:
+
+s.qty
+
+s.net_excl
+
+…but your SUMs use:
+
+s.total_incl
+
+s.total_vat
+
+If dw_sales_lines_mv does not have total_incl/total_vat (most likely), Postgres throws column does not exist and everything fails.
+
+Fix rule: in all peer/category analytics use SUM(s.net_excl) (since your MV is already net of VAT).
+
+Instructions to Replit — Fix + Hardening (copy/paste tasks)
+Task 0 — Confirm the MV columns (quick SQL)
+
+Run this in Postgres:
+
+SELECT *
+FROM dw_sales_lines_mv
+LIMIT 1;
+
+
+✅ Confirm it has sale_date, customer_code_365, item_code_365, qty, net_excl.
+
+If yes → proceed with the fixes below.
+
+Task 1 — Replace total_incl/total_vat with net_excl (BOTH files)
+A) In blueprints/category_manager.py
+
+Replace all occurrences of:
+
+SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0))
+
+
+with:
+
+SUM(s.net_excl)
+
+
+Specifically in:
+
+cust_cat.cust_sales
+
+peer_cat.peer_sales
+
+peer_item.peer_sales (in suggestions query)
+
+So those sections become:
+
+SUM(s.net_excl) AS cust_sales
+...
+SUM(s.net_excl) AS peer_sales
+...
+SUM(s.net_excl) AS peer_sales
+
+B) In blueprints/peer.py (or peer blueprint file)
+
+Same replacement in:
+
+/api/missing-items → peer_sales
+
+_api_mix() → both cust.sales and peer.sales
+
+Task 2 — Make the date-range code robust in peer blueprint
+
+Your peer_bp._resolve_range() currently doesn’t swap dates and can return invalid values.
+
+Replace it with the same safe version you used in catmgr:
+
+def _resolve_range(args):
+    preset = (args.get("preset") or "last90").lower().strip()
+    today = date.today()
+
+    if preset == "last30":
+        return today - timedelta(days=29), today
+    if preset in ("last90", ""):
+        return today - timedelta(days=89), today
+
+    d_from = _parse_date(args.get("from"))
+    d_to = _parse_date(args.get("to"))
+    if not d_from or not d_to:
+        return today - timedelta(days=89), today
+    if d_to < d_from:
+        d_from, d_to = d_to, d_from
+    return d_from, d_to
+
+Task 3 — Fix PY compare shifting (peer blueprint)
+
+Your _compare_range() “except ValueError” branch is wrong (it forces month=2/day=28 always).
+
+Replace with safe clamp logic:
+
+def _safe_shift_year(d, years):
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        # handles Feb 29
+        return d.replace(year=d.year + years, month=2, day=28)
+
+def _compare_range(d_from, d_to, mode):
+    mode = (mode or "").lower().strip()
+    if mode not in ("prev", "py"):
+        return None
+    if mode == "py":
+        return _safe_shift_year(d_from, -1), _safe_shift_year(d_to, -1)
+
+    length = (d_to - d_from).days + 1
+    prev_end = d_from - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=length - 1)
+    return prev_start, prev_end
+
+Task 4 — Add admin-only error output to speed debugging (temporary)
+
+Wrap query execution blocks like this (both blueprints), so you see the actual SQL error in UI while testing:
+
+try:
+    rows = db.session.execute(sql, params).mappings().all()
+except Exception as e:
+    db.session.rollback()
+    return jsonify({"error": "query_failed", "detail": str(e)[:400]}), 500
+
+
+(After it’s stable, Replit can remove detail or hide it behind a DEBUG flag.)
+
+Task 5 — Unify “revenue” definition everywhere
+
+Right now your logic is half “net_excl” and half “computed from VAT”.
+
+Standardize:
+
+Use net_excl for all sales value.
+
+Use qty for units.
+
+Credits controlled only by include_credits toggle:
+
+exclude credits: qty > 0 AND net_excl > 0
+
+include credits: qty <> 0
+
+This will prevent inconsistent “share” calculations.
+
+Why your current code may return empty even after SQL runs
+
+Even if SQL doesn’t error, you can still see blank results if:
+
+No peers found (customer has no ps_customers.category_1_name)
+
+peer_active.n < 5 (you hard-filter pa.n >= 5)
+
+Item categories missing in ps_items_dw.category_1_name → everything becomes Unclassified
+
+Replit should log seg_val, peer count, and peer_active.n in the JSON meta during testing.
+
+Quick sanity test (after fixes)
+
+Call in browser:
+
+Category gaps:
+/analytics/category-manager/api/category-gaps?customer_code=77700744&peer_group=auto&preset=last90&min_penetration=0.30
+
+Missing items:
+/analytics/peer/api/missing-items?customer_code=77700744&peer_group=auto&preset=last90&min_penetration=0.30
+
+If those load without 500 and return peer_customers > 0, you’re good.
+
+If you tell me what error you see in the Replit logs (or paste the JSON detail from Task 4), I can pinpoint the exact failing line/column in one pass.
