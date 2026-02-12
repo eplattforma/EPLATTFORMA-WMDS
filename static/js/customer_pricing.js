@@ -265,7 +265,7 @@ function resolveCompareDates(d_from, d_to, compare) {
 }
 
 function fmtDateDMY(d) {
-  if (!d) return "-";
+  if (!d || isNaN(d.getTime())) return "-";
   var dd = String(d.getDate()).padStart(2, '0');
   var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var mmm = months[d.getMonth()];
@@ -546,8 +546,16 @@ async function loadStale(url) {
 
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
-      var dObj = it.last_purchase_date ? new Date(it.last_purchase_date + "T00:00:00") : null;
-      var lastDateStr = dObj ? fmtDateDMY(dObj) : "-";
+      var dObj = null;
+      if (it.last_purchase_date) {
+        // Handle various date formats safely
+        dObj = new Date(it.last_purchase_date);
+        if (isNaN(dObj.getTime())) {
+           // Try adding time if direct parse fails
+           dObj = new Date(it.last_purchase_date + "T00:00:00");
+        }
+      }
+      var lastDateStr = fmtDateDMY(dObj);
       var tr = document.createElement("tr");
       tr.innerHTML =
         '<td style="font-weight:600;font-size:12px">' + (it.item_code_365 || "") + '</td>' +
