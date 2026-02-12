@@ -293,8 +293,7 @@ async function loadSummary() {
         kpiHtml('Sales (excl VAT)', '€' + money(cur.sales_excl), del ? del.sales_excl : null) +
         kpiHtml('Deliveries', num(cur.deliveries), del ? del.deliveries : null) +
         kpiHtml('Avg Delivery', '€' + money(cur.avg_delivery), del ? del.avg_delivery : null) +
-        kpiHtml('Invoices', num(cur.invoices), del ? del.invoices : null) +
-        kpiHtml('Avg Invoice', '€' + money(cur.avg_invoice), del ? del.avg_invoice : null);
+        kpiHtml('Qty', num(cur.qty), null);
 
     const drEl = document.getElementById('dateRangeInfo');
     if (data.range) {
