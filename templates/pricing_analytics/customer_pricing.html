@@ -208,7 +208,6 @@
     <div class="pa-tabs" id="tabBar">
         <button class="pa-tab active" data-tab="tIndex">Price Index vs Market</button>
         <button class="pa-tab" data-tab="tPvm">PVM Analysis</button>
-        <button class="pa-tab" data-tab="tSens">Price Sensitivity</button>
         <button class="pa-tab" data-tab="tStale">Stale Pricing</button>
     </div>
 
@@ -279,23 +278,6 @@
                 </table>
             </div>
             <div class="pa-note">PVM = Price-Volume-Mix decomposition. Requires Compare mode (Previous period or Prior Year).</div>
-        </div>
-
-        <div class="pa-tab-content" id="tSens">
-            <div class="table-responsive">
-                <table class="pa-table" id="tblSens">
-                    <thead>
-                        <tr>
-                            <th>Item</th><th>Name</th>
-                            <th class="text-end">Month Pairs</th>
-                            <th class="text-end">Corr(dP, dQ next)</th>
-                            <th class="text-end">Dropouts after +8%</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            <div class="pa-note">Negative correlation = customer buys less when price rises (price sensitive). Needs at least 3 valid month pairs. Signal only, not true elasticity.</div>
         </div>
 
         <div class="pa-tab-content" id="tStale">

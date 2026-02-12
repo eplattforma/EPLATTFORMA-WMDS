@@ -296,7 +296,6 @@ async function loadAll() {
 
   setLoading("tblIndex");
   setLoading("tblPvm");
-  setLoading("tblSens");
   setLoading("tblStale");
   document.getElementById("indexSummary").innerHTML = "";
   document.getElementById("pvmSummary").innerHTML = "";
@@ -304,7 +303,6 @@ async function loadAll() {
   await Promise.all([
     loadIndex("/pricing/api/price-index?" + base + "&top_n=50"),
     compare !== "none" ? loadPvm("/pricing/api/pvm?" + base) : showPvmNotice(),
-    loadSens("/pricing/api/price-sensitivity?customer_code_365=" + encodeURIComponent(customer) + "&months=18"),
     loadStale(buildStaleUrl())
   ]);
 }
@@ -565,40 +563,6 @@ async function loadStale(url) {
   }
 }
 
-async function loadSens(url) {
-  try {
-    var j = await safeFetch(url);
-
-    var items = j.items || [];
-    if (items.length === 0) {
-      setEmpty("tblSens", "Not enough monthly purchase history for sensitivity (need \u2265 3 month pairs)");
-      return;
-    }
-
-    var codes = items.map(function(it) { return it.item_code_365; });
-    await fetchItemNames(codes);
-
-    var tb = document.querySelector("#tblSens tbody");
-    tb.innerHTML = "";
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var corrVal = it.sensitivity_corr;
-      var corrClass = "";
-      if (corrVal !== null && corrVal < -0.3) corrClass = "negative";
-      else if (corrVal !== null && corrVal > 0.3) corrClass = "positive";
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        '<td style="font-weight:600;font-size:12px">' + it.item_code_365 + '</td>' +
-        '<td style="font-size:12px">' + lookupItemName(it.item_code_365) + '</td>' +
-        '<td class="text-end">' + fmt(it.pairs, 0) + '</td>' +
-        '<td class="text-end ' + corrClass + '">' + fmt(corrVal, 3) + '</td>' +
-        '<td class="text-end">' + fmt(it.dropouts_after_rise, 0) + '</td>';
-      tb.appendChild(tr);
-    }
-  } catch(e) {
-    setEmpty("tblSens", e.message || "Error loading data");
-  }
-}
 
 document.addEventListener("DOMContentLoaded", function() {
   document.getElementById("dFrom").value = ninetyDaysAgoISO();
