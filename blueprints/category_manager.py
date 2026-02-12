@@ -63,11 +63,12 @@ def _resolve_peer_customers(customer_code, peer_group):
       SELECT COALESCE(category_1_name,'') AS seg FROM ps_customers WHERE customer_code_365 = :c LIMIT 1
     """), {"c": customer_code}).mappings().first()
     seg_val = (seg["seg"] if seg else "").strip()
-    if not seg_val: return []
+    # Allow empty segments to match each other
+    # if not seg_val: return []
 
     rows = db.session.execute(text("""
       SELECT customer_code_365 FROM ps_customers
-      WHERE COALESCE(category_1_name,'') = :seg AND customer_code_365 <> :c AND deleted_at IS NULL
+      WHERE (COALESCE(category_1_name,'') = :seg OR category_1_name IS NULL) AND customer_code_365 <> :c AND deleted_at IS NULL
       LIMIT 400
     """), {"seg": seg_val, "c": customer_code}).fetchall()
     return [r[0] for r in rows if r and r[0]]

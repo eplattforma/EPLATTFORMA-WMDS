@@ -85,13 +85,15 @@ def _resolve_peer_customers(customer_code, peer_group):
     """), {"c": customer_code}).mappings().first()
 
     seg_val = (seg["seg"] if seg else "").strip()
-    if not seg_val:
-        return []
+    # If the segment is empty, we don't return early. 
+    # We want to allow analysis even for unclassified customers if peers also have empty segments.
+    # if not seg_val:
+    #    return []
 
     rows = db.session.execute(text("""
       SELECT customer_code_365
       FROM ps_customers
-      WHERE COALESCE(category_1_name,'') = :seg
+      WHERE (COALESCE(category_1_name,'') = :seg OR category_1_name IS NULL)
         AND customer_code_365 <> :c
         AND deleted_at IS NULL
       LIMIT 400
