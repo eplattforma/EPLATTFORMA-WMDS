@@ -1,0 +1,86 @@
+Replit Instructions: Add “PVM Help” (simple + clear)
+1) Frontend: Add a Help button + modal in the PVM tab
+File: templates/pricing_analytics/customer_pricing.html
+1.1 Add a Help button inside the PVM tab
+
+Inside the <div class="tab-pane fade" id="tPvm"> (above #pvmSummary), add:
+
+<div class="d-flex justify-content-end mb-2">
+  <button class="btn btn-sm btn-outline-secondary"
+          data-bs-toggle="modal"
+          data-bs-target="#helpPvm">
+    Help
+  </button>
+</div>
+
+1.2 Add the PVM Help modal (paste once near bottom of page)
+
+Paste near the end of the template, before {% endblock %}:
+
+<div class="modal fade" id="helpPvm" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">PVM — Help (Price / Volume / Mix)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body">
+        <p><b>What is PVM?</b><br>
+        PVM explains <b>why</b> a customer’s revenue changed between a <b>Current</b> period and a <b>Baseline</b> period
+        (Previous Period or Prior Year). It breaks the change into <b>Price</b>, <b>Volume</b>, and <b>Mix</b>.
+        </p>
+
+        <p><b>P = Price effect</b><br>
+        Revenue change caused by <b>unit price changes</b> on items the customer already bought before.
+        </p>
+
+        <p><b>V = Volume effect</b><br>
+        Revenue change caused by buying <b>more or fewer units</b> (quantity changes), assuming baseline prices.
+        </p>
+
+        <p><b>M = Mix effect</b><br>
+        Revenue change caused by a different <b>basket</b>: new items bought now (not in baseline), lost items, or a shift to different items.
+        </p>
+
+        <hr>
+
+        <p><b>How are the numbers calculated?</b><br>
+        For each item we compute:<br>
+        <span class="text-muted">P Curr = revenue / qty (current), P Base = revenue / qty (baseline)</span><br>
+        Then:<br>
+        <span class="text-muted">ΔRevenue = R1 − R0</span><br>
+        <span class="text-muted">Volume effect = P0 × (Q1 − Q0)</span><br>
+        <span class="text-muted">Price effect = Q0 × (P1 − P0)</span><br>
+        <span class="text-muted">Mix effect = the remainder so that ΔRevenue = Price + Volume + Mix</span>
+        </p>
+
+        <p><b>How to interpret common cases</b></p>
+        <ul>
+          <li><b>Mix dominates:</b> Many items have Q Base = 0 (new items) or Q Curr = 0 (lost items). This means the basket changed.</li>
+          <li><b>Price dominates:</b> Unit prices changed on existing items (discounts/pricelist changes).</li>
+          <li><b>Volume dominates:</b> The customer bought more/less quantity of the same items.</li>
+        </ul>
+
+        <p class="text-muted mb-0">
+          Tip: PVM requires Compare mode (Previous period or PY). If Compare is “None”, PVM cannot run.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+✅ That adds a Help popup with a clean explanation.
+
+2) Optional (recommended): Add a small note under the PVM summary
+
+Still inside the PVM tab, under #pvmSummary, add:
+
+<small class="text-muted">
+  PVM explains revenue change vs the selected Compare period (Prev or PY) using Price / Volume / Mix.
+</small>
+
+3) Verify Bootstrap JS is available
+
+This modal needs Bootstrap’s JS. You already use tabs, so it should be loaded. If not, ensure your base.html includes Bootstrap bundle script.

@@ -149,13 +149,18 @@ def api_price_index():
       WHERE {line_where_pos}
     """)
 
-    tot = db.session.execute(sql_totals, {
+    tot_row = db.session.execute(sql_totals, {
         "customer": customer, "d_from": d_from, "d_to": d_to
     }).mappings().first()
 
-    gross_positive_sales_all = float(tot["gross_positive_sales_all_items"] or 0)
-    gross_positive_qty_all = float(tot["gross_positive_qty_all_items"] or 0)
-    distinct_items_positive = int(tot["distinct_items_positive"] or 0)
+    gross_positive_sales_all = 0.0
+    gross_positive_qty_all = 0.0
+    distinct_items_positive = 0
+    
+    if tot_row:
+        gross_positive_sales_all = float(tot_row.get("gross_positive_sales_all_items") or 0)
+        gross_positive_qty_all = float(tot_row.get("gross_positive_qty_all_items") or 0)
+        distinct_items_positive = int(tot_row.get("distinct_items_positive") or 0)
 
     sql_net = text(f"""
       SELECT COALESCE(SUM(net_excl), 0) AS net_sales_all_lines
@@ -167,7 +172,7 @@ def api_price_index():
         "customer": customer, "d_from": d_from, "d_to": d_to
     }).mappings().first()
 
-    net_sales_all_lines = float(net_row["net_sales_all_lines"] or 0)
+    net_sales_all_lines = float(net_row.get("net_sales_all_lines") or 0) if net_row else 0.0
 
     line_where = "sale_date BETWEEN :d_from AND :d_to AND customer_code_365 = :customer"
     if include_credits:
