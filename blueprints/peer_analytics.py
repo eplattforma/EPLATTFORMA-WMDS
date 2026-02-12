@@ -13,8 +13,8 @@ SALES_SRC = os.getenv("SALES_LINES_SOURCE", "dw_sales_lines_mv")
 ITEMS_TBL = "ps_items_dw"
 
 ITEM_NAME_COL = "item_name"
-ITEM_CATEGORY_COL = "category_1_name"   # Updated based on project context
-ITEM_BRAND_COL = "brand_code_365"       # Updated based on project context
+ITEM_CATEGORY_COL = "category_code_365"
+ITEM_BRAND_COL = "brand_code_365"
 
 def _role_ok():
     r = getattr(current_user, "role", None)
@@ -134,9 +134,7 @@ def api_missing_items():
     line_filter = "s.qty <> 0" if include_credits else "s.qty > 0 AND s.net_excl > 0"
 
     sql = text(f"""
-      WITH peer_customers AS (
-        SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365
-      ),
+      WITH peer_customers AS (SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365),
       peer_active AS (
         SELECT COUNT(DISTINCT s.customer_code_365) AS n
         FROM {SALES_SRC} s
@@ -191,7 +189,7 @@ def api_missing_items():
       WHERE cb.item_code_365 IS NULL
         AND pa.n >= 5
         AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :min_pen
-      ORDER BY score DESC NULLS LAST, penetration DESC
+      ORDER BY 11 DESC NULLS LAST, 7 DESC
       LIMIT :lim
     """).bindparams(bindparam("peer_customers", type_=ARRAY(String)))
 
@@ -264,7 +262,8 @@ def _api_mix(col, label):
             (CASE WHEN t.cust_total > 0 THEN COALESCE(c.sales,0)/t.cust_total ELSE 0 END) -
             (CASE WHEN t.peer_total > 0 THEN COALESCE(p.sales,0)/t.peer_total ELSE 0 END) AS share_gap
           FROM cust c FULL OUTER JOIN peer p ON p.k = c.k CROSS JOIN totals t
-          ORDER BY ABS(share_gap) DESC
+          ORDER BY ABS((CASE WHEN t.cust_total > 0 THEN COALESCE(c.sales,0)/t.cust_total ELSE 0 END) -
+                       (CASE WHEN t.peer_total > 0 THEN COALESCE(p.sales,0)/t.peer_total ELSE 0 END)) DESC
         """).bindparams(bindparam("peer_customers", type_=ARRAY(String)))
         try:
             return db.session.execute(sql, {
