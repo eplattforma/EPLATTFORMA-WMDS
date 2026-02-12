@@ -523,7 +523,7 @@ async function loadPvm(url) {
 function buildStaleUrl() {
   var customer = window.CUSTOMER_CODE_365;
   var benchmark = document.getElementById("benchmark").value;
-  var staleMin = document.getElementById("staleMin") ? document.getElementById("staleMin").value : 300;
+  var staleMin = document.getElementById("staleMin") ? document.getElementById("staleMin").value : 90;
   var staleMax = document.getElementById("staleMax") ? document.getElementById("staleMax").value : 400;
   var marketDays = document.getElementById("marketDays") ? document.getElementById("marketDays").value : 90;
   return "/pricing/api/stale-pricing?customer_code_365=" + encodeURIComponent(customer) +

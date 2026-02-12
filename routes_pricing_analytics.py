@@ -535,7 +535,7 @@ def api_stale_pricing():
 
     customer = (request.args.get("customer_code_365") or "").strip()
 
-    stale_min = int(request.args.get("stale_min", "300"))
+    stale_min = int(request.args.get("stale_min", "90"))
     stale_max = int(request.args.get("stale_max", "400"))
     if stale_min < 0:
         stale_min = 0
