@@ -11,6 +11,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    function N(v) { return Number(v) || 0; }
+
     let proposal = new Set();
 
     async function runAnalysis() {
@@ -47,7 +49,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         list.innerHTML = items.map(it => {
-            const gap = it.share_gap * 100;
+            const gap = N(it.share_gap) * 100;
             const gapClass = gap < -2 ? 'text-danger' : (gap > 2 ? 'text-success' : '');
             return `
                 <div class="list-group-item cat-gap-item p-3" data-cat="${it.category}">
@@ -56,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <span class="badge rounded-pill bg-danger" style="font-size: 10px;">${it.missing_items} items</span>
                     </div>
                     <div class="d-flex justify-content-between mt-1 tiny text-muted" style="font-size: 11px;">
-                        <span>Share: ${(it.cust_share*100).toFixed(1)}%</span>
+                        <span>Share: ${(N(it.cust_share)*100).toFixed(1)}%</span>
                         <span class="${gapClass} fw-bold">Gap: ${gap > 0 ? '+' : ''}${gap.toFixed(1)}%</span>
                     </div>
                 </div>
@@ -98,10 +100,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="max-width: 70%;">
                                 <div class="fw-bold">${it.item_code} <span class="badge ${it.tag === 'NEW' ? 'bg-success' : 'bg-info'} tiny" style="font-size: 9px;">${it.tag}</span></div>
                                 <div class="text-truncate">${it.item_name}</div>
-                                <div class="tiny text-muted">${it.brand} &middot; ${(it.penetration*100).toFixed(0)}% pen</div>
+                                <div class="tiny text-muted">${it.brand} &middot; ${(N(it.penetration)*100).toFixed(0)}% pen</div>
                             </div>
                             <div class="text-end">
-                                <div class="fw-bold">€${it.peer_avg_sales.toFixed(2)}</div>
+                                <div class="fw-bold">€${N(it.peer_avg_sales).toFixed(2)}</div>
                                 <button class="btn btn-xs btn-primary btn-add-prop" data-code="${it.item_code}" data-name="${it.item_name}">Add</button>
                             </div>
                         </div>
@@ -199,8 +201,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td>${it.item_code}</td>
                 <td>${it.item_name}</td>
                 <td>${it.category}</td>
-                <td>${(it.penetration * 100).toFixed(1)}%</td>
-                <td>€${it.peer_avg_sales.toFixed(2)}</td>
+                <td>${(N(it.penetration) * 100).toFixed(1)}%</td>
+                <td>€${N(it.peer_avg_sales).toFixed(2)}</td>
                 <td>
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge ${it.last_bought ? 'bg-warning' : 'bg-danger'}" style="font-size: 10px;">${it.last_bought ? 'STALE ('+it.last_bought+')' : 'NEVER'}</span>
@@ -220,14 +222,14 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderMix(id, items, key) {
         const tbody = document.querySelector(`#${id} tbody`);
         tbody.innerHTML = items.map(it => {
-            const gap = it.share_gap * 100;
+            const gap = N(it.share_gap) * 100;
             const gapClass = gap < -2 ? 'gap-neg' : (gap > 2 ? 'gap-pos' : '');
             return `
                 <tr>
                     <td>${it[key]}</td>
-                    <td>€${it.cust_sales.toLocaleString()}</td>
-                    <td>${(it.cust_share * 100).toFixed(1)}%</td>
-                    <td>${(it.peer_share * 100).toFixed(1)}%</td>
+                    <td>€${N(it.cust_sales).toLocaleString()}</td>
+                    <td>${(N(it.cust_share) * 100).toFixed(1)}%</td>
+                    <td>${(N(it.peer_share) * 100).toFixed(1)}%</td>
                     <td class="${gapClass}">${gap > 0 ? '+' : ''}${gap.toFixed(1)}%</td>
                 </tr>
             `;
