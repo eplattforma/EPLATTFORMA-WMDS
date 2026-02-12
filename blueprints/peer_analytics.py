@@ -135,7 +135,7 @@ def api_missing_items():
 
     sql = text(f"""
       WITH peer_customers AS (
-        SELECT unnest(:peer_customers::text[]) AS customer_code_365
+        SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365
       ),
       peer_active AS (
         SELECT COUNT(DISTINCT s.customer_code_365) AS n
@@ -193,7 +193,7 @@ def api_missing_items():
         AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :min_pen
       ORDER BY score DESC NULLS LAST, penetration DESC
       LIMIT :lim
-    """)
+    """).bindparams(bindparam("peer_customers", type_=ARRAY(String)))
 
     try:
         rows = db.session.execute(sql, {
@@ -243,7 +243,7 @@ def _api_mix(col, label):
 
     def run_mix(x_from, x_to):
         sql = text(f"""
-          WITH peer_customers AS (SELECT unnest(:peer_customers::text[]) AS customer_code_365),
+          WITH peer_customers AS (SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365),
           cust AS (
             SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(s.net_excl) AS sales
             FROM {SALES_SRC} s LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
@@ -265,7 +265,7 @@ def _api_mix(col, label):
             (CASE WHEN t.peer_total > 0 THEN COALESCE(p.sales,0)/t.peer_total ELSE 0 END) AS share_gap
           FROM cust c FULL OUTER JOIN peer p ON p.k = c.k CROSS JOIN totals t
           ORDER BY ABS(share_gap) DESC
-        """)
+        """).bindparams(bindparam("peer_customers", type_=ARRAY(String)))
         try:
             return db.session.execute(sql, {
                 "peer_customers": peers,

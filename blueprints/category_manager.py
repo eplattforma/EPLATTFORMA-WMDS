@@ -87,7 +87,7 @@ def api_category_gaps():
     line_filter = "s.qty <> 0" if include_credits else "s.qty > 0 AND s.net_excl > 0"
 
     sql = text(f"""
-      WITH peer_customers AS (SELECT unnest(:peer_customers::text[]) AS customer_code_365),
+      WITH peer_customers AS (SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365),
       peer_active AS (
         SELECT COUNT(DISTINCT s.customer_code_365) AS n
         FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
@@ -141,7 +141,7 @@ def api_category_gaps():
       FROM cust_cat c FULL OUTER JOIN peer_cat p ON p.category = c.category CROSS JOIN totals t
       LEFT JOIN missing m ON m.category = COALESCE(c.category,p.category)
       ORDER BY share_gap ASC, peer_sales DESC LIMIT 200
-    """)
+    """).bindparams(bindparam("peer_customers", type_=ARRAY(String)))
     try:
         rows = db.session.execute(sql, {
             "peer_customers": peers,
@@ -184,7 +184,7 @@ def api_category_suggestions():
     line_filter = "s.qty <> 0" if include_credits else "s.qty > 0 AND s.net_excl > 0"
 
     sql = text(f"""
-      WITH peer_customers AS (SELECT unnest(:peer_customers::text[]) AS customer_code_365),
+      WITH peer_customers AS (SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365),
       peer_active AS (
         SELECT COUNT(DISTINCT s.customer_code_365) AS n
         FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
@@ -217,7 +217,7 @@ def api_category_suggestions():
       LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = pi.item_code_365
       WHERE cb.item_code_365 IS NULL AND pa.n >= 5 AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :variety_pen
       ORDER BY score DESC NULLS LAST, penetration DESC LIMIT :lim
-    """)
+    """).bindparams(bindparam("peer_customers", type_=ARRAY(String)))
     try:
         rows = db.session.execute(sql, {
             "peer_customers": peers,
