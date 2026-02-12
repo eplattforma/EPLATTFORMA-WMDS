@@ -35,6 +35,106 @@ function deltaClass(v) {
 }
 
 var itemNamesCache = {};
+window.PVM_ROWS = [];
+window.PVM_FILTER = "all";
+
+function dominantEffectKey(row) {
+  const pe = Math.abs(Number(row.price_effect || 0));
+  const ve = Math.abs(Number(row.volume_effect || 0));
+  const me = Math.abs(Number(row.mix_effect || 0));
+  const maxv = Math.max(pe, ve, me);
+
+  const EPS = 0.01;
+  if (maxv < EPS) return null;
+
+  if (pe === maxv) return "price";
+  if (ve === maxv) return "volume";
+  return "mix";
+}
+
+function rowMatchesPvmFilter(row) {
+  const f = window.PVM_FILTER || "all";
+  if (f === "all") return true;
+
+  const pe = Math.abs(Number(row.price_effect || 0));
+  const ve = Math.abs(Number(row.volume_effect || 0));
+  const me = Math.abs(Number(row.mix_effect || 0));
+  const maxv = Math.max(pe, ve, me);
+
+  if (f === "price") return pe === maxv;
+  if (f === "volume") return ve === maxv;
+  if (f === "mix") return me === maxv;
+  return true;
+}
+
+function pvmTypeKey(row) {
+  const q1 = Number(row.q1 || 0);
+  const q0 = Number(row.q0 || 0);
+  if (q0 === 0 && q1 > 0) return "new";
+  if (q1 === 0 && q0 > 0) return "lost";
+  return "common";
+}
+
+function typeBadgeHtml(row) {
+  const t = pvmTypeKey(row);
+  if (t === "new") return `<span class="badge-type type-new">NEW</span>`;
+  if (t === "lost") return `<span class="badge-type type-lost">LOST</span>`;
+  return `<span class="badge-type type-common">COMMON</span>`;
+}
+
+function driverBadgeHtml(row) {
+  const key = dominantEffectKey(row);
+  if (!key) return `<span class="badge-driver badge-none">NONE</span>`;
+  if (key === "price") return `<span class="badge-driver badge-price">PRICE</span>`;
+  if (key === "volume") return `<span class="badge-driver badge-volume">VOLUME</span>`;
+  return `<span class="badge-driver badge-mix">MIX</span>`;
+}
+
+function setPvmFilter(effect) {
+  window.PVM_FILTER = effect || "all";
+  document.querySelectorAll(".pvm-filter").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.effect === window.PVM_FILTER);
+  });
+  const label = document.getElementById("pvmFilterLabel");
+  if (label) {
+    const txt = window.PVM_FILTER === "all"
+      ? "Showing: All items"
+      : `Showing: ${window.PVM_FILTER.toUpperCase()}-driven items`;
+    label.textContent = txt;
+  }
+  renderPvmTable();
+}
+
+function renderPvmTable() {
+  const tb = document.querySelector("#tblPvm tbody");
+  if (!tb) return;
+  tb.innerHTML = "";
+  const rows = (window.PVM_ROWS || []).filter(rowMatchesPvmFilter);
+
+  for (const it of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td style="font-weight:600;font-size:12px">${it.item_code_365}</td>
+      <td style="font-size:12px">${lookupItemName(it.item_code_365)}</td>
+      <td>${typeBadgeHtml(it)}</td>
+      <td>
+        <a href="#" class="pvm-driver-click" data-effect="${dominantEffectKey(it) || ""}" style="text-decoration:none">
+          ${driverBadgeHtml(it)}
+        </a>
+      </td>
+      <td class="text-end ${deltaClass(it.delta_revenue)}">${fmtSigned(it.delta_revenue, 2)}</td>
+      <td class="text-end ${deltaClass(it.price_effect)}">${fmtSigned(it.price_effect, 2)}</td>
+      <td class="text-end ${deltaClass(it.volume_effect)}">${fmtSigned(it.volume_effect, 2)}</td>
+      <td class="text-end ${deltaClass(it.mix_effect)}">${fmtSigned(it.mix_effect, 2)}</td>
+      <td class="text-end">${fmt(it.q1, 0)}</td>
+      <td class="text-end">${fmt(it.p1, 4)}</td>
+      <td class="text-end">${fmt(it.q0, 0)}</td>
+      <td class="text-end">${fmt(it.p0, 4)}</td>
+    `;
+    tb.appendChild(tr);
+  }
+}
+
 var indexSelectedBrand = "";
 var indexBrands = [];
 var indexBrandNameMap = {};
@@ -312,10 +412,13 @@ async function loadPvm(url) {
     var codes = items.map(function(it) { return it.item_code_365; });
     await fetchItemNames(codes);
 
+    window.PVM_ROWS = items;
+    if (!window.PVM_FILTER) window.PVM_FILTER = "all";
+
     var s = j.summary || {};
     document.getElementById("pvmSummary").innerHTML = `
       <div class="row g-2">
-        <div class="col-md-3"><div class="card p-2">
+        <div class="col-md-3"><div class="card p-2 pvm-card-click" data-effect="all" style="cursor:pointer">
           <div class="text-muted small">Δ Net Revenue (incl CN)</div>
           <div class="value ${deltaClass(s.delta_net_revenue)}"><b>${fmtSigned(s.delta_net_revenue)}</b></div>
         </div></div>
@@ -325,17 +428,17 @@ async function loadPvm(url) {
           <div class="value ${deltaClass(s.delta_credits)}"><b>${fmtSigned(s.delta_credits)}</b></div>
         </div></div>
 
-        <div class="col-md-2"><div class="card p-2">
+        <div class="col-md-2"><div class="card p-2 pvm-card-click" data-effect="price" style="cursor:pointer">
           <div class="text-muted small">Price effect</div>
           <div class="value ${deltaClass(s.price_effect)}"><b>${fmtSigned(s.price_effect)}</b></div>
         </div></div>
 
-        <div class="col-md-2"><div class="card p-2">
+        <div class="col-md-2"><div class="card p-2 pvm-card-click" data-effect="volume" style="cursor:pointer">
           <div class="text-muted small">Volume effect</div>
           <div class="value ${deltaClass(s.volume_effect)}"><b>${fmtSigned(s.volume_effect)}</b></div>
         </div></div>
 
-        <div class="col-md-2"><div class="card p-2">
+        <div class="col-md-2"><div class="card p-2 pvm-card-click" data-effect="mix" style="cursor:pointer">
           <div class="text-muted small">Mix effect</div>
           <div class="value ${deltaClass(s.mix_effect)}"><b>${fmtSigned(s.mix_effect)}</b></div>
         </div></div>
@@ -346,24 +449,33 @@ async function loadPvm(url) {
       </div>
       <div class="pa-note" style="margin-top:8px">Baseline: ${s.baseline_from} to ${s.baseline_to} (${s.compare})</div>`;
 
-    var tb = document.querySelector("#tblPvm tbody");
-    tb.innerHTML = "";
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        '<td style="font-weight:600;font-size:12px">' + it.item_code_365 + '</td>' +
-        '<td style="font-size:12px">' + lookupItemName(it.item_code_365) + '</td>' +
-        '<td class="text-end ' + deltaClass(it.delta_revenue) + '">' + fmtSigned(it.delta_revenue) + '</td>' +
-        '<td class="text-end ' + deltaClass(it.price_effect) + '">' + fmtSigned(it.price_effect) + '</td>' +
-        '<td class="text-end ' + deltaClass(it.volume_effect) + '">' + fmtSigned(it.volume_effect) + '</td>' +
-        '<td class="text-end ' + deltaClass(it.mix_effect) + '">' + fmtSigned(it.mix_effect) + '</td>' +
-        '<td class="text-end">' + fmt(it.q1, 0) + '</td>' +
-        '<td class="text-end">' + fmt(it.p1, 4) + '</td>' +
-        '<td class="text-end">' + fmt(it.q0, 0) + '</td>' +
-        '<td class="text-end">' + fmt(it.p0, 4) + '</td>';
-      tb.appendChild(tr);
+    if (!window.__pvmFilterBound) {
+      window.__pvmFilterBound = true;
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest(".pvm-filter");
+        const card = e.target.closest(".pvm-card-click");
+        const badge = e.target.closest(".pvm-driver-click");
+        
+        if (btn) {
+          e.preventDefault();
+          setPvmFilter(btn.dataset.effect);
+        } else if (card) {
+          e.preventDefault();
+          setPvmFilter(card.dataset.effect);
+        } else if (badge) {
+          e.preventDefault();
+          const eff = badge.dataset.effect;
+          if (eff) setPvmFilter(eff);
+        }
+      });
+
+      const allBtn = document.getElementById("pvmFilterAll");
+      if (allBtn) {
+        allBtn.addEventListener("click", () => setPvmFilter("all"));
+      }
     }
+
+    setPvmFilter(window.PVM_FILTER || "all");
   } catch(e) {
     setEmpty("tblPvm", e.message || "Error loading data");
   }

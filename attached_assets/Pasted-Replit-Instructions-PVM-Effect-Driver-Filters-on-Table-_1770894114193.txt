@@ -1,0 +1,550 @@
+Replit Instructions: PVM “Effect Driver” Filters on Table Headers
+Goal
+
+In the PVM table, make these headers clickable:
+
+Price effect
+
+Volume effect
+
+Mix effect
+
+When the user clicks a header, the table filters to show only items where that effect is the dominant driver (largest absolute effect among Price/Volume/Mix).
+
+Also provide an “All” option to clear the filter.
+
+1) Update the PVM table headers (make them clickable)
+File: templates/pricing_analytics/customer_pricing.html
+
+Find the PVM table header row and replace the 3 header texts with buttons:
+
+<th class="text-end">
+  <button type="button" class="btn btn-link btn-sm p-0 pvm-filter" data-effect="price">
+    Price effect
+  </button>
+</th>
+<th class="text-end">
+  <button type="button" class="btn btn-link btn-sm p-0 pvm-filter" data-effect="volume">
+    Volume effect
+  </button>
+</th>
+<th class="text-end">
+  <button type="button" class="btn btn-link btn-sm p-0 pvm-filter" data-effect="mix">
+    Mix effect
+  </button>
+</th>
+
+
+Add a small “All” control above the table (right aligned), inside the PVM tab, just above the table:
+
+<div class="d-flex justify-content-end align-items-center mb-2">
+  <span class="text-muted small me-2" id="pvmFilterLabel">Showing: All items</span>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="pvmFilterAll">All</button>
+</div>
+
+2) Add CSS for active filter + nicer look
+File: templates/pricing_analytics/customer_pricing.html (or your global CSS)
+
+Add:
+
+<style>
+  .pvm-filter { color: rgba(255,255,255,0.75); text-decoration: none; }
+  .pvm-filter:hover { color: rgba(255,255,255,0.95); text-decoration: underline; }
+  .pvm-filter.active { color: #93c5fd; font-weight: 700; text-decoration: underline; }
+</style>
+
+
+(If you already have a CSS block from earlier styling, append this.)
+
+3) Update JS: store PVM rows and re-render with filter
+File: static/js/customer_pricing.js
+
+In your PVM logic, implement:
+
+global store window.PVM_ROWS
+
+active filter window.PVM_FILTER = "all" | "price" | "volume" | "mix"
+
+function to decide if a row matches filter based on dominant effect
+
+Add these helpers near the top of the file (or near your other helpers):
+
+window.PVM_ROWS = [];
+window.PVM_FILTER = "all";
+
+function dominantEffectKey(row) {
+  const pe = Math.abs(Number(row.price_effect || 0));
+  const ve = Math.abs(Number(row.volume_effect || 0));
+  const me = Math.abs(Number(row.mix_effect || 0));
+  const maxv = Math.max(pe, ve, me);
+
+  // optional: ignore tiny noise
+  const EPS = 0.01; // set to 0.00 if you want no threshold
+  if (maxv < EPS) return null;
+
+  // ties allowed (we’ll treat as match for both)
+  if (pe === maxv) return "price";
+  if (ve === maxv) return "volume";
+  return "mix";
+}
+
+function rowMatchesPvmFilter(row) {
+  const f = window.PVM_FILTER || "all";
+  if (f === "all") return true;
+
+  // show rows where this effect is dominant
+  const key = dominantEffectKey(row);
+  if (!key) return false;
+
+  // handle ties more robustly:
+  const pe = Math.abs(Number(row.price_effect || 0));
+  const ve = Math.abs(Number(row.volume_effect || 0));
+  const me = Math.abs(Number(row.mix_effect || 0));
+  const maxv = Math.max(pe, ve, me);
+
+  if (f === "price") return pe === maxv;
+  if (f === "volume") return ve === maxv;
+  if (f === "mix") return me === maxv;
+  return true;
+}
+
+function setPvmFilter(effect) {
+  window.PVM_FILTER = effect || "all";
+
+  // update header active state
+  document.querySelectorAll(".pvm-filter").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.effect === window.PVM_FILTER);
+  });
+
+  // update label
+  const label = document.getElementById("pvmFilterLabel");
+  if (label) {
+    const txt = window.PVM_FILTER === "all"
+      ? "Showing: All items"
+      : `Showing: ${window.PVM_FILTER.toUpperCase()}-driven items`;
+    label.textContent = txt;
+  }
+
+  // re-render table
+  renderPvmTable();
+}
+
+function renderPvmTable() {
+  const tb = document.querySelector("#tblPvm tbody");
+  if (!tb) return;
+
+  tb.innerHTML = "";
+  const rows = (window.PVM_ROWS || []).filter(rowMatchesPvmFilter);
+
+  for (const it of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${it.item_code_365}</td>
+      <td class="text-end">${fmt(it.delta_revenue,2)}</td>
+      <td class="text-end">${fmt(it.price_effect,2)}</td>
+      <td class="text-end">${fmt(it.volume_effect,2)}</td>
+      <td class="text-end">${fmt(it.mix_effect,2)}</td>
+      <td class="text-end">${fmt(it.q1,2)}</td>
+      <td class="text-end">${fmt(it.p1,4)}</td>
+      <td class="text-end">${fmt(it.q0,2)}</td>
+      <td class="text-end">${fmt(it.p0,4)}</td>
+    `;
+    tb.appendChild(tr);
+  }
+}
+
+4) Modify loadPvm() to use the new renderer + bind click events once
+
+Inside your existing loadPvm(url):
+
+After you fetch JSON:
+
+window.PVM_ROWS = j.items || [];
+
+
+Replace the old loop that directly writes rows with:
+
+// default filter on each load (or keep current selection)
+if (!window.PVM_FILTER) window.PVM_FILTER = "all";
+renderPvmTable();
+
+
+Bind click handlers (do this once; guard with a flag):
+
+if (!window.__pvmFilterBound) {
+  window.__pvmFilterBound = true;
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pvm-filter");
+    if (btn) {
+      e.preventDefault();
+      setPvmFilter(btn.dataset.effect);
+    }
+  });
+
+  const allBtn = document.getElementById("pvmFilterAll");
+  if (allBtn) {
+    allBtn.addEventListener("click", () => setPvmFilter("all"));
+  }
+}
+
+
+Finally, at end of loadPvm() call:
+
+setPvmFilter(window.PVM_FILTER || "all");
+
+Recommended UX improvement (optional)
+
+Also make the KPI cards clickable (Price/Volume/Mix cards filter the table).
+Same handler concept: add data-effect="price" on the card and call setPvmFilter(...).
+
+Quick note on filtering logic
+
+This approach filters by dominant driver (largest absolute effect). That’s usually what sales want:
+
+“Show me SKUs where Price is the main reason”
+
+not just “Price effect is non-zero”
+
+If you prefer “non-zero effect” filtering instead, tell Replit to change rowMatchesPvmFilter() to:
+
+abs(price_effect) > EPS, etc.
+
+If you want, I can give you a version that also adds a small “Driver” badge per row (PRICE / VOLUME / MIX) so the table remains interpretable even when “All” is selected.
+
+yes
+
+Great — here are Replit-ready instructions to add the Driver badge per row (PRICE / VOLUME / MIX), keep it consistent with the header filtering, and make it look clean.
+
+Replit Instructions: Add “Driver” badge to each PVM row
+1) Add a new “Driver” column to the PVM table
+File: templates/pricing_analytics/customer_pricing.html
+
+In the PVM table header (#tblPvm thead tr), add a column after Item/Name (or wherever you prefer). Example:
+
+<th>Driver</th>
+
+
+So your header becomes like:
+
+<tr>
+  <th>Item</th>
+  <th>Name</th>
+  <th>Driver</th>
+  <th class="text-end">Δ Rev</th>
+  <th class="text-end"><button ... data-effect="price">Price effect</button></th>
+  <th class="text-end"><button ... data-effect="volume">Volume effect</button></th>
+  <th class="text-end"><button ... data-effect="mix">Mix effect</button></th>
+  ...
+</tr>
+
+
+(If you don’t show Name in your PVM table, just place Driver after Item.)
+
+2) Add badge styling (CSS)
+File: same template (or global CSS)
+
+Add:
+
+<style>
+  .badge-driver {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.80);
+    min-width: 64px;
+    text-align: center;
+  }
+  .badge-price { border-color: rgba(56,189,248,0.35); color: rgba(56,189,248,0.95); }
+  .badge-volume { border-color: rgba(34,197,94,0.35); color: rgba(34,197,94,0.95); }
+  .badge-mix { border-color: rgba(251,191,36,0.35); color: rgba(251,191,36,0.95); }
+  .badge-none { border-color: rgba(148,163,184,0.25); color: rgba(148,163,184,0.9); }
+</style>
+
+3) JS: generate the driver label and badge class
+File: static/js/customer_pricing.js
+
+You already added dominantEffectKey(row) in the earlier filter work. Reuse it.
+
+Add this helper:
+
+function driverBadgeHtml(row) {
+  const key = dominantEffectKey(row); // "price" | "volume" | "mix" | null
+  if (!key) return `<span class="badge-driver badge-none">NONE</span>`;
+
+  if (key === "price") return `<span class="badge-driver badge-price">PRICE</span>`;
+  if (key === "volume") return `<span class="badge-driver badge-volume">VOLUME</span>`;
+  return `<span class="badge-driver badge-mix">MIX</span>`;
+}
+
+4) Update renderPvmTable() to output the new Driver column
+
+In the row HTML inside renderPvmTable() add the badge <td>:
+
+tr.innerHTML = `
+  <td>${it.item_code_365}</td>
+  <td>${it.item_name || ""}</td>
+  <td>${driverBadgeHtml(it)}</td>
+
+  <td class="text-end ${clsSign(it.delta_revenue)}">${fmt(it.delta_revenue,2)}</td>
+  <td class="text-end ${clsSign(it.price_effect)}">${fmt(it.price_effect,2)}</td>
+  <td class="text-end ${clsSign(it.volume_effect)}">${fmt(it.volume_effect,2)}</td>
+  <td class="text-end ${clsSign(it.mix_effect)}">${fmt(it.mix_effect,2)}</td>
+
+  <td class="text-end">${fmt(it.q1,2)}</td>
+  <td class="text-end">${fmt(it.p1,4)}</td>
+  <td class="text-end">${fmt(it.q0,2)}</td>
+  <td class="text-end">${fmt(it.p0,4)}</td>
+`;
+
+Important note
+
+If your API currently doesn’t return item_name, either:
+
+leave the Name column out, or
+
+call your existing /analytics/customers/api/item-names?codes=... and enrich names client-side.
+
+If you want the badge only (no Name), keep only Item + Driver (fastest).
+
+5) (Optional but great) Make badge click set the filter
+
+So users can click a badge to filter.
+
+In renderPvmTable() wrap the badge in a clickable element:
+
+<td>
+  <a href="#" class="pvm-driver-click" data-effect="${dominantEffectKey(it) || ""}">
+    ${driverBadgeHtml(it)}
+  </a>
+</td>
+
+
+Then bind:
+
+document.addEventListener("click", (e) => {
+  const a = e.target.closest(".pvm-driver-click");
+  if (!a) return;
+  e.preventDefault();
+  const eff = a.dataset.effect;
+  if (eff) setPvmFilter(eff);
+});
+
+6) Sanity checks
+
+Confirm the table columns align after adding “Driver”.
+
+Confirm the filter logic still works and “All” resets properly.
+
+Confirm the badge values match the header filter definition (dominant absolute effect).
+
+If you want, I can also give you a tiny improvement: show “NEW” / “LOST” badges (when Q Base=0 or Q Curr=0), which makes Mix-heavy cases immediately understandable.
+
+yes
+
+Perfect — here are Replit-ready instructions to add NEW / LOST / COMMON badges (in addition to the PRICE/VOLUME/MIX “Driver” badge). This makes Mix-heavy cases immediately understandable and reduces confusion.
+
+Replit Instructions: Add NEW / LOST / COMMON badges to PVM rows
+What you will add
+
+Each PVM row will show:
+
+Type badge:
+
+NEW = bought in current, not in baseline (Q Base = 0, Q Curr > 0)
+
+LOST = bought in baseline, not in current (Q Curr = 0, Q Base > 0)
+
+COMMON = bought in both (Q Curr > 0 and Q Base > 0)
+
+Driver badge (already planned):
+
+PRICE / VOLUME / MIX (dominant absolute effect)
+
+1) Add a “Type” column next to Driver
+File: templates/pricing_analytics/customer_pricing.html
+
+In the PVM table header (#tblPvm thead tr), add:
+
+<th>Type</th>
+<th>Driver</th>
+
+
+Place them right after Item/Name (recommended for readability).
+
+2) Add CSS for Type badges
+File: same template (or global CSS)
+
+Add:
+
+<style>
+  .badge-type {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.85);
+    min-width: 66px;
+    text-align: center;
+  }
+
+  .type-new { border-color: rgba(34,197,94,0.35); color: rgba(34,197,94,0.95); }      /* green */
+  .type-lost { border-color: rgba(239,68,68,0.35); color: rgba(239,68,68,0.95); }     /* red */
+  .type-common { border-color: rgba(148,163,184,0.30); color: rgba(148,163,184,0.95); }/* slate */
+</style>
+
+3) JS: compute Type (NEW/LOST/COMMON) from q0/q1
+File: static/js/customer_pricing.js
+
+Add helper:
+
+function pvmTypeKey(row) {
+  const q1 = Number(row.q1 || 0); // Q Curr
+  const q0 = Number(row.q0 || 0); // Q Base
+
+  if (q0 === 0 && q1 > 0) return "new";
+  if (q1 === 0 && q0 > 0) return "lost";
+  if (q0 > 0 && q1 > 0) return "common";
+  return "common"; // fallback
+}
+
+function typeBadgeHtml(row) {
+  const t = pvmTypeKey(row);
+  if (t === "new") return `<span class="badge-type type-new">NEW</span>`;
+  if (t === "lost") return `<span class="badge-type type-lost">LOST</span>`;
+  return `<span class="badge-type type-common">COMMON</span>`;
+}
+
+4) Update renderPvmTable() to show Type + Driver columns
+
+Where you build the table row HTML, include both badges:
+
+tr.innerHTML = `
+  <td>${it.item_code_365}</td>
+  <td>${it.item_name || ""}</td>
+
+  <td>
+    <a href="#" class="pvm-type-click" data-type="${pvmTypeKey(it)}">
+      ${typeBadgeHtml(it)}
+    </a>
+  </td>
+
+  <td>
+    <a href="#" class="pvm-driver-click" data-effect="${dominantEffectKey(it) || ""}">
+      ${driverBadgeHtml(it)}
+    </a>
+  </td>
+
+  <td class="text-end ${clsSign(it.delta_revenue)}">${fmt(it.delta_revenue,2)}</td>
+  <td class="text-end ${clsSign(it.price_effect)}">${fmt(it.price_effect,2)}</td>
+  <td class="text-end ${clsSign(it.volume_effect)}">${fmt(it.volume_effect,2)}</td>
+  <td class="text-end ${clsSign(it.mix_effect)}">${fmt(it.mix_effect,2)}</td>
+
+  <td class="text-end">${fmt(it.q1,2)}</td>
+  <td class="text-end">${fmt(it.p1,4)}</td>
+  <td class="text-end">${fmt(it.q0,2)}</td>
+  <td class="text-end">${fmt(it.p0,4)}</td>
+`;
+
+5) Add Type filtering (optional but very useful)
+
+Users can filter quickly to:
+
+only NEW items
+
+only LOST items
+
+only COMMON items (most meaningful for Price/Volume)
+
+5.1 Add global filter state + matcher
+
+Add:
+
+window.PVM_TYPE_FILTER = "all"; // all | new | lost | common
+
+function rowMatchesPvmTypeFilter(row) {
+  const f = window.PVM_TYPE_FILTER || "all";
+  if (f === "all") return true;
+  return pvmTypeKey(row) === f;
+}
+
+
+Then update your renderPvmTable() filter line:
+
+const rows = (window.PVM_ROWS || [])
+  .filter(rowMatchesPvmTypeFilter)
+  .filter(rowMatchesPvmFilter);
+
+5.2 Add a small “Type filter” control above the table
+
+In the PVM tab, above the table (near your “All” button), add:
+
+<div class="d-flex justify-content-end gap-2 mb-2">
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="pvmTypeAll">All</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="pvmTypeCommon">Common</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="pvmTypeNew">New</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="pvmTypeLost">Lost</button>
+</div>
+
+5.3 Bind events once
+
+Add this near your existing binding block:
+
+function setPvmTypeFilter(t) {
+  window.PVM_TYPE_FILTER = t || "all";
+  renderPvmTable();
+}
+
+if (!window.__pvmTypeBound) {
+  window.__pvmTypeBound = true;
+  const bind = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", () => setPvmTypeFilter(val));
+  };
+  bind("pvmTypeAll", "all");
+  bind("pvmTypeCommon", "common");
+  bind("pvmTypeNew", "new");
+  bind("pvmTypeLost", "lost");
+}
+
+5.4 Make badge clicks set the type filter
+
+Add:
+
+document.addEventListener("click", (e) => {
+  const a = e.target.closest(".pvm-type-click");
+  if (!a) return;
+  e.preventDefault();
+  const t = a.dataset.type;
+  if (t) setPvmTypeFilter(t);
+});
+
+6) Recommended defaults
+
+When loading PVM:
+
+default Type filter = common (so price/volume interpretation makes sense)
+
+allow “All” to see the full story
+
+In loadPvm() after window.PVM_ROWS = ...:
+
+if (!window.PVM_TYPE_FILTER) window.PVM_TYPE_FILTER = "common";
+renderPvmTable();
+
+Final result
+
+Mix-heavy cases become obvious: you’ll see lots of NEW items.
+
+“Price effect” analysis becomes meaningful when you click COMMON.
+
+Sales can click Price effect header + COMMON to instantly see “price-driven common items”.
