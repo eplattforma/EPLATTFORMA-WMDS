@@ -138,9 +138,9 @@ function renderPvmTable() {
       <td class="text-end ${signClass(it.volume_effect)}">${fmt(it.volume_effect, 2)}</td>
       <td class="text-end ${signClass(it.mix_effect)}">${fmt(it.mix_effect, 2)}</td>
       <td class="text-end">${fmt(it.q1, 0)}</td>
-      <td class="text-end">${fmt(it.p1, 4)}</td>
+      <td class="text-end">${fmt(it.p1, 2)}</td>
       <td class="text-end">${fmt(it.q0, 0)}</td>
-      <td class="text-end">${fmt(it.p0, 4)}</td>
+      <td class="text-end">${fmt(it.p0, 2)}</td>
     `;
     tb.appendChild(tr);
   }
