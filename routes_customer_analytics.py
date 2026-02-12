@@ -23,6 +23,10 @@ def _resolve_range(args):
     preset = (args.get("preset") or "").lower().strip()
     today = date.today()
 
+    if preset == "last180":
+        return today - timedelta(days=179), today
+    if preset == "last90":
+        return today - timedelta(days=89), today
     if preset == "last30":
         return today - timedelta(days=29), today
     if preset == "mtd":
@@ -33,8 +37,6 @@ def _resolve_range(args):
         return date(today.year, start_month, 1), today
     if preset == "ytd":
         return date(today.year, 1, 1), today
-    if preset == "last90":
-        return today - timedelta(days=89), today
 
     d_from = _parse_date(args.get("from"))
     d_to = _parse_date(args.get("to"))
