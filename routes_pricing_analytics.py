@@ -611,7 +611,7 @@ def api_price_sensitivity():
         sensitivity_corr,
         dropouts_after_rise
       FROM agg
-      WHERE pairs >= 6
+      WHERE pairs >= 3
       ORDER BY sensitivity_corr ASC NULLS LAST
       LIMIT 200
     """)

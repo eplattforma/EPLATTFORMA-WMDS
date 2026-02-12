@@ -571,7 +571,7 @@ async function loadSens(url) {
 
     var items = j.items || [];
     if (items.length === 0) {
-      setEmpty("tblSens", "No items with enough data (6+ month-pairs required)");
+      setEmpty("tblSens", "Not enough monthly purchase history for sensitivity (need \u2265 3 month pairs)");
       return;
     }
 
