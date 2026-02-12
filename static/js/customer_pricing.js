@@ -194,7 +194,11 @@ function setLoading(tabId) {
 
 function setEmpty(tabId, msg) {
   var el = document.querySelector("#" + tabId + " tbody");
-  if (el) el.innerHTML = '<tr><td colspan="12" class="pa-empty">' + (msg || "No data") + '</td></tr>';
+  var hint = "";
+  if (tabId === "tblStale") {
+    hint = '<br><div class="small mt-2" style="opacity:0.6">No stale items found. Try lowering Stale Min Days (e.g. 90) or widening the range (e.g. 90–365).</div>';
+  }
+  if (el) el.innerHTML = '<tr><td colspan="12" class="pa-empty">' + (msg || "No data") + hint + '</td></tr>';
 }
 
 function buildBaseParams() {

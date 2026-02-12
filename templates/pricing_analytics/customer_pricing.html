@@ -1,5 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Pricing Analytics - {{ customer_name }}{% endblock %}
+{% block title %}Pricing Analytics - {{ customer_name }}{% set stale_help_body %}
+  <h6>What this report shows</h6>
+  <p>Stale Pricing finds items a customer <b>used to buy</b>, but has <b>not bought recently</b>, and compares the <b>last price the customer paid</b> to a <b>current market reference price</b> (based on other customers). This helps sales identify items that are good candidates for a win-back offer.</p>
+
+  <h6>Stale Min Days / Stale Max Days</h6>
+  <p>Defines when the customer last bought the item. Example: Min 180 / Max 400 shows items whose last purchase was 180–400 days ago.</p>
+
+  <h6>Market Days</h6>
+  <p>Controls how the system calculates the market reference price. Example: Market Days = 90 uses sales from the last 90 days.</p>
+
+  <h6>Ref Current (Market Reference Price)</h6>
+  <p>Ref Current is calculated from <b>other customers’</b> recent purchases (not the selected customer). For each customer who bought the item in the Market Days window, the system calculates that customer’s <b>average unit price</b>:
+  <br><code>unit price = SUM(net_excl) / SUM(qty)</code>
+  <br>Then the system takes either the <b>Market Median</b> or <b>Market Max</b> across those customer prices.</p>
+
+  <h6>How to interpret</h6>
+  <ul>
+    <li><b>Last Price &gt; Ref Current</b>: customer’s last price is above today’s market → price may be a reason they stopped buying.</li>
+    <li><b>Last Price &lt; Ref Current</b>: customer previously paid a good price → likely not a price issue (substitution, needs, stock, etc.).</li>
+  </ul>
+
+  <h6>Suggested price (if shown)</h6>
+  <p>The suggested win-back price is conservative (usually <code>min(Last Price, Ref Current)</code>).</p>
+
+  <p class="text-muted small mb-0">Note: For seasonal/discontinued items, “stale” may be normal.</p>
+{% endset %}
+
+{% set modal_id = "helpStalePricing" %}
+{% set title = "Stale Pricing (Win-Back Pricing)" %}
+{% set body_html = stale_help_body %}
+{% include "partials/help_modal.html" with context %}
+
+{% endblock %}
 
 {% block head %}
 <style>
@@ -139,6 +171,38 @@
     .badge-mix { border-color: rgba(251,191,36,0.35); color: rgba(251,191,36,0.95); }
     .badge-none { border-color: rgba(148,163,184,0.25); color: rgba(148,163,184,0.9); }
 </style>
+{% set stale_help_body %}
+  <h6>What this report shows</h6>
+  <p>Stale Pricing finds items a customer <b>used to buy</b>, but has <b>not bought recently</b>, and compares the <b>last price the customer paid</b> to a <b>current market reference price</b> (based on other customers). This helps sales identify items that are good candidates for a win-back offer.</p>
+
+  <h6>Stale Min Days / Stale Max Days</h6>
+  <p>Defines when the customer last bought the item. Example: Min 180 / Max 400 shows items whose last purchase was 180–400 days ago.</p>
+
+  <h6>Market Days</h6>
+  <p>Controls how the system calculates the market reference price. Example: Market Days = 90 uses sales from the last 90 days.</p>
+
+  <h6>Ref Current (Market Reference Price)</h6>
+  <p>Ref Current is calculated from <b>other customers’</b> recent purchases (not the selected customer). For each customer who bought the item in the Market Days window, the system calculates that customer’s <b>average unit price</b>:
+  <br><code>unit price = SUM(net_excl) / SUM(qty)</code>
+  <br>Then the system takes either the <b>Market Median</b> or <b>Market Max</b> across those customer prices.</p>
+
+  <h6>How to interpret</h6>
+  <ul>
+    <li><b>Last Price &gt; Ref Current</b>: customer’s last price is above today’s market → price may be a reason they stopped buying.</li>
+    <li><b>Last Price &lt; Ref Current</b>: customer previously paid a good price → likely not a price issue (substitution, needs, stock, etc.).</li>
+  </ul>
+
+  <h6>Suggested price (if shown)</h6>
+  <p>The suggested win-back price is conservative (usually <code>min(Last Price, Ref Current)</code>).</p>
+
+  <p class="text-muted small mb-0">Note: For seasonal/discontinued items, “stale” may be normal.</p>
+{% endset %}
+
+{% set modal_id = "helpStalePricing" %}
+{% set title = "Stale Pricing (Win-Back Pricing)" %}
+{% set body_html = stale_help_body %}
+{% include "partials/help_modal.html" with context %}
+
 {% endblock %}
 
 {% block content %}
@@ -281,6 +345,11 @@
         </div>
 
         <div class="pa-tab-content" id="tStale">
+            <div class="d-flex justify-content-end mb-2">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#helpStalePricing">
+                    Help
+                </button>
+            </div>
             <div class="d-flex align-items-end gap-2 mb-3 flex-wrap">
                 <div class="form-group">
                     <label style="font-size:11px;color:rgba(226,232,240,0.55);text-transform:uppercase;letter-spacing:0.06em">Stale min days</label>
@@ -439,4 +508,36 @@
         </div>
     </div>
 </div>
+{% set stale_help_body %}
+  <h6>What this report shows</h6>
+  <p>Stale Pricing finds items a customer <b>used to buy</b>, but has <b>not bought recently</b>, and compares the <b>last price the customer paid</b> to a <b>current market reference price</b> (based on other customers). This helps sales identify items that are good candidates for a win-back offer.</p>
+
+  <h6>Stale Min Days / Stale Max Days</h6>
+  <p>Defines when the customer last bought the item. Example: Min 180 / Max 400 shows items whose last purchase was 180–400 days ago.</p>
+
+  <h6>Market Days</h6>
+  <p>Controls how the system calculates the market reference price. Example: Market Days = 90 uses sales from the last 90 days.</p>
+
+  <h6>Ref Current (Market Reference Price)</h6>
+  <p>Ref Current is calculated from <b>other customers’</b> recent purchases (not the selected customer). For each customer who bought the item in the Market Days window, the system calculates that customer’s <b>average unit price</b>:
+  <br><code>unit price = SUM(net_excl) / SUM(qty)</code>
+  <br>Then the system takes either the <b>Market Median</b> or <b>Market Max</b> across those customer prices.</p>
+
+  <h6>How to interpret</h6>
+  <ul>
+    <li><b>Last Price &gt; Ref Current</b>: customer’s last price is above today’s market → price may be a reason they stopped buying.</li>
+    <li><b>Last Price &lt; Ref Current</b>: customer previously paid a good price → likely not a price issue (substitution, needs, stock, etc.).</li>
+  </ul>
+
+  <h6>Suggested price (if shown)</h6>
+  <p>The suggested win-back price is conservative (usually <code>min(Last Price, Ref Current)</code>).</p>
+
+  <p class="text-muted small mb-0">Note: For seasonal/discontinued items, “stale” may be normal.</p>
+{% endset %}
+
+{% set modal_id = "helpStalePricing" %}
+{% set title = "Stale Pricing (Win-Back Pricing)" %}
+{% set body_html = stale_help_body %}
+{% include "partials/help_modal.html" with context %}
+
 {% endblock %}

@@ -1,0 +1,163 @@
+Below is copy-paste content for the Help inside the system, plus Replit instructions to implement a reusable Help modal and attach it to Stale Pricing (and you can reuse it for PVM / Price Index later).
+
+1) Help text (Stale Pricing) — copy/paste
+Title
+
+Stale Pricing (Win-Back Pricing)
+
+Body
+
+What this report shows
+Stale Pricing finds items a customer used to buy, but has not bought recently, and compares the last price the customer paid to a current market reference price (based on other customers). This helps sales identify items that are good candidates for a win-back offer.
+
+Stale Min Days / Stale Max Days
+These define when the customer last bought the item.
+
+If Stale Min = 180 and Stale Max = 400, the report shows items whose last purchase was 180–400 days ago.
+
+If an item was purchased more recently than the Min Days threshold, it is not stale and will not appear.
+
+Market Days
+Market Days controls how the system calculates the Ref Current market price.
+
+If Market Days = 90, the system looks at sales from the last 90 days.
+
+Ref Current (Market Reference Price)
+Ref Current is calculated from other customers’ recent purchases (not the selected customer).
+For each customer who bought the item in the Market Days window, the system calculates that customer’s average unit price:
+
+unit price
+=
+∑
+𝑛
+𝑒
+𝑡
+_
+𝑒
+𝑥
+𝑐
+𝑙
+∑
+𝑞
+𝑡
+𝑦
+unit price=
+∑qty
+∑net_excl
+	​
+
+
+Then the market reference is computed as:
+
+Market Median: median of customer average prices (robust benchmark)
+
+Market Max: highest customer average price (upper benchmark)
+
+How to interpret the result
+
+If Last Price > Ref Current, the customer’s last price is higher than today’s market → price may be a reason they stopped buying.
+
+If Last Price < Ref Current, they previously paid a good price → the reason they stopped is likely not price (substitution, needs changed, stock, etc.).
+
+Suggested price (if shown)
+The suggested price is a conservative win-back target, usually:
+
+min(Last Price, Ref Current)
+so you don’t propose a price higher than what they last paid and above the market benchmark.
+
+Note
+Stale results are strongest for steady consumables. For seasonal/discontinued items, “stale” may be normal.
+
+2) Replit Implementation Instructions: Add Help Modal + Help Button
+A) Create a reusable modal partial
+
+File: templates/partials/help_modal.html
+
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ title }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        {{ body_html | safe }}
+      </div>
+    </div>
+  </div>
+</div>
+
+B) Add Help content in the Stale Pricing page template
+
+Where your Stale Pricing UI lives (example name):
+File: templates/pricing_analytics/stale_pricing.html (or the correct page)
+
+Add a Help button near the title:
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h3 class="mb-0">Stale Pricing</h3>
+  <button class="btn btn-sm btn-outline-secondary"
+          data-bs-toggle="modal"
+          data-bs-target="#helpStalePricing">
+    Help
+  </button>
+</div>
+
+
+Include the modal at the bottom of the page:
+
+{% set stale_help_body %}
+  <h6>What this report shows</h6>
+  <p>Stale Pricing finds items a customer <b>used to buy</b>, but has <b>not bought recently</b>, and compares the <b>last price the customer paid</b> to a <b>current market reference price</b> (based on other customers). This helps sales identify items that are good candidates for a win-back offer.</p>
+
+  <h6>Stale Min Days / Stale Max Days</h6>
+  <p>Defines when the customer last bought the item. Example: Min 180 / Max 400 shows items whose last purchase was 180–400 days ago.</p>
+
+  <h6>Market Days</h6>
+  <p>Controls how the system calculates the market reference price. Example: Market Days = 90 uses sales from the last 90 days.</p>
+
+  <h6>Ref Current (Market Reference Price)</h6>
+  <p>Ref Current is calculated from <b>other customers’</b> recent purchases (not the selected customer). For each customer who bought the item in the Market Days window, the system calculates that customer’s <b>average unit price</b>:
+  <br><code>unit price = SUM(net_excl) / SUM(qty)</code>
+  <br>Then the system takes either the <b>Market Median</b> or <b>Market Max</b> across those customer prices.</p>
+
+  <h6>How to interpret</h6>
+  <ul>
+    <li><b>Last Price &gt; Ref Current</b>: customer’s last price is above today’s market → price may be a reason they stopped buying.</li>
+    <li><b>Last Price &lt; Ref Current</b>: customer previously paid a good price → likely not a price issue (substitution, needs, stock, etc.).</li>
+  </ul>
+
+  <h6>Suggested price (if shown)</h6>
+  <p>The suggested win-back price is conservative (usually <code>min(Last Price, Ref Current)</code>).</p>
+
+  <p class="text-muted small mb-0">Note: For seasonal/discontinued items, “stale” may be normal.</p>
+{% endset %}
+
+{% include "partials/help_modal.html" with context %}
+
+
+Then set the variables before include:
+
+{% set modal_id = "helpStalePricing" %}
+{% set title = "Stale Pricing (Win-Back Pricing)" %}
+{% set body_html = stale_help_body %}
+
+
+(If your Jinja needs variables set before include, place the set modal_id/title/body_html right before the include.)
+
+C) Ensure Bootstrap modal JS is available
+
+Make sure your base template includes Bootstrap JS bundle (most of your pages already do). If not, include:
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+
+(Only if not already present.)
+
+3) Optional: Add a “No results” hint (recommended)
+
+If the table returns no rows, show a helpful note:
+
+“No stale items found. Try lowering Stale Min Days (e.g. 90) or widening the range (e.g. 90–365).”
+
+Replit can implement this in the template where the empty state is shown.
