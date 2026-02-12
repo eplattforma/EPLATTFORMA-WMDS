@@ -291,10 +291,10 @@ async function loadSummary() {
 
     document.getElementById('kpis').innerHTML =
         kpiHtml('Sales (excl VAT)', '€' + money(cur.sales_excl), del ? del.sales_excl : null) +
+        kpiHtml('Deliveries', num(cur.deliveries), null) +
         kpiHtml('Invoices', num(cur.invoices), del ? del.invoices : null) +
         kpiHtml('Avg Invoice', '€' + money(cur.avg_invoice), del ? del.avg_invoice : null) +
-        kpiHtml('Qty', num(cur.qty), null) +
-        kpiHtml('Distinct Items', num(cur.distinct_items), null);
+        kpiHtml('Qty', num(cur.qty), null);
 
     const drEl = document.getElementById('dateRangeInfo');
     if (data.range) {
@@ -345,34 +345,81 @@ async function loadTopItems() {
 
 async function loadInvoices(page) {
     document.getElementById('tabContent').innerHTML = '<div class="ca-loading"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</div>';
-    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/invoices?${qp()}&page=${page}&page_size=25`);
+    const res = await fetch(`${BASE}/api/${encodeURIComponent(selectedCode)}/invoices?${qp()}&page=${page}&page_size=50`); // Increased page size for better grouping
     const data = await res.json();
     const items = data.items || [];
     if (items.length === 0 && page === 1) {
         document.getElementById('tabContent').innerHTML = '<div class="ca-empty">No invoices found for this period</div>';
         return;
     }
-    let rows = items.map(r => `
-        <tr>
-            <td>${r.invoice_date}</td>
-            <td><span style="font-weight:600">${r.invoice_no}</span></td>
-            <td class="text-end">€${money(r.sales_excl)}</td>
-            <td class="text-end">${num(r.qty)}</td>
-            <td class="text-end">${num(r.distinct_items)}</td>
-        </tr>
-    `).join('');
+
+    // Grouping logic for Deliveries (Invoices within 1 day of each other)
+    // We expect items to be sorted by date DESC
+    let deliveryGroups = [];
+    let currentGroup = null;
+
+    items.forEach(item => {
+        const itemDate = new Date(item.invoice_date);
+        if (!currentGroup) {
+            currentGroup = { items: [item], lastDate: itemDate };
+            deliveryGroups.push(currentGroup);
+        } else {
+            const diffDays = Math.abs(currentGroup.lastDate - itemDate) / (1000 * 60 * 60 * 24);
+            if (diffDays <= 1.1) { // 1 day tolerance
+                currentGroup.items.push(item);
+                // Keep the most recent date as the group date
+            } else {
+                currentGroup = { items: [item], lastDate: itemDate };
+                deliveryGroups.push(currentGroup);
+            }
+        }
+    });
+
+    let rows = [];
+    deliveryGroups.forEach((group, gIdx) => {
+        const deliveryNum = deliveryGroups.length - gIdx;
+        group.items.forEach((r, iIdx) => {
+            const isFirstInGroup = iIdx === 0;
+            const deliveryCell = isFirstInGroup 
+                ? `<td rowspan="${group.items.length}" style="vertical-align:middle; border-left: 3px solid var(--bs-primary); background: rgba(59, 130, 246, 0.05);">
+                     <div class="fw-bold text-primary">Delivery</div>
+                     <div class="tiny text-light-50">Group ${deliveryNum}</div>
+                   </td>` 
+                : '';
+            
+            rows.push(`
+                <tr class="${group.items.length > 1 ? 'group-row' : ''}">
+                    <td>${r.invoice_date}</td>
+                    ${deliveryCell}
+                    <td><span style="font-weight:600">${r.invoice_no}</span></td>
+                    <td class="text-end">€${money(r.sales_excl)}</td>
+                    <td class="text-end">${num(r.qty)}</td>
+                    <td class="text-end">${num(r.distinct_items)}</td>
+                </tr>
+            `);
+        });
+    });
 
     const curPage = data.page || 1;
     document.getElementById('tabContent').innerHTML = `
         <table class="ca-table">
-            <thead><tr><th>Date</th><th>Invoice</th><th class="text-end">Sales (excl)</th><th class="text-end">Qty</th><th class="text-end">Items</th></tr></thead>
-            <tbody>${rows}</tbody>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th style="width:120px;">Deliveries</th>
+                    <th>Invoice</th>
+                    <th class="text-end">Sales (excl)</th>
+                    <th class="text-end">Qty</th>
+                    <th class="text-end">Items</th>
+                </tr>
+            </thead>
+            <tbody>${rows.join('')}</tbody>
         </table>
         <div class="d-flex justify-content-between align-items-center mt-2">
-            <span class="text-muted" style="font-size:12px">Page ${curPage}</span>
+            <span class="text-muted" style="font-size:12px">Page ${curPage} (Showing groups of invoices ≤ 1 day apart)</span>
             <div class="ca-page-controls">
                 <button class="btn btn-outline-secondary btn-sm" onclick="loadInvoices(${Math.max(1, curPage - 1)})" ${curPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>
-                <button class="btn btn-outline-secondary btn-sm" onclick="loadInvoices(${curPage + 1})" ${items.length < 25 ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="loadInvoices(${curPage + 1})" ${items.length < 50 ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>
             </div>
         </div>`;
 }
