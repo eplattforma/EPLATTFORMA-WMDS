@@ -175,6 +175,7 @@ def api_missing_items():
         COALESCE(i.{ITEM_CATEGORY_COL}, '') AS category,
         COALESCE(i.{ITEM_BRAND_COL}, '') AS brand,
         pi.buyers,
+        pa.n AS active_peers,
         (pi.buyers::numeric / NULLIF(pa.n,0)) AS penetration,
         (pi.peer_sales::numeric / NULLIF(pi.buyers,0)) AS peer_avg_sales,
         (pi.peer_sales::numeric / NULLIF(pa.n,0)) AS peer_avg_sales_per_peer,
@@ -210,6 +211,7 @@ def api_missing_items():
             "customer": customer,
             "peer_group": peer_group,
             "peer_customers": len(peers),
+            "active_peers": rows[0]["active_peers"] if rows and "active_peers" in rows[0] else 0,
             "from": str(d_from), "to": str(d_to),
             "min_penetration": min_pen
         },

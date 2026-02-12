@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 fetch(`/analytics/category-manager/api/category-gaps${base}`).then(r => r.json())
             ]);
 
-            renderMissing(missing.items);
+            renderMissing(missing);
             renderMix('tblCategory', catMix.items, 'category');
             renderMix('tblBrand', brandMix.items, 'brand');
             renderCatGaps(catGaps.items, base);
@@ -172,8 +172,28 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelector(`#${id} tbody`).innerHTML = '<tr><td colspan="10" class="text-center p-4">Loading...</td></tr>';
     }
 
-    function renderMissing(items) {
+    function renderMissing(data) {
+        const items = data.items || [];
+        const meta = data.meta || {};
         const tbody = document.querySelector('#tblMissing tbody');
+        
+        if (items.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="10" class="text-center p-4">
+                        <div class="mb-2">No opportunities found</div>
+                        <div class="alert alert-info d-inline-block text-start" style="font-size:0.85rem; background:rgba(13,202,240,0.05); border-color:rgba(13,202,240,0.2); color:#0dcaf0; max-width:400px;">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Why no results?</strong><br>
+                            • Peers in Segment: ${meta.peer_customers || 0}<br>
+                            • Active Peers (Bought in Period): ${meta.active_peers || 0}<br>
+                            • Requirement: At least 5 active peers are needed for a valid analysis.
+                        </div>
+                    </td>
+                </tr>`;
+            return;
+        }
+
         tbody.innerHTML = items.map(it => `
             <tr>
                 <td>${it.item_code}</td>
@@ -188,7 +208,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </td>
             </tr>
-        `).join('') || '<tr><td colspan="10" class="text-center p-4">No opportunities found</td></tr>';
+        `).join('');
 
         tbody.querySelectorAll('.btn-add-prop').forEach(btn => {
             btn.addEventListener('click', () => {
