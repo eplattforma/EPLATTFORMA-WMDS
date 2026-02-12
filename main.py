@@ -179,6 +179,10 @@ app.register_blueprint(pricing_bp)
 from blueprints.peer_analytics import peer_bp
 app.register_blueprint(peer_bp)
 
+# Register the Category Manager blueprint
+from blueprints.category_manager import catmgr_bp
+app.register_blueprint(catmgr_bp)
+
 # Register the Customer Reporting Groups blueprint
 from routes_customer_reporting_groups import crg_bp
 app.register_blueprint(crg_bp)

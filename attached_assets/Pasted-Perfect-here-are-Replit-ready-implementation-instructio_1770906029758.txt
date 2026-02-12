@@ -1,0 +1,565 @@
+Perfect — here are Replit-ready implementation instructions to add a Category Management (“Category Blocks”) feature that proposes items a customer should stock based on:
+
+What the customer buys
+
+What the peer group buys
+
+Under-indexed categories
+
+Ranked missing items (Must / Should / Variety)
+
+NEW vs WINBACK tagging
+
+Optional proposal list + CSV export
+
+This is designed to plug into your existing Customer vs Peer Group page.
+
+A) What you are building (UX)
+New Tab: Category Manager
+
+Two-panel layout:
+
+Left panel (Category list)
+
+A ranked list of categories showing:
+
+Cust Share %
+
+Peer Share %
+
+Gap % = Cust − Peer
+
+Missing items count (above penetration threshold)
+
+Sorted by most negative gap (biggest under-index → biggest opportunity).
+
+Right panel (Category Blocks)
+
+When you click a category, show 3 blocks:
+
+Must-stock (penetration ≥ 0.60)
+
+Should-stock (0.30–0.60)
+
+Variety (0.15–0.30)
+
+Each row shows:
+
+Item code, name, brand
+
+Penetration
+
+Peer Avg Sales
+
+Score
+
+Tag: NEW (never bought) or WINBACK (bought before, but not in period)
+
+Last bought date (if any)
+
+Button: Add to Proposal
+
+At top: Export Proposal (CSV).
+
+B) Backend (Flask + SQLAlchemy + Postgres)
+1) Assumptions
+
+Use your canonical sales lines source:
+
+dw_sales_lines_mv (preferred) or dw_sales_lines_v
+
+Columns:
+
+sale_date, customer_code_365, item_code_365, qty, net_excl
+
+Item master:
+
+ps_items_dw(item_code_365, item_name, category_name, brand_name)
+
+If your real column names differ, adjust constants in one place.
+
+Credits:
+
+default exclude: qty > 0 AND net_excl > 0
+
+optional include: qty <> 0
+
+2) Create blueprint: blueprints/category_manager.py
+# blueprints/category_manager.py
+import os
+from datetime import date, datetime, timedelta
+from flask import Blueprint, request, jsonify, Response
+from flask_login import login_required, current_user
+from sqlalchemy import text, bindparam
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.types import String
+from app import db
+
+catmgr_bp = Blueprint("catmgr", __name__, url_prefix="/analytics/category-manager")
+
+SALES_SRC = os.getenv("SALES_LINES_SOURCE", "dw_sales_lines_mv")  # or dw_sales_lines_v
+ITEMS_TBL = "ps_items_dw"
+
+ITEM_NAME_COL = "item_name"
+ITEM_CATEGORY_COL = "category_name"
+ITEM_BRAND_COL = "brand_name"
+
+def _role_ok():
+    return getattr(current_user, "role", None) in ("admin", "warehouse_manager")
+
+def _parse_date(v):
+    return datetime.strptime(v, "%Y-%m-%d").date()
+
+def _resolve_range(args):
+    preset = (args.get("preset") or "last90").lower().strip()
+    today = date.today()
+    if preset == "last90":
+        return today - timedelta(days=89), today
+    if preset == "last30":
+        return today - timedelta(days=29), today
+    d_from = args.get("from")
+    d_to = args.get("to")
+    if d_from and d_to:
+        d1, d2 = _parse_date(d_from), _parse_date(d_to)
+        return (d2, d1) if d2 < d1 else (d1, d2)
+    return today - timedelta(days=89), today
+
+def _bind_array(name, vals):
+    return bindparam(name, value=vals, type_=ARRAY(String()))
+
+def _resolve_peer_customers(customer_code, peer_group):
+    """
+    You can swap this to your existing peer-group logic.
+    Minimal safe default: same ps_customers.category_1_name.
+    """
+    peer_group = (peer_group or "auto").strip().lower()
+
+    if peer_group.startswith("group:"):
+        gid = peer_group.split(":", 1)[1].strip()
+        rows = db.session.execute(text("""
+          SELECT customer_code_365
+          FROM customer_reporting_group_members
+          WHERE group_id = :gid
+        """), {"gid": gid}).fetchall()
+        return [r[0] for r in rows if r and r[0] and r[0] != customer_code]
+
+    seg = db.session.execute(text("""
+      SELECT COALESCE(category_1_name,'') AS seg
+      FROM ps_customers
+      WHERE customer_code_365 = :c
+      LIMIT 1
+    """), {"c": customer_code}).mappings().first()
+
+    seg_val = (seg["seg"] if seg else "").strip()
+    if not seg_val:
+        return []
+
+    rows = db.session.execute(text("""
+      SELECT customer_code_365
+      FROM ps_customers
+      WHERE COALESCE(category_1_name,'') = :seg
+        AND customer_code_365 <> :c
+        AND deleted_at IS NULL
+      LIMIT 400
+    """), {"seg": seg_val, "c": customer_code}).fetchall()
+
+    return [r[0] for r in rows if r and r[0]]
+
+
+3) Endpoint 1: Category gaps (left panel list)
+@catmgr_bp.route("/api/category-gaps")
+@login_required
+def api_category_gaps():
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    customer = (request.args.get("customer_code") or "").strip()
+    peer_group = request.args.get("peer_group") or "auto"
+    include_credits = (request.args.get("include_credits") or "0") == "1"
+    min_pen = float(request.args.get("min_penetration") or "0.30")
+
+    d_from, d_to = _resolve_range(request.args)
+    peers = _resolve_peer_customers(customer, peer_group)
+    if not customer or not peers:
+        return jsonify({"meta": {"peer_customers": len(peers)}, "items": []})
+
+    line_filter = "s.qty <> 0" if include_credits else "s.qty > 0 AND s.net_excl > 0"
+
+    sql = text(f"""
+      WITH peer_customers AS (
+        SELECT unnest(:peer_customers::text[]) AS customer_code_365
+      ),
+      peer_active AS (
+        SELECT COUNT(DISTINCT s.customer_code_365) AS n
+        FROM {SALES_SRC} s
+        JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
+        WHERE s.sale_date BETWEEN :d_from AND :d_to
+          AND {line_filter}
+      ),
+      cust_cat AS (
+        SELECT COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category,
+               SUM(s.net_excl) AS cust_sales
+        FROM {SALES_SRC} s
+        LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+        WHERE s.customer_code_365 = :customer
+          AND s.sale_date BETWEEN :d_from AND :d_to
+          AND {line_filter}
+        GROUP BY 1
+      ),
+      peer_cat AS (
+        SELECT COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category,
+               SUM(s.net_excl) AS peer_sales
+        FROM {SALES_SRC} s
+        JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
+        LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+        WHERE s.sale_date BETWEEN :d_from AND :d_to
+          AND {line_filter}
+        GROUP BY 1
+      ),
+      totals AS (
+        SELECT
+          COALESCE((SELECT SUM(cust_sales) FROM cust_cat),0) AS cust_total,
+          COALESCE((SELECT SUM(peer_sales) FROM peer_cat),0) AS peer_total
+      ),
+      -- estimate "missing count" per category: items peers buy (>=min_pen) that customer didn't buy in period
+      peer_item AS (
+        SELECT
+          COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category,
+          s.item_code_365,
+          COUNT(DISTINCT s.customer_code_365) AS buyers
+        FROM {SALES_SRC} s
+        JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
+        LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+        WHERE s.sale_date BETWEEN :d_from AND :d_to
+          AND {line_filter}
+        GROUP BY 1, 2
+      ),
+      cust_bought AS (
+        SELECT DISTINCT item_code_365
+        FROM {SALES_SRC}
+        WHERE customer_code_365 = :customer
+          AND sale_date BETWEEN :d_from AND :d_to
+          AND { "qty <> 0" if include_credits else "qty > 0 AND net_excl > 0" }
+      ),
+      missing AS (
+        SELECT
+          pi.category,
+          COUNT(*) AS missing_items
+        FROM peer_item pi
+        CROSS JOIN peer_active pa
+        LEFT JOIN cust_bought cb ON cb.item_code_365 = pi.item_code_365
+        WHERE cb.item_code_365 IS NULL
+          AND pa.n >= 5
+          AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :min_pen
+        GROUP BY pi.category
+      )
+      SELECT
+        COALESCE(c.category, p.category) AS category,
+        COALESCE(c.cust_sales,0) AS cust_sales,
+        COALESCE(p.peer_sales,0) AS peer_sales,
+        CASE WHEN t.cust_total>0 THEN COALESCE(c.cust_sales,0)/t.cust_total ELSE 0 END AS cust_share,
+        CASE WHEN t.peer_total>0 THEN COALESCE(p.peer_sales,0)/t.peer_total ELSE 0 END AS peer_share,
+        (CASE WHEN t.cust_total>0 THEN COALESCE(c.cust_sales,0)/t.cust_total ELSE 0 END)
+        -
+        (CASE WHEN t.peer_total>0 THEN COALESCE(p.peer_sales,0)/t.peer_total ELSE 0 END) AS share_gap,
+        COALESCE(m.missing_items,0) AS missing_items
+      FROM cust_cat c
+      FULL OUTER JOIN peer_cat p ON p.category = c.category
+      CROSS JOIN totals t
+      LEFT JOIN missing m ON m.category = COALESCE(c.category,p.category)
+      ORDER BY share_gap ASC, peer_sales DESC
+      LIMIT 200
+    """)
+
+    sql = sql.bindparams(_bind_array("peer_customers", peers))
+    rows = db.session.execute(sql, {
+        "peer_customers": peers,
+        "customer": customer,
+        "d_from": d_from, "d_to": d_to,
+        "min_pen": min_pen
+    }).mappings().all()
+
+    return jsonify({
+        "meta": {
+            "customer": customer,
+            "peer_group": peer_group,
+            "peer_customers": len(peers),
+            "from": str(d_from), "to": str(d_to),
+            "min_penetration": min_pen
+        },
+        "items": [dict(r) for r in rows]
+    })
+
+4) Endpoint 2: Category suggestions (right panel blocks)
+@catmgr_bp.route("/api/category-suggestions")
+@login_required
+def api_category_suggestions():
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    customer = (request.args.get("customer_code") or "").strip()
+    peer_group = request.args.get("peer_group") or "auto"
+    category = (request.args.get("category") or "").strip()
+
+    include_credits = (request.args.get("include_credits") or "0") == "1"
+    min_pen = float(request.args.get("min_penetration") or "0.30")
+    must_pen = float(request.args.get("must_pen") or "0.60")
+    variety_pen = float(request.args.get("variety_pen") or "0.15")
+    limit = max(30, min(int(request.args.get("limit") or 250), 500))
+
+    d_from, d_to = _resolve_range(request.args)
+    peers = _resolve_peer_customers(customer, peer_group)
+    if not customer or not peers or not category:
+        return jsonify({"meta": {}, "blocks": {"must": [], "should": [], "variety": []}})
+
+    line_filter = "s.qty <> 0" if include_credits else "s.qty > 0 AND s.net_excl > 0"
+
+    sql = text(f"""
+      WITH peer_customers AS (
+        SELECT unnest(:peer_customers::text[]) AS customer_code_365
+      ),
+      peer_active AS (
+        SELECT COUNT(DISTINCT s.customer_code_365) AS n
+        FROM {SALES_SRC} s
+        JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
+        WHERE s.sale_date BETWEEN :d_from AND :d_to
+          AND {line_filter}
+      ),
+      peer_item AS (
+        SELECT
+          s.item_code_365,
+          COUNT(DISTINCT s.customer_code_365) AS buyers,
+          SUM(s.net_excl) AS peer_sales
+        FROM {SALES_SRC} s
+        JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
+        LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+        WHERE s.sale_date BETWEEN :d_from AND :d_to
+          AND {line_filter}
+          AND COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') = :category
+        GROUP BY s.item_code_365
+      ),
+      cust_bought AS (
+        SELECT DISTINCT item_code_365
+        FROM {SALES_SRC}
+        WHERE customer_code_365 = :customer
+          AND sale_date BETWEEN :d_from AND :d_to
+          AND { "qty <> 0" if include_credits else "qty > 0 AND net_excl > 0" }
+      ),
+      cust_last AS (
+        SELECT item_code_365, MAX(sale_date) AS last_bought
+        FROM {SALES_SRC}
+        WHERE customer_code_365 = :customer
+          AND sale_date >= (CURRENT_DATE - INTERVAL '3 years')
+        GROUP BY item_code_365
+      )
+      SELECT
+        pi.item_code_365 AS item_code,
+        COALESCE(i.{ITEM_NAME_COL}, '') AS item_name,
+        COALESCE(i.{ITEM_BRAND_COL}, '') AS brand,
+        pi.buyers,
+        pa.n AS peer_active,
+        (pi.buyers::numeric / NULLIF(pa.n,0)) AS penetration,
+        (pi.peer_sales::numeric / NULLIF(pi.buyers,0)) AS peer_avg_sales,
+        ((pi.buyers::numeric / NULLIF(pa.n,0)) * (pi.peer_sales::numeric / NULLIF(pi.buyers,0))) AS score,
+        cl.last_bought
+      FROM peer_item pi
+      CROSS JOIN peer_active pa
+      LEFT JOIN cust_bought cb ON cb.item_code_365 = pi.item_code_365
+      LEFT JOIN cust_last cl ON cl.item_code_365 = pi.item_code_365
+      LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = pi.item_code_365
+      WHERE cb.item_code_365 IS NULL
+        AND pa.n >= 5
+        AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :variety_pen
+      ORDER BY score DESC NULLS LAST, penetration DESC
+      LIMIT :lim
+    """)
+
+    sql = sql.bindparams(_bind_array("peer_customers", peers))
+    rows = db.session.execute(sql, {
+        "peer_customers": peers,
+        "customer": customer,
+        "category": category,
+        "d_from": d_from, "d_to": d_to,
+        "variety_pen": variety_pen,
+        "lim": limit
+    }).mappings().all()
+
+    def tag_row(r):
+        # NEW vs WINBACK: if last_bought exists but not in period -> WINBACK, else NEW
+        last_bought = r.get("last_bought")
+        if last_bought is None:
+            return "NEW"
+        # if last_bought < d_from, it's a winback candidate
+        return "WINBACK" if str(last_bought) < str(d_from) else "NEW"
+
+    must, should, variety = [], [], []
+    for r in rows:
+        pen = float(r["penetration"] or 0)
+        rr = dict(r)
+        rr["tag"] = tag_row(rr)
+        if pen >= must_pen:
+            must.append(rr)
+        elif pen >= min_pen:
+            should.append(rr)
+        else:
+            variety.append(rr)
+
+    return jsonify({
+        "meta": {
+            "customer": customer,
+            "peer_group": peer_group,
+            "peer_customers": len(peers),
+            "category": category,
+            "from": str(d_from), "to": str(d_to),
+            "thresholds": {"must": must_pen, "min": min_pen, "variety": variety_pen}
+        },
+        "blocks": {
+            "must": must[:80],
+            "should": should[:120],
+            "variety": variety[:120]
+        }
+    })
+
+5) Endpoint 3: Export proposal list to CSV (optional but very useful)
+@catmgr_bp.route("/export/proposal.csv", methods=["POST"])
+@login_required
+def export_proposal_csv():
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    codes = data.get("item_codes") or []
+    codes = [c.strip() for c in codes if c and str(c).strip()][:500]
+    if not codes:
+        return jsonify({"error": "no_items"}), 400
+
+    sql = text(f"""
+      SELECT
+        i.item_code_365 AS item_code,
+        COALESCE(i.{ITEM_NAME_COL}, '') AS item_name,
+        COALESCE(i.{ITEM_CATEGORY_COL}, '') AS category,
+        COALESCE(i.{ITEM_BRAND_COL}, '') AS brand
+      FROM {ITEMS_TBL} i
+      WHERE i.item_code_365 = ANY(:codes)
+      ORDER BY i.{ITEM_CATEGORY_COL}, i.{ITEM_BRAND_COL}, i.item_code_365
+    """)
+    rows = db.session.execute(sql, {"codes": codes}).mappings().all()
+
+    # Build CSV
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["item_code", "item_name", "category", "brand"])
+    for r in rows:
+        w.writerow([r["item_code"], r["item_name"], r["category"], r["brand"]])
+
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=proposal.csv"}
+    )
+
+6) Register blueprint
+
+In your blueprint registration:
+
+from blueprints.category_manager import catmgr_bp
+app.register_blueprint(catmgr_bp)
+
+C) Frontend changes
+1) Add new tab “Category Manager” on Customer vs Peer page
+
+In your template (the page shown in screenshot), add a tab button:
+
+“Category Manager”
+
+And add a container:
+
+Left list: #catList
+
+Right blocks: #catBlocksMust, #catBlocksShould, #catBlocksVariety
+
+Proposal list: #proposalList + export button
+
+2) JS logic (high level)
+
+Create static/js/customer_vs_peer_category_manager.js and do:
+
+When Run clicked:
+
+fetch /analytics/category-manager/api/category-gaps?...
+
+render categories sorted by share_gap ascending (most negative first)
+
+auto-select first category
+
+When category clicked:
+
+fetch /analytics/category-manager/api/category-suggestions?...&category=<name>
+
+render the 3 blocks
+
+allow “Add” to proposal list (in-memory array or localStorage)
+
+Export
+
+POST to /analytics/category-manager/export/proposal.csv with JSON:
+{ "item_codes": [...] }
+
+D) Help text to include in your system (Category Manager)
+
+Category Manager helps you build a recommended shelf assortment.
+It compares what this customer buys vs what similar customers (peer group) buy.
+
+Left side (Categories): shows where the customer is under-indexing vs peers (negative gap).
+Example: Peers spend 18% on Snacks but customer spends 8% → Snacks is an opportunity.
+
+Right side (Suggestions):
+
+Must-stock: Items most peers stock (penetration ≥ 60%)
+
+Should-stock: Common peer items (30–60%)
+
+Variety: Optional items (15–30%)
+
+Each suggestion is ranked by:
+
+Penetration (how many peer stores buy it)
+
+Peer Avg Sales (how much it sells among peers)
+
+Score = Penetration × Peer Avg Sales (best first)
+
+Tags:
+
+NEW: customer never bought it
+
+WINBACK: customer bought it before but not in this period
+
+Use the Proposal list to export a suggested assortment for the sales rep.
+
+E) Defaults (recommended)
+
+Set these defaults so the screen “works” immediately:
+
+Period: Last 90 days
+
+Min peer penetration: 0.30
+
+Must threshold: 0.60
+
+Variety threshold: 0.15
+
+Include credits: OFF
+
+F) One strong upgrade (do next)
+
+Add a tiny “Category Block size” selector:
+
+“Small store” → show top 5 Must + top 5 Should
+
+“Medium” → 10 + 10
+
+“Large” → 15 + 15
+
+This makes the output feel like real category management, not a data dump.

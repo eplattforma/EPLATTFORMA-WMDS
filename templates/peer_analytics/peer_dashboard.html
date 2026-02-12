@@ -53,6 +53,7 @@
         <button class="peer-tab active" data-target="tabMissing">Missing Items</button>
         <button class="peer-tab" data-target="tabCategory">Category Mix</button>
         <button class="peer-tab" data-target="tabBrand">Brand Mix</button>
+        <button class="peer-tab" data-target="tabCatMgr">Category Manager</button>
     </div>
 
     <div id="tabMissing" class="peer-content">
@@ -102,7 +103,55 @@
             </div>
         </div>
     </div>
+
+    <div id="tabCatMgr" class="peer-content d-none">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="peer-card h-100 p-0">
+                    <div class="p-3 border-bottom border-secondary">
+                        <h6 class="mb-0">Categories (Gap Ranking)</h6>
+                    </div>
+                    <div id="catGapsList" class="list-group list-group-flush" style="max-height: 700px; overflow-y: auto;">
+                        <div class="p-4 text-center text-muted small">Run analysis to see categories</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-5">
+                <div class="peer-card h-100 p-0">
+                    <div class="p-3 border-bottom border-secondary d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0" id="selectedCatTitle">Category Suggestions</h6>
+                        <span class="badge bg-secondary" id="selectedCatBadge">Select a category</span>
+                    </div>
+                    <div id="catSuggestions" class="p-3" style="max-height: 700px; overflow-y: auto;">
+                        <div class="text-center text-muted p-5">Select a category from the left to see missing items blocks</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="peer-card h-100 p-0">
+                    <div class="p-3 border-bottom border-secondary d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Proposal List</h6>
+                        <button id="btnExportProposal" class="btn btn-xs btn-outline-info" style="font-size: 10px;">Export CSV</button>
+                    </div>
+                    <div id="proposalItems" class="p-2" style="max-height: 700px; overflow-y: auto;">
+                        <div class="text-center text-muted small p-4">Add items from blocks</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
+<style>
+    .cat-gap-item { cursor: pointer; border-left: 3px solid transparent; }
+    .cat-gap-item.active { background: rgba(59, 130, 246, 0.1); border-left-color: #3b82f6; }
+    .cat-gap-item:hover:not(.active) { background: rgba(255,255,255,0.03); }
+    .block-must { border-left: 4px solid #ef4444; background: rgba(239, 68, 68, 0.05); }
+    .block-should { border-left: 4px solid #f59e0b; background: rgba(245, 158, 11, 0.05); }
+    .block-variety { border-left: 4px solid #3b82f6; background: rgba(59, 130, 246, 0.05); }
+    .suggestion-row { font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding: 6px 0; }
+    .btn-xs { padding: 1px 5px; font-size: 10px; }
+</style>
 
 <script>
     const CUSTOMER_CODE = "{{ customer_code }}";
