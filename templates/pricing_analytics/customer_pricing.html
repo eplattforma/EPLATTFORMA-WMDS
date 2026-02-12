@@ -175,6 +175,10 @@
                 <input class="form-check-input" type="checkbox" id="includeCredits">
                 <label class="form-check-label" for="includeCredits">Include credits</label>
             </div>
+            <div class="form-check ms-2">
+                <input class="form-check-input" type="checkbox" id="ignoreSmallPrice" checked>
+                <label class="form-check-label" for="ignoreSmallPrice">Ignore small price changes</label>
+            </div>
             <button class="btn btn-primary btn-load" id="btnLoad">Load</button>
         </div>
     </div>
@@ -419,6 +423,9 @@
                 The headline “Δ Net Revenue” includes credit notes/returns.<br>
                 PVM (Price/Volume/Mix) explains the change in Gross Positive Sales only (normal sales lines).<br>
                 The difference between Net and Gross is shown as Credits/Returns effect.</p>
+
+                <p><b>Small price changes filter</b><br>
+                The report can ignore tiny price changes (default: < €0.10 or < 0.5%) to avoid misleading “PRICE-driven” signals caused by rounding.</p>
 
                 <p class="text-muted mb-0">
                     Tip: PVM requires Compare mode (Previous period or PY). If Compare is “None”, PVM cannot run.

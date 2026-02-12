@@ -395,6 +395,15 @@ async function loadIndex(url) {
 
 async function loadPvm(url) {
   try {
+    const ignoreSmall = document.getElementById("ignoreSmallPrice")?.checked ? "1" : "0";
+    let priceAbsThr = "0.10";
+    let pricePctThr = "0.005";
+    if (ignoreSmall !== "1") {
+      priceAbsThr = "0";
+      pricePctThr = "0";
+    }
+    url += `&price_abs_thr=${priceAbsThr}&price_pct_thr=${pricePctThr}`;
+
     var j = await safeFetch(url);
 
     if (j.error) {

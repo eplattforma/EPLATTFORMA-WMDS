@@ -1,0 +1,178 @@
+You’re right — those ±€0.01 / ±€0.05 “Price effects” are usually noise (rounding, invoice-level proration, minor discount rounding) and become misleading when you filter “PRICE-driven”.
+
+The correct fix is:
+
+Apply a “price-change noise threshold” before classifying PRICE-driven items.
+
+Zero-out tiny price deltas and push the remainder into Mix (so totals still reconcile).
+
+Below are Replit-ready instructions (backend + UI + help).
+
+Replit Instructions: Ignore Small Price Changes in PVM
+Target behavior
+
+If price change between periods is:
+
+abs(P1 − P0) < €0.10 OR
+
+abs(P1 − P0) / P0 < 0.5%
+
+…then treat it as no real price change:
+
+price_effect = 0
+
+keep ΔRev intact by adjusting mix_effect = delta_rev - volume_effect - price_effect
+
+This will stop tiny €0.01 items showing as PRICE-driven.
+
+1) Backend: add thresholds to /pricing/api/pvm
+File: blueprints/pricing_analytics.py
+Endpoint: api_pvm()
+1.1 Read query params (with defaults)
+
+Add near the start of api_pvm():
+
+price_abs_thr = float(request.args.get("price_abs_thr", "0.10"))   # €0.10
+price_pct_thr = float(request.args.get("price_pct_thr", "0.005"))  # 0.5%
+
+
+Pass them into the SQL execution dict.
+
+2) Backend SQL: make Price/Volume/Mix type-aware + threshold-aware
+
+Replace your current SELECT effect formulas with this approach:
+
+Volume effect:
+
+COMMON: p0*(q1-q0)
+
+LOST: -r0
+
+NEW: 0
+
+Price effect (COMMON only): q0*dp_eff where dp_eff is zeroed if under thresholds
+
+Mix effect: remainder so reconciliation always holds:
+
+mix = (r1-r0) - price - volume
+
+Updated SQL block (after joined AS (...))
+
+Use this SELECT:
+
+SELECT
+  item_code_365,
+  q1, r1, p1,
+  q0, r0, p0,
+  (r1 - r0) AS delta_revenue,
+
+  -- effective price delta (COMMON only, ignore tiny changes)
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN
+      q0 * (
+        CASE
+          WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
+          WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
+          ELSE (p1 - p0)
+        END
+      )
+    ELSE 0
+  END AS price_effect,
+
+  -- volume effect (COMMON or LOST only)
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+    WHEN q0 > 0 AND q1 = 0 THEN (-r0)
+    ELSE 0
+  END AS volume_effect,
+
+  -- mix effect = remainder (keeps reconciliation)
+  (
+    (r1 - r0)
+    -
+    (
+      CASE
+        WHEN q0 > 0 AND q1 > 0 THEN
+          q0 * (
+            CASE
+              WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
+              WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
+              ELSE (p1 - p0)
+            END
+          )
+        ELSE 0
+      END
+    )
+    -
+    (
+      CASE
+        WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+        WHEN q0 > 0 AND q1 = 0 THEN (-r0)
+        ELSE 0
+      END
+    )
+  ) AS mix_effect
+FROM joined
+ORDER BY ABS(r1 - r0) DESC
+LIMIT 200
+
+2.1 Execute SQL with the new params
+
+When executing:
+
+res = db.session.execute(sql, {
+  "customer": customer,
+  "d_from": d_from, "d_to": d_to,
+  "b_from": b_from, "b_to": b_to,
+  "price_abs_thr": price_abs_thr,
+  "price_pct_thr": price_pct_thr
+}).fetchall()
+
+
+✅ Now tiny price changes become price_effect = 0, so the row will no longer be labeled PRICE-driven.
+
+3) Frontend: add a checkbox “Ignore small price changes”
+File: templates/pricing_analytics/customer_pricing.html
+
+In the top filter bar add:
+
+<div class="form-check ms-2">
+  <input class="form-check-input" type="checkbox" id="ignoreSmallPrice" checked>
+  <label class="form-check-label" for="ignoreSmallPrice">Ignore small price changes</label>
+</div>
+
+4) Frontend JS: send thresholds only when checkbox is ON
+File: static/js/customer_pricing.js
+
+In loadAll() add:
+
+const ignoreSmall = document.getElementById("ignoreSmallPrice")?.checked ? "1" : "0";
+
+// defaults
+let priceAbsThr = "0.10";
+let pricePctThr = "0.005";
+
+// if user disables, set thresholds to 0 (no ignoring)
+if (ignoreSmall !== "1") {
+  priceAbsThr = "0";
+  pricePctThr = "0";
+}
+
+
+When calling PVM, append:
+
+await loadPvm(`/pricing/api/pvm?${base}&price_abs_thr=${priceAbsThr}&price_pct_thr=${pricePctThr}`);
+
+5) Update Help (1 line)
+
+Add to PVM help modal:
+
+Small price changes filter: The report can ignore tiny price changes (default: < €0.10 or < 0.5%) to avoid misleading “PRICE-driven” signals caused by rounding.
+
+Result you should see
+
+Rows like +0.01 / -0.01 will become Price effect = 0 and Driver = NONE (or will shift driver to Mix/Volume if those are meaningful).
+
+When you filter PRICE-driven items, only real price moves remain.
+
+If you want, I can also add a second threshold for minimum € impact (e.g., ignore price_effect < €2 total) which is often even more practical for sales.

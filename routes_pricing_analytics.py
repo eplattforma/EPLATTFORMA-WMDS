@@ -334,6 +334,9 @@ def api_pvm():
     if compare == "none":
         return jsonify({"error": "compare must be 'prev' or 'py' for PVM"}), 400
 
+    price_abs_thr = float(request.args.get("price_abs_thr", "0.10"))   # €0.10
+    price_pct_thr = float(request.args.get("price_pct_thr", "0.005"))  # 0.5%
+
     totals_sql = text("""
       SELECT
         COALESCE(SUM(CASE WHEN qty <> 0 THEN net_excl ELSE 0 END), 0) AS net_sales,
@@ -390,26 +393,76 @@ def api_pvm():
         q0, r0, p0,
         (r1 - r0) AS delta_revenue,
 
-        -- PRICE effect only makes sense for COMMON items
+        -- PRICE effect (ignore tiny changes)
         CASE
-          WHEN q0 > 0 AND q1 > 0 THEN (q0 * (p1 - p0))
+          WHEN q0 > 0 AND q1 > 0 THEN
+            q0 * (
+              CASE
+                WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
+                WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
+                ELSE (p1 - p0)
+              END
+            )
           ELSE 0
         END AS price_effect,
 
-        -- VOLUME effect:
-        -- COMMON: p0*(q1-q0)
-        -- LOST:  -r0 (lost baseline revenue)
+        -- VOLUME effect
         CASE
           WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
           WHEN q0 > 0 AND q1 = 0 THEN (-r0)
           ELSE 0
         END AS volume_effect,
 
-        -- MIX effect:
-        -- NEW: +r1 (new revenue)
+        -- MIX effect = remainder
+        (
+          (r1 - r0)
+          -
+          (CASE
+            WHEN q0 > 0 AND q1 > 0 THEN
+              q0 * (
+                CASE
+                  WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
+                  WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
+                  ELSE (p1 - p0)
+                END
+              )
+            ELSE 0
+          END)
+          -
+          (CASE
+            WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+            WHEN q0 > 0 AND q1 = 0 THEN (-r0)
+            ELSE 0
+          END)
+          -
+          (CASE
+            WHEN q0 = 0 AND q1 > 0 THEN r1
+            ELSE 0
+          END)
+        ) AS mix_effect_legacy_ignore, -- Not used for common items but keeps total delta intact if we used it
+
+        -- Simplified Mix effect for NEW items
         CASE
           WHEN q0 = 0 AND q1 > 0 THEN r1
-          ELSE 0
+          ELSE (
+            (r1 - r0)
+            - (CASE
+                WHEN q0 > 0 AND q1 > 0 THEN
+                  q0 * (
+                    CASE
+                      WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
+                      WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
+                      ELSE (p1 - p0)
+                    END
+                  )
+                ELSE 0
+              END)
+            - (CASE
+                WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+                WHEN q0 > 0 AND q1 = 0 THEN (-r0)
+                ELSE 0
+              END)
+          )
         END AS mix_effect
       FROM joined
       ORDER BY ABS(r1 - r0) DESC
@@ -419,7 +472,9 @@ def api_pvm():
     res = db.session.execute(sql, {
         "customer": customer,
         "d_from": d_from, "d_to": d_to,
-        "b_from": b_from, "b_to": b_to
+        "b_from": b_from, "b_to": b_to,
+        "price_abs_thr": price_abs_thr,
+        "price_pct_thr": price_pct_thr
     }).fetchall()
     rows = _json_rows(res)
 
