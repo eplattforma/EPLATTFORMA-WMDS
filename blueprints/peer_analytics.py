@@ -31,6 +31,8 @@ def _resolve_range(args):
 
     if preset == "last30":
         return today - timedelta(days=29), today
+    if preset == "last180":
+        return today - timedelta(days=179), today
     if preset in ("last90", ""):
         return today - timedelta(days=89), today
 
