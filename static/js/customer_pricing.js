@@ -36,6 +36,7 @@ function deltaClass(v) {
 
 function signClass(n, eps=0.005) {
   const v = Number(n || 0);
+  if (Number.isNaN(v) || v === null) return "zero";
   if (Math.abs(v) <= eps) return "zero";
   return v > 0 ? "pos" : "neg";
 }
@@ -132,10 +133,10 @@ function renderPvmTable() {
           ${driverBadgeHtml(it)}
         </a>
       </td>
-      <td class="text-end ${signClass(it.delta_revenue)}">${fmtSigned(it.delta_revenue, 2)}</td>
-      <td class="text-end ${signClass(it.price_effect)}">${fmtSigned(it.price_effect, 2)}</td>
-      <td class="text-end ${signClass(it.volume_effect)}">${fmtSigned(it.volume_effect, 2)}</td>
-      <td class="text-end ${signClass(it.mix_effect)}">${fmtSigned(it.mix_effect, 2)}</td>
+      <td class="text-end ${signClass(it.delta_revenue)}">${fmt(it.delta_revenue, 2)}</td>
+      <td class="text-end ${signClass(it.price_effect)}">${fmt(it.price_effect, 2)}</td>
+      <td class="text-end ${signClass(it.volume_effect)}">${fmt(it.volume_effect, 2)}</td>
+      <td class="text-end ${signClass(it.mix_effect)}">${fmt(it.mix_effect, 2)}</td>
       <td class="text-end">${fmt(it.q1, 0)}</td>
       <td class="text-end">${fmt(it.p1, 4)}</td>
       <td class="text-end">${fmt(it.q0, 0)}</td>
