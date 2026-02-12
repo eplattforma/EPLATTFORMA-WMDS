@@ -193,7 +193,7 @@ def api_missing_items():
         AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :min_pen
       ORDER BY score DESC NULLS LAST, penetration DESC
       LIMIT :lim
-    """).bindparams(_bind_array("peer_customers", peers))
+    """)
 
     try:
         rows = db.session.execute(sql, {
@@ -265,7 +265,7 @@ def _api_mix(col, label):
             (CASE WHEN t.peer_total > 0 THEN COALESCE(p.sales,0)/t.peer_total ELSE 0 END) AS share_gap
           FROM cust c FULL OUTER JOIN peer p ON p.k = c.k CROSS JOIN totals t
           ORDER BY ABS(share_gap) DESC
-        """).bindparams(_bind_array("peer_customers", peers))
+        """)
         try:
             return db.session.execute(sql, {
                 "peer_customers": peers,

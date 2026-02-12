@@ -141,7 +141,7 @@ def api_category_gaps():
       FROM cust_cat c FULL OUTER JOIN peer_cat p ON p.category = c.category CROSS JOIN totals t
       LEFT JOIN missing m ON m.category = COALESCE(c.category,p.category)
       ORDER BY share_gap ASC, peer_sales DESC LIMIT 200
-    """).bindparams(_bind_array("peer_customers", peers))
+    """)
     try:
         rows = db.session.execute(sql, {
             "peer_customers": peers,
@@ -217,7 +217,7 @@ def api_category_suggestions():
       LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = pi.item_code_365
       WHERE cb.item_code_365 IS NULL AND pa.n >= 5 AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :variety_pen
       ORDER BY score DESC NULLS LAST, penetration DESC LIMIT :lim
-    """).bindparams(_bind_array("peer_customers", peers))
+    """)
     try:
         rows = db.session.execute(sql, {
             "peer_customers": peers,
