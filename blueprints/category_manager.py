@@ -11,6 +11,7 @@ catmgr_bp = Blueprint("catmgr", __name__, url_prefix="/analytics/category-manage
 
 SALES_SRC = os.getenv("SALES_LINES_SOURCE", "dw_sales_lines_mv")
 ITEMS_TBL = "ps_items_dw"
+CAT_TBL = "dw_item_categories"
 
 ITEM_NAME_COL = "item_name"
 ITEM_CATEGORY_COL = "category_code_365"
@@ -86,6 +87,8 @@ def api_category_gaps():
     if not customer or not peers: return jsonify({"meta": {"peer_customers": len(peers)}, "items": []})
     line_filter = "s.qty <> 0" if include_credits else "s.qty > 0 AND s.net_excl > 0"
 
+    cat_name_expr = f"COALESCE(cat.category_name, i.{ITEM_CATEGORY_COL}, 'Unclassified')"
+
     sql = text(f"""
       WITH peer_customers AS (SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365),
       peer_active AS (
@@ -94,17 +97,19 @@ def api_category_gaps():
         WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
       ),
       cust_cat AS (
-        SELECT COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category,
+        SELECT {cat_name_expr} AS category,
                SUM(s.net_excl) AS cust_sales
         FROM {SALES_SRC} s LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+        LEFT JOIN {CAT_TBL} cat ON cat.category_code_365 = i.{ITEM_CATEGORY_COL}
         WHERE s.customer_code_365 = :customer AND s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
         GROUP BY 1
       ),
       peer_cat AS (
-        SELECT COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category,
+        SELECT {cat_name_expr} AS category,
                SUM(s.net_excl) AS peer_sales
         FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+        LEFT JOIN {CAT_TBL} cat ON cat.category_code_365 = i.{ITEM_CATEGORY_COL}
         WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
         GROUP BY 1
       ),
@@ -113,9 +118,10 @@ def api_category_gaps():
                COALESCE((SELECT SUM(peer_sales) FROM peer_cat),0) AS peer_total
       ),
       peer_item AS (
-        SELECT COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') AS category, s.item_code_365, COUNT(DISTINCT s.customer_code_365) AS buyers
+        SELECT {cat_name_expr} AS category, s.item_code_365, COUNT(DISTINCT s.customer_code_365) AS buyers
         FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+        LEFT JOIN {CAT_TBL} cat ON cat.category_code_365 = i.{ITEM_CATEGORY_COL}
         WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
         GROUP BY 1, 2
       ),
@@ -194,7 +200,8 @@ def api_category_suggestions():
         SELECT s.item_code_365, COUNT(DISTINCT s.customer_code_365) AS buyers, SUM(s.net_excl) AS peer_sales
         FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
-        WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter} AND COALESCE(i.{ITEM_CATEGORY_COL}, 'Unclassified') = :category
+        LEFT JOIN {CAT_TBL} cat ON cat.category_code_365 = i.{ITEM_CATEGORY_COL}
+        WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter} AND COALESCE(cat.category_name, i.{ITEM_CATEGORY_COL}, 'Unclassified') = :category
         GROUP BY s.item_code_365
       ),
       cust_bought AS (
@@ -250,7 +257,7 @@ def export_proposal_csv():
     data = request.get_json(silent=True) or {}
     codes = [c.strip() for c in (data.get("item_codes") or []) if c and str(c).strip()][:500]
     if not codes: return jsonify({"error": "no_items"}), 400
-    sql = text(f"SELECT item_code_365 AS item_code, COALESCE({ITEM_NAME_COL}, '') AS item_name, COALESCE({ITEM_CATEGORY_COL}, '') AS category, COALESCE({ITEM_BRAND_COL}, '') AS brand FROM {ITEMS_TBL} WHERE item_code_365 = ANY(:codes) ORDER BY {ITEM_CATEGORY_COL}, {ITEM_BRAND_COL}")
+    sql = text(f"SELECT i.item_code_365 AS item_code, COALESCE(i.{ITEM_NAME_COL}, '') AS item_name, COALESCE(cat.category_name, i.{ITEM_CATEGORY_COL}, '') AS category, COALESCE(i.{ITEM_BRAND_COL}, '') AS brand FROM {ITEMS_TBL} i LEFT JOIN {CAT_TBL} cat ON cat.category_code_365 = i.{ITEM_CATEGORY_COL} WHERE i.item_code_365 = ANY(:codes) ORDER BY category, i.{ITEM_BRAND_COL}")
     rows = db.session.execute(sql, {"codes": codes}).mappings().all()
     import csv, io
     buf = io.StringIO()

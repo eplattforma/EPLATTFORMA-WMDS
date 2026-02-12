@@ -11,6 +11,7 @@ peer_bp = Blueprint("peer", __name__, url_prefix="/analytics/peer")
 
 SALES_SRC = os.getenv("SALES_LINES_SOURCE", "dw_sales_lines_mv")
 ITEMS_TBL = "ps_items_dw"
+CAT_TBL = "dw_item_categories"
 
 ITEM_NAME_COL = "item_name"
 ITEM_CATEGORY_COL = "category_code_365"
@@ -172,7 +173,7 @@ def api_missing_items():
       SELECT
         pi.item_code_365 AS item_code,
         COALESCE(i.{ITEM_NAME_COL}, '') AS item_name,
-        COALESCE(i.{ITEM_CATEGORY_COL}, '') AS category,
+        COALESCE(cat.category_name, i.{ITEM_CATEGORY_COL}, '') AS category,
         COALESCE(i.{ITEM_BRAND_COL}, '') AS brand,
         pi.buyers,
         pa.n AS active_peers,
@@ -186,6 +187,7 @@ def api_missing_items():
       LEFT JOIN cust_bought cb ON cb.item_code_365 = pi.item_code_365
       LEFT JOIN cust_last cl ON cl.item_code_365 = pi.item_code_365
       LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = pi.item_code_365
+      LEFT JOIN {CAT_TBL} cat ON cat.category_code_365 = i.{ITEM_CATEGORY_COL}
       WHERE cb.item_code_365 IS NULL
         AND pa.n >= 5
         AND (pi.buyers::numeric / NULLIF(pa.n,0)) >= :min_pen
@@ -239,19 +241,24 @@ def _api_mix(col, label):
     if not customer or not peers: return jsonify({"items": [], "meta": {"peer_customers": len(peers)}})
     line_filter = "s.qty <> 0" if include_credits else "s.qty > 0 AND s.net_excl > 0"
 
+    cat_join = f"LEFT JOIN {CAT_TBL} cat ON cat.category_code_365 = i.{ITEM_CATEGORY_COL}" if col == ITEM_CATEGORY_COL else ""
+    cat_select = "COALESCE(cat.category_name, i.{col}, 'Unclassified')".format(col=col) if col == ITEM_CATEGORY_COL else f"COALESCE(i.{col}, 'Unclassified')"
+
     def run_mix(x_from, x_to):
         sql = text(f"""
           WITH peer_customers AS (SELECT unnest(CAST(:peer_customers AS text[])) AS customer_code_365),
           cust AS (
-            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(s.net_excl) AS sales
+            SELECT {cat_select} AS k, SUM(s.net_excl) AS sales
             FROM {SALES_SRC} s LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+            {cat_join}
             WHERE s.customer_code_365 = :customer AND s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
             GROUP BY 1
           ),
           peer AS (
-            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(s.net_excl) AS sales
+            SELECT {cat_select} AS k, SUM(s.net_excl) AS sales
             FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
             LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
+            {cat_join}
             WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
             GROUP BY 1
           ),
