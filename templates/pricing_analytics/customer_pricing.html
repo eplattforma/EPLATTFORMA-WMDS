@@ -280,16 +280,44 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p><b>Why does Pricing Analytics revenue sometimes look lower than Customer 360?</b><br>
-                Pricing Analytics benchmarks only the <b>Top N items</b> (default <b>Top 50</b>) for performance and accuracy.
-                It also uses <b>positive sales only</b> by default (returns/credit notes are excluded unless you tick <b>Include credits</b>).
-                </p>
-                <p>
-                So the “Revenue” shown in Price Index is <b>not your total customer sales</b> — it is the revenue covered by the benchmarked Top N items.
-                </p>
-                <p>
-                Use <b>Coverage %</b> to see what share of the customer’s <b>gross positive sales</b> is included in the benchmark.
-                </p>
+                <p><b>What this report does</b><br>
+                Price Index compares the prices a customer paid for items in the selected period against a market reference price calculated from your own customer base.</p>
+
+                <p>For each item we show:<br>
+                <b>Customer Price</b> = total net sales ÷ total quantity for that customer (excl VAT)<br>
+                <b>Market Price</b> = the benchmark price for the same item (Median or Max)<br>
+                <b>Index</b> = Customer Price ÷ Market Price<br>
+                <b>Δ €/unit and Δ € total</b> = how far the customer is from the benchmark price</p>
+
+                <p><b>How “Market Median” is calculated</b><br>
+                Market Median is calculated in two steps, per item:<br>
+                1. <b>Customer-average price per item</b>: For each customer who bought the item in the period, we calculate: <i>customer_item_price = SUM(net_excl) / SUM(qty)</i><br>
+                2. <b>Median across customers</b>: We then take the median of those customer-average prices: <i>market_median = median(customer_item_price across customers)</i><br>
+                <small class="text-muted">✅ This means each customer counts once, and the median is robust (a single extreme price does not distort the benchmark).</small></p>
+
+                <p><b>What is included / excluded</b><br>
+                By default, Pricing Analytics uses <b>positive sales only</b>:<br>
+                <b>Included</b>: lines where qty > 0 and net_excl > 0<br>
+                <b>Excluded</b>: credit notes / returns (usually negative lines), zero-value lines, and zero-qty lines<br>
+                If you tick <i>Include credits</i>, returns/credits are included for the customer totals (but market benchmarks still use positive sales only).</p>
+
+                <p><b>Why Price Index revenue may be lower than Customer 360</b><br>
+                Price Index benchmarks only the <b>Top N items</b> (default <b>Top 50</b>) by customer revenue for performance and clarity.
+                So the “Revenue” shown in Price Index is the revenue covered by those Top N items, not the customer’s full sales.</p>
+
+                <p>Use:<br>
+                <b>Gross Positive Sales (all items)</b> = total positive sales for the customer in the period<br>
+                <b>Benchmarked Revenue (Top N)</b> = the part included in Price Index<br>
+                <b>Coverage %</b> = Benchmarked Revenue ÷ Gross Positive Sales</p>
+
+                <p><b>How to interpret the Index</b><br>
+                <b>Index = 1.00</b> → customer price is at the market reference<br>
+                <b>Index > 1.00</b> → customer price is higher than benchmark<br>
+                <b>Index < 1.00</b> → customer price is lower than benchmark</p>
+
+                <p><b>Benchmark selector (Median vs Max)</b><br>
+                <b>Median</b> = “typical market” (recommended default for fair comparison)<br>
+                <b>Max</b> = “ceiling observed in market” (useful for headroom checks; can be influenced by outliers)</p>
             </div>
         </div>
     </div>

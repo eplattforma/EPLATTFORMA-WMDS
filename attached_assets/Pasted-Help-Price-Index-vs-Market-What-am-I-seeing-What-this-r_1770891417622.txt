@@ -1,0 +1,67 @@
+Help: Price Index vs Market (What am I seeing?)
+What this report does
+
+Price Index compares the prices a customer paid for items in the selected period against a market reference price calculated from your own customer base.
+
+For each item we show:
+
+Customer Price = total net sales ÷ total quantity for that customer (excl VAT)
+
+Market Price = the benchmark price for the same item (Median or Max)
+
+Index = Customer Price ÷ Market Price
+
+Δ €/unit and Δ € total = how far the customer is from the benchmark price
+
+How “Market Median” is calculated
+
+Market Median is calculated in two steps, per item:
+
+Customer-average price per item
+For each customer who bought the item in the period, we calculate:
+
+customer_item_price = SUM(net_excl) / SUM(qty)
+
+Median across customers
+We then take the median of those customer-average prices:
+
+market_median = median(customer_item_price across customers)
+
+✅ This means each customer counts once, and the median is robust (a single extreme price does not distort the benchmark).
+
+What is included / excluded
+
+By default, Pricing Analytics uses positive sales only:
+
+Included: lines where qty > 0 and net_excl > 0
+
+Excluded: credit notes / returns (usually negative lines), zero-value lines, and zero-qty lines
+
+If you tick Include credits, returns/credits are included for the customer totals (but market benchmarks still use positive sales only).
+
+Why Price Index revenue may be lower than Customer 360
+
+Price Index benchmarks only the Top N items (default Top 50) by customer revenue for performance and clarity.
+So the “Revenue” shown in Price Index is the revenue covered by those Top N items, not the customer’s full sales.
+
+Use:
+
+Gross Positive Sales (all items) = total positive sales for the customer in the period
+
+Benchmarked Revenue (Top N) = the part included in Price Index
+
+Coverage % = Benchmarked Revenue ÷ Gross Positive Sales
+
+How to interpret the Index
+
+Index = 1.00 → customer price is at the market reference
+
+Index > 1.00 → customer price is higher than benchmark
+
+Index < 1.00 → customer price is lower than benchmark
+
+Benchmark selector (Median vs Max)
+
+Median = “typical market” (recommended default for fair comparison)
+
+Max = “ceiling observed in market” (useful for headroom checks; can be influenced by outliers)
