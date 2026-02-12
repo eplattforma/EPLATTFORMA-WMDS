@@ -265,10 +265,12 @@ function resolveCompareDates(d_from, d_to, compare) {
 }
 
 function fmtDateDMY(d) {
+  if (!d) return "-";
   var dd = String(d.getDate()).padStart(2, '0');
-  var mm = String(d.getMonth() + 1).padStart(2, '0');
-  var yyyy = d.getFullYear();
-  return dd + '/' + mm + '/' + yyyy;
+  var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var mmm = months[d.getMonth()];
+  var yy = String(d.getFullYear()).slice(-2);
+  return dd + ' ' + mmm + ' ' + yy;
 }
 
 function updateDateRangeDisplay() {
@@ -544,11 +546,13 @@ async function loadStale(url) {
 
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
+      var dObj = it.last_purchase_date ? new Date(it.last_purchase_date + "T00:00:00") : null;
+      var lastDateStr = dObj ? fmtDateDMY(dObj) : "-";
       var tr = document.createElement("tr");
       tr.innerHTML =
         '<td style="font-weight:600;font-size:12px">' + (it.item_code_365 || "") + '</td>' +
         '<td style="font-size:12px">' + (it.item_name || "") + '</td>' +
-        '<td class="text-end">' + (it.last_purchase_date || "") + '</td>' +
+        '<td class="text-end">' + lastDateStr + '</td>' +
         '<td class="text-end">' + fmt(it.recency_days, 0) + '</td>' +
         '<td class="text-end">' + fmt(it.last_unit_price, 2) + '</td>' +
         '<td class="text-end">' + fmt(it.ref_at_last, 2) + '</td>' +
