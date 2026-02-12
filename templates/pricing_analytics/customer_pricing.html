@@ -144,7 +144,6 @@
 
     <div class="pa-tabs" id="tabBar">
         <button class="pa-tab active" data-tab="tIndex">Price Index vs Market</button>
-        <button class="pa-tab" data-tab="tDisp">Price Dispersion</button>
         <button class="pa-tab" data-tab="tPvm">PVM Analysis</button>
         <button class="pa-tab" data-tab="tSens">Price Sensitivity</button>
         <button class="pa-tab" data-tab="tStale">Stale Pricing</button>
@@ -172,23 +171,6 @@
                     <tbody></tbody>
                 </table>
             </div>
-        </div>
-
-        <div class="pa-tab-content" id="tDisp">
-            <div class="table-responsive">
-                <table class="pa-table" id="tblDisp">
-                    <thead>
-                        <tr>
-                            <th>Item</th><th>Name</th>
-                            <th class="text-end">Lines</th>
-                            <th class="text-end">Min</th><th class="text-end">Median</th><th class="text-end">Max</th>
-                            <th class="text-end">Dispersion %</th><th class="text-end">CV</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            <div class="pa-note">Dispersion % = (Max - Min) / Median. CV = StdDev / Mean. Higher values indicate inconsistent pricing.</div>
         </div>
 
         <div class="pa-tab-content" id="tPvm">

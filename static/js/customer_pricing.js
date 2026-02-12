@@ -184,7 +184,6 @@ async function loadAll() {
   updateDateRangeDisplay();
 
   setLoading("tblIndex");
-  setLoading("tblDisp");
   setLoading("tblPvm");
   setLoading("tblSens");
   setLoading("tblStale");
@@ -193,7 +192,6 @@ async function loadAll() {
 
   await Promise.all([
     loadIndex("/pricing/api/price-index?" + base + "&top_n=50"),
-    loadDisp("/pricing/api/price-dispersion?" + base),
     compare !== "none" ? loadPvm("/pricing/api/pvm?" + base) : showPvmNotice(),
     loadSens("/pricing/api/price-sensitivity?customer_code_365=" + encodeURIComponent(customer) + "&months=18"),
     loadStale(buildStaleUrl())
@@ -292,42 +290,6 @@ async function loadIndex(url) {
     }
   } catch(e) {
     setEmpty("tblIndex", e.message || "Error loading data");
-  }
-}
-
-async function loadDisp(url) {
-  try {
-    var j = await safeFetch(url);
-
-    var items = j.items || [];
-    if (items.length === 0) {
-      setEmpty("tblDisp", "No dispersion data");
-      return;
-    }
-
-    var codes = items.map(function(it) { return it.item_code_365; });
-    await fetchItemNames(codes);
-
-    var tb = document.querySelector("#tblDisp tbody");
-    tb.innerHTML = "";
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var dispPct = it.dispersion_pct !== null ? (it.dispersion_pct * 100) : null;
-      var dispClass = dispPct !== null && dispPct > 20 ? "negative" : "";
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        '<td style="font-weight:600;font-size:12px">' + it.item_code_365 + '</td>' +
-        '<td style="font-size:12px">' + lookupItemName(it.item_code_365) + '</td>' +
-        '<td class="text-end">' + fmt(it.line_count, 0) + '</td>' +
-        '<td class="text-end">' + fmt(it.min_price, 4) + '</td>' +
-        '<td class="text-end">' + fmt(it.median_price, 4) + '</td>' +
-        '<td class="text-end">' + fmt(it.max_price, 4) + '</td>' +
-        '<td class="text-end ' + dispClass + '">' + fmt(dispPct, 1) + '%</td>' +
-        '<td class="text-end">' + fmt(it.cv, 3) + '</td>';
-      tb.appendChild(tr);
-    }
-  } catch(e) {
-    setEmpty("tblDisp", e.message || "Error loading data");
   }
 }
 

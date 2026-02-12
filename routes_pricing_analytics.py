@@ -320,60 +320,6 @@ def api_price_index():
     return jsonify({"summary": summary, "items": items_out, "brands": brands_list})
 
 
-@pricing_bp.route("/api/price-dispersion")
-@login_required
-def api_price_dispersion():
-    if not _require_role("admin", "warehouse_manager"):
-        return jsonify({"error": "forbidden"}), 403
-    customer, d_from, d_to, _, _, _, include_credits = _get_filters()
-
-    line_where = "sale_date BETWEEN :d_from AND :d_to AND customer_code_365 = :customer"
-    if include_credits:
-        line_where += " AND qty <> 0"
-    else:
-        line_where += " AND qty > 0 AND net_excl > 0"
-
-    sql = text(f"""
-      WITH lines AS (
-        SELECT
-          item_code_365,
-          (net_excl / NULLIF(qty,0))::numeric AS unit_price
-        FROM dw_sales_lines_mv
-        WHERE {line_where}
-          AND qty <> 0
-      ),
-      agg AS (
-        SELECT
-          item_code_365,
-          COUNT(*) AS line_count,
-          MIN(unit_price) AS min_price,
-          percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price) AS median_price,
-          MAX(unit_price) AS max_price,
-          AVG(unit_price) AS avg_price,
-          STDDEV_SAMP(unit_price) AS stddev_price
-        FROM lines
-        WHERE unit_price IS NOT NULL AND unit_price > 0
-        GROUP BY item_code_365
-      )
-      SELECT
-        item_code_365,
-        line_count,
-        min_price,
-        median_price,
-        max_price,
-        avg_price,
-        stddev_price,
-        CASE WHEN median_price <> 0 THEN (max_price - min_price) / median_price ELSE NULL END AS dispersion_pct,
-        CASE WHEN avg_price <> 0 THEN stddev_price / avg_price ELSE NULL END AS cv
-      FROM agg
-      ORDER BY dispersion_pct DESC NULLS LAST, line_count DESC
-      LIMIT 200
-    """)
-
-    res = db.session.execute(sql, {"customer": customer, "d_from": d_from, "d_to": d_to}).fetchall()
-    return jsonify({"customer_code_365": customer, "from": str(d_from), "to": str(d_to), "items": _json_rows(res)})
-
-
 @pricing_bp.route("/api/pvm")
 @login_required
 def api_pvm():
