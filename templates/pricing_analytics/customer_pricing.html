@@ -152,6 +152,11 @@
 
     <div class="pa-section">
         <div class="pa-tab-content active" id="tIndex">
+            <div class="d-flex justify-content-end mb-2">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#helpPriceIndex">
+                    Help
+                </button>
+            </div>
             <div id="indexSummary" class="mb-3"></div>
             <div class="table-responsive">
                 <table class="pa-table" id="tblIndex">
@@ -266,4 +271,27 @@
   window.ITEM_NAMES_CACHE = {};
 </script>
 <script src="{{ url_for('static', filename='js/customer_pricing.js') }}"></script>
+
+<div class="modal fade" id="helpPriceIndex" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content" style="background: #1e293b; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1);">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <h5 class="modal-title">Price Index vs Market — Help</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p><b>Why does Pricing Analytics revenue sometimes look lower than Customer 360?</b><br>
+                Pricing Analytics benchmarks only the <b>Top N items</b> (default <b>Top 50</b>) for performance and accuracy.
+                It also uses <b>positive sales only</b> by default (returns/credit notes are excluded unless you tick <b>Include credits</b>).
+                </p>
+                <p>
+                So the “Revenue” shown in Price Index is <b>not your total customer sales</b> — it is the revenue covered by the benchmarked Top N items.
+                </p>
+                <p>
+                Use <b>Coverage %</b> to see what share of the customer’s <b>gross positive sales</b> is included in the benchmark.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

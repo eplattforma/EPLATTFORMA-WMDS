@@ -1,0 +1,180 @@
+Help text (short, simple — paste into your in-app Help)
+
+Why does Pricing Analytics revenue sometimes look lower than Customer 360?
+Pricing Analytics (Price Index vs Market) benchmarks only the Top N items (default Top 50) for performance and accuracy. It also uses positive sales only by default (returns/credit notes are excluded unless you tick Include credits).
+So the “Revenue” shown in Price Index is not your total customer sales — it is the revenue covered by the benchmarked Top N items.
+Use the Coverage % to see what share of the customer’s gross positive sales is included in the benchmark.
+
+Replit Instructions: Add “Gross sales + Coverage” to Price Index + add Help UI
+1) Backend: enrich /pricing/api/price-index summary
+
+File: blueprints/pricing_analytics.py
+Function: api_price_index()
+
+1.1 Add two extra “totals” queries (ALL items, not Top N)
+
+Right after you build line_where (or right after top_n is read), add these:
+
+# Always define a "positive sales" filter (for gross positive sales), independent of include_credits
+line_where_pos = """
+  sale_date BETWEEN :d_from AND :d_to
+  AND customer_code_365 = :customer
+  AND qty > 0 AND net_excl > 0
+"""
+
+# Net sales including credits/returns (for reconciliation vs 360)
+line_where_all = """
+  sale_date BETWEEN :d_from AND :d_to
+  AND customer_code_365 = :customer
+  AND qty <> 0
+"""
+
+
+Then execute the totals:
+
+sql_totals = text(f"""
+  SELECT
+    COALESCE(SUM(net_excl), 0) AS gross_positive_sales_all_items,
+    COALESCE(SUM(qty), 0) AS gross_positive_qty_all_items,
+    COUNT(DISTINCT item_code_365) AS distinct_items_positive
+  FROM dw_sales_lines_mv
+  WHERE {line_where_pos}
+""")
+
+tot = db.session.execute(sql_totals, {
+    "customer": customer, "d_from": d_from, "d_to": d_to
+}).mappings().first()
+
+gross_positive_sales_all = float(tot["gross_positive_sales_all_items"] or 0)
+gross_positive_qty_all = float(tot["gross_positive_qty_all_items"] or 0)
+distinct_items_positive = int(tot["distinct_items_positive"] or 0)
+
+sql_net = text(f"""
+  SELECT COALESCE(SUM(net_excl), 0) AS net_sales_all_lines
+  FROM dw_sales_lines_mv
+  WHERE {line_where_all}
+""")
+
+net_row = db.session.execute(sql_net, {
+    "customer": customer, "d_from": d_from, "d_to": d_to
+}).mappings().first()
+
+net_sales_all_lines = float(net_row["net_sales_all_lines"] or 0)
+
+1.2 Compute coverage of benchmarked basket
+
+After your loop where you compute total_revenue (Top N only), add:
+
+coverage_pct = (total_revenue / gross_positive_sales_all) if gross_positive_sales_all else None
+
+1.3 Return the new fields in summary
+
+Extend your existing summary = {...} with:
+
+summary.update({
+    "top_n": top_n,
+    "benchmarked_sales_top_n": total_revenue,  # same as total_revenue, but clearer name
+    "gross_positive_sales_all_items": gross_positive_sales_all,
+    "net_sales_all_lines": net_sales_all_lines,
+    "coverage_pct": coverage_pct,
+    "distinct_items_positive": distinct_items_positive,
+})
+
+
+Keep your existing total_revenue if you want backward compatibility, but prefer displaying benchmarked_sales_top_n in UI.
+
+2) Frontend: show Coverage + Gross Positive Sales in the Price Index summary
+
+File: static/js/customer_pricing.js
+Function: loadIndex(url)
+
+Replace your summary HTML (or extend it) to show 2 extra cards.
+
+Example (add cards, don’t remove existing unless you want):
+
+const s = j.summary || {};
+const cov = (s.coverage_pct !== null && s.coverage_pct !== undefined) ? (s.coverage_pct * 100) : null;
+
+document.getElementById("indexSummary").innerHTML = `
+  <div class="row g-2">
+    <div class="col-md-3">
+      <div class="card p-2">
+        <div class="text-muted small">Benchmarked revenue (Top ${s.top_n || 50})</div>
+        <div><b>${fmt(s.benchmarked_sales_top_n ?? s.total_revenue, 2)}</b></div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card p-2">
+        <div class="text-muted small">Gross positive sales (all items)</div>
+        <div><b>${fmt(s.gross_positive_sales_all_items, 2)}</b></div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card p-2">
+        <div class="text-muted small">Coverage</div>
+        <div><b>${cov === null ? "" : fmt(cov, 1) + "%"}</b></div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card p-2">
+        <div class="text-muted small">Net sales (incl credits)</div>
+        <div><b>${fmt(s.net_sales_all_lines, 2)}</b></div>
+      </div>
+    </div>
+  </div>
+`;
+
+
+Now the user immediately understands:
+
+“Top 50 benchmarked revenue”
+
+“All-items gross positive sales”
+
+“Coverage %”
+
+“Net sales incl credits” (reconcile to 360)
+
+3) Add a Help popup (simple Bootstrap modal)
+
+File: templates/pricing_analytics/customer_pricing.html
+
+3.1 Add a Help button inside the Price Index tab
+
+Inside #tIndex (above the summary), add:
+
+<div class="d-flex justify-content-end mb-2">
+  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#helpPriceIndex">
+    Help
+  </button>
+</div>
+
+3.2 Add the modal once at the bottom of the page
+
+Paste near the end (before {% endblock %}):
+
+<div class="modal fade" id="helpPriceIndex" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Price Index vs Market — Help</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p><b>Why does Pricing Analytics revenue sometimes look lower than Customer 360?</b><br>
+        Pricing Analytics benchmarks only the <b>Top N items</b> (default <b>Top 50</b>) for performance and accuracy.
+        It also uses <b>positive sales only</b> by default (returns/credit notes are excluded unless you tick <b>Include credits</b>).
+        </p>
+        <p>
+        So the “Revenue” shown in Price Index is <b>not your total customer sales</b> — it is the revenue covered by the benchmarked Top N items.
+        </p>
+        <p>
+        Use <b>Coverage %</b> to see what share of the customer’s <b>gross positive sales</b> is included in the benchmark.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

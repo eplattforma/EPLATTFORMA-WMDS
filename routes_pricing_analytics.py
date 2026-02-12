@@ -126,6 +126,49 @@ def api_price_index():
         benchmark = "median"
     brand_filter = (request.args.get("brand", "") or "").strip()
 
+    # Always define a "positive sales" filter (for gross positive sales), independent of include_credits
+    line_where_pos = """
+      sale_date BETWEEN :d_from AND :d_to
+      AND customer_code_365 = :customer
+      AND qty > 0 AND net_excl > 0
+    """
+
+    # Net sales including credits/returns (for reconciliation vs 360)
+    line_where_all = """
+      sale_date BETWEEN :d_from AND :d_to
+      AND customer_code_365 = :customer
+      AND qty <> 0
+    """
+
+    sql_totals = text(f"""
+      SELECT
+        COALESCE(SUM(net_excl), 0) AS gross_positive_sales_all_items,
+        COALESCE(SUM(qty), 0) AS gross_positive_qty_all_items,
+        COUNT(DISTINCT item_code_365) AS distinct_items_positive
+      FROM dw_sales_lines_mv
+      WHERE {line_where_pos}
+    """)
+
+    tot = db.session.execute(sql_totals, {
+        "customer": customer, "d_from": d_from, "d_to": d_to
+    }).mappings().first()
+
+    gross_positive_sales_all = float(tot["gross_positive_sales_all_items"] or 0)
+    gross_positive_qty_all = float(tot["gross_positive_qty_all_items"] or 0)
+    distinct_items_positive = int(tot["distinct_items_positive"] or 0)
+
+    sql_net = text(f"""
+      SELECT COALESCE(SUM(net_excl), 0) AS net_sales_all_lines
+      FROM dw_sales_lines_mv
+      WHERE {line_where_all}
+    """)
+
+    net_row = db.session.execute(sql_net, {
+        "customer": customer, "d_from": d_from, "d_to": d_to
+    }).mappings().first()
+
+    net_sales_all_lines = float(net_row["net_sales_all_lines"] or 0)
+
     line_where = "sale_date BETWEEN :d_from AND :d_to AND customer_code_365 = :customer"
     if include_credits:
         line_where += " AND qty <> 0"
@@ -255,6 +298,7 @@ def api_price_index():
             "delta_total": round(delta_total, 2) if delta_total is not None else None,
         })
 
+    coverage_pct = (total_revenue / gross_positive_sales_all) if gross_positive_sales_all else None
     overall_index = (total_revenue / total_market_cost) if total_market_cost else None
     summary = {
         "customer_code_365": customer,
@@ -265,6 +309,12 @@ def api_price_index():
         "total_market_cost": round(total_market_cost, 2),
         "overall_index": round(overall_index, 2) if overall_index is not None else None,
         "estimated_overpay": round(total_revenue - total_market_cost, 2) if total_market_cost else None,
+        "top_n": top_n,
+        "benchmarked_sales_top_n": total_revenue,
+        "gross_positive_sales_all_items": gross_positive_sales_all,
+        "net_sales_all_lines": net_sales_all_lines,
+        "coverage_pct": coverage_pct,
+        "distinct_items_positive": distinct_items_positive,
     }
 
     return jsonify({"summary": summary, "items": items_out, "brands": brands_list})

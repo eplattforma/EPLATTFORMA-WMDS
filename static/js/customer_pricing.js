@@ -247,13 +247,20 @@ async function loadIndex(url) {
       '<option value="">All Brands</option>' + brandOpts + '</select>' + clearBtn;
 
     var s = j.summary || {};
+    var cov = (s.coverage_pct !== null && s.coverage_pct !== undefined) ? (s.coverage_pct * 100) : null;
     var bm = s.benchmark === "max" ? "max" : "median";
     var bmLabel = bm === "max" ? "Market Max" : "Market Median";
     var overpayClass = (s.estimated_overpay || 0) > 0 ? "negative" : "positive";
+    
     document.getElementById("indexSummary").innerHTML =
       '<div class="d-flex align-items-center gap-2 mb-2">' + brandSelect + '</div>' +
-      '<div class="pa-kpi-grid">' +
-        '<div class="pa-kpi"><div class="label">Revenue (excl VAT)</div><div class="value">' + fmt(s.total_revenue) + '</div></div>' +
+      '<div class="row g-2">' +
+        '<div class="col-md-3"><div class="pa-kpi"><div class="label">Benchmarked revenue (Top ' + (s.top_n || 50) + ')</div><div class="value">' + fmt(s.benchmarked_sales_top_n ?? s.total_revenue) + '</div></div></div>' +
+        '<div class="col-md-3"><div class="pa-kpi"><div class="label">Gross positive sales (all items)</div><div class="value">' + fmt(s.gross_positive_sales_all_items) + '</div></div></div>' +
+        '<div class="col-md-3"><div class="pa-kpi"><div class="label">Coverage</div><div class="value">' + (cov === null ? "-" : fmt(cov, 1) + "%") + '</div></div></div>' +
+        '<div class="col-md-3"><div class="pa-kpi"><div class="label">Net sales (incl credits)</div><div class="value">' + fmt(s.net_sales_all_lines) + '</div></div></div>' +
+      '</div>' +
+      '<div class="pa-kpi-grid mt-2">' +
         '<div class="pa-kpi"><div class="label">Market cost (basket, ' + bm + ')</div><div class="value">' + fmt(s.total_market_cost) + '</div></div>' +
         '<div class="pa-kpi"><div class="label">Overall Index vs ' + bmLabel + '</div><div class="value">' + indexBadge(s.overall_index) + '</div></div>' +
         '<div class="pa-kpi"><div class="label">Est. over/under pay vs ' + bm + '</div><div class="value ' + overpayClass + '">' + fmtSigned(s.estimated_overpay) + '</div></div>' +
