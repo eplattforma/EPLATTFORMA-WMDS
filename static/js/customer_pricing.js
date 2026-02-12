@@ -34,6 +34,16 @@ function deltaClass(v) {
   return v > 0 ? "positive" : v < 0 ? "negative" : "";
 }
 
+function signClass(n, eps=0.005) {
+  const v = Number(n || 0);
+  if (Math.abs(v) <= eps) return "zero";
+  return v > 0 ? "pos" : "neg";
+}
+function kpiCardClass(n) {
+  const s = signClass(n);
+  return s === "pos" ? "kpi-pos" : (s === "neg" ? "kpi-neg" : "kpi-zero");
+}
+
 var itemNamesCache = {};
 window.PVM_ROWS = [];
 window.PVM_FILTER = "all";
@@ -122,10 +132,10 @@ function renderPvmTable() {
           ${driverBadgeHtml(it)}
         </a>
       </td>
-      <td class="text-end ${deltaClass(it.delta_revenue)}">${fmtSigned(it.delta_revenue, 2)}</td>
-      <td class="text-end ${deltaClass(it.price_effect)}">${fmtSigned(it.price_effect, 2)}</td>
-      <td class="text-end ${deltaClass(it.volume_effect)}">${fmtSigned(it.volume_effect, 2)}</td>
-      <td class="text-end ${deltaClass(it.mix_effect)}">${fmtSigned(it.mix_effect, 2)}</td>
+      <td class="text-end ${signClass(it.delta_revenue)}">${fmtSigned(it.delta_revenue, 2)}</td>
+      <td class="text-end ${signClass(it.price_effect)}">${fmtSigned(it.price_effect, 2)}</td>
+      <td class="text-end ${signClass(it.volume_effect)}">${fmtSigned(it.volume_effect, 2)}</td>
+      <td class="text-end ${signClass(it.mix_effect)}">${fmtSigned(it.mix_effect, 2)}</td>
       <td class="text-end">${fmt(it.q1, 0)}</td>
       <td class="text-end">${fmt(it.p1, 4)}</td>
       <td class="text-end">${fmt(it.q0, 0)}</td>
@@ -425,37 +435,34 @@ async function loadPvm(url) {
     if (!window.PVM_FILTER) window.PVM_FILTER = "all";
 
     var s = j.summary || {};
+    const net = s.delta_net_revenue ?? s.delta_revenue ?? 0;
+    const pe = s.price_effect ?? 0;
+    const ve = s.volume_effect ?? 0;
+    const me = s.mix_effect ?? s.new_items_effect ?? 0;
+
     document.getElementById("pvmSummary").innerHTML = `
-      <div class="row g-2">
-        <div class="col-md-3"><div class="card p-2 pvm-card-click" data-effect="all" style="cursor:pointer">
-          <div class="text-muted small">Δ Net Revenue (incl CN)</div>
-          <div class="value ${deltaClass(s.delta_net_revenue)}"><b>${fmtSigned(s.delta_net_revenue)}</b></div>
-        </div></div>
+      <div class="kpi-grid">
+        <div class="kpi-card p-2 ${kpiCardClass(net)}">
+          <div class="lbl">Δ Net Revenue</div>
+          <div class="val ${signClass(net)}">${fmtSigned(net)}</div>
+        </div>
 
-        <div class="col-md-3"><div class="card p-2">
-          <div class="text-muted small">Credits / Returns effect</div>
-          <div class="value ${deltaClass(s.delta_credits)}"><b>${fmtSigned(s.delta_credits)}</b></div>
-        </div></div>
+        <div class="kpi-card p-2 ${kpiCardClass(pe)}">
+          <div class="lbl">Price effect</div>
+          <div class="val ${signClass(pe)}">${fmtSigned(pe)}</div>
+        </div>
 
-        <div class="col-md-2"><div class="card p-2 pvm-card-click" data-effect="price" style="cursor:pointer">
-          <div class="text-muted small">Price effect</div>
-          <div class="value ${deltaClass(s.price_effect)}"><b>${fmtSigned(s.price_effect)}</b></div>
-        </div></div>
+        <div class="kpi-card p-2 ${kpiCardClass(ve)}">
+          <div class="lbl">Volume effect</div>
+          <div class="val ${signClass(ve)}">${fmtSigned(ve)}</div>
+        </div>
 
-        <div class="col-md-2"><div class="card p-2 pvm-card-click" data-effect="volume" style="cursor:pointer">
-          <div class="text-muted small">Volume effect</div>
-          <div class="value ${deltaClass(s.volume_effect)}"><b>${fmtSigned(s.volume_effect)}</b></div>
-        </div></div>
-
-        <div class="col-md-2"><div class="card p-2 pvm-card-click" data-effect="mix" style="cursor:pointer">
-          <div class="text-muted small">Mix effect</div>
-          <div class="value ${deltaClass(s.mix_effect)}"><b>${fmtSigned(s.mix_effect)}</b></div>
-        </div></div>
+        <div class="kpi-card p-2 ${kpiCardClass(me)}">
+          <div class="lbl">New items effect</div>
+          <div class="val ${signClass(me)}">${fmtSigned(me)}</div>
+        </div>
       </div>
 
-      <div class="mt-2 text-muted small">
-        PVM explains <b>Gross Positive Sales</b> (excludes credits). Net change = Gross change + Credits change.
-      </div>
       <div class="pa-note" style="margin-top:8px">Baseline: ${s.baseline_from} to ${s.baseline_to} (${s.compare})</div>
       <div class="row g-2 mt-2">
         <div class="col-md-4"><div class="card p-2 kpi">

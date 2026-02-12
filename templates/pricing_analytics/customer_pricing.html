@@ -80,6 +80,26 @@
         background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);
     }
 
+    /* PVM KPI styling */
+    .kpi-card { border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); border-radius: 10px; }
+    .kpi-card .lbl { font-size: 12px; color: rgba(255,255,255,0.65); }
+    .kpi-card .val { font-size: 22px; font-weight: 800; margin-top: 2px; }
+
+    .kpi-pos { border-left: 4px solid rgba(34,197,94,0.9); background: rgba(34,197,94,0.06); }
+    .kpi-neg { border-left: 4px solid rgba(239,68,68,0.9); background: rgba(239,68,68,0.06); }
+    .kpi-zero { border-left: 4px solid rgba(148,163,184,0.5); background: rgba(148,163,184,0.04); }
+
+    .val.pos { color: #22c55e; }
+    .val.neg { color: #ef4444; }
+    .val.zero { color: rgba(255,255,255,0.80); }
+
+    .pos { color: #22c55e; font-weight: 700; }
+    .neg { color: #ef4444; font-weight: 700; }
+    .zero { color: rgba(255,255,255,0.75); }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    @media (max-width: 992px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
     .pvm-filter { color: rgba(255,255,255,0.75); text-decoration: none; border: none; background: none; }
     .pvm-filter:hover { color: rgba(255,255,255,0.95); text-decoration: underline; }
     .pvm-filter.active { color: #93c5fd; font-weight: 700; text-decoration: underline; }

@@ -1,0 +1,166 @@
+Below are Replit-ready instructions to (1) add color based on performance for the KPI cards and the Δ REV column (the areas you circled in white), and (2) remove the “Credits / Returns effect” card + sentence (the red X area).
+
+Replit Instructions: PVM KPI + ΔREV Color Coding + Remove Credits Section
+A) Remove “Credits / Returns effect” (red X)
+1) Frontend: remove the card
+
+File: static/js/customer_pricing.js
+Function: loadPvm(url)
+
+In the KPI summary HTML, delete the block that renders:
+
+Credits / Returns effect
+
+Also remove the text line that mentions credits:
+
+“PVM explains Gross Positive Sales (excludes credits). Net change = …”
+
+✅ Keep only:
+
+Δ Net Revenue (incl CN)
+
+Price effect
+
+Volume effect
+
+Mix/New items effect (whatever your current label is)
+
+2) Backend (optional)
+
+No backend change needed if you only hide it.
+
+B) Add “performance color” to KPI cards (white circles)
+Goal
+
+If value > 0 → green
+
+If value < 0 → red
+
+If value ≈ 0 → neutral gray
+
+Add subtle background tint + left border accent.
+
+1) Add CSS classes
+
+File: templates/pricing_analytics/customer_pricing.html (or global CSS)
+
+Add:
+
+<style>
+  .kpi-card { border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); border-radius: 10px; }
+  .kpi-card .lbl { font-size: 12px; color: rgba(255,255,255,0.65); }
+  .kpi-card .val { font-size: 22px; font-weight: 800; margin-top: 2px; }
+
+  .kpi-pos { border-left: 4px solid rgba(34,197,94,0.9); background: rgba(34,197,94,0.06); }
+  .kpi-neg { border-left: 4px solid rgba(239,68,68,0.9); background: rgba(239,68,68,0.06); }
+  .kpi-zero { border-left: 4px solid rgba(148,163,184,0.5); background: rgba(148,163,184,0.04); }
+
+  .val.pos { color: #22c55e; }
+  .val.neg { color: #ef4444; }
+  .val.zero { color: rgba(255,255,255,0.80); }
+
+  /* make the KPI row look aligned */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 992px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+
+2) Add JS helper to map value → class
+
+File: static/js/customer_pricing.js
+
+Add:
+
+function signClass(n, eps=0.005) {
+  const v = Number(n || 0);
+  if (Math.abs(v) <= eps) return "zero";
+  return v > 0 ? "pos" : "neg";
+}
+function kpiCardClass(n) {
+  const s = signClass(n);
+  return s === "pos" ? "kpi-pos" : (s === "neg" ? "kpi-neg" : "kpi-zero");
+}
+
+3) Apply to KPI render
+
+In loadPvm(), build the KPI section like this (example):
+
+const s = j.summary || {};
+const net = s.delta_net_revenue ?? s.delta_revenue ?? 0;
+const pe = s.price_effect ?? 0;
+const ve = s.volume_effect ?? 0;
+const me = s.mix_effect ?? s.new_items_effect ?? 0;
+
+document.getElementById("pvmSummary").innerHTML = `
+  <div class="kpi-grid">
+    <div class="kpi-card p-2 ${kpiCardClass(net)}">
+      <div class="lbl">Δ Net Revenue</div>
+      <div class="val ${signClass(net)}">${fmt(net,2)}</div>
+    </div>
+
+    <div class="kpi-card p-2 ${kpiCardClass(pe)}">
+      <div class="lbl">Price effect</div>
+      <div class="val ${signClass(pe)}">${fmt(pe,2)}</div>
+    </div>
+
+    <div class="kpi-card p-2 ${kpiCardClass(ve)}">
+      <div class="lbl">Volume effect</div>
+      <div class="val ${signClass(ve)}">${fmt(ve,2)}</div>
+    </div>
+
+    <div class="kpi-card p-2 ${kpiCardClass(me)}">
+      <div class="lbl">New items effect</div>
+      <div class="val ${signClass(me)}">${fmt(me,2)}</div>
+    </div>
+  </div>
+`;
+
+
+✅ Now the KPI cards will automatically color based on performance (your white circles).
+
+C) Add “performance color” to Δ REV column (white oval in table)
+1) Add CSS for table value color
+
+You already have .pos/.neg/.zero classes — reuse them. If not, add:
+
+<style>
+  .pos { color: #22c55e; font-weight: 700; }
+  .neg { color: #ef4444; font-weight: 700; }
+  .zero { color: rgba(255,255,255,0.75); }
+</style>
+
+2) Apply to Δ REV cell render
+
+File: static/js/customer_pricing.js
+Function: renderPvmTable()
+
+Update the Δ REV cell to:
+
+<td class="text-end ${signClass(it.delta_revenue)}">${fmt(it.delta_revenue,2)}</td>
+
+
+Optionally also apply to Price/Volume/New items effect columns:
+
+<td class="text-end ${signClass(it.price_effect)}">${fmt(it.price_effect,2)}</td>
+<td class="text-end ${signClass(it.volume_effect)}">${fmt(it.volume_effect,2)}</td>
+<td class="text-end ${signClass(it.mix_effect)}">${fmt(it.mix_effect,2)}</td>
+
+
+✅ Now the table instantly shows winners/losers.
+
+D) Extra polish (recommended)
+
+Bold the Driver badge column (already OK)
+
+Add zebra hover:
+
+.table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+Summary of what Replit must do
+
+Remove credits card + credits explanation line (red X)
+
+Add KPI performance coloring (green/red/neutral)
+
+Add ΔREV performance coloring (green/red/neutral)
+
+If you want, I can also give Replit a small tweak so that posit
