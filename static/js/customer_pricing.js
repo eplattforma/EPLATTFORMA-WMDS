@@ -302,14 +302,14 @@ async function loadAll() {
 
   setLoading("tblIndex");
   setLoading("tblPvm");
-  setLoading("tblStale");
+  
   document.getElementById("indexSummary").innerHTML = "";
   document.getElementById("pvmSummary").innerHTML = "";
 
   await Promise.all([
     loadIndex("/pricing/api/price-index?" + base + "&top_n=50"),
     compare !== "none" ? loadPvm("/pricing/api/pvm?" + base) : showPvmNotice(),
-    loadStale(buildStaleUrl())
+    
   ]);
 }
 
@@ -535,49 +535,6 @@ function buildStaleUrl() {
     "&market_days=" + marketDays + "&benchmark=" + benchmark;
 }
 
-async function loadStale(url) {
-  try {
-    var j = await safeFetch(url);
-    var items = j.items || [];
-
-    if (items.length === 0) {
-      setEmpty("tblStale", "No stale items found in the specified day range");
-      return;
-    }
-
-    var tb = document.querySelector("#tblStale tbody");
-    tb.innerHTML = "";
-
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var dObj = null;
-      if (it.last_purchase_date) {
-        // Handle various date formats safely
-        dObj = new Date(it.last_purchase_date);
-        if (isNaN(dObj.getTime())) {
-           // Try adding time if direct parse fails
-           dObj = new Date(it.last_purchase_date + "T00:00:00");
-        }
-      }
-      var lastDateStr = fmtDateDMY(dObj);
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        '<td style="font-weight:600;font-size:12px">' + (it.item_code_365 || "") + '</td>' +
-        '<td style="font-size:12px">' + (it.item_name || "") + '</td>' +
-        '<td class="text-end">' + lastDateStr + '</td>' +
-        '<td class="text-end">' + fmt(it.recency_days, 0) + '</td>' +
-        '<td class="text-end">' + fmt(it.last_unit_price, 2) + '</td>' +
-        '<td class="text-end">' + fmt(it.ref_at_last, 2) + '</td>' +
-        '<td class="text-end ' + deltaClass(it.delta_vs_ref_at_last) + '">' + fmtSigned(it.delta_vs_ref_at_last, 2) + '</td>' +
-        '<td class="text-end">' + fmt(it.ref_current, 2) + '</td>' +
-        '<td class="text-end ' + deltaClass(it.delta_vs_ref_current) + '">' + fmtSigned(it.delta_vs_ref_current, 2) + '</td>' +
-        '<td class="text-end">' + fmt(it.suggested_winback_price, 2) + '</td>';
-      tb.appendChild(tr);
-    }
-  } catch(e) {
-    setEmpty("tblStale", e.message || "Error loading data");
-  }
-}
 
 
 document.addEventListener("DOMContentLoaded", function() {
@@ -597,8 +554,8 @@ document.addEventListener("DOMContentLoaded", function() {
   var btnStale = document.getElementById("btnLoadStale");
   if (btnStale) {
     btnStale.addEventListener("click", function() {
-      setLoading("tblStale");
-      loadStale(buildStaleUrl());
+      
+      ;
     });
   }
 
