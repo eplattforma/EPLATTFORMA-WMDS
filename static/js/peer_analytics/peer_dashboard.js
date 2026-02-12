@@ -181,9 +181,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td>${it.category}</td>
                 <td>${(it.penetration * 100).toFixed(1)}%</td>
                 <td>€${it.peer_avg_sales.toFixed(2)}</td>
-                <td><span class="badge ${it.last_bought ? 'bg-warning' : 'bg-danger'}">${it.last_bought ? 'STALE ('+it.last_bought+')' : 'NEVER'}</span></td>
+                <td>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge ${it.last_bought ? 'bg-warning' : 'bg-danger'}" style="font-size: 10px;">${it.last_bought ? 'STALE ('+it.last_bought+')' : 'NEVER'}</span>
+                        <button class="btn btn-xs btn-outline-primary btn-add-prop" data-code="${it.item_code}" data-name="${it.item_name}">Add to Proposal</button>
+                    </div>
+                </td>
             </tr>
         `).join('') || '<tr><td colspan="10" class="text-center p-4">No opportunities found</td></tr>';
+
+        tbody.querySelectorAll('.btn-add-prop').forEach(btn => {
+            btn.addEventListener('click', () => {
+                addToProposal(btn.dataset.code, btn.dataset.name);
+            });
+        });
     }
 
     function renderMix(id, items, key) {

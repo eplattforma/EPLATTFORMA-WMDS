@@ -34,7 +34,8 @@ def _resolve_range(args):
     d_to = args.get("to")
     if d_from and d_to:
         d1, d2 = _parse_date(d_from), _parse_date(d_to)
-        return (d1, d2) if d1 <= d2 else (d2, d1)
+        if d1 and d2:
+            return (d1, d2) if d1 <= d2 else (d2, d1)
     return today - timedelta(days=89), today
 
 def _bind_array(name, vals):
