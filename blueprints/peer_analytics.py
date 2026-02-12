@@ -137,7 +137,7 @@ def api_missing_items():
         SELECT
           s.item_code_365,
           COUNT(DISTINCT s.customer_code_365) AS buyers,
-          SUM(s.net_excl) AS peer_sales
+          SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS peer_sales
         FROM {SALES_SRC} s
         JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
         WHERE s.sale_date BETWEEN :d_from AND :d_to
@@ -146,10 +146,10 @@ def api_missing_items():
       ),
       cust_bought AS (
         SELECT DISTINCT item_code_365
-        FROM {SALES_SRC}
-        WHERE customer_code_365 = :customer
-          AND sale_date BETWEEN :d_from AND :d_to
-          AND { "qty <> 0" if include_credits else "qty > 0 AND net_excl > 0" }
+        FROM {SALES_SRC} s
+        WHERE s.customer_code_365 = :customer
+          AND s.sale_date BETWEEN :d_from AND :d_to
+          AND {line_filter}
       ),
       cust_last AS (
         SELECT
@@ -229,13 +229,13 @@ def _api_mix(col, label):
         sql = text(f"""
           WITH peer_customers AS (SELECT unnest(:peer_customers::text[]) AS customer_code_365),
           cust AS (
-            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(s.net_excl) AS sales
+            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS sales
             FROM {SALES_SRC} s LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
             WHERE s.customer_code_365 = :customer AND s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
             GROUP BY 1
           ),
           peer AS (
-            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(s.net_excl) AS sales
+            SELECT COALESCE(i.{col}, 'Unclassified') AS k, SUM(COALESCE(s.total_incl, 0) - COALESCE(s.total_vat, 0)) AS sales
             FROM {SALES_SRC} s JOIN peer_customers p ON p.customer_code_365 = s.customer_code_365
             LEFT JOIN {ITEMS_TBL} i ON i.item_code_365 = s.item_code_365
             WHERE s.sale_date BETWEEN :d_from AND :d_to AND {line_filter}
