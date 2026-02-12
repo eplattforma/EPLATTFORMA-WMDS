@@ -241,14 +241,14 @@
                                     Price effect
                                 </button>
                             </th>
-                            <th class="text-end">
-                                <button type="button" class="btn btn-link btn-sm p-0 pvm-filter" data-effect="volume">
+                            <th class="text-end" style="color:#f43f5e">
+                                <button type="button" class="btn btn-link btn-sm p-0 pvm-filter" data-effect="volume" style="color:#f43f5e">
                                     Volume effect
                                 </button>
                             </th>
-                            <th class="text-end">
-                                <button type="button" class="btn btn-link btn-sm p-0 pvm-filter" data-effect="mix">
-                                    Mix effect
+                            <th class="text-end" style="color:#8b5cf6">
+                                <button type="button" class="btn btn-link btn-sm p-0 pvm-filter" data-effect="mix" style="color:#8b5cf6">
+                                    New items effect
                                 </button>
                             </th>
                             <th class="text-end">Q curr</th><th class="text-end">P curr</th>
@@ -407,9 +407,12 @@
                 Then:<br>
                 <span class="text-muted">ΔRevenue = R1 − R0</span><br>
                 <span class="text-muted">Volume effect = P0 × (Q1 − Q0)</span><br>
-                <span class="text-muted">Price effect = Q0 × (P1 − P0)</span><br>
-                <span class="text-muted">Mix effect = the remainder so that ΔRevenue = Price + Volume + Mix</span>
+                <span class="text-muted">Price effect = Q1 × (P1 − P0)</span><br>
+                <span class="text-muted">New items effect = Revenue from items not in baseline</span>
                 </p>
+
+                <p><b>Mix vs New items</b><br>
+                In this report, we intentionally avoid the confusing “interaction” term. For items bought in both periods (COMMON), ΔRevenue is explained only by Price and Volume. The “New items effect” column is used only for items that appear in the current period but not in the baseline (NEW).</p>
 
                 <p><b>How to interpret common cases</b></p>
                 <ul>

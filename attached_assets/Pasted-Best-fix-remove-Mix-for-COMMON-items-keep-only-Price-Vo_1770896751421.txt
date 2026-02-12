@@ -1,0 +1,149 @@
+Best fix: remove “Mix” for COMMON items (keep only Price + Volume)
+
+Use a decomposition that makes:
+
+COMMON: ΔRev = Price effect + Volume effect (no leftover)
+
+NEW: everything goes to “New items effect”
+
+LOST: everything goes to “Lost volume effect”
+
+This is the cleanest for end users.
+
+Replit Instructions: Make PVM “Mix” only for NEW items (no mix for COMMON)
+1) Backend SQL change in /pricing/api/pvm
+
+File: blueprints/pricing_analytics.py
+Endpoint: api_pvm()
+
+Replace your COMMON formulas with this (this removes interaction/mix for common items):
+
+Price effect (COMMON only):
+
+𝑃
+𝑟
+𝑖
+𝑐
+𝑒
+=
+(
+𝑝
+1
+−
+𝑝
+0
+)
+×
+𝑞
+1
+Price=(p1−p0)×q1
+
+Volume effect (COMMON only):
+
+𝑉
+𝑜
+𝑙
+𝑢
+𝑚
+𝑒
+=
+𝑝
+0
+×
+(
+𝑞
+1
+−
+𝑞
+0
+)
+Volume=p0×(q1−q0)
+
+Mix/New effect:
+
+NEW items: mix_effect = r1
+
+otherwise: mix_effect = 0
+
+SQL snippet (SELECT part after joined)
+
+Use:
+
+SELECT
+  item_code_365,
+  q1, r1, p1,
+  q0, r0, p0,
+  (r1 - r0) AS delta_revenue,
+
+  -- PRICE effect (COMMON only) using CURRENT qty => eliminates “interaction mix”
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN
+      q1 * (
+        CASE
+          WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
+          WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
+          ELSE (p1 - p0)
+        END
+      )
+    ELSE 0
+  END AS price_effect,
+
+  -- VOLUME effect (COMMON or LOST)
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+    WHEN q0 > 0 AND q1 = 0 THEN (-r0)   -- LOST
+    ELSE 0
+  END AS volume_effect,
+
+  -- “MIX” column becomes “NEW items effect”
+  CASE
+    WHEN q0 = 0 AND q1 > 0 THEN r1      -- NEW
+    ELSE 0
+  END AS mix_effect
+FROM joined
+ORDER BY ABS(r1 - r0) DESC
+LIMIT 200
+
+
+✅ With this, for COMMON items you will always get:
+
+mix_effect = 0
+
+and delta_revenue = price_effect + volume_effect
+
+So that confusing +7.65 disappears.
+
+2) UI: Rename “Mix effect” to “New items effect”
+
+Because after this change, that column is only meaningful for NEW items.
+
+File: templates/pricing_analytics/customer_pricing.html
+
+Change header text:
+
+from: Mix effect
+
+to: New items effect
+
+(And keep filtering by “MIX” driver; it will now mostly show NEW items.)
+
+3) Help text update (1 paragraph)
+
+In the PVM help modal:
+
+Mix vs New items
+In this report, we intentionally avoid the confusing “interaction” term. For items bought in both periods (COMMON), ΔRevenue is explained only by Price and Volume. The “New items effect” column is used only for items that appear in the current period but not in the baseline (NEW).
+
+What happens to your example item after the fix
+
+That COMMON item row will become:
+
+Δ Rev: +75.00
+
+Price effect: +? (computed on current qty)
+
+Volume effect: +?
+
+New items effect: 0.00 ✅
+
+No confusing leftover.

@@ -393,10 +393,10 @@ def api_pvm():
         q0, r0, p0,
         (r1 - r0) AS delta_revenue,
 
-        -- PRICE effect (ignore tiny changes)
+        -- PRICE effect (COMMON only) using CURRENT qty => eliminates “interaction mix”
         CASE
           WHEN q0 > 0 AND q1 > 0 THEN
-            q0 * (
+            q1 * (
               CASE
                 WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
                 WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
@@ -406,63 +406,17 @@ def api_pvm():
           ELSE 0
         END AS price_effect,
 
-        -- VOLUME effect
+        -- VOLUME effect (COMMON or LOST)
         CASE
           WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
-          WHEN q0 > 0 AND q1 = 0 THEN (-r0)
+          WHEN q0 > 0 AND q1 = 0 THEN (-r0)   -- LOST
           ELSE 0
         END AS volume_effect,
 
-        -- MIX effect = remainder
-        (
-          (r1 - r0)
-          -
-          (CASE
-            WHEN q0 > 0 AND q1 > 0 THEN
-              q0 * (
-                CASE
-                  WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
-                  WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
-                  ELSE (p1 - p0)
-                END
-              )
-            ELSE 0
-          END)
-          -
-          (CASE
-            WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
-            WHEN q0 > 0 AND q1 = 0 THEN (-r0)
-            ELSE 0
-          END)
-          -
-          (CASE
-            WHEN q0 = 0 AND q1 > 0 THEN r1
-            ELSE 0
-          END)
-        ) AS mix_effect_legacy_ignore, -- Not used for common items but keeps total delta intact if we used it
-
-        -- Simplified Mix effect for NEW items
+        -- “MIX” column becomes “NEW items effect”
         CASE
-          WHEN q0 = 0 AND q1 > 0 THEN r1
-          ELSE (
-            (r1 - r0)
-            - (CASE
-                WHEN q0 > 0 AND q1 > 0 THEN
-                  q0 * (
-                    CASE
-                      WHEN ABS(p1 - p0) < :price_abs_thr THEN 0
-                      WHEN p0 > 0 AND (ABS(p1 - p0) / p0) < :price_pct_thr THEN 0
-                      ELSE (p1 - p0)
-                    END
-                  )
-                ELSE 0
-              END)
-            - (CASE
-                WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
-                WHEN q0 > 0 AND q1 = 0 THEN (-r0)
-                ELSE 0
-              END)
-          )
+          WHEN q0 = 0 AND q1 > 0 THEN r1      -- NEW
+          ELSE 0
         END AS mix_effect
       FROM joined
       ORDER BY ABS(r1 - r0) DESC
