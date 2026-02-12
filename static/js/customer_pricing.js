@@ -447,7 +447,29 @@ async function loadPvm(url) {
       <div class="mt-2 text-muted small">
         PVM explains <b>Gross Positive Sales</b> (excludes credits). Net change = Gross change + Credits change.
       </div>
-      <div class="pa-note" style="margin-top:8px">Baseline: ${s.baseline_from} to ${s.baseline_to} (${s.compare})</div>`;
+      <div class="pa-note" style="margin-top:8px">Baseline: ${s.baseline_from} to ${s.baseline_to} (${s.compare})</div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-4"><div class="card p-2 kpi">
+          <div class="kpi-label">New items (Curr only)</div>
+          <div class="kpi-value pos">${fmt(s.new_items_revenue_current,2)}</div>
+          <div class="text-muted small">${s.new_items_count || 0} items</div>
+        </div></div>
+
+        <div class="col-md-4"><div class="card p-2 kpi">
+          <div class="kpi-label">Lost items (Base only)</div>
+          <div class="kpi-value neg">${fmt(s.lost_items_revenue_baseline,2)}</div>
+          <div class="text-muted small">${s.lost_items_count || 0} items</div>
+        </div></div>
+
+        <div class="col-md-4"><div class="card p-2 kpi">
+          <div class="kpi-label">Common items PVM</div>
+          <div class="kpi-value ${deltaClass(s.common_items_delta_revenue)}">${fmt(s.common_items_delta_revenue,2)}</div>
+          <div class="text-muted small">
+            Price ${fmt(s.common_price_effect,2)} · Volume ${fmt(s.common_volume_effect,2)} · ${s.common_items_count || 0} items
+          </div>
+        </div></div>
+      </div>
+    `;
 
     if (!window.__pvmFilterBound) {
       window.__pvmFilterBound = true;

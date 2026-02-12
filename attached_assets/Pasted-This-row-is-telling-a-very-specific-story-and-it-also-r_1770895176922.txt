@@ -1,0 +1,388 @@
+This row is telling a very specific story — and it also reveals a bug/logic issue in the PVM per-SKU decomposition.
+
+What the row means (business interpretation)
+
+Item: CIG-0020 (MEHARIS JAVA 10s 1x10)
+Type = LOST ✅
+
+Q CURR = 0 (you didn’t sell it in the current period)
+
+Q BASE = 4 (you sold 4 units in the baseline period)
+
+So it’s a lost item: the customer stopped buying it in the current period.
+
+Δ REV = -170.00
+
+Baseline revenue existed, current revenue is zero → revenue dropped by €170 for this SKU.
+
+So far everything is correct.
+
+Why the “Driver = PRICE” and the effects look wrong
+
+You see:
+
+Price effect = -170.00
+
+Volume effect = -170.00
+
+Mix effect = +170.00
+
+Yet Δ REV = -170.00
+
+This is inconsistent and it happens because the current PVM formulas are being applied to lost items (q1=0) in a way that produces nonsense.
+
+What should happen for a LOST item
+
+A “lost item” should not be attributed to price at all (there is no current price), and it should not produce a “positive mix” that cancels things.
+
+A clean decomposition should be:
+
+Volume effect (lost volume at baseline price):
+
+𝑉
+=
+𝑝
+0
+×
+(
+𝑞
+1
+−
+𝑞
+0
+)
+=
+𝑝
+0
+×
+(
+0
+−
+4
+)
+=
+−
+170
+V=p0×(q1−q0)=p0×(0−4)=−170
+
+Price effect = 0 (because there’s no current buying to reprice)
+
+Mix effect = 0 (or alternatively, you treat “lost/new” as mix, but then you must do it consistently)
+
+So the row should read something like:
+
+Δ Rev = -170
+
+Volume = -170
+
+Price = 0
+
+Mix = 0
+Driver: VOLUME
+
+What is causing the wrong breakdown
+
+In your SQL you set:
+
+p1 = 0 when q1=0
+
+then you still compute:
+
+price_effect = q0 * (p1 - p0) → becomes 4 * (0 - p0) → -170 (incorrect interpretation)
+
+mix_effect becomes a leftover term that can flip sign (+170)
+
+That’s why you get Price=-170 even though it’s a lost item.
+
+What you should tell Replit to fix (important)
+Fix rule: handle NEW/LOST items separately
+
+For PVM per SKU:
+
+If LOST (q1=0 and q0>0)
+
+Volume effect = -r0 (or p0*(q1-q0))
+
+Price effect = 0
+
+Mix effect = 0 (or classify as “lost mix” in a separate bucket, but not this leftover formula)
+
+If NEW (q0=0 and q1>0)
+
+Mix effect = +r1
+
+Price effect = 0
+
+Volume effect = 0
+
+If COMMON (q0>0 and q1>0)
+
+Use the standard PVM formulas.
+
+Replit instructions (backend SQL patch)
+
+In /pricing/api/pvm SQL, after joined, change the SELECT to:
+
+SELECT
+  item_code_365,
+  q1, r1, p1,
+  q0, r0, p0,
+  (r1 - r0) AS delta_revenue,
+
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN (q0 * (p1 - p0))
+    ELSE 0
+  END AS price_effect,
+
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+    WHEN q0 > 0 AND q1 = 0 THEN (-r0)     -- LOST
+    ELSE 0
+  END AS volume_effect,
+
+  CASE
+    WHEN q0 = 0 AND q1 > 0 THEN r1        -- NEW
+    ELSE 0
+  END AS mix_effect
+
+FROM joined
+
+
+Now:
+
+LOST items show the drop under Volume
+
+NEW items show under Mix
+
+COMMON items get true price/volume effects
+
+And your “Driver” badge will become meaningful.
+
+What you should expect after fix for this row
+
+It will become:
+
+Type: LOST ✅
+
+Δ Rev: -170 ✅
+
+Volume: -170 ✅
+
+Price: 0 ✅
+
+Mix: 0 ✅
+
+Driver: VOLUME ✅
+
+If you want, I can also suggest how to split “Mix” into New items revenue and show Lost items revenue as a separate summary KPI — that makes the story crystal clear for sales.
+
+yes
+
+Great — here’s the clean, sales-friendly way to present this, plus exact Replit instructions to implement it end-to-end (SQL + API + UI).
+
+What we will improve
+1) Fix per-item PVM math
+
+So NEW items don’t produce fake Price/Volume, and LOST items don’t show “Price effect”.
+
+2) Split “Mix” into meaningful buckets in the summary
+
+Instead of one “Mix effect” number, show:
+
+New items (Curr only) = revenue from items with Q Base = 0
+
+Lost items (Base only) = revenue lost from items with Q Curr = 0
+
+Common items PVM = Price/Volume/Mix only on items bought in both periods
+
+This makes the story instantly clear.
+
+Replit Instructions: PVM Fix + New/Lost/Common Summary
+A) Backend SQL: Correct PVM decomposition by item type
+File
+
+blueprints/pricing_analytics.py
+
+Endpoint
+
+/pricing/api/pvm
+
+Change
+
+Replace the SELECT effect formulas in your PVM SQL with “type-aware” formulas.
+
+After your joined AS (...) CTE, use this final SELECT:
+
+SELECT
+  item_code_365,
+  q1, r1, p1,
+  q0, r0, p0,
+  (r1 - r0) AS delta_revenue,
+
+  -- PRICE effect only makes sense for COMMON items
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN (q0 * (p1 - p0))
+    ELSE 0
+  END AS price_effect,
+
+  -- VOLUME effect:
+  -- COMMON: p0*(q1-q0)
+  -- LOST:  -r0 (lost baseline revenue)
+  CASE
+    WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+    WHEN q0 > 0 AND q1 = 0 THEN (-r0)
+    ELSE 0
+  END AS volume_effect,
+
+  -- MIX effect:
+  -- NEW: +r1 (new revenue)
+  -- COMMON: keep 0 here (we’ll treat mix as only “new items” in this simplified approach)
+  CASE
+    WHEN q0 = 0 AND q1 > 0 THEN r1
+    ELSE 0
+  END AS mix_effect
+FROM joined
+ORDER BY ABS(r1 - r0) DESC
+LIMIT 200
+
+
+✅ Result:
+
+LOST items: ΔRev negative → shows under Volume (not Price)
+
+NEW items: ΔRev positive → shows under Mix
+
+COMMON items: Price/Volume computed normally
+
+Note: This simplified PVM treats “Mix” as new items only. That’s exactly what sales usually wants. If you later want true “mix among common items”, we can add it, but start simple.
+
+B) Backend: Add NEW/LOST/COMMON totals to the summary
+
+After rows = _json_rows(res) add:
+
+new_rev = 0.0
+lost_rev = 0.0
+
+common_delta = 0.0
+common_price = 0.0
+common_volume = 0.0
+
+common_count = 0
+new_count = 0
+lost_count = 0
+
+for r in rows:
+    q1 = float(r.get("q1") or 0)
+    q0 = float(r.get("q0") or 0)
+    r1 = float(r.get("r1") or 0)
+    r0 = float(r.get("r0") or 0)
+
+    is_new = (q0 == 0 and q1 > 0)
+    is_lost = (q1 == 0 and q0 > 0)
+    is_common = (q0 > 0 and q1 > 0)
+
+    r["is_new_item"] = is_new
+    r["is_lost_item"] = is_lost
+    r["is_common_item"] = is_common
+
+    if is_new:
+        new_rev += r1
+        new_count += 1
+    elif is_lost:
+        lost_rev += r0
+        lost_count += 1
+    elif is_common:
+        common_count += 1
+        common_delta += (r1 - r0)
+        common_price += float(r.get("price_effect") or 0)
+        common_volume += float(r.get("volume_effect") or 0)
+
+
+Then in summary.update({...}) add:
+
+summary.update({
+    "new_items_revenue_current": new_rev,
+    "lost_items_revenue_baseline": lost_rev,
+    "common_items_delta_revenue": common_delta,
+    "common_price_effect": common_price,
+    "common_volume_effect": common_volume,
+    "new_items_count": new_count,
+    "lost_items_count": lost_count,
+    "common_items_count": common_count,
+})
+
+C) Frontend: Add 3 KPI cards under the main PVM KPIs
+File
+
+static/js/customer_pricing.js
+
+In loadPvm(), after you render the main KPIs, append:
+
+document.getElementById("pvmSummary").innerHTML += `
+  <div class="row g-2 mt-2">
+    <div class="col-md-4"><div class="card p-2 kpi">
+      <div class="kpi-label">New items (Curr only)</div>
+      <div class="kpi-value pos">${fmt(s.new_items_revenue_current,2)}</div>
+      <div class="text-muted small">${s.new_items_count || 0} items</div>
+    </div></div>
+
+    <div class="col-md-4"><div class="card p-2 kpi">
+      <div class="kpi-label">Lost items (Base only)</div>
+      <div class="kpi-value neg">${fmt(s.lost_items_revenue_baseline,2)}</div>
+      <div class="text-muted small">${s.lost_items_count || 0} items</div>
+    </div></div>
+
+    <div class="col-md-4"><div class="card p-2 kpi">
+      <div class="kpi-label">Common items PVM</div>
+      <div class="kpi-value ${clsSign(s.common_items_delta_revenue)}">${fmt(s.common_items_delta_revenue,2)}</div>
+      <div class="text-muted small">
+        Price ${fmt(s.common_price_effect,2)} · Volume ${fmt(s.common_volume_effect,2)} · ${s.common_items_count || 0} items
+      </div>
+    </div></div>
+  </div>
+`;
+
+
+This makes it obvious:
+
+“Growth came from new items”
+
+“We lost these items”
+
+“For common items, price/volume explains the change”
+
+D) Frontend: Update Driver badge logic (now it will be correct)
+
+After the SQL fix:
+
+LOST rows will have Volume as dominant
+
+NEW rows will have Mix as dominant
+
+COMMON rows will show Price or Volume properly
+
+No extra changes needed unless you hard-coded driver logic. If you did, keep “dominant absolute effect” logic.
+
+E) Help text update (add this paragraph)
+
+In your PVM help modal add:
+
+New / Lost / Common items
+If an item was not purchased in the baseline period, it is treated as NEW and appears under Mix.
+If an item was purchased in the baseline period but not in the current period, it is treated as LOST and appears under Volume (lost volume at baseline price).
+Price/Volume effects are most meaningful on COMMON items (bought in both periods).
+
+What will change for your example row
+
+For that LOST item (Q Curr=0, Q Base>0):
+
+Δ Rev: -170
+
+Volume effect: -170
+
+Price effect: 0
+
+Mix effect: 0
+
+Driver: VOLUME
+✅ Correct and intuitive.

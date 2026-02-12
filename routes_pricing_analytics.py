@@ -389,9 +389,28 @@ def api_pvm():
         q1, r1, p1,
         q0, r0, p0,
         (r1 - r0) AS delta_revenue,
-        (p0 * (q1 - q0)) AS volume_effect,
-        (q0 * (p1 - p0)) AS price_effect,
-        ((p1*q1 - p0*q0) - (p0*(q1-q0)) - (q0*(p1-p0))) AS mix_effect
+
+        -- PRICE effect only makes sense for COMMON items
+        CASE
+          WHEN q0 > 0 AND q1 > 0 THEN (q0 * (p1 - p0))
+          ELSE 0
+        END AS price_effect,
+
+        -- VOLUME effect:
+        -- COMMON: p0*(q1-q0)
+        -- LOST:  -r0 (lost baseline revenue)
+        CASE
+          WHEN q0 > 0 AND q1 > 0 THEN (p0 * (q1 - q0))
+          WHEN q0 > 0 AND q1 = 0 THEN (-r0)
+          ELSE 0
+        END AS volume_effect,
+
+        -- MIX effect:
+        -- NEW: +r1 (new revenue)
+        CASE
+          WHEN q0 = 0 AND q1 > 0 THEN r1
+          ELSE 0
+        END AS mix_effect
       FROM joined
       ORDER BY ABS(r1 - r0) DESC
       LIMIT 200
@@ -403,6 +422,41 @@ def api_pvm():
         "b_from": b_from, "b_to": b_to
     }).fetchall()
     rows = _json_rows(res)
+
+    new_rev = 0.0
+    lost_rev = 0.0
+    common_delta = 0.0
+    common_price = 0.0
+    common_volume = 0.0
+    new_count = 0
+    lost_count = 0
+    common_count = 0
+
+    for r in rows:
+        rq1 = float(r.get("q1") or 0)
+        rq0 = float(r.get("q0") or 0)
+        rr1 = float(r.get("r1") or 0)
+        rr0 = float(r.get("r0") or 0)
+
+        is_new = (rq0 == 0 and rq1 > 0)
+        is_lost = (rq1 == 0 and rq0 > 0)
+        is_common = (rq0 > 0 and rq1 > 0)
+
+        r["is_new_item"] = is_new
+        r["is_lost_item"] = is_lost
+        r["is_common_item"] = is_common
+
+        if is_new:
+            new_rev += rr1
+            new_count += 1
+        elif is_lost:
+            lost_rev += rr0
+            lost_count += 1
+        elif is_common:
+            common_count += 1
+            common_delta += (rr1 - rr0)
+            common_price += float(r.get("price_effect") or 0)
+            common_volume += float(r.get("volume_effect") or 0)
 
     cur_tot = db.session.execute(totals_sql, {
         "customer": customer, "d_from": d_from, "d_to": d_to
@@ -450,6 +504,16 @@ def api_pvm():
         "price_effect": price_eff,
         "volume_effect": vol_eff,
         "mix_effect": mix_eff,
+
+        # New/Lost/Common breakdown
+        "new_items_revenue_current": new_rev,
+        "lost_items_revenue_baseline": lost_rev,
+        "common_items_delta_revenue": common_delta,
+        "common_price_effect": common_price,
+        "common_volume_effect": common_volume,
+        "new_items_count": new_count,
+        "lost_items_count": lost_count,
+        "common_items_count": common_count,
     }
     return jsonify({"summary": summary, "items": rows})
 
