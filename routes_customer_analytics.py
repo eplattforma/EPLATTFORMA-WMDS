@@ -158,6 +158,7 @@ def api_customer_summary(customer_code):
 
     # Calculate Deliveries KPI (Invoices within 1 day of each other)
     deliveries_count = 0
+    avg_delivery = 0.0
     if cur_invoices > 0:
         delivery_sql = text("""
             WITH dated_invoices AS (
@@ -201,6 +202,7 @@ def api_customer_summary(customer_code):
         """)
         res_del = db.session.execute(delivery_sql, {"code": customer_code, "d_from": d_from, "d_to": d_to}).scalar()
         deliveries_count = int(res_del or 0)
+        avg_delivery = (cur_sales / deliveries_count) if deliveries_count else 0.0
 
     payload = {
         "range": {"from": str(d_from), "to": str(d_to)},
@@ -209,6 +211,7 @@ def api_customer_summary(customer_code):
             "qty": float(cur["qty"] if cur and cur["qty"] is not None else 0),
             "invoices": cur_invoices,
             "deliveries": deliveries_count,
+            "avg_delivery": avg_delivery,
             "distinct_items": int(cur["distinct_items"] if cur and cur["distinct_items"] is not None else 0),
             "avg_invoice": avg_invoice,
         },
