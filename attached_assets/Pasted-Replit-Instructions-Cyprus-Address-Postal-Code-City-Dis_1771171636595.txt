@@ -1,0 +1,401 @@
+Replit Instructions: Cyprus Address → Postal Code + City/District + Area (Suburb/Village)
+
+You have two solid options (you can implement both: API first, local DB fallback).
+
+Option A (recommended): Use the official Cyprus Post “Postal Codes API”
+
+Cyprus Post publishes an official postal-code API (listed on Cyprus Open Data portal) and documented via Postman.
+
+1) Add ENV vars
+
+Set these in Replit Secrets:
+
+CYPOST_API_KEY = (request from Cyprus Post)
+
+CYPOST_API_BASE = https://cypruspost.post/api/postal-codes (per API docs snippet)
+
+2) Backend: create a dedicated lookup service
+
+Create: services/cy_postcodes.py
+
+Call Cyprus Post endpoints:
+
+districts (to populate dropdown)
+
+areas(district) (to populate area dropdown)
+
+search(district, param, areas?) (street search)
+
+optionally addresses(post_code) (validate/expand details)
+The API requires district + a param (min 3 chars) for search; areas is optional.
+
+3) Backend: create a blueprint endpoint your UI can use
+
+Create: blueprints/postcode_lookup.py
+
+POST /api/cy/postcode_lookup
+Input JSON (example):
+
+{
+  "street": "Kyriakou Matsi",
+  "house_no": "12",
+  "district": "lefkosia",
+  "area": "Aglantzia"
+}
+
+
+Output JSON:
+
+{
+  "postal_code": "2108",
+  "district": "Lefkosia",
+  "area": "Aglantzia",
+  "candidates": []
+}
+
+
+If multiple matches:
+
+Return candidates array (each with street, postal_code, district, area, maybe range_text)
+
+Frontend shows a picker modal; user selects one; then you auto-fill fields.
+
+4) Add caching (important)
+
+Add SQLAlchemy model AddressLookupCache:
+
+query_hash (unique)
+
+street, house_no, district, area
+
+result_json
+
+created_at
+
+provider = CYPOST
+
+Cache hits avoid repeated API calls and speed up UI.
+
+Option B (no API key): Import the official Post Code Directory XLSX and query locally
+
+Cyprus open data portal provides the Post Code Directory as an XLSX dataset and updates it (frequency: annual).
+
+1) Create DB table (Postgres)
+
+Example table:
+
+street_name
+
+postal_code (4 digits)
+
+area
+
+district
+
+range_text (the “(1-17, 2-22)” style info if present)
+
+indexes on:
+
+(district, lower(street_name))
+
+optionally trigram index for fuzzy search (pg_trgm)
+
+2) Loader script
+
+Create scripts/import_cy_postcodes.py:
+
+Reads XLSX
+
+Normalizes text (trim, collapse spaces, uppercase)
+
+Upserts into cy_postcodes
+
+3) Matching logic
+
+Given {street, house_no, district, area}:
+
+Find best street matches (exact/ILIKE/fuzzy)
+
+If multiple rows exist for same street, use house_no + range_text to select the correct postal code
+
+If still ambiguous: return candidates for user selection
+
+UI changes (works for both options)
+
+Wherever you capture customer addresses:
+
+Add fields:
+
+Street
+
+House No
+
+District (dropdown: Lefkosia/Lemesos/Larnaka/Pafos/Ammochostos)
+
+Area (dropdown populated after district)
+
+Postal Code (readonly or editable)
+
+Add button: “Lookup Postal Code”
+
+Calls /api/cy/postcode_lookup
+
+Auto-fills:
+
+postal_code
+
+district (label)
+
+area
+
+If multiple candidates:
+
+Show a list (street + range + area + postal code)
+
+On click, fill fields
+
+Notes on data semantics (avoid confusion)
+
+In Cyprus Post directory/results, you effectively get:
+
+District (Επαρχία) = Lefkosia/Lemesos/Larnaka/Pafos/Ammochostos
+
+Area (Περιοχή) = suburb/village/municipality (e.g., Strovolos, Aglantzia, Geroskipou)
+
+So in your UI, usually:
+
+City/Town field ← Area
+
+Area/Province field ← District
+
+If you want, I can also draft the exact Flask blueprint + service class skeleton in your house style (Flask + SQLAlchemy + requests + caching), but the above is already enough for Replit to implement cleanly against either the official API or the official XLSX directory .
+
+give instructions to replit to do A
+Thought for 1m 41s
+Replit Instructions (Option A): Cyprus Post Postal Codes API → Postal Code + District + Area
+What we’re integrating
+
+Cyprus Post provides a postal-codes REST API. The Ruby client for the official API shows:
+
+Base URL: https://cypruspost.post/api/postal-codes/
+
+Auth: send your API key in HTTP header Authorization: <API_KEY>
+
+Language: every request supports lng (e.g., en / el)
+
+Search: requires district + param (min 3 chars), optional area
+
+Key endpoints:
+
+district-selection
+
+get-areas (requires district)
+
+search (district + param, optional area)
+
+addresses (postal_code)
+
+1) Secrets / ENV (Replit)
+
+Add these secrets:
+
+CYPOST_API_KEY = your Cyprus Post API key (request via Cyprus Post contact form, per API docs listing)
+
+CYPOST_BASE_URL = https://cypruspost.post/api/postal-codes/
+
+CYPOST_LNG = en (or el)
+
+2) Backend: Service Client (Flask)
+
+Create services/cypost_client.py
+
+Requirements
+
+Use requests
+
+Default query param: lng=<CYPOST_LNG>
+
+Header: Authorization: <CYPOST_API_KEY>
+
+Timeout: 10–15s
+
+Robust error handling:
+
+non-200 → raise a clean exception with status + response text
+
+network errors → return friendly error to UI
+
+Implement methods (paths exactly as below)
+
+districts() → GET district-selection
+
+areas(district, page_token=None) → GET get-areas?district=...&page_token=...
+
+search(district, param, area=None, page_token=None) → GET search?district=...&param=...&area=...&page_token=...
+
+addresses(post_code, page_token=None) → GET addresses?postal_code=...
+
+Important validation
+
+param must be >= 3 chars before calling search
+
+3) Backend: Caching (DB)
+
+Create model PostalLookupCache (SQLAlchemy):
+
+id
+
+cache_key (unique, indexed)
+
+request_json
+
+response_json
+
+created_at
+
+Caching policy:
+
+Cache districts for 30 days (rarely changes)
+
+Cache areas per district for 30 days
+
+Cache search results for 7–30 days (your choice; 14 days is a good start)
+
+Cache key format examples:
+
+districts|lng=en
+
+areas|district=lefkosia|lng=en
+
+search|district=lefkosia|area=aglantzia|param=kyri|lng=en
+
+4) Backend: Blueprint Endpoints
+
+Create blueprint blueprints/cypost_api.py and register it.
+
+A) GET /api/cypost/districts
+
+Returns JSON list from Cyprus Post (cached).
+
+B) GET /api/cypost/areas?district=lefkosia
+
+Returns areas for that district (cached).
+
+C) GET /api/cypost/search?district=...&param=...&area=...
+
+Returns raw candidates from Cyprus Post (cached).
+Guard: if param < 3 → return {"candidates":[]} without calling API.
+
+D) POST /api/cypost/resolve
+
+Purpose: User gives address fields → we return a “best match” postal code + district + area, or a candidate list.
+
+Input JSON:
+
+{
+  "district": "lefkosia",
+  "area": "Aglantzia",
+  "street": "Kyriakou Matsi",
+  "house_no": "12"
+}
+
+
+Server logic:
+
+Call search(district, param=street, area=area) (param >=3).
+
+Normalize street strings (uppercase, trim double spaces).
+
+Ranking:
+
+exact street match first
+
+then “contains” match
+
+then fuzzy similarity (e.g., difflib.SequenceMatcher) on street name
+
+If top score is strong → return:
+
+{
+  "match": {
+    "postal_code": "2108",
+    "district": "Lefkosia",
+    "area": "Aglantzia",
+    "street": "KYRIAKOU MATSI"
+  },
+  "candidates": []
+}
+
+
+If ambiguous → return candidates (top 10) and match=null.
+
+Note: Cyprus Post results already include Postal Code / Area / District in the directory output (same fields you want to populate).
+
+5) Frontend/UI Implementation (Address Form)
+
+Wherever you capture addresses (customer form / delivery address / etc.):
+
+Fields
+
+District (dropdown)
+
+Area (dropdown dependent on district)
+
+Street (text + suggestions)
+
+Postal Code (readonly or editable)
+
+UX Flow
+
+On page load:
+
+fetch /api/cypost/districts and populate dropdown
+
+When district changes:
+
+fetch /api/cypost/areas?district=... and populate areas
+
+Street input:
+
+debounce 250–400ms
+
+when len(street) >= 3, call /api/cypost/search?district=...&area=...&param=...
+
+show suggestion dropdown (street + postal code + area)
+
+When user clicks a suggestion:
+
+auto-fill Postal Code + Area + District
+
+“Lookup” button (optional but useful)
+
+Calls POST /api/cypost/resolve and either:
+
+auto-fills if match returned
+
+or shows modal list to pick from candidates
+
+6) Data mapping (what to display as “City”)
+
+In Cyprus Post data:
+
+District = province/region (Lefkosia, Lemesos, Larnaka, Pafos, Ammochostos)
+
+Area = town/suburb/village (often what users think of as “city”)
+
+So in your UI:
+
+“City” ⇢ Area
+
+“District/Province” ⇢ District
+
+(Keep both stored.)
+
+7) Quick Admin Test Page (recommended)
+
+Add /admin/postcode-lookup-test:
+
+simple form (district/area/street)
+
+shows raw candidates + resolved match
+This makes it easy to verify the API key + output structure before wiring into production forms.

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Postcode Lookup Test{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <h3>Cyprus Postcode Lookup Test</h3>
+    <div class="card p-4 bg-dark text-white border-secondary">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">District</label>
+                <select id="testDistrict" class="form-select bg-dark text-white border-secondary">
+                    <option value="">Loading districts...</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Area</label>
+                <select id="testArea" class="form-select bg-dark text-white border-secondary">
+                    <option value="">Select district first</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Street (min 3 chars)</label>
+                <input type="text" id="testStreet" class="form-control bg-dark text-white border-secondary" placeholder="e.g. Kyriakou Matsi">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button id="btnTestResolve" class="btn btn-primary w-100">Resolve</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <h5>Results</h5>
+        <div id="testResults" class="p-3 border rounded border-secondary bg-dark text-white">
+            Enter details to test resolution...
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    const dSelect = document.getElementById('testDistrict');
+    const aSelect = document.getElementById('testArea');
+    const sInput = document.getElementById('testStreet');
+    const resDiv = document.getElementById('testResults');
+
+    // Load Districts
+    try {
+        const res = await fetch('/api/cypost/districts');
+        const data = await res.json();
+        dSelect.innerHTML = '<option value="">Select District</option>' + 
+            (data.results || []).map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    } catch (e) { console.error(e); }
+
+    dSelect.addEventListener('change', async () => {
+        const d = dSelect.value;
+        if (!d) return;
+        aSelect.innerHTML = '<option value="">Loading areas...</option>';
+        try {
+            const res = await fetch(`/api/cypost/areas?district=${d}`);
+            const data = await res.json();
+            aSelect.innerHTML = '<option value="">Select Area</option>' + 
+                (data.results || []).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+        } catch (e) { console.error(e); }
+    });
+
+    document.getElementById('btnTestResolve').addEventListener('click', async () => {
+        const body = {
+            district: dSelect.value,
+            area: aSelect.value,
+            street: sInput.value
+        };
+        resDiv.innerHTML = 'Resolving...';
+        try {
+            const res = await fetch('/api/cypost/resolve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.match) {
+                resDiv.innerHTML = `<div class="alert alert-success">Match Found: <strong>${data.match.postal_code}</strong> (${data.match.street}, ${data.match.area})</div>`;
+            } else if (data.candidates && data.candidates.length > 0) {
+                resDiv.innerHTML = '<h6>Candidates:</h6>' + data.candidates.map(c => 
+                    `<div class="p-2 border-bottom border-secondary">${c.postal_code} - ${c.street}, ${c.area}</div>`).join('');
+            } else {
+                resDiv.innerHTML = '<div class="text-warning">No results found.</div>';
+            }
+        } catch (e) { resDiv.innerHTML = `<div class="text-danger">Error: ${e.message}</div>`; }
+    });
+});
+</script>
+{% endblock %}

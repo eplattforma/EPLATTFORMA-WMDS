@@ -81,6 +81,10 @@ with app.app_context():
         from delete_guards import register_all_guards
         register_all_guards()
         
+        # Register blueprints
+        from blueprints.cypost_api import cypost_bp
+        app.register_blueprint(cypost_bp)
+
         # Create all tables that don't yet exist
         db.create_all()
         logging.info("Database tables created if they didn't exist")
