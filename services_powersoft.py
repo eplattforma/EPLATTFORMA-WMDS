@@ -528,6 +528,8 @@ def sync_active_customers():
                         existing.longitude = float(customer.get("text_field_2_value"))
                     except (ValueError, TypeError):
                         pass
+                
+                existing.delivery_days = customer.get("text_field_4_value")
                 existing.last_synced_at = datetime.utcnow()
                 total_synced += 1
                 
@@ -594,6 +596,7 @@ def upsert_single_customer(customer_code):
         existing.company_name = customer_data.get("company_name") or f"{customer_data.get('first_name', '')} {customer_data.get('last_name', '')}".strip()
         existing.mobile = customer_data.get("mobile")
         existing.tel_1 = customer_data.get("tel_1")
+        existing.delivery_days = customer_data.get("text_field_4_value")
         existing.last_synced_at = datetime.utcnow()
         
         db.session.commit()

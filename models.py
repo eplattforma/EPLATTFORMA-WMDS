@@ -1227,6 +1227,7 @@ class PSCustomer(db.Model, SoftDeleteMixin, ActivatableMixin):
     agent_name = db.Column(db.Text, nullable=True)
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
+    delivery_days = db.Column(db.Text, nullable=True)  # From text_field_4_value in PS365
     last_synced_at = db.Column(UTCDateTime(), nullable=True)
     reporting_group = db.Column(db.Text, nullable=True)
     
