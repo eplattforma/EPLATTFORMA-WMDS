@@ -1107,6 +1107,65 @@ def import_invoices_page():
     
     return render_template('admin_import_invoices.html')
 
+@app.route('/admin/customers', methods=['GET'])
+@login_required
+def admin_customers():
+    """Customer management and filtering"""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('index'))
+    
+    from models import PSCustomer, CustomerDeliverySlot
+    from sqlalchemy import func
+    
+    # Filters
+    dd_dow = request.args.get('dd_dow', type=int)
+    dd_week = request.args.get('dd_week', type=int)
+    dd_mode = request.args.get('dd_mode', 'exact') # exact, both_weeks
+    q = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', 'OK')
+    
+    query = PSCustomer.query
+    
+    if q:
+        query = query.filter(db.or_(
+            PSCustomer.customer_code_365.ilike(f'%{q}%'),
+            PSCustomer.company_name.ilike(f'%{q}%')
+        ))
+    
+    if dd_dow:
+        query = query.join(CustomerDeliverySlot)
+        query = query.filter(PSCustomer.delivery_days_status == 'OK')
+        
+        if dd_mode == 'both_weeks':
+            query = query.filter(CustomerDeliverySlot.dow == dd_dow, CustomerDeliverySlot.week_code.in_([1, 2]))
+            query = query.group_by(PSCustomer.customer_code_365)
+            query = query.having(func.count(func.distinct(CustomerDeliverySlot.week_code)) == 2)
+        else:
+            # exact week
+            query = query.filter(CustomerDeliverySlot.dow == dd_dow)
+            if dd_week:
+                query = query.filter(CustomerDeliverySlot.week_code == dd_week)
+    
+    if status_filter:
+        query = query.filter(PSCustomer.delivery_days_status == status_filter)
+        
+    customers = query.limit(100).all()
+    
+    return render_template('admin/customers.html', customers=customers, q=q, dd_dow=dd_dow, dd_week=dd_week, dd_mode=dd_mode, status_filter=status_filter)
+
+@app.route('/admin/customers/delivery-days-issues')
+@login_required
+def delivery_days_issues():
+    """List customers with invalid delivery days tokens"""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        flash('Access denied.', 'danger')
+        return redirect(url_for('index'))
+    
+    from models import PSCustomer
+    customers = PSCustomer.query.filter_by(delivery_days_status='INVALID').all()
+    return render_template('admin/delivery_days_issues.html', customers=customers)
+
 @app.route('/admin/assign', methods=['POST'])
 @login_required
 def assign_picker():

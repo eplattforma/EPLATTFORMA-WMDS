@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Customer Management - EPLATTFORMA{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="fas fa-users me-2"></i>Customer Management</h1>
+        <div class="btn-group">
+            <a href="{{ url_for('delivery_days_issues') }}" class="btn btn-warning">
+                <i class="fas fa-exclamation-triangle me-1"></i> Delivery Day Issues
+            </a>
+            <form method="post" action="{{ url_for('sync_ps365_customers') }}" class="d-inline ms-2">
+                <button type="submit" class="btn btn-primary" onclick="return confirm('Sync all customers from PS365?')">
+                    <i class="fas fa-sync me-1"></i> Sync from PS365
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Search</label>
+                    <input type="text" name="q" class="form-control" placeholder="Code or Name..." value="{{ q or '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Day of Week</label>
+                    <select name="dd_dow" class="form-select">
+                        <option value="">Any Day</option>
+                        <option value="1" {% if dd_dow == 1 %}selected{% endif %}>Monday (1)</option>
+                        <option value="2" {% if dd_dow == 2 %}selected{% endif %}>Tuesday (2)</option>
+                        <option value="3" {% if dd_dow == 3 %}selected{% endif %}>Wednesday (3)</option>
+                        <option value="4" {% if dd_dow == 4 %}selected{% endif %}>Thursday (4)</option>
+                        <option value="5" {% if dd_dow == 5 %}selected{% endif %}>Friday (5)</option>
+                        <option value="6" {% if dd_dow == 6 %}selected{% endif %}>Saturday (6)</option>
+                        <option value="7" {% if dd_dow == 7 %}selected{% endif %}>Sunday (7)</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Week Mode</label>
+                    <div class="mt-2">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="dd_mode" value="exact" {% if dd_mode == 'exact' %}checked{% endif %}>
+                            <label class="form-check-label">Specific Week</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="dd_mode" value="both_weeks" {% if dd_mode == 'both_weeks' %}checked{% endif %}>
+                            <label class="form-check-label">Both Weeks</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Week No (if Specific)</label>
+                    <select name="dd_week" class="form-select">
+                        <option value="">Any</option>
+                        <option value="1" {% if dd_week == 1 %}selected{% endif %}>Week 1</option>
+                        <option value="2" {% if dd_week == 2 %}selected{% endif %}>Week 2</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Status</label>
+                    <select name="status" class="form-select">
+                        <option value="OK" {% if status_filter == 'OK' %}selected{% endif %}>Valid</option>
+                        <option value="INVALID" {% if status_filter == 'INVALID' %}selected{% endif %}>Invalid</option>
+                        <option value="EMPTY" {% if status_filter == 'EMPTY' %}selected{% endif %}>Empty</option>
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">Filter</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Code</th>
+                        <th>Company Name</th>
+                        <th>Status</th>
+                        <th>Raw Delivery Days</th>
+                        <th>Parsed Slots</th>
+                        <th>Last Synced</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for customer in customers %}
+                    <tr>
+                        <td><code>{{ customer.customer_code_365 }}</code></td>
+                        <td>{{ customer.company_name }}</td>
+                        <td>
+                            {% if customer.delivery_days_status == 'OK' %}
+                                <span class="badge bg-success">Valid</span>
+                            {% elif customer.delivery_days_status == 'INVALID' %}
+                                <span class="badge bg-danger">Invalid</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Empty</span>
+                            {% endif %}
+                        </td>
+                        <td><small class="text-muted">{{ customer.delivery_days or '-' }}</small></td>
+                        <td>
+                            {% if customer.delivery_days_status == 'OK' %}
+                                {% for slot in customer.delivery_slots | sort(attribute='dow') %}
+                                    <span class="badge border text-dark bg-light">
+                                        {% if slot.dow == 1 %}Mon{% elif slot.dow == 2 %}Tue{% elif slot.dow == 3 %}Wed{% elif slot.dow == 4 %}Thu{% elif slot.dow == 5 %}Fri{% elif slot.dow == 6 %}Sat{% elif slot.dow == 7 %}Sun{% endif %} (W{{ slot.week_code }})
+                                    </span>
+                                {% endfor %}
+                            {% elif customer.delivery_days_status == 'INVALID' %}
+                                <small class="text-danger">{{ customer.delivery_days_invalid_tokens }}</small>
+                            {% endif %}
+                        </td>
+                        <td><small>{{ customer.last_synced_at.strftime('%Y-%m-%d %H:%M') if customer.last_synced_at else '-' }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
