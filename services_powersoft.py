@@ -530,6 +530,27 @@ def sync_active_customers():
                         pass
                 
                 existing.delivery_days = customer.get("text_field_4_value")
+                
+                # Normalize delivery days
+                from services.delivery_days import parse_delivery_days_strict
+                from models import CustomerDeliverySlot
+                import json
+                
+                parsed = parse_delivery_days_strict(existing.delivery_days)
+                existing.delivery_days_status = parsed["status"]
+                existing.delivery_days_invalid_tokens = json.dumps(parsed["invalid"]) if parsed["invalid"] else None
+                existing.delivery_days_parsed_at = datetime.utcnow()
+                
+                # Clear and refresh slots
+                CustomerDeliverySlot.query.filter_by(customer_code_365=existing.customer_code_365).delete()
+                if parsed["status"] == "OK":
+                    for dow, wk in parsed["slots"]:
+                        db.session.add(CustomerDeliverySlot(
+                            customer_code_365=existing.customer_code_365,
+                            dow=dow,
+                            week_code=wk
+                        ))
+
                 existing.last_synced_at = datetime.utcnow()
                 total_synced += 1
                 
@@ -597,6 +618,27 @@ def upsert_single_customer(customer_code):
         existing.mobile = customer_data.get("mobile")
         existing.tel_1 = customer_data.get("tel_1")
         existing.delivery_days = customer_data.get("text_field_4_value")
+        
+        # Normalize delivery days
+        from services.delivery_days import parse_delivery_days_strict
+        from models import CustomerDeliverySlot
+        import json
+        
+        parsed = parse_delivery_days_strict(existing.delivery_days)
+        existing.delivery_days_status = parsed["status"]
+        existing.delivery_days_invalid_tokens = json.dumps(parsed["invalid"]) if parsed["invalid"] else None
+        existing.delivery_days_parsed_at = datetime.utcnow()
+        
+        # Clear and refresh slots
+        CustomerDeliverySlot.query.filter_by(customer_code_365=existing.customer_code_365).delete()
+        if parsed["status"] == "OK":
+            for dow, wk in parsed["slots"]:
+                db.session.add(CustomerDeliverySlot(
+                    customer_code_365=existing.customer_code_365,
+                    dow=dow,
+                    week_code=wk
+                ))
+
         existing.last_synced_at = datetime.utcnow()
         
         db.session.commit()

@@ -1228,11 +1228,34 @@ class PSCustomer(db.Model, SoftDeleteMixin, ActivatableMixin):
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
     delivery_days = db.Column(db.Text, nullable=True)  # From text_field_4_value in PS365
+    delivery_days_status = db.Column(db.String(20), default='EMPTY')  # OK, INVALID, EMPTY
+    delivery_days_invalid_tokens = db.Column(db.Text, nullable=True)  # JSON list of bad tokens
+    delivery_days_parsed_at = db.Column(UTCDateTime(), nullable=True)
     last_synced_at = db.Column(UTCDateTime(), nullable=True)
     reporting_group = db.Column(db.Text, nullable=True)
     
+    # Relationships
+    delivery_slots = db.relationship('CustomerDeliverySlot', backref='customer', cascade='all, delete-orphan')
+
     def __repr__(self):
         return f"<PSCustomer {self.customer_code_365}: {self.company_name}>"
+
+class CustomerDeliverySlot(db.Model):
+    """Normalized delivery slots for efficient filtering"""
+    __tablename__ = 'customer_delivery_slots'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    customer_code_365 = db.Column(db.String(50), db.ForeignKey('ps_customers.customer_code_365', ondelete='CASCADE'), nullable=False, index=True)
+    dow = db.Column(db.Integer, nullable=False)  # 1-7
+    week_code = db.Column(db.Integer, nullable=False)  # 1-2
+    
+    __table_args__ = (
+        db.UniqueConstraint('customer_code_365', 'dow', 'week_code', name='uniq_customer_slot'),
+        db.Index('ix_delivery_slots_dow_week', 'dow', 'week_code'),
+    )
+    
+    def __repr__(self):
+        return f"<CustomerDeliverySlot {self.customer_code_365}: {self.dow}-{self.week_code}>"
 
 # Customer Receipt Models
 class ReceiptSequence(db.Model):

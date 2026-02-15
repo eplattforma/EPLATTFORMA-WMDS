@@ -1,0 +1,250 @@
+Below are Replit instructions to implement Delivery Days normalization + filtering exactly as you described:
+
+Tue 2 ⇒ return customers that contain 22
+
+Wed “any week” ⇒ return customers that contain BOTH 31 and 32
+
+Reject/flag wrong data like 11,12,13,14,15,21,22,23,24,25 (week codes other than 1/2)
+
+Replit Instructions: Delivery Days Filter (Tue2 = 22, Wed Any = 31+32 BOTH)
+A) Data rule (must match your logic)
+
+A delivery slot code is exactly 2 digits:
+
+first digit = dow (1=Mon … 7=Sun)
+
+second digit = week (ONLY 1 or 2)
+
+✅ Valid: 11, 22, 31, 32
+❌ Invalid: anything with week 3–9 (13, 24, 55), or malformed tokens.
+
+Important rule you requested:
+If a customer has any invalid token, treat their delivery_days as INVALID (do not use in filters) until corrected.
+
+B) DB changes (recommended “correct” approach)
+1) Keep your existing ps_customers.delivery_days as RAW
+
+Add these columns to ps_customers:
+
+delivery_days_status (VARCHAR) default OK / INVALID / EMPTY
+
+delivery_days_invalid_tokens (TEXT or JSON/TEXT) nullable
+
+delivery_days_parsed_at (DATETIME) nullable
+
+2) Create a normalized child table
+
+Table: customer_delivery_slots
+
+id (PK)
+
+customer_code_365 (FK or just indexed)
+
+dow (INT) 1..7
+
+week_code (INT) 1..2
+
+Indexes:
+
+index (dow, week_code)
+
+index (customer_code_365)
+
+unique (customer_code_365, dow, week_code) to prevent duplicates
+
+C) Parsing utility (strict)
+
+Create services/delivery_days.py:
+
+import re
+from datetime import datetime
+
+VALID_DOW = set(range(1, 8))
+VALID_WEEK = {1, 2}
+
+def parse_delivery_days_strict(raw: str):
+    # Extract all 2-digit tokens from messy strings (handles trailing commas, dots, spaces)
+    tokens = re.findall(r"\d{2}", raw or "")
+    if not tokens:
+        return {"status": "EMPTY", "slots": [], "invalid": []}
+
+    slots = []
+    invalid = []
+
+    for t in tokens:
+        dow = int(t[0])
+        wk = int(t[1])
+        if dow not in VALID_DOW or wk not in VALID_WEEK:
+            invalid.append(t)
+        else:
+            slots.append((dow, wk))
+
+    # If ANY invalid exists => whole value is INVALID (per your requirement)
+    if invalid:
+        return {"status": "INVALID", "slots": [], "invalid": sorted(set(invalid))}
+
+    # Deduplicate
+    slots = sorted(set(slots))
+    return {"status": "OK", "slots": slots, "invalid": []}
+
+D) Refresh slots on every customer sync/import
+
+Wherever you import/sync customers (PS365 sync job / Excel import), after saving PSCustomer.delivery_days:
+
+Parse raw
+
+Set status fields
+
+Delete existing slots
+
+Insert new slots if OK
+
+Pseudo-flow:
+
+from services.delivery_days import parse_delivery_days_strict
+from models import PSCustomer, CustomerDeliverySlot
+from app import db
+from datetime import datetime
+import json
+
+def refresh_customer_delivery_slots(customer: PSCustomer):
+    parsed = parse_delivery_days_strict(customer.delivery_days)
+
+    customer.delivery_days_status = parsed["status"]
+    customer.delivery_days_invalid_tokens = json.dumps(parsed["invalid"]) if parsed["invalid"] else None
+    customer.delivery_days_parsed_at = datetime.utcnow()
+
+    # Always clear old slots
+    CustomerDeliverySlot.query.filter_by(customer_code_365=customer.customer_code_365).delete()
+
+    if parsed["status"] == "OK":
+        for dow, wk in parsed["slots"]:
+            db.session.add(CustomerDeliverySlot(
+                customer_code_365=customer.customer_code_365,
+                dow=dow,
+                week_code=wk
+            ))
+
+
+✅ This will correctly flag your known bad record like:
+11,12,13,14,15,21,22,23,24,25 as INVALID (because of 13/14/15/23/24/25).
+
+E) One-time backfill script (for existing data)
+
+Create scripts/backfill_delivery_days.py:
+
+loops all customers
+
+runs refresh_customer_delivery_slots(customer)
+
+commits in batches
+
+This ensures the new filter works immediately.
+
+F) Filtering logic (what you asked)
+1) Exact selection “Tue 2”
+
+User selects Tue + Week 2 ⇒ must have 22 ⇒ slot (dow=2, week=2)
+
+SQLAlchemy pattern:
+
+q = (
+  db.session.query(PSCustomer)
+  .join(CustomerDeliverySlot, PSCustomer.customer_code_365 == CustomerDeliverySlot.customer_code_365)
+  .filter(PSCustomer.delivery_days_status == "OK")
+  .filter(CustomerDeliverySlot.dow == 2, CustomerDeliverySlot.week_code == 2)
+)
+
+2) Wed “any week” = must contain BOTH 31 AND 32
+
+This is “dow=3 AND week_code in (1,2)” + HAVING distinct week_code count = 2
+
+from sqlalchemy import func
+
+q = (
+  db.session.query(PSCustomer)
+  .join(CustomerDeliverySlot, PSCustomer.customer_code_365 == CustomerDeliverySlot.customer_code_365)
+  .filter(PSCustomer.delivery_days_status == "OK")
+  .filter(CustomerDeliverySlot.dow == 3, CustomerDeliverySlot.week_code.in_([1,2]))
+  .group_by(PSCustomer.customer_code_365)
+  .having(func.count(func.distinct(CustomerDeliverySlot.week_code)) == 2)
+)
+
+
+That guarantees the customer has both 31 and 32.
+
+G) API parameters (simple + future-proof)
+
+Extend your customers list endpoint (whatever you use, e.g. /admin/customers) with:
+
+dd_dow (1..7)
+
+dd_week (1 or 2, optional)
+
+dd_mode:
+
+exact (requires dd_week)
+
+both_weeks (ignores dd_week; requires both week slots for that day)
+
+Examples:
+
+Tue 2: ?dd_mode=exact&dd_dow=2&dd_week=2
+
+Wed any week (BOTH): ?dd_mode=both_weeks&dd_dow=3
+
+If any dd filter is active, always enforce:
+
+PSCustomer.delivery_days_status == "OK"
+
+H) UI changes (admin filter)
+
+Add a “Delivery Day” filter block:
+
+Day dropdown
+
+Any, Mon(1)…Sun(7)
+
+Week mode radio
+
+Week 1
+
+Week 2
+
+Both weeks (31+32 required) ✅ (this is your “any week” definition)
+
+When “Both weeks” is selected:
+
+call with dd_mode=both_weeks&dd_dow=<day>
+
+When Week 1/2 is selected:
+
+call with dd_mode=exact&dd_dow=<day>&dd_week=<1|2>
+
+Also display a small badge per customer:
+
+For each day:
+
+if has both weeks ⇒ “Wed (Both)”
+
+else if only 31 ⇒ “Wed (W1)”
+
+else if only 32 ⇒ “Wed (W2)”
+
+I) Delivery-days Issues page (so you can clean wrong data fast)
+
+Create /admin/customers/delivery-days-issues:
+
+list customers where delivery_days_status = "INVALID"
+
+show:
+
+customer_code_365, company_name
+
+delivery_days raw
+
+delivery_days_invalid_tokens
+
+allow admin to edit the raw field and “Re-parse”
+
+This is essential because you already have at least one bad record in your file.
