@@ -61,6 +61,9 @@
 
         <!-- Action Buttons -->
         <div class="action-buttons">
+            <a href="{{ url_for('receipt_pdf', receipt_id=receipt.id, format='thermal') }}" class="btn-action btn-thermal-print" target="_blank">
+                <i class="fas fa-print me-2"></i>Print (BIXOLON)
+            </a>
             <a href="{{ url_for('routes.dashboard') }}" class="btn-action btn-primary">
                 <i class="fas fa-route me-2"></i>Back to Routes
             </a>
@@ -197,7 +200,7 @@
 
 .action-buttons {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 12px;
 }
 
@@ -209,6 +212,11 @@
     text-decoration: none;
     text-align: center;
     transition: all 0.2s;
+}
+
+.btn-thermal-print {
+    background: #1f2937;
+    color: white;
 }
 
 .btn-primary {
