@@ -1280,8 +1280,12 @@ def receipt_pdf(receipt_id):
             pdf_bytes,
             mimetype="application/pdf",
             headers={
+                "Content-Type": "application/pdf",
                 "Content-Disposition": f'inline; filename="receipt-{r.reference_number}.pdf"',
-                "Cache-Control": "no-store",
+                "Content-Length": len(pdf_bytes),
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
             },
         )
     
