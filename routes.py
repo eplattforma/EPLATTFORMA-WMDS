@@ -1282,10 +1282,11 @@ def receipt_pdf(receipt_id):
             headers={
                 "Content-Type": "application/pdf",
                 "Content-Disposition": f'inline; filename="receipt-{r.reference_number}.pdf"',
-                "Content-Length": len(pdf_bytes),
+                "Content-Length": str(len(pdf_bytes)),
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
-                "Expires": "0"
+                "Expires": "0",
+                "X-Content-Type-Options": "nosniff"
             },
         )
     
