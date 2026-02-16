@@ -1220,6 +1220,83 @@ def unassign_picker():
     flash(f'Invoice {invoice_no} unassigned', 'success')
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/receipts/<int:receipt_id>/pdf')
+@login_required
+def receipt_pdf(receipt_id):
+    from models import ReceiptLog, CODReceipt, CODInvoiceAllocation, PSCustomer, Invoice, InvoiceItem
+    from flask import Response, request
+    from utils.thermal_receipt_pdf import build_thermal_receipt_pdf
+    import json
+    
+    fmt = (request.args.get('format') or 'thermal').lower()
+    
+    # Load receipt data
+    r = ReceiptLog.query.get_or_404(receipt_id)
+    
+    # Try to find associated customer and lines
+    customer = PSCustomer.query.filter_by(customer_code_365=r.customer_code_365).first()
+    
+    # If it's a COD receipt, we might have more detailed lines
+    cod_receipt = CODReceipt.query.filter_by(ps365_receipt_id=r.response_id).first()
+    lines = []
+    
+    if cod_receipt:
+        allocations = CODInvoiceAllocation.query.filter_by(cod_receipt_id=cod_receipt.id).all()
+        for alloc in allocations:
+            lines.append({
+                "name": f"Invoice {alloc.invoice_no}",
+                "qty": 1,
+                "price": float(alloc.received_amount),
+                "total": float(alloc.received_amount)
+            })
+    else:
+        # Fallback to a single line for the total amount
+        lines.append({
+            "name": f"Payment for {r.invoice_no or 'Account'}",
+            "qty": 1,
+            "price": float(r.amount),
+            "total": float(r.amount)
+        })
+
+    receipt_data = {
+        "company_name": "EPLATTFORMA LTD",
+        "company_vat": "CY12345678X",
+        "receipt_no": r.reference_number,
+        "date_str": r.created_at.strftime("%d/%m/%Y %H:%M"),
+        "customer_name": customer.company_name if customer else "Unknown Customer",
+        "customer_code": r.customer_code_365,
+        "lines": lines,
+        "totals": {
+            "subtotal": float(r.amount),
+            "vat": 0.00,
+            "total": float(r.amount)
+        },
+        "notes": r.comments or ""
+    }
+
+    if fmt == 'thermal':
+        pdf_bytes = build_thermal_receipt_pdf(receipt_data)
+        return Response(
+            pdf_bytes,
+            mimetype="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="receipt-{r.reference_number}.pdf"',
+                "Cache-Control": "no-store",
+            },
+        )
+    
+    # Existing logic if there was any for A4, but none found in search.
+    # Defaulting to thermal for now as requested.
+    pdf_bytes = build_thermal_receipt_pdf(receipt_data)
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="receipt-{r.reference_number}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
 @app.route('/admin/autocomplete_order', methods=['POST'])
 @login_required
 def autocomplete_order():
