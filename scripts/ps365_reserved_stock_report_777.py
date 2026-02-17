@@ -301,10 +301,11 @@ def main():
     if not PS365_BASE_URL or not PS365_TOKEN:
         raise RuntimeError("Missing PS365_BASE_URL or PS365_TOKEN in environment.")
 
-    rows = build_rows()
+    with app.app_context():
+        rows = build_rows()
 
-    print(f"Refreshing DB table for store {STORE_CODE} (delete then insert)...")
-    full_refresh_save(rows)
+        print(f"Refreshing DB table for store {STORE_CODE} (delete then insert)...")
+        full_refresh_save(rows)
 
     print(f"Done! {len(rows)} items synced (season_name not null).")
 
