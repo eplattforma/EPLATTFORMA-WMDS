@@ -24,7 +24,8 @@ def update_status(route_stop_id, invoice_no):
         return redirect(request.referrer or url_for("delivery_dashboard.dashboard"))
     
     try:
-        rsi = services.set_invoice_in_stop_status(route_stop_id, invoice_no, status, mirror)
+        from services import set_invoice_in_stop_status
+        rsi = set_invoice_in_stop_status(route_stop_id, invoice_no, status, mirror)
         
         if request.is_json or request.accept_mimetypes.best == 'application/json':
             return jsonify({

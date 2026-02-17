@@ -8,9 +8,9 @@ from functools import wraps
 from models import Shipment, RouteStop, RouteStopInvoice, Invoice, User, CreditTerms
 from services_route_lifecycle import recompute_route_completion
 from timezone_utils import utc_now_for_db, get_local_time
-import services
 import services_routing
 import ps365_service
+import services
 
 bp = Blueprint("routes", __name__)
 
@@ -191,7 +191,8 @@ def dashboard():
     # Calculate progress for each route
     cards = []
     for route in routes:
-        prog = services.route_progress(route.id)
+        from services import route_progress
+        prog = route_progress(route.id)
         
         # For pending routes, calculate cash from COD receipts
         if view_mode == "pending":
@@ -265,7 +266,8 @@ def upsert():
             flash(f"New routes can only be created with status PLANNED or CANCELLED. Cannot create with status {new_status}.", "danger")
             return redirect(url_for("routes.index"))
     
-    route = services.upsert_route(
+    from services import upsert_route
+    route = upsert_route(
         driver_name=data["driver_name"],
         route_name=data.get("route_name") or "",
         delivery_date=datetime.strptime(data["delivery_date"], "%Y-%m-%d").date(),
@@ -292,7 +294,8 @@ def detail(shipment_id):
         abort(403)
     
     # Get progress
-    progress = services.route_progress(shipment_id)
+    from services import route_progress
+    progress = route_progress(shipment_id)
     
     # Get stops with their invoices and payment terms for this route
     stops_query = db.session.query(
@@ -500,9 +503,10 @@ def new_stop(shipment_id):
     
     if request.method == "POST":
         from decimal import Decimal
-        seq_no = Decimal(str(request.form.get("seq_no") or services.get_next_seq_no(shipment_id)))
+        from services import create_stop, get_next_seq_no, attach_invoices_to_stop
+        seq_no = Decimal(str(request.form.get("seq_no") or get_next_seq_no(shipment_id)))
         
-        stop = services.create_stop(
+        stop = create_stop(
             shipment_id,
             seq_no,
             stop_name=request.form.get("stop_name"),
@@ -516,13 +520,14 @@ def new_stop(shipment_id):
         invoice_nos = request.form.get("invoice_nos", "").strip()
         if invoice_nos:
             invoice_list = [inv.strip() for inv in invoice_nos.split(",") if inv.strip()]
-            services.attach_invoices_to_stop(stop.route_stop_id, invoice_list)
+            attach_invoices_to_stop(stop.route_stop_id, invoice_list)
         
         flash(f"Stop #{stop.seq_no} created successfully", "success")
         return redirect(url_for("routes.detail", shipment_id=shipment_id))
     
     # GET: show form
-    next_seq = services.get_next_seq_no(shipment_id)
+    from services import get_next_seq_no
+    next_seq = get_next_seq_no(shipment_id)
     return render_template("stop_form.html", route=route, seq_no=next_seq, stop=None)
 
 
@@ -722,7 +727,12 @@ def delete_stop(route_stop_id):
         flash("Cannot delete this stop - it has already been delivered and has delivery records (POD, COD receipts, or PS365 receipt logs). Delivered stops cannot be removed.", "error")
         return redirect(url_for("routes.detail", shipment_id=shipment_id))
     
-    services.delete_stop(route_stop_id)
+    # First, unassign all invoices from this stop
+    from models import RouteStopInvoice
+    RouteStopInvoice.query.filter_by(route_stop_id=route_stop_id).delete()
+    
+    from services import delete_stop
+    delete_stop(route_stop_id)
     flash("Stop deleted successfully", "success")
     return redirect(url_for("routes.detail", shipment_id=shipment_id))
 
@@ -737,7 +747,8 @@ def add_invoices_to_stop(route_stop_id):
     invoice_nos = request.form.get("invoice_nos", "").strip()
     if invoice_nos:
         invoice_list = [inv.strip() for inv in invoice_nos.split(",") if inv.strip()]
-        attached = services.attach_invoices_to_stop(route_stop_id, invoice_list)
+        from services import attach_invoices_to_stop
+        attached = attach_invoices_to_stop(route_stop_id, invoice_list)
         flash(f"Added {len(attached)} invoice(s) to stop", "success")
     else:
         flash("No invoices provided", "warning")
@@ -792,7 +803,12 @@ def remove_invoice_from_stop(route_stop_id, invoice_no):
             flash(f"Invoice {invoice_no} removed, but cannot delete the empty stop - it has already been delivered and has delivery records. The stop will remain empty.", "warning")
         else:
             # Delete the empty stop using the service to handle all FK constraints
-            services.delete_stop(route_stop_id)
+            # First, unassign all invoices from this stop
+    from models import RouteStopInvoice
+    RouteStopInvoice.query.filter_by(route_stop_id=route_stop_id).delete()
+    
+    from services import delete_stop
+    delete_stop(route_stop_id)
             flash(f"Invoice {invoice_no} removed. Stop #{stop.seq_no} deleted (no invoices remaining).", "success")
     else:
         flash(f"Invoice {invoice_no} removed from stop", "success")
@@ -863,7 +879,8 @@ def auto_assign():
             return jsonify({"ok": False, "message": f"Route {route_id} not found"}), 404
     else:
         # Create new route
-        route = services.upsert_route(
+        from services import upsert_route
+        route = upsert_route(
             driver_name=driver_name,
             route_name=data.get("route_name", f"{driver_name} Route"),
             delivery_date=delivery_date,
@@ -943,7 +960,8 @@ def unassign_from_route():
     ).scalars().all()
     
     for stop_id in empty_stops:
-        services.delete_stop(stop_id)
+        from services import delete_stop
+        delete_stop(stop_id)
     
     return jsonify({
         "ok": True,
@@ -1392,7 +1410,8 @@ def remove_order_from_route(shipment_id, invoice_no):
         if remaining_invoices == 0:
             stop = RouteStop.query.get(affected_stop_id)
             if stop:
-                services.delete_stop(affected_stop_id)
+                from services import delete_stop
+                delete_stop(affected_stop_id)
                 flash(f"Order {invoice_no} removed from route{status_msg}. Stop #{stop.seq_no} deleted (no invoices remaining).", "info")
                 return redirect(url_for("routes.detail", shipment_id=shipment_id))
     

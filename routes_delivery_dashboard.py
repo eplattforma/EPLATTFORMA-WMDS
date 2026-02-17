@@ -54,7 +54,8 @@ def dashboard():
         stop_count = RouteStop.query.filter_by(shipment_id=route.id).count()
         
         # Get route progress
-        progress = services.route_progress(route.id)
+        from services import route_progress
+        progress = route_progress(route.id)
         
         # Check if all invoices are ready for dispatch
         all_invoices = Invoice.query.filter_by(route_id=route.id).all()
@@ -104,7 +105,8 @@ def get_completed_routes():
         stop_count = RouteStop.query.filter_by(shipment_id=route.id).count()
         
         # Get route progress
-        progress = services.route_progress(route.id)
+        from services import route_progress
+        progress = route_progress(route.id)
         
         route_summaries.append({
             'id': route.id,
