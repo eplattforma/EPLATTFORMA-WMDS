@@ -804,11 +804,11 @@ def remove_invoice_from_stop(route_stop_id, invoice_no):
         else:
             # Delete the empty stop using the service to handle all FK constraints
             # First, unassign all invoices from this stop
-    from models import RouteStopInvoice
-    RouteStopInvoice.query.filter_by(route_stop_id=route_stop_id).delete()
-    
-    from services import delete_stop
-    delete_stop(route_stop_id)
+            from models import RouteStopInvoice
+            RouteStopInvoice.query.filter_by(route_stop_id=route_stop_id).delete()
+            
+            from services import delete_stop
+            delete_stop(route_stop_id)
             flash(f"Invoice {invoice_no} removed. Stop #{stop.seq_no} deleted (no invoices remaining).", "success")
     else:
         flash(f"Invoice {invoice_no} removed from stop", "success")
