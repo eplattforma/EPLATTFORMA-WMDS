@@ -2,7 +2,7 @@
 """
 PS365 Reserved Stock Report - Store 777 (Minimum API Optimized)
 - FULL REFRESH: delete all rows for store 777, then insert snapshot
-- Includes ALL items with reservations (season_name may be empty for some)
+- Only includes items where season_name is not null/empty
 - Uses local DW tables to avoid per-item PS365 API calls
 - API calls = number of pages in store 777 stock list only (no per-item calls)
 - stock_ordered is captured directly from list_stock_items_store response
@@ -200,7 +200,6 @@ def build_rows() -> List[Dict[str, Any]]:
     Build rows using LOCAL DB lookups instead of per-item PS365 API calls.
     OPTIMIZED: PS365 is only called for paginated list_stock_items_store.
     stock_ordered is now captured directly from the list response.
-    Includes ALL items with reservations (items without season shown as empty).
     """
     reserved_item_data = fetch_reserved_items_index()
     if not reserved_item_data:
@@ -210,46 +209,50 @@ def build_rows() -> List[Dict[str, Any]]:
     item_codes = list(reserved_item_data.keys())
     print(f"Found {len(item_codes)} reserved items. Loading metadata from local DB...")
 
+    # Local DB lookup instead of per-item PS365 calls
     meta_map = load_item_meta_map(item_codes)
 
-    all_items: List[Dict[str, Any]] = []
+    # Build filtered items with valid season_name
+    filtered_items: List[Dict[str, Any]] = []
     now = datetime.utcnow()
 
     missing_local = 0
-    no_season = 0
+    filtered_no_season = 0
 
     for code, r_store in reserved_item_data.items():
         meta = meta_map.get(code)
         if not meta:
             missing_local += 1
+            continue
 
-        season_name = meta.get("season_name") if meta else None
+        season_name = meta.get("season_name")
         if not non_empty_str(season_name):
-            no_season += 1
+            filtered_no_season += 1
+            continue
 
         stock = r_store["stock"]
         stock_reserved = r_store["stock_reserved"]
 
-        all_items.append({
+        filtered_items.append({
             "item_code_365": code,
-            "item_name": r_store.get("item_name") or (meta.get("item_name") if meta else "") or "",
+            "item_name": r_store.get("item_name") or meta.get("item_name") or "",
             "season_name": season_name or "",
-            "supplier_item_code": (meta.get("supplier_item_code") if meta else "") or "",
-            "barcode": (meta.get("barcode") if meta else "") or "",
-            "number_of_pieces": int(d(meta.get("number_of_pieces"))) if meta else 1,
-            "number_field_5_value": int(d(meta.get("number_field_5_value"))) if meta else 0,
+            "supplier_item_code": meta.get("supplier_item_code") or "",
+            "barcode": meta.get("barcode") or "",
+            "number_of_pieces": int(d(meta.get("number_of_pieces"))),
+            "number_field_5_value": int(d(meta.get("number_field_5_value"))),
             "store_code_365": STORE_CODE,
             "stock": stock,
             "stock_reserved": stock_reserved,
             "available_stock": stock - stock_reserved,
-            "stock_ordered": r_store.get("stock_ordered", Decimal("0")),
+            "stock_ordered": r_store.get("stock_ordered", Decimal("0")),  # From list response
             "synced_at": now,
         })
 
-    print(f"Local meta missing for {missing_local} items; {no_season} items without season.")
-    print(f"Total items with reservations: {len(all_items)}.")
+    print(f"Local meta missing for {missing_local} items; filtered (no season) {filtered_no_season}.")
+    print(f"Filtered down to {len(filtered_items)} items with valid season_name.")
 
-    return all_items
+    return filtered_items
 
 
 def clear_table_for_store(store_code: str) -> None:
