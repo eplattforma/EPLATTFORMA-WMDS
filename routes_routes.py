@@ -1651,8 +1651,26 @@ def update_cod_amount(receipt_id):
     try:
         new_amount = Decimal(str(new_amount_val))
         receipt.received_amount = new_amount
-        # Re-calculate variance
         receipt.variance = receipt.received_amount - receipt.expected_amount
+        
+        from models import CODInvoiceAllocation
+        allocations = CODInvoiceAllocation.query.filter_by(cod_receipt_id=receipt.id).all()
+        if len(allocations) == 1:
+            allocations[0].received_amount = new_amount
+        elif len(allocations) > 1:
+            total_due = sum(
+                (a.expected_amount or Decimal('0')) - (a.deduct_amount or Decimal('0'))
+                for a in allocations
+            )
+            if total_due > 0:
+                for alloc in allocations:
+                    due = (alloc.expected_amount or Decimal('0')) - (alloc.deduct_amount or Decimal('0'))
+                    alloc.received_amount = new_amount * (due / total_due)
+            else:
+                share = new_amount / len(allocations)
+                for alloc in allocations:
+                    alloc.received_amount = share
+        
         db.session.commit()
         return jsonify({'success': True, 'message': 'Amount updated successfully'})
     except Exception as e:
