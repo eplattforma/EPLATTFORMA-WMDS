@@ -269,8 +269,9 @@ def assign_to_route():
             is_active=True
         ).first()
         if existing_assignment and not warehouse_collection:
-             # Check if the route is still active/planned
-             active_route = Shipment.query.get(existing_assignment.route_stop.shipment_id)
+             from models import RouteStop as RS
+             linked_stop = RS.query.get(existing_assignment.route_stop_id)
+             active_route = Shipment.query.get(linked_stop.shipment_id) if linked_stop else None
              if active_route and active_route.status in ['PLANNED', 'DISPATCHED', 'IN_TRANSIT']:
                  return jsonify({'error': f'Invoice {invoice_no} is already assigned to active route #{active_route.id}'}), 400
         
