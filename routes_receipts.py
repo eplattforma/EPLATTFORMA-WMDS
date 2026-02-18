@@ -428,6 +428,11 @@ def send_cod_receipt(cod_receipt_id):
         # Get the COD receipt
         cod_receipt = CODReceipt.query.get_or_404(cod_receipt_id)
         
+        if cod_receipt.route and cod_receipt.route.reconciliation_status == 'RECONCILED':
+            return jsonify({
+                'error': 'Cannot send: Route is already reconciled'
+            }), 400
+
         if cod_receipt.ps365_receipt_id:
             return jsonify({
                 'error': 'Receipt already sent to PS365',

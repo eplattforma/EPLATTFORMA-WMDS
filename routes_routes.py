@@ -1641,6 +1641,9 @@ def update_cod_amount(receipt_id):
     
     receipt = CODReceipt.query.get_or_404(receipt_id)
     
+    if receipt.route and receipt.route.reconciliation_status == 'RECONCILED':
+        return jsonify({'success': False, 'error': 'Cannot update: Route is already reconciled'}), 400
+    
     if receipt.ps365_receipt_id:
         return jsonify({'success': False, 'error': 'Cannot update amount: Receipt already sent to PS365'}), 400
         
@@ -1691,6 +1694,9 @@ def edit_cod_receipt(receipt_id):
     from datetime import datetime
 
     receipt = CODReceipt.query.get_or_404(receipt_id)
+
+    if receipt.route and receipt.route.reconciliation_status == 'RECONCILED':
+        return jsonify({'success': False, 'error': 'Cannot edit: Route is already reconciled'}), 400
 
     if receipt.ps365_receipt_id:
         return jsonify({'success': False, 'error': 'Cannot edit: Receipt already sent to PS365'}), 400

@@ -511,7 +511,7 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         <div class="px-3 py-2">
                             <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span style="color: #94A3B8; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600;">Payment Receipt</span>
-                                {% if not cr.ps365_receipt_id %}
+                                {% if not cr.ps365_receipt_id and route.reconciliation_status != 'RECONCILED' %}
                                 <button type="button" class="btn btn-sm btn-edit-receipt"
                                         data-cr-id="{{ cr.id }}"
                                         data-cr-method="{{ cr.payment_method or 'cash' }}"
@@ -578,6 +578,11 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 <div class="d-flex align-items-center gap-2" style="background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.2); border-radius: 6px; padding: 6px 10px;">
                                     <i class="bi bi-clock-history" style="color: #FACC15; font-size: 0.8rem;"></i>
                                     <span style="color: #FACC15; font-size: 0.68rem;">Post-dated cheque – cannot send until {{ cr.cheque_date.strftime('%d/%m/%Y') }}</span>
+                                </div>
+                                {% elif route.reconciliation_status == 'RECONCILED' %}
+                                <div class="d-flex align-items-center gap-2" style="background: rgba(100,116,139,0.08); border: 1px solid rgba(100,116,139,0.2); border-radius: 6px; padding: 6px 10px;">
+                                    <i class="bi bi-lock-fill" style="color: #64748B; font-size: 0.8rem;"></i>
+                                    <span style="color: #64748B; font-size: 0.68rem;">Route reconciled – locked</span>
                                 </div>
                                 {% else %}
                                 <div id="ps365-btn-wrap-{{ cr.id }}">
