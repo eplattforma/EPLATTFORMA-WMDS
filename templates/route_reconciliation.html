@@ -509,8 +509,20 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                         {% set cr = stop_data_match.cod_receipt if stop_data_match else none %}
                         {% if cr %}
                         <div class="px-3 py-2">
-                            <div class="d-flex align-items-center mb-2">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span style="color: #94A3B8; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.3px; font-weight: 600;">Payment Receipt</span>
+                                {% if not cr.ps365_receipt_id %}
+                                <button type="button" class="btn btn-sm btn-edit-receipt"
+                                        data-cr-id="{{ cr.id }}"
+                                        data-cr-method="{{ cr.payment_method or 'cash' }}"
+                                        data-cr-amount="{{ cr.received_amount|float }}"
+                                        data-cr-cheque-number="{{ cr.cheque_number or '' }}"
+                                        data-cr-cheque-date="{{ cr.cheque_date.strftime('%Y-%m-%d') if cr.cheque_date else '' }}"
+                                        data-cr-note="{{ cr.note or '' }}"
+                                        style="background: rgba(148,163,184,0.1); color: #94A3B8; border: 1px solid rgba(148,163,184,0.2); font-size: 0.65rem; padding: 2px 8px;">
+                                    <i class="bi bi-pencil-square me-1"></i>Edit
+                                </button>
+                                {% endif %}
                             </div>
                             <table class="table table-sm recon-table mb-2">
                                 <tbody>
@@ -831,5 +843,128 @@ function markReconciled() {
         btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Mark as Reconciled';
     });
 }
+</script>
+
+<div class="modal fade" id="editReceiptModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+    <div class="modal-content" style="background: #1E293B; border: 1px solid #334155; border-radius: 12px;">
+      <div class="modal-header" style="border-bottom: 1px solid #334155; padding: 16px 20px;">
+        <h6 class="modal-title" style="color: #E2E8F0; font-size: 0.85rem; font-weight: 600;">
+          <i class="bi bi-pencil-square me-2" style="color: #60A5FA;"></i>Edit Receipt
+        </h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" style="font-size: 0.65rem;"></button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <input type="hidden" id="editReceiptId">
+        <div class="mb-3">
+          <label class="form-label" style="color: #94A3B8; font-size: 0.72rem; font-weight: 600;">Payment Method</label>
+          <select id="editPaymentMethod" class="form-select form-select-sm" style="background: #0F172A; color: #E2E8F0; border: 1px solid #334155; font-size: 0.78rem;">
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="cheque">Cheque</option>
+            <option value="bank_transfer">Bank Transfer</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" style="color: #94A3B8; font-size: 0.72rem; font-weight: 600;">Received Amount (&euro;)</label>
+          <input type="number" id="editReceivedAmount" step="0.01" min="0" class="form-control form-control-sm" style="background: #0F172A; color: #E2E8F0; border: 1px solid #334155; font-size: 0.78rem;">
+        </div>
+        <div id="chequeFieldsGroup">
+          <div class="mb-3">
+            <label class="form-label" style="color: #94A3B8; font-size: 0.72rem; font-weight: 600;">Cheque Number</label>
+            <input type="text" id="editChequeNumber" class="form-control form-control-sm" style="background: #0F172A; color: #E2E8F0; border: 1px solid #334155; font-size: 0.78rem;">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" style="color: #94A3B8; font-size: 0.72rem; font-weight: 600;">Cheque Date</label>
+            <input type="date" id="editChequeDate" class="form-control form-control-sm" style="background: #0F172A; color: #E2E8F0; border: 1px solid #334155; font-size: 0.78rem;">
+          </div>
+        </div>
+        <div class="mb-0">
+          <label class="form-label" style="color: #94A3B8; font-size: 0.72rem; font-weight: 600;">Note</label>
+          <textarea id="editNote" rows="2" class="form-control form-control-sm" style="background: #0F172A; color: #E2E8F0; border: 1px solid #334155; font-size: 0.78rem;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid #334155; padding: 12px 20px;">
+        <button type="button" class="btn btn-sm" data-bs-dismiss="modal" style="color: #94A3B8; font-size: 0.75rem;">Cancel</button>
+        <button type="button" id="btnSaveReceipt" class="btn btn-sm" style="background: rgba(59,130,246,0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.3); font-size: 0.75rem; padding: 4px 16px;">
+          <i class="bi bi-check-lg me-1"></i>Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+    const methodSelect = document.getElementById('editPaymentMethod');
+    const chequeFields = document.getElementById('chequeFieldsGroup');
+
+    function toggleChequeFields() {
+        chequeFields.style.display = methodSelect.value === 'cheque' ? 'block' : 'none';
+    }
+    methodSelect.addEventListener('change', toggleChequeFields);
+
+    document.querySelectorAll('.btn-edit-receipt').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.getElementById('editReceiptId').value = this.dataset.crId;
+            methodSelect.value = this.dataset.crMethod;
+            document.getElementById('editReceivedAmount').value = this.dataset.crAmount;
+            document.getElementById('editChequeNumber').value = this.dataset.crChequeNumber;
+            document.getElementById('editChequeDate').value = this.dataset.crChequeDate;
+            document.getElementById('editNote').value = this.dataset.crNote;
+            toggleChequeFields();
+            new bootstrap.Modal(document.getElementById('editReceiptModal')).show();
+        });
+    });
+
+    document.getElementById('btnSaveReceipt').addEventListener('click', function() {
+        const receiptId = document.getElementById('editReceiptId').value;
+        const saveBtn = this;
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Saving...';
+
+        const payload = {
+            payment_method: methodSelect.value,
+            received_amount: parseFloat(document.getElementById('editReceivedAmount').value),
+            note: document.getElementById('editNote').value
+        };
+
+        if (methodSelect.value === 'cheque') {
+            payload.cheque_number = document.getElementById('editChequeNumber').value;
+            payload.cheque_date = document.getElementById('editChequeDate').value;
+        } else {
+            payload.cheque_number = '';
+            payload.cheque_date = '';
+        }
+
+        if (isNaN(payload.received_amount) || payload.received_amount < 0) {
+            alert('Please enter a valid received amount');
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes';
+            return;
+        }
+
+        fetch('/routes/api/cod_receipts/' + receiptId + '/edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes';
+            }
+        })
+        .catch(err => {
+            alert('Error: ' + err.message);
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes';
+        });
+    });
+})();
 </script>
 {% endblock %}

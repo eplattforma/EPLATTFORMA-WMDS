@@ -1680,6 +1680,82 @@ def update_cod_amount(receipt_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@bp.route("/api/cod_receipts/<int:receipt_id>/edit", methods=["POST"])
+@login_required
+@admin_required
+def edit_cod_receipt(receipt_id):
+    """Edit COD receipt fields before sending to PS365"""
+    from models import CODReceipt, CODInvoiceAllocation
+    from app import db
+    from decimal import Decimal
+    from datetime import datetime
+
+    receipt = CODReceipt.query.get_or_404(receipt_id)
+
+    if receipt.ps365_receipt_id:
+        return jsonify({'success': False, 'error': 'Cannot edit: Receipt already sent to PS365'}), 400
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+    try:
+        if 'payment_method' in data:
+            allowed = ('cash', 'card', 'cheque', 'bank_transfer')
+            pm = data['payment_method'].lower().strip()
+            if pm not in allowed:
+                return jsonify({'success': False, 'error': f'Invalid payment method. Must be one of: {", ".join(allowed)}'}), 400
+            receipt.payment_method = pm
+            if pm != 'cheque':
+                receipt.cheque_number = None
+                receipt.cheque_date = None
+
+        if 'received_amount' in data:
+            new_amount = Decimal(str(data['received_amount']))
+            if new_amount < 0:
+                return jsonify({'success': False, 'error': 'Amount cannot be negative'}), 400
+            receipt.received_amount = new_amount
+            receipt.variance = receipt.received_amount - receipt.expected_amount
+
+            allocations = CODInvoiceAllocation.query.filter_by(cod_receipt_id=receipt.id).all()
+            if len(allocations) == 1:
+                allocations[0].received_amount = new_amount
+            elif len(allocations) > 1:
+                total_due = sum(
+                    (a.expected_amount or Decimal('0')) - (a.deduct_amount or Decimal('0'))
+                    for a in allocations
+                )
+                if total_due > 0:
+                    for alloc in allocations:
+                        due = (alloc.expected_amount or Decimal('0')) - (alloc.deduct_amount or Decimal('0'))
+                        alloc.received_amount = new_amount * (due / total_due)
+                else:
+                    share = new_amount / len(allocations)
+                    for alloc in allocations:
+                        alloc.received_amount = share
+
+        if 'cheque_number' in data:
+            receipt.cheque_number = data['cheque_number'].strip() if data['cheque_number'] else None
+
+        if 'cheque_date' in data:
+            if data['cheque_date']:
+                try:
+                    receipt.cheque_date = datetime.strptime(data['cheque_date'], '%Y-%m-%d').date()
+                except ValueError:
+                    return jsonify({'success': False, 'error': 'Invalid cheque date format. Use YYYY-MM-DD'}), 400
+            else:
+                receipt.cheque_date = None
+
+        if 'note' in data:
+            receipt.note = data['note'].strip() if data['note'] else None
+
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Receipt updated successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @bp.route("/<int:shipment_id>/reconciliation/print")
 @login_required
 def reconciliation_print(shipment_id):
