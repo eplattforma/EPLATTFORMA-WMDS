@@ -1617,6 +1617,7 @@ def reconciliation_report(shipment_id):
     import services_reconciliation as recon
     invoice_report = recon.get_invoice_reconciliation_report(shipment_id) or []
     
+    from datetime import date as date_type
     return render_template('route_reconciliation.html',
                          route=route,
                          stops_data=stops_data,
@@ -1626,7 +1627,8 @@ def reconciliation_report(shipment_id):
                          total_expected=float(total_expected),
                          total_received=float(total_received),
                          total_variance=float(total_variance),
-                         settlement_info=settlement_info)
+                         settlement_info=settlement_info,
+                         now_date=date_type.today())
 
 @bp.route("/api/cod_receipts/<int:receipt_id>/update_amount", methods=["POST"])
 @login_required

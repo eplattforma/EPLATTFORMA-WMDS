@@ -428,11 +428,17 @@ def send_cod_receipt(cod_receipt_id):
         # Get the COD receipt
         cod_receipt = CODReceipt.query.get_or_404(cod_receipt_id)
         
-        # Check if already sent
         if cod_receipt.ps365_receipt_id:
             return jsonify({
                 'error': 'Receipt already sent to PS365',
                 'reference': cod_receipt.ps365_receipt_id
+            }), 400
+        
+        from datetime import date as date_type
+        if (cod_receipt.payment_method and cod_receipt.payment_method.lower() == 'cheque'
+                and cod_receipt.cheque_date and cod_receipt.cheque_date > date_type.today()):
+            return jsonify({
+                'error': f'Post-dated cheque cannot be sent to PS365 until {cod_receipt.cheque_date.strftime("%d/%m/%Y")}'
             }), 400
         
         # Get stop to get customer code
