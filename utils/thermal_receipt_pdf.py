@@ -13,9 +13,9 @@ LEADING = 11
 
 def money(v):
     try:
-        return f"\u20ac{Decimal(str(v)):,.2f}"
+        return f"EUR {Decimal(str(v)):,.2f}"
     except Exception:
-        return "\u20ac0.00"
+        return "EUR 0.00"
 
 
 def _pad_right(label, value, width=COLS):
