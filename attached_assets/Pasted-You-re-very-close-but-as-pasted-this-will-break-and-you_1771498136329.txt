@@ -1,3 +1,103 @@
+You’re very close, but as pasted this will break and your PDF will not print cleanly on SPP-R310 from iOS/Android browsers. Here’s a precise review + the concrete changes I would tell Replit to make.
+
+1) Critical problems in your pasted code (must fix)
+A) Syntax / file corruption
+
+At the end of send_cod_receipt() you have:
+
+return jsonify({'error': str(e)}), 500   from io import BytesIO
+
+
+That from io import BytesIO sitting after the return is a syntax error (looks like two files got concatenated).
+✅ Fix: Move all the PDF code (BytesIO, ReportLab functions) into a separate module, e.g. services/thermal_receipt_pdf.py, and import it.
+
+B) Your PDF width is wrong (165mm)
+
+In build_delivery_receipt_pdf() you set:
+
+PAGE_W = 165 * mm
+
+
+That is way wider than an 80mm thermal roll, and iOS/Android will “fit to page” and scale unpredictably → tiny text, weird line breaks, inconsistent margins.
+
+✅ Fix: Use 80mm page width with ~4mm margins (content ~72mm).
+
+C) 48 columns + font size 15 will never fit
+
+You’re trying to format as COLS=48 but your font size is:
+
+FS = 15
+LEADING = 18
+
+
+Even with Courier, 48 columns will overflow an 80mm receipt unless the font is very small. Result: either clipped text or forced scaling.
+
+✅ Fix: For PDF receipts (browser share/print), use something like:
+
+COLS = 42 (more realistic for PDF)
+
+FS = 8 and LEADING = 10
+
+(48 columns is fine for ESC/POS raw printing, but you’re doing PDF share printing.)
+
+D) Wrap logic is inconsistent
+
+You mix:
+
+COLS and rule lines ("-"*COLS)
+
+but wrap() uses simpleSplit() based on page width
+
+Because your page width is wrong (165mm), simpleSplit() may not wrap at all, so customer names can exceed your intended width.
+
+✅ Fix: Wrap by columns (textwrap) for consistency.
+
+E) Small but important content issues
+
+VAT: CY10353264O → last character is letter O, should be 0.
+
+Your “BALANCE DUE” uses FONT_B, 24 (very large). On thermal PDF this can cause clipping/scaling.
+
+✅ Fix VAT text + make “BALANCE DUE” bold but not huge (10–12pt max).
+
+2) What I recommend Replit to do (clean structure)
+Step 1 — Split PDF builder into its own file
+
+Create: services/thermal_receipt_pdf.py
+Put only the PDF functions there.
+
+Step 2 — Use correct SPP-R310 PDF constants
+
+Page: 80mm
+
+Margins: 4mm
+
+Columns: 42
+
+Font: Courier, size 8, leading 10
+
+Step 3 — Add a print endpoint (tokenized) for mobile share
+
+Add endpoint (in the blueprint) like:
+
+GET /print/receipt/<reference_number>.pdf?token=...
+
+This is the URL the driver shares to the BIXOLON app.
+
+Step 4 — UI: use Web Share (best) + fallback open tab
+
+In receipt_success.html and/or route stop completion screen:
+
+Print button fetches PDF blob → navigator.share({files:[pdf]})
+
+fallback window.open(print_url)
+
+(Note: file-sharing on iOS requires a user tap—don’t rely on auto-print without user gesture.)
+
+3) Drop-in replacement: fixed PDF builder (SPP-R310 friendly)
+
+Put this in services/thermal_receipt_pdf.py:
+
 from io import BytesIO
 from decimal import Decimal
 from reportlab.pdfgen import canvas
@@ -74,7 +174,7 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     add_c("Tel: 7000 0394  VAT: CY103532640")
     add(sep)
 
-    # Title / Status
+    # Title / Status (content rules we discussed)
     if is_credit:
         add_bc("DELIVERY CONFIRMATION")
         add_bc("CREDIT ACCOUNT")
@@ -86,7 +186,7 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
         add_bc("STATUS: NOT COLLECTED")
     add(sep)
 
-    # IDs
+    # IDs (never wrap)
     receipt_no = str(data.get("receipt_no", "")).strip()
     date_str = str(data.get("date_str", "")).strip()
     add(_pad_right(f"Receipt: {receipt_no}", f"Date: {date_str}"))
@@ -123,7 +223,7 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
             add(f"  {inv_no}"[:PDF_COLS])
     add(sep)
 
-    # Amounts
+    # Amounts (always show expected/collected/balance)
     add_b("AMOUNTS")
     expected = Decimal(str(data.get("expected", "0") or "0"))
     collected = Decimal(str(data.get("collected", "0") or "0"))
@@ -151,6 +251,7 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     if is_credit:
         add_b("  ON ACCOUNT - NO BALANCE DUE")
     else:
+        # Emphasize balance due when not collected or balance > 0
         if (not is_collected) or (balance > 0):
             add_b(_pad_right("  BALANCE DUE:", money(balance)))
 
@@ -164,7 +265,7 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
             add("  " + w if len(w) <= PDF_COLS - 2 else w[:PDF_COLS])
         add(sep)
 
-    # Signatures
+    # Signatures (content rules we discussed)
     add("")
     add("Customer Signature (Delivery):")
     add("________________________________")
@@ -178,6 +279,7 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     add("Driver Signature:")
     add("________________________________")
 
+    # Dynamic height
     total_lines = len(lines)
     page_h = TOP + BOT + (total_lines * LEADING)
 
@@ -205,6 +307,50 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     buf.seek(0)
     return buf.getvalue()
 
-def build_thermal_receipt_pdf(receipt):
-    """Legacy wrapper kept for backward compatibility."""
-    return build_delivery_receipt_pdf(receipt)
+
+This implements the content improvements we discussed:
+
+No “payment collected” wording when NOT COLLECTED
+
+Always shows Expected / Collected / Balance Due
+
+Payment signature only when collected
+
+Preview/Amended flags
+
+Invoice list per line
+
+4) Integration advice for your existing receipt flow
+A) Keep PS365 receipt creation separate from “delivery confirmation”
+
+Your create_receipt_core() creates a real PS365 receipt (only valid when money/cheque is actually collected).
+
+If payment is NOT collected, you should print Delivery Confirmation / Payment Due WITHOUT calling PS365.
+
+B) Use your CODReceipt or RouteStop data to build the data dict
+
+For printing from a stop:
+
+route_no, stop_no, driver_name, customer_name, customer_addr, invoice list
+
+expected = stop invoices total
+
+collected = what driver entered (can be 0)
+
+payment_method = CASH/CHEQUE/NOT_COLLECTED
+
+set is_preview true when not final
+
+C) Remove / deprecate build_thermal_receipt_pdf()
+
+Your “legacy wrapper” uses 72mm + 42 columns and is closer to correct; but having two formats will confuse printing. Prefer one generator.
+
+5) Quick fixes inside your receipt blueprint (non-printing but important)
+
+@bp.post("/api/receipts") has both @login_required and @driver_required (which already wraps login_required) — not harmful, but redundant.
+
+new_receipt_form_for_stop() sets total_amount=0 and never calculates it. If you want the form prefilled, compute invoice totals from invoice lines or whatever your Invoice model provides.
+
+Customer lookup by company_name == invoice.customer_name can fail due to formatting differences. If you have customer_code on invoice/stop, use that instead.
+
+If you paste (or describe) your RouteStop / CODReceipt models (fields for route number, stop sequence, invoice totals), I’ll show you the exact function that builds the data dict from your DB objects and a ready Flask route like /print/stop/<route_stop_id>.pdf that drivers can print in one tap.
