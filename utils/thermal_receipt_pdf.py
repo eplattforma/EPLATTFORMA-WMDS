@@ -8,22 +8,20 @@ from reportlab.pdfbase import pdfmetrics
 # Configuration
 FONT = "Courier"
 FONT_B = "Courier-Bold"
-FS_NORMAL = 10
-FS_TITLE = 12
-LEADING = 12
+FS_NORMAL = 11
+FS_TITLE = 13
+LEADING = 13
 
 PAGE_W = 80 * mm
-LEFT = 2 * mm
-RIGHT = 2 * mm
+LEFT = 1.5 * mm
+RIGHT = 1.5 * mm
 TOP = 4 * mm
 BOT = 6 * mm
 
-def get_dynamic_cols():
+def get_dynamic_cols(font_name, font_size):
     avail_w = PAGE_W - LEFT - RIGHT
-    # Standard monospace character width for Courier at given size
-    char_w = pdfmetrics.stringWidth("M", FONT, FS_NORMAL)
-    cols = max(30, int(avail_w / char_w))
-    return cols
+    char_w = pdfmetrics.stringWidth("M", font_name, font_size)
+    return max(30, int(avail_w / char_w))
 
 def money(v):
     try:
@@ -55,8 +53,10 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     """
     Builds an 80mm thermal PDF optimized for mobile share/print to BIXOLON SPP-R310.
     """
-    cols = get_dynamic_cols()
+    cols = get_dynamic_cols(FONT, FS_NORMAL)
+    cols_title = get_dynamic_cols(FONT_B, FS_TITLE)
     sep = "-" * cols
+    sig_line = "_" * (cols - 2)
     lines = []
 
     def add(s=""):
@@ -69,7 +69,13 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
         lines.append(("C", s[:cols]))
 
     def add_bc(s):
-        lines.append(("BC", s[:cols]))
+        lines.append(("BC", s[:cols_title]))
+
+    # Calibration Mode
+    if data.get("calibrate"):
+        add("|" + ("-" * (cols - 2)) + "|")
+        add("L" + (" " * (cols - 4)) + "R")
+        add(sep)
 
     is_collected = bool(data.get("is_collected", False))
     is_credit = bool(data.get("is_credit", False))
@@ -94,7 +100,10 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
         add_bc("CREDIT ACCOUNT")
     elif is_collected:
         add_bc("PAYMENT RECEIPT")
-        add_bc("STATUS: PAID")
+        if is_preview:
+            add_bc("STATUS: PENDING CONFIRMATION")
+        else:
+            add_bc("STATUS: PAID")
     else:
         add_bc("DELIVERY CONFIRMATION / PAYMENT DUE")
         add_bc("STATUS: NOT COLLECTED")
@@ -103,14 +112,14 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     # IDs
     receipt_no = str(data.get("receipt_no", "")).strip()
     date_str = str(data.get("date_str", "")).strip()
-    add(_pad_right(f"Receipt: {receipt_no}", f"Date: {date_str}", cols))
+    add_b(_pad_right(f"Receipt: {receipt_no}", f"Date: {date_str}", cols))
 
     route_no = str(data.get("route_no", "")).strip()
     stop_no = format_stop_no(data.get("stop_no", ""))
     driver = str(data.get("driver_name", "")).strip()
 
-    add(f"Route: {route_no}  Stop: {stop_no}")
-    add(f"Driver: {driver}")
+    add_b(f"Route: {route_no}  Stop: {stop_no}")
+    add_b(f"Driver: {driver}")
 
     cust_code = str(data.get("customer_code", "")).strip()
     if cust_code:
@@ -143,24 +152,24 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     collected = Decimal(str(data.get("collected", "0") or "0"))
     balance = Decimal(str(data.get("balance_due", "") or (expected - collected)))
 
-    add(_pad_right("  Expected:", money(expected), cols))
-    add(_pad_right("  Collected:", money(collected), cols))
+    add_b(_pad_right("  Expected:", money(expected), cols))
+    add_b(_pad_right("  Collected:", money(collected), cols))
 
     if is_collected:
         pm = str(data.get("payment_method", "")).upper().replace("_", " ").strip()
-        add(_pad_right("  Method:", pm or "-", cols))
+        add_b(_pad_right("  Method:", pm or "-", cols))
 
         if (data.get("payment_method") or "").lower() == "cheque":
             if data.get("cheque_number"):
-                add(_pad_right("  Cheque No:", str(data["cheque_number"]), cols))
+                add_b(_pad_right("  Cheque No:", str(data["cheque_number"]), cols))
             if data.get("cheque_date"):
-                add(_pad_right("  Cheque Date:", str(data["cheque_date"]), cols))
+                add_b(_pad_right("  Cheque Date:", str(data["cheque_date"]), cols))
 
         if (data.get("payment_method") or "").lower() == "cash":
             if data.get("cash_received") is not None:
-                add(_pad_right("  Cash Received:", money(data["cash_received"]), cols))
+                add_b(_pad_right("  Cash Received:", money(data["cash_received"]), cols))
             if data.get("change_given") is not None:
-                add(_pad_right("  Change Given:", money(data["change_given"]), cols))
+                add_b(_pad_right("  Change Given:", money(data["change_given"]), cols))
 
     if is_credit:
         add_b("  ON ACCOUNT - NO BALANCE DUE")
@@ -181,16 +190,16 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     # Signatures
     add("")
     add("Customer Signature (Delivery):")
-    add("________________________________")
+    add(sig_line)
     add("")
 
     if is_collected:
         add("Customer Signature (Payment):")
-        add("________________________________")
+        add(sig_line)
         add("")
 
     add("Driver Signature:")
-    add("________________________________")
+    add(sig_line)
 
     # Dynamic height
     total_lines = len(lines)

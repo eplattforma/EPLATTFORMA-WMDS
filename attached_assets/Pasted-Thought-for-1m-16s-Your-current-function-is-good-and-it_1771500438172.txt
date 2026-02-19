@@ -1,0 +1,130 @@
+Thought for 1m 16s
+
+Your current function is good and it’s already doing the right things (80mm page, small margins, dynamic COLS, sensible typography). There are 3 specific changes I’d make to get visibly bigger text + wider use of paper on the SPP-R310 printout, without causing clipping/scaling.
+
+1) Fix a real bug: COLS is calculated for 10pt, but titles print at 12pt
+
+Right now:
+
+cols = get_dynamic_cols() uses FS_NORMAL=10
+
+but add_bc() prints with FS_TITLE=12
+
+yet you truncate title strings to s[:cols] (10pt capacity)
+
+This can still overflow/clamp at the sides on some printers/apps because 12pt characters are wider.
+
+✅ Tell Replit to compute two column widths:
+
+cols_normal for FS_NORMAL
+
+cols_title for FS_TITLE
+
+Patch
+def get_dynamic_cols(font_name, font_size):
+    avail_w = PAGE_W - LEFT - RIGHT
+    char_w = pdfmetrics.stringWidth("M", font_name, font_size)
+    return max(30, int(avail_w / char_w))
+
+def build_delivery_receipt_pdf(data: dict) -> bytes:
+    cols = get_dynamic_cols(FONT, FS_NORMAL)
+    cols_title = get_dynamic_cols(FONT_B, FS_TITLE)
+    sep = "-" * cols
+
+    def add(s=""):
+        lines.append(("L", s[:cols]))
+    def add_b(s):
+        lines.append(("B", s[:cols]))
+    def add_c(s):
+        lines.append(("C", s[:cols]))
+    def add_bc(s):
+        # IMPORTANT: truncate based on title font size
+        lines.append(("BC", s[:cols_title]))
+
+
+This alone usually makes the receipt look “wider” because the title lines stop getting squeezed/clipped.
+
+2) Extend the width further: reduce margins slightly + add a calibration switch
+
+Your LEFT/RIGHT = 2mm is fine, but if your printed output still looks narrow, you can safely try 1.5mm (sometimes 1mm clips depending on the app/printer pipeline).
+
+✅ Tell Replit:
+
+Default to 1.5mm margins
+
+Add a simple “calibration mode” route that prints | markers at the extremes so you can see if it clips.
+
+Suggested constants
+LEFT = 1.5 * mm
+RIGHT = 1.5 * mm
+
+Calibration line (optional, but very useful)
+
+Add near the top when data.get("calibrate")==True:
+
+add("|" + ("-" * (cols-2)) + "|")
+add("L" + (" " * (cols-4)) + "R")  # shows left/right text edges
+add(sep)
+
+
+If the | clips, revert margins to 2mm.
+
+3) Make the font “bigger + darker” without breaking alignment
+
+If you want it noticeably bolder, do one of these (don’t do all at once):
+
+Option A (recommended): bump body size slightly
+FS_NORMAL = 11
+FS_TITLE = 13
+LEADING = 13
+
+
+Because COLS is dynamic, alignment stays correct—text will be larger and the layout still fits.
+
+Option B: use bold for more lines
+
+Currently only headings are bold. If it still looks “faint,” print key lines in bold:
+
+Receipt/Date line
+
+Route/Stop/Driver line
+
+Amount lines
+
+Example:
+
+add_b(_pad_right(f"Receipt: {receipt_no}", f"Date: {date_str}", cols))
+add_b(f"Route: {route_no}  Stop: {stop_no}")
+
+
+This increases perceived darkness on thermal output.
+
+4) Extend signature lines to full printable width
+
+Your signature line is fixed length ("________________________________"), so it looks short.
+
+✅ Replace with dynamic length:
+
+sig_line = "_" * (cols - 2)
+add(sig_line)
+
+
+Do that for all signature lines.
+
+5) Small polish: keep “Preview” from contradicting “PAID”
+
+In your photo you have PREVIEW + STATUS: PAID. If “preview” means “pending signature”, consider:
+
+If is_preview and is_collected: show STATUS: PENDING CONFIRMATION (optional)
+
+Not required, but it avoids confusion.
+
+What to tell Replit (short instruction set)
+
+Implement cols_title computed from FONT_B + FS_TITLE and truncate add_bc() with cols_title.
+
+Reduce margins to 1.5mm (with calibration mode).
+
+Increase font to 11/13 and leading to 13 (or bold key lines).
+
+Make signature line length dynamic: "_" * (cols-2).
