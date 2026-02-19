@@ -180,7 +180,7 @@ def build_delivery_receipt_pdf(data):
     if is_credit:
         add_bold("  ON ACCOUNT - NO BALANCE DUE")
     elif not is_collected or balance > 0:
-        add_bold(_pad_right("  BALANCE DUE:", money(balance)))
+        lines_out.append(("L_BIG", _pad_right("  BALANCE DUE:", money(balance))))
     rule()
 
     exceptions = data.get("exceptions", [])
@@ -238,6 +238,11 @@ def build_delivery_receipt_pdf(data):
             c.setFont(FONT_B, FS)
             c.drawCentredString(PAGE_W / 2, y, text)
             c.setFont(FONT, FS)
+        elif style == "L_BIG":
+            c.setFont(FONT_B, 24)
+            c.drawString(LEFT, y - 4, text)
+            c.setFont(FONT, FS)
+            y -= 12  # Extra space for big font
         else:
             c.drawString(LEFT, y, text)
         y -= LEADING
