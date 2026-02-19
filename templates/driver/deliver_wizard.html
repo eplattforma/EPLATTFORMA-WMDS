@@ -749,13 +749,6 @@ async function submitDelivery() {
                 'Delivery completed (Credit Account)' : 
                 `Delivery completed! COD Collected: \u20ac${data.cod.received.toFixed(2)}`;
             
-            if (data.print_url) {
-                const autoPrint = localStorage.getItem('driver_auto_print') !== 'false';
-                if (autoPrint) {
-                    await shareOrOpenPDF(data.print_url, `receipt-${stopId}.pdf`);
-                }
-            }
-            
             alert(msg);
             window.location.href = `/driver/routes/${routeId}/stops`;
         } else {

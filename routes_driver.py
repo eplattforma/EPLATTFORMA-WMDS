@@ -789,7 +789,7 @@ def submit_delivery(stop_id):
                 'method': cod_method
             },
             'receipt_id': cod_receipt.id if cod_receipt else None,
-            'print_url': print_url
+            'print_url': None
         })
     
     except Exception as e:
