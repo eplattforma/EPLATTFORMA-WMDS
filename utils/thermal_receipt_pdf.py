@@ -1,20 +1,29 @@
 from io import BytesIO
 from decimal import Decimal
+import textwrap
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
-import textwrap
+from reportlab.pdfbase import pdfmetrics
 
-PDF_COLS = 42
+# Configuration
 FONT = "Courier"
 FONT_B = "Courier-Bold"
-FS = 8
-LEADING = 10
+FS_NORMAL = 10
+FS_TITLE = 12
+LEADING = 12
 
 PAGE_W = 80 * mm
-LEFT = 4 * mm
-RIGHT = 4 * mm
+LEFT = 2 * mm
+RIGHT = 2 * mm
 TOP = 4 * mm
 BOT = 6 * mm
+
+def get_dynamic_cols():
+    avail_w = PAGE_W - LEFT - RIGHT
+    # Standard monospace character width for Courier at given size
+    char_w = pdfmetrics.stringWidth("M", FONT, FS_NORMAL)
+    cols = max(30, int(avail_w / char_w))
+    return cols
 
 def money(v):
     try:
@@ -22,7 +31,7 @@ def money(v):
     except Exception:
         return "EUR 0.00"
 
-def _pad_right(label, value, width=PDF_COLS):
+def _pad_right(label, value, width):
     label = str(label)
     value = str(value)
     gap = width - len(label) - len(value)
@@ -30,30 +39,37 @@ def _pad_right(label, value, width=PDF_COLS):
         gap = 1
     return label + (" " * gap) + value
 
-def _wrap_cols(s, width=PDF_COLS):
+def _wrap_cols(s, width):
     s = (s or "").strip()
     if not s:
         return [""]
     return textwrap.wrap(s, width=width, break_long_words=True, replace_whitespace=False)
 
+def format_stop_no(stop_no):
+    try:
+        return str(int(float(stop_no))).zfill(3)
+    except Exception:
+        return str(stop_no).zfill(3)
+
 def build_delivery_receipt_pdf(data: dict) -> bytes:
     """
     Builds an 80mm thermal PDF optimized for mobile share/print to BIXOLON SPP-R310.
     """
+    cols = get_dynamic_cols()
+    sep = "-" * cols
     lines = []
-    sep = "-" * PDF_COLS
 
     def add(s=""):
-        lines.append(("L", s[:PDF_COLS]))
+        lines.append(("L", s[:cols]))
 
     def add_b(s):
-        lines.append(("B", s[:PDF_COLS]))
+        lines.append(("B", s[:cols]))
 
     def add_c(s):
-        lines.append(("C", s[:PDF_COLS]))
+        lines.append(("C", s[:cols]))
 
     def add_bc(s):
-        lines.append(("BC", s[:PDF_COLS]))
+        lines.append(("BC", s[:cols]))
 
     is_collected = bool(data.get("is_collected", False))
     is_credit = bool(data.get("is_credit", False))
@@ -63,10 +79,8 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     # Flags
     if is_preview:
         add_bc("*** PREVIEW - NOT A FINAL RECEIPT ***")
-        add("")
     if is_amended:
         add_bc("*** AMENDED DELIVERY ***")
-        add("")
 
     # Header
     add_bc("STEP EPLATTFORMA LTD")
@@ -89,10 +103,10 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     # IDs
     receipt_no = str(data.get("receipt_no", "")).strip()
     date_str = str(data.get("date_str", "")).strip()
-    add(_pad_right(f"Receipt: {receipt_no}", f"Date: {date_str}"))
+    add(_pad_right(f"Receipt: {receipt_no}", f"Date: {date_str}", cols))
 
     route_no = str(data.get("route_no", "")).strip()
-    stop_no = str(data.get("stop_no", "")).strip()
+    stop_no = format_stop_no(data.get("stop_no", ""))
     driver = str(data.get("driver_name", "")).strip()
 
     add(f"Route: {route_no}  Stop: {stop_no}")
@@ -105,9 +119,9 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
 
     # Customer
     add_b("CUSTOMER")
-    for w in _wrap_cols(data.get("customer_name", "")):
+    for w in _wrap_cols(data.get("customer_name", ""), cols):
         add(w)
-    for w in _wrap_cols(data.get("customer_addr", "")):
+    for w in _wrap_cols(data.get("customer_addr", ""), cols):
         add(w)
     add(sep)
 
@@ -118,9 +132,9 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
         inv_no = str(inv.get("invoice_no", "")).strip()
         inv_total = inv.get("total", None)
         if inv_total is not None:
-            add(_pad_right(f"  {inv_no}", money(inv_total)))
+            add(_pad_right(f"  {inv_no}", money(inv_total), cols))
         else:
-            add(f"  {inv_no}"[:PDF_COLS])
+            add(f"  {inv_no}"[:cols])
     add(sep)
 
     # Amounts
@@ -129,30 +143,30 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     collected = Decimal(str(data.get("collected", "0") or "0"))
     balance = Decimal(str(data.get("balance_due", "") or (expected - collected)))
 
-    add(_pad_right("  Expected:", money(expected)))
-    add(_pad_right("  Collected:", money(collected)))
+    add(_pad_right("  Expected:", money(expected), cols))
+    add(_pad_right("  Collected:", money(collected), cols))
 
     if is_collected:
         pm = str(data.get("payment_method", "")).upper().replace("_", " ").strip()
-        add(_pad_right("  Method:", pm or "-"))
+        add(_pad_right("  Method:", pm or "-", cols))
 
         if (data.get("payment_method") or "").lower() == "cheque":
             if data.get("cheque_number"):
-                add(_pad_right("  Cheque No:", str(data["cheque_number"])))
+                add(_pad_right("  Cheque No:", str(data["cheque_number"]), cols))
             if data.get("cheque_date"):
-                add(_pad_right("  Cheque Date:", str(data["cheque_date"])))
+                add(_pad_right("  Cheque Date:", str(data["cheque_date"]), cols))
 
         if (data.get("payment_method") or "").lower() == "cash":
             if data.get("cash_received") is not None:
-                add(_pad_right("  Cash Received:", money(data["cash_received"])))
+                add(_pad_right("  Cash Received:", money(data["cash_received"]), cols))
             if data.get("change_given") is not None:
-                add(_pad_right("  Change Given:", money(data["change_given"])))
+                add(_pad_right("  Change Given:", money(data["change_given"]), cols))
 
     if is_credit:
         add_b("  ON ACCOUNT - NO BALANCE DUE")
     else:
         if (not is_collected) or (balance > 0):
-            add_b(_pad_right("  BALANCE DUE:", money(balance)))
+            add_b(_pad_right("  BALANCE DUE:", money(balance), cols))
 
     add(sep)
 
@@ -160,8 +174,8 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     notes = (data.get("notes") or "").strip()
     if notes:
         add_b("NOTES")
-        for w in _wrap_cols(notes):
-            add("  " + w if len(w) <= PDF_COLS - 2 else w[:PDF_COLS])
+        for w in _wrap_cols(notes, cols):
+            add("  " + w if len(w) <= cols - 2 else w[:cols])
         add(sep)
 
     # Signatures
@@ -178,6 +192,7 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
     add("Driver Signature:")
     add("________________________________")
 
+    # Dynamic height
     total_lines = len(lines)
     page_h = TOP + BOT + (total_lines * LEADING)
 
@@ -187,16 +202,16 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
 
     for style, txt in lines:
         if style == "C":
-            c.setFont(FONT, FS)
+            c.setFont(FONT, FS_NORMAL)
             c.drawCentredString(PAGE_W / 2, y, txt)
         elif style == "B":
-            c.setFont(FONT_B, FS)
+            c.setFont(FONT_B, FS_NORMAL)
             c.drawString(LEFT, y, txt)
         elif style == "BC":
-            c.setFont(FONT_B, FS)
+            c.setFont(FONT_B, FS_TITLE)
             c.drawCentredString(PAGE_W / 2, y, txt)
         else:
-            c.setFont(FONT, FS)
+            c.setFont(FONT, FS_NORMAL)
             c.drawString(LEFT, y, txt)
         y -= LEADING
 

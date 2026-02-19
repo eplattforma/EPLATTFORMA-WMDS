@@ -1,0 +1,120 @@
+1) Fix page width + margins (use the roll)
+
+For SPP-R310 thermal PDF printing, set:
+
+PAGE_W = 80mm
+
+LEFT/RIGHT margins = 2mm (start here; if clipping occurs, increase to 3mm)
+
+So the text uses ~76mm of the paper.
+
+✅ Change your PDF builder constants to:
+
+PAGE_W = 80 * mm
+LEFT  = 2 * mm
+RIGHT = 2 * mm
+TOP   = 4 * mm
+BOT   = 6 * mm
+
+2) Make font bigger (and keep layout correct)
+
+Increase font size (start with 10), and leading 12:
+
+FS = 10
+LEADING = 12
+
+
+But if you do this, you must also reduce/adjust COLS — otherwise padding and separators won’t match the real width.
+
+3) IMPORTANT: compute COLS automatically from real width
+
+Do not hardcode COLS=42 or 48 for PDF. Compute it from page width + font size using ReportLab’s font metrics.
+
+Tell Replit to add this inside the PDF function (after defining PAGE_W/LEFT/RIGHT/FS):
+
+from reportlab.pdfbase import pdfmetrics
+
+avail_w = PAGE_W - LEFT - RIGHT
+char_w = pdfmetrics.stringWidth("M", FONT, FS)   # monospace char width
+COLS = max(30, int(avail_w / char_w))            # dynamic cols
+sep = "-" * COLS
+
+
+Then use COLS everywhere:
+
+_pad_right(..., width=COLS)
+
+wrap textwrap.wrap(..., width=COLS)
+
+separator lines sep
+
+This will automatically “extend the width” and keep alignment correct when you change FS.
+
+4) Make headers bolder (without breaking width)
+
+Keep body at FS=10, but make headings 1–2pt bigger:
+
+Example style handling:
+
+normal: Courier 10
+
+bold: Courier-Bold 10
+
+title: Courier-Bold 12
+
+In your renderer loop, when style is BC (bold centered title), use 12:
+
+elif style == "BC":
+    c.setFont(FONT_B, 12)
+    c.drawCentredString(PAGE_W/2, y, txt)
+    c.setFont(FONT, FS)
+
+
+Do NOT use 24pt (your old BALANCE DUE big font). That can trigger scaling/clipping on mobile print apps. Use 12–13 max.
+
+5) Reduce blank space between blocks (more “dense”)
+
+Your sample has a lot of vertical whitespace. With bigger font, keep it tight:
+
+only 1 blank line between major sections
+
+remove extra blanks before signatures
+
+6) Fix “Stop: 1.00” (formatting bug you should correct now)
+
+Your printed receipt shows Stop: 1.00 which means you’re passing a float.
+
+Force it to a 3-digit string:
+
+stop_no = data.get("stop_no", "")
+try:
+    stop_no = str(int(float(stop_no))).zfill(3)
+except Exception:
+    stop_no = str(stop_no).zfill(3)
+
+7) Quick calibration tool (so you don’t waste time guessing margins)
+
+Add a temporary “calibration” PDF route that prints:
+
+a ruler line and
+
+left/right edge markers like |123456...|
+So you can see if anything clips on the printer app.
+
+If it clips:
+
+increase LEFT/RIGHT from 2mm → 3mm
+
+Recommended “best starting settings”
+
+Use these first (they will look noticeably bigger and fill the paper):
+
+PAGE_W: 80mm
+
+LEFT/RIGHT: 2mm
+
+FS: 10
+
+Title: 12 bold
+
+Dynamic COLS computed from width
