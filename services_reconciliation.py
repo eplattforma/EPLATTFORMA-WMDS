@@ -88,16 +88,14 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         ) ct ON true
         LEFT JOIN LATERAL (
             SELECT 
-                ca2.payment_method,
                 SUM(ca2.received_amount) AS received_amount,
                 SUM(ca2.deduct_amount) AS deduct_amount,
+                MAX(ca2.payment_method) as payment_method,
                 MAX(ca2.cheque_date) AS cheque_date,
                 BOOL_OR(ca2.is_pending) AS is_pending
             FROM cod_invoice_allocations ca2
             WHERE ca2.invoice_no = rsi.invoice_no 
               AND ca2.route_id = rs.shipment_id
-            GROUP BY ca2.payment_method
-            LIMIT 1
         ) ca ON true
         LEFT JOIN (
             SELECT invoice_no, SUM(COALESCE(reported_value, 0)) AS discrepancy_total
@@ -131,7 +129,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         discrepancy = float(r['discrepancy_value'] or 0)
         is_credit = r['is_credit']
         
-        # Payment info from allocation (unified per stop if possible)
+        # Payment info from allocation (stored per invoice)
         payment_method = r['payment_method'] or ''
         received = float(r['received_amount'] or 0)
         cheque_date = r['cheque_date']
@@ -140,92 +138,55 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         is_day_cheque = (pm_upper == 'CHEQUE' and cheque_date and cheque_date <= datetime.now().date())
         is_cash = pm_upper == 'CASH'
         
-        # Update stop-level payment info
-        # In multi-invoice stops, we assume the payment applies to the stop
-        if is_cash or is_day_cheque:
-            stops_data[stop_id]['total_received'] += received
+        # Accumulate stop-level total received (trusting the sum of invoice allocations)
+        stops_data[stop_id]['total_received'] += received
+        if pm_upper and not stops_data[stop_id]['payment_method']:
             stops_data[stop_id]['payment_method'] = pm_upper
             stops_data[stop_id]['is_day_cheque'] = is_day_cheque
-        elif not stops_data[stop_id]['payment_method'] and pm_upper:
-            stops_data[stop_id]['payment_method'] = pm_upper
         
         if r.get('alloc_pending'):
             stops_data[stop_id]['has_pending'] = True
 
+        # Stored allocation value for this invoice
+        # Formula: Expected - Received - Discrepancy
+        outstanding = expected - received - discrepancy
+        if abs(outstanding) < 0.001:
+            outstanding = 0.0
+
         stops_data[stop_id]['invoices'].append({
-            'route_id': r['route_id'],
             'invoice_no': r['invoice_no'],
             'expected': expected,
-            'discrepancy': discrepancy,
-            'is_credit': is_credit,
+            'received': received if payment_method else None,
+            'discrepancy': discrepancy if discrepancy > 0.001 else None,
+            'outstanding': float(outstanding),
             'delivery_status': r['delivery_status'],
-            'alloc_pending': r.get('alloc_pending', False)
+            'is_credit': is_credit
         })
 
     rows = []
-    # Now allocate payments sequentially for each stop
     for stop_id, data in stops_data.items():
-        pool = data['total_received']
-        
-        # Calculate stop-level totals for the header
+        # Stop-level summary
         stop_expected = sum(inv['expected'] for inv in data['invoices'])
-        stop_discrepancy = sum(inv['discrepancy'] for inv in data['invoices'])
+        stop_discrepancy = sum(inv['discrepancy'] or 0 for inv in data['invoices'])
         
         # For outstanding: only count non-credit (POD) invoices
-        # Credit invoices are paid on account, so no outstanding at delivery
         pod_expected = sum(inv['expected'] for inv in data['invoices'] if not inv['is_credit'])
-        pod_discrepancy = sum(inv['discrepancy'] for inv in data['invoices'] if not inv['is_credit'])
+        pod_discrepancy = sum(inv['discrepancy'] or 0 for inv in data['invoices'] if not inv['is_credit'])
         
-        # We need to subtract ALL received amounts at the stop, regardless of which invoice they are allocated to
-        stop_outstanding = pod_expected - data['total_received'] - pod_discrepancy
+        # Grand total received at stop (sum of all invoice allocations)
+        stop_received = data['total_received']
+        stop_outstanding = pod_expected - stop_received - pod_discrepancy
         
-        stop_rows = []
-        for inv in data['invoices']:
-            expected = inv['expected']
-            discrepancy = inv['discrepancy']
-            is_credit = inv['is_credit']
-            
-            if is_credit:
-                allocated = 0
-                display_payment = 'CREDIT'
-                outstanding = 0
-                terms_label = 'CREDIT'
-                display_received = None
-            else:
-                terms_label = 'POD'
-                # For POD, target is expected - discrepancy
-                target = expected - discrepancy
-                allocated = min(pool, target) if pool > 0 else 0
-                pool -= allocated
-                
-                display_received = allocated if data['payment_method'] else None
-                display_payment = data['payment_method'] or '-'
-                
-                # Formula: Expected - Allocated - Discrepancy
-                outstanding = expected - allocated - discrepancy
-                
-                if abs(outstanding) < 0.001:
-                    outstanding = 0.0
-            
-            stop_rows.append({
-                'invoice_no': inv['invoice_no'],
-                'expected': expected,
-                'received': display_received,
-                'discrepancy': discrepancy if discrepancy > 0.001 else None,
-                'outstanding': float(outstanding),
-                'delivery_status': inv['delivery_status']
-            })
-
         rows.append({
             'stop_seq': data['stop_seq'],
             'customer_name': data['customer_name'],
             'payment_type': data['payment_method'] or '-',
             'terms': 'CREDIT' if any(inv['is_credit'] for inv in data['invoices']) else 'POD',
             'stop_expected': float(stop_expected),
-            'stop_received': float(data['total_received']),
+            'stop_received': float(stop_received),
             'stop_discrepancy': float(stop_discrepancy),
             'stop_outstanding': float(stop_outstanding),
-            'invoices': stop_rows,
+            'invoices': data['invoices'],
             'is_pending_payment': data.get('has_pending', False)
         })
     

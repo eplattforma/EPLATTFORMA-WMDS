@@ -332,12 +332,12 @@ def get_route_settlement_summary(route_id):
             total_expected += original
             total_deductions += deductions
     
-    # Get payment breakdown from COD receipts
+    # Get payment breakdown from invoice allocations for more accuracy
     payment_breakdown = db.session.execute(text("""
         SELECT 
             payment_method,
             SUM(received_amount) as total_received
-        FROM cod_receipts
+        FROM cod_invoice_allocations
         WHERE route_id = :route_id
         GROUP BY payment_method
     """), {'route_id': route_id}).fetchall()

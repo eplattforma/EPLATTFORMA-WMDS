@@ -309,12 +309,8 @@ def new_receipt_form_for_stop(route_stop_id):
     # Combine all invoice numbers
     invoice_numbers = ", ".join([inv.invoice_no for inv in invoices])
     
-    # Calculate total amount (Invoice doesn't have total_value, so we calculate from items)
-    total_amount = 0
-    for inv in invoices:
-        for item in inv.items:
-            # This is a placeholder - driver can edit the amount on the form
-            pass
+    # Calculate total amount from synced grand totals
+    total_amount = sum([float(inv.total_grand or 0) for inv in invoices])
     
     return render_template("receipt_form.html", 
                          invoice_no=invoice_numbers,

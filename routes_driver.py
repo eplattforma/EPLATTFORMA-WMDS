@@ -681,11 +681,13 @@ def submit_delivery(stop_id):
                 invoice_due = invoice_total - invoice_deduct
                 
                 # Allocate received amount proportionally if multiple invoices
+                # We use the adjusted net expected (cod_expected) as the base
                 if cod_expected > 0 and len(invoice_nos) > 1:
                     proportion = invoice_due / cod_expected
-                    invoice_received = received * proportion
+                    invoice_received = (received * proportion).quantize(Decimal('0.01'))
                 else:
-                    invoice_received = received if len(invoice_nos) == 1 else invoice_due
+                    # Single invoice gets everything, or if cod_expected is 0 (all credit)
+                    invoice_received = received if len(invoice_nos) == 1 else Decimal('0')
                 
                 # Mark as pending if:
                 # 1. Payment method requires clearance (online/postdated), OR
@@ -1334,7 +1336,7 @@ def submit_settlement(route_id):
         return jsonify({'error': str(e)}), 500
 
 @driver_bp.route('/routes/<int:route_id>/settlement/clear', methods=['POST'])
-@login_required
+@driver_required
 def clear_settlement(route_id):
     """Admin clears settlement (does NOT change route status or completed_at)"""
     try:
