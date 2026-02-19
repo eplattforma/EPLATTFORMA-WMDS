@@ -8,20 +8,20 @@ from reportlab.pdfbase import pdfmetrics
 # Configuration
 FONT = "Courier"
 FONT_B = "Courier-Bold"
-FS_NORMAL = 11
-FS_TITLE = 13
-LEADING = 13
+FS_NORMAL = 12
+FS_TITLE = 14
+LEADING = 14
 
-PAGE_W = 80 * mm
-LEFT = 1.5 * mm
-RIGHT = 1.5 * mm
+PAGE_W = 72 * mm  # Printable width for 80mm roll to avoid auto-scaling
+LEFT = 1 * mm
+RIGHT = 1 * mm
 TOP = 4 * mm
 BOT = 6 * mm
 
 def get_dynamic_cols(font_name, font_size):
     avail_w = PAGE_W - LEFT - RIGHT
     char_w = pdfmetrics.stringWidth("M", font_name, font_size)
-    return max(30, int(avail_w / char_w))
+    return max(24, int(avail_w / char_w))
 
 def money(v):
     try:
@@ -45,13 +45,14 @@ def _wrap_cols(s, width):
 
 def format_stop_no(stop_no):
     try:
+        # Handle cases like "1.0" or "1" to "001"
         return str(int(float(stop_no))).zfill(3)
     except Exception:
         return str(stop_no).zfill(3)
 
 def build_delivery_receipt_pdf(data: dict) -> bytes:
     """
-    Builds an 80mm thermal PDF optimized for mobile share/print to BIXOLON SPP-R310.
+    Builds a PDF optimized for 80mm thermal printers (printable width 72mm).
     """
     cols = get_dynamic_cols(FONT, FS_NORMAL)
     cols_title = get_dynamic_cols(FONT_B, FS_TITLE)
@@ -69,12 +70,13 @@ def build_delivery_receipt_pdf(data: dict) -> bytes:
         lines.append(("C", s[:cols]))
 
     def add_bc(s):
+        # Use title-specific column count for bold titles
         lines.append(("BC", s[:cols_title]))
 
-    # Calibration Mode
+    # Diagnostic line (can be removed later)
     if data.get("calibrate"):
+        add(f"DEBUG W={PAGE_W/mm:.0f}mm COLS={cols} FS={FS_NORMAL}")
         add("|" + ("-" * (cols - 2)) + "|")
-        add("L" + (" " * (cols - 4)) + "R")
         add(sep)
 
     is_collected = bool(data.get("is_collected", False))

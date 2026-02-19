@@ -1,0 +1,81 @@
+Thought for 1m 16sYou’re hitting a print-pipeline scaling issue, not just a PDF layout issue.
+From the photo: the content is still being printed as if it’s a narrower paper profile (often 58mm), so the BIXOLON/phone printing app is shrinking your 80mm PDF to fit its configured width → everything looks small and centered.
+Do these two things in parallel:
+
+1) Replit change: generate PDF at the printer’s printable width, not roll width
+For SPP-R310 (3-inch), the printable area is ~72mm, not 80mm. If your PDF is 80mm, many apps “fit” it down.
+Update constants
+Change:
+PAGE_W = 80 * mm
+LEFT = 2 * mm
+RIGHT = 2 * mm
+
+To:
+PAGE_W = 72 * mm          # printable width (key change)
+LEFT  = 1 * mm
+RIGHT = 1 * mm
+FS_NORMAL = 12            # bump
+FS_TITLE  = 14
+LEADING   = 14
+
+Also fix the title COLS bug (12pt uses fewer columns)
+You already calculate cols based on 10pt, but titles print at 12pt. Compute both:
+def get_dynamic_cols(font_name, font_size):
+    avail_w = PAGE_W - LEFT - RIGHT
+    char_w = pdfmetrics.stringWidth("M", font_name, font_size)
+    return max(24, int(avail_w / char_w))
+
+cols = get_dynamic_cols(FONT, FS_NORMAL)
+cols_title = get_dynamic_cols(FONT_B, FS_TITLE)
+
+def add_bc(s):
+    lines.append(("BC", s[:cols_title]))
+
+This prevents title lines forcing an implicit “fit”.
+
+2) Operational fix: ensure the mobile printing app is set to 80mm / 3-inch, not 58mm
+If the printing utility is configured for 58mm media, it will always shrink.
+Tell drivers (one-time setup)
+
+
+In the BIXOLON printing app/utility:
+
+
+Paper / Media width: 80mm (3 inch)
+
+
+Scaling: 100% / Actual size (disable “Fit to page” if it exists)
+
+
+
+
+If they can’t change that setting, then your PDF will keep printing small no matter what.
+
+Quick diagnostic to prove it (add to PDF temporarily)
+Add a debug line at the top for one day:
+add(f"DEBUG W={PAGE_W/mm:.0f}mm COLS={cols} FS={FS_NORMAL}")
+add("|" + ("-"*(cols-2)) + "|")
+add(sep)
+
+
+
+If the |-----| line prints with big side margins, the printing app is still in a narrow profile.
+
+
+Once configured correctly, that line should almost reach the edges.
+
+
+
+Extra: why you got two receipts on one long print
+Your image shows the same receipt printed twice on the same strip — that’s almost always:
+
+
+“Copies = 2” in the print dialog, or
+
+
+your UI triggers print twice (double tap / auto-print + manual print)
+
+
+Add a simple client-side guard: disable the Print button for 2–3 seconds after tap.
+
+If you want, paste the exact screen/flow where the driver taps Print (HTML/JS) and I’ll give you the exact “prevent double print” snippet + a clean “Share PDF” function for iOS/Android.
