@@ -776,7 +776,7 @@ def submit_delivery(stop_id):
         db.session.commit()
         
         from utils.print_token import make_print_token
-        print_token = make_print_token(stop_id, current_user.id)
+        print_token = make_print_token(stop_id, current_user.username)
         print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=print_token)
         
         return jsonify({
@@ -1176,7 +1176,7 @@ def get_print_token(stop_id):
     if route.driver_name != current_user.username and current_user.role != 'admin':
         abort(403)
 
-    token = make_print_token(stop_id, current_user.id)
+    token = make_print_token(stop_id, current_user.username)
     print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=token)
     return jsonify({'print_url': print_url, 'token': token})
 
