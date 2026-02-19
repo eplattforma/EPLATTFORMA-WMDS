@@ -194,11 +194,9 @@ input[type=number]::-webkit-inner-spin-button {
     </div>
 
     <div class="d-grid gap-2">
-        <a href="{{ url_for('driver.print_stop_receipt_80mm', stop_id=stop.route_stop_id) }}" 
-           target="_blank" 
-           class="btn btn-primary btn-lg">
-            <i class="fas fa-print"></i> Print Receipt (80mm)
-        </a>
+        <button class="btn btn-outline-primary btn-lg" onclick="previewReceipt()">
+            <i class="fas fa-print"></i> Preview Receipt (PDF)
+        </button>
         <button class="btn btn-success btn-lg" onclick="submitDelivery()">
             <i class="fas fa-check-circle"></i> Complete Delivery
         </button>
@@ -749,7 +747,15 @@ async function submitDelivery() {
         if (data.success) {
             const msg = isCredit ? 
                 'Delivery completed (Credit Account)' : 
-                `Delivery completed! COD Collected: €${data.cod.received.toFixed(2)}`;
+                `Delivery completed! COD Collected: \u20ac${data.cod.received.toFixed(2)}`;
+            
+            if (data.print_url) {
+                const autoPrint = localStorage.getItem('driver_auto_print') !== 'false';
+                if (autoPrint) {
+                    await shareOrOpenPDF(data.print_url, `receipt-${stopId}.pdf`);
+                }
+            }
+            
             alert(msg);
             window.location.href = `/driver/routes/${routeId}/stops`;
         } else {
@@ -758,6 +764,35 @@ async function submitDelivery() {
     } catch (error) {
         console.error('Error:', error);
         alert('Error completing delivery. Please try again.');
+    }
+}
+
+async function shareOrOpenPDF(printUrl, filename) {
+    try {
+        const res = await fetch(printUrl, { cache: "no-store" });
+        if (!res.ok) { window.open(printUrl, "_blank"); return; }
+        const blob = await res.blob();
+        const file = new File([blob], filename, { type: "application/pdf" });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: filename });
+            return;
+        }
+    } catch (e) { console.log('Share failed, opening in new tab', e); }
+    window.open(printUrl, "_blank");
+}
+
+async function previewReceipt() {
+    try {
+        const res = await fetch(`/driver/api/stops/${stopId}/print_token`);
+        const data = await res.json();
+        if (data.print_url) {
+            await shareOrOpenPDF(data.print_url, `receipt-preview-${stopId}.pdf`);
+        } else {
+            alert('Could not generate receipt preview');
+        }
+    } catch (e) {
+        alert('Error generating preview: ' + e.message);
     }
 }
 </script>

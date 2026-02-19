@@ -775,6 +775,10 @@ def submit_delivery(stop_id):
         
         db.session.commit()
         
+        from utils.print_token import make_print_token
+        print_token = make_print_token(stop_id, current_user.id)
+        print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=print_token)
+        
         return jsonify({
             'success': True,
             'cod': {
@@ -782,7 +786,8 @@ def submit_delivery(stop_id):
                 'received': float(received if not is_credit else 0),
                 'method': cod_method
             },
-            'receipt_id': cod_receipt.id if cod_receipt else None
+            'receipt_id': cod_receipt.id if cod_receipt else None,
+            'print_url': print_url
         })
     
     except Exception as e:
@@ -1041,6 +1046,140 @@ def print_stop_receipt_80mm(stop_id):
                          stop=stop,
                          invoices=invoices,
                          exceptions=exceptions)
+
+
+@driver_bp.route('/print/receipt/<int:stop_id>.pdf')
+def print_receipt_pdf(stop_id):
+    """Tokenized 80mm thermal PDF receipt for seamless mobile printing."""
+    from utils.print_token import verify_print_token
+    from utils.thermal_receipt_pdf import build_delivery_receipt_pdf
+    from io import BytesIO
+
+    token = request.args.get('token', '')
+    token_data = verify_print_token(token, max_age_seconds=300)
+    if not token_data or token_data.get('stop_id') != stop_id:
+        abort(403, description="Invalid or expired print token")
+
+    stop = RouteStop.query.get_or_404(stop_id)
+    route = Shipment.query.get(stop.shipment_id)
+
+    cod_receipt = CODReceipt.query.filter_by(route_stop_id=stop_id).order_by(
+        CODReceipt.created_at.desc()
+    ).first()
+
+    stop_invoices = RouteStopInvoice.query.filter_by(
+        route_stop_id=stop_id, is_active=True
+    ).all()
+    invoice_nos = [rsi.invoice_no for rsi in stop_invoices]
+
+    invoices_list = []
+    invoice_total_sum = Decimal('0')
+    for inv_no in invoice_nos:
+        inv = Invoice.query.get(inv_no)
+        inv_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
+        invoices_list.append({'invoice_no': inv_no, 'total': inv_total})
+        invoice_total_sum += inv_total
+
+    from models import DeliveryDiscrepancy
+    exceptions_raw = DeliveryDiscrepancy.query.filter(
+        DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
+    ).all() if invoice_nos else []
+    exceptions_list = [{
+        'type': exc.discrepancy_type or '',
+        'item_name': exc.item_name or '',
+        'qty_expected': exc.qty_expected or '',
+        'qty_actual': exc.qty_actual or '',
+        'note': exc.note or ''
+    } for exc in exceptions_raw]
+
+    terms = get_credit_terms(stop.customer_code)
+    is_credit = terms['is_credit']
+
+    is_preview = cod_receipt is None
+    is_collected = False
+    collected = Decimal('0')
+    payment_method = 'not_collected'
+    notes = ''
+    cheque_number = None
+    cheque_date = None
+    receipt_no = f"PREVIEW-{stop_id}"
+    date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    expected_total = invoice_total_sum
+
+    if cod_receipt:
+        expected_total = Decimal(str(cod_receipt.expected_amount or 0)) or invoice_total_sum
+        collected = Decimal(str(cod_receipt.received_amount or 0))
+        payment_method = cod_receipt.payment_method or 'not_collected'
+        is_collected = collected > 0 and payment_method.lower() not in ('not_collected', 'online')
+        notes = cod_receipt.note or ''
+        cheque_number = cod_receipt.cheque_number
+        cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
+        receipt_no = str(cod_receipt.id)
+        date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
+        is_preview = False
+    elif is_credit:
+        notes = 'Credit account - no payment required'
+    else:
+        notes = 'Payment not yet collected - PREVIEW'
+
+    balance_due = expected_total - collected
+
+    stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
+
+    pdf_data = {
+        'is_collected': is_collected,
+        'is_credit': is_credit,
+        'is_preview': is_preview,
+        'is_amended': False,
+        'receipt_no': receipt_no,
+        'date_str': date_str,
+        'route_no': route.id if route else '',
+        'stop_no': stop_no,
+        'driver_name': route.driver_name if route else '',
+        'customer_code': stop.customer_code or '',
+        'customer_name': stop.stop_name or '',
+        'customer_addr': stop.stop_addr or '',
+        'invoices': invoices_list,
+        'expected': expected_total,
+        'collected': collected,
+        'balance_due': balance_due,
+        'payment_method': payment_method,
+        'cheque_number': cheque_number,
+        'cheque_date': cheque_date,
+        'notes': notes,
+        'exceptions': exceptions_list,
+    }
+
+    pdf_bytes = build_delivery_receipt_pdf(pdf_data)
+
+    return send_file(
+        BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        download_name=f'receipt-{receipt_no}.pdf',
+        as_attachment=False
+    ), 200, {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Content-Type-Options': 'nosniff'
+    }
+
+
+@driver_bp.route('/api/stops/<int:stop_id>/print_token')
+@driver_required
+def get_print_token(stop_id):
+    """Generate a short-lived print token for PDF receipt."""
+    from utils.print_token import make_print_token
+
+    stop = RouteStop.query.get_or_404(stop_id)
+    route = Shipment.query.get(stop.shipment_id)
+    if route.driver_name != current_user.username and current_user.role != 'admin':
+        abort(403)
+
+    token = make_print_token(stop_id, current_user.id)
+    print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=token)
+    return jsonify({'print_url': print_url, 'token': token})
+
 
 # --- API Endpoints ---
 

@@ -3,20 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COD Receipt #{{ receipt.id }}</title>
+    <title>Receipt #{{ receipt.id }}</title>
     <style>
         @media print {
             @page {
                 size: 80mm auto;
                 margin: 2mm;
             }
-            body {
-                margin: 0;
-                padding: 0;
-            }
-            .no-print {
-                display: none !important;
-            }
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
         }
 
         body {
@@ -28,209 +23,158 @@
             padding: 3mm;
             color: #000;
         }
-
-        .center {
-            text-align: center;
-        }
-
-        .bold {
-            font-weight: bold;
-        }
-
-        .large {
-            font-size: 13pt;
-        }
-
-        .medium {
-            font-size: 11pt;
-        }
-
-        hr {
-            border: none;
-            border-top: 1px dashed #000;
-            margin: 4mm 0;
-        }
-
-        .separator {
-            border-top: 2px solid #000;
-            margin: 4mm 0;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        td {
-            padding: 1.5mm 0;
-        }
-
-        .right {
-            text-align: right;
-        }
-
-        .total-row {
-            border-top: 2px solid #000;
-            padding-top: 3mm;
-            font-weight: bold;
-            font-size: 11pt;
-        }
-
-        .company-header {
-            margin-bottom: 5mm;
-        }
-
-        .invoice-list {
-            margin: 3mm 0;
-        }
-
-        .amount-section {
-            margin: 4mm 0;
-        }
+        .center { text-align: center; }
+        .bold { font-weight: bold; }
+        .large { font-size: 13pt; }
+        hr { border: none; border-top: 1px dashed #000; margin: 4mm 0; }
+        .separator { border-top: 2px solid #000; margin: 4mm 0; }
+        table { width: 100%; border-collapse: collapse; }
+        td { padding: 1.5mm 0; }
+        .right { text-align: right; }
+        .total-row { border-top: 2px solid #000; padding-top: 3mm; font-weight: bold; font-size: 11pt; }
+        .balance-due { color: #c00; font-weight: bold; font-size: 12pt; }
+        .status-badge { display: inline-block; padding: 2mm 4mm; font-weight: bold; font-size: 11pt; border: 1px solid #000; margin: 2mm 0; }
     </style>
 </head>
 <body>
-    <!-- Company Header -->
-    <div class="company-header">
-        <div class="center bold large">STEP EPLATTFORMA LTD</div>
-        <div class="center" style="font-size: 9pt;">Digeni Akrita 13BC, 1055 Lefkosia</div>
-        <div class="center" style="font-size: 9pt;">Tel: 7000 0394</div>
-        <div class="center" style="font-size: 9pt;">VAT Reg No: CY10353264O</div>
+    {% set pm = receipt.payment_method|lower if receipt.payment_method else 'not_collected' %}
+    {% set is_collected = receipt.received_amount|float > 0 and pm not in ['not_collected', 'online'] %}
+    {% set is_preview = receipt.id|string|truncate(7, True, '') == 'PREVIEW' %}
+
+    {% if is_preview %}
+    <div class="center bold" style="font-size: 9pt; border: 1px solid #000; padding: 2mm; margin-bottom: 3mm;">
+        *** PREVIEW - NOT A FINAL RECEIPT ***
     </div>
-    
+    {% endif %}
+
+    <div class="center bold large">STEP EPLATTFORMA LTD</div>
+    <div class="center" style="font-size: 9pt;">Digeni Akrita 13BC, 1055 Lefkosia</div>
+    <div class="center" style="font-size: 9pt;">Tel: 7000 0394  VAT: CY10353264O</div>
+
     <div class="separator"></div>
-    
-    <div class="center bold large">CASH SALES RECEIPT</div>
-    
+
+    {% if is_collected %}
+    <div class="center bold large">PAYMENT RECEIPT</div>
+    <div class="center"><span class="status-badge">STATUS: PAID</span></div>
+    {% else %}
+    <div class="center bold large">DELIVERY CONFIRMATION</div>
+    <div class="center bold" style="font-size: 11pt;">PAYMENT DUE</div>
+    <div class="center"><span class="status-badge">STATUS: NOT COLLECTED</span></div>
+    {% endif %}
+
     <hr>
-    
-    <!-- Receipt Details -->
+
     <table>
-        <tr>
-            <td class="bold">Receipt #:</td>
-            <td class="right bold">{{ receipt.id }}</td>
-        </tr>
-        <tr>
-            <td>Route #:</td>
-            <td class="right">{{ route.id }}</td>
-        </tr>
-        <tr>
-            <td>Date:</td>
-            <td class="right">{{ receipt.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        </tr>
-        <tr>
-            <td>Driver:</td>
-            <td class="right">{{ receipt.driver_username }}</td>
-        </tr>
+        <tr><td class="bold">Receipt:</td><td class="right">{{ receipt.id }}</td></tr>
+        <tr><td>Date:</td><td class="right">{{ receipt.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+        <tr><td>Route:</td><td class="right">{{ route.id }}</td></tr>
+        <tr><td>Stop:</td><td class="right">{{ "%03d"|format(stop.seq_no or 0) }}</td></tr>
+        <tr><td>Driver:</td><td class="right">{{ receipt.driver_username }}</td></tr>
+        {% if stop.customer_code %}
+        <tr><td>Cust Code:</td><td class="right">{{ stop.customer_code }}</td></tr>
+        {% endif %}
     </table>
-    
+
     <hr>
-    
-    <!-- Customer Info -->
-    <div class="bold">CUSTOMER:</div>
+
+    <div class="bold">CUSTOMER</div>
     <div>{{ stop.stop_name }}</div>
     {% if stop.stop_addr %}
     <div style="font-size: 9pt;">{{ stop.stop_addr }}</div>
     {% endif %}
-    
+
     <hr>
-    
-    <!-- Invoices -->
-    <div class="bold">INVOICE REFERENCES:</div>
-    <div class="invoice-list">
-        {% for invoice in invoices %}
-        <div style="margin-left: 3mm;">{{ invoice.invoice_no }}</div>
-        {% endfor %}
+
+    <div class="bold">INVOICES ({{ invoices|length }})</div>
+    {% for invoice in invoices %}
+    <div style="margin-left: 3mm;">
+        {{ invoice.invoice_no }}
+        {% if invoice.total_grand %}
+        <span class="right" style="float:right;">&euro;{{ "%.2f"|format(invoice.total_grand|float) }}</span>
+        {% endif %}
     </div>
-    
+    {% endfor %}
+
     <div class="separator"></div>
-    
-    <!-- Payment Information -->
-    <div class="amount-section">
-        <table>
-            <tr>
-                <td>Expected Amount:</td>
-                <td class="right">€{{ "%.2f"|format(receipt.expected_amount) }}</td>
-            </tr>
-            <tr>
-                <td>Payment Method:</td>
-                <td class="right bold">{{ receipt.payment_method.replace('_', ' ').upper() }}</td>
-            </tr>
-        </table>
-    </div>
-    
+
+    <div class="bold" style="font-size: 11pt;">AMOUNTS</div>
     <table>
-        <tr class="total-row">
-            <td>AMOUNT COLLECTED:</td>
-            <td class="right">€{{ "%.2f"|format(receipt.received_amount) }}</td>
-        </tr>
-        {% if receipt.variance != 0 %}
         <tr>
-            <td>Variance:</td>
-            <td class="right">€{{ "%.2f"|format(receipt.variance) }}</td>
+            <td>Expected:</td>
+            <td class="right">&euro;{{ "%.2f"|format(receipt.expected_amount|float) }}</td>
         </tr>
+        <tr>
+            <td>Collected:</td>
+            <td class="right">&euro;{{ "%.2f"|format(receipt.received_amount|float) }}</td>
+        </tr>
+        {% if is_collected %}
+        <tr>
+            <td>Method:</td>
+            <td class="right bold">{{ pm.replace('_', ' ')|upper }}</td>
+        </tr>
+        {% if pm == 'cheque' and receipt.cheque_number %}
+        <tr><td>Cheque No:</td><td class="right">{{ receipt.cheque_number }}</td></tr>
+        {% endif %}
+        {% if pm == 'cheque' and receipt.cheque_date %}
+        <tr><td>Cheque Date:</td><td class="right">{{ receipt.cheque_date.strftime('%d/%m/%Y') }}</td></tr>
+        {% endif %}
         {% endif %}
     </table>
-    
+
+    {% set balance = receipt.expected_amount|float - receipt.received_amount|float %}
+    {% if not is_collected or balance > 0.01 %}
+    <table>
+        <tr class="total-row">
+            <td class="balance-due">BALANCE DUE:</td>
+            <td class="right balance-due">&euro;{{ "%.2f"|format(balance) }}</td>
+        </tr>
+    </table>
+    {% endif %}
+
+    {% if exceptions %}
+    <div class="separator"></div>
+    <div class="bold">EXCEPTIONS ({{ exceptions|length }})</div>
+    {% for exc in exceptions %}
+    <div style="font-size: 9pt; margin: 2mm 0; padding: 2mm; border: 1px solid #000;">
+        <div><strong>{{ exc.discrepancy_type|upper }}</strong>: {{ exc.item_name }}</div>
+        <div>Exp: {{ exc.qty_expected }} | Act: {{ exc.qty_actual }}</div>
+        {% if exc.note %}<div style="font-size: 8pt;">Note: {{ exc.note }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
     {% if receipt.note %}
     <hr>
     <div class="bold">Notes:</div>
-    <div style="margin-left: 3mm;">{{ receipt.note }}</div>
+    <div style="margin-left: 3mm; font-size: 9pt;">{{ receipt.note }}</div>
     {% endif %}
-    
-    {% if exceptions %}
+
     <div class="separator"></div>
-    
-    <!-- Delivery Exceptions -->
-    <div class="bold">DELIVERY EXCEPTIONS:</div>
-    <div style="font-size: 9pt; margin-top: 2mm;">
-        {% for exc in exceptions %}
-        <div style="margin: 2mm 0; padding: 2mm; border: 1px solid #000;">
-            <div><strong>{{ exc.discrepancy_type }}</strong></div>
-            <div>Item: {{ exc.item_name }}</div>
-            <div>Expected: {{ exc.qty_expected }} | Actual: {{ exc.qty_actual }}</div>
-            {% if exc.note %}
-            <div style="font-size: 8pt;">Note: {{ exc.note }}</div>
-            {% endif %}
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-    
-    <div class="separator"></div>
-    
-    <!-- Footer -->
-    <div class="center" style="margin-top: 5mm;">
-        <div class="bold">Thank you for your business!</div>
-        <div style="font-size: 9pt; margin-top: 4mm;">
-            This receipt confirms delivery and payment collection.
-        </div>
-    </div>
-    
-    <hr>
-    
-    <div class="center" style="font-size: 8pt; margin-top: 5mm;">
-        <div>Customer Signature: ___________________</div>
-        <div style="margin-top: 3mm;">Driver Signature: ___________________</div>
+
+    <div style="margin-top: 5mm;">
+        <div>Customer Signature (Delivery):</div>
+        <div style="margin-top: 8mm; border-bottom: 1px solid #000; width: 90%;"></div>
     </div>
 
-    <!-- Print Controls (not printed) -->
+    {% if is_collected %}
+    <div style="margin-top: 5mm;">
+        <div>Customer Signature (Payment):</div>
+        <div style="margin-top: 8mm; border-bottom: 1px solid #000; width: 90%;"></div>
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 5mm;">
+        <div>Driver Signature:</div>
+        <div style="margin-top: 8mm; border-bottom: 1px solid #000; width: 90%;"></div>
+    </div>
+
     <div class="no-print" style="margin-top: 10mm; text-align: center;">
         <button onclick="window.print()" style="padding: 10px 20px; font-size: 14pt; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">
-            🖨️ Print Receipt
+            Print Receipt
         </button>
         <button onclick="window.close()" style="padding: 10px 20px; font-size: 14pt; margin-left: 10px; background-color: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
-            ✖ Close
+            Close
         </button>
     </div>
-
-    <script>
-        window.addEventListener('load', function() {
-            // Auto-print after page loads
-            setTimeout(function() {
-                window.print();
-            }, 500);
-        });
-    </script>
 </body>
 </html>

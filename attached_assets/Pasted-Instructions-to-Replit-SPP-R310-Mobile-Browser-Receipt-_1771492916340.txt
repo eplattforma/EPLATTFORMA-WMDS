@@ -1,0 +1,323 @@
+Instructions to Replit: SPP-R310 Mobile Browser Receipt (Seamless + Correct Content)
+0) Core constraints (design decision)
+
+Because drivers use Chrome on iOS (browser), we cannot do true Bluetooth direct print from the web app. The seamless method is:
+
+✅ Generate 80mm thermal PDF server-side
+✅ Use Web Share (preferred) to send the PDF to the BIXOLON printing app
+✅ Fallback to open PDF in new tab
+✅ Use signed short-lived token so the PDF works even if iOS loses session
+
+A) Receipt Content Rules (must implement)
+A1) Document type must match payment reality (no contradictions)
+
+If payment NOT collected (payment_method == NOT_COLLECTED OR amount_collected <= 0):
+
+Title: DELIVERY CONFIRMATION / PAYMENT DUE
+
+Status: NOT COLLECTED
+
+Show: BALANCE DUE prominently
+
+Remove any text implying payment was collected
+
+If payment collected:
+
+Title: PAYMENT RECEIPT
+
+Status: PAID
+
+Show method + collected amount (and change if CASH)
+
+This fixes the current “CASH SALES RECEIPT” + “NOT COLLECTED” contradiction.
+
+A2) Make money summary the hero (always present)
+
+Print an “AMOUNTS” block every time:
+
+Expected
+
+Collected
+
+Balance Due (always, but emphasize when not collected)
+
+Optional (if CASH):
+
+Cash Received
+
+Change Given
+
+A3) Add operational identifiers for support calls
+
+Add these fields (single-line, never wrapping):
+
+Receipt No
+
+Date/Time
+
+Route No
+
+Stop No (3-digit)
+
+Driver name
+
+Customer code (365 code)
+
+Optional if you have them:
+
+Vehicle / Plate
+
+Customer VAT No
+
+A4) Invoices formatting
+
+If multiple invoices: print INVOICES (N) then each invoice on its own line
+
+Don’t comma-join if it risks wrapping on 48 columns
+
+Optional enhancement (nice but not required):
+
+If you have totals per invoice, show: IN10053361 €123.45
+
+A5) Signatures must match scenario
+
+Always print:
+
+Customer Signature (Delivery Received)
+
+Driver Signature
+
+Only if payment collected:
+
+Customer Signature (Payment Received) OR a checkbox line:
+
+[x] Delivery received
+
+[x] Payment collected
+
+If NOT collected, do NOT show payment signature.
+
+A6) “Preview / Amended” flags
+
+If the receipt is not final:
+
+Show: *** PREVIEW – NOT A FINAL RECEIPT ***
+
+If a stop was reopened and amended:
+
+Show: *** AMENDED DELIVERY ***
+
+(Optional) show Amended at: YYYY-MM-DD HH:MM
+
+B) Layout Rules for SPP-R310 (80mm / 48 columns)
+B1) Hard format constraints
+
+Use 48 characters per line (safe default)
+
+Separator exactly 48 chars:
+------------------------------------------------
+
+Font: monospace (Courier / DejaVu Sans Mono)
+
+Minimal center alignment (centering often wraps ugly)
+
+No long paragraphs—wrap to 48 columns
+
+B2) Section order (best in the field)
+
+Company header
+
+Title + Status
+
+IDs (receipt/date/route/stop/driver)
+
+Customer block
+
+Invoices
+
+AMOUNTS
+
+Notes (optional)
+
+Signatures
+
+C) Backend (Flask): build a Thermal PDF endpoint (tokenized)
+C1) Add signed short-lived print token (5 min)
+
+Purpose: avoid iOS losing session / login redirect when opening PDF.
+
+Implement:
+
+make_print_token(receipt_id, user_id)
+
+verify_print_token(token, max_age_seconds=300)
+
+Use itsdangerous.URLSafeTimedSerializer with salt print-receipt.
+
+C2) Receipt PDF endpoint
+
+GET /print/receipt/<receipt_id>.pdf?token=...
+
+Return headers:
+
+Content-Type: application/pdf
+
+Content-Disposition: inline; filename="receipt-<receipt_no>.pdf"
+
+Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+Pragma: no-cache
+
+Expires: 0
+
+X-Content-Type-Options: nosniff
+
+PDF settings:
+
+Page width: 80mm
+
+Content width: ~72mm with margins
+
+Monospace font
+
+Dynamic height based on number of printed lines
+
+C3) Receipt line builder (48-column)
+
+Renderer must output an array of lines, each max 48 chars.
+
+Important: IDs must never wrap. Truncate carefully if needed.
+
+Template (content that must be produced)
+If NOT COLLECTED:
+STEP EPLATTFORMA LTD
+Digeni Akrita 13BC, 1055 Lefkosia
+Tel: 7000 0394  VAT: CY103532640
+------------------------------------------------
+DELIVERY CONFIRMATION / PAYMENT DUE
+STATUS: NOT COLLECTED
+------------------------------------------------
+Receipt: PREVIEW-1280  Date: 2026-02-19 09:06
+Route: 270  Stop: 012  Driver: Andreas Tsutalos
+Cust Code: 77700XXXX
+------------------------------------------------
+CUSTOMER
+L.M.I.M INTERNATIONAL MARKET LTD
+17, Charilaou Trikoupi
+------------------------------------------------
+INVOICES (1)
+IN10053361
+------------------------------------------------
+AMOUNTS
+Expected:                         €281.00
+Collected:                          €0.00
+BALANCE DUE:                      €281.00
+------------------------------------------------
+Notes: Payment not collected - PREVIEW
+------------------------------------------------
+Customer Signature (Delivery): ________________
+Driver Signature:             ________________
+
+If PAID:
+
+Same, but:
+
+Title: PAYMENT RECEIPT
+
+Status: PAID
+
+Payment block includes method, collected, optional change
+
+Add Customer Signature (Payment) line
+
+D) Backend: Create receipt automatically + return print_url
+D1) On stop completion, create/update driver_receipts
+
+When driver completes a stop:
+
+Build receipt record from stop + invoices
+
+Calculate:
+
+expected_amount
+
+amount_collected
+
+balance_due = expected - collected
+
+Determine:
+
+is_preview (true if not final)
+
+payment_method
+
+D2) Return print_url with token
+
+In response of stop completion:
+
+{
+  "ok": true,
+  "receipt_id": 1280,
+  "print_url": "/print/receipt/1280.pdf?token=XXXXX"
+}
+
+E) Frontend (Mobile Web): One tap printing (Web Share)
+E1) Preferred: Web Share with file
+
+On Print button:
+
+fetch(print_url) → blob
+
+create File (receipt.pdf)
+
+navigator.share({ files:[file] })
+
+Fallback:
+
+window.open(print_url, "_blank")
+
+Replit should implement this helper:
+async function shareOrOpenPDF(printUrl, filename) {
+  try {
+    const res = await fetch(printUrl, { cache: "no-store" });
+    const blob = await res.blob();
+    const file = new File([blob], filename, { type: "application/pdf" });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: filename });
+      return;
+    }
+  } catch (e) {}
+  window.open(printUrl, "_blank");
+}
+
+E2) Seamless UX toggle: Auto-print
+
+Add driver setting:
+
+Auto-print after completion (localStorage is fine)
+If enabled:
+
+After stop completion returns print_url, call shareOrOpenPDF() automatically.
+
+F) One-time setup guidance inside the app (reduce support)
+
+Create a “Printer Setup” page:
+
+Pair SPP-R310 in Bluetooth settings
+
+Install BIXOLON printing app/utility
+
+Print “Test Receipt” (open/share a sample PDF)
+
+G) Edge cases (must handle)
+
+Session lost / redirect → token solves it.
+
+€ symbol wrong → add config to print EUR instead of €.
+
+Long customer names → wrap to 48 columns; never wrap IDs.
+
+Multiple invoices → list per line.
+
+Reopened stop → show *** AMENDED DELIVERY *** at top.
