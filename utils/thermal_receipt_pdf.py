@@ -4,11 +4,11 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.lib.utils import simpleSplit
 
-COLS = 32
+COLS = 48
 FONT = "Courier"
 FONT_B = "Courier-Bold"
-FS = 14
-LEADING = 17
+FS = 12
+LEADING = 15
 
 
 def money(v):
@@ -55,11 +55,11 @@ def build_delivery_receipt_pdf(data):
     """
     buf = BytesIO()
 
-    PAGE_W = 80 * mm
-    LEFT = 4 * mm
-    RIGHT = 4 * mm
-    TOP = 3 * mm
-    BOT = 5 * mm
+    PAGE_W = 150 * mm
+    LEFT = 8 * mm
+    RIGHT = 8 * mm
+    TOP = 6 * mm
+    BOT = 8 * mm
 
     lines_out = []
 
