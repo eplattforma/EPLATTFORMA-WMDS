@@ -7,8 +7,8 @@ from reportlab.lib.utils import simpleSplit
 COLS = 48
 FONT = "Courier"
 FONT_B = "Courier-Bold"
-FS = 12
-LEADING = 15
+FS = 13
+LEADING = 16
 
 
 def money(v):
@@ -56,8 +56,8 @@ def build_delivery_receipt_pdf(data):
     buf = BytesIO()
 
     PAGE_W = 150 * mm
-    LEFT = 8 * mm
-    RIGHT = 8 * mm
+    LEFT = 6 * mm
+    RIGHT = 6 * mm
     TOP = 6 * mm
     BOT = 8 * mm
 
