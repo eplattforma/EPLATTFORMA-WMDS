@@ -4,11 +4,11 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.lib.utils import simpleSplit
 
-COLS = 48
+COLS = 32
 FONT = "Courier"
 FONT_B = "Courier-Bold"
-FS = 9
-LEADING = 11
+FS = 14
+LEADING = 17
 
 
 def money(v):

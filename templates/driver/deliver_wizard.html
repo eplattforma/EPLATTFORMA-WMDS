@@ -784,7 +784,18 @@ async function shareOrOpenPDF(printUrl, filename) {
 
 async function previewReceipt() {
     try {
-        const res = await fetch(`/driver/api/stops/${stopId}/print_token`);
+        const codAmountEl = document.getElementById('cod-amount');
+        const codMethodEl = document.getElementById('cod-method');
+        const chequeNoEl = document.getElementById('cheque-number');
+        const chequeDateEl = document.getElementById('cheque-date');
+
+        const params = new URLSearchParams();
+        if (codAmountEl) params.set('collected', codAmountEl.value || '0');
+        if (codMethodEl) params.set('payment_method', codMethodEl.value || '');
+        if (chequeNoEl && chequeNoEl.value) params.set('cheque_number', chequeNoEl.value);
+        if (chequeDateEl && chequeDateEl.value) params.set('cheque_date', chequeDateEl.value);
+
+        const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
         const data = await res.json();
         if (data.print_url) {
             await shareOrOpenPDF(data.print_url, `receipt-preview-${stopId}.pdf`);

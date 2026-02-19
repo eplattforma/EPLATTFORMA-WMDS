@@ -1117,10 +1117,26 @@ def print_receipt_pdf(stop_id):
         receipt_no = str(cod_receipt.id)
         date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
         is_preview = False
-    elif is_credit:
-        notes = 'Credit account - no payment required'
     else:
-        notes = 'Payment not yet collected - PREVIEW'
+        form_collected = request.args.get('collected')
+        form_pm = request.args.get('payment_method')
+        if form_collected:
+            try:
+                collected = Decimal(str(form_collected))
+            except Exception:
+                collected = Decimal('0')
+        if form_pm:
+            payment_method = form_pm
+        is_collected = collected > 0 and payment_method.lower() not in ('not_collected', 'online')
+        cheque_number = request.args.get('cheque_number') or None
+        cheque_date = request.args.get('cheque_date') or None
+
+        if is_credit:
+            notes = 'Credit account - no payment required'
+        elif not is_collected:
+            notes = 'Payment not yet collected - PREVIEW'
+        else:
+            notes = 'PREVIEW - pending delivery confirmation'
 
     balance_due = expected_total - collected
 
@@ -1177,7 +1193,12 @@ def get_print_token(stop_id):
         abort(403)
 
     token = make_print_token(stop_id, current_user.username)
-    print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=token)
+    extra_params = {}
+    for key in ('collected', 'payment_method', 'cheque_number', 'cheque_date'):
+        val = request.args.get(key)
+        if val:
+            extra_params[key] = val
+    print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=token, **extra_params)
     return jsonify({'print_url': print_url, 'token': token})
 
 
