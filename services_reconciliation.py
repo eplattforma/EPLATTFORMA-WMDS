@@ -708,23 +708,34 @@ def clear_pending_payment(allocation_id: int, actor: str) -> Dict:
     if not alloc:
         return {'success': False, 'message': 'Allocation not found'}
     
+    # Calculate the difference between what was previously recorded as received
+    # and what should be received now that it's cleared.
+    # Usually for pending payments (Online), received_amount is 0.
+    # For post-dated cheques, it might already be the full amount.
+    target_amount = alloc.expected_amount - alloc.deduct_amount
+    diff = target_amount - alloc.received_amount
+    
+    alloc.received_amount = target_amount
     alloc.is_pending = False
     
-    # Also update the parent receipt if all its allocations are now cleared
-    receipt = db.session.get(CODReceipt, alloc.cod_receipt_id)
-    if receipt:
-        # Check if any other allocations for this receipt are still pending
-        still_pending = CODInvoiceAllocation.query.filter(
-            CODInvoiceAllocation.cod_receipt_id == receipt.id,
-            CODInvoiceAllocation.is_pending == True,
-            CODInvoiceAllocation.id != allocation_id
-        ).count()
-        
-        if still_pending == 0:
-            receipt.is_pending = False
+    # Update the parent receipt totals if linked to maintain consistency
+    if alloc.cod_receipt_id:
+        receipt = db.session.get(CODReceipt, alloc.cod_receipt_id)
+        if receipt:
+            # Increment the total received amount on the receipt by the difference
+            receipt.received_amount = (receipt.received_amount or 0) + diff
+            # Update variance (Received - Expected)
+            receipt.variance = receipt.received_amount - receipt.expected_amount
             
     db.session.commit()
-    logger.info(f"Pending payment {allocation_id} cleared by {actor}")
+    
+    # Explicitly verify the update by refreshing the object
+    db.session.refresh(alloc)
+    if alloc.is_pending:
+        logger.error(f"Failed to clear pending status for allocation {allocation_id}")
+        return {'success': False, 'message': 'Failed to update database state'}
+
+    logger.info(f"Pending payment {allocation_id} cleared by {actor}. Received amount updated to {target_amount}")
     return {'success': True, 'message': 'Payment cleared successfully'}
 
 
