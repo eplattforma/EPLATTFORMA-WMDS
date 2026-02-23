@@ -1409,13 +1409,45 @@ class CODReceipt(db.Model):
     # PS365 integration
     ps365_receipt_id = db.Column(db.String(128), nullable=True)  # Reference from PS365 API
     ps365_synced_at = db.Column(UTCDateTime(), nullable=True)
+    ps365_reference_number = db.Column(db.String(128), nullable=True)
+    
+    # Document type & lifecycle
+    doc_type = db.Column(db.String(30), nullable=False, default='official')  # official, pdc_ack, online_notice
+    status = db.Column(db.String(20), nullable=False, default='DRAFT')  # DRAFT, ISSUED, VOIDED
+    
+    # Locking (set on first print)
+    locked_at = db.Column(UTCDateTime(), nullable=True)
+    locked_by = db.Column(db.String(64), db.ForeignKey('users.username', name='fk_cod_receipts_locked_by'), nullable=True)
+    
+    # Print tracking
+    print_count = db.Column(db.Integer, nullable=False, default=0)
+    first_printed_at = db.Column(UTCDateTime(), nullable=True)
+    last_printed_at = db.Column(UTCDateTime(), nullable=True)
+    
+    # Void / reissue
+    voided_at = db.Column(UTCDateTime(), nullable=True)
+    voided_by = db.Column(db.String(64), db.ForeignKey('users.username', name='fk_cod_receipts_voided_by'), nullable=True)
+    void_reason = db.Column(db.Text, nullable=True)
+    replaced_by_cod_receipt_id = db.Column(db.Integer, db.ForeignKey('cod_receipts.id', name='fk_cod_receipts_replaced_by'), nullable=True)
+    
+    # Idempotency
+    client_request_id = db.Column(db.String(128), nullable=True)
     
     created_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
     
     # Relationships
     route = db.relationship('Shipment', backref='cod_receipts')
     stop = db.relationship('RouteStop', backref='cod_receipts')
-    driver = db.relationship('User', backref='cod_receipts')
+    driver = db.relationship('User', foreign_keys=[driver_username], backref='cod_receipts')
+    locker = db.relationship('User', foreign_keys=[locked_by], backref='locked_cod_receipts')
+    voider = db.relationship('User', foreign_keys=[voided_by], backref='voided_cod_receipts')
+    replacement = db.relationship('CODReceipt', remote_side='CODReceipt.id', foreign_keys=[replaced_by_cod_receipt_id], backref='replaces')
+    
+    __table_args__ = (
+        db.Index('idx_cod_receipts_status', 'status'),
+        db.Index('idx_cod_receipts_doc_type', 'doc_type'),
+        db.Index('idx_cod_receipts_client_request_id', 'client_request_id'),
+    )
     
     def __repr__(self):
         return f"<CODReceipt Stop {self.route_stop_id}: ${self.received_amount}>"

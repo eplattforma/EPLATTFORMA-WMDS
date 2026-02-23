@@ -1,0 +1,608 @@
+Replit Instructions — Implement Driver API + Route Lifecycle + Intake + Receipts (with critical fixes)
+Phase 0 — Create a safe branch & regression checklist
+
+Create a branch: feature/driver-receipts-and-lifecycle-fixes
+
+Before changing anything, run these manual flows in staging:
+
+Driver API: start route, deliver, fail, return, complete route
+
+Warehouse intake dashboard listing
+
+Print receipt PDF from iOS
+
+Reconciliation shipment detail + pending payments screen
+
+Phase 1 — CRITICAL FIXES (must do first)
+1.1 Fix routes_driver_api.py runtime error and unsafe ORM bulk updates
+
+File: routes_driver_api.py
+
+A) Import func and status utilities
+Add at top:
+
+from sqlalchemy import func
+from delivery_status import normalize_status, TERMINAL_DELIVERY_STATUSES
+
+B) Replace illegal Query.update() with JOIN
+You currently do:
+
+db.session.query(RouteStopInvoice).join(RouteStop)...update(...)
+
+This is unsafe and often fails in SQLAlchemy.
+
+Replace with a stop-id subquery pattern (no JOIN in update):
+
+stop_ids_subq = db.session.query(RouteStop.route_stop_id).filter(
+    RouteStop.shipment_id == route_id,
+    RouteStop.deleted_at.is_(None)
+).subquery()
+
+db.session.query(RouteStopInvoice).filter(
+    RouteStopInvoice.route_stop_id.in_(stop_ids_subq),
+    RouteStopInvoice.is_active.is_(True)
+).update(
+    {RouteStopInvoice.status: "out_for_delivery"},
+    synchronize_session=False
+)
+
+C) Stop using Invoice.route_id == Shipment.id as the authoritative join
+Update-order logic must use canonical mapping:
+RouteStopInvoice (active) → RouteStop → Shipment
+
+Implement a helper inside routes_driver_api.py:
+
+def _lock_invoice_route_context(invoice_no: str):
+    # Locks RSI + stop + shipment (+invoice cache) atomically
+    row = db.session.query(RouteStopInvoice, RouteStop, Shipment, Invoice).join(
+        RouteStop, RouteStopInvoice.route_stop_id == RouteStop.route_stop_id
+    ).join(
+        Shipment, RouteStop.shipment_id == Shipment.id
+    ).outerjoin(
+        Invoice, Invoice.invoice_no == RouteStopInvoice.invoice_no
+    ).filter(
+        RouteStopInvoice.invoice_no == invoice_no,
+        RouteStopInvoice.is_active.is_(True),
+        RouteStop.deleted_at.is_(None)
+    ).with_for_update().first()
+    return row  # (rsi, stop, shipment, invoice) or None
+
+Then refactor update_order_status() to use that row.
+Do NOT commit inside helper. Return a dict and let endpoint commit once.
+
+D) Normalize status comparisons
+Replace:
+
+func.upper(order.status) != 'OUT_FOR_DELIVERY'
+
+with:
+
+if normalize_status(rsi.status) != "out_for_delivery":
+    ...
+
+Also make the action idempotent:
+
+If the RSI status is already the target terminal status, return OK (no error).
+
+1.2 Fix services_route_lifecycle.compute_stop_status() (status vocab bug)
+
+File: services_route_lifecycle.py
+
+Replace the whole compute_stop_status() body with normalize-based logic:
+
+from delivery_status import normalize_status
+
+def compute_stop_status(route_stop_id: int):
+    invoices = get_stop_active_invoices(route_stop_id)
+    if not invoices:
+        return "IN_PROGRESS"
+
+    delivered = 0
+    terminal_not_delivered = 0
+
+    for i in invoices:
+        s = normalize_status(i.status)
+        if s == "delivered":
+            delivered += 1
+        elif s in ("delivery_failed", "returned_to_warehouse"):
+            terminal_not_delivered += 1
+
+    total = len(invoices)
+
+    if delivered == total:
+        return "DELIVERED"
+    if terminal_not_delivered == total:
+        return "FAILED"  # you can rename to "NOT_DELIVERED" later, keep UI stable for now
+    if delivered + terminal_not_delivered > 0:
+        return "PARTIAL"
+    return "IN_PROGRESS"
+
+This removes the old 'FAILED'/'RETURNED' mismatch.
+
+1.3 Remove “commit inside helper” in warehouse intake service (atomicity bug)
+
+File: services_warehouse_intake.py
+
+A) log_invoice_history() must NOT commit
+Change it to:
+
+db.session.add(history)
+db.session.flush()
+return history
+
+B) open_post_delivery_case_if_needed() must NOT commit
+
+Remove the db.session.commit() at the end.
+
+Keep flush() only.
+
+Return case_id.
+
+Then ensure the calling route/service commits once at the end of the request.
+
+Phase 2 — Driver Mobile API (start/deliver/fail/return/complete) aligned to canonical mapping
+2.1 PATCH /api/driver/routes/<id>/start
+
+File: routes_driver_api.py
+
+Use func.lower(Invoice.status) == "shipped" instead of uppercase comparisons.
+
+Update RSI statuses using the subquery method (Phase 1.1B).
+
+Only update active RSI rows.
+
+Commit once.
+
+Also: if route already IN_TRANSIT, return success (already done).
+
+2.2 PATCH /api/driver/orders/<invoice_no>/(deliver|fail|return)
+
+File: routes_driver_api.py
+
+Refactor flow:
+
+Lock canonical context using _lock_invoice_route_context(invoice_no).
+
+Verify shipment.driver_name == driver_id before returning any data.
+
+Check current RSI status:
+
+Allow update only from out_for_delivery
+
+But if already equals target status, return OK (idempotent)
+
+Update:
+
+rsi.status = <target>
+
+Update invoice cache fields (optional but keep compatibility):
+
+invoice.status = <target>
+
+timestamps / delivered_at / undelivered_reason
+
+Insert DeliveryEvent
+
+Call recompute_route_completion(shipment.id, commit=False) and commit once.
+
+2.3 PATCH /api/driver/routes/<id>/complete
+
+File: routes_driver_api.py
+
+Remove the Invoice-based “active orders” count.
+Instead:
+
+Call result = recompute_route_completion(route_id, commit=False)
+
+If result["pending_count"] > 0: reject completion
+
+If route becomes COMPLETED: continue.
+
+Then auto-create intake cases for both:
+
+delivery_failed
+
+returned_to_warehouse
+
+Use RSI as the source of truth:
+
+bad_rsis = db.session.query(RouteStopInvoice).join(RouteStop).filter(
+  RouteStop.shipment_id == route_id,
+  RouteStop.deleted_at.is_(None),
+  RouteStopInvoice.is_active.is_(True),
+  func.lower(RouteStopInvoice.status).in_(["delivery_failed","returned_to_warehouse"])
+).all()
+
+For each, ensure a case exists with correct route_id and route_stop_id.
+
+Commit once.
+
+Phase 3 — Warehouse Intake: include returns + set correct route/stop in cases
+3.1 Intake dashboard should include returned-to-warehouse too
+
+File: routes_warehouse_intake.py
+
+Change dashboard query:
+
+Remove Invoice.status.ilike('delivery_failed')
+
+Replace with:
+
+Invoice.status.in_(["delivery_failed","returned_to_warehouse"]) (case-insensitive: use func.lower)
+
+OR better: do not filter by invoice.status at all, filter only by open case statuses, and show invoice status as info.
+
+Also fix auto-create logic:
+
+Current auto-create sets route_id=None / route_stop_id=None which is wrong.
+
+When auto-creating a case, populate from canonical mapping:
+
+active = RouteStopInvoice.query.filter_by(invoice_no=invoice.invoice_no, is_active=True).first()
+if active:
+    stop = RouteStop.query.get(active.route_stop_id)
+    route_id = stop.shipment_id if stop else None
+    stop_id = active.route_stop_id
+else:
+    route_id = invoice.route_id
+    stop_id = invoice.stop_id
+
+Use route_id, stop_id when inserting case.
+
+3.2 Ensure services don’t commit mid-flight
+
+File: services_warehouse_intake.py
+
+After removing internal commits (Phase 1.3), ensure each route:
+
+updates case/invoice/history
+
+commits exactly once at the end.
+
+Phase 4 — Solid Payment Receipt Process (Cash / Day Cheque / PDC Acknowledgement / Online Notice)
+
+You already have:
+
+CODReceipt + CODInvoiceAllocation
+
+receipt printing (PDF/PNG)
+
+PS365 receipt creation via create_receipt_core() in routes_receipts.py
+
+What’s missing is: document types + locking + correction workflow + reconciliation gating.
+
+Phase 4A — DB schema updates for locking + document types
+4A.1 Add a schema update script
+
+Create: update_cod_receipts_locking_schema.py (same style as other update scripts)
+
+Add columns to cod_receipts if missing:
+
+doc_type VARCHAR(20) → official, pdc_ack, online_notice
+
+status VARCHAR(20) → DRAFT, ISSUED, VOIDED
+
+locked_at TIMESTAMP, locked_by VARCHAR(64) REFERENCES users(username)
+
+print_count INTEGER DEFAULT 0
+
+first_printed_at TIMESTAMP, last_printed_at TIMESTAMP
+
+voided_at TIMESTAMP, voided_by VARCHAR(64) REFERENCES users(username), void_reason TEXT
+
+replaced_by_cod_receipt_id INTEGER REFERENCES cod_receipts(id)
+
+client_request_id VARCHAR(64) (idempotency)
+
+ps365_reference_number VARCHAR(32) (human ref like R1000001)
+
+Add indexes:
+
+idx_cod_receipts_stop on (route_stop_id)
+
+idx_cod_receipts_status on (status)
+
+idx_cod_receipts_doc_type on (doc_type)
+
+Add uniqueness to prevent duplicates (stronger than “10 sec dedupe”):
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cod_receipts_active_stop
+ON cod_receipts(route_stop_id)
+WHERE status IS NULL OR status <> 'VOIDED';
+4A.2 Wire it into startup
+
+In main.py inside initialize_database() add:
+
+from update_cod_receipts_locking_schema import update_cod_receipts_locking_schema
+update_cod_receipts_locking_schema()
+4A.3 Update models.py
+
+Update CODReceipt model to include the new columns.
+
+Phase 4B — Implement issuance rules (official vs acknowledgement vs notice)
+4B.1 Update delivery submit flow (where payment is captured)
+
+File: routes_driver.py → submit_delivery(stop_id)
+
+After you create cod_receipt (and before commit), set:
+
+1) Determine document type
+
+Credit customer: no CODReceipt created (already)
+
+Non-credit:
+
+cash → doc_type="official"
+
+cheque with cheque_date <= today → doc_type="official"
+
+cheque with cheque_date > today → doc_type="pdc_ack" and mark allocations pending
+
+online → doc_type="online_notice" and mark allocations pending
+
+2) For “official” only: create PS365 receipt immediately
+Call create_receipt_core():
+
+customer_code = stop.customer_code
+
+amount = received (cash/day cheque amount)
+
+comments = keep short (PS365 limit), include invoices list
+
+driver_username=current_user.username
+
+route_stop_id=stop_id
+
+cheque_number + cheque_date if cheque
+
+Capture return values:
+
+reference_number (Rxxxxxxx) → store in cod_receipt.ps365_reference_number
+
+response_id → store in cod_receipt.ps365_receipt_id
+
+set cod_receipt.ps365_synced_at = utc_now()
+
+3) Set receipt status
+Initially:
+
+cod_receipt.status = "DRAFT"
+
+Lock happens on first print (see next section)
+
+4) Remove the old 10-second dedupe
+Instead:
+
+If a non-VOIDED receipt already exists for that stop → return it (idempotent).
+
+If you use client_request_id, enforce unique(route_stop_id, client_request_id) behavior.
+
+Phase 4C — Lock on first print + allow reprint only
+4C.1 Lock logic in print endpoints
+
+Files:
+
+routes_driver.py:
+
+print_receipt_pdf(stop_id)
+
+print_receipt_png_by_id(receipt_id)
+
+optionally HTML print routes too
+
+Before rendering, do:
+
+fetch latest receipt for stop (or by id)
+
+if receipt.status != "VOIDED":
+
+if receipt.status != "ISSUED":
+
+set status="ISSUED"
+
+set locked_at=utc_now()
+
+set locked_by = token_data.username or current_user.username
+
+set print_count=1
+
+set first_printed_at=utc_now()
+
+set last_printed_at=utc_now()
+
+else:
+
+increment print_count += 1
+
+set last_printed_at=utc_now()
+
+db.session.commit() (small commit, print should reflect lock)
+
+Result: after first print, the receipt is frozen. Subsequent prints are reprints only.
+
+Phase 4D — Printing content changes (Official / PDC acknowledgement / Online notice)
+4D.1 Update PDF builder + PNG renderer to support doc types
+
+Files:
+
+utils/thermal_receipt_pdf.py
+
+services/receipt_render_png.py
+
+Add doc_type in the data dict and modify header logic:
+
+If doc_type=="official"
+
+Header:
+
+“OFFICIAL RECEIPT” / “PAYMENT RECEIPT”
+Show:
+
+PS365 reference number if available (Rxxxxxxx)
+
+Status: PAID
+
+If doc_type=="pdc_ack"
+
+Header:
+
+“CHEQUE RECEIVED (PDC)”
+Subheader (must-have):
+
+“SUBJECT TO CLEARANCE — NOT FINAL PAYMENT”
+Include cheque fields + invoice list + amount.
+Add bilingual disclaimer lines (short, printable), e.g.:
+
+EN: “Acknowledgement only. Not a final receipt until cleared.”
+
+EL: “Βεβαίωση παραλαβής. Όχι οριστική εξόφληση μέχρι εκκαθάριση.”
+
+If doc_type=="online_notice"
+
+Header:
+
+“PAY ONLINE — PAYMENT DUE”
+Show:
+
+Amount due
+
+Due date = local today + 1 day
+
+Bank/account details from env var.
+
+Add env secrets:
+
+ONLINE_PAYMENT_DUE_DAYS (default 1)
+
+ONLINE_PAYMENT_BANK_DETAILS (multiline)
+
+Pass these into pdf_data / png_data as:
+
+online_due_date
+
+bank_details
+
+Phase 4E — Mistake handling (driver cannot edit; backoffice voids + reissues)
+4E.1 Driver flow: “Request correction”
+
+Add a simple endpoint:
+
+POST /driver/receipts/<id>/request-correction
+Stores:
+
+who requested
+
+timestamp
+
+note
+
+Fastest: store this in cod_receipts.note appended with a “CORRECTION REQUEST:” section.
+Better (clean): create a small new table cod_receipt_corrections (optional).
+
+4E.2 Backoffice flow: “Void & Replace”
+
+Create admin routes under reconciliation or warehouse manager area:
+
+POST /reconciliation/receipts/<id>/void
+
+requires admin/warehouse_manager
+
+sets:
+
+status="VOIDED", voided_at, voided_by, void_reason
+
+POST /reconciliation/receipts/<id>/reissue
+
+creates a new CODReceipt (copy fields, corrected values)
+
+sets old receipt replaced_by_cod_receipt_id=new_id
+
+new receipt starts DRAFT and locks on print
+
+Important operational rule:
+
+If old receipt was doc_type="official" and PS365 already created:
+
+Do not silently delete.
+
+Mark the void reason and add a note: “PS365 reversal required” (unless you have a real PS365 cancel endpoint).
+
+Phase 5 — Reconciliation gating: Pending payments appear only after reconciliation
+5.1 Gate the pending payments list
+
+File: routes_reconciliation.py → pending_payments()
+
+Add filter:
+
+Shipment.reconciliation_status == "RECONCILED"
+
+So allocations don’t show in “Pending Payments” until the route is reconciled.
+
+5.2 Block clearing pending payments before reconciliation
+
+File: services_reconciliation.py → clear_pending_payment()
+
+Before clearing:
+
+load shipment: Shipment.query.get(alloc.route_id)
+
+if shipment.reconciliation_status != "RECONCILED":
+
+return error: “Route not reconciled yet”
+
+Phase 6 — Status normalization in reconciliation checks (prevents false blocks)
+
+These directly affect route closeout / returns / reconciliation screens.
+
+File: services_reconciliation.py
+
+Replace old constants and SQL checks that rely on UPPER(rsi.status)='FAILED'.
+
+Examples:
+
+check_failed_without_driver_handover
+
+check_failed_without_warehouse_receipt
+
+Update to:
+
+LOWER(rsi.status) IN ('delivery_failed','returned_to_warehouse')
+
+And update FINAL_DELIVERY_STATUSES usage wherever it expects legacy values.
+
+QA checklist (must pass before production)
+Driver API
+
+Start route twice → second call returns idempotent success
+
+Deliver invoice twice → second call returns OK, no duplication
+
+Fail/Return invoice → route completion recomputes correctly
+
+Complete route refuses if any RSI still out_for_delivery
+
+Receipts
+
+Cash/day-cheque → PS365 receipt created, reference stored, printed as OFFICIAL
+
+Post-dated cheque → prints ACKNOWLEDGEMENT, no PS365 receipt, allocations pending
+
+Online → prints PAY ONLINE NOTICE with due date + bank details, allocations pending
+
+First print locks receipt; later attempts cannot “edit”, only reprint
+
+Backoffice void + reissue works, unique index prevents duplicate active receipt per stop
+
+Intake
+
+Intake dashboard shows both delivery_failed and returned_to_warehouse
+
+Auto-created cases have correct route_id/stop_id (not null)
+
+No mid-service commits causing partial state
+
+Reconciliation
+
+Pending payments list shows only RECONCILED routes
+
+Clearing pending payments blocked if route not reconciled

@@ -21,7 +21,7 @@ from models import (
 
 logger = logging.getLogger(__name__)
 
-FINAL_DELIVERY_STATUSES = {'DELIVERED', 'FAILED', 'PARTIAL', 'RETURNED', 'SKIPPED'}
+FINAL_DELIVERY_STATUSES = {'delivered', 'delivery_failed', 'partial', 'returned_to_warehouse', 'skipped'}
 
 
 def get_shipment_invoices(shipment_id: int) -> List[Dict]:
@@ -203,7 +203,7 @@ def check_missing_final_status(shipment_id: int) -> List[Dict]:
             AND rsi.is_active = true
         WHERE rs.shipment_id = :shipment_id
           AND rs.deleted_at IS NULL
-          AND (rsi.status IS NULL OR UPPER(rsi.status) NOT IN ('DELIVERED','FAILED','PARTIAL','RETURNED','SKIPPED'))
+          AND (rsi.status IS NULL OR LOWER(rsi.status) NOT IN ('delivered','delivery_failed','partial','returned_to_warehouse','skipped','failed','returned'))
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
     return [dict(row._mapping) for row in result]
@@ -222,7 +222,7 @@ def check_missing_pod(shipment_id: int) -> List[Dict]:
             AND pr.route_stop_id = rs.route_stop_id
         WHERE rs.shipment_id = :shipment_id
           AND rs.deleted_at IS NULL
-          AND UPPER(rsi.status) = 'DELIVERED'
+          AND LOWER(rsi.status) = 'delivered'
           AND pr.id IS NULL
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -308,7 +308,7 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
                 AND pr.route_stop_id = rs.route_stop_id
             WHERE rs.shipment_id = :shipment_id
               AND rs.deleted_at IS NULL
-              AND UPPER(rsi.status) = 'DELIVERED'
+              AND LOWER(rsi.status) = 'delivered'
               AND pr.id IS NULL
         ),
         open_cases AS (
@@ -345,10 +345,10 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
         )
         SELECT
             (SELECT COUNT(*) FROM inv) AS invoices_total,
-            (SELECT COUNT(*) FROM inv WHERE UPPER(status) = 'DELIVERED') AS delivered,
-            (SELECT COUNT(*) FROM inv WHERE UPPER(status) = 'FAILED') AS failed,
-            (SELECT COUNT(*) FROM inv WHERE UPPER(status) = 'PARTIAL') AS partial,
-            (SELECT COUNT(*) FROM inv WHERE status IS NULL OR UPPER(status) NOT IN ('DELIVERED','FAILED','PARTIAL','RETURNED','SKIPPED')) AS pending,
+            (SELECT COUNT(*) FROM inv WHERE LOWER(status) = 'delivered') AS delivered,
+            (SELECT COUNT(*) FROM inv WHERE LOWER(status) IN ('delivery_failed', 'failed')) AS failed,
+            (SELECT COUNT(*) FROM inv WHERE LOWER(status) = 'partial') AS partial,
+            (SELECT COUNT(*) FROM inv WHERE status IS NULL OR LOWER(status) NOT IN ('delivered','delivery_failed','partial','returned_to_warehouse','skipped','failed','returned')) AS pending,
             (SELECT cnt FROM pod_missing) AS missing_pod,
             (SELECT cnt FROM open_cases) AS open_cases,
             (SELECT cnt FROM unresolved_disc) AS unresolved_discrepancies,
@@ -478,7 +478,7 @@ def get_exceptions_report(shipment_id: int) -> List[Dict]:
           AND rs.deleted_at IS NULL
           AND (
             rsi.status IS NULL
-            OR rsi.status NOT IN ('DELIVERED', 'FAILED', 'PARTIAL', 'RETURNED', 'SKIPPED')
+            OR LOWER(rsi.status) NOT IN ('delivered', 'delivery_failed', 'partial', 'returned_to_warehouse', 'skipped', 'failed', 'returned')
             OR ipdc.status = 'OPEN'
             OR d.id IS NOT NULL
             OR (cr.variance IS NOT NULL AND cr.variance <> 0)
@@ -708,6 +708,13 @@ def clear_pending_payment(allocation_id: int, actor: str) -> Dict:
     if not alloc:
         return {'success': False, 'message': 'Allocation not found'}
     
+    shipment = db.session.get(Shipment, alloc.route_id)
+    if shipment and shipment.reconciliation_status != 'RECONCILED':
+        return {
+            'success': False,
+            'message': f'Cannot clear pending payment: route must be RECONCILED first (current: {shipment.reconciliation_status})'
+        }
+    
     # Calculate the difference between what was previously recorded as received
     # and what should be received now that it's cleared.
     # Usually for pending payments (Online), received_amount is 0.
@@ -752,7 +759,7 @@ def check_failed_without_driver_handover(shipment_id: int) -> List[Dict]:
             AND rrh.invoice_no = rsi.invoice_no
         WHERE rs.shipment_id = :shipment_id
           AND rs.deleted_at IS NULL
-          AND UPPER(rsi.status) = 'FAILED'
+          AND LOWER(rsi.status) IN ('delivery_failed', 'returned_to_warehouse', 'failed')
           AND (rrh.driver_confirmed_at IS NULL OR rrh.id IS NULL)
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -772,7 +779,7 @@ def check_failed_without_warehouse_receipt(shipment_id: int) -> List[Dict]:
             AND rrh.invoice_no = rsi.invoice_no
         WHERE rs.shipment_id = :shipment_id
           AND rs.deleted_at IS NULL
-          AND UPPER(rsi.status) = 'FAILED'
+          AND LOWER(rsi.status) IN ('delivery_failed', 'returned_to_warehouse', 'failed')
           AND rrh.driver_confirmed_at IS NOT NULL
           AND rrh.warehouse_received_at IS NULL
     """)
@@ -958,7 +965,7 @@ def build_route_reconciliation(shipment_id: int) -> Dict:
                 'driver_confirmed': handover['driver_confirmed_at'] is not None if handover else False,
                 'warehouse_received': handover['warehouse_received_at'] is not None if handover else False,
                 'packages_count': handover.get('packages_count') if handover else None
-            } if inv['delivery_status'] and inv['delivery_status'].upper() == 'FAILED' else None,
+            } if inv['delivery_status'] and inv['delivery_status'].lower() in ('delivery_failed', 'returned_to_warehouse', 'failed') else None,
             'discrepancy_count': disc.get('disc_count', 0),
             'discrepancies_validated': disc.get('validated_count', 0),
             'credit_notes_pending': disc.get('cn_pending', 0),

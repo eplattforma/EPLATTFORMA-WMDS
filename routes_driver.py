@@ -635,79 +635,108 @@ def submit_delivery(stop_id):
                 cod_note = cod.get('note', '')
             cod_variance = received - cod_expected
             
-            recent_cutoff = utc_now() - timedelta(seconds=10)
-            from sqlalchemy import cast, String
             existing_receipt = CODReceipt.query.filter(
-                CODReceipt.route_id == route.id,
                 CODReceipt.route_stop_id == stop_id,
-                cast(CODReceipt.invoice_nos, String) == cast(invoice_nos, String),
-                CODReceipt.received_amount == received,
-                CODReceipt.payment_method == cod_method,
-                CODReceipt.created_at >= recent_cutoff
+                db.or_(
+                    CODReceipt.status.is_(None),
+                    CODReceipt.status != 'VOIDED'
+                )
             ).first()
             if existing_receipt:
-                db.session.rollback()
-                return jsonify({'success': True, 'message': 'Already recorded'}), 200
-            
-            # Create COD receipt
-            cod_receipt = CODReceipt(
-                route_id=route.id,
-                route_stop_id=stop_id,
-                driver_username=current_user.username,
-                invoice_nos=invoice_nos,
-                expected_amount=cod_expected,
-                received_amount=received,
-                variance=cod_variance,
-                payment_method=cod_method,
-                cheque_number=cod.get('cheque_number'),
-                cheque_date=datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None,
-                note=cod_note,
-                created_at=utc_now()
-            )
-            db.session.add(cod_receipt)
-            db.session.flush()
-            
-            # Create per-invoice payment allocations for reconciliation
-            from models import CODInvoiceAllocation
-            # Online payments and post-dated cheques require clearance
-            # Same-day cheques are treated like cash (not pending)
-            cheque_date_val = datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
-            is_postdated_cheque = cod_method == 'cheque' and cheque_date_val and cheque_date_val > datetime.now().date()
-            is_pending_method = cod_method in ('online', 'postdated', 'post_dated') or is_postdated_cheque
-            for invoice_no in invoice_nos:
-                inv = Invoice.query.get(invoice_no)
-                invoice_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
-                invoice_deduct = discrepancy_values_by_invoice.get(invoice_no, Decimal('0'))
-                invoice_due = invoice_total - invoice_deduct
-                
-                # Allocate received amount proportionally if multiple invoices
-                # We use the adjusted net expected (cod_expected) as the base
-                if cod_expected > 0 and len(invoice_nos) > 1:
-                    proportion = invoice_due / cod_expected
-                    invoice_received = (received * proportion).quantize(Decimal('0.01'))
+                cod_receipt = existing_receipt
+            else:
+                cheque_date_val = datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
+                is_postdated_cheque = cod_method == 'cheque' and cheque_date_val and cheque_date_val > datetime.now().date()
+
+                if cod_method == 'cash':
+                    doc_type = 'official'
+                elif cod_method == 'cheque' and not is_postdated_cheque:
+                    doc_type = 'official'
+                elif is_postdated_cheque or cod_method in ('postdated', 'post_dated'):
+                    doc_type = 'pdc_ack'
+                elif cod_method == 'online':
+                    doc_type = 'online_notice'
                 else:
-                    # Single invoice gets everything, or if cod_expected is 0 (all credit)
-                    invoice_received = received if len(invoice_nos) == 1 else Decimal('0')
-                
-                # Mark as pending if:
-                # 1. Payment method requires clearance (online/postdated), OR
-                # 2. Received + deducted is less than expected (underpayment)
-                is_underpaid = (invoice_received + invoice_deduct) < invoice_total
-                is_pending = is_pending_method or is_underpaid
-                
-                allocation = CODInvoiceAllocation(
-                    cod_receipt_id=cod_receipt.id,
-                    invoice_no=invoice_no,
+                    doc_type = 'official'
+
+                cod_receipt = CODReceipt(
                     route_id=route.id,
-                    expected_amount=invoice_total,
-                    received_amount=invoice_received,
-                    deduct_amount=invoice_deduct,
+                    route_stop_id=stop_id,
+                    driver_username=current_user.username,
+                    invoice_nos=invoice_nos,
+                    expected_amount=cod_expected,
+                    received_amount=received,
+                    variance=cod_variance,
                     payment_method=cod_method,
-                    is_pending=is_pending,
                     cheque_number=cod.get('cheque_number'),
-                    cheque_date=datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
+                    cheque_date=cheque_date_val,
+                    note=cod_note,
+                    doc_type=doc_type,
+                    status='DRAFT',
+                    created_at=utc_now()
                 )
-                db.session.add(allocation)
+                db.session.add(cod_receipt)
+                db.session.flush()
+
+                if doc_type == 'official':
+                    try:
+                        from routes_receipts import create_receipt_core
+                        inv_list_str = ', '.join(invoice_nos[:5])
+                        if len(invoice_nos) > 5:
+                            inv_list_str += f' +{len(invoice_nos)-5}'
+                        comments = f"{inv_list_str}"
+                        ps365_result = create_receipt_core(
+                            customer_code=stop.customer_code,
+                            amount_val=float(received),
+                            comments=comments,
+                            driver_username=current_user.username,
+                            route_stop_id=stop_id,
+                            invoice_no=inv_list_str,
+                            cheque_number=cod.get('cheque_number', ''),
+                            cheque_date=cod.get('cheque_date', ''),
+                            allow_duplicate_stop=True
+                        )
+                        if ps365_result and ps365_result.get('reference_number'):
+                            cod_receipt.ps365_reference_number = ps365_result['reference_number']
+                        if ps365_result and ps365_result.get('response_id'):
+                            cod_receipt.ps365_receipt_id = str(ps365_result['response_id'])
+                        cod_receipt.ps365_synced_at = utc_now()
+                    except Exception as ps365_err:
+                        logging.warning(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
+            
+            from models import CODInvoiceAllocation
+            if not existing_receipt:
+                cheque_date_alloc = datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
+                is_postdated_alloc = cod_method == 'cheque' and cheque_date_alloc and cheque_date_alloc > datetime.now().date()
+                is_pending_method = cod_method in ('online', 'postdated', 'post_dated') or is_postdated_alloc
+                for invoice_no in invoice_nos:
+                    inv = Invoice.query.get(invoice_no)
+                    invoice_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
+                    invoice_deduct = discrepancy_values_by_invoice.get(invoice_no, Decimal('0'))
+                    invoice_due = invoice_total - invoice_deduct
+
+                    if cod_expected > 0 and len(invoice_nos) > 1:
+                        proportion = invoice_due / cod_expected
+                        invoice_received = (received * proportion).quantize(Decimal('0.01'))
+                    else:
+                        invoice_received = received if len(invoice_nos) == 1 else Decimal('0')
+
+                    is_underpaid = (invoice_received + invoice_deduct) < invoice_total
+                    is_pending = is_pending_method or is_underpaid
+
+                    allocation = CODInvoiceAllocation(
+                        cod_receipt_id=cod_receipt.id,
+                        invoice_no=invoice_no,
+                        route_id=route.id,
+                        expected_amount=invoice_total,
+                        received_amount=invoice_received,
+                        deduct_amount=invoice_deduct,
+                        payment_method=cod_method,
+                        is_pending=is_pending,
+                        cheque_number=cod.get('cheque_number'),
+                        cheque_date=cheque_date_alloc
+                    )
+                    db.session.add(allocation)
         
         # Process POD
         pod_record = PODRecord(
@@ -907,6 +936,21 @@ def print_receipt_png_by_id(receipt_id):
     from io import BytesIO
 
     receipt = CODReceipt.query.get_or_404(receipt_id)
+
+    if receipt.status != 'VOIDED':
+        now = utc_now()
+        if receipt.status != 'ISSUED':
+            receipt.status = 'ISSUED'
+            receipt.locked_at = now
+            receipt.locked_by = current_user.username
+            receipt.print_count = 1
+            receipt.first_printed_at = now
+            receipt.last_printed_at = now
+        else:
+            receipt.print_count = (receipt.print_count or 0) + 1
+            receipt.last_printed_at = now
+        db.session.commit()
+
     route = Shipment.query.get(receipt.route_id)
     stop = RouteStop.query.get(receipt.route_stop_id)
 
@@ -960,6 +1004,8 @@ def print_receipt_png_by_id(receipt_id):
         'cheque_date': receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else None,
         'notes': receipt.note or '',
         'exceptions': exceptions_list,
+        'doc_type': getattr(receipt, 'doc_type', None) or 'official',
+        'ps365_reference_number': getattr(receipt, 'ps365_reference_number', None) or '',
     }
 
     w = request.args.get('w', type=int)
@@ -1142,6 +1188,20 @@ def print_receipt_pdf(stop_id):
         CODReceipt.created_at.desc()
     ).first()
 
+    if cod_receipt and cod_receipt.status != 'VOIDED':
+        now = utc_now()
+        if cod_receipt.status != 'ISSUED':
+            cod_receipt.status = 'ISSUED'
+            cod_receipt.locked_at = now
+            cod_receipt.locked_by = token_data.get('username', 'system')
+            cod_receipt.print_count = 1
+            cod_receipt.first_printed_at = now
+            cod_receipt.last_printed_at = now
+        else:
+            cod_receipt.print_count = (cod_receipt.print_count or 0) + 1
+            cod_receipt.last_printed_at = now
+        db.session.commit()
+
     stop_invoices = RouteStopInvoice.query.filter_by(
         route_stop_id=stop_id, is_active=True
     ).all()
@@ -1300,6 +1360,20 @@ def print_receipt_png(stop_id):
         CODReceipt.created_at.desc()
     ).first()
 
+    if cod_receipt and cod_receipt.status != 'VOIDED':
+        now = utc_now()
+        if cod_receipt.status != 'ISSUED':
+            cod_receipt.status = 'ISSUED'
+            cod_receipt.locked_at = now
+            cod_receipt.locked_by = token_data.get('username', 'system')
+            cod_receipt.print_count = 1
+            cod_receipt.first_printed_at = now
+            cod_receipt.last_printed_at = now
+        else:
+            cod_receipt.print_count = (cod_receipt.print_count or 0) + 1
+            cod_receipt.last_printed_at = now
+        db.session.commit()
+
     stop_invoices = RouteStopInvoice.query.filter_by(
         route_stop_id=stop_id, is_active=True
     ).all()
@@ -1396,6 +1470,8 @@ def print_receipt_png(stop_id):
         'cheque_date': cheque_date,
         'notes': notes,
         'exceptions': exceptions_list,
+        'doc_type': getattr(cod_receipt, 'doc_type', None) or 'official' if cod_receipt else 'official',
+        'ps365_reference_number': getattr(cod_receipt, 'ps365_reference_number', None) or '' if cod_receipt else '',
     }
 
     w = request.args.get('w', type=int)
@@ -1691,7 +1767,7 @@ def returns_screen(route_id):
         RouteStop.shipment_id == route_id,
         RouteStop.deleted_at == None,
         RouteStopInvoice.is_active == True,
-        db.func.upper(RouteStopInvoice.status) == 'FAILED'
+        db.func.lower(RouteStopInvoice.status).in_(['delivery_failed', 'returned_to_warehouse', 'failed'])
     ).order_by(RouteStop.seq_no).all()
     
     invoices_data = []
@@ -1747,7 +1823,7 @@ def confirm_return_handover(route_id):
     if not rsi:
         return jsonify({'error': 'Invoice not found on this route'}), 404
     
-    if rsi.status and rsi.status.upper() != 'FAILED':
+    if rsi.status and rsi.status.lower() not in ('delivery_failed', 'returned_to_warehouse', 'failed'):
         return jsonify({'error': 'Only FAILED invoices can be returned'}), 400
     
     existing = RouteReturnHandover.query.filter_by(
@@ -1805,7 +1881,7 @@ def confirm_all_returns(route_id):
         RouteStop.shipment_id == route_id,
         RouteStop.deleted_at == None,
         RouteStopInvoice.is_active == True,
-        db.func.upper(RouteStopInvoice.status) == 'FAILED'
+        db.func.lower(RouteStopInvoice.status).in_(['delivery_failed', 'returned_to_warehouse', 'failed'])
     ).all()
     
     now = utc_now_for_db()
@@ -1850,3 +1926,45 @@ def confirm_all_returns(route_id):
         'success': True,
         'message': f'Confirmed {confirmed_count} return(s)'
     })
+
+
+@driver_bp.route('/api/receipts/<int:receipt_id>/correction-request', methods=['POST'])
+@driver_required
+def request_correction(receipt_id):
+    """Driver requests correction on an ISSUED receipt (admin must void & reissue)"""
+    try:
+        receipt = CODReceipt.query.get_or_404(receipt_id)
+        route = Shipment.query.get(receipt.route_id)
+
+        if route.driver_name != current_user.username and current_user.role != 'admin':
+            abort(403)
+
+        if receipt.status == 'VOIDED':
+            return jsonify({'error': 'Receipt is already voided'}), 400
+
+        data = request.get_json(force=True)
+        reason = data.get('reason', '').strip()
+        if not reason:
+            return jsonify({'error': 'A reason is required for the correction request'}), 400
+
+        create_delivery_event(
+            route_id=receipt.route_id,
+            event_type='RECEIPT_CORRECTION_REQUESTED',
+            payload={
+                'receipt_id': receipt.id,
+                'reason': reason,
+                'requested_by': current_user.username
+            },
+            stop_id=receipt.route_stop_id
+        )
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Correction request submitted. An admin will review and reissue.'
+        })
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error requesting correction for receipt {receipt_id}: {e}")
+        return jsonify({'error': str(e)}), 500

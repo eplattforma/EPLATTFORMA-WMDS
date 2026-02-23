@@ -154,7 +154,7 @@ def open_post_delivery_case_if_needed(invoice_no: str, route_id: int, route_stop
         "actor": actor
     })
     
-    db.session.commit()
+    db.session.flush()
     return case_id
 
 
@@ -179,7 +179,7 @@ def log_invoice_history(invoice_no: str, action: str, route_id: int = None, rout
     )
     
     db.session.add(history)
-    db.session.commit()
+    db.session.flush()
     return history
 
 

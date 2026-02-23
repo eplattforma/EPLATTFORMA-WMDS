@@ -5,9 +5,11 @@ Provides REST API endpoints for driver mobile app to manage deliveries
 from flask import Blueprint, request, jsonify
 from functools import wraps
 from datetime import datetime
+from sqlalchemy import func
 from models import Shipment, Invoice, DeliveryEvent, RouteStopInvoice, RouteStop, db
 from app import db as database
 from services_route_lifecycle import recompute_route_completion
+from delivery_status import normalize_status, TERMINAL_DELIVERY_STATUSES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,10 +24,45 @@ def driver_id_required(f):
         driver_id = request.headers.get('x-driver-id')
         if not driver_id:
             return jsonify({'error': 'Missing driver id'}), 401
-        # Attach driver_id to request for use in the route
         request.driver_id = driver_id
         return f(*args, **kwargs)
     return decorated_function
+
+
+def _lock_invoice_route_context(invoice_no, driver_id):
+    """
+    Lock and validate invoice+route ownership atomically via canonical RSI mapping.
+    
+    Uses RSI → RouteStop → Shipment as the source of truth instead of
+    Invoice.route_id cache column.
+    
+    Returns:
+        tuple: (invoice, rsi, route_stop, shipment, error_msg, status_code)
+        On success error_msg and status_code are None.
+    """
+    result = (
+        db.session.query(Invoice, RouteStopInvoice, RouteStop, Shipment)
+        .join(RouteStopInvoice, RouteStopInvoice.invoice_no == Invoice.invoice_no)
+        .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+        .join(Shipment, Shipment.id == RouteStop.shipment_id)
+        .filter(
+            Invoice.invoice_no == invoice_no,
+            RouteStopInvoice.is_active == True,
+            RouteStop.deleted_at == None,
+        )
+        .with_for_update()
+        .first()
+    )
+
+    if not result:
+        return None, None, None, None, 'Order not found or not assigned to a route', 404
+
+    invoice, rsi, stop, shipment = result
+
+    if shipment.driver_name != driver_id:
+        return None, None, None, None, 'Order does not belong to your route', 403
+
+    return invoice, rsi, stop, shipment, None, None
 
 
 @driver_api_bp.route('/health', methods=['GET'])
@@ -46,17 +83,14 @@ def start_route(route_id):
     driver_id = request.driver_id
     
     try:
-        # Lock route row for update
         route = db.session.query(Shipment).filter_by(id=route_id).with_for_update().first()
         
         if not route:
             return jsonify({'error': 'Route not found'}), 404
         
-        # Verify driver owns this route
         if route.driver_name != driver_id:
             return jsonify({'error': 'Not your route'}), 403
         
-        # If already in progress, return success (idempotent)
         if route.status == 'IN_TRANSIT':
             db.session.commit()
             return jsonify({
@@ -66,30 +100,36 @@ def start_route(route_id):
                 'message': 'Route already in progress'
             })
         
-        # Can only start from 'DISPATCHED' status
         if route.status != 'DISPATCHED':
             db.session.rollback()
             return jsonify({
                 'error': f'Cannot start route from status: {route.status}'
             }), 409
         
-        # Update route status
         route.status = 'IN_TRANSIT'
         route.started_at = datetime.utcnow()
         route.updated_at = datetime.utcnow()
         
-        # Bulk update all orders on this route from 'shipped' to 'out_for_delivery'
         updated_orders = db.session.query(Invoice).filter(
             Invoice.route_id == route_id,
-            func.upper(Invoice.status) == 'SHIPPED'
+            func.lower(Invoice.status) == 'shipped'
         ).update({
             'status': 'out_for_delivery',
             'status_updated_at': datetime.utcnow()
         }, synchronize_session=False)
         
-        # Also update all RouteStopInvoice statuses to lowercase
-        db.session.query(RouteStopInvoice).join(RouteStop).filter(
-            RouteStop.shipment_id == route_id
+        rsi_subq = (
+            db.session.query(RouteStopInvoice.route_stop_invoice_id)
+            .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+            .filter(
+                RouteStop.shipment_id == route_id,
+                RouteStop.deleted_at == None,
+                RouteStopInvoice.is_active == True,
+            )
+            .subquery()
+        )
+        db.session.query(RouteStopInvoice).filter(
+            RouteStopInvoice.route_stop_invoice_id.in_(db.session.query(rsi_subq.c.route_stop_invoice_id))
         ).update({RouteStopInvoice.status: 'out_for_delivery'}, synchronize_session=False)
         
         db.session.commit()
@@ -111,75 +151,53 @@ def start_route(route_id):
 
 def update_order_status(invoice_no, new_status, driver_id):
     """
-    Helper function to update order status
-    Can only update orders that are currently 'out_for_delivery' and belong to driver's route
+    Helper function to update order status using canonical RSI→RouteStop→Shipment mapping.
+    Makes actions idempotent: if invoice is already at target status, returns OK.
     """
-    # CRITICAL: Lock order and route together to verify ownership and status atomically
-    # This prevents information leaks and TOCTOU race conditions
-    result = db.session.query(Invoice, Shipment).join(
-        Shipment, Invoice.route_id == Shipment.id
-    ).filter(
-        Invoice.invoice_no == invoice_no
-    ).with_for_update().first()
+    invoice, rsi, stop, shipment, err_msg, err_code = _lock_invoice_route_context(invoice_no, driver_id)
+
+    if err_msg:
+        return None, err_msg, err_code
+
+    current_normalized = normalize_status(invoice.status)
+    target_normalized = normalize_status(new_status)
+
+    if current_normalized == target_normalized:
+        db.session.commit()
+        return invoice, None, None
+
+    if current_normalized != 'out_for_delivery':
+        return None, f'Cannot update order from status: {invoice.status}', 409
+
+    old_status = invoice.status
+    invoice.status = new_status
+    invoice.status_updated_at = datetime.utcnow()
     
-    if not result:
-        # Order not found or not assigned to any route
-        return None, 'Order not found or not assigned to a route', 404
-    
-    order, route = result
-    
-    # CRITICAL: Verify order belongs to this driver's route (before accessing ANY order data)
-    if route.driver_name != driver_id:
-        return None, 'Order does not belong to your route', 403
-    
-    # Can only update orders that are out for delivery
-    if func.upper(order.status) != 'OUT_FOR_DELIVERY':
-        return None, f'Cannot update order from status: {order.status}', 409
-    
-    # Update order status
-    old_status = order.status
-    order.status = new_status
-    order.status_updated_at = datetime.utcnow()
-    
-    # Set delivery-specific fields
     if new_status == 'delivered':
-        order.delivered_at = datetime.utcnow()
-    elif new_status in ['delivery_failed', 'returned_to_warehouse']:
-        # Optionally set undelivered reason if provided in request
+        invoice.delivered_at = datetime.utcnow()
+    elif new_status in ('delivery_failed', 'returned_to_warehouse'):
         reason = request.json.get('reason') if request.is_json else None
         if reason:
-            order.undelivered_reason = reason
+            invoice.undelivered_reason = reason
     
-    # Create delivery event for audit trail
     event = DeliveryEvent(
         invoice_no=invoice_no,
         action=new_status,
         actor=driver_id,
         timestamp=datetime.utcnow(),
-        reason=order.undelivered_reason if new_status != 'delivered' else None
+        reason=invoice.undelivered_reason if new_status != 'delivered' else None
     )
     db.session.add(event)
     
-    # Update ALL RouteStopInvoice rows for this invoice to match
-    rsi_status_map = {
-        'delivered': 'delivered',
-        'delivery_failed': 'delivery_failed',
-        'returned_to_warehouse': 'returned_to_warehouse'
-    }
-    if new_status in rsi_status_map:
-        db.session.query(RouteStopInvoice).join(RouteStop).filter(
-            RouteStop.shipment_id == route.id,
-            RouteStopInvoice.invoice_no == invoice_no
-        ).update({RouteStopInvoice.status: rsi_status_map[new_status]}, synchronize_session=False)
+    rsi.status = new_status
     
-    # Recompute route completion after every delivery action
-    recompute_route_completion(route.id)
+    recompute_route_completion(shipment.id)
     
     db.session.commit()
     
     logger.info(f"Driver {driver_id} updated order {invoice_no}: {old_status} -> {new_status}")
     
-    return order, None, None
+    return invoice, None, None
 
 
 @driver_api_bp.route('/orders/<invoice_no>/deliver', methods=['PATCH'])
@@ -234,43 +252,60 @@ def fail_order(invoice_no):
 @driver_id_required
 def complete_route(route_id):
     """
-    Complete a route - Only allowed when no active orders remain
-    Active orders are those with status 'out_for_delivery' or 'shipped'
+    Complete a route - Only allowed when no active orders remain.
+    Uses RSI as source of truth for pending/failed/returned status checks.
     """
     driver_id = request.driver_id
     
     try:
-        # Lock route row
         route = db.session.query(Shipment).filter_by(id=route_id).with_for_update().first()
         
         if not route:
             return jsonify({'error': 'Route not found'}), 404
         
-        # Verify driver owns this route
         if route.driver_name != driver_id:
             return jsonify({'error': 'Not your route'}), 403
         
-        # Can only complete from 'IN_TRANSIT' status
+        if route.status == 'COMPLETED':
+            db.session.commit()
+            return jsonify({
+                'routeId': route_id,
+                'status': 'COMPLETED',
+                'completedAt': route.completed_at.isoformat() if route.completed_at else None,
+                'intakeCasesCreated': 0,
+                'message': 'Route already completed'
+            })
+        
         if route.status != 'IN_TRANSIT':
             db.session.rollback()
             return jsonify({
                 'error': f'Cannot complete route from status: {route.status}'
             }), 409
         
-        # Check for any remaining active orders
-        active_orders_count = db.session.query(Invoice).filter(
-            Invoice.route_id == route_id,
-            func.upper(Invoice.status).in_(['OUT_FOR_DELIVERY', 'SHIPPED'])
-        ).count()
-        
-        if active_orders_count > 0:
+        active_rsis = (
+            db.session.query(RouteStopInvoice)
+            .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+            .filter(
+                RouteStop.shipment_id == route_id,
+                RouteStop.deleted_at == None,
+                RouteStopInvoice.is_active == True,
+            )
+            .all()
+        )
+
+        pending_count = 0
+        for rsi in active_rsis:
+            norm = normalize_status(rsi.status)
+            if norm not in TERMINAL_DELIVERY_STATUSES:
+                pending_count += 1
+
+        if pending_count > 0:
             db.session.rollback()
             return jsonify({
-                'error': f'Route still has {active_orders_count} active order(s)',
-                'activeOrders': active_orders_count
+                'error': f'Route still has {pending_count} active order(s)',
+                'activeOrders': pending_count
             }), 409
         
-        # Complete the route using the central recompute function
         result = recompute_route_completion(route_id, commit=False)
         
         if result['route_status'] != 'COMPLETED':
@@ -281,32 +316,26 @@ def complete_route(route_id):
         
         route.updated_at = datetime.utcnow()
         
-        # Automatically send all failed deliveries to Warehouse Intake
-        from models import InvoicePostDeliveryCase, InvoiceRouteHistory, RouteStopInvoice
-        failed_invoices = Invoice.query.filter_by(
-            route_id=route_id,
-            status='delivery_failed'
-        ).all()
+        from models import InvoicePostDeliveryCase, InvoiceRouteHistory
+        
+        failed_rsis = [
+            r for r in active_rsis
+            if normalize_status(r.status) in ('delivery_failed', 'returned_to_warehouse')
+        ]
         
         intake_cases_created = 0
-        for invoice in failed_invoices:
-            # Check if intake case already exists
+        for rsi in failed_rsis:
             existing_case = InvoicePostDeliveryCase.query.filter_by(
-                invoice_no=invoice.invoice_no
+                invoice_no=rsi.invoice_no
             ).filter(
                 InvoicePostDeliveryCase.status.in_(['OPEN', 'INTAKE_RECEIVED', 'REROUTE_QUEUED'])
             ).first()
             
             if not existing_case:
-                # Get the stop for this invoice
-                stop_invoice = RouteStopInvoice.query.filter_by(invoice_no=invoice.invoice_no).first()
-                stop_id = stop_invoice.route_stop_id if stop_invoice else None
-                
-                # Create warehouse intake case
                 intake_case = InvoicePostDeliveryCase(
-                    invoice_no=invoice.invoice_no,
+                    invoice_no=rsi.invoice_no,
                     route_id=route_id,
-                    route_stop_id=stop_id,
+                    route_stop_id=rsi.route_stop_id,
                     status='OPEN',
                     reason='Delivery failed',
                     notes=f'Auto-created on route completion',
@@ -314,11 +343,10 @@ def complete_route(route_id):
                 )
                 db.session.add(intake_case)
                 
-                # Log to invoice history
                 history_entry = InvoiceRouteHistory(
-                    invoice_no=invoice.invoice_no,
+                    invoice_no=rsi.invoice_no,
                     route_id=route_id,
-                    route_stop_id=stop_id,
+                    route_stop_id=rsi.route_stop_id,
                     action='SENT_TO_WAREHOUSE',
                     reason='Delivery failed',
                     notes=f'Auto-sent to warehouse intake on route completion',
@@ -355,11 +383,9 @@ def get_route_details(route_id):
     if not route:
         return jsonify({'error': 'Route not found'}), 404
     
-    # Verify driver owns this route
     if route.driver_name != driver_id:
         return jsonify({'error': 'Not your route'}), 403
     
-    # Get all orders for this route
     orders = Invoice.query.filter_by(route_id=route_id).all()
     
     return jsonify({

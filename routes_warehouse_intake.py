@@ -30,7 +30,7 @@ def admin_required(f):
 @warehouse_bp.route('/intake')
 @admin_required
 def intake_dashboard():
-    """Display warehouse intake dashboard with failed deliveries only"""
+    """Display warehouse intake dashboard with failed and returned deliveries"""
     from models import Shipment, User
     
     # Get all open warehouse intake cases (failed deliveries)
@@ -39,7 +39,7 @@ def intake_dashboard():
         Invoice, InvoicePostDeliveryCase.invoice_no == Invoice.invoice_no
     ).filter(
         InvoicePostDeliveryCase.status.in_(['OPEN', 'INTAKE_RECEIVED']),
-        Invoice.status.ilike('delivery_failed')
+        Invoice.status.in_(['delivery_failed', 'returned_to_warehouse'])
     ).order_by(InvoicePostDeliveryCase.created_at.desc()).all()
     
     # Transform to list of invoice objects with case info attached
@@ -49,24 +49,38 @@ def intake_dashboard():
         invoice._intake_case = case
         failed_invoices.append(invoice)
     
-    # Also include invoices with delivery_failed status that don't have a case yet
+    # Also include invoices with delivery_failed or returned_to_warehouse status that don't have a case yet
     # Auto-create intake cases so they can be processed through the intake workflow
-    delivery_failed_invoices = Invoice.query.filter_by(status='delivery_failed').all()
-    for invoice in delivery_failed_invoices:
-        # Only add if not already in the list (to avoid duplicates)
+    uncased_invoices = Invoice.query.filter(
+        Invoice.status.in_(['delivery_failed', 'returned_to_warehouse'])
+    ).all()
+    for invoice in uncased_invoices:
         if not any(inv.invoice_no == invoice.invoice_no for inv in failed_invoices):
-            # Auto-create an intake case for failed deliveries that don't have one
+            route_id = None
+            route_stop_id = None
+            rsi = db.session.query(RouteStopInvoice).filter_by(
+                invoice_no=invoice.invoice_no,
+                is_active=True
+            ).first()
+            if rsi:
+                route_stop_id = rsi.route_stop_id
+                stop = db.session.query(RouteStop).filter_by(
+                    route_stop_id=rsi.route_stop_id
+                ).first()
+                if stop:
+                    route_id = stop.shipment_id
+
             new_case = InvoicePostDeliveryCase(
                 invoice_no=invoice.invoice_no,
-                route_id=None,
-                route_stop_id=None,
+                route_id=route_id,
+                route_stop_id=route_stop_id,
                 status='OPEN',
-                reason='Delivery failed - auto-created for intake',
-                notes='Auto-created intake case for failed delivery',
+                reason=f'{invoice.status.replace("_", " ").title()} - auto-created for intake',
+                notes='Auto-created intake case for failed/returned delivery',
                 created_by='system'
             )
             db.session.add(new_case)
-            db.session.flush()  # Get the ID
+            db.session.flush()
             invoice._intake_case = new_case
             failed_invoices.append(invoice)
     
