@@ -1,0 +1,154 @@
+Here are the exact instructions to Replit to make printing work from Chrome (iOS/Android) to BIXOLON SPP-R310 reliably, without the iOS A4/AirPrint dialog.
+
+Replit Instructions: Mobile Printing to BIXOLON SPP-R310 (Browser)
+0) Accept the constraint
+
+Bixolon Utility is not a Share/Print target for PDF/image from Chrome, so it won’t appear in “More”.
+Drivers must use BIXOLON mPrint (the printing app). Your web app must therefore provide a “Share” flow, not window.print().
+
+1) Frontend: remove AirPrint (A4) completely
+A) Search the codebase and DELETE/REPLACE these patterns
+
+window.print()
+
+<button onclick="print()"> that triggers browser print
+
+any “Print” button that opens the iOS print dialog
+
+Reason: iOS print dialog only prints to AirPrint printers (A4). SPP-R310 won’t work.
+
+2) Backend: provide a dedicated “receipt file” endpoint
+
+You will generate a file specifically for thermal printing.
+
+Option A (Recommended): PNG at thermal dot width (prints biggest & avoids scaling)
+
+Create endpoint:
+
+GET /receipts/<reference_number>/print.png
+
+PNG output requirements
+
+Width 576 px (3-inch/203dpi printable area)
+
+Black/white (1-bit) image for crisp thermal
+
+No extra margins; content fills width
+
+Add Cache-Control: no-store
+
+PNG avoids “PDF fit-to-page” scaling that makes it small.
+
+Replit tasks
+
+pip install pillow
+
+Create services/receipt_png.py to render PNG (use DejaVuSansMono, big font sizes)
+
+Add Flask route in receipts blueprint returning image/png
+
+Option B (Fallback): PDF with printable width 72mm
+
+Create endpoint:
+
+GET /receipts/<reference_number>/print.pdf
+
+PDF requirements:
+
+PAGE_W = 72mm (not 80mm)
+
+Margins 1–2mm
+
+Monospace font
+
+Larger body font 11–12, title 13–14
+
+Content-Disposition: inline
+
+Cache-Control: no-store
+
+3) Frontend: “Share to mPrint” button (Web Share API)
+
+Add a button that fetches the file and opens the Share sheet.
+
+Implementation (use PNG endpoint)
+<button id="btnPrintThermal">Print (BIXOLON)</button>
+
+<script>
+async function shareThermalFile(url, filename, mime) {
+  const res = await fetch(url, { cache: "no-store" });
+  const blob = await res.blob();
+  const file = new File([blob], filename, { type: mime });
+
+  // iOS/Android: this opens Share sheet where "BIXOLON mPrint" appears
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    await navigator.share({ files: [file], title: filename });
+    return;
+  }
+
+  // fallback
+  window.open(url, "_blank");
+}
+
+document.getElementById("btnPrintThermal").addEventListener("click", async () => {
+  // IMPORTANT: never call window.print()
+  const url = "/receipts/{{ receipt.reference_number }}/print.png";
+  await shareThermalFile(url, "receipt.png", "image/png");
+});
+</script>
+
+Notes
+
+Must run on a user tap (Share API requires gesture)
+
+Disable the button for 2 seconds after tap to avoid double prints
+
+4) Driver instructions (in-app text)
+
+Add a small tooltip in UI:
+
+Install BIXOLON mPrint (iOS/Android)
+
+Pair printer via Bluetooth
+
+In mPrint, select SPP-R310
+
+In Replit app press Print (BIXOLON) → choose mPrint → Print
+
+(Keep it short—drivers will follow it.)
+
+5) Critical acceptance test
+
+Replit must verify:
+
+✅ On iPhone Chrome:
+
+tapping Print opens Share sheet (NOT iOS print dialog)
+
+mPrint appears as an option (after installed)
+
+output prints at full thermal size (not A4)
+
+✅ On Android Chrome:
+
+same behavior, mPrint appears in share apps
+
+6) If output is still small after mPrint
+
+Add a second PNG width to test printer profile:
+
+/print.png?w=576 (default)
+
+/print.png?w=640 (some profiles)
+
+Implement w query param and test both once; keep the one that fills the paper.
+
+What I need Replit to do immediately (priority order)
+
+Remove window.print() usage.
+
+Implement /print.png endpoint at 576px width.
+
+Add “Print (BIXOLON)” button that uses Web Share API to share the PNG.
+
+Tell drivers to install BIXOLON mPrint, not Bixolon Utility.

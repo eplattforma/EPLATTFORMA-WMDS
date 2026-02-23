@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw, ImageFont
 import textwrap
 from decimal import Decimal
 
-DOT_WIDTH = 576
+DOT_WIDTH_DEFAULT = 576
 PADDING_X = 20
 PADDING_Y = 20
 
@@ -27,15 +27,17 @@ def _pad_right(label, value, width):
     return label + (" " * gap) + value
 
 
-def render_receipt_png(data: dict) -> bytes:
+def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
+    dot_width = dot_width or DOT_WIDTH_DEFAULT
+
     font_body = ImageFont.truetype(FONT_PATH, 28)
     font_bold = ImageFont.truetype(FONT_BOLD_PATH, 28)
     font_title = ImageFont.truetype(FONT_BOLD_PATH, 34)
 
-    dummy = Image.new("L", (DOT_WIDTH, 200), 255)
+    dummy = Image.new("L", (dot_width, 200), 255)
     d = ImageDraw.Draw(dummy)
     char_w = d.textlength("M", font=font_body)
-    cols = max(24, int((DOT_WIDTH - 2 * PADDING_X) / char_w))
+    cols = max(24, int((dot_width - 2 * PADDING_X) / char_w))
     sep = "-" * cols
 
     def wrap(s):
@@ -198,11 +200,11 @@ def render_receipt_png(data: dict) -> bytes:
     height = PADDING_Y * 2 + sum(
         line_h_title if t == "title" else line_h_body for t, _ in lines
     )
-    img = Image.new("L", (DOT_WIDTH, height), 255)
+    img = Image.new("L", (dot_width, height), 255)
     draw = ImageDraw.Draw(img)
 
     y = PADDING_Y
-    avail_w = DOT_WIDTH - 2 * PADDING_X
+    avail_w = dot_width - 2 * PADDING_X
 
     for typ, txt in lines:
         if typ == "title":

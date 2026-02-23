@@ -1302,6 +1302,65 @@ def receipt_pdf(receipt_id):
         },
     )
 
+@app.route('/receipts/<int:receipt_id>/print.png')
+@login_required
+def receipt_png(receipt_id):
+    from models import ReceiptLog, PSCustomer, Invoice
+    from services.receipt_render_png import render_receipt_png
+    from flask import Response
+    from io import BytesIO
+
+    r = ReceiptLog.query.get_or_404(receipt_id)
+    customer = PSCustomer.query.filter_by(customer_code_365=r.customer_code_365).first()
+
+    invoice_nos = [s.strip() for s in (r.invoice_no or "").split(",") if s.strip()]
+    invoices = []
+    for no in invoice_nos:
+        inv = Invoice.query.get(no)
+        invoices.append({
+            "invoice_no": no,
+            "total": float(getattr(inv, "total_grand", 0) or 0) if inv else None
+        })
+
+    png_data = {
+        "is_preview": False,
+        "is_amended": False,
+        "is_credit": False,
+        "is_collected": True,
+        "receipt_no": r.reference_number,
+        "date_str": r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
+        "route_no": "",
+        "stop_no": "",
+        "driver_name": r.driver_username or "",
+        "customer_code": r.customer_code_365 or "",
+        "customer_name": customer.company_name if customer else "",
+        "customer_addr": getattr(customer, "address", "") or "" if customer else "",
+        "invoices": invoices,
+        "expected": float(r.amount or 0),
+        "collected": float(r.amount or 0),
+        "balance_due": 0,
+        "payment_method": "CASH",
+        "notes": r.comments or "",
+    }
+
+    w = request.args.get('w', type=int)
+    if w and w in (576, 640, 832):
+        png_bytes = render_receipt_png(png_data, dot_width=w)
+    else:
+        png_bytes = render_receipt_png(png_data)
+
+    return Response(
+        png_bytes,
+        mimetype="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="receipt-{r.reference_number}.png"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @app.route('/admin/autocomplete_order', methods=['POST'])
 @login_required
 def autocomplete_order():

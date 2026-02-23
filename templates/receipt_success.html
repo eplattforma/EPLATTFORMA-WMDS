@@ -61,15 +61,18 @@
 
         <!-- Action Buttons -->
         <div class="action-buttons">
-            <a href="{{ url_for('receipt_pdf', receipt_id=receipt.id, format='thermal') }}" class="btn-action btn-thermal-print" target="_blank">
+            <button id="btnPrintThermal" class="btn-action btn-thermal-print">
                 <i class="fas fa-print me-2"></i>Print (BIXOLON)
-            </a>
+            </button>
             <a href="{{ url_for('routes.dashboard') }}" class="btn-action btn-primary">
                 <i class="fas fa-route me-2"></i>Back to Routes
             </a>
             <a href="{{ url_for('receipts.new_receipt_form') }}" class="btn-action btn-secondary">
                 <i class="fas fa-plus me-2"></i>New Receipt
             </a>
+        </div>
+        <div style="text-align: center; margin-top: 8px; font-size: 0.8rem; color: #6c757d;">
+            Install BIXOLON mPrint &bull; Pair printer via Bluetooth &bull; Tap Print &rarr; choose mPrint
         </div>
     </div>
 </div>
@@ -233,5 +236,39 @@
 .btn-action:active {
     transform: scale(0.98);
 }
+
+.btn-thermal-print {
+    border: none;
+    cursor: pointer;
+    display: block;
+    width: 100%;
+}
 </style>
+
+<script>
+document.getElementById("btnPrintThermal").addEventListener("click", async function() {
+    const btn = this;
+    btn.disabled = true;
+    const origHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Preparing...';
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = origHTML; }, 3000);
+
+    try {
+        const url = "{{ url_for('receipt_png', receipt_id=receipt.id) }}";
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) { window.open(url, "_blank"); return; }
+        const blob = await res.blob();
+        const file = new File([blob], "receipt-{{ receipt.reference_number }}.png", { type: "image/png" });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: "Receipt" });
+        } else {
+            window.open(url, "_blank");
+        }
+    } catch (e) {
+        console.log("Share failed", e);
+        window.open("{{ url_for('receipt_png', receipt_id=receipt.id) }}", "_blank");
+    }
+});
+</script>
 {% endblock %}

@@ -64,20 +64,12 @@
                         </td>
                         <td>{{ receipt.payment_method|upper }}</td>
                         <td class="text-center">
-                            <div class="btn-group btn-group-sm" role="group">
-                                <a href="{{ url_for('driver.print_receipt_80mm', receipt_id=receipt.id) }}" 
-                                   target="_blank" 
-                                   class="btn btn-outline-primary btn-sm"
-                                   title="Print 80mm Receipt">
-                                    <i class="fas fa-print"></i> 80mm
-                                </a>
-                                <a href="{{ url_for('driver.print_receipt', receipt_id=receipt.id) }}" 
-                                   target="_blank" 
-                                   class="btn btn-outline-secondary btn-sm"
-                                   title="Print 58mm Receipt">
-                                    <i class="fas fa-receipt"></i> 58mm
-                                </a>
-                            </div>
+                            <button class="btn btn-sm btn-dark btn-print-thermal"
+                                    data-receipt-id="{{ receipt.id }}"
+                                    data-png-url="{{ url_for('driver.print_receipt_png_by_id', receipt_id=receipt.id) }}"
+                                    title="Print via BIXOLON mPrint">
+                                <i class="fas fa-print"></i> Print
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -196,5 +188,32 @@ async function submitSettlement() {
         alert('Error submitting settlement. Please try again.');
     }
 }
+
+document.querySelectorAll('.btn-print-thermal').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        const pngUrl = this.dataset.pngUrl;
+        const receiptId = this.dataset.receiptId;
+        this.disabled = true;
+        const origHTML = this.innerHTML;
+        this.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        setTimeout(() => { this.disabled = false; this.innerHTML = origHTML; }, 3000);
+
+        try {
+            const res = await fetch(pngUrl, { cache: "no-store" });
+            if (!res.ok) { window.open(pngUrl, "_blank"); return; }
+            const blob = await res.blob();
+            const file = new File([blob], `receipt-${receiptId}.png`, { type: "image/png" });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: "Receipt" });
+            } else {
+                window.open(pngUrl, "_blank");
+            }
+        } catch (e) {
+            console.log("Share failed", e);
+            window.open(pngUrl, "_blank");
+        }
+    });
+});
 </script>
 {% endblock %}

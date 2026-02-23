@@ -140,20 +140,41 @@
     </div>
 
     <div class="no-print" style="margin-top: 10mm; text-align: center;">
-        <button onclick="window.print()" style="padding: 10px 20px; font-size: 14pt;">
-            🖨️ Print Receipt
+        <button id="btnPrintThermal" style="padding: 12px 24px; font-size: 14pt; background-color: #1f2937; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            Print (BIXOLON)
         </button>
-        <button onclick="window.close()" style="padding: 10px 20px; font-size: 14pt; margin-left: 10px;">
+        <button onclick="window.close()" style="padding: 12px 24px; font-size: 14pt; margin-left: 10px; background-color: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
             Close
         </button>
+        <div style="margin-top: 8px; font-size: 9pt; color: #6c757d;">
+            Uses BIXOLON mPrint app via Share
+        </div>
     </div>
 
     <script>
-        window.addEventListener('load', function() {
-            setTimeout(function() {
-                window.print();
-            }, 500);
-        });
+    document.getElementById("btnPrintThermal").addEventListener("click", async function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = "Preparing...";
+        setTimeout(() => { btn.disabled = false; btn.textContent = "Print (BIXOLON)"; }, 3000);
+
+        try {
+            const url = "{{ url_for('driver.print_receipt_png_by_id', receipt_id=receipt.id) }}";
+            const res = await fetch(url, { cache: "no-store" });
+            if (!res.ok) { window.open(url, "_blank"); return; }
+            const blob = await res.blob();
+            const file = new File([blob], "receipt-{{ receipt.id }}.png", { type: "image/png" });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: "Receipt" });
+            } else {
+                window.open(url, "_blank");
+            }
+        } catch (e) {
+            console.log("Share failed", e);
+            window.open("{{ url_for('driver.print_receipt_png_by_id', receipt_id=receipt.id) }}", "_blank");
+        }
+    });
     </script>
 </body>
 </html>

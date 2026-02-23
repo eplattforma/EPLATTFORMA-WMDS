@@ -24,7 +24,7 @@ Preferred communication style: Simple, everyday language.
     - **Batch Processing**: Zone/corridor-based batch creation, item locking, sequential/optimized picking modes.
     - **Delivery Issue Tracking**: Admin-only system for recording, validating, and resolving discrepancies with photo uploads and audit trails.
     - **Delivery Route Management**: Route planning, driver assignment, stop sequencing, invoice assignment, progress tracking, and printable run sheets. Includes warehouse collection.
-    - **Driver App**: Mobile-optimized delivery execution with exception-only workflow, COD collection, PDF receipt printing, Proof of Delivery (POD) capture, and discrepancy integration.
+    - **Driver App**: Mobile-optimized delivery execution with exception-only workflow, COD collection, thermal PNG receipt printing (BIXOLON SPP-R310 via Web Share API + mPrint), Proof of Delivery (POD) capture, and discrepancy integration.
     - **Route Reconciliation Report Pack**: Excel export system for comprehensive route reconciliation, including summary, invoice detail, stop summary, exceptions, and post-dated register.
     - **Return Handover Workflow**: Two-step confirmation process for failed deliveries (driver and warehouse staff).
     - **Discrepancy Verification Workflow**: Warehouse verification of delivery discrepancies to determine credit note requirements.
