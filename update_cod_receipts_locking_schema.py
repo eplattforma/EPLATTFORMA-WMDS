@@ -29,18 +29,25 @@ def update_cod_receipts_locking_schema():
             ]
 
             for column_name, column_type in columns_to_add:
-                result = db.session.execute(text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'cod_receipts' AND column_name = :col"
-                ), {'col': column_name})
+                try:
+                    result = db.session.execute(text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'cod_receipts' AND column_name = :col"
+                    ), {'col': column_name})
 
-                if result.fetchone() is None:
-                    db.session.execute(text(
-                        f"ALTER TABLE cod_receipts ADD COLUMN {column_name} {column_type}"
-                    ))
-                    logging.info(f"Added {column_name} column to cod_receipts table")
-                else:
-                    logging.info(f"{column_name} column already exists in cod_receipts table")
+                    if result.fetchone() is None:
+                        db.session.execute(text(
+                            f"ALTER TABLE cod_receipts ADD COLUMN {column_name} {column_type}"
+                        ))
+                        logging.info(f"Added {column_name} column to cod_receipts table")
+                    else:
+                        logging.info(f"{column_name} column already exists in cod_receipts table")
+                except Exception as col_err:
+                    db.session.rollback()
+                    if 'already exists' in str(col_err):
+                        logging.info(f"{column_name} column already exists in cod_receipts table")
+                    else:
+                        raise
 
             db.session.execute(text(
                 "CREATE INDEX IF NOT EXISTS idx_cod_receipts_status ON cod_receipts(status)"
@@ -52,11 +59,32 @@ def update_cod_receipts_locking_schema():
                 "CREATE INDEX IF NOT EXISTS idx_cod_receipts_client_request_id ON cod_receipts(client_request_id)"
             ))
 
-            db.session.execute(text("""
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_cod_receipts_stop_non_voided
-                ON cod_receipts(route_stop_id)
-                WHERE status <> 'VOIDED'
-            """))
+            idx_exists = db.session.execute(text(
+                "SELECT 1 FROM pg_indexes WHERE indexname = 'uq_cod_receipts_stop_non_voided'"
+            )).fetchone()
+            if not idx_exists:
+                db.session.execute(text("""
+                    UPDATE cod_receipts SET status = 'VOIDED', void_reason = 'auto-dedup migration'
+                    WHERE id IN (
+                        SELECT id FROM (
+                            SELECT id, ROW_NUMBER() OVER (
+                                PARTITION BY route_stop_id
+                                ORDER BY created_at DESC NULLS LAST, id DESC
+                            ) AS rn
+                            FROM cod_receipts
+                            WHERE (status IS NULL OR status <> 'VOIDED')
+                        ) sub WHERE rn > 1
+                    )
+                """))
+                db.session.execute(text("""
+                    UPDATE cod_receipts SET status = 'DRAFT'
+                    WHERE status IS NULL
+                """))
+                db.session.execute(text("""
+                    CREATE UNIQUE INDEX uq_cod_receipts_stop_non_voided
+                    ON cod_receipts(route_stop_id)
+                    WHERE status <> 'VOIDED'
+                """))
 
             db.session.commit()
             logging.info("✅ COD receipts locking schema update completed successfully")

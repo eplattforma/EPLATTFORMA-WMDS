@@ -1,0 +1,366 @@
+0) What already works (so we build on it)
+Receipt locking (good)
+
+Printing a receipt locks it by moving it to ISSUED and writing locked_at, locked_by, and print_count (both per-receipt and tokenized stop print).
+
+routes_driver
+
+routes_driver
+
+Correction workflow (good)
+
+Driver can submit a correction request (event logged).
+
+routes_driver
+
+Backoffice can void and then reissue a receipt with corrected data.
+
+routes_reconciliation
+
+routes_reconciliation
+
+Pending payments only after reconciliation (good)
+
+The pending-payments list is already filtered to Shipment.reconciliation_status == 'RECONCILED'.
+
+routes_reconciliation
+
+1) Critical fix #1 (MUST): COD expected must subtract exception value
+Problem
+
+In submit_delivery, you currently compute cod_expected as invoice totals minus rebate only
+
+routes_driver
+
+, but your driver UI computes Balance Due = invoice total − exceptions − collected (it sums exception_value).
+This mismatch causes:
+
+“Expected cash” stored at settlement submission to be inflated (it uses CODReceipt.expected_amount).
+
+routes_driver
+
+Variance/underpaid/pending calculations to become wrong whenever exceptions exist.
+
+Fix (routes_driver.py → submit_delivery)
+
+Change cod_expected to:
+sum(invoice totals) - sum(discrepancy_values_by_invoice)
+…and ensure damagedAccepted=True does not deduct money.
+
+Patch instructions
+
+In routes_driver.py inside submit_delivery:
+
+When you compute exception_value, force it to 0 for “damaged accepted”:
+
+exception_value = Decimal(str(ex.get('exception_value', 0) or 0))
+
+# If customer ACCEPTED damaged item, it should NOT reduce the amount due
+if ex_type == 'DAMAGED' and damaged_accepted:
+    exception_value = Decimal('0')
+
+Keep accumulating it per invoice (you already do):
+
+routes_driver
+
+Replace the COD expected block:
+
+Current (invoice totals then subtract rebate):
+
+routes_driver
+
+cod_expected = Decimal('0.00')
+for invoice_no in invoice_nos:
+    invoice = Invoice.query.get(invoice_no)
+    if invoice and invoice.total_grand:
+        cod_expected += Decimal(str(invoice.total_grand))
+
+cod_expected -= total_rebate_reduction
+
+Replace with:
+
+invoice_total_sum = Decimal('0.00')
+for invoice_no in invoice_nos:
+    inv = Invoice.query.get(invoice_no)
+    if inv and inv.total_grand:
+        invoice_total_sum += Decimal(str(inv.total_grand))
+
+total_deductions = sum(discrepancy_values_by_invoice.values(), Decimal('0.00'))
+
+cod_expected = invoice_total_sum - total_deductions
+if cod_expected < 0:
+    cod_expected = Decimal('0.00')
+
+✅ After this, backend expected matches the driver’s Balance Due calculation and settlement math becomes consistent with expected_cash = sum(CODReceipt.expected_amount...).
+
+routes_driver
+
+2) Critical fix #2 (MUST): return a print URL after submit (you currently return print_url: None)
+
+Right now you generate a token and print_url but then return print_url: None.
+
+routes_driver
+
+
+That prevents a clean “Complete → Print Now → Lock” flow in the driver UI.
+
+Fix (routes_driver.py → submit_delivery response)
+
+Replace the JSON return with:
+
+print_png_url = None
+if cod_receipt:
+    print_png_url = url_for('driver.print_receipt_png_by_id', receipt_id=cod_receipt.id)
+
+return jsonify({
+    'success': True,
+    'cod': {
+        'expected': float(cod_expected),
+        'received': float(received if not is_credit else 0),
+        'method': cod_method
+    },
+    'receipt_id': cod_receipt.id if cod_receipt else None,
+    'print_png_url': print_png_url
+})
+
+This uses the receipt-id PNG endpoint which already locks on first print.
+
+routes_driver
+
+3) Driver UI: “Payment Entry” screen upgrade (deliver_wizard.html)
+
+You already have a functional payment block, but you want:
+
+big keypad
+
+cash/cheque tiles
+
+clear cheque details screen
+
+after printing, lock/no-edit; only reprint
+
+handle mistakes via backoffice
+
+A) UI changes in templates/driver/deliver_wizard.html
+1) Fix exception value when damaged is accepted (frontend)
+
+In saveException() set exceptionValue to 0 if accepted:
+
+if (type === 'DAMAGED' && damagedAccepted) {
+  exceptionValue = 0;
+}
+
+This must match the backend change above.
+
+2) Replace “Payment Method” select UX with method tiles + keep select hidden
+
+Keep your <select id="cod-method"> (for compatibility) but add tiles and call setMethod('cash'), setMethod('cheque'), etc.
+
+Add above the <select>:
+
+<div class="row g-2 mb-2">
+  {% if terms.allow_cash %}
+  <div class="col-6">
+    <button type="button" class="btn btn-outline-success w-100 py-3" onclick="setMethod('cash')">
+      <i class="fas fa-money-bill"></i><br><strong>Cash</strong>
+    </button>
+  </div>
+  {% endif %}
+  {% if terms.allow_cheque %}
+  <div class="col-6">
+    <button type="button" class="btn btn-outline-success w-100 py-3" onclick="setMethod('cheque')">
+      <i class="fas fa-receipt"></i><br><strong>Cheque</strong>
+    </button>
+  </div>
+  {% endif %}
+  {% if terms.allow_bank_transfer %}
+  <div class="col-6">
+    <button type="button" class="btn btn-outline-primary w-100 py-3" onclick="setMethod('online')">
+      <i class="fas fa-university"></i><br><strong>Pay Online</strong>
+    </button>
+  </div>
+  {% endif %}
+  {% if terms.allow_card_pos %}
+  <div class="col-6">
+    <button type="button" class="btn btn-outline-secondary w-100 py-3" onclick="setMethod('card')">
+      <i class="fas fa-credit-card"></i><br><strong>Card (POS)</strong>
+    </button>
+  </div>
+  {% endif %}
+</div>
+
+<select class="form-select d-none" id="cod-method">…existing options…</select>
+3) Big amount display + keypad
+
+Replace the current number input UI with:
+
+a big display (“€ 0.00”)
+
+keypad buttons appending digits (cents logic)
+
+Example block to insert where your current #cod-received is:
+
+<div class="p-3 mb-2 rounded border bg-light">
+  <div class="d-flex justify-content-between small text-muted">
+    <span>Invoice Total: €<span id="cod-expected">0.00</span></span>
+    <span class="text-danger">Exceptions: -€<span id="cod-exceptions">0.00</span></span>
+  </div>
+
+  <div class="display-6 fw-bold mt-1" id="cod-display">€ 0.00</div>
+
+  <div class="small mt-1">
+    Balance Due: <span class="fw-bold" id="cod-variance">€ 0.00</span>
+  </div>
+</div>
+
+<!-- hidden “real” input to keep your existing JS + payload -->
+<input type="hidden" id="cod-received" value="0.00">
+
+<div id="keypadWrap" class="mb-2">
+  <div class="row g-2">
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('1')">1</button></div>
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('2')">2</button></div>
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('3')">3</button></div>
+
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('4')">4</button></div>
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('5')">5</button></div>
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('6')">6</button></div>
+
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('7')">7</button></div>
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('8')">8</button></div>
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('9')">9</button></div>
+
+    <div class="col-4"><button class="btn btn-outline-danger w-100 py-3" onclick="kpBack()">⌫</button></div>
+    <div class="col-4"><button class="btn btn-outline-dark w-100 py-3" onclick="kp('0')">0</button></div>
+    <div class="col-4"><button class="btn btn-outline-secondary w-100 py-3" onclick="kpClear()">C</button></div>
+
+    <div class="col-12">
+      <button class="btn btn-success w-100 py-3" onclick="kpExact()">Exact Amount</button>
+    </div>
+  </div>
+</div>
+
+Then add JS (near your other functions):
+
+let rawCents = ""; // digits only, "1234" => 12.34
+
+function setMethod(m) {
+  const sel = document.getElementById('cod-method');
+  if (sel) sel.value = m;
+  togglePaymentControls();
+  calculateCODVariance();
+}
+
+function _setCollectedFromRaw() {
+  const cents = rawCents === "" ? 0 : parseInt(rawCents, 10);
+  const amount = (cents / 100).toFixed(2);
+
+  document.getElementById('cod-received').value = amount;
+  document.getElementById('cod-display').textContent = `€ ${amount}`;
+  calculateCODVariance();
+}
+
+function kp(d) {
+  rawCents = (rawCents + d).replace(/^0+/, ""); // trim leading zeros
+  _setCollectedFromRaw();
+}
+function kpBack() {
+  rawCents = rawCents.slice(0, -1);
+  _setCollectedFromRaw();
+}
+function kpClear() {
+  rawCents = "";
+  _setCollectedFromRaw();
+}
+function kpExact() {
+  const invoiceTotal = totalInvoicesAmount;
+  const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+  const due = Math.max(0, invoiceTotal - exceptionsTotal);
+  rawCents = String(Math.round(due * 100));
+  _setCollectedFromRaw();
+}
+4) Post-dated cheque UX
+
+You already validate cheque date vs cheque_days_allowed and block beyond. To support true PDC, change that logic:
+
+If diffDays > allowedDays: don’t block; instead show warning “This will print PDC acknowledgement (subject to clearance)”.
+
+That keeps your backend doc-type detection working (it already chooses pdc_ack when cheque date is in the future).
+
+routes_driver
+
+5) After submit: show “Print Final Receipt” step (don’t redirect immediately)
+
+Currently you alert() and immediately redirect.
+
+Change success handling to:
+
+show a modal with:
+
+Print Final Receipt (calls data.print_png_url)
+
+Request Correction (calls driver correction endpoint)
+
+Done / Back to Stops
+
+Driver correction endpoint already exists.
+
+routes_driver
+
+4) Mistakes handling (operationally solid)
+Driver-side
+
+Add a button in the post-submit modal:
+
+“Request Correction”
+
+Opens a textarea “Reason”
+
+POST to /driver/api/receipts/<receipt_id>/correction-request
+
+This is exactly the model you described (driver can’t “edit” an issued receipt; only escalate).
+
+routes_driver
+
+Backoffice
+
+In reconciliation UI:
+
+Void the wrong receipt (reason required).
+
+routes_reconciliation
+
+Reissue a corrected replacement receipt (new one is DRAFT until printed).
+
+routes_reconciliation
+
+That preserves audit trail and prevents silent edits.
+
+5) Optional but recommended: fix wording on printed receipt by doc_type
+
+Your PNG print payload already includes doc_type and ps365_reference_number fields.
+
+routes_driver
+
+routes_driver
+
+
+But the PNG renderer doesn’t currently change headings/wording for:
+
+PDC acknowledgement
+
+online payment notice
+
+Update services/receipt_render_png.py to:
+
+show “Cheque Received (PDC) — subject to clearance / not final settlement” when doc_type == 'pdc_ack'
+
+show “Payment Due Online — Pay by <date> + bank details” when doc_type == 'online_notice'
+
+optionally show PS365 Ref when present.
+
+(You can keep your current print flow; this is just presentation so receipts match your policy text.)
+
+6) Driver mobile API (quick consistency tweak)
+
+If your mobile app uses /driver_api/start_route, ensure the “ready for dispatch” case matches your web driver flow (web allows more than just shipped). This is a small alignment change and avoids “start route shows 0 updated” when invoices are in ready_for_dispatch.

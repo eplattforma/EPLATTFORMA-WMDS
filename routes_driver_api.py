@@ -112,7 +112,7 @@ def start_route(route_id):
         
         updated_orders = db.session.query(Invoice).filter(
             Invoice.route_id == route_id,
-            func.lower(Invoice.status) == 'shipped'
+            func.lower(Invoice.status).in_(['shipped', 'ready_for_dispatch'])
         ).update({
             'status': 'out_for_delivery',
             'status_updated_at': datetime.utcnow()

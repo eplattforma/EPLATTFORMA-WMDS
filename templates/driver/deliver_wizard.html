@@ -4,11 +4,15 @@
 
 {% block head %}
 <style>
-/* Remove number input arrows */
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
+}
+.method-tile.active {
+    background-color: #198754 !important;
+    color: #fff !important;
+    border-color: #198754 !important;
 }
 </style>
 {% endblock %}
@@ -78,45 +82,86 @@ input[type=number]::-webkit-inner-spin-button {
             <strong><i class="fas fa-money-bill"></i> Payment</strong>
         </div>
         <div class="card-body">
-            <div class="mb-2">
-                <label class="form-label">Payment Method</label>
-                <select class="form-select" id="cod-method">
-                    {% if terms.allow_cash %}
-                    <option value="cash">Cash</option>
-                    {% endif %}
-                    {% if terms.allow_cheque %}
-                    <option value="cheque">Cheque{% if terms.cheque_days_allowed %} ({{ terms.cheque_days_allowed }} days){% endif %}</option>
-                    {% endif %}
-                    {% if terms.allow_bank_transfer %}
-                    <option value="online">Pay Online (bank transfer)</option>
-                    {% endif %}
-                    {% if terms.allow_card_pos %}
-                    <option value="card">Card (POS)</option>
-                    {% endif %}
-                </select>
+            <label class="form-label fw-bold mb-2">Payment Method</label>
+            <div class="row g-2 mb-3" id="method-tiles">
+                {% if terms.allow_cash %}
+                <div class="col-6">
+                    <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cash" onclick="setMethod('cash')">
+                        <i class="fas fa-money-bill"></i><br><strong>Cash</strong>
+                    </button>
+                </div>
+                {% endif %}
+                {% if terms.allow_cheque %}
+                <div class="col-6">
+                    <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cheque" onclick="setMethod('cheque')">
+                        <i class="fas fa-receipt"></i><br><strong>Cheque</strong>
+                    </button>
+                </div>
+                {% endif %}
+                {% if terms.allow_bank_transfer %}
+                <div class="col-6">
+                    <button type="button" class="btn btn-outline-primary w-100 py-3 method-tile" data-method="online" onclick="setMethod('online')">
+                        <i class="fas fa-university"></i><br><strong>Pay Online</strong>
+                    </button>
+                </div>
+                {% endif %}
+                {% if terms.allow_card_pos %}
+                <div class="col-6">
+                    <button type="button" class="btn btn-outline-secondary w-100 py-3 method-tile" data-method="card" onclick="setMethod('card')">
+                        <i class="fas fa-credit-card"></i><br><strong>Card (POS)</strong>
+                    </button>
+                </div>
+                {% endif %}
             </div>
-            
+
+            <select class="form-select d-none" id="cod-method">
+                {% if terms.allow_cash %}
+                <option value="cash">Cash</option>
+                {% endif %}
+                {% if terms.allow_cheque %}
+                <option value="cheque">Cheque</option>
+                {% endif %}
+                {% if terms.allow_bank_transfer %}
+                <option value="online">Pay Online</option>
+                {% endif %}
+                {% if terms.allow_card_pos %}
+                <option value="card">Card (POS)</option>
+                {% endif %}
+            </select>
+
             <div id="cod-amount-section">
-                <div class="row g-2 mb-2 align-items-center">
-                    <div class="col-3">
-                        <label class="form-label small mb-1">Invoice Total</label>
-                        <div class="fs-6">€<span id="cod-expected">0.00</span></div>
+                <div class="p-3 mb-2 rounded border bg-light">
+                    <div class="d-flex justify-content-between small text-muted">
+                        <span>Invoice Total: &euro;<span id="cod-expected">0.00</span></span>
+                        <span class="text-danger">Exceptions: -&euro;<span id="cod-exceptions">0.00</span></span>
                     </div>
-                    <div class="col-3">
-                        <label class="form-label small mb-1 text-danger">Exceptions</label>
-                        <div class="fs-6 text-danger">-€<span id="cod-exceptions">0.00</span></div>
+                    <div class="display-6 fw-bold mt-1" id="cod-display">&euro; 0.00</div>
+                    <div class="small mt-1">
+                        Balance Due: <span class="fw-bold" id="cod-variance">&euro; 0.00</span>
                     </div>
-                    <div class="col-3" id="cod-variance-container">
-                        <label class="form-label small mb-1">Balance Due</label>
-                        <div class="fs-6 fw-bold"><span id="cod-variance">€ 0.00</span></div>
-                    </div>
-                    <div class="col-3" id="cod-received-container">
-                        <label class="form-label fw-bold mb-1">Collected</label>
-                        <input type="number" step="0.01" class="form-control form-control-lg fw-bold" id="cod-received" placeholder="0.00" style="font-size: 1.1rem; min-width: 90px; -moz-appearance: textfield;">
+                </div>
+
+                <input type="hidden" id="cod-received" value="0.00">
+
+                <div id="keypadWrap" class="mb-2">
+                    <div class="row g-2">
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('1')">1</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('2')">2</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('3')">3</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('4')">4</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('5')">5</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('6')">6</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('7')">7</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('8')">8</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('9')">9</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-danger w-100 py-3 fs-4" onclick="kpBack()">&lsaquo;</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('0')">0</button></div>
+                        <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 py-3 fs-4" onclick="kpClear()">C</button></div>
+                        <div class="col-12"><button type="button" class="btn btn-success w-100 py-3" onclick="kpExact()">Exact Amount</button></div>
                     </div>
                 </div>
             </div>
-            
+
             <div id="cheque-details" style="display: none;">
                 <div class="row g-2 mb-2">
                     <div class="col-6">
@@ -128,10 +173,12 @@ input[type=number]::-webkit-inner-spin-button {
                         <input type="date" class="form-control" id="cheque-date">
                     </div>
                 </div>
+                <div id="pdc-warning" class="alert alert-warning small" style="display:none;">
+                    <i class="fas fa-info-circle"></i> Post-dated cheque: receipt will print as <strong>PDC Acknowledgement</strong> (subject to clearance).
+                </div>
             </div>
 
             <script>
-                // Set default cheque date to today
                 document.addEventListener('DOMContentLoaded', function() {
                     const dateInput = document.getElementById('cheque-date');
                     if (dateInput) {
@@ -140,9 +187,9 @@ input[type=number]::-webkit-inner-spin-button {
                     }
                 });
             </script>
-            
+
             <div class="mb-2">
-                <label class="form-label">Notes <span class="text-muted small">(required if balance due ≠ 0)</span></label>
+                <label class="form-label">Notes <span class="text-muted small">(required if balance due &ne; 0)</span></label>
                 <textarea class="form-control" id="cod-notes" rows="2" placeholder="Optional"></textarea>
             </div>
         </div>
@@ -195,11 +242,44 @@ input[type=number]::-webkit-inner-spin-button {
 
     <div class="d-grid gap-2">
         <button class="btn btn-outline-primary btn-lg" onclick="previewReceipt()">
-            <i class="fas fa-print"></i> Preview Receipt (PDF)
+            <i class="fas fa-print"></i> Preview Receipt
         </button>
         <button class="btn btn-success btn-lg" onclick="submitDelivery()">
             <i class="fas fa-check-circle"></i> Complete Delivery
         </button>
+    </div>
+</div>
+
+<div class="modal fade" id="postSubmitModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-check-circle"></i> Delivery Completed</h5>
+            </div>
+            <div class="modal-body text-center">
+                <div id="post-submit-summary" class="mb-3"></div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary btn-lg" id="btn-print-final" onclick="printFinalReceipt()">
+                        <i class="fas fa-print"></i> Print Final Receipt
+                    </button>
+                    <button class="btn btn-warning" id="btn-reprint" style="display:none;" onclick="printFinalReceipt()">
+                        <i class="fas fa-redo"></i> Reprint Receipt
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="showCorrectionForm()">
+                        <i class="fas fa-exclamation-triangle"></i> Request Correction
+                    </button>
+                    <div id="correction-form" style="display:none;" class="mt-2 text-start">
+                        <label class="form-label">Reason for correction:</label>
+                        <textarea class="form-control mb-2" id="correction-reason" rows="2" placeholder="Describe what needs to be corrected"></textarea>
+                        <button class="btn btn-danger w-100" onclick="submitCorrectionRequest()">Submit Correction Request</button>
+                    </div>
+                    <hr>
+                    <button class="btn btn-outline-secondary btn-lg" onclick="goBackToStops()">
+                        <i class="fas fa-arrow-left"></i> Back to Stops
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -426,13 +506,12 @@ function saveException() {
         qty: qty
     } : null;
     
-    // Calculate exception value (proportional to qty if partial)
     let exceptionValue = 0;
-    if (item.is_rebate) {
-        // Rebate uses amount directly
+    if (type === 'DAMAGED' && damagedAccepted) {
+        exceptionValue = 0;
+    } else if (item.is_rebate) {
         exceptionValue = Math.abs(qty);
     } else if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
-        // For partial exceptions, calculate proportional value
         const proportion = qty / item.qty_ordered;
         exceptionValue = item.line_total_incl * proportion;
     }
@@ -516,104 +595,138 @@ function removeException(index) {
     calculateCODVariance();
 }
 
-// Toggle payment controls based on method selection
-function togglePaymentControls() {
-    if (isCredit) return; // No payment controls for credit accounts
-    
-    const methodEl = document.getElementById('cod-method');
-    if (!methodEl) return;
-    
-    const method = methodEl.value;
-    const amountSection = document.getElementById('cod-amount-section');
-    const receivedInput = document.getElementById('cod-received');
-    const receivedContainer = document.getElementById('cod-received-container');
-    const varianceContainer = document.getElementById('cod-variance-container');
-    
-    const chequeDetails = document.getElementById('cheque-details');
-    
-    if (method === 'online') {
-        // Online/Bank Transfer - show expected amount only, no cash collected
-        if (amountSection) amountSection.style.display = 'block';
-        if (receivedInput) receivedInput.value = '0';
-        if (receivedContainer) receivedContainer.style.display = 'none';
-        if (varianceContainer) varianceContainer.style.display = 'none';
-        if (chequeDetails) chequeDetails.style.display = 'none';
-    } else if (method === 'cheque') {
-        // Cheque - show full amount collection and cheque fields
-        if (amountSection) amountSection.style.display = 'block';
-        if (receivedContainer) receivedContainer.style.display = 'block';
-        if (varianceContainer) varianceContainer.style.display = 'block';
-        if (chequeDetails) chequeDetails.style.display = 'block';
-    } else {
-        // Cash/Card - show full amount collection
-        if (amountSection) amountSection.style.display = 'block';
-        if (receivedContainer) receivedContainer.style.display = 'block';
-        if (varianceContainer) varianceContainer.style.display = 'block';
-        if (chequeDetails) chequeDetails.style.display = 'none';
-    }
-    
+let rawCents = "";
+let lastSubmitData = null;
+
+function setMethod(m) {
+    const sel = document.getElementById('cod-method');
+    if (sel) sel.value = m;
+    document.querySelectorAll('.method-tile').forEach(btn => {
+        btn.classList.remove('active', 'btn-success', 'btn-primary', 'btn-secondary');
+        const orig = btn.dataset.method;
+        if (orig === m) {
+            btn.classList.add('active', 'btn-success');
+            btn.classList.remove('btn-outline-success', 'btn-outline-primary', 'btn-outline-secondary');
+        } else {
+            btn.classList.remove('btn-success', 'btn-primary', 'btn-secondary');
+            if (!btn.classList.contains('btn-outline-success') && !btn.classList.contains('btn-outline-primary') && !btn.classList.contains('btn-outline-secondary')) {
+                if (orig === 'online') btn.classList.add('btn-outline-primary');
+                else if (orig === 'card') btn.classList.add('btn-outline-secondary');
+                else btn.classList.add('btn-outline-success');
+            }
+        }
+    });
+    togglePaymentControls();
     calculateCODVariance();
 }
 
-// Calculate COD expected and balance due
-function calculateCODVariance() {
-    if (isCredit) return; // No COD for credit accounts
-    
-    // Use total invoice amounts as expected
-    const invoiceTotal = totalInvoicesAmount;
-    
-    // Calculate total exception value
-    const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
-    
-    const codExpected = document.getElementById('cod-expected');
-    if (codExpected) codExpected.textContent = invoiceTotal.toFixed(2);
-    
-    const codExceptions = document.getElementById('cod-exceptions');
-    if (codExceptions) codExceptions.textContent = exceptionsTotal.toFixed(2);
-    
-    const methodEl = document.getElementById('cod-method');
-    const method = methodEl ? methodEl.value : 'cash';
-    
-    const receivedInput = document.getElementById('cod-received');
-    const received = method === 'online' ? 0 : (parseFloat(receivedInput?.value) || 0);
-    
-    // Balance Due = Invoice Total - Exceptions - Amount Collected
-    // Positive = we're owed money, Negative = customer overpaid, 0 = paid exactly
-    const balanceDue = invoiceTotal - exceptionsTotal - received;
-    const varianceEl = document.getElementById('cod-variance');
-    if (varianceEl) varianceEl.textContent = `€ ${balanceDue.toFixed(2)}`;
+function _setCollectedFromRaw() {
+    const cents = rawCents === "" ? 0 : parseInt(rawCents, 10);
+    const amount = (cents / 100).toFixed(2);
+    document.getElementById('cod-received').value = amount;
+    const display = document.getElementById('cod-display');
+    if (display) display.textContent = '\u20AC ' + amount;
+    calculateCODVariance();
 }
 
-// Set up payment method change listener
+function kp(d) {
+    rawCents = (rawCents + d).replace(/^0+/, "");
+    _setCollectedFromRaw();
+}
+function kpBack() {
+    rawCents = rawCents.slice(0, -1);
+    _setCollectedFromRaw();
+}
+function kpClear() {
+    rawCents = "";
+    _setCollectedFromRaw();
+}
+function kpExact() {
+    const invoiceTotal = totalInvoicesAmount;
+    const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+    const due = Math.max(0, invoiceTotal - exceptionsTotal);
+    rawCents = String(Math.round(due * 100));
+    _setCollectedFromRaw();
+}
+
+function togglePaymentControls() {
+    if (isCredit) return;
+
+    const methodEl = document.getElementById('cod-method');
+    if (!methodEl) return;
+
+    const method = methodEl.value;
+    const amountSection = document.getElementById('cod-amount-section');
+    const keypadWrap = document.getElementById('keypadWrap');
+    const chequeDetails = document.getElementById('cheque-details');
+
+    if (method === 'online') {
+        if (amountSection) amountSection.style.display = 'block';
+        if (keypadWrap) keypadWrap.style.display = 'none';
+        document.getElementById('cod-received').value = '0';
+        const display = document.getElementById('cod-display');
+        if (display) display.textContent = '\u20AC 0.00';
+        rawCents = "";
+        if (chequeDetails) chequeDetails.style.display = 'none';
+    } else if (method === 'cheque') {
+        if (amountSection) amountSection.style.display = 'block';
+        if (keypadWrap) keypadWrap.style.display = 'block';
+        if (chequeDetails) chequeDetails.style.display = 'block';
+    } else {
+        if (amountSection) amountSection.style.display = 'block';
+        if (keypadWrap) keypadWrap.style.display = 'block';
+        if (chequeDetails) chequeDetails.style.display = 'none';
+    }
+
+    calculateCODVariance();
+    checkPdcWarning();
+}
+
+function calculateCODVariance() {
+    if (isCredit) return;
+
+    const invoiceTotal = totalInvoicesAmount;
+    const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+
+    const codExpected = document.getElementById('cod-expected');
+    if (codExpected) codExpected.textContent = invoiceTotal.toFixed(2);
+
+    const codExceptions = document.getElementById('cod-exceptions');
+    if (codExceptions) codExceptions.textContent = exceptionsTotal.toFixed(2);
+
+    const methodEl = document.getElementById('cod-method');
+    const method = methodEl ? methodEl.value : 'cash';
+
+    const receivedInput = document.getElementById('cod-received');
+    const received = method === 'online' ? 0 : (parseFloat(receivedInput?.value) || 0);
+
+    const balanceDue = invoiceTotal - exceptionsTotal - received;
+    const varianceEl = document.getElementById('cod-variance');
+    if (varianceEl) varianceEl.textContent = '\u20AC ' + balanceDue.toFixed(2);
+}
+
+function checkPdcWarning() {
+    const pdcWarn = document.getElementById('pdc-warning');
+    if (!pdcWarn) return;
+    const dateInput = document.getElementById('cheque-date');
+    if (!dateInput || !dateInput.value) { pdcWarn.style.display = 'none'; return; }
+    const selected = new Date(dateInput.value);
+    selected.setHours(0,0,0,0);
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    pdcWarn.style.display = (selected > today) ? 'block' : 'none';
+}
+
 if (!isCredit) {
     const methodEl = document.getElementById('cod-method');
     if (methodEl) {
         methodEl.addEventListener('change', togglePaymentControls);
     }
-    
-    const receivedInput = document.getElementById('cod-received');
-    if (receivedInput) {
-        receivedInput.addEventListener('input', function(e) {
-            // Remove non-numeric characters
-            let val = this.value.replace(/\D/g, '');
-            if (val === '') {
-                this.value = '';
-            } else {
-                // Treat as cents (2 decimal points)
-                let floatVal = parseFloat(val) / 100;
-                this.value = floatVal.toFixed(2);
-            }
-            calculateCODVariance();
-        });
-        receivedInput.addEventListener('focus', function() {
-            this.select();
-        });
-        receivedInput.addEventListener('click', function() {
-            this.select();
-        });
+    const chequeDateEl = document.getElementById('cheque-date');
+    if (chequeDateEl) {
+        chequeDateEl.addEventListener('change', checkPdcWarning);
     }
-    
-    // Initialize on load
+    setMethod(methodEl ? methodEl.value : 'cash');
     togglePaymentControls();
     calculateCODVariance();
 }
@@ -660,11 +773,10 @@ async function submitDelivery() {
         }
         
         if (diffDays > allowedDays) {
-            const msg = allowedDays === 0 ? 
-                'Cheque must be dated today.' : 
-                `Cheque date cannot be more than ${allowedDays} days from today.`;
-            alert(msg);
-            return;
+            const msg = allowedDays === 0 ?
+                'This cheque is post-dated. Receipt will print as PDC Acknowledgement (subject to clearance). Continue?' :
+                `Cheque is ${diffDays} days out (allowed: ${allowedDays}). Receipt will print as PDC Acknowledgement. Continue?`;
+            if (!confirm(msg)) return;
         }
     }
     
@@ -743,14 +855,20 @@ async function submitDelivery() {
         });
         
         const data = await response.json();
-        
+
         if (data.success) {
-            const msg = isCredit ? 
-                'Delivery completed (Credit Account)' : 
-                `Delivery completed! COD Collected: \u20ac${data.cod.received.toFixed(2)}`;
-            
-            alert(msg);
-            window.location.href = `/driver/routes/${routeId}/stops`;
+            lastSubmitData = data;
+            const summary = document.getElementById('post-submit-summary');
+            if (isCredit) {
+                summary.innerHTML = '<div class="alert alert-info">Delivery completed (Credit Account)</div>';
+            } else {
+                summary.innerHTML = `<div class="alert alert-success">COD Collected: \u20AC${data.cod.received.toFixed(2)}<br><small>Expected: \u20AC${data.cod.expected.toFixed(2)}</small></div>`;
+            }
+            if (!data.print_png_url) {
+                document.getElementById('btn-print-final').style.display = 'none';
+            }
+            const modal = new bootstrap.Modal(document.getElementById('postSubmitModal'));
+            modal.show();
         } else {
             alert(data.error || 'Failed to complete delivery');
         }
@@ -758,6 +876,47 @@ async function submitDelivery() {
         console.error('Error:', error);
         alert('Error completing delivery. Please try again.');
     }
+}
+
+async function printFinalReceipt() {
+    if (!lastSubmitData || !lastSubmitData.print_png_url) return;
+    const fname = `receipt-${stopId}.png`;
+    await shareOrOpenReceipt(lastSubmitData.print_png_url, fname);
+    document.getElementById('btn-print-final').style.display = 'none';
+    document.getElementById('btn-reprint').style.display = 'block';
+}
+
+function showCorrectionForm() {
+    document.getElementById('correction-form').style.display = 'block';
+}
+
+async function submitCorrectionRequest() {
+    const reason = document.getElementById('correction-reason').value.trim();
+    if (!reason) { alert('Please enter a reason'); return; }
+    if (!lastSubmitData || !lastSubmitData.receipt_id) {
+        alert('No receipt to correct');
+        return;
+    }
+    try {
+        const res = await fetch(`/driver/api/receipts/${lastSubmitData.receipt_id}/correction-request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: reason })
+        });
+        const d = await res.json();
+        if (d.success) {
+            alert('Correction request submitted. Back office will review.');
+            document.getElementById('correction-form').style.display = 'none';
+        } else {
+            alert(d.error || 'Failed to submit correction');
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+function goBackToStops() {
+    window.location.href = `/driver/routes/${routeId}/stops`;
 }
 
 async function shareOrOpenReceipt(printUrl, filename) {

@@ -544,6 +544,8 @@ def submit_delivery(stop_id):
             
             # Accumulate discrepancy value per invoice
             exception_value = Decimal(str(ex.get('exception_value', 0) or 0))
+            if ex_type == 'DAMAGED' and damaged_accepted:
+                exception_value = Decimal('0')
             if invoice_no:
                 discrepancy_values_by_invoice[invoice_no] = discrepancy_values_by_invoice.get(invoice_no, Decimal('0')) + exception_value
             
@@ -590,15 +592,17 @@ def submit_delivery(stop_id):
             )
             db.session.add(dl)
         
-        # Calculate COD expected amount from invoice totals (for POD customers)
-        cod_expected = Decimal('0.00')
+        invoice_total_sum = Decimal('0.00')
         for invoice_no in invoice_nos:
-            invoice = Invoice.query.get(invoice_no)
-            if invoice and invoice.total_grand:
-                cod_expected += Decimal(str(invoice.total_grand))
-        
-        # Apply rebate reduction
-        cod_expected -= total_rebate_reduction
+            inv = Invoice.query.get(invoice_no)
+            if inv and inv.total_grand:
+                invoice_total_sum += Decimal(str(inv.total_grand))
+
+        total_deductions = sum(discrepancy_values_by_invoice.values(), Decimal('0.00'))
+
+        cod_expected = invoice_total_sum - total_deductions
+        if cod_expected < 0:
+            cod_expected = Decimal('0.00')
         
         # Process COD based on credit terms
         cod_receipt = None
@@ -806,9 +810,9 @@ def submit_delivery(stop_id):
         
         db.session.commit()
         
-        from utils.print_token import make_print_token
-        print_token = make_print_token(stop_id, current_user.username)
-        print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=print_token)
+        print_png_url = None
+        if cod_receipt:
+            print_png_url = url_for('driver.print_receipt_png_by_id', receipt_id=cod_receipt.id)
         
         return jsonify({
             'success': True,
@@ -818,7 +822,7 @@ def submit_delivery(stop_id):
                 'method': cod_method
             },
             'receipt_id': cod_receipt.id if cod_receipt else None,
-            'print_url': None
+            'print_png_url': print_png_url
         })
     
     except Exception as e:
