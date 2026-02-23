@@ -306,13 +306,25 @@ def assign_to_route():
             active_rsis = RouteStopInvoice.query.filter_by(
                 invoice_no=invoice_no, is_active=True
             ).all()
+            affected_stop_ids = set()
             for _rsi in active_rsis:
+                affected_stop_ids.add(_rsi.route_stop_id)
                 _rsi.is_active = False
                 _rsi.effective_to = _now
                 _rsi.changed_by = current_user.username
                 _rsi.status = 'delivered'
             invoice.route_id = None
             invoice.stop_id = None
+            
+            # Soft-delete stops that have no remaining active invoices
+            for _sid in affected_stop_ids:
+                remaining = RouteStopInvoice.query.filter_by(
+                    route_stop_id=_sid, is_active=True
+                ).count()
+                if remaining == 0:
+                    _stop = RouteStop.query.get(_sid)
+                    if _stop and not _stop.deleted_at:
+                        _stop.deleted_at = _now
             
             # Update reroute request status if provided
             if reroute_request_id:
