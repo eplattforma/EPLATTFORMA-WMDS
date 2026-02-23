@@ -300,6 +300,20 @@ def assign_to_route():
             invoice.status_updated_at = datetime.utcnow()
             invoice.delivered_at = datetime.utcnow()
             
+            # Deactivate any active RSI records and clear route cache columns
+            from timezone_utils import get_utc_now as _utc_now
+            _now = _utc_now()
+            active_rsis = RouteStopInvoice.query.filter_by(
+                invoice_no=invoice_no, is_active=True
+            ).all()
+            for _rsi in active_rsis:
+                _rsi.is_active = False
+                _rsi.effective_to = _now
+                _rsi.changed_by = current_user.username
+                _rsi.status = 'delivered'
+            invoice.route_id = None
+            invoice.stop_id = None
+            
             # Update reroute request status if provided
             if reroute_request_id:
                 reroute_req = RerouteRequest.query.get(reroute_request_id)
