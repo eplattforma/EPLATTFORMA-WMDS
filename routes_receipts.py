@@ -200,11 +200,8 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
             # CRITICAL: If no valid transaction number, fail completely
             if not ok or not response_id:
                 error_msg = api_response.get("response_msg", "Unknown error from Powersoft365")
-                db.session.rollback()  # Roll back the reference number increment
                 raise Exception(f"Powersoft365 receipt creation failed: {error_msg}")
         else:
-            # Powersoft not configured - fail completely
-            db.session.rollback()
             raise Exception("Powersoft365 API not configured. Receipt creation requires valid API credentials.")
 
         # Redact token before storing ReceiptLog.request_json

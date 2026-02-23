@@ -689,24 +689,31 @@ def submit_delivery(stop_id):
                         if len(invoice_nos) > 5:
                             inv_list_str += f' +{len(invoice_nos)-5}'
                         comments = f"{inv_list_str}"
-                        ps365_result = create_receipt_core(
-                            customer_code=stop.customer_code,
-                            amount_val=float(received),
-                            comments=comments,
-                            driver_username=current_user.username,
-                            route_stop_id=stop_id,
-                            invoice_no=inv_list_str,
-                            cheque_number=cod.get('cheque_number', ''),
-                            cheque_date=cod.get('cheque_date', ''),
-                            allow_duplicate_stop=True
-                        )
-                        if ps365_result and ps365_result.get('reference_number'):
-                            cod_receipt.ps365_reference_number = ps365_result['reference_number']
-                        if ps365_result and ps365_result.get('response_id'):
-                            cod_receipt.ps365_receipt_id = str(ps365_result['response_id'])
-                        cod_receipt.ps365_synced_at = utc_now()
+                        savepoint = db.session.begin_nested()
+                        try:
+                            ps365_result = create_receipt_core(
+                                customer_code=stop.customer_code,
+                                amount_val=float(received),
+                                comments=comments,
+                                driver_username=current_user.username,
+                                route_stop_id=stop_id,
+                                invoice_no=inv_list_str,
+                                cheque_number=cod.get('cheque_number', ''),
+                                cheque_date=cod.get('cheque_date', ''),
+                                allow_duplicate_stop=True
+                            )
+                            if ps365_result and ps365_result.get('reference_number'):
+                                cod_receipt.ps365_reference_number = ps365_result['reference_number']
+                            if ps365_result and ps365_result.get('response_id'):
+                                cod_receipt.ps365_receipt_id = str(ps365_result['response_id'])
+                            cod_receipt.ps365_synced_at = utc_now()
+                        except Exception:
+                            savepoint.rollback()
+                            raise
                     except Exception as ps365_err:
                         logging.warning(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
+                        db.session.add(cod_receipt)
+                        db.session.flush()
             
             from models import CODInvoiceAllocation
             if not existing_receipt:
