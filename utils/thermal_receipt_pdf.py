@@ -5,18 +5,17 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 
-# Configuration
 FONT = "Courier"
 FONT_B = "Courier-Bold"
-FS_NORMAL = 12
-FS_TITLE = 14
-LEADING = 14
+FS_NORMAL = 9
+FS_TITLE = 11
+LEADING = 11
 
-PAGE_W = 72 * mm  # Printable width for 80mm roll to avoid auto-scaling
-LEFT = 1 * mm
-RIGHT = 1 * mm
-TOP = 4 * mm
-BOT = 6 * mm
+PAGE_W = 80 * mm
+LEFT = 3 * mm
+RIGHT = 3 * mm
+TOP = 3 * mm
+BOT = 4 * mm
 
 def get_dynamic_cols(font_name, font_size):
     avail_w = PAGE_W - LEFT - RIGHT
