@@ -324,11 +324,12 @@ def detail(shipment_id):
     from models import ReceiptLog
     stop_groups = []
     for stop, website, payment_terms in stops_query:
-        # Get all invoices for this stop
+        # Get all active invoices for this stop (filter out deactivated RSI links)
         invoices_for_stop = db.session.query(Invoice).join(
             RouteStopInvoice, Invoice.invoice_no == RouteStopInvoice.invoice_no
         ).filter(
-            RouteStopInvoice.route_stop_id == stop.route_stop_id
+            RouteStopInvoice.route_stop_id == stop.route_stop_id,
+            RouteStopInvoice.is_active == True
         ).all()
         
         # Check if receipt exists for this stop
@@ -1557,7 +1558,8 @@ def reconciliation_report(shipment_id):
         stop_invoices = db.session.query(Invoice).join(
             RouteStopInvoice, Invoice.invoice_no == RouteStopInvoice.invoice_no
         ).filter(
-            RouteStopInvoice.route_stop_id == stop.route_stop_id
+            RouteStopInvoice.route_stop_id == stop.route_stop_id,
+            RouteStopInvoice.is_active == True
         ).all()
         
         # Get delivery lines (exceptions)

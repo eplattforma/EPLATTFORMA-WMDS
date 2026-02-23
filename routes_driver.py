@@ -851,8 +851,8 @@ def fail_delivery(stop_id):
         stop.failed_at = utc_now()
         stop.failure_reason = reason
         
-        # Update invoices
-        stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id).all()
+        # Update invoices (only active RSI links)
+        stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
         for rsi in stop_invoices:
             invoice = Invoice.query.get(rsi.invoice_no)
             if invoice:

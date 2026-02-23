@@ -528,6 +528,17 @@ def unassign_invoice_from_route(invoice_no: str, actor: str,
     active.effective_to = now
     active.changed_by = actor
     
+    # Also deactivate any other active RSI records for this invoice (safety)
+    other_active = RouteStopInvoice.query.filter(
+        RouteStopInvoice.invoice_no == invoice_no,
+        RouteStopInvoice.is_active == True,
+        RouteStopInvoice.route_stop_invoice_id != active.route_stop_invoice_id
+    ).all()
+    for rsi in other_active:
+        rsi.is_active = False
+        rsi.effective_to = now
+        rsi.changed_by = actor
+    
     # Clear cache columns on invoice
     invoice = Invoice.query.get(invoice_no)
     if invoice:

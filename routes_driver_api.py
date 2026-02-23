@@ -386,7 +386,17 @@ def get_route_details(route_id):
     if route.driver_name != driver_id:
         return jsonify({'error': 'Not your route'}), 403
     
-    orders = Invoice.query.filter_by(route_id=route_id).all()
+    orders = (
+        db.session.query(Invoice)
+        .join(RouteStopInvoice, RouteStopInvoice.invoice_no == Invoice.invoice_no)
+        .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+        .filter(
+            RouteStop.shipment_id == route_id,
+            RouteStop.deleted_at == None,
+            RouteStopInvoice.is_active == True,
+        )
+        .all()
+    )
     
     return jsonify({
         'route': {
