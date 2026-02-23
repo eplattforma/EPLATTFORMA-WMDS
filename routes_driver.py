@@ -3,7 +3,7 @@ Flask routes for Driver App
 Handles route management, delivery workflow, COD, and POD collection
 """
 
-from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, flash, send_file
+from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, flash, send_file, make_response
 from flask_login import login_required, current_user
 from functools import wraps
 from decimal import Decimal
@@ -1200,8 +1200,143 @@ def get_print_token(stop_id):
         val = request.args.get(key)
         if val:
             extra_params[key] = val
-    print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=token, **extra_params)
+    fmt = request.args.get('fmt', 'png')
+    if fmt == 'pdf':
+        print_url = url_for('driver.print_receipt_pdf', stop_id=stop_id, token=token, **extra_params)
+    else:
+        print_url = url_for('driver.print_receipt_png', stop_id=stop_id, token=token, **extra_params)
     return jsonify({'print_url': print_url, 'token': token})
+
+
+@driver_bp.route('/print/receipt/<int:stop_id>.png')
+def print_receipt_png(stop_id):
+    """Tokenized 576px-wide PNG receipt for BIXOLON thermal printing via Share API."""
+    from utils.print_token import verify_print_token
+    from services.receipt_render_png import render_receipt_png
+    from io import BytesIO
+
+    token = request.args.get('token', '')
+    token_data = verify_print_token(token, max_age_seconds=300)
+    if not token_data or token_data.get('stop_id') != stop_id:
+        abort(403, description="Invalid or expired print token")
+
+    stop = RouteStop.query.get_or_404(stop_id)
+    route = Shipment.query.get(stop.shipment_id)
+
+    cod_receipt = CODReceipt.query.filter_by(route_stop_id=stop_id).order_by(
+        CODReceipt.created_at.desc()
+    ).first()
+
+    stop_invoices = RouteStopInvoice.query.filter_by(
+        route_stop_id=stop_id, is_active=True
+    ).all()
+    invoice_nos = [rsi.invoice_no for rsi in stop_invoices]
+
+    invoices_list = []
+    invoice_total_sum = Decimal('0')
+    for inv_no in invoice_nos:
+        inv = Invoice.query.get(inv_no)
+        inv_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
+        invoices_list.append({'invoice_no': inv_no, 'total': inv_total})
+        invoice_total_sum += inv_total
+
+    from models import DeliveryDiscrepancy
+    exceptions_raw = DeliveryDiscrepancy.query.filter(
+        DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
+    ).all() if invoice_nos else []
+    exceptions_list = [{
+        'type': exc.discrepancy_type or '',
+        'item_name': exc.item_name or '',
+        'qty_expected': exc.qty_expected or '',
+        'qty_actual': exc.qty_actual or '',
+        'note': exc.note or ''
+    } for exc in exceptions_raw]
+
+    terms = get_credit_terms(stop.customer_code)
+    is_credit = terms['is_credit']
+
+    is_preview = cod_receipt is None
+    is_collected = False
+    collected = Decimal('0')
+    payment_method = 'not_collected'
+    notes = ''
+    cheque_number = None
+    cheque_date = None
+    receipt_no = f"PREVIEW-{stop_id}"
+    date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    expected_total = invoice_total_sum
+
+    if cod_receipt:
+        expected_total = Decimal(str(cod_receipt.expected_amount or 0)) or invoice_total_sum
+        collected = Decimal(str(cod_receipt.received_amount or 0))
+        payment_method = cod_receipt.payment_method or 'not_collected'
+        is_collected = collected > 0 and payment_method.lower() not in ('not_collected', 'online')
+        notes = cod_receipt.note or ''
+        cheque_number = cod_receipt.cheque_number
+        cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
+        receipt_no = str(cod_receipt.id)
+        date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
+        is_preview = False
+    else:
+        form_collected = request.args.get('collected')
+        form_pm = request.args.get('payment_method')
+        if form_collected:
+            try:
+                collected = Decimal(str(form_collected))
+            except Exception:
+                collected = Decimal('0')
+        if form_pm:
+            payment_method = form_pm
+        is_collected = collected > 0 and payment_method.lower() not in ('not_collected', 'online')
+        cheque_number = request.args.get('cheque_number') or None
+        cheque_date = request.args.get('cheque_date') or None
+
+        if is_credit:
+            notes = 'Credit account - no payment required'
+        elif not is_collected:
+            notes = 'Payment not yet collected - PREVIEW'
+        else:
+            notes = 'PREVIEW - pending delivery confirmation'
+
+    balance_due = expected_total - collected
+    stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
+
+    png_data = {
+        'is_collected': is_collected,
+        'is_credit': is_credit,
+        'is_preview': is_preview,
+        'is_amended': False,
+        'receipt_no': receipt_no,
+        'date_str': date_str,
+        'route_no': route.id if route else '',
+        'stop_no': stop_no,
+        'driver_name': route.driver_name if route else '',
+        'customer_code': stop.customer_code or '',
+        'customer_name': stop.stop_name or '',
+        'customer_addr': stop.stop_addr or '',
+        'invoices': invoices_list,
+        'expected': expected_total,
+        'collected': collected,
+        'balance_due': balance_due,
+        'payment_method': payment_method,
+        'cheque_number': cheque_number,
+        'cheque_date': cheque_date,
+        'notes': notes,
+        'exceptions': exceptions_list,
+    }
+
+    png_bytes = render_receipt_png(png_data)
+
+    resp = make_response(send_file(
+        BytesIO(png_bytes),
+        mimetype='image/png',
+        download_name=f'receipt-{receipt_no}.png',
+        as_attachment=False
+    ))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    return resp
 
 
 # --- API Endpoints ---

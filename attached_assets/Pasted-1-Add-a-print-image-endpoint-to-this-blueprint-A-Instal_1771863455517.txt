@@ -1,0 +1,267 @@
+1) Add a “print image” endpoint to this blueprint
+A) Install dependency
+
+Add to requirements:
+
+pip install pillow
+B) Create services/receipt_render_png.py
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
+from decimal import Decimal
+
+DOT_WIDTH = 576          # 3-inch printable (~72mm @ 203dpi)
+PADDING_X = 20
+PADDING_Y = 20
+
+def money(v):
+    try:
+        return f"EUR {Decimal(str(v)):,.2f}"
+    except Exception:
+        return "EUR 0.00"
+
+def render_receipt_png(data: dict) -> bytes:
+    # Bigger font => physically bigger print (still fills width at 1:1)
+    font_body = ImageFont.truetype("DejaVuSansMono.ttf", 28)
+    font_title = ImageFont.truetype("DejaVuSansMono.ttf", 34)
+
+    # Estimate cols from font metrics
+    dummy = Image.new("L", (DOT_WIDTH, 200), 255)
+    d = ImageDraw.Draw(dummy)
+    char_w = d.textlength("M", font=font_body)
+    cols = max(24, int((DOT_WIDTH - 2*PADDING_X) / char_w))
+    sep = "-" * cols
+
+    def wrap(s): return textwrap.wrap((s or "").strip(), width=cols) or [""]
+
+    lines = []
+    def add(s=""): lines.append(("body", s))
+    def add_t(s=""): lines.append(("title", s))
+
+    is_preview = bool(data.get("is_preview"))
+    is_amended = bool(data.get("is_amended"))
+    is_collected = bool(data.get("is_collected"))
+    is_credit = bool(data.get("is_credit"))
+
+    if is_preview: add_t("*** PREVIEW - NOT A FINAL RECEIPT ***")
+    if is_amended: add_t("*** AMENDED DELIVERY ***")
+
+    add_t("STEP EPLATTFORMA LTD")
+    add("Digeni Akrita 13BC, 1055 Lefkosia")
+    add("Tel: 7000 0394  VAT: CY103532640")
+    add(sep)
+
+    if is_credit:
+        add_t("DELIVERY CONFIRMATION")
+        add_t("CREDIT ACCOUNT")
+    elif is_collected:
+        add_t("PAYMENT RECEIPT")
+        add_t("STATUS: PAID")
+    else:
+        add_t("DELIVERY CONFIRMATION / PAYMENT DUE")
+        add_t("STATUS: NOT COLLECTED")
+    add(sep)
+
+    add(f"Receipt: {data.get('receipt_no','')}")
+    add(f"Date: {data.get('date_str','')}")
+    add(f"Route: {data.get('route_no','')}  Stop: {data.get('stop_no','')}")
+    add(f"Driver: {data.get('driver_name','')}")
+    if data.get("customer_code"): add(f"Cust Code: {data.get('customer_code')}")
+    add(sep)
+
+    add_t("CUSTOMER")
+    for w in wrap(data.get("customer_name","")): add(w)
+    for w in wrap(data.get("customer_addr","")): add(w)
+    add(sep)
+
+    invoices = data.get("invoices") or []
+    add_t(f"INVOICES ({len(invoices)})")
+    for inv in invoices:
+        inv_no = str(inv.get("invoice_no",""))
+        inv_total = inv.get("total")
+        if inv_total is not None:
+            add(f"{inv_no}".ljust(cols-14) + f"{money(inv_total)}".rjust(14))
+        else:
+            add(inv_no)
+    add(sep)
+
+    exp = data.get("expected", 0)
+    col = data.get("collected", 0)
+    bal = data.get("balance_due", None)
+    if bal is None:
+        try:
+            bal = Decimal(str(exp)) - Decimal(str(col))
+        except Exception:
+            bal = 0
+
+    add_t("AMOUNTS")
+    add(f"Expected: {money(exp)}")
+    add(f"Collected: {money(col)}")
+    if is_collected:
+        add(f"Method: {str(data.get('payment_method','')).upper()}")
+    if not is_credit and ((not is_collected) or (bal and Decimal(str(bal)) > 0)):
+        add_t(f"BALANCE DUE: {money(bal)}")
+    add(sep)
+
+    notes = (data.get("notes") or "").strip()
+    if notes:
+        add_t("NOTES")
+        for w in wrap(notes): add(w)
+        add(sep)
+
+    add("")
+    add("Customer Signature (Delivery):")
+    add("_" * cols)
+    if is_collected:
+        add("")
+        add("Customer Signature (Payment):")
+        add("_" * cols)
+    add("")
+    add("Driver Signature:")
+    add("_" * cols)
+
+    # Calculate image height
+    y = PADDING_Y
+    line_h_body = 36
+    line_h_title = 44
+    height = PADDING_Y*2 + sum(line_h_title if t=="title" else line_h_body for t,_ in lines)
+    img = Image.new("L", (DOT_WIDTH, height), 255)
+    draw = ImageDraw.Draw(img)
+
+    for typ, txt in lines:
+        if typ == "title":
+            draw.text((PADDING_X, y), txt, font=font_title, fill=0)
+            y += line_h_title
+        else:
+            draw.text((PADDING_X, y), txt, font=font_body, fill=0)
+            y += line_h_body
+
+    # Convert to 1-bit for crisp thermal output
+    img = img.convert("1")
+    out = BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+2) Add a route in your existing receipts blueprint to serve the PNG
+
+Add imports:
+
+from flask import send_file, make_response
+from io import BytesIO
+
+Add route:
+
+@bp.get("/receipts/<reference_number>/print.png")
+@login_required
+@driver_required
+def print_receipt_png(reference_number):
+    from models import RouteStop  # if available
+    from services.receipt_render_png import render_receipt_png
+
+    r = ReceiptLog.query.filter_by(reference_number=reference_number).first_or_404()
+
+    # Build invoice list
+    invoice_nos = [s.strip() for s in (r.invoice_no or "").split(",") if s.strip()]
+    invoices = []
+    if invoice_nos:
+        inv_rows = Invoice.query.filter(Invoice.invoice_no.in_(invoice_nos)).all()
+        inv_map = {i.invoice_no: i for i in inv_rows}
+        for no in invoice_nos:
+            inv = inv_map.get(no)
+            invoices.append({"invoice_no": no, "total": float(getattr(inv, "total_grand", 0) or 0) if inv else None})
+
+    # Optional: enrich with stop/route
+    route_no = ""
+    stop_no = ""
+    driver_name = r.driver_username or ""
+    customer_name = ""
+    customer_addr = ""
+
+    if r.route_stop_id:
+        stop = RouteStop.query.get(r.route_stop_id)
+        if stop:
+            route_no = getattr(stop, "route_no", "") or getattr(stop, "shipment_id", "")
+            stop_no = str(getattr(stop, "stop_no", "") or getattr(stop, "sequence", "") or "")
+            customer_name = getattr(stop, "stop_name", "") or ""
+            customer_addr = getattr(stop, "address", "") or ""
+
+    # customer fallback from PSCustomer
+    ps_cust = PSCustomer.query.filter_by(customer_code_365=r.customer_code_365).first()
+    if ps_cust:
+        customer_name = customer_name or (ps_cust.company_name or "")
+        customer_addr = customer_addr or (ps_cust.address or "")
+
+    data = {
+        "is_preview": True,  # set based on your workflow
+        "is_amended": False,
+        "is_credit": False,
+        "is_collected": True,  # PS365 receipt implies collected
+        "receipt_no": r.reference_number,
+        "date_str": (r.created_at.strftime("%Y-%m-%d %H:%M") if getattr(r, "created_at", None) else ""),
+        "route_no": route_no,
+        "stop_no": stop_no.zfill(3) if stop_no else "",
+        "driver_name": driver_name,
+        "customer_code": r.customer_code_365,
+        "customer_name": customer_name,
+        "customer_addr": customer_addr,
+        "invoices": invoices,
+        "expected": float(r.amount or 0),
+        "collected": float(r.amount or 0),
+        "balance_due": 0,
+        "payment_method": "CASH",  # or store this in ReceiptLog and use it
+        "notes": "PREVIEW - pending delivery confirmation",
+    }
+
+    png_bytes = render_receipt_png(data)
+    bio = BytesIO(png_bytes)
+
+    resp = make_response(send_file(bio, mimetype="image/png"))
+    resp.headers["Content-Disposition"] = f'inline; filename="receipt-{reference_number}.png"'
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+Why this fixes “still small”: the image is already the exact printer-dot width (576px), so the app has nothing to “fit” down.
+
+3) Update receipt_success.html to share the PNG (not PDF)
+
+Add a Print button that shares the file:
+
+<button id="btnPrint">Print</button>
+<script>
+const url = "{{ url_for('receipts.print_receipt_png', reference_number=receipt.reference_number) }}";
+
+document.getElementById("btnPrint").addEventListener("click", async () => {
+  const btn = document.getElementById("btnPrint");
+  btn.disabled = true;
+  setTimeout(()=>btn.disabled=false, 2500); // prevents double print
+
+  const res = await fetch(url, { cache: "no-store" });
+  const blob = await res.blob();
+  const file = new File([blob], `receipt-{{ receipt.reference_number }}.png`, { type: "image/png" });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    await navigator.share({ files: [file], title: "Receipt" });
+  } else {
+    window.open(url, "_blank");
+  }
+});
+</script>
+
+On iOS/Android Chrome this will open the Share sheet and you choose Bixolon Utility.
+
+4) Bixolon Utility settings (now they actually matter)
+
+In Setting (POS/Mobile):
+
+Dithering OFF
+
+Threshold 95
+
+Width 100% (start here with PNG)
+
+if you still want larger, increase Width to 120–150, but you usually won’t need it with 576px PNG.
+
+5) One more important note
+
+Your current ReceiptLog doesn’t store payment_method, route number, etc. If you want correct printing content, add fields (later). For now, the PNG approach will at least solve size.
+
+If you want, tell me which screen/button the driver taps to print (receipt_success page vs route stop page). I’ll wire the same PNG print flow directly into that step so printing is 1-tap after “Complete stop”.

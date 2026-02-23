@@ -760,15 +760,17 @@ async function submitDelivery() {
     }
 }
 
-async function shareOrOpenPDF(printUrl, filename) {
+async function shareOrOpenReceipt(printUrl, filename) {
     try {
         const res = await fetch(printUrl, { cache: "no-store" });
         if (!res.ok) { window.open(printUrl, "_blank"); return; }
         const blob = await res.blob();
-        const file = new File([blob], filename, { type: "application/pdf" });
+        const isPng = printUrl.includes('.png');
+        const mimeType = isPng ? "image/png" : "application/pdf";
+        const file = new File([blob], filename, { type: mimeType });
 
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], title: filename });
+            await navigator.share({ files: [file], title: "Receipt" });
             return;
         }
     } catch (e) { console.log('Share failed, opening in new tab', e); }
@@ -791,7 +793,8 @@ async function previewReceipt() {
         const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
         const data = await res.json();
         if (data.print_url) {
-            await shareOrOpenPDF(data.print_url, `receipt-preview-${stopId}.pdf`);
+            const fname = `receipt-${stopId}.png`;
+            await shareOrOpenReceipt(data.print_url, fname);
         } else {
             alert('Could not generate receipt preview');
         }

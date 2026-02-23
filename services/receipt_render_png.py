@@ -1,0 +1,228 @@
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
+from decimal import Decimal
+
+DOT_WIDTH = 576
+PADDING_X = 20
+PADDING_Y = 20
+
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+FONT_BOLD_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+
+
+def money(v):
+    try:
+        return f"EUR {Decimal(str(v)):,.2f}"
+    except Exception:
+        return "EUR 0.00"
+
+
+def _pad_right(label, value, width):
+    label = str(label)
+    value = str(value)
+    gap = width - len(label) - len(value)
+    if gap < 1:
+        gap = 1
+    return label + (" " * gap) + value
+
+
+def render_receipt_png(data: dict) -> bytes:
+    font_body = ImageFont.truetype(FONT_PATH, 28)
+    font_bold = ImageFont.truetype(FONT_BOLD_PATH, 28)
+    font_title = ImageFont.truetype(FONT_BOLD_PATH, 34)
+
+    dummy = Image.new("L", (DOT_WIDTH, 200), 255)
+    d = ImageDraw.Draw(dummy)
+    char_w = d.textlength("M", font=font_body)
+    cols = max(24, int((DOT_WIDTH - 2 * PADDING_X) / char_w))
+    sep = "-" * cols
+
+    def wrap(s):
+        return textwrap.wrap((s or "").strip(), width=cols) or [""]
+
+    lines = []
+
+    def add(s=""):
+        lines.append(("body", s))
+
+    def add_b(s=""):
+        lines.append(("bold", s))
+
+    def add_c(s=""):
+        lines.append(("center", s))
+
+    def add_t(s=""):
+        lines.append(("title", s))
+
+    is_preview = bool(data.get("is_preview"))
+    is_amended = bool(data.get("is_amended"))
+    is_collected = bool(data.get("is_collected"))
+    is_credit = bool(data.get("is_credit"))
+
+    if is_preview:
+        add_t("*** PREVIEW ***")
+        add_t("NOT A FINAL RECEIPT")
+    if is_amended:
+        add_t("*** AMENDED DELIVERY ***")
+
+    add_t("STEP EPLATTFORMA LTD")
+    add_c("Digeni Akrita 13BC, 1055 Lefkosia")
+    add_c("Tel: 7000 0394  VAT: CY103532640")
+    add(sep)
+
+    if is_credit:
+        add_t("DELIVERY CONFIRMATION")
+        add_t("CREDIT ACCOUNT")
+    elif is_collected:
+        add_t("PAYMENT RECEIPT")
+        if is_preview:
+            add_t("STATUS: PENDING CONFIRMATION")
+        else:
+            add_t("STATUS: PAID")
+    else:
+        add_t("DELIVERY CONFIRMATION")
+        add_t("PAYMENT DUE")
+        add_t("STATUS: NOT COLLECTED")
+    add(sep)
+
+    receipt_no = str(data.get("receipt_no", "")).strip()
+    date_str = str(data.get("date_str", "")).strip()
+    add_b(_pad_right(f"Rcpt: {receipt_no}", f"Date: {date_str}", cols))
+
+    route_no = str(data.get("route_no", "")).strip()
+    stop_no = data.get("stop_no", "")
+    try:
+        stop_no = str(int(float(stop_no))).zfill(3)
+    except Exception:
+        stop_no = str(stop_no).zfill(3) if stop_no else "---"
+    driver = str(data.get("driver_name", "")).strip()
+
+    add_b(f"Route: {route_no}  Stop: {stop_no}")
+    add_b(f"Driver: {driver}")
+
+    cust_code = str(data.get("customer_code", "")).strip()
+    if cust_code:
+        add(f"Cust Code: {cust_code}")
+    add(sep)
+
+    add_b("CUSTOMER")
+    for w in wrap(data.get("customer_name", "")):
+        add(w)
+    for w in wrap(data.get("customer_addr", "")):
+        add(w)
+    add(sep)
+
+    invoices = data.get("invoices") or []
+    add_b(f"INVOICES ({len(invoices)})")
+    for inv in invoices:
+        inv_no = str(inv.get("invoice_no", "")).strip()
+        inv_total = inv.get("total")
+        if inv_total is not None:
+            add(_pad_right(f"  {inv_no}", money(inv_total), cols))
+        else:
+            add(f"  {inv_no}")
+    add(sep)
+
+    add_b("AMOUNTS")
+    expected = Decimal(str(data.get("expected", "0") or "0"))
+    collected = Decimal(str(data.get("collected", "0") or "0"))
+    balance = Decimal(str(data.get("balance_due", "") or (expected - collected)))
+
+    add_b(_pad_right("  Expected:", money(expected), cols))
+    add_b(_pad_right("  Collected:", money(collected), cols))
+
+    if is_collected:
+        pm = str(data.get("payment_method", "")).upper().replace("_", " ").strip()
+        add_b(_pad_right("  Method:", pm or "-", cols))
+
+        if (data.get("payment_method") or "").lower() == "cheque":
+            if data.get("cheque_number"):
+                add_b(_pad_right("  Cheque No:", str(data["cheque_number"]), cols))
+            if data.get("cheque_date"):
+                add_b(_pad_right("  Cheque Date:", str(data["cheque_date"]), cols))
+
+        if (data.get("payment_method") or "").lower() == "cash":
+            if data.get("cash_received") is not None:
+                add_b(_pad_right("  Cash Received:", money(data["cash_received"]), cols))
+            if data.get("change_given") is not None:
+                add_b(_pad_right("  Change Given:", money(data["change_given"]), cols))
+
+    if is_credit:
+        add_b("  ON ACCOUNT - NO BALANCE DUE")
+    else:
+        if (not is_collected) or (balance > 0):
+            add_b(_pad_right("  BALANCE DUE:", money(balance), cols))
+
+    add(sep)
+
+    notes = (data.get("notes") or "").strip()
+    if notes:
+        add_b("NOTES")
+        for w in wrap(notes):
+            add("  " + w if len(w) <= cols - 2 else w[:cols])
+        add(sep)
+
+    exceptions = data.get("exceptions") or []
+    if exceptions:
+        add_b(f"EXCEPTIONS ({len(exceptions)})")
+        for exc in exceptions:
+            exc_type = str(exc.get("type", "")).upper()
+            item = str(exc.get("item_name", ""))
+            qty_e = exc.get("qty_expected", "")
+            qty_a = exc.get("qty_actual", "")
+            add(f"  {exc_type}: {item}")
+            add(f"  Exp: {qty_e} | Act: {qty_a}")
+            note = (exc.get("note") or "").strip()
+            if note:
+                for w in wrap(note):
+                    add(f"  {w}")
+        add(sep)
+
+    sig_line = "_" * cols
+    add("")
+    add("Customer Signature (Delivery):")
+    add(sig_line)
+    add("")
+
+    if is_collected:
+        add("Customer Signature (Payment):")
+        add(sig_line)
+        add("")
+
+    add("Driver Signature:")
+    add(sig_line)
+
+    line_h_body = 36
+    line_h_title = 44
+    height = PADDING_Y * 2 + sum(
+        line_h_title if t == "title" else line_h_body for t, _ in lines
+    )
+    img = Image.new("L", (DOT_WIDTH, height), 255)
+    draw = ImageDraw.Draw(img)
+
+    y = PADDING_Y
+    avail_w = DOT_WIDTH - 2 * PADDING_X
+
+    for typ, txt in lines:
+        if typ == "title":
+            tw = draw.textlength(txt, font=font_title)
+            x = PADDING_X + max(0, (avail_w - tw) / 2)
+            draw.text((x, y), txt, font=font_title, fill=0)
+            y += line_h_title
+        elif typ == "center":
+            tw = draw.textlength(txt, font=font_body)
+            x = PADDING_X + max(0, (avail_w - tw) / 2)
+            draw.text((x, y), txt, font=font_body, fill=0)
+            y += line_h_body
+        elif typ == "bold":
+            draw.text((PADDING_X, y), txt, font=font_bold, fill=0)
+            y += line_h_body
+        else:
+            draw.text((PADDING_X, y), txt, font=font_body, fill=0)
+            y += line_h_body
+
+    img = img.convert("1")
+    out = BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
