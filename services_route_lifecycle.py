@@ -600,15 +600,18 @@ def compute_stop_status(route_stop_id: int):
     if not invoices:
         return 'IN_PROGRESS'
     
-    delivered_count = sum(1 for i in invoices if i.status and i.status.upper() == 'DELIVERED')
-    failed_count = sum(1 for i in invoices if i.status and i.status.upper() in ('FAILED', 'RETURNED'))
     total = len(invoices)
+    delivered_count = sum(1 for i in invoices if normalize_status(i.status) == 'delivered')
+    failed_count = sum(1 for i in invoices if normalize_status(i.status) in ('delivery_failed', 'returned_to_warehouse'))
+    terminal_count = delivered_count + failed_count
     
     if delivered_count == total:
         return 'DELIVERED'
     elif failed_count == total:
         return 'FAILED'
-    elif delivered_count + failed_count > 0:
+    elif terminal_count == total:
+        return 'PARTIAL'
+    elif terminal_count > 0:
         return 'PARTIAL'
     else:
         return 'IN_PROGRESS'

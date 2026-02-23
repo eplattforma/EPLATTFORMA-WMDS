@@ -10,7 +10,8 @@ from decimal import Decimal
 import logging
 
 from app import db
-from models import Shipment, RouteStop
+from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice
+from models import utc_now
 import services_reconciliation as recon
 
 logger = logging.getLogger(__name__)
@@ -50,13 +51,10 @@ def pending_payments():
     ).join(
         Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
     ).filter(
+        Shipment.reconciliation_status == 'RECONCILED',
         db.or_(
-            # 1. Explicitly marked as pending by driver/system
             CODInvoiceAllocation.is_pending == True,
-            # 2. Has an outstanding balance (catches partial cash/cheque/etc)
             (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01,
-            # 3. Non-immediate methods that are NOT YET cleared (even if amount matches, we wait for 'is_pending' to be False)
-            # BUT if it is already NOT pending AND has 0 due, we hide it.
             db.and_(
                 db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online']),
                 db.or_(
@@ -96,8 +94,97 @@ def pending_payments():
         })
         grouped[key]['total_due'] += due
     
-    return render_template('reconciliation/pending_payments.html', 
+    return render_template('reconciliation/pending_payments.html',
                          grouped_customers=grouped)
+
+
+@reconciliation_bp.route('/api/receipts/<int:receipt_id>/void', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_void_receipt(receipt_id):
+    """Admin voids an ISSUED receipt so it can be reissued"""
+    try:
+        receipt = db.session.get(CODReceipt, receipt_id)
+        if not receipt:
+            return jsonify({'success': False, 'error': 'Receipt not found'}), 404
+
+        if receipt.status == 'VOIDED':
+            return jsonify({'success': False, 'error': 'Receipt is already voided'}), 400
+
+        data = request.get_json(force=True) if request.is_json else {}
+        reason = (data.get('reason') or '').strip()
+        if not reason:
+            return jsonify({'success': False, 'error': 'A void reason is required'}), 400
+
+        now = utc_now()
+        receipt.status = 'VOIDED'
+        receipt.voided_at = now
+        receipt.voided_by = current_user.username
+        receipt.void_reason = reason
+
+        db.session.commit()
+        logger.info(f"Receipt {receipt_id} voided by {current_user.username}: {reason}")
+
+        return jsonify({'success': True, 'message': f'Receipt {receipt_id} voided'})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error voiding receipt {receipt_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reconciliation_bp.route('/api/receipts/<int:receipt_id>/reissue', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_reissue_receipt(receipt_id):
+    """Admin reissues a VOIDED receipt with corrected data"""
+    try:
+        old_receipt = db.session.get(CODReceipt, receipt_id)
+        if not old_receipt:
+            return jsonify({'success': False, 'error': 'Receipt not found'}), 404
+
+        if old_receipt.status != 'VOIDED':
+            return jsonify({'success': False, 'error': 'Only VOIDED receipts can be reissued'}), 400
+
+        if old_receipt.replaced_by_cod_receipt_id:
+            return jsonify({'success': False, 'error': 'Receipt has already been reissued'}), 400
+
+        data = request.get_json(force=True)
+        now = utc_now()
+
+        new_receipt = CODReceipt(
+            route_id=old_receipt.route_id,
+            route_stop_id=old_receipt.route_stop_id,
+            driver_username=old_receipt.driver_username,
+            invoice_nos=old_receipt.invoice_nos,
+            expected_amount=Decimal(str(data.get('expected_amount', old_receipt.expected_amount))),
+            received_amount=Decimal(str(data.get('received_amount', old_receipt.received_amount))),
+            payment_method=data.get('payment_method', old_receipt.payment_method),
+            cheque_number=data.get('cheque_number', old_receipt.cheque_number),
+            cheque_date=old_receipt.cheque_date,
+            note=data.get('note', f'Reissued from receipt #{old_receipt.id}'),
+            doc_type=data.get('doc_type', old_receipt.doc_type),
+            status='DRAFT',
+            created_at=now
+        )
+        new_receipt.variance = new_receipt.received_amount - new_receipt.expected_amount
+
+        db.session.add(new_receipt)
+        db.session.flush()
+
+        old_receipt.replaced_by_cod_receipt_id = new_receipt.id
+
+        db.session.commit()
+        logger.info(f"Receipt {receipt_id} reissued as {new_receipt.id} by {current_user.username}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Receipt reissued as #{new_receipt.id}',
+            'new_receipt_id': new_receipt.id
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error reissuing receipt {receipt_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @reconciliation_bp.route('/api/pending-payments/<int:allocation_id>/clear', methods=['POST'])
 @login_required

@@ -375,6 +375,14 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating discrepancy verification schema: {str(e)}")
     
+    # Update COD receipts locking schema (doc_type, status, locking, printing, voiding)
+    try:
+        from update_cod_receipts_locking_schema import update_cod_receipts_locking_schema
+        update_cod_receipts_locking_schema()
+        logging.info("COD receipts locking schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating COD receipts locking schema: {str(e)}")
+    
     # Initialize remaining tables
     from app import db
     db.create_all()

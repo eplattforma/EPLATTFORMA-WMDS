@@ -24,7 +24,7 @@ Preferred communication style: Simple, everyday language.
     - **Batch Processing**: Zone/corridor-based batch creation, item locking, sequential/optimized picking modes.
     - **Delivery Issue Tracking**: Admin-only system for recording, validating, and resolving discrepancies with photo uploads and audit trails.
     - **Delivery Route Management**: Route planning, driver assignment, stop sequencing, invoice assignment, progress tracking, and printable run sheets. Includes warehouse collection.
-    - **Driver App**: Mobile-optimized delivery execution with exception-only workflow, COD collection, thermal PNG receipt printing (BIXOLON SPP-R310 via Web Share API + mPrint), Proof of Delivery (POD) capture, and discrepancy integration.
+    - **Driver App**: Mobile-optimized delivery execution with exception-only workflow, COD collection, thermal PNG receipt printing (BIXOLON SPP-R310 via Web Share API + mPrint), Proof of Delivery (POD) capture, and discrepancy integration. Includes idempotent Driver API endpoints with canonical RSI mapping.
     - **Route Reconciliation Report Pack**: Excel export system for comprehensive route reconciliation, including summary, invoice detail, stop summary, exceptions, and post-dated register.
     - **Return Handover Workflow**: Two-step confirmation process for failed deliveries (driver and warehouse staff).
     - **Discrepancy Verification Workflow**: Warehouse verification of delivery discrepancies to determine credit note requirements.
@@ -36,7 +36,8 @@ Preferred communication style: Simple, everyday language.
     - **Order Processing Flow**: Import (Excel) → Assignment → Picking → Completion → Shipping → Analytics.
     - **Invoice Import (PS365)**: Optimized single-pass synchronization logic with data normalization, batch lookups, and automated invoice total recalculation.
     - **Order Status Lifecycle**: `not_started` to `DELIVERED`/`RETURNED`/`DELIVERY_FAILED` with intermediate states for picking, packing, and dispatch.
-    - **Route Status Lifecycle**: Three-phase lifecycle: Operational (`Shipment.status`), Reconciliation (`Shipment.reconciliation_status`), and Archiving.
+    - **Route Status Lifecycle**: Three-phase lifecycle: Operational (`Shipment.status`), Reconciliation (`Shipment.reconciliation_status`), and Archiving. Reconciliation gating on pending payments.
+    - **Receipt Document Types**: CODReceipt supports doc_type (official/pdc_ack/online_notice) with DRAFT→ISSUED→VOIDED lifecycle, lock-on-first-print, void/reissue workflow, and PS365 receipt auto-creation for official receipts.
 
 ### System Design Choices
 - **UTC Timestamp Consistency**: All database timestamp writes use UTC; local timezone for display.

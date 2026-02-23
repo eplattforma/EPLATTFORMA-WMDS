@@ -61,6 +61,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     is_amended = bool(data.get("is_amended"))
     is_collected = bool(data.get("is_collected"))
     is_credit = bool(data.get("is_credit"))
+    doc_type = str(data.get("doc_type", "") or "").strip().lower()
 
     if is_preview:
         add_t("*** PREVIEW ***")
@@ -73,11 +74,32 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     add_c("Tel: 7000 0394  VAT: CY103532640")
     add(sep)
 
-    if is_credit:
+    if doc_type == "pdc_ack":
+        add_t("CHEQUE RECEIVED (PDC)")
+        add_t("ACKNOWLEDGEMENT")
+        add_c("Post-dated cheque held pending")
+        add_c("clearance. This is NOT a")
+        add_c("payment receipt.")
+    elif doc_type == "online_notice":
+        add_t("PAY ONLINE \u2014 PAYMENT DUE")
+        add_t("STATUS: UNPAID")
+        add(sep)
+        add_b("BANK TRANSFER DETAILS")
+        add("  Bank: Bank of Cyprus")
+        add("  IBAN: CY04 0020 0195 0000 0357")
+        add("        0208 4600")
+        add("  BIC/SWIFT: BCYPCY2N")
+        add("  Beneficiary: Step Eplattforma")
+        add_c("Please use your invoice number")
+        add_c("as payment reference.")
+    elif is_credit:
         add_t("DELIVERY CONFIRMATION")
         add_t("CREDIT ACCOUNT")
-    elif is_collected:
+    elif doc_type == "official" or is_collected:
         add_t("PAYMENT RECEIPT")
+        ps365_ref = str(data.get("ps365_reference_number", "") or "").strip()
+        if ps365_ref:
+            add_b(f"  PS365 Ref: {ps365_ref}")
         if is_preview:
             add_t("STATUS: PENDING CONFIRMATION")
         else:
