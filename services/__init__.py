@@ -159,10 +159,10 @@ def route_progress(shipment_id: int):
     Calculate progress statistics for a route.
     Returns dict with total, done, and percentage.
     """
-    # Count total invoices in this route
+    # Count total invoices in this route (exclude soft-deleted stops)
     total = db.session.query(func.count(RouteStopInvoice.route_stop_invoice_id))\
         .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)\
-        .filter(RouteStop.shipment_id == shipment_id)\
+        .filter(RouteStop.shipment_id == shipment_id, RouteStop.deleted_at.is_(None))\
         .scalar() or 0
     
     # Count completed invoices by checking Invoice.status (terminal statuses)
@@ -171,7 +171,8 @@ def route_progress(shipment_id: int):
         .join(Invoice, Invoice.invoice_no == RouteStopInvoice.invoice_no)\
         .filter(
             RouteStop.shipment_id == shipment_id,
-            func.upper(Invoice.status).in_(["DELIVERED", "RETURNED_TO_WAREHOUSE", "DELIVERY_FAILED"])
+            RouteStop.deleted_at.is_(None),
+            func.lower(Invoice.status).in_(["delivered", "returned_to_warehouse", "delivery_failed"])
         )\
         .scalar() or 0
     

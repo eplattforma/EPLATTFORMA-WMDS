@@ -308,7 +308,8 @@ def detail(shipment_id):
             CreditTerms.valid_to.is_(None)  # Get only active terms
         )
     ).filter(
-        RouteStop.shipment_id == shipment_id
+        RouteStop.shipment_id == shipment_id,
+        RouteStop.deleted_at.is_(None)
     ).order_by(RouteStop.seq_no).all()
     
     # Build enhanced stops list with payment terms and website
@@ -938,13 +939,12 @@ def unassign_from_route():
     # Unassign each invoice from its route
     from sqlalchemy import delete
     for invoice in invoices:
-        # Delete route_stop_invoice records
-        if invoice.stop_id:
-            db.session.execute(
-                delete(RouteStopInvoice).where(
-                    RouteStopInvoice.invoice_no == invoice.invoice_no
-                )
+        # Always delete route_stop_invoice records (don't rely on stop_id being set)
+        db.session.execute(
+            delete(RouteStopInvoice).where(
+                RouteStopInvoice.invoice_no == invoice.invoice_no
             )
+        )
         invoice.route_id = None
         invoice.stop_id = None
     
