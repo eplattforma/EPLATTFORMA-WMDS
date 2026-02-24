@@ -14,11 +14,41 @@ input[type=number]::-webkit-inner-spin-button {
     color: #fff !important;
     border-color: #198754 !important;
 }
+.stop-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    background: #0f172a;
+    color: #fff;
+    border-bottom: 1px solid rgba(255,255,255,.12);
+}
+.stop-sticky .sub { color: rgba(255,255,255,.75); font-size: .85rem; }
+.stop-sticky .hero { font-size: 1.35rem; font-weight: 800; }
+.stop-sticky .hero .amt { font-size: 1.7rem; }
+.stepper .step {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .25rem .5rem; border-radius: 999px;
+    background: rgba(255,255,255,.08); font-size: .85rem; cursor: pointer;
+}
+.stepper .done { background: rgba(34,197,94,.25); }
+.stepper .todo { background: rgba(255,255,255,.08); }
+.lock-overlay {
+    pointer-events: none;
+    opacity: .55;
+}
+.sticky-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1030;
+    background: #0b1220;
+    padding: .75rem;
+    border-top: 1px solid rgba(255,255,255,.10);
+}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid p-3" id="deliverApp" 
+<div class="container-fluid p-3" id="deliverApp"
      data-stop-id="{{ stop.route_stop_id }}"
      data-route-id="{{ route.id }}"
      data-is-credit="{{ '1' if terms.is_credit else '0' }}"
@@ -35,10 +65,32 @@ input[type=number]::-webkit-inner-spin-button {
         <span></span>
     </div>
 
-    <div class="card mb-3">
-        <div class="card-body">
-            <h6><i class="fas fa-user"></i> {{ stop.stop_name or stop.customer_name or 'Customer' }}</h6>
-            <p class="mb-0 text-muted small">{{ stop.stop_addr }}</p>
+    <div class="stop-sticky p-3 mb-2 rounded">
+        <div class="d-flex justify-content-between align-items-start">
+            <div style="min-width:0;">
+                <div class="fw-bold text-truncate" id="hdr-customer">{{ stop.stop_name or stop.customer_name or 'Customer' }}</div>
+                <div class="sub text-truncate" id="hdr-address">{{ stop.stop_addr }}</div>
+                <div class="mt-1">
+                    {% if terms.is_credit %}
+                    <span class="badge bg-info text-dark">CREDIT</span>
+                    {% else %}
+                    <span class="badge bg-success">COD</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="text-end" style="min-width:170px;">
+                <div class="hero">COLLECT</div>
+                <div class="hero amt">&euro; <span id="hdr-collect">0.00</span></div>
+                <div class="sub">
+                    Inv: &euro;<span id="hdr-inv">0.00</span> &middot; Ex: -&euro;<span id="hdr-ex">0.00</span> &middot; Entered: &euro;<span id="hdr-entered">0.00</span>
+                </div>
+            </div>
+        </div>
+        <div class="stepper d-flex flex-wrap gap-2 mt-2">
+            <div class="step todo" id="st-ex" onclick="openStep('exceptions')">1 Exceptions <span id="st-ex-mark">&#x2B1C;</span></div>
+            <div class="step todo" id="st-sig" onclick="openStep('signature')">2 Signature <span id="st-sig-mark">&#x2B1C;</span></div>
+            <div class="step todo" id="st-pay" onclick="openStep('payment')">3 Payment <span id="st-pay-mark">&#x2B1C;</span></div>
+            <div class="step todo" id="st-prn" onclick="openStep('print')">4 Print & Close <span id="st-prn-mark">&#x2B1C;</span></div>
         </div>
     </div>
 
@@ -63,232 +115,285 @@ input[type=number]::-webkit-inner-spin-button {
     {% endif %}
     {% endif %}
 
-    <div class="card mb-3">
-        <div class="card-header text-white" style="background-color: #fd7e14;">
-            <strong><i class="fas fa-exclamation-triangle"></i> Exceptions</strong>
-            <span class="badge bg-secondary float-end" id="exception-count">0</span>
+    <div class="accordion" id="closeoutAcc">
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="hExceptions">
+                <button class="accordion-button" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#cExceptions" aria-expanded="true" aria-controls="cExceptions">
+                    <strong><i class="fas fa-exclamation-triangle"></i> Exceptions</strong>
+                    <span class="badge bg-secondary ms-2" id="exception-count">0</span>
+                </button>
+            </h2>
+            <div id="cExceptions" class="accordion-collapse collapse show" aria-labelledby="hExceptions" data-bs-parent="#closeoutAcc">
+                <div class="accordion-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="small text-muted" id="ex-summary">Exceptions: 0 (-&euro;0.00)</div>
+                        <button class="btn btn-sm btn-outline-warning" id="btnPrintExceptions" onclick="printExceptionsProof()" disabled>
+                            <i class="fas fa-print"></i> Print Exceptions Proof
+                        </button>
+                    </div>
+                    <div id="exceptions-list"></div>
+                    <button class="btn btn-sm w-100 mt-2" style="color:#fd7e14;border-color:#fd7e14;" onclick="addException()">
+                        <i class="fas fa-plus"></i> Add Exception
+                    </button>
+                    <div class="mt-3 d-grid gap-2">
+                        <button class="btn btn-outline-secondary" onclick="markExceptionsDoneAndNext()">
+                            Continue
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-            <div id="exceptions-list"></div>
-            <button class="btn btn-sm w-100" style="color: #fd7e14; border-color: #fd7e14;" onclick="addException()">
-                <i class="fas fa-plus"></i> Add Exception
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="hSignature">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#cSignature" aria-expanded="false" aria-controls="cSignature">
+                    <strong><i class="fas fa-pen-nib"></i> Signature</strong>
+                    <span class="badge bg-secondary ms-2" id="sigBadge">Optional</span>
+                </button>
+            </h2>
+            <div id="cSignature" class="accordion-collapse collapse" aria-labelledby="hSignature" data-bs-parent="#closeoutAcc">
+                <div class="accordion-body">
+                    <div id="sigBlock" class="p-3 rounded border">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <div class="fw-bold">
+                                    Physical signed invoice collected
+                                    <span id="sig-required-badge" class="badge bg-secondary ms-2">Optional</span>
+                                </div>
+                                <div id="sig-help" class="small text-muted">
+                                    Recommended, but optional for Cash/Day Cheque/Card.
+                                </div>
+                            </div>
+                            <div class="form-check form-switch m-0">
+                                <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch" style="transform: scale(1.4);">
+                            </div>
+                        </div>
+                        <div id="sig-warn" class="small text-danger mt-2" style="display:none;">
+                            Required for Credit / Pay Online / Post-dated cheque.
+                        </div>
+                    </div>
+
+                    <div class="card mt-3">
+                        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
+                             style="cursor:pointer;" onclick="togglePodDetails()">
+                            <strong><i class="fas fa-signature"></i> Additional Delivery Details</strong>
+                            <i class="fas fa-chevron-down" id="pod-chevron"></i>
+                        </div>
+                        <div class="card-body" id="pod-details" style="display:none;">
+                            <div class="mb-2">
+                                <label class="form-label">Receiver Name</label>
+                                <input type="text" class="form-control" id="pod-receiver" placeholder="Who received the order?">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Relationship</label>
+                                <select class="form-select" id="pod-relationship">
+                                    <option value="owner">Owner</option>
+                                    <option value="employee">Employee</option>
+                                    <option value="family">Family Member</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Photos (Optional)</label>
+                                <input type="file" class="form-control" id="pod-photos" accept="image/*" multiple>
+                                <small class="text-muted">You can select multiple photos</small>
+                            </div>
+                            <div class="mb-0">
+                                <label class="form-label">Notes</label>
+                                <textarea class="form-control" id="pod-notes" rows="2" placeholder="Optional notes"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 d-grid">
+                        <button class="btn btn-outline-secondary" onclick="markSignatureDoneAndNext()">Continue</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="hPayment">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#cPayment" aria-expanded="false" aria-controls="cPayment">
+                    <strong><i class="fas fa-money-bill"></i> Payment</strong>
+                </button>
+            </h2>
+            <div id="cPayment" class="accordion-collapse collapse" aria-labelledby="hPayment" data-bs-parent="#closeoutAcc">
+                <div class="accordion-body">
+                    {% if terms.is_credit %}
+                    <div class="alert alert-info mb-0">
+                        Credit customer — no receipt issued. Proceed to Print &amp; Close when ready.
+                    </div>
+                    {% else %}
+                    <label class="form-label fw-bold mb-2">Payment Method</label>
+                    <div class="row g-2 mb-3" id="method-tiles">
+                        {% if terms.allow_cash %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cash" onclick="setMethod('cash')">
+                                <i class="fas fa-money-bill"></i><br><strong>Cash</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                        {% if terms.allow_cheque %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cheque" onclick="setMethod('cheque')">
+                                <i class="fas fa-receipt"></i><br><strong>Cheque</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                        {% if terms.allow_bank_transfer %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-primary w-100 py-3 method-tile" data-method="online" onclick="setMethod('online')">
+                                <i class="fas fa-university"></i><br><strong>Pay Online</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                        {% if terms.allow_card_pos %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-secondary w-100 py-3 method-tile" data-method="card" onclick="setMethod('card')">
+                                <i class="fas fa-credit-card"></i><br><strong>Card (POS)</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <select class="form-select d-none" id="cod-method">
+                        {% if terms.allow_cash %}
+                        <option value="cash">Cash</option>
+                        {% endif %}
+                        {% if terms.allow_cheque %}
+                        <option value="cheque">Cheque</option>
+                        {% endif %}
+                        {% if terms.allow_bank_transfer %}
+                        <option value="online">Pay Online</option>
+                        {% endif %}
+                        {% if terms.allow_card_pos %}
+                        <option value="card">Card (POS)</option>
+                        {% endif %}
+                    </select>
+
+                    <div id="cod-amount-section">
+                        <div class="p-3 mb-2 rounded border" style="background-color: #fff;">
+                            <div class="d-flex justify-content-between small" style="color: #000;">
+                                <span>Invoice Total: &euro;<span id="cod-expected">0.00</span></span>
+                                <span style="color: #dc3545;">Exceptions: -&euro;<span id="cod-exceptions">0.00</span></span>
+                            </div>
+                            <div class="display-6 fw-bold mt-1" id="cod-display" style="color: #000;">&euro; 0.00</div>
+                            <div class="small mt-1" style="color: #000;">
+                                Amount to Collect: <span class="fw-bold" id="cod-variance">&euro; 0.00</span>
+                            </div>
+                        </div>
+
+                        <input type="hidden" id="cod-received" value="0.00">
+
+                        <div id="keypadWrap" class="mb-2">
+                            <div class="row g-2">
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('1')">1</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('2')">2</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('3')">3</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('4')">4</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('5')">5</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('6')">6</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('7')">7</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('8')">8</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('9')">9</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-danger w-100 py-3 fs-4" onclick="kpBack()">&lsaquo;</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('0')">0</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 py-3 fs-4" onclick="kpClear()">C</button></div>
+                                <div class="col-12"><button type="button" class="btn btn-success w-100 py-3" onclick="kpExact()">Exact Amount</button></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="cheque-details" style="display: none;">
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label">Cheque Number <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="cheque-number" placeholder="Enter number">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Cheque Date <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" id="cheque-date">
+                            </div>
+                        </div>
+                        <div id="pdc-warning" class="alert alert-warning small" style="display:none;">
+                            <i class="fas fa-info-circle"></i> Post-dated cheque: receipt will print as <strong>PDC Acknowledgement</strong> (subject to clearance).
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label">Notes <span class="text-muted small">(required if balance due &ne; 0)</span></label>
+                        <textarea class="form-control" id="cod-notes" rows="2" placeholder="Optional"></textarea>
+                    </div>
+                    {% endif %}
+
+                    <div class="mt-3 d-grid">
+                        <button class="btn btn-outline-secondary" onclick="markPaymentDoneAndNext()">Continue</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="hPrint">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#cPrint" aria-expanded="false" aria-controls="cPrint">
+                    <strong><i class="fas fa-print"></i> Print & Close</strong>
+                </button>
+            </h2>
+            <div id="cPrint" class="accordion-collapse collapse" aria-labelledby="hPrint" data-bs-parent="#closeoutAcc">
+                <div class="accordion-body">
+                    <div class="mb-2 small text-muted">Required documents:</div>
+                    <ul class="list-group mb-3">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Exceptions Proof
+                            <span class="badge bg-secondary" id="reqExProof">Optional</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Payment Document (Receipt / Acknowledgement)
+                            <span class="badge bg-secondary" id="reqPayDoc">Required</span>
+                        </li>
+                    </ul>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary btn-lg" id="btnPrintRequired" onclick="printRequiredDocuments()">
+                            <i class="fas fa-print"></i> Print Required Documents
+                        </button>
+                        <button class="btn btn-outline-secondary" id="btnReprintEx" onclick="printExceptionsProof()" style="display:none;">
+                            Reprint Exceptions Proof
+                        </button>
+                        <button class="btn btn-outline-secondary" id="btnReprintPay" onclick="printPaymentDoc()" style="display:none;">
+                            Reprint Payment Document
+                        </button>
+                        <button class="btn btn-outline-danger" id="btnRequestCorrection" onclick="showCorrectionForm()" style="display:none;">
+                            Request Correction
+                        </button>
+                        <div id="correction-form" style="display:none;" class="mt-2 text-start">
+                            <label class="form-label">Reason for correction:</label>
+                            <textarea class="form-control mb-2" id="correction-reason" rows="2" placeholder="Describe what needs to be corrected"></textarea>
+                            <button class="btn btn-danger w-100" onclick="submitCorrectionRequest()">Submit Correction Request</button>
+                        </div>
+                    </div>
+                    <div class="alert alert-warning mt-3" id="closeBlockers" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="sticky-actions mt-3 rounded">
+        <div class="d-grid gap-2">
+            <button class="btn btn-success btn-lg" id="btnSaveDelivery" onclick="submitDelivery()">
+                <i class="fas fa-check-circle"></i> Save Delivery & Continue
+            </button>
+            <button class="btn btn-success btn-lg" id="btnFinishStop" onclick="finishStop()" disabled>
+                <i class="fas fa-flag-checkered"></i> Close Stop
             </button>
         </div>
-    </div>
-
-    {% if not terms.is_credit %}
-    <div class="card mb-3" id="codCard">
-        <div class="card-header bg-success text-white">
-            <strong><i class="fas fa-money-bill"></i> Payment</strong>
-        </div>
-        <div class="card-body">
-            <label class="form-label fw-bold mb-2">Payment Method</label>
-            <div class="row g-2 mb-3" id="method-tiles">
-                {% if terms.allow_cash %}
-                <div class="col-6">
-                    <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cash" onclick="setMethod('cash')">
-                        <i class="fas fa-money-bill"></i><br><strong>Cash</strong>
-                    </button>
-                </div>
-                {% endif %}
-                {% if terms.allow_cheque %}
-                <div class="col-6">
-                    <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cheque" onclick="setMethod('cheque')">
-                        <i class="fas fa-receipt"></i><br><strong>Cheque</strong>
-                    </button>
-                </div>
-                {% endif %}
-                {% if terms.allow_bank_transfer %}
-                <div class="col-6">
-                    <button type="button" class="btn btn-outline-primary w-100 py-3 method-tile" data-method="online" onclick="setMethod('online')">
-                        <i class="fas fa-university"></i><br><strong>Pay Online</strong>
-                    </button>
-                </div>
-                {% endif %}
-                {% if terms.allow_card_pos %}
-                <div class="col-6">
-                    <button type="button" class="btn btn-outline-secondary w-100 py-3 method-tile" data-method="card" onclick="setMethod('card')">
-                        <i class="fas fa-credit-card"></i><br><strong>Card (POS)</strong>
-                    </button>
-                </div>
-                {% endif %}
-            </div>
-
-            <select class="form-select d-none" id="cod-method">
-                {% if terms.allow_cash %}
-                <option value="cash">Cash</option>
-                {% endif %}
-                {% if terms.allow_cheque %}
-                <option value="cheque">Cheque</option>
-                {% endif %}
-                {% if terms.allow_bank_transfer %}
-                <option value="online">Pay Online</option>
-                {% endif %}
-                {% if terms.allow_card_pos %}
-                <option value="card">Card (POS)</option>
-                {% endif %}
-            </select>
-
-            <div id="cod-amount-section">
-                <div class="p-3 mb-2 rounded border" style="background-color: #fff;">
-                    <div class="d-flex justify-content-between small" style="color: #000;">
-                        <span>Invoice Total: &euro;<span id="cod-expected">0.00</span></span>
-                        <span style="color: #dc3545;">Exceptions: -&euro;<span id="cod-exceptions">0.00</span></span>
-                    </div>
-                    <div class="display-6 fw-bold mt-1" id="cod-display" style="color: #000;">&euro; 0.00</div>
-                    <div class="small mt-1" style="color: #000;">
-                        Balance Due: <span class="fw-bold" id="cod-variance">&euro; 0.00</span>
-                    </div>
-                </div>
-
-                <input type="hidden" id="cod-received" value="0.00">
-
-                <div id="keypadWrap" class="mb-2">
-                    <div class="row g-2">
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('1')">1</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('2')">2</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('3')">3</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('4')">4</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('5')">5</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('6')">6</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('7')">7</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('8')">8</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('9')">9</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-danger w-100 py-3 fs-4" onclick="kpBack()">&lsaquo;</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('0')">0</button></div>
-                        <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 py-3 fs-4" onclick="kpClear()">C</button></div>
-                        <div class="col-12"><button type="button" class="btn btn-success w-100 py-3" onclick="kpExact()">Exact Amount</button></div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="cheque-details" style="display: none;">
-                <div class="row g-2 mb-2">
-                    <div class="col-6">
-                        <label class="form-label">Cheque Number <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="cheque-number" placeholder="Enter number">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label">Cheque Date <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" id="cheque-date">
-                    </div>
-                </div>
-                <div id="pdc-warning" class="alert alert-warning small" style="display:none;">
-                    <i class="fas fa-info-circle"></i> Post-dated cheque: receipt will print as <strong>PDC Acknowledgement</strong> (subject to clearance).
-                </div>
-            </div>
-
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const dateInput = document.getElementById('cheque-date');
-                    if (dateInput) {
-                        const today = new Date().toISOString().split('T')[0];
-                        dateInput.value = today;
-                    }
-                });
-            </script>
-
-            <div class="mb-2">
-                <label class="form-label">Notes <span class="text-muted small">(required if balance due &ne; 0)</span></label>
-                <textarea class="form-control" id="cod-notes" rows="2" placeholder="Optional"></textarea>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
-    <div id="sigBlock" class="p-3 rounded border mt-3 mb-3">
-        <div class="d-flex align-items-center justify-content-between">
-            <div>
-                <div class="fw-bold">
-                    Physical signed invoice collected
-                    <span id="sig-required-badge" class="badge bg-secondary ms-2">Optional</span>
-                </div>
-                <div id="sig-help" class="small text-muted">
-                    Recommended, but optional for Cash/Day Cheque/Card.
-                </div>
-            </div>
-            <div class="form-check form-switch m-0">
-                <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch" style="transform: scale(1.4);">
-            </div>
-        </div>
-        <div id="sig-warn" class="small text-danger mt-2" style="display:none;">
-            Required for Credit / Pay Online / Post-dated cheque.
-        </div>
-    </div>
-
-    <div class="card mb-3">
-        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center" 
-             style="cursor: pointer;" 
-             onclick="togglePodDetails()">
-            <strong><i class="fas fa-signature"></i> Additional Delivery Details</strong>
-            <i class="fas fa-chevron-down" id="pod-chevron"></i>
-        </div>
-        <div class="card-body" id="pod-details" style="display: none;">
-            <div class="mb-2">
-                <label class="form-label">Receiver Name</label>
-                <input type="text" class="form-control" id="pod-receiver" placeholder="Who received the order?">
-            </div>
-            <div class="mb-2">
-                <label class="form-label">Relationship</label>
-                <select class="form-select" id="pod-relationship">
-                    <option value="owner">Owner</option>
-                    <option value="employee">Employee</option>
-                    <option value="family">Family Member</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-            <div class="mb-2">
-                <label class="form-label">Photos (Optional)</label>
-                <input type="file" class="form-control" id="pod-photos" accept="image/*" multiple>
-                <small class="text-muted">You can select multiple photos</small>
-            </div>
-            <div class="mb-0">
-                <label class="form-label">Notes</label>
-                <textarea class="form-control" id="pod-notes" rows="2" placeholder="Optional notes"></textarea>
-            </div>
-        </div>
-    </div>
-
-    <div class="d-grid gap-2">
-        <button class="btn btn-outline-primary btn-lg" onclick="previewReceipt()">
-            <i class="fas fa-print"></i> Preview Receipt
-        </button>
-        <button class="btn btn-success btn-lg" onclick="submitDelivery()">
-            <i class="fas fa-check-circle"></i> Complete Delivery
-        </button>
-    </div>
-</div>
-
-<div class="modal fade" id="postSubmitModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title"><i class="fas fa-check-circle"></i> Delivery Completed</h5>
-            </div>
-            <div class="modal-body text-center">
-                <div id="post-submit-summary" class="mb-3"></div>
-                <div class="d-grid gap-2">
-                    <button class="btn btn-primary btn-lg" id="btn-print-final" onclick="printFinalReceipt()">
-                        <i class="fas fa-print"></i> Print Final Receipt
-                    </button>
-                    <button class="btn btn-warning" id="btn-reprint" style="display:none;" onclick="printFinalReceipt()">
-                        <i class="fas fa-redo"></i> Reprint Receipt
-                    </button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="showCorrectionForm()">
-                        <i class="fas fa-exclamation-triangle"></i> Request Correction
-                    </button>
-                    <div id="correction-form" style="display:none;" class="mt-2 text-start">
-                        <label class="form-label">Reason for correction:</label>
-                        <textarea class="form-control mb-2" id="correction-reason" rows="2" placeholder="Describe what needs to be corrected"></textarea>
-                        <button class="btn btn-danger w-100" onclick="submitCorrectionRequest()">Submit Correction Request</button>
-                    </div>
-                    <hr>
-                    <button class="btn btn-outline-secondary btn-lg" onclick="goBackToStops()">
-                        <i class="fas fa-arrow-left"></i> Back to Stops
-                    </button>
-                </div>
-            </div>
-        </div>
+        <div class="small text-warning mt-2" id="finishReason" style="display:none;"></div>
     </div>
 </div>
 
@@ -375,7 +480,6 @@ const routeId = {{ route.id }};
 const stopId = {{ stop.route_stop_id }};
 const exceptions = [];
 
-// Get credit terms from data attributes
 const app = document.getElementById('deliverApp');
 const isCredit = app.dataset.isCredit === '1';
 const allowCash = app.dataset.allowCash === '1';
@@ -383,12 +487,18 @@ const allowCheque = app.dataset.allowCheque === '1';
 const allowOnline = app.dataset.allowOnline === '1';
 const allowCard = app.dataset.allowCard === '1';
 
+window.exceptionsProofPrinted = false;
+window.paymentDocPrinted = false;
+window.deliverySaved = false;
+let rawCents = "";
+let lastSubmitData = null;
+
 function populateItems() {
     const invoiceNo = document.getElementById('ex-invoice').value;
     const itemSelect = document.getElementById('ex-item');
-    
+
     itemSelect.innerHTML = '<option value="">Select item...</option>';
-    
+
     const invoiceItems = items.filter(item => item.invoice_no === invoiceNo);
     invoiceItems.forEach(item => {
         const option = document.createElement('option');
@@ -398,7 +508,6 @@ function populateItems() {
         itemSelect.appendChild(option);
     });
 
-    // Add Rebate Item
     const rebateOption = document.createElement('option');
     rebateOption.value = 'REB-00';
     rebateOption.textContent = 'REB-00 - Rebate / General Discount';
@@ -411,8 +520,7 @@ function populateItems() {
         is_rebate: true
     });
     itemSelect.appendChild(rebateOption);
-    
-    // Reset quantity container when invoice changes
+
     document.getElementById('qty-container').style.display = 'none';
     document.getElementById('ex-expected-display').textContent = '';
     document.getElementById('ex-expected-display').style.display = 'none';
@@ -424,31 +532,27 @@ document.getElementById('ex-invoice').addEventListener('change', populateItems);
 document.getElementById('ex-item').addEventListener('change', function() {
     const qtyContainer = document.getElementById('qty-container');
     const expectedDisplay = document.getElementById('ex-expected-display');
-    
+
     if (this.value) {
         const selectedOption = this.options[this.selectedIndex];
         const item = JSON.parse(selectedOption.dataset.item);
-        
+
         if (item.is_rebate) {
             expectedDisplay.textContent = 'Enter rebate amount as negative or positive (it will be subtracted from total)';
             expectedDisplay.style.display = 'block';
             qtyContainer.style.display = 'block';
-            document.getElementById('ex-type').value = 'SHORT'; // Default type
-            document.querySelector('#qty-container label[for="ex-qty"]').textContent = 'Amount (€)';
+            document.getElementById('ex-type').value = 'SHORT';
+            document.querySelector('#qty-container label[for="ex-qty"]').textContent = 'Amount (\u20AC)';
             document.getElementById('ex-qty').placeholder = '0.00';
             document.getElementById('ex-qty').step = '0.01';
         } else {
-            // Format: "1 CASE X24" (qty_ordered unit_type X pack)
             let displayText = `${item.qty_ordered} ${item.unit_type || ''}`;
             if (item.pack) {
                 displayText += ` X${item.pack}`;
             }
-            
-            // Add line total with VAT if available
             if (item.line_total_incl !== null && item.line_total_incl !== undefined) {
                 displayText += ` | Value: ${item.line_total_incl.toFixed(2)}`;
             }
-            
             expectedDisplay.textContent = displayText;
             expectedDisplay.style.display = 'block';
             qtyContainer.style.display = 'block';
@@ -466,13 +570,11 @@ document.getElementById('ex-item').addEventListener('change', function() {
 document.getElementById('ex-type').addEventListener('change', function() {
     const damagedContainer = document.getElementById('damaged-accept-container');
     const actualContainer = document.getElementById('actual-item-container');
-    
     damagedContainer.style.display = this.value === 'DAMAGED' ? 'block' : 'none';
     actualContainer.style.display = this.value === 'WRONG' ? 'block' : 'none';
 });
 
 function addException() {
-    // Reset all form fields when opening modal
     document.getElementById('ex-qty').value = '';
     document.getElementById('ex-notes').value = '';
     document.getElementById('ex-actual-barcode').value = '';
@@ -480,7 +582,7 @@ function addException() {
     document.getElementById('qty-container').style.display = 'none';
     document.getElementById('ex-expected-display').textContent = '';
     document.getElementById('ex-expected-display').style.display = 'none';
-    
+
     populateItems();
     const modal = new bootstrap.Modal(document.getElementById('exceptionModal'));
     modal.show();
@@ -494,27 +596,25 @@ function saveException() {
     const qty = parseFloat(qtyInput);
     const notes = document.getElementById('ex-notes').value;
     const damagedAccepted = document.getElementById('ex-damaged-accept').checked;
-    
+
     if (!itemCode) {
         alert('Please select an item');
         return;
     }
-    
     if (!qtyInput || isNaN(qty) || qty < 0) {
         alert('Please enter a valid quantity (0 or greater for missing items)');
         return;
     }
-    
+
     const selectedOption = document.querySelector('#ex-item option:checked');
     const item = JSON.parse(selectedOption.dataset.item);
-    
-    // Capture actual item data for WRONG/substitution type
+
     const actual = (type === 'WRONG') ? {
         barcode: document.getElementById('ex-actual-barcode').value.trim() || null,
         item_code: document.getElementById('ex-actual-code').value.trim() || null,
         qty: qty
     } : null;
-    
+
     let exceptionValue = 0;
     if (type === 'DAMAGED' && damagedAccepted) {
         exceptionValue = 0;
@@ -524,7 +624,7 @@ function saveException() {
         const proportion = qty / item.qty_ordered;
         exceptionValue = item.line_total_incl * proportion;
     }
-    
+
     exceptions.push({
         invoice_no: invoiceNo,
         item_code: itemCode,
@@ -540,12 +640,11 @@ function saveException() {
         exception_value: exceptionValue,
         is_rebate: item.is_rebate
     });
-    
+
     renderExceptions();
     calculateCODVariance();
     bootstrap.Modal.getInstance(document.getElementById('exceptionModal')).hide();
-    
-    // Reset form
+
     document.getElementById('ex-qty').value = '';
     document.getElementById('ex-notes').value = '';
     document.getElementById('ex-actual-barcode').value = '';
@@ -557,7 +656,7 @@ function saveException() {
 function renderExceptions() {
     const list = document.getElementById('exceptions-list');
     list.innerHTML = '';
-    
+
     exceptions.forEach((ex, index) => {
         const typeColors = {
             'SHORT': '#dc3545',
@@ -566,7 +665,7 @@ function renderExceptions() {
             'REJECTED': '#6c757d'
         };
         const typeColor = typeColors[ex.type] || '#6c757d';
-        
+
         const typeLabels = {
             'SHORT': 'Short Missing',
             'DAMAGED': 'Damaged',
@@ -574,19 +673,19 @@ function renderExceptions() {
             'REJECTED': 'Customer Rejected'
         };
         const typeLabel = typeLabels[ex.type] || ex.type;
-        
+
         const unitText = ex.is_rebate ? ' (Amount)' : (ex.unit_type ? ` ${ex.unit_type}` : '');
-        const qtyText = ex.is_rebate ? `€${ex.amount.toFixed(2)}` : `${ex.qty}${unitText}`;
+        const qtyText = ex.is_rebate ? `\u20AC${ex.amount.toFixed(2)}` : `${ex.qty}${unitText}`;
         const expectedQty = ex.is_rebate ? 'N/A' : `${ex.qty_ordered}${unitText}`;
         const deliveredQty = ex.is_rebate ? 'N/A' : ex.qty_ordered - ex.qty;
         const deliveredText = ex.is_rebate ? 'N/A' : `${deliveredQty}${unitText}`;
-        
+
         const notesText = ex.notes ? ` | ${ex.notes}` : '';
-        
+
         const div = document.createElement('div');
         div.className = 'alert alert-warning d-flex align-items-start';
         div.innerHTML = `
-            <button type="button" class="btn btn-sm" onclick="removeException(${index})" style="background: none; border: none; font-size: 1.5rem; line-height: 1; color: #000; padding: 0; margin-right: 10px; cursor: pointer;">×</button>
+            <button type="button" class="btn btn-sm" onclick="removeException(${index})" style="background: none; border: none; font-size: 1.5rem; line-height: 1; color: #000; padding: 0; margin-right: 10px; cursor: pointer;">\u00D7</button>
             <div style="flex: 1;">
                 <strong><span style="color: ${typeColor};">${typeLabel}</span></strong> ${qtyText}${notesText}<br>
                 <small>${ex.item_name}<br>Expected: ${expectedQty} | Delivered: ${deliveredText}</small>
@@ -594,8 +693,9 @@ function renderExceptions() {
         `;
         list.appendChild(div);
     });
-    
+
     document.getElementById('exception-count').textContent = exceptions.length;
+    refreshHeaderAndSteps();
 }
 
 function removeException(index) {
@@ -603,9 +703,6 @@ function removeException(index) {
     renderExceptions();
     calculateCODVariance();
 }
-
-let rawCents = "";
-let lastSubmitData = null;
 
 function setMethod(m) {
     const sel = document.getElementById('cod-method');
@@ -628,6 +725,7 @@ function setMethod(m) {
     togglePaymentControls();
     calculateCODVariance();
     updateSignatureRequirementUI();
+    refreshHeaderAndSteps();
 }
 
 function _getPaymentMethod() {
@@ -642,10 +740,8 @@ function _getChequeDateStr() {
 
 function isSignatureRequired() {
     if (isCredit) return true;
-
     const method = _getPaymentMethod();
     if (method === 'online') return true;
-
     if (method === 'cheque') {
         const ds = _getChequeDateStr();
         if (!ds) return false;
@@ -653,7 +749,6 @@ function isSignatureRequired() {
         const d = new Date(ds + 'T00:00:00');
         if (d > today) return true;
     }
-
     return false;
 }
 
@@ -664,6 +759,7 @@ function updateSignatureRequirementUI() {
     const warn = document.getElementById('sig-warn');
     const sw = document.getElementById('signedInvoiceSwitch');
     const block = document.getElementById('sigBlock');
+    const sigBadge = document.getElementById('sigBadge');
 
     if (!badge || !help || !warn || !sw || !block) return;
 
@@ -673,13 +769,16 @@ function updateSignatureRequirementUI() {
         help.textContent = 'Required for Credit / Pay Online / Post-dated cheque.';
         warn.style.display = sw.checked ? 'none' : 'block';
         block.classList.toggle('border-danger', !sw.checked);
+        if (sigBadge) { sigBadge.textContent = 'Required'; sigBadge.className = 'badge bg-danger ms-2'; }
     } else {
         badge.textContent = 'Optional';
         badge.className = 'badge bg-secondary ms-2';
         help.textContent = 'Recommended, but optional for Cash/Day Cheque/Card.';
         warn.style.display = 'none';
         block.classList.remove('border-danger');
+        if (sigBadge) { sigBadge.textContent = 'Optional'; sigBadge.className = 'badge bg-secondary ms-2'; }
     }
+    refreshHeaderAndSteps();
 }
 
 function _setCollectedFromRaw() {
@@ -713,7 +812,6 @@ function kpExact() {
 
 function togglePaymentControls() {
     if (isCredit) return;
-
     const methodEl = document.getElementById('cod-method');
     if (!methodEl) return;
 
@@ -742,11 +840,11 @@ function togglePaymentControls() {
 
     calculateCODVariance();
     checkPdcWarning();
+    refreshHeaderAndSteps();
 }
 
 function calculateCODVariance() {
     if (isCredit) return;
-
     const invoiceTotal = totalInvoicesAmount;
     const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
 
@@ -765,6 +863,8 @@ function calculateCODVariance() {
     const balanceDue = invoiceTotal - exceptionsTotal - received;
     const varianceEl = document.getElementById('cod-variance');
     if (varianceEl) varianceEl.textContent = '\u20AC ' + balanceDue.toFixed(2);
+
+    refreshHeaderAndSteps();
 }
 
 function checkPdcWarning() {
@@ -779,27 +879,6 @@ function checkPdcWarning() {
     pdcWarn.style.display = (selected > today) ? 'block' : 'none';
 }
 
-if (!isCredit) {
-    const methodEl = document.getElementById('cod-method');
-    if (methodEl) {
-        methodEl.addEventListener('change', togglePaymentControls);
-        methodEl.addEventListener('change', updateSignatureRequirementUI);
-    }
-    const chequeDateEl = document.getElementById('cheque-date');
-    if (chequeDateEl) {
-        chequeDateEl.addEventListener('change', checkPdcWarning);
-        chequeDateEl.addEventListener('change', updateSignatureRequirementUI);
-    }
-    setMethod(methodEl ? methodEl.value : 'cash');
-    togglePaymentControls();
-    calculateCODVariance();
-}
-
-const sigSwitch = document.getElementById('signedInvoiceSwitch');
-if (sigSwitch) sigSwitch.addEventListener('change', updateSignatureRequirementUI);
-updateSignatureRequirementUI();
-
-// Toggle POD details expansion
 function togglePodDetails() {
     const details = document.getElementById('pod-details');
     const chevron = document.getElementById('pod-chevron');
@@ -812,6 +891,180 @@ function togglePodDetails() {
     }
 }
 
+function openStep(which) {
+    const map = {
+        exceptions: 'cExceptions',
+        signature: 'cSignature',
+        payment: 'cPayment',
+        print: 'cPrint'
+    };
+    const id = map[which];
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    const collapse = bootstrap.Collapse.getOrCreateInstance(el);
+    collapse.show();
+}
+
+function setStepDone(stepId, done) {
+    const el = document.getElementById(stepId);
+    const mark = document.getElementById(stepId + '-mark');
+    if (!el || !mark) return;
+    el.classList.remove('done', 'todo');
+    el.classList.add(done ? 'done' : 'todo');
+    mark.textContent = done ? '\u2705' : '\u2B1C';
+}
+
+function refreshHeaderAndSteps() {
+    const inv = totalInvoicesAmount;
+    const exTot = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+    const entered = (!isCredit && (document.getElementById('cod-method')?.value !== 'online'))
+        ? (parseFloat(document.getElementById('cod-received')?.value) || 0) : 0;
+
+    const due = isCredit ? 0 : Math.max(0, inv - exTot);
+    const hdrInv = document.getElementById('hdr-inv');
+    const hdrEx = document.getElementById('hdr-ex');
+    const hdrEntered = document.getElementById('hdr-entered');
+    const hdrCollect = document.getElementById('hdr-collect');
+    if (hdrInv) hdrInv.textContent = inv.toFixed(2);
+    if (hdrEx) hdrEx.textContent = exTot.toFixed(2);
+    if (hdrEntered) hdrEntered.textContent = entered.toFixed(2);
+    if (hdrCollect) hdrCollect.textContent = due.toFixed(2);
+
+    const exDone = (exceptions.length === 0) || window.exceptionsProofPrinted === true;
+    setStepDone('st-ex', exDone);
+
+    const sigRequired = isSignatureRequired();
+    const sigChecked = !!document.getElementById('signedInvoiceSwitch')?.checked;
+    setStepDone('st-sig', (!sigRequired) || sigChecked);
+
+    let payDone = true;
+    if (!isCredit) {
+        const m = document.getElementById('cod-method')?.value || '';
+        payDone = !!m;
+        const dueNow = Math.max(0, inv - exTot);
+        const received = (m === 'online') ? 0 : (parseFloat(document.getElementById('cod-received')?.value) || 0);
+        if ((m === 'cash' || m === 'card' || m === 'cheque') && dueNow > 0 && received <= 0) payDone = false;
+    }
+    setStepDone('st-pay', payDone);
+
+    const printDone = isCredit ? true : (window.paymentDocPrinted === true);
+    const exPrintDone = (exceptions.length === 0) ? true : (window.exceptionsProofPrinted === true);
+    setStepDone('st-prn', printDone && exPrintDone);
+
+    const blockers = [];
+    if (sigRequired && !sigChecked) blockers.push("Signed invoice required.");
+    if (!payDone) blockers.push("Payment entry incomplete.");
+    if (!window.deliverySaved) blockers.push("Delivery must be saved first.");
+    if (!isCredit && !printDone) blockers.push("Payment document must be printed.");
+    if (exceptions.length > 0 && !exPrintDone) blockers.push("Exceptions proof required.");
+
+    const btnFinish = document.getElementById('btnFinishStop');
+    const reason = document.getElementById('finishReason');
+    if (btnFinish) btnFinish.disabled = blockers.length > 0;
+    if (reason) {
+        reason.style.display = blockers.length ? 'block' : 'none';
+        reason.textContent = blockers.length ? ("To close stop: " + blockers.join(" ")) : "";
+    }
+
+    const btnEx = document.getElementById('btnPrintExceptions');
+    if (btnEx) btnEx.disabled = exceptions.length === 0;
+    const exSummary = document.getElementById('ex-summary');
+    if (exSummary) exSummary.textContent = `Exceptions: ${exceptions.length} (-\u20AC${exTot.toFixed(2)})`;
+
+    const reqEx = document.getElementById('reqExProof');
+    if (reqEx) {
+        reqEx.textContent = (exceptions.length > 0) ? "Required" : "N/A";
+        reqEx.className = (exceptions.length > 0) ? "badge bg-warning text-dark" : "badge bg-secondary";
+    }
+
+    const reqPay = document.getElementById('reqPayDoc');
+    if (reqPay) {
+        if (isCredit) {
+            reqPay.textContent = "N/A (Credit)";
+            reqPay.className = "badge bg-secondary";
+        } else {
+            reqPay.textContent = "Required";
+            reqPay.className = "badge bg-warning text-dark";
+        }
+    }
+}
+
+function markExceptionsDoneAndNext() { refreshHeaderAndSteps(); openStep('signature'); }
+function markSignatureDoneAndNext() { refreshHeaderAndSteps(); openStep('payment'); }
+function markPaymentDoneAndNext() { refreshHeaderAndSteps(); openStep('print'); }
+
+async function printExceptionsProof() {
+    const params = new URLSearchParams();
+    params.set('doc', 'exceptions');
+    params.set('fmt', 'png');
+
+    try {
+        const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
+        const data = await res.json();
+        if (!data.print_url) { alert('Could not generate exceptions proof'); return; }
+
+        await shareOrOpenReceipt(data.print_url, `exceptions-${stopId}.png`);
+        window.exceptionsProofPrinted = true;
+
+        const btn = document.getElementById('btnReprintEx');
+        if (btn) btn.style.display = 'block';
+
+        refreshHeaderAndSteps();
+    } catch (e) {
+        alert('Error printing exceptions proof: ' + e.message);
+    }
+}
+
+async function printPaymentDoc() {
+    const codAmountEl = document.getElementById('cod-received');
+    const codMethodEl = document.getElementById('cod-method');
+    const chequeNoEl = document.getElementById('cheque-number');
+    const chequeDateEl = document.getElementById('cheque-date');
+
+    const params = new URLSearchParams();
+    params.set('fmt', 'png');
+    if (codAmountEl) params.set('collected', codAmountEl.value || '0');
+    if (codMethodEl) params.set('payment_method', codMethodEl.value || '');
+    if (chequeNoEl && chequeNoEl.value) params.set('cheque_number', chequeNoEl.value);
+    if (chequeDateEl && chequeDateEl.value) params.set('cheque_date', chequeDateEl.value);
+
+    try {
+        const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
+        const data = await res.json();
+        if (!data.print_url) { alert('Could not generate payment document'); return; }
+
+        await shareOrOpenReceipt(data.print_url, `payment-${stopId}.png`);
+        window.paymentDocPrinted = true;
+
+        const btn = document.getElementById('btnReprintPay');
+        if (btn) btn.style.display = 'block';
+
+        refreshHeaderAndSteps();
+    } catch (e) {
+        alert('Error printing payment document: ' + e.message);
+    }
+}
+
+async function printRequiredDocuments() {
+    if (exceptions.length > 0 && !window.exceptionsProofPrinted) {
+        await printExceptionsProof();
+    }
+    if (!isCredit && !window.paymentDocPrinted) {
+        await printPaymentDoc();
+    }
+    const corrBtn = document.getElementById('btnRequestCorrection');
+    if (corrBtn) corrBtn.style.display = 'block';
+    refreshHeaderAndSteps();
+}
+
+function finishStop() {
+    refreshHeaderAndSteps();
+    const btn = document.getElementById('btnFinishStop');
+    if (btn && btn.disabled) return;
+    window.location.href = `/driver/routes/${routeId}/stops`;
+}
+
 async function submitDelivery() {
     const hasPhysicalInvoice = !!document.getElementById('signedInvoiceSwitch')?.checked;
     const codMethodEl = document.getElementById('cod-method');
@@ -822,31 +1075,29 @@ async function submitDelivery() {
     if (codMethod === 'cheque' && chequeDateInput && chequeDateInput.value) {
         const selectedDate = new Date(chequeDateInput.value);
         selectedDate.setHours(0,0,0,0);
-        
+
         const today = new Date();
         today.setHours(0,0,0,0);
-        
+
         const appEl = document.getElementById('deliverApp');
         const allowedDays = parseInt(appEl.dataset.chequeDaysAllowed || '0');
-        
+
         const diffTime = selectedDate - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
+
         if (diffDays < 0) {
             alert('Cheque date cannot be in the past.');
             return;
         }
-        
+
         if (diffDays > allowedDays) {
-            const msg = allowedDays === 0 ?
-                'This cheque is post-dated. Receipt will print as PDC Acknowledgement (subject to clearance). Continue?' :
-                `Cheque is ${diffDays} days out (allowed: ${allowedDays}). Receipt will print as PDC Acknowledgement. Continue?`;
+            const msg = `Cheque date is ${diffDays} day(s) ahead. This will be treated as POST-DATED and will print an acknowledgement (subject to clearance). Continue?`;
             if (!confirm(msg)) return;
         }
     }
-    
+
     const receivedAmount = !isCredit ? (parseFloat(receivedAmountInput?.value) || 0) : 0;
-    
+
     if (isSignatureRequired() && !hasPhysicalInvoice) {
         alert('Signed invoice is REQUIRED for Credit / Pay Online / Post-dated cheque.');
         updateSignatureRequirementUI();
@@ -855,12 +1106,12 @@ async function submitDelivery() {
 
     if (!isCredit && codMethod === 'cash' && (receivedAmount <= 0)) {
         alert('Please enter the cash amount collected.');
-        receivedAmountInput.focus();
+        if (receivedAmountInput) receivedAmountInput.focus();
         return;
     }
-    
+
     if (!confirm('Complete this delivery?')) return;
-    
+
     try {
         let gps = null;
         if (navigator.geolocation) {
@@ -868,27 +1119,23 @@ async function submitDelivery() {
                 navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
             }).catch(() => null);
             if (position) {
-                gps = {
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude
-                };
+                gps = { lat: position.coords.latitude, lng: position.coords.longitude };
             }
         }
-        
-        // Build COD payload based on credit terms
+
         let codPayload = null;
         if (!isCredit) {
             const method = document.getElementById('cod-method').value;
             const received = method === 'online' ? 0 : (parseFloat(document.getElementById('cod-received').value) || 0);
             const note = document.getElementById('cod-notes').value;
-            
+
             let chequeNum = null;
             let chequeDate = null;
             if (method === 'cheque') {
                 chequeNum = document.getElementById('cheque-number').value.trim();
                 chequeDate = document.getElementById('cheque-date').value;
             }
-            
+
             codPayload = {
                 method: method,
                 received: received,
@@ -897,13 +1144,13 @@ async function submitDelivery() {
                 cheque_date: chequeDate
             };
         }
-        
+
         const payload = {
             exceptions: exceptions,
             invoice_nos: invoiceNos,
-            cod: codPayload,  // null for credit accounts
+            cod: codPayload,
             pod: {
-                has_physical_signed_invoice: !!document.getElementById('signedInvoiceSwitch')?.checked,
+                has_physical_signed_invoice: hasPhysicalInvoice,
                 receiver_name: document.getElementById('pod-receiver').value,
                 receiver_relationship: document.getElementById('pod-relationship').value,
                 notes: document.getElementById('pod-notes').value,
@@ -911,28 +1158,28 @@ async function submitDelivery() {
             },
             gps: gps
         };
-        
+
         const response = await fetch(`/driver/stops/${stopId}/deliver`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        
+
         const data = await response.json();
 
         if (data.success) {
             lastSubmitData = data;
-            const summary = document.getElementById('post-submit-summary');
-            if (isCredit) {
-                summary.innerHTML = '<div class="alert alert-info">Delivery completed (Credit Account)</div>';
-            } else {
-                summary.innerHTML = `<div class="alert alert-success">COD Collected: \u20AC${data.cod.received.toFixed(2)}<br><small>Expected: \u20AC${data.cod.expected.toFixed(2)}</small></div>`;
-            }
-            if (!data.print_png_url) {
-                document.getElementById('btn-print-final').style.display = 'none';
-            }
-            const modal = new bootstrap.Modal(document.getElementById('postSubmitModal'));
-            modal.show();
+            window.deliverySaved = true;
+
+            alert('Delivery saved. Now print required documents to close the stop.');
+
+            document.querySelectorAll('#cExceptions button, #cExceptions input, #cExceptions select, #cExceptions textarea').forEach(el => el.disabled = true);
+            document.querySelectorAll('#cSignature input, #cSignature select, #cSignature textarea').forEach(el => el.disabled = true);
+            document.querySelectorAll('#cPayment input, #cPayment select, #cPayment textarea, #cPayment button').forEach(el => el.disabled = true);
+            document.getElementById('btnSaveDelivery').disabled = true;
+
+            openStep('print');
+            refreshHeaderAndSteps();
         } else {
             alert(data.error || 'Failed to complete delivery');
         }
@@ -940,14 +1187,6 @@ async function submitDelivery() {
         console.error('Error:', error);
         alert('Error completing delivery. Please try again.');
     }
-}
-
-async function printFinalReceipt() {
-    if (!lastSubmitData || !lastSubmitData.print_png_url) return;
-    const fname = `receipt-${stopId}.png`;
-    await shareOrOpenReceipt(lastSubmitData.print_png_url, fname);
-    document.getElementById('btn-print-final').style.display = 'none';
-    document.getElementById('btn-reprint').style.display = 'block';
 }
 
 function showCorrectionForm() {
@@ -979,10 +1218,6 @@ async function submitCorrectionRequest() {
     }
 }
 
-function goBackToStops() {
-    window.location.href = `/driver/routes/${routeId}/stops`;
-}
-
 async function shareOrOpenReceipt(printUrl, filename) {
     try {
         const res = await fetch(printUrl, { cache: "no-store" });
@@ -1000,30 +1235,32 @@ async function shareOrOpenReceipt(printUrl, filename) {
     window.open(printUrl, "_blank");
 }
 
-async function previewReceipt() {
-    try {
-        const codAmountEl = document.getElementById('cod-received');
-        const codMethodEl = document.getElementById('cod-method');
-        const chequeNoEl = document.getElementById('cheque-number');
-        const chequeDateEl = document.getElementById('cheque-date');
-
-        const params = new URLSearchParams();
-        if (codAmountEl) params.set('collected', codAmountEl.value || '0');
-        if (codMethodEl) params.set('payment_method', codMethodEl.value || '');
-        if (chequeNoEl && chequeNoEl.value) params.set('cheque_number', chequeNoEl.value);
-        if (chequeDateEl && chequeDateEl.value) params.set('cheque_date', chequeDateEl.value);
-
-        const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
-        const data = await res.json();
-        if (data.print_url) {
-            const fname = `receipt-${stopId}.png`;
-            await shareOrOpenReceipt(data.print_url, fname);
-        } else {
-            alert('Could not generate receipt preview');
-        }
-    } catch (e) {
-        alert('Error generating preview: ' + e.message);
+if (!isCredit) {
+    const methodEl = document.getElementById('cod-method');
+    if (methodEl) {
+        methodEl.addEventListener('change', () => { togglePaymentControls(); updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
     }
+    const chequeDateEl = document.getElementById('cheque-date');
+    if (chequeDateEl) {
+        chequeDateEl.addEventListener('change', () => { checkPdcWarning(); updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
+    }
+    setMethod(methodEl ? methodEl.value : 'cash');
+    togglePaymentControls();
+    calculateCODVariance();
 }
+
+const sigSwitch = document.getElementById('signedInvoiceSwitch');
+if (sigSwitch) sigSwitch.addEventListener('change', () => { updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
+updateSignatureRequirementUI();
+refreshHeaderAndSteps();
+
+document.addEventListener('DOMContentLoaded', function() {
+    const dateInput = document.getElementById('cheque-date');
+    if (dateInput && !dateInput.value) {
+        const today = new Date().toISOString().split('T')[0];
+        dateInput.value = today;
+    }
+    refreshHeaderAndSteps();
+});
 </script>
 {% endblock %}

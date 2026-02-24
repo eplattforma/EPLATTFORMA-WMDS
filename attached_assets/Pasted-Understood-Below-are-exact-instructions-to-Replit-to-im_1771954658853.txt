@@ -1,0 +1,672 @@
+Understood. Below are exact instructions to Replit to implement the missing UX changes (sticky header + stepper + guided closeout + print & close), on top of your current templates/driver/deliver_wizard.html (the one in your zip).
+
+I’m keeping this implementation incremental (no backend redesign, no new app screens), but it will feel like a guided workflow and will eliminate “missed steps”.
+
+1) Update templates/driver/deliver_wizard.html
+1.1 Add CSS for sticky header + reduced scrolling + “disabled after save”
+
+In {% block head %} add:
+
+<style>
+  .stop-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    background: #0f172a; /* dark */
+    color: #fff;
+    border-bottom: 1px solid rgba(255,255,255,.12);
+  }
+  .stop-sticky .sub { color: rgba(255,255,255,.75); font-size: .85rem; }
+  .stop-sticky .hero { font-size: 1.35rem; font-weight: 800; }
+  .stop-sticky .hero .amt { font-size: 1.7rem; }
+  .stepper .step {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .25rem .5rem; border-radius: 999px;
+    background: rgba(255,255,255,.08); font-size: .85rem; cursor:pointer;
+  }
+  .stepper .done { background: rgba(34,197,94,.25); }
+  .stepper .todo { background: rgba(255,255,255,.08); }
+  .lock-overlay {
+    pointer-events: none;
+    opacity: .55;
+  }
+  .sticky-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1030;
+    background: #0b1220;
+    padding: .75rem;
+    border-top: 1px solid rgba(255,255,255,.10);
+  }
+</style>
+1.2 Insert the “Stop Closeout Sticky Header + Stepper”
+
+Right after the top row (Back / Deliver Stop) and before the customer card, insert:
+
+<div class="stop-sticky p-3 mb-2 rounded">
+  <div class="d-flex justify-content-between align-items-start">
+    <div style="min-width:0;">
+      <div class="fw-bold text-truncate" id="hdr-customer">{{ stop.stop_name or stop.customer_name or 'Customer' }}</div>
+      <div class="sub text-truncate" id="hdr-address">{{ stop.stop_addr }}</div>
+      <div class="mt-1">
+        {% if terms.is_credit %}
+          <span class="badge bg-info text-dark">CREDIT</span>
+        {% else %}
+          <span class="badge bg-success">POD</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="text-end" style="min-width:170px;">
+      <div class="hero">COLLECT</div>
+      <div class="hero amt">€ <span id="hdr-collect">0.00</span></div>
+      <div class="sub">
+        Inv: €<span id="hdr-inv">0.00</span> · Ex: -€<span id="hdr-ex">0.00</span> · Entered: €<span id="hdr-entered">0.00</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="stepper d-flex flex-wrap gap-2 mt-2">
+    <div class="step todo" id="st-ex" onclick="openStep('exceptions')">1 Exceptions <span id="st-ex-mark">⬜</span></div>
+    <div class="step todo" id="st-sig" onclick="openStep('signature')">2 Signature <span id="st-sig-mark">⬜</span></div>
+    <div class="step todo" id="st-pay" onclick="openStep('payment')">3 Payment <span id="st-pay-mark">⬜</span></div>
+    <div class="step todo" id="st-prn" onclick="openStep('print')">4 Print & Close <span id="st-prn-mark">⬜</span></div>
+  </div>
+</div>
+
+Goal: driver always sees the target number and where they are.
+
+1.3 Convert the page into a 4-step accordion (collapsible panels)
+
+Replace your 3 separate cards (Exceptions, Payment, Physical invoice checkbox + Additional details + Buttons) with one accordion:
+
+Insert this where your Exceptions card currently starts, and move the existing inner HTML into each step (as noted below).
+
+<div class="accordion" id="closeoutAcc">
+
+  <!-- STEP 1: Exceptions -->
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="hExceptions">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse"
+              data-bs-target="#cExceptions" aria-expanded="true" aria-controls="cExceptions">
+        <strong><i class="fas fa-exclamation-triangle"></i> Exceptions</strong>
+        <span class="badge bg-secondary ms-2" id="exception-count">0</span>
+      </button>
+    </h2>
+    <div id="cExceptions" class="accordion-collapse collapse show" aria-labelledby="hExceptions" data-bs-parent="#closeoutAcc">
+      <div class="accordion-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="small text-muted" id="ex-summary">Exceptions: 0 (−€0.00)</div>
+          <button class="btn btn-sm btn-outline-warning" id="btnPrintExceptions" onclick="printExceptionsProof()" disabled>
+            <i class="fas fa-print"></i> Print Exceptions Proof
+          </button>
+        </div>
+
+        <!-- Move your existing exceptions list + Add Exception button here -->
+        <div id="exceptions-list"></div>
+        <button class="btn btn-sm w-100 mt-2" style="color:#fd7e14;border-color:#fd7e14;" onclick="addException()">
+          <i class="fas fa-plus"></i> Add Exception
+        </button>
+
+        <div class="mt-3 d-grid gap-2">
+          <button class="btn btn-outline-secondary" onclick="markExceptionsDoneAndNext()">
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2: Signature -->
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="hSignature">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+              data-bs-target="#cSignature" aria-expanded="false" aria-controls="cSignature">
+        <strong><i class="fas fa-pen-nib"></i> Signature</strong>
+        <span class="badge bg-secondary ms-2" id="sigBadge">Optional</span>
+      </button>
+    </h2>
+    <div id="cSignature" class="accordion-collapse collapse" aria-labelledby="hSignature" data-bs-parent="#closeoutAcc">
+      <div class="accordion-body">
+
+        <!-- Replace your current physical checkbox card with this switch -->
+        <div id="sigBlock" class="p-3 rounded border">
+          <div class="d-flex align-items-center justify-content-between">
+            <div>
+              <div class="fw-bold">
+                Physical signed invoice collected
+                <span id="sig-required-badge" class="badge bg-secondary ms-2">Optional</span>
+              </div>
+              <div id="sig-help" class="small text-muted">
+                Recommended, but optional for Cash/Day Cheque/Card.
+              </div>
+            </div>
+
+            <div class="form-check form-switch m-0">
+              <input class="form-check-input" type="checkbox" id="pod-physical-switch">
+            </div>
+          </div>
+
+          <div id="sig-warn" class="small text-danger mt-2" style="display:none;">
+            Required for Credit / Pay Online / Post-dated cheque.
+          </div>
+        </div>
+
+        <!-- Move your existing Additional Delivery Details collapse here (pod-details block) -->
+        <div class="card mt-3">
+          <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
+               style="cursor:pointer;" onclick="togglePodDetails()">
+            <strong><i class="fas fa-signature"></i> Additional Delivery Details</strong>
+            <i class="fas fa-chevron-down" id="pod-chevron"></i>
+          </div>
+          <div class="card-body" id="pod-details" style="display:none;">
+            <!-- Move your existing receiver/relationship/photos/notes fields here unchanged -->
+            <!-- (copy from your current file) -->
+          </div>
+        </div>
+
+        <div class="mt-3 d-grid">
+          <button class="btn btn-outline-secondary" onclick="markSignatureDoneAndNext()">Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: Payment -->
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="hPayment">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+              data-bs-target="#cPayment" aria-expanded="false" aria-controls="cPayment">
+        <strong><i class="fas fa-money-bill"></i> Payment</strong>
+      </button>
+    </h2>
+    <div id="cPayment" class="accordion-collapse collapse" aria-labelledby="hPayment" data-bs-parent="#closeoutAcc">
+      <div class="accordion-body">
+        {% if terms.is_credit %}
+          <div class="alert alert-info mb-0">
+            Credit customer — no receipt issued. Proceed to Print & Close when ready.
+          </div>
+        {% else %}
+          <!-- Keep your existing Payment card content here -->
+          <!-- Move: method selector + amounts + cheque details + notes -->
+          <!-- IMPORTANT: rename “Balance Due” label to “Amount to Collect” -->
+        {% endif %}
+
+        <div class="mt-3 d-grid">
+          <button class="btn btn-outline-secondary" onclick="markPaymentDoneAndNext()">Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 4: Print & Close -->
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="hPrint">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+              data-bs-target="#cPrint" aria-expanded="false" aria-controls="cPrint">
+        <strong><i class="fas fa-print"></i> Print & Close</strong>
+      </button>
+    </h2>
+    <div id="cPrint" class="accordion-collapse collapse" aria-labelledby="hPrint" data-bs-parent="#closeoutAcc">
+      <div class="accordion-body">
+        <div class="mb-2 small text-muted">Required documents:</div>
+
+        <ul class="list-group mb-3">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Exceptions Proof
+            <span class="badge bg-secondary" id="reqExProof">Optional</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Payment Document (Receipt / Acknowledgement)
+            <span class="badge bg-secondary" id="reqPayDoc">Required</span>
+          </li>
+        </ul>
+
+        <div class="d-grid gap-2">
+          <button class="btn btn-primary btn-lg" id="btnPrintRequired" onclick="printRequiredDocuments()">
+            <i class="fas fa-print"></i> Print Required Documents
+          </button>
+
+          <button class="btn btn-outline-secondary" id="btnReprintEx" onclick="printExceptionsProof()" style="display:none;">
+            Reprint Exceptions Proof
+          </button>
+          <button class="btn btn-outline-secondary" id="btnReprintPay" onclick="printPaymentDoc()" style="display:none;">
+            Reprint Payment Document
+          </button>
+
+          <button class="btn btn-outline-danger" id="btnRequestCorrection" onclick="requestCorrection()" style="display:none;">
+            Request Correction
+          </button>
+        </div>
+
+        <div class="alert alert-warning mt-3" id="closeBlockers" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+✅ This alone removes the huge scroll and forces a “guided flow”.
+
+1.4 Replace bottom buttons with a sticky “Close Stop” bar
+
+Remove the old two buttons:
+
+“Preview Receipt (PDF)”
+
+“Complete Delivery”
+
+Replace with:
+
+<div class="sticky-actions mt-3 rounded">
+  <div class="d-grid gap-2">
+    <button class="btn btn-success btn-lg" id="btnSaveDelivery" onclick="submitDelivery()">
+      <i class="fas fa-check-circle"></i> Save Delivery & Continue
+    </button>
+    <button class="btn btn-success btn-lg" id="btnFinishStop" onclick="finishStop()" disabled>
+      <i class="fas fa-flag-checkered"></i> Close Stop
+    </button>
+  </div>
+  <div class="small text-warning mt-2" id="finishReason" style="display:none;"></div>
+</div>
+
+Behavior:
+
+“Save Delivery & Continue” posts /driver/stops/<id>/deliver (same as now).
+
+On success you do NOT redirect. You lock UI and open Step 4.
+
+“Close Stop” becomes “Return to stops list” after printing requirements are satisfied.
+
+2) Update the JavaScript (same file)
+
+Add these functions at the bottom of the existing <script> block.
+
+2.1 Step open helper + step completion UI
+function openStep(which) {
+  const map = {
+    exceptions: 'cExceptions',
+    signature: 'cSignature',
+    payment: 'cPayment',
+    print: 'cPrint'
+  };
+  const id = map[which];
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  const collapse = bootstrap.Collapse.getOrCreateInstance(el);
+  collapse.show();
+}
+
+function setStepDone(stepId, done) {
+  const el = document.getElementById(stepId);
+  const mark = document.getElementById(stepId + '-mark');
+  if (!el || !mark) return;
+  el.classList.remove('done', 'todo');
+  el.classList.add(done ? 'done' : 'todo');
+  mark.textContent = done ? '✅' : '⬜';
+}
+2.2 Fix signature requirement rule (as per your latest instruction)
+
+Replace your current signature validation in submitDelivery():
+
+CURRENT (wrong for you)
+if ((isCredit || codMethod === 'online' || receivedAmount === 0) && !hasPhysicalInvoice) ...
+REPLACE with (correct)
+function isPostDatedCheque() {
+  const methodEl = document.getElementById('cod-method');
+  const method = methodEl ? methodEl.value : '';
+  if (method !== 'cheque') return false;
+
+  const chequeDateInput = document.getElementById('cheque-date');
+  if (!chequeDateInput || !chequeDateInput.value) return false;
+
+  const d = new Date(chequeDateInput.value + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  return d > today;
+}
+
+function isSignatureRequired() {
+  if (isCredit) return true;
+  const methodEl = document.getElementById('cod-method');
+  const method = methodEl ? methodEl.value : '';
+  if (method === 'online') return true;
+  if (method === 'cheque' && isPostDatedCheque()) return true;
+  return false;
+}
+
+function updateSignatureRequirementUI() {
+  const required = isSignatureRequired();
+  const sw = document.getElementById('pod-physical-switch');
+  const badge = document.getElementById('sig-required-badge');
+  const help = document.getElementById('sig-help');
+  const warn = document.getElementById('sig-warn');
+  const block = document.getElementById('sigBlock');
+
+  if (!sw || !badge || !help || !warn || !block) return;
+
+  if (required) {
+    badge.textContent = 'REQUIRED';
+    badge.className = 'badge bg-danger ms-2';
+    help.textContent = 'Required for Credit / Pay Online / Post-dated cheque.';
+    warn.style.display = sw.checked ? 'none' : 'block';
+    block.classList.toggle('border-danger', !sw.checked);
+  } else {
+    badge.textContent = 'Optional';
+    badge.className = 'badge bg-secondary ms-2';
+    help.textContent = 'Recommended, but optional for Cash/Day Cheque/Card.';
+    warn.style.display = 'none';
+    block.classList.remove('border-danger');
+  }
+}
+
+Hook updates:
+
+document.addEventListener('DOMContentLoaded', () => {
+  const methodEl = document.getElementById('cod-method');
+  const chequeDateEl = document.getElementById('cheque-date');
+  const sw = document.getElementById('pod-physical-switch');
+
+  if (methodEl) methodEl.addEventListener('change', () => { togglePaymentControls(); updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
+  if (chequeDateEl) chequeDateEl.addEventListener('change', () => { updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
+  if (sw) sw.addEventListener('change', () => { updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
+
+  updateSignatureRequirementUI();
+  refreshHeaderAndSteps();
+});
+2.3 Make the sticky header always show the right “COLLECT” number
+
+Add:
+
+function getBalanceDue() {
+  if (isCredit) return 0;
+  const invoiceTotal = totalInvoicesAmount;
+  const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+
+  const methodEl = document.getElementById('cod-method');
+  const method = methodEl ? methodEl.value : 'cash';
+  const receivedInput = document.getElementById('cod-received');
+  const received = (method === 'online') ? 0 : (parseFloat(receivedInput?.value) || 0);
+
+  return (invoiceTotal - exceptionsTotal - received);
+}
+
+function refreshHeaderAndSteps() {
+  const inv = totalInvoicesAmount;
+  const exTot = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+  const entered = (!isCredit && (document.getElementById('cod-method')?.value !== 'online'))
+    ? (parseFloat(document.getElementById('cod-received')?.value) || 0) : 0;
+
+  const due = Math.max(0, inv - exTot); // amount to collect ignoring "entered"
+  document.getElementById('hdr-inv').textContent = inv.toFixed(2);
+  document.getElementById('hdr-ex').textContent = exTot.toFixed(2);
+  document.getElementById('hdr-entered').textContent = entered.toFixed(2);
+  document.getElementById('hdr-collect').textContent = due.toFixed(2);
+
+  // Exceptions step done
+  const exDone = (exceptions.length === 0) || window.exceptionsProofPrinted === true || window.exceptionsSkipAllowed === true;
+  setStepDone('st-ex', exDone);
+
+  // Signature step done
+  const sigRequired = isSignatureRequired();
+  const sigChecked = !!document.getElementById('pod-physical-switch')?.checked;
+  setStepDone('st-sig', (!sigRequired) || sigChecked);
+
+  // Payment step done
+  let payDone = true;
+  if (!isCredit) {
+    const m = document.getElementById('cod-method')?.value || '';
+    payDone = !!m;
+    // if cash/card/cheque and due>0 => must have received >0 OR note
+    const dueNow = Math.max(0, inv - exTot);
+    const received = (m === 'online') ? 0 : (parseFloat(document.getElementById('cod-received')?.value) || 0);
+    if ((m === 'cash' || m === 'card' || m === 'cheque') && dueNow > 0 && received <= 0) payDone = false;
+  }
+  setStepDone('st-pay', payDone);
+
+  // Print step done
+  const printDone = isCredit ? true : (window.paymentDocPrinted === true);
+  const exPrintDone = (exceptions.length === 0) ? true : (window.exceptionsProofPrinted === true || window.exceptionsSkipAllowed === true);
+  setStepDone('st-prn', printDone && exPrintDone);
+
+  // Enable/disable finish
+  const blockers = [];
+  if (!exDone) blockers.push("Print Exceptions Proof (or skip with note).");
+  if (sigRequired && !sigChecked) blockers.push("Signed invoice required.");
+  if (!payDone) blockers.push("Payment entry incomplete.");
+  if (!printDone) blockers.push("Payment document must be printed.");
+  if (!exPrintDone) blockers.push("Exceptions proof required.");
+
+  const btnFinish = document.getElementById('btnFinishStop');
+  const reason = document.getElementById('finishReason');
+  if (btnFinish) btnFinish.disabled = blockers.length > 0;
+  if (reason) {
+    reason.style.display = blockers.length ? 'block' : 'none';
+    reason.textContent = blockers.length ? ("To close stop: " + blockers.join(" ")) : "";
+  }
+
+  // Exceptions proof button
+  const btnEx = document.getElementById('btnPrintExceptions');
+  if (btnEx) btnEx.disabled = exceptions.length === 0;
+  const exSummary = document.getElementById('ex-summary');
+  if (exSummary) exSummary.textContent = `Exceptions: ${exceptions.length} (−€${exTot.toFixed(2)})`;
+
+  // Step 4 requirement badges
+  const reqEx = document.getElementById('reqExProof');
+  if (reqEx) reqEx.textContent = (exceptions.length > 0) ? "Required" : "Optional";
+}
+
+Call refreshHeaderAndSteps() at the end of:
+
+renderExceptions()
+
+calculateCODVariance()
+
+togglePaymentControls()
+
+2.4 Change cheque date validation: allow post-dated (show warning, don’t block)
+
+Your current code blocks when diffDays > allowedDays. Replace that block with a confirm:
+
+if (diffDays > allowedDays) {
+  const msg = `Cheque date is ${diffDays} day(s) ahead. This will be treated as POST-DATED and will print an acknowledgement (subject to clearance). Continue?`;
+  if (!confirm(msg)) return;
+}
+
+(Still keep the “cannot be in the past” block.)
+
+2.5 Print actions for the guided flow
+
+Add these helpers:
+
+window.exceptionsProofPrinted = false;
+window.paymentDocPrinted = false;
+window.deliverySaved = false;
+
+async function printExceptionsProof() {
+  // Prints a tokenized “exceptions proof” BEFORE saving delivery (ok) or after.
+  const params = new URLSearchParams();
+  params.set('doc', 'exceptions');      // we'll add support in backend (section 3)
+  params.set('fmt', 'png');
+
+  const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
+  const data = await res.json();
+  if (!data.print_url) { alert('Could not generate exceptions proof'); return; }
+
+  await shareOrOpenReceipt(data.print_url, `exceptions-${stopId}.png`);
+  window.exceptionsProofPrinted = true;
+
+  const btn = document.getElementById('btnReprintEx');
+  if (btn) btn.style.display = 'block';
+
+  refreshHeaderAndSteps();
+}
+
+async function printPaymentDoc() {
+  // After save, print locked receipt via existing token print (or via receipt_id url if you already changed backend)
+  const codAmountEl = document.getElementById('cod-received');
+  const codMethodEl = document.getElementById('cod-method');
+  const chequeNoEl = document.getElementById('cheque-number');
+  const chequeDateEl = document.getElementById('cheque-date');
+
+  const params = new URLSearchParams();
+  params.set('fmt', 'png');
+  if (codAmountEl) params.set('collected', codAmountEl.value || '0');
+  if (codMethodEl) params.set('payment_method', codMethodEl.value || '');
+  if (chequeNoEl && chequeNoEl.value) params.set('cheque_number', chequeNoEl.value);
+  if (chequeDateEl && chequeDateEl.value) params.set('cheque_date', chequeDateEl.value);
+
+  const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
+  const data = await res.json();
+  if (!data.print_url) { alert('Could not generate payment document'); return; }
+
+  await shareOrOpenReceipt(data.print_url, `payment-${stopId}.png`);
+  window.paymentDocPrinted = true;
+
+  const btn = document.getElementById('btnReprintPay');
+  if (btn) btn.style.display = 'block';
+
+  refreshHeaderAndSteps();
+}
+
+async function printRequiredDocuments() {
+  // Enforce the queue: exceptions proof first (if needed), then payment doc
+  if (exceptions.length > 0 && !window.exceptionsProofPrinted) {
+    await printExceptionsProof();
+  }
+  if (!isCredit && !window.paymentDocPrinted) {
+    await printPaymentDoc();
+  }
+  document.getElementById('btnRequestCorrection').style.display = 'block';
+  refreshHeaderAndSteps();
+}
+
+Then update markExceptionsDoneAndNext() / markSignatureDoneAndNext() / markPaymentDoneAndNext():
+
+function markExceptionsDoneAndNext(){ refreshHeaderAndSteps(); openStep('signature'); }
+function markSignatureDoneAndNext(){ refreshHeaderAndSteps(); openStep('payment'); }
+function markPaymentDoneAndNext(){ refreshHeaderAndSteps(); openStep('print'); }
+2.6 Change submitDelivery() behavior: save then open Step 4 (no redirect)
+
+In your existing submitDelivery() success block, replace:
+
+alert(msg);
+window.location.href = `/driver/routes/${routeId}/stops`;
+
+with:
+
+alert('Delivery saved. Now print required documents to close the stop.');
+window.deliverySaved = true;
+
+// lock the UI so driver can’t change amounts/exceptions after save
+document.getElementById('closeoutAcc').classList.add('lock-overlay');
+document.getElementById('closeoutAcc').classList.remove('lock-overlay'); // keep accordions clickable
+// Instead disable specific inputs:
+document.querySelectorAll('#cExceptions button, #cExceptions input, #cExceptions select, #cExceptions textarea').forEach(el => el.disabled = true);
+document.querySelectorAll('#cPayment input, #cPayment select, #cPayment textarea, #cPayment button').forEach(el => el.disabled = true);
+document.getElementById('btnSaveDelivery').disabled = true;
+
+openStep('print');
+refreshHeaderAndSteps();
+
+(We disable edits but still allow printing and navigation.)
+
+2.7 Implement finishStop() to return to stops list only when requirements met
+function finishStop() {
+  refreshHeaderAndSteps();
+  const btn = document.getElementById('btnFinishStop');
+  if (btn && btn.disabled) return;
+  window.location.href = `/driver/routes/${routeId}/stops`;
+}
+3) Backend: support “Exceptions Proof” printing mode (minimal)
+3.1 Update routes_driver.py get_print_token() to pass a doc parameter through
+
+In /api/stops/<stop_id>/print_token, add:
+
+doc = request.args.get('doc')
+if doc:
+    extra_params['doc'] = doc
+
+So the print URL can include &doc=exceptions.
+
+3.2 Update print_receipt_png() to pass doc_mode to the renderer
+
+In print_receipt_png(stop_id) add:
+
+doc_mode = request.args.get('doc', '').strip().lower()
+png_data['doc_mode'] = doc_mode
+3.3 Update services/receipt_render_png.py to render exceptions-only proof cleanly
+
+In render_receipt_png(data, ...) read:
+
+doc_mode = (data.get("doc_mode") or "").strip().lower()
+
+Then modify the title logic:
+
+If doc_mode == 'exceptions', render:
+
+EXCEPTIONS PROOF
+
+CREDIT NOTE WILL BE ISSUED
+
+AND SENT BY EMAIL
+
+Skip the entire “AMOUNTS” section.
+
+Always include the exceptions list.
+
+Include one signature line: “Customer Signature (Exceptions/Delivery)”.
+
+Implementation approach (simple):
+
+Wrap the current “AMOUNTS” block and “payment signature” block in:
+
+if doc_mode != "exceptions":
+    ... existing AMOUNTS logic ...
+
+And for doc_mode exceptions add:
+
+if doc_mode == "exceptions":
+    add_t("EXCEPTIONS PROOF")
+    add_t("CREDIT NOTE WILL BE ISSUED")
+    add_t("AND SENT BY EMAIL")
+    add(sep)
+
+This gives you a proper proof slip.
+
+4) Fix the signature requirement (frontend + backend) exactly as you asked
+Frontend
+
+Already done above: required only for Credit / Online / Post-dated cheque.
+
+Backend (must enforce too)
+
+In routes_driver.py inside submit_delivery():
+
+Remove the old rule that used received == 0 as a proxy.
+
+Enforce:
+
+signature_required = is_credit or (cod_method == "online") or (cod_method == "cheque" and cheque_date and cheque_date > today)
+if signature_required and not has_signed_invoice:
+    abort(400, description="Physical signed invoice required for Credit / Online / Post-dated cheque")
+5) What Replit should verify after implementation (quick)
+
+Sticky header stays visible while scrolling, shows COLLECT €X.XX.
+
+Accordion steps open/close; stepper shows ✅ when satisfied.
+
+Signature switch becomes REQUIRED only for:
+
+Credit
+
+Online
+
+Cheque date > today
+(Optional for cash/card/day-cheque)
+
+If exceptions exist: “Print Exceptions Proof” is enabled and prints a slip with CN/email note.
+
+After “Save Delivery & Continue”, editing is blocked and Step 4 opens.
+
+“Print Required Documents” prints in order and then “Close Stop” becomes enabled.

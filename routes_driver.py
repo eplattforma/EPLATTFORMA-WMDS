@@ -1360,7 +1360,7 @@ def get_print_token(stop_id):
 
     token = make_print_token(stop_id, current_user.username)
     extra_params = {}
-    for key in ('collected', 'payment_method', 'cheque_number', 'cheque_date'):
+    for key in ('collected', 'payment_method', 'cheque_number', 'cheque_date', 'doc'):
         val = request.args.get(key)
         if val:
             extra_params[key] = val
@@ -1503,6 +1503,7 @@ def print_receipt_png(stop_id):
         'exceptions': exceptions_list,
         'doc_type': getattr(cod_receipt, 'doc_type', None) or 'official' if cod_receipt else 'official',
         'ps365_reference_number': getattr(cod_receipt, 'ps365_reference_number', None) or '' if cod_receipt else '',
+        'doc_mode': (request.args.get('doc') or '').strip().lower(),
     }
 
     w = request.args.get('w', type=int)

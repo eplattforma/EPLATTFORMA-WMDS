@@ -62,6 +62,114 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     is_collected = bool(data.get("is_collected"))
     is_credit = bool(data.get("is_credit"))
     doc_type = str(data.get("doc_type", "") or "").strip().lower()
+    doc_mode = str(data.get("doc_mode", "") or "").strip().lower()
+
+    if doc_mode == "exceptions":
+        add_t("STEP EPLATTFORMA LTD")
+        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
+        add_c("Tel: 7000 0394  VAT: CY103532640")
+        add(sep)
+        add_t("EXCEPTIONS PROOF")
+        add_t("CREDIT NOTE WILL BE ISSUED")
+        add_t("AND SENT BY EMAIL")
+        add(sep)
+
+        receipt_no = str(data.get("receipt_no", "")).strip()
+        date_str = str(data.get("date_str", "")).strip()
+        add_b(_pad_right(f"Rcpt: {receipt_no}", f"Date: {date_str}", cols))
+
+        route_no = str(data.get("route_no", "")).strip()
+        stop_no_val = data.get("stop_no", "")
+        try:
+            stop_no_val = str(int(float(stop_no_val))).zfill(3)
+        except Exception:
+            stop_no_val = str(stop_no_val).zfill(3) if stop_no_val else "---"
+        driver = str(data.get("driver_name", "")).strip()
+
+        add_b(f"Route: {route_no}  Stop: {stop_no_val}")
+        add_b(f"Driver: {driver}")
+
+        cust_code = str(data.get("customer_code", "")).strip()
+        if cust_code:
+            add(f"Cust Code: {cust_code}")
+        add(sep)
+
+        add_b("CUSTOMER")
+        for w_line in wrap(data.get("customer_name", "")):
+            add(w_line)
+        for w_line in wrap(data.get("customer_addr", "")):
+            add(w_line)
+        add(sep)
+
+        invoices = data.get("invoices") or []
+        add_b(f"INVOICES ({len(invoices)})")
+        for inv in invoices:
+            inv_no = str(inv.get("invoice_no", "")).strip()
+            inv_total = inv.get("total")
+            if inv_total is not None:
+                add(_pad_right(f"  {inv_no}", money(inv_total), cols))
+            else:
+                add(f"  {inv_no}")
+        add(sep)
+
+        exceptions_data = data.get("exceptions") or []
+        if exceptions_data:
+            add_b(f"EXCEPTIONS ({len(exceptions_data)})")
+            for exc in exceptions_data:
+                exc_type = str(exc.get("type", "")).upper()
+                item = str(exc.get("item_name", ""))
+                qty_e = exc.get("qty_expected", "")
+                qty_a = exc.get("qty_actual", "")
+                add(f"  {exc_type}: {item}")
+                add(f"  Exp: {qty_e} | Act: {qty_a}")
+                note = (exc.get("note") or "").strip()
+                if note:
+                    for w_line in wrap(note):
+                        add(f"  {w_line}")
+            add(sep)
+
+        sig_line = "_" * cols
+        add("")
+        add("Customer Signature")
+        add("(Exceptions/Delivery):")
+        add(sig_line)
+        add("")
+        add("Driver Signature:")
+        add(sig_line)
+
+        line_h_body = 36
+        line_h_title = 44
+        height = PADDING_Y * 2 + sum(
+            line_h_title if t == "title" else line_h_body for t, _ in lines
+        )
+        img = Image.new("L", (dot_width, height), 255)
+        draw = ImageDraw.Draw(img)
+
+        y = PADDING_Y
+        avail_w = dot_width - 2 * PADDING_X
+
+        for typ, txt in lines:
+            if typ == "title":
+                tw = draw.textlength(txt, font=font_title)
+                x = PADDING_X + max(0, (avail_w - tw) / 2)
+                draw.text((x, y), txt, font=font_title, fill=0)
+                y += line_h_title
+            elif typ == "center":
+                tw = draw.textlength(txt, font=font_body)
+                x = PADDING_X + max(0, (avail_w - tw) / 2)
+                draw.text((x, y), txt, font=font_body, fill=0)
+                y += line_h_body
+            elif typ == "bold":
+                draw.text((PADDING_X, y), txt, font=font_bold, fill=0)
+                y += line_h_body
+            else:
+                draw.text((PADDING_X, y), txt, font=font_body, fill=0)
+                y += line_h_body
+
+        img = img.convert("1")
+        out = BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
 
     if is_preview:
         add_t("*** PREVIEW ***")
