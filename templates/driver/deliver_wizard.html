@@ -9,7 +9,19 @@ input[type=number]::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
-.method-tile.active {
+    .accordion-button:not(.collapsed) {
+        background-color: #3b82f6 !important;
+        color: #ffffff !important;
+        box-shadow: none !important;
+    }
+    .accordion-button.collapsed {
+        background-color: #475569 !important;
+        color: #e2e8f0 !important;
+    }
+    .accordion-button::after {
+        filter: brightness(0) invert(1);
+    }
+    .method-tile.active {
     background-color: #198754 !important;
     color: #fff !important;
     border-color: #198754 !important;
