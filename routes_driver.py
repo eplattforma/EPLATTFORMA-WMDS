@@ -1228,7 +1228,18 @@ def print_receipt_pdf(stop_id):
         if cod_receipt.status != 'ISSUED':
             cod_receipt.status = 'ISSUED'
             cod_receipt.locked_at = now
-            cod_receipt.locked_by = token_data.get('username', 'system')
+            cod_receipt.locked_by = token_data.get('username') or 'system'
+            # Check if user exists to avoid FK violation
+            if not User.query.get(cod_receipt.locked_by):
+                first_admin = User.query.filter_by(role='admin').first()
+                if first_admin:
+                    cod_receipt.locked_by = first_admin.username
+                else:
+                    # If no admin, we can't satisfy the FK if 'system' doesn't exist
+                    # For safety in this environment, try to find ANY user
+                    any_user = User.query.first()
+                    if any_user:
+                        cod_receipt.locked_by = any_user.username
             cod_receipt.print_count = 1
             cod_receipt.first_printed_at = now
             cod_receipt.last_printed_at = now
@@ -1400,7 +1411,18 @@ def print_receipt_png(stop_id):
         if cod_receipt.status != 'ISSUED':
             cod_receipt.status = 'ISSUED'
             cod_receipt.locked_at = now
-            cod_receipt.locked_by = token_data.get('username', 'system')
+            cod_receipt.locked_by = token_data.get('username') or 'system'
+            # Check if user exists to avoid FK violation
+            if not User.query.get(cod_receipt.locked_by):
+                first_admin = User.query.filter_by(role='admin').first()
+                if first_admin:
+                    cod_receipt.locked_by = first_admin.username
+                else:
+                    # If no admin, we can't satisfy the FK if 'system' doesn't exist
+                    # For safety in this environment, try to find ANY user
+                    any_user = User.query.first()
+                    if any_user:
+                        cod_receipt.locked_by = any_user.username
             cod_receipt.print_count = 1
             cod_receipt.first_printed_at = now
             cod_receipt.last_printed_at = now
