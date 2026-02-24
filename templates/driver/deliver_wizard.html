@@ -282,13 +282,33 @@ input[type=number]::-webkit-inner-spin-button {
 
                     <div id="cod-amount-section">
                         <div class="p-3 mb-2 rounded border" style="background-color: #fff; color: #000;">
-                            <div class="fw-bold mb-1" style="font-size: 0.9rem;">
-                                Inv &euro;<span id="cod-inv-mini">0.00</span> &middot; Ex &euro;<span id="cod-ex-mini">0.00</span>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div>
+                                    <div class="fw-bold" style="font-size: 0.85rem; color: #666;">ENTERED</div>
+                                    <div class="display-4 fw-bold" id="cod-display" style="line-height: 1;">&euro; 0.00</div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="fw-bold" style="font-size: 0.8rem; color: #666;">REMAINING</div>
+                                    <div class="d-flex align-items-center justify-content-end">
+                                        <div class="h5 fw-bold mb-0" id="cod-remaining">&euro; 0.00</div>
+                                        <i class="fas fa-check-circle text-success ms-2 d-none" id="cod-success-check" style="font-size: 1.5rem;"></i>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="fw-bold" style="font-size: 0.85rem;">Entered</div>
-                            <div class="display-6 fw-bold mb-1" id="cod-display">&euro; 0.00</div>
-                            <div class="fw-bold" style="font-size: 0.9rem;">
-                                Remaining: <span id="cod-remaining">&euro; 0.00</span>
+                            
+                            <div class="pt-2 border-top mt-3" style="font-size: 0.9rem; border-color: #eee !important;">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="text-muted">Invoice Total</span>
+                                    <span class="fw-bold">&euro;<span id="cod-inv-mini">0.00</span></span>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-muted">Exceptions</span>
+                                    <span class="fw-bold text-danger">&euro;<span id="cod-ex-mini">0.00</span></span>
+                                </div>
+                                <div class="d-flex justify-content-between mt-1 pt-1 border-top" style="border-style: dashed !important;">
+                                    <span class="fw-bold">Net Collected</span>
+                                    <span class="fw-bold" id="cod-net-mini">&euro;0.00</span>
+                                </div>
                             </div>
                         </div>
 
@@ -871,9 +891,19 @@ function refreshAmountsUI() {
 
     const invMini = document.getElementById('cod-inv-mini'); if (invMini) invMini.textContent = inv.toFixed(2);
     const exMini = document.getElementById('cod-ex-mini'); if (exMini) exMini.textContent = exTot.toFixed(2);
+    const netMini = document.getElementById('cod-net-mini'); if (netMini) netMini.textContent = '\u20AC' + collectTarget.toFixed(2);
 
     const remEl = document.getElementById('cod-remaining');
     if (remEl) remEl.textContent = '\u20AC ' + remaining.toFixed(2);
+
+    const checkEl = document.getElementById('cod-success-check');
+    if (checkEl) {
+        if (remaining <= 0.01 && entered > 0) {
+            checkEl.classList.remove('d-none');
+        } else {
+            checkEl.classList.add('d-none');
+        }
+    }
 }
 
 function toggleHdrDetails() {
