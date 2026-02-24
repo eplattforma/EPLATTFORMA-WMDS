@@ -64,11 +64,9 @@ input[type=number]::-webkit-inner-spin-button {
                     {{ stop.seq_no|format_seq }} - {{ stop.stop_name or stop.customer_name or 'Customer' }}
                 </div>
             </div>
-            <div class="col-12 mb-2">
+            <div class="col-12 mb-2 d-flex align-items-center gap-2">
                 <div class="hero amt" style="font-size: 2.8rem; font-weight: 800; color: #f1c40f; line-height: 1;">&euro;<span id="hdr-collect">0.00</span></div>
-            </div>
-            <div class="col-6">
-                <div class="mt-1">
+                <div>
                     {% if terms.is_credit %}
                     <span class="badge bg-info text-dark">CREDIT</span>
                     {% else %}
@@ -76,8 +74,8 @@ input[type=number]::-webkit-inner-spin-button {
                     {% endif %}
                 </div>
             </div>
-            <div class="col-6 text-end">
-                <div class="sub mt-1">
+            <div class="col-12 text-end">
+                <div class="sub">
                     <button type="button" class="btn btn-sm btn-link p-0 text-white-50" onclick="toggleHdrDetails()">
                         Details <span id="hdr-details-caret">&#x25BE;</span>
                     </button>
