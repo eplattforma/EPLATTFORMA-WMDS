@@ -904,7 +904,7 @@ function refreshAmountsUI() {
     if (warnEl) warnEl.classList.add('d-none');
 
     if (entered > 0) {
-        if (Math.abs(remaining) < 0.01) {
+        if (Math.abs(entered - collectTarget) < 0.01) {
             if (checkEl) checkEl.classList.remove('d-none');
         } else {
             if (warnEl) warnEl.classList.remove('d-none');
