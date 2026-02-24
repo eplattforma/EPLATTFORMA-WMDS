@@ -79,8 +79,7 @@ input[type=number]::-webkit-inner-spin-button {
                 </div>
             </div>
             <div class="text-end" style="min-width:170px;">
-                <div class="hero">COLLECT</div>
-                <div class="hero amt">&euro; <span id="hdr-collect">0.00</span></div>
+                <div class="hero amt" style="font-size: 2.2rem; font-weight: 800; color: #f1c40f;">&euro; <span id="hdr-collect">0.00</span></div>
                 <div class="sub mt-1">
                     <button type="button" class="btn btn-sm btn-link p-0 text-white-50" onclick="toggleHdrDetails()">
                         Details <span id="hdr-details-caret">&#x25BE;</span>
@@ -282,14 +281,14 @@ input[type=number]::-webkit-inner-spin-button {
                     </select>
 
                     <div id="cod-amount-section">
-                        <div class="p-3 mb-2 rounded border" style="background-color: #fff;">
-                            <div class="small text-muted mb-1">
+                        <div class="p-3 mb-2 rounded border" style="background-color: #fff; color: #000;">
+                            <div class="fw-bold mb-1" style="font-size: 0.9rem;">
                                 Inv &euro;<span id="cod-inv-mini">0.00</span> &middot; Ex &euro;<span id="cod-ex-mini">0.00</span>
                             </div>
-                            <div class="small text-muted">Entered</div>
-                            <div class="display-6 fw-bold" id="cod-display" style="color: #000;">&euro; 0.00</div>
-                            <div class="small text-muted mt-1">
-                                Remaining: <span class="fw-bold" id="cod-remaining">&euro; 0.00</span>
+                            <div class="fw-bold" style="font-size: 0.85rem;">Entered</div>
+                            <div class="display-6 fw-bold mb-1" id="cod-display">&euro; 0.00</div>
+                            <div class="fw-bold" style="font-size: 0.9rem;">
+                                Remaining: <span id="cod-remaining">&euro; 0.00</span>
                             </div>
                         </div>
 
