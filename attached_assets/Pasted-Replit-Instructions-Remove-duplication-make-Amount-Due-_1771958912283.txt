@@ -1,0 +1,157 @@
+Replit Instructions — Remove duplication, make Amount Due the hero
+1) Sticky header: show ONLY the target amount, hide details behind “Details ▾”
+1.1 Update deliver_wizard.html sticky header markup
+
+In your sticky header, remove the line that shows:
+Inv: … · Ex: … · Entered: …
+
+Replace it with a small details toggle:
+
+<div class="sub mt-1">
+  <button type="button" class="btn btn-sm btn-link p-0 text-white-50" onclick="toggleHdrDetails()">
+    Details <span id="hdr-details-caret">▾</span>
+  </button>
+</div>
+
+<div id="hdr-details" class="sub mt-1" style="display:none;">
+  Inv: €<span id="hdr-inv">0.00</span> · Ex: €<span id="hdr-ex">0.00</span> · Entered: €<span id="hdr-entered">0.00</span>
+</div>
+1.2 Add JS toggle function (same file)
+function toggleHdrDetails() {
+  const el = document.getElementById('hdr-details');
+  const caret = document.getElementById('hdr-details-caret');
+  if (!el) return;
+  const show = (el.style.display === 'none' || el.style.display === '');
+  el.style.display = show ? 'block' : 'none';
+  if (caret) caret.textContent = show ? '▴' : '▾';
+}
+
+✅ Result: the header stays clean and the only thing screaming is “COLLECT €xx.xx”.
+
+2) Payment card: show “ENTERED” big, and “REMAINING” (not “Amount to Collect”)
+
+Right now your white card shows invoice total + exceptions and also repeats “Amount to Collect”. Replace that with:
+
+Big number = ENTERED
+
+Secondary line = REMAINING (this helps driver check correctness without duplicating the same label)
+
+2.1 Update the payment summary card HTML
+
+Find the block where you show:
+
+Invoice Total
+
+Exceptions
+
+big € 0.00
+
+“Amount to Collect: €xx”
+
+Change the bottom line to:
+
+<div class="small text-muted mt-1">
+  Remaining: <span class="fw-bold" id="cod-remaining">€ 0.00</span>
+</div>
+
+And change the big number label to clarify it is the entered amount. Example:
+
+<div class="small text-muted">Entered</div>
+<div class="display-6 fw-bold" id="cod-display">€ 0.00</div>
+2.2 Optional: minimize invoice/exceptions inside the payment card
+
+You can keep the invoice total/exceptions but make them one subtle line (not two corners + red text), e.g.:
+
+<div class="small text-muted mb-1">
+  Inv €<span id="cod-inv-mini">0.00</span> · Ex €<span id="cod-ex-mini">0.00</span>
+</div>
+
+This prevents the payment card from competing with the header.
+
+3) Update JS so the header shows “COLLECT” and the card shows “REMAINING”
+3.1 Update your refresh function
+
+Where you currently set:
+
+hdr-inv, hdr-ex, hdr-entered, hdr-collect
+
+and you also compute due / variance
+
+Change the logic to:
+
+collectTarget = max(0, invoiceTotal - exceptionsTotal)
+
+entered = collected (0 if online/credit)
+
+remaining = max(0, collectTarget - entered)
+
+Add these assignments:
+
+function refreshAmountsUI() {
+  const inv = totalInvoicesAmount;
+  const exTot = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+  const collectTarget = Math.max(0, inv - exTot);
+
+  const method = document.getElementById('cod-method')?.value || '';
+  const entered = (!isCredit && method !== 'online') ? (parseFloat(document.getElementById('cod-received')?.value) || 0) : 0;
+  const remaining = Math.max(0, collectTarget - entered);
+
+  // HEADER (target only)
+  document.getElementById('hdr-collect').textContent = collectTarget.toFixed(2);
+
+  // HEADER DETAILS (hidden by default)
+  const hdrInv = document.getElementById('hdr-inv'); if (hdrInv) hdrInv.textContent = inv.toFixed(2);
+  const hdrEx = document.getElementById('hdr-ex'); if (hdrEx) hdrEx.textContent = exTot.toFixed(2);
+  const hdrEnt = document.getElementById('hdr-entered'); if (hdrEnt) hdrEnt.textContent = entered.toFixed(2);
+
+  // PAYMENT CARD MINI (if you add it)
+  const invMini = document.getElementById('cod-inv-mini'); if (invMini) invMini.textContent = inv.toFixed(2);
+  const exMini = document.getElementById('cod-ex-mini'); if (exMini) exMini.textContent = exTot.toFixed(2);
+
+  // PAYMENT CARD “Remaining”
+  const remEl = document.getElementById('cod-remaining');
+  if (remEl) remEl.textContent = `€ ${remaining.toFixed(2)}`;
+}
+
+Then call refreshAmountsUI() at the end of:
+
+your exception add/remove/render function
+
+keypad input handler (kp, kpBack, kpClear, kpExact)
+
+payment method change handler
+
+cheque date change handler
+
+This ensures the target and remaining are always right.
+
+4) Small but important text cleanup (prevents confusion)
+4.1 Don’t show “Exceptions: -€25.57”
+
+Use positive number with a “minus” in the sentence, not the value.
+
+Show: Ex: €25.57
+
+The “deduction” is implied by the label (or add “Deducted: €25.57”).
+
+This removes the double-negative effect.
+
+5) What the driver sees after this change (ideal behavior)
+
+At the top, the driver has one job: COLLECT €26.56 (dominant, sticky).
+
+In payment, the driver types ENTERED €xx.xx.
+
+The screen tells them REMAINING €yy.yy.
+
+If they want details, they tap Details ▾.
+
+This is exactly how you reduce mistakes.
+
+If you want, I can propose two variants and you choose:
+
+Header-only target (what I described above)
+
+Bottom sticky target bar (even stronger): a fixed bar above the keypad that always shows “COLLECT €xx.xx / REMAINING €yy.yy”
+
+But the instructions above already fix the duplication and make the due amount the “one that sticks out.”
