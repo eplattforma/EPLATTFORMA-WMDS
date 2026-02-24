@@ -54,6 +54,9 @@
                     <button class="btn btn-success btn-lg" onclick="startRoute({{ route.id }})">
                         <i class="fas fa-play"></i> Start Route
                     </button>
+                    <a href="{{ url_for('driver.stops_list', route_id=route.id) }}" class="btn btn-outline-primary btn-lg">
+                        <i class="fas fa-list"></i> View Stops
+                    </a>
                     {% elif route.status == 'IN_TRANSIT' %}
                     <a href="{{ url_for('driver.stops_list', route_id=route.id) }}" class="btn btn-primary btn-lg">
                         <i class="fas fa-list"></i> View Stops
@@ -120,6 +123,10 @@ async function startRoute(routeId) {
         
         if (data.success) {
             window.location.href = `/driver/routes/${routeId}/stops`;
+        } else if (response.status === 409 && data.active_route_id) {
+            if (confirm(`You have an active route (#${data.active_route_id}). Go to that route's stops?`)) {
+                window.location.href = `/driver/routes/${data.active_route_id}/stops`;
+            }
         } else {
             alert(data.error || 'Failed to start route');
         }

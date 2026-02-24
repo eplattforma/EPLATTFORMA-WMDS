@@ -186,6 +186,10 @@ def start_route(route_id):
                 'active_route_id': active_route.id
             }), 409
         
+        # Idempotent: if already IN_TRANSIT, just redirect to stops
+        if route.status == 'IN_TRANSIT':
+            return jsonify({'success': True, 'status': 'IN_TRANSIT', 'already_started': True})
+
         # Update status
         if route.status != 'DISPATCHED':
             return jsonify({'error': f'Route must be DISPATCHED to start (current: {route.status})'}), 400
