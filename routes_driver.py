@@ -1272,6 +1272,18 @@ def print_receipt_pdf(stop_id):
         'note': exc.note or ''
     } for exc in exceptions_raw]
 
+    # If no DB exceptions (delivery not yet saved), fall back to JSON passed from driver app
+    if not exceptions_list:
+        import json as _json
+        exc_param = request.args.get('exc', '')
+        if exc_param:
+            try:
+                passed_exc = _json.loads(exc_param)
+                if isinstance(passed_exc, list):
+                    exceptions_list = passed_exc
+            except Exception:
+                pass
+
     terms = get_credit_terms(stop.customer_code)
     is_credit = terms['is_credit']
 
@@ -1374,7 +1386,7 @@ def get_print_token(stop_id):
 
     token = make_print_token(stop_id, current_user.username)
     extra_params = {}
-    for key in ('collected', 'payment_method', 'cheque_number', 'cheque_date', 'doc'):
+    for key in ('collected', 'payment_method', 'cheque_number', 'cheque_date', 'doc', 'exc'):
         val = request.args.get(key)
         if val:
             extra_params[key] = val
@@ -1453,6 +1465,18 @@ def print_receipt_png(stop_id):
         'qty_actual': exc.qty_actual or '',
         'note': exc.note or ''
     } for exc in exceptions_raw]
+
+    # If no DB exceptions (delivery not yet saved), fall back to JSON passed from driver app
+    if not exceptions_list:
+        import json as _json
+        exc_param = request.args.get('exc', '')
+        if exc_param:
+            try:
+                passed_exc = _json.loads(exc_param)
+                if isinstance(passed_exc, list):
+                    exceptions_list = passed_exc
+            except Exception:
+                pass
 
     terms = get_credit_terms(stop.customer_code)
     is_credit = terms['is_credit']

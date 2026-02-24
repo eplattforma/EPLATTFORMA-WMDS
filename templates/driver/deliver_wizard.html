@@ -1050,6 +1050,17 @@ async function printExceptionsProof() {
     params.set('doc', 'exceptions');
     params.set('fmt', 'png');
 
+    // Pass current exceptions so the proof can be rendered before delivery is saved
+    const excForPrint = exceptions.map(ex => ({
+        type: ex.type || '',
+        item_name: ex.item_name || '',
+        qty_expected: ex.qty_ordered || 0,
+        qty_actual: (ex.qty_ordered || 0) - (ex.qty || 0),
+        unit_type: ex.unit_type || '',
+        note: ex.notes || ''
+    }));
+    params.set('exc', JSON.stringify(excForPrint));
+
     try {
         const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
         const data = await res.json();
