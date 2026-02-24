@@ -57,18 +57,19 @@ input[type=number]::-webkit-inner-spin-button {
      data-allow-online="{{ '1' if terms.allow_bank_transfer else '0' }}"
      data-allow-card="{{ '1' if terms.allow_card_pos else '0' }}"
      data-cheque-days-allowed="{{ terms.cheque_days_allowed or '0' }}">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
         <a href="{{ url_for('driver.stops_list', route_id=route.id) }}" class="btn btn-sm btn-outline-secondary">
             <i class="fas fa-arrow-left"></i> Back
         </a>
-        <h5 class="mb-0">Deliver Stop #{{ stop.seq_no|format_seq }}</h5>
         <span></span>
     </div>
 
     <div class="stop-sticky p-3 mb-2 rounded">
         <div class="row align-items-center">
-            <div class="col-12 mb-2">
-                <div class="fw-bold fs-4 text-wrap" id="hdr-customer">{{ stop.stop_name or stop.customer_name or 'Customer' }}</div>
+            <div class="col-12 mb-1">
+                <div class="fw-bold fs-4 text-wrap" id="hdr-customer">
+                    {{ stop.seq_no|format_seq }} - {{ stop.stop_name or stop.customer_name or 'Customer' }}
+                </div>
             </div>
             <div class="col-6">
                 <div class="mt-1">
