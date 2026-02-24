@@ -1,0 +1,261 @@
+Here are copy/paste “instructions to Replit” to implement the change:
+
+“Physical signed invoice collected” is REQUIRED only when:
+
+Customer is CREDIT, or
+
+Payment method is Pay Online, or
+
+Payment method is Cheque with cheque_date > today (post-dated cheque / PDC)
+
+For Cash / Day Cheque / Card (POS) it is optional.
+
+This must be enforced both in the UI and in routes_driver.py.
+
+1) Frontend: templates/driver/deliver_wizard.html
+1.1 Replace the current checkbox with a big Bootstrap switch + badge
+
+Find the block that currently shows:
+
+“Physical signed invoice collected *” checkbox
+
+Replace it with this:
+
+<!-- Signed invoice collected (switch) -->
+<div id="sigBlock" class="p-3 rounded border mt-3">
+  <div class="d-flex align-items-center justify-content-between">
+    <div>
+      <div class="fw-bold">
+        Physical signed invoice collected
+        <span id="sig-required-badge" class="badge bg-secondary ms-2">Optional</span>
+      </div>
+      <div id="sig-help" class="small text-muted">
+        Recommended, but optional for Cash/Day Cheque/Card.
+      </div>
+    </div>
+
+    <div class="form-check form-switch m-0">
+      <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch">
+    </div>
+  </div>
+
+  <div id="sig-warn" class="small text-danger mt-2" style="display:none;">
+    Required for Credit / Pay Online / Post-dated cheque.
+  </div>
+</div>
+Visual sizing (optional)
+
+If you want the switch bigger, add a small inline style or CSS:
+
+#signedInvoiceSwitch { transform: scale(1.4); }
+1.2 Expose “is credit customer” to JS
+
+In the template, you already pass terms from get_credit_terms(). Add near the bottom:
+
+<script>
+  window.isCreditCustomer = {{ 'true' if terms.is_credit else 'false' }};
+</script>
+1.3 Add JS: compute when signature is required + update UI
+
+Add this in the same JS block where you handle payment method and validation:
+
+function _getPaymentMethod() {
+  // Your UI uses tiles but you also have a hidden <select id="cod-method"> in most builds.
+  const sel = document.getElementById('cod-method');
+  return (sel ? sel.value : '').toLowerCase();
+}
+
+function _getChequeDateStr() {
+  // Use your existing cheque date input id. If yours is different, change it here.
+  const el = document.getElementById('cheque-date');
+  return el ? el.value : '';
+}
+
+function isSignatureRequired() {
+  if (window.isCreditCustomer === true) return true;
+
+  const method = _getPaymentMethod();
+
+  if (method === 'online') return true;
+
+  if (method === 'cheque') {
+    const ds = _getChequeDateStr();
+    if (!ds) return false;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const d = new Date(ds + 'T00:00:00');
+    if (d > today) return true; // post-dated cheque
+  }
+
+  return false;
+}
+
+function updateSignatureRequirementUI() {
+  const required = isSignatureRequired();
+  const badge = document.getElementById('sig-required-badge');
+  const help = document.getElementById('sig-help');
+  const warn = document.getElementById('sig-warn');
+  const sw = document.getElementById('signedInvoiceSwitch');
+  const block = document.getElementById('sigBlock');
+
+  if (!badge || !help || !warn || !sw || !block) return;
+
+  if (required) {
+    badge.textContent = 'REQUIRED';
+    badge.className = 'badge bg-danger ms-2';
+    help.textContent = 'Required for Credit / Pay Online / Post-dated cheque.';
+    warn.style.display = sw.checked ? 'none' : 'block';
+    block.classList.toggle('border-danger', !sw.checked);
+  } else {
+    badge.textContent = 'Optional';
+    badge.className = 'badge bg-secondary ms-2';
+    help.textContent = 'Recommended, but optional for Cash/Day Cheque/Card.';
+    warn.style.display = 'none';
+    block.classList.remove('border-danger');
+  }
+
+  // Hook into your existing “Complete Delivery” enable/disable function if you have one
+  if (typeof updateCompleteDeliveryButton === 'function') {
+    updateCompleteDeliveryButton();
+  }
+}
+1.4 Hook the UI update to payment method changes + cheque date changes + switch changes
+
+Add listeners:
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateSignatureRequirementUI();
+
+  const sw = document.getElementById('signedInvoiceSwitch');
+  if (sw) sw.addEventListener('change', updateSignatureRequirementUI);
+
+  const chequeDate = document.getElementById('cheque-date');
+  if (chequeDate) chequeDate.addEventListener('change', updateSignatureRequirementUI);
+
+  const methodSel = document.getElementById('cod-method');
+  if (methodSel) methodSel.addEventListener('change', updateSignatureRequirementUI);
+});
+
+If your payment method is set by tiles (Cash / Online / Card buttons), make sure your tile click handler calls:
+
+setMethod('cash'); // etc...
+updateSignatureRequirementUI();
+1.5 Block “Complete Delivery” in the frontend when required signature is missing
+
+Wherever you currently validate before calling /driver/stops/<id>/submit, add:
+
+function validateBeforeSubmit() {
+  const required = isSignatureRequired();
+  const sw = document.getElementById('signedInvoiceSwitch');
+  if (required && sw && !sw.checked) {
+    alert('Signed invoice is REQUIRED for Credit / Pay Online / Post-dated cheque.');
+    updateSignatureRequirementUI();
+    return false;
+  }
+  return true;
+}
+
+Then call validateBeforeSubmit() before submitting.
+
+1.6 Ensure the payload sends the boolean
+
+When you build the payload object:
+
+payload.pod = payload.pod || {};
+payload.pod.has_physical_signed_invoice = !!document.getElementById('signedInvoiceSwitch')?.checked;
+
+This must match what the backend already reads: pod.get('has_physical_signed_invoice', ...).
+
+2) Backend: enforce the rule in routes_driver.py (MUST)
+
+You already store this in PODRecord.has_physical_signed_invoice (currently defaulting to True).
+We will:
+
+Parse it safely (default False)
+
+Enforce it when required.
+
+2.1 Patch submit_delivery() in routes_driver.py
+
+Inside submit_delivery(stop_id), after:
+
+terms = get_credit_terms(stop.customer_code)
+is_credit = terms['is_credit']
+
+Add:
+
+has_signed_invoice = bool(pod.get('has_physical_signed_invoice', False))
+signature_required = False
+
+Then:
+
+A) If CREDIT → required
+
+Right before (or inside) the if is_credit: block:
+
+if is_credit:
+    signature_required = True
+B) If NOT credit → required for online / post-dated cheque
+
+After you read cod_method (you already do cod_method = cod.get('method', '').lower()), compute:
+
+today = datetime.now().date()
+cheque_date_str = cod.get('cheque_date')
+cheque_date_val = datetime.strptime(cheque_date_str, '%Y-%m-%d').date() if cheque_date_str else None
+is_postdated = (cod_method == 'cheque' and cheque_date_val and cheque_date_val > today)
+
+if cod_method == 'online' or is_postdated:
+    signature_required = True
+C) Enforce
+
+Immediately after computing signature_required:
+
+if signature_required and not has_signed_invoice:
+    abort(400, description="Physical signed invoice is required for Credit / Pay Online / Post-dated cheque")
+2.2 Store the value correctly (don’t default to True)
+
+Update your PODRecord creation:
+
+Current line (in your file around PODRecord creation):
+
+has_physical_signed_invoice=bool(pod.get('has_physical_signed_invoice', True)),
+
+Change to:
+
+has_physical_signed_invoice=has_signed_invoice,
+
+This ensures the DB reflects reality.
+
+3) Quick test checklist (must pass)
+CREDIT customer
+
+Open stop: switch shows REQUIRED + red
+
+Try complete without switch: blocked (frontend) + 400 (backend)
+
+Toggle ON → can complete
+
+POD + Cash
+
+Switch shows Optional
+
+Complete without switch: allowed
+
+PODRecord stores has_physical_signed_invoice = false
+
+POD + Cheque “today”
+
+Optional
+
+Complete without switch: allowed
+
+POD + Cheque future date (PDC)
+
+Switch flips to REQUIRED
+
+Blocked if unchecked
+
+POD + Pay Online
+
+Switch flips to REQUIRED
+
+Blocked if unchecked

@@ -193,16 +193,21 @@ def start_route(route_id):
         route.status = 'IN_TRANSIT'
         route.started_at = utc_now()
         
-        # Update all invoices to out_for_delivery (process in sequence order)
-        stops = RouteStop.query.filter_by(shipment_id=route_id).order_by(RouteStop.seq_no).all()
+        # Update all invoices to out_for_delivery via canonical RSI mapping
+        stops = RouteStop.query.filter(
+            RouteStop.shipment_id == route_id,
+            RouteStop.deleted_at == None
+        ).order_by(RouteStop.seq_no).all()
         for stop in stops:
-            stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop.route_stop_id).all()
+            stop_invoices = RouteStopInvoice.query.filter_by(
+                route_stop_id=stop.route_stop_id,
+                is_active=True
+            ).all()
             for rsi in stop_invoices:
                 invoice = Invoice.query.get(rsi.invoice_no)
                 if invoice and (invoice.status == 'shipped' or invoice.status == 'ready_for_dispatch'):
                     invoice.status = 'out_for_delivery'
                     invoice.status_updated_at = utc_now()
-                    # Sync to RouteStopInvoice (lowercase for consistency)
                     rsi.status = 'out_for_delivery'
         
         # Create event
@@ -454,6 +459,9 @@ def submit_delivery(stop_id):
         terms = get_credit_terms(stop.customer_code)
         is_credit = terms['is_credit']
         
+        has_signed_invoice = bool(pod.get('has_physical_signed_invoice', False))
+        signature_required = False
+        
         # Load all invoice items
         items_by_key = {}
         for invoice_no in invoice_nos:
@@ -612,6 +620,7 @@ def submit_delivery(stop_id):
             received = Decimal('0')
             cod_method = None
             cod_note = 'Credit account - no payment collected'
+            signature_required = True
         else:
             # Non-credit - process COD
             if not cod:
@@ -629,6 +638,14 @@ def submit_delivery(stop_id):
             
             if cod_method not in allowed_methods or not allowed_methods.get(cod_method, False):
                 abort(400, description=f"Payment method '{cod_method}' not allowed by customer terms")
+            
+            today_date = datetime.now().date()
+            cheque_date_str = cod.get('cheque_date')
+            cheque_date_parsed = datetime.strptime(cheque_date_str, '%Y-%m-%d').date() if cheque_date_str else None
+            is_postdated = (cod_method == 'cheque' and cheque_date_parsed and cheque_date_parsed > today_date)
+
+            if cod_method == 'online' or is_postdated:
+                signature_required = True
             
             # For online payment, no cash collected now
             if cod_method == 'online':
@@ -749,12 +766,15 @@ def submit_delivery(stop_id):
                     )
                     db.session.add(allocation)
         
+        if signature_required and not has_signed_invoice:
+            abort(400, description="Physical signed invoice is required for Credit / Pay Online / Post-dated cheque")
+        
         # Process POD
         pod_record = PODRecord(
             route_id=route.id,
             route_stop_id=stop_id,
             invoice_nos=invoice_nos,
-            has_physical_signed_invoice=bool(pod.get('has_physical_signed_invoice', True)),
+            has_physical_signed_invoice=has_signed_invoice,
             receiver_name=pod.get('receiver_name', ''),
             receiver_relationship=pod.get('receiver_relationship', ''),
             photo_paths=pod.get('photos', []),

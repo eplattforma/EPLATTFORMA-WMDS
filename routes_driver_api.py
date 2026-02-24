@@ -110,8 +110,18 @@ def start_route(route_id):
         route.started_at = datetime.utcnow()
         route.updated_at = datetime.utcnow()
         
+        invoice_subq = (
+            db.session.query(RouteStopInvoice.invoice_no)
+            .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+            .filter(
+                RouteStop.shipment_id == route_id,
+                RouteStop.deleted_at == None,
+                RouteStopInvoice.is_active == True,
+            )
+            .subquery()
+        )
         updated_orders = db.session.query(Invoice).filter(
-            Invoice.route_id == route_id,
+            Invoice.invoice_no.in_(db.session.query(invoice_subq.c.invoice_no)),
             func.lower(Invoice.status).in_(['shipped', 'ready_for_dispatch'])
         ).update({
             'status': 'out_for_delivery',
@@ -180,12 +190,21 @@ def update_order_status(invoice_no, new_status, driver_id):
         if reason:
             invoice.undelivered_reason = reason
     
+    event_payload = {
+        'invoice_no': invoice_no,
+        'old_status': old_status,
+        'new_status': new_status
+    }
+    if new_status != 'delivered' and invoice.undelivered_reason:
+        event_payload['reason'] = invoice.undelivered_reason
+    
     event = DeliveryEvent(
-        invoice_no=invoice_no,
-        action=new_status,
-        actor=driver_id,
-        timestamp=datetime.utcnow(),
-        reason=invoice.undelivered_reason if new_status != 'delivered' else None
+        route_id=shipment.id,
+        route_stop_id=stop.route_stop_id,
+        event_type=new_status,
+        payload=event_payload,
+        actor_username=driver_id,
+        created_at=datetime.utcnow()
     )
     db.session.add(event)
     

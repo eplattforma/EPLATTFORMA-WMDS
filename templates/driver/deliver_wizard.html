@@ -196,14 +196,23 @@ input[type=number]::-webkit-inner-spin-button {
     </div>
     {% endif %}
 
-    <div class="card mb-3">
-        <div class="card-body">
-            <div class="form-check mb-0">
-                <input class="form-check-input" type="checkbox" id="pod-physical">
-                <label class="form-check-label fw-bold" for="pod-physical">
-                    Physical signed invoice collected <span class="text-danger">*</span>
-                </label>
+    <div id="sigBlock" class="p-3 rounded border mt-3 mb-3">
+        <div class="d-flex align-items-center justify-content-between">
+            <div>
+                <div class="fw-bold">
+                    Physical signed invoice collected
+                    <span id="sig-required-badge" class="badge bg-secondary ms-2">Optional</span>
+                </div>
+                <div id="sig-help" class="small text-muted">
+                    Recommended, but optional for Cash/Day Cheque/Card.
+                </div>
             </div>
+            <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch" style="transform: scale(1.4);">
+            </div>
+        </div>
+        <div id="sig-warn" class="small text-danger mt-2" style="display:none;">
+            Required for Credit / Pay Online / Post-dated cheque.
         </div>
     </div>
 
@@ -618,6 +627,59 @@ function setMethod(m) {
     });
     togglePaymentControls();
     calculateCODVariance();
+    updateSignatureRequirementUI();
+}
+
+function _getPaymentMethod() {
+    const sel = document.getElementById('cod-method');
+    return (sel ? sel.value : '').toLowerCase();
+}
+
+function _getChequeDateStr() {
+    const el = document.getElementById('cheque-date');
+    return el ? el.value : '';
+}
+
+function isSignatureRequired() {
+    if (isCredit) return true;
+
+    const method = _getPaymentMethod();
+    if (method === 'online') return true;
+
+    if (method === 'cheque') {
+        const ds = _getChequeDateStr();
+        if (!ds) return false;
+        const today = new Date(); today.setHours(0,0,0,0);
+        const d = new Date(ds + 'T00:00:00');
+        if (d > today) return true;
+    }
+
+    return false;
+}
+
+function updateSignatureRequirementUI() {
+    const required = isSignatureRequired();
+    const badge = document.getElementById('sig-required-badge');
+    const help = document.getElementById('sig-help');
+    const warn = document.getElementById('sig-warn');
+    const sw = document.getElementById('signedInvoiceSwitch');
+    const block = document.getElementById('sigBlock');
+
+    if (!badge || !help || !warn || !sw || !block) return;
+
+    if (required) {
+        badge.textContent = 'REQUIRED';
+        badge.className = 'badge bg-danger ms-2';
+        help.textContent = 'Required for Credit / Pay Online / Post-dated cheque.';
+        warn.style.display = sw.checked ? 'none' : 'block';
+        block.classList.toggle('border-danger', !sw.checked);
+    } else {
+        badge.textContent = 'Optional';
+        badge.className = 'badge bg-secondary ms-2';
+        help.textContent = 'Recommended, but optional for Cash/Day Cheque/Card.';
+        warn.style.display = 'none';
+        block.classList.remove('border-danger');
+    }
 }
 
 function _setCollectedFromRaw() {
@@ -721,15 +783,21 @@ if (!isCredit) {
     const methodEl = document.getElementById('cod-method');
     if (methodEl) {
         methodEl.addEventListener('change', togglePaymentControls);
+        methodEl.addEventListener('change', updateSignatureRequirementUI);
     }
     const chequeDateEl = document.getElementById('cheque-date');
     if (chequeDateEl) {
         chequeDateEl.addEventListener('change', checkPdcWarning);
+        chequeDateEl.addEventListener('change', updateSignatureRequirementUI);
     }
     setMethod(methodEl ? methodEl.value : 'cash');
     togglePaymentControls();
     calculateCODVariance();
 }
+
+const sigSwitch = document.getElementById('signedInvoiceSwitch');
+if (sigSwitch) sigSwitch.addEventListener('change', updateSignatureRequirementUI);
+updateSignatureRequirementUI();
 
 // Toggle POD details expansion
 function togglePodDetails() {
@@ -745,14 +813,12 @@ function togglePodDetails() {
 }
 
 async function submitDelivery() {
-    // Validate physical signed invoice checkbox
-    const hasPhysicalInvoice = document.getElementById('pod-physical').checked;
+    const hasPhysicalInvoice = !!document.getElementById('signedInvoiceSwitch')?.checked;
     const codMethodEl = document.getElementById('cod-method');
     const codMethod = codMethodEl ? codMethodEl.value : null;
     const receivedAmountInput = document.getElementById('cod-received');
     const chequeDateInput = document.getElementById('cheque-date');
 
-    // Validation for Cheque Date
     if (codMethod === 'cheque' && chequeDateInput && chequeDateInput.value) {
         const selectedDate = new Date(chequeDateInput.value);
         selectedDate.setHours(0,0,0,0);
@@ -760,9 +826,8 @@ async function submitDelivery() {
         const today = new Date();
         today.setHours(0,0,0,0);
         
-        // Use allowed days from data attribute
-        const app = document.getElementById('deliverApp');
-        const allowedDays = parseInt(app.dataset.chequeDaysAllowed || '0');
+        const appEl = document.getElementById('deliverApp');
+        const allowedDays = parseInt(appEl.dataset.chequeDaysAllowed || '0');
         
         const diffTime = selectedDate - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -782,13 +847,12 @@ async function submitDelivery() {
     
     const receivedAmount = !isCredit ? (parseFloat(receivedAmountInput?.value) || 0) : 0;
     
-    // Mandatory Physical Invoice for Credit OR Online Payment OR No Cash Collected
-    if ((isCredit || codMethod === 'online' || receivedAmount === 0) && !hasPhysicalInvoice) {
-        alert('Physical signed invoice must be collected for this delivery method.');
+    if (isSignatureRequired() && !hasPhysicalInvoice) {
+        alert('Signed invoice is REQUIRED for Credit / Pay Online / Post-dated cheque.');
+        updateSignatureRequirementUI();
         return;
     }
 
-    // If payment method is Cash, do not allow completing delivery without amount collected
     if (!isCredit && codMethod === 'cash' && (receivedAmount <= 0)) {
         alert('Please enter the cash amount collected.');
         receivedAmountInput.focus();
@@ -839,7 +903,7 @@ async function submitDelivery() {
             invoice_nos: invoiceNos,
             cod: codPayload,  // null for credit accounts
             pod: {
-                has_physical_signed_invoice: document.getElementById('pod-physical').checked,
+                has_physical_signed_invoice: !!document.getElementById('signedInvoiceSwitch')?.checked,
                 receiver_name: document.getElementById('pod-receiver').value,
                 receiver_relationship: document.getElementById('pod-relationship').value,
                 notes: document.getElementById('pod-notes').value,
