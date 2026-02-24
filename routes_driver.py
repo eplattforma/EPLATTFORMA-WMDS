@@ -436,6 +436,100 @@ def deliver_wizard(stop_id):
                          total_invoices_amount=float(total_invoices_amount),
                          terms=terms)
 
+# --- Save Exceptions (called before printing exceptions proof) ---
+
+@driver_bp.route('/stops/<int:stop_id>/save_exceptions', methods=['POST'])
+@driver_required
+def save_exceptions(stop_id):
+    """Persist driver-entered exceptions to DB so the printed proof is a legal record."""
+    try:
+        data = request.get_json(force=True)
+        exceptions_data = data.get('exceptions', [])
+
+        stop = RouteStop.query.get_or_404(stop_id)
+        route = Shipment.query.get(stop.shipment_id)
+
+        if route.driver_name != current_user.username and current_user.role != 'admin':
+            abort(403)
+
+        # Get invoice nos for this stop
+        stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
+        invoice_nos = [rsi.invoice_no for rsi in stop_invoices]
+
+        # Idempotent: if exceptions already saved for these invoices, skip
+        existing = DeliveryDiscrepancy.query.filter(
+            DeliveryDiscrepancy.invoice_no.in_(invoice_nos),
+            DeliveryDiscrepancy.reported_source == 'driver'
+        ).first() if invoice_nos else None
+
+        if existing:
+            return jsonify({'success': True, 'skipped': True, 'message': 'Exceptions already saved'})
+
+        # Load items for qty lookup
+        items_by_key = {}
+        for invoice_no in invoice_nos:
+            items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
+            for item in items:
+                items_by_key[(invoice_no, item.item_code)] = item
+
+        from services_discrepancy import process_discrepancy_for_settlement, create_or_update_post_delivery_case
+
+        for ex in exceptions_data:
+            ex_type = str(ex.get('type', '')).upper()
+            invoice_no = ex.get('invoice_no')
+            item_code = ex.get('item_code')
+            qty = Decimal(str(ex.get('qty', 0) or 0))
+            notes = ex.get('notes', '') or ''
+            is_rebate = (item_code == 'REB-00')
+            key = (invoice_no, item_code) if invoice_no and item_code else None
+
+            item_obj = items_by_key.get(key) if key else None
+
+            disc = DeliveryDiscrepancy(
+                invoice_no=invoice_no,
+                item_code_expected=item_code or 'UNKNOWN',
+                item_name='Rebate / General Discount' if is_rebate else (item_obj.item_name if item_obj else 'Unknown Item'),
+                qty_expected=1 if is_rebate else (int(item_obj.qty or 0) if item_obj else 0),
+                qty_actual=1 if is_rebate else (float((Decimal(str(item_obj.qty or 0)) - qty)) if item_obj else 0),
+                discrepancy_type='rebate' if is_rebate else ex_type.lower(),
+                reported_by=current_user.username,
+                reported_at=utc_now(),
+                reported_source='driver',
+                status='reported',
+                note=notes,
+                reported_value=Decimal(str(ex.get('exception_value', 0) or 0))
+            )
+            db.session.add(disc)
+            db.session.flush()
+
+            process_discrepancy_for_settlement(disc)
+
+            db.session.add(DeliveryDiscrepancyEvent(
+                discrepancy_id=disc.id,
+                event_type='created',
+                actor=current_user.username,
+                timestamp=utc_now(),
+                note='Saved at exceptions proof print time'
+            ))
+
+            create_or_update_post_delivery_case(
+                invoice_no=invoice_no,
+                route_id=route.id,
+                route_stop_id=stop.route_stop_id,
+                created_by=current_user.username,
+                reason=f"Discrepancy: {disc.discrepancy_type}"
+            )
+
+        db.session.commit()
+        return jsonify({'success': True, 'saved': len(exceptions_data)})
+
+    except Exception as e:
+        db.session.rollback()
+        import logging
+        logging.exception("save_exceptions error")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # --- Submit Delivery (Exception-Only) ---
 
 @driver_bp.route('/stops/<int:stop_id>/deliver', methods=['POST'])
@@ -485,7 +579,25 @@ def submit_delivery(stop_id):
         total_rebate_reduction = Decimal('0.00')
         # Track discrepancy value per invoice for recording on RouteStopInvoice
         discrepancy_values_by_invoice = {}
-        for ex in exceptions:
+
+        # Skip re-saving exceptions if they were already committed at proof-print time
+        exceptions_already_saved = bool(invoice_nos and DeliveryDiscrepancy.query.filter(
+            DeliveryDiscrepancy.invoice_no.in_(invoice_nos),
+            DeliveryDiscrepancy.reported_source == 'driver'
+        ).first())
+        if exceptions_already_saved:
+            discrepancies = DeliveryDiscrepancy.query.filter(
+                DeliveryDiscrepancy.invoice_no.in_(invoice_nos),
+                DeliveryDiscrepancy.reported_source == 'driver'
+            ).all()
+            for disc in discrepancies:
+                if disc.invoice_no:
+                    val = Decimal(str(disc.reported_value or 0))
+                    discrepancy_values_by_invoice[disc.invoice_no] = discrepancy_values_by_invoice.get(disc.invoice_no, Decimal('0')) + val
+                    if disc.discrepancy_type == 'rebate':
+                        total_rebate_reduction += val
+
+        for ex in exceptions if not exceptions_already_saved else []:
             ex_type = ex.get('type', '').upper()
             invoice_no = ex.get('invoice_no')
             item_code = ex.get('item_code')

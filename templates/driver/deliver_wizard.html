@@ -1046,20 +1046,26 @@ function markSignatureDoneAndNext() { refreshHeaderAndSteps(); openStep('payment
 function markPaymentDoneAndNext() { refreshHeaderAndSteps(); openStep('print'); }
 
 async function printExceptionsProof() {
+    // Save exceptions to DB first — the proof is a legal document
+    try {
+        const saveRes = await fetch(`/driver/stops/${stopId}/save_exceptions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ exceptions: exceptions })
+        });
+        const saveData = await saveRes.json();
+        if (!saveData.success) {
+            alert('Could not save exceptions: ' + (saveData.error || 'Unknown error'));
+            return;
+        }
+    } catch (e) {
+        alert('Error saving exceptions: ' + e.message);
+        return;
+    }
+
     const params = new URLSearchParams();
     params.set('doc', 'exceptions');
     params.set('fmt', 'png');
-
-    // Pass current exceptions so the proof can be rendered before delivery is saved
-    const excForPrint = exceptions.map(ex => ({
-        type: ex.type || '',
-        item_name: ex.item_name || '',
-        qty_expected: ex.qty_ordered || 0,
-        qty_actual: (ex.qty_ordered || 0) - (ex.qty || 0),
-        unit_type: ex.unit_type || '',
-        note: ex.notes || ''
-    }));
-    params.set('exc', JSON.stringify(excForPrint));
 
     try {
         const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
