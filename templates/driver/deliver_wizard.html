@@ -22,6 +22,30 @@ input[type=number]::-webkit-inner-spin-button {
     color: #fff;
     border-bottom: 1px solid rgba(255,255,255,.12);
 }
+.badge-credit {
+    background-color: #06b6d4;
+    color: #fff;
+    font-weight: 800;
+    padding: 0.35rem 0.8rem;
+    border-radius: 8px;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    display: inline-block;
+    line-height: 1.2;
+    letter-spacing: 0.03em;
+}
+.badge-pos {
+    background-color: #ca8a04;
+    color: #fff;
+    font-weight: 800;
+    padding: 0.35rem 0.8rem;
+    border-radius: 8px;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    display: inline-block;
+    line-height: 1.2;
+    letter-spacing: 0.03em;
+}
 .stop-sticky .sub { color: rgba(255,255,255,.75); font-size: .85rem; }
 .stop-sticky .hero { font-size: 1.35rem; font-weight: 800; }
 .stop-sticky .hero .amt { font-size: 1.7rem; }
@@ -68,9 +92,9 @@ input[type=number]::-webkit-inner-spin-button {
                 <div class="hero amt" style="font-size: 2.8rem; font-weight: 800; color: #f1c40f; line-height: 1;">&euro;<span id="hdr-collect">0.00</span></div>
                 <div>
                     {% if terms.is_credit %}
-                    <span class="badge bg-info text-dark">CREDIT</span>
+                    <span class="badge-credit">Credit</span>
                     {% else %}
-                    <span class="badge bg-success">COD</span>
+                    <span class="badge-pos">POS</span>
                     {% endif %}
                 </div>
             </div>
