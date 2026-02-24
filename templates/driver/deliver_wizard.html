@@ -110,10 +110,10 @@ input[type=number]::-webkit-inner-spin-button {
             Inv: &euro;<span id="hdr-inv">0.00</span> &middot; Ex: &euro;<span id="hdr-ex">0.00</span> &middot; Entered: &euro;<span id="hdr-entered">0.00</span>
         </div>
         <div class="stepper d-flex flex-wrap gap-2 mt-3">
-            <div class="step todo" id="st-ex" onclick="openStep('exceptions')">1 Exceptions <span id="st-ex-mark">&#x2B1C;</span></div>
-            <div class="step todo" id="st-sig" onclick="openStep('signature')">2 Signature <span id="st-sig-mark">&#x2B1C;</span></div>
-            <div class="step todo" id="st-pay" onclick="openStep('payment')">3 Payment <span id="st-pay-mark">&#x2B1C;</span></div>
-            <div class="step todo" id="st-prn" onclick="openStep('print')">4 Print & Close <span id="st-prn-mark">&#x2B1C;</span></div>
+            <div class="step todo" id="st-ex" onclick="openStep('exceptions')">1 Exceptions</div>
+            <div class="step todo" id="st-sig" onclick="openStep('signature')">2 Signature</div>
+            <div class="step todo" id="st-pay" onclick="openStep('payment')">3 Payment</div>
+            <div class="step todo" id="st-prn" onclick="openStep('print')">4 Print &amp; Close</div>
         </div>
     </div>
 
@@ -975,11 +975,9 @@ function openStep(which) {
 
 function setStepDone(stepId, done) {
     const el = document.getElementById(stepId);
-    const mark = document.getElementById(stepId + '-mark');
-    if (!el || !mark) return;
+    if (!el) return;
     el.classList.remove('done', 'todo');
     el.classList.add(done ? 'done' : 'todo');
-    mark.textContent = done ? '\u2705' : '\u2B1C';
 }
 
 function refreshHeaderAndSteps() {
