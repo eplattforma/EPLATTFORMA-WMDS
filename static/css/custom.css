@@ -12,6 +12,10 @@ body {
     flex-direction: column;
 }
 
+.container.py-4 {
+    padding-top: 0.5rem !important;
+}
+
 /* Footer styling */
 .footer {
     margin-top: auto;
