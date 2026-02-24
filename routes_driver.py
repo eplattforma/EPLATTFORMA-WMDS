@@ -1226,20 +1226,19 @@ def print_receipt_pdf(stop_id):
     if cod_receipt and cod_receipt.status != 'VOIDED':
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
+            # Resolve valid locked_by BEFORE touching the model to prevent autoflush FK violation
+            candidate = token_data.get('username') or ''
+            with db.session.no_autoflush:
+                valid_user = User.query.filter_by(username=candidate).first() if candidate else None
+                if not valid_user:
+                    valid_user = User.query.filter_by(role='admin').first()
+                if not valid_user:
+                    valid_user = User.query.first()
+            locked_by_val = valid_user.username if valid_user else (candidate or 'unknown')
+
             cod_receipt.status = 'ISSUED'
             cod_receipt.locked_at = now
-            cod_receipt.locked_by = token_data.get('username') or 'system'
-            # Check if user exists to avoid FK violation
-            if not User.query.get(cod_receipt.locked_by):
-                first_admin = User.query.filter_by(role='admin').first()
-                if first_admin:
-                    cod_receipt.locked_by = first_admin.username
-                else:
-                    # If no admin, we can't satisfy the FK if 'system' doesn't exist
-                    # For safety in this environment, try to find ANY user
-                    any_user = User.query.first()
-                    if any_user:
-                        cod_receipt.locked_by = any_user.username
+            cod_receipt.locked_by = locked_by_val
             cod_receipt.print_count = 1
             cod_receipt.first_printed_at = now
             cod_receipt.last_printed_at = now
@@ -1409,20 +1408,19 @@ def print_receipt_png(stop_id):
     if cod_receipt and cod_receipt.status != 'VOIDED':
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
+            # Resolve valid locked_by BEFORE touching the model to prevent autoflush FK violation
+            candidate = token_data.get('username') or ''
+            with db.session.no_autoflush:
+                valid_user = User.query.filter_by(username=candidate).first() if candidate else None
+                if not valid_user:
+                    valid_user = User.query.filter_by(role='admin').first()
+                if not valid_user:
+                    valid_user = User.query.first()
+            locked_by_val = valid_user.username if valid_user else (candidate or 'unknown')
+
             cod_receipt.status = 'ISSUED'
             cod_receipt.locked_at = now
-            cod_receipt.locked_by = token_data.get('username') or 'system'
-            # Check if user exists to avoid FK violation
-            if not User.query.get(cod_receipt.locked_by):
-                first_admin = User.query.filter_by(role='admin').first()
-                if first_admin:
-                    cod_receipt.locked_by = first_admin.username
-                else:
-                    # If no admin, we can't satisfy the FK if 'system' doesn't exist
-                    # For safety in this environment, try to find ANY user
-                    any_user = User.query.first()
-                    if any_user:
-                        cod_receipt.locked_by = any_user.username
+            cod_receipt.locked_by = locked_by_val
             cod_receipt.print_count = 1
             cod_receipt.first_printed_at = now
             cod_receipt.last_printed_at = now
