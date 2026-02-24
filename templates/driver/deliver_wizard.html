@@ -61,7 +61,7 @@ input[type=number]::-webkit-inner-spin-button {
         <a href="{{ url_for('driver.stops_list', route_id=route.id) }}" class="btn btn-sm btn-outline-secondary">
             <i class="fas fa-arrow-left"></i> Back
         </a>
-        <h5 class="mb-0">Deliver Stop</h5>
+        <h5 class="mb-0">Deliver Stop #{{ stop.seq_no|format_seq }}</h5>
         <span></span>
     </div>
 
