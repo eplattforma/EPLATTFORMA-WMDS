@@ -151,17 +151,11 @@ input[type=number]::-webkit-inner-spin-button {
                 <button class="accordion-button" type="button" data-bs-toggle="collapse"
                         data-bs-target="#cExceptions" aria-expanded="true" aria-controls="cExceptions">
                     <strong><i class="fas fa-exclamation-triangle"></i> Exceptions</strong>
-                    <span class="badge bg-secondary ms-2" id="exception-count">0</span>
+                    <span id="exception-header-summary" class="ms-2 text-nowrap" style="font-size:0.85rem;opacity:0.85;"></span>
                 </button>
             </h2>
             <div id="cExceptions" class="accordion-collapse collapse show" aria-labelledby="hExceptions" data-bs-parent="#closeoutAcc">
                 <div class="accordion-body">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <div class="small text-muted" id="ex-summary">Exceptions: 0 (&euro;0.00)</div>
-                        <button class="btn btn-sm btn-outline-warning" id="btnPrintExceptions" onclick="printExceptionsProof()" disabled>
-                            <i class="fas fa-print"></i> Print Exceptions Proof
-                        </button>
-                    </div>
                     <div id="exceptions-list"></div>
                     <button class="btn btn-sm w-100 mt-2" style="color:#fd7e14;border-color:#fd7e14;" onclick="addException()">
                         <i class="fas fa-plus"></i> Add Exception
@@ -739,7 +733,13 @@ function renderExceptions() {
         list.appendChild(div);
     });
 
-    document.getElementById('exception-count').textContent = exceptions.length;
+    const exHdrTotal = exceptions.reduce((s, ex) => s + parseFloat(ex.exception_value || 0), 0);
+    const exHdrEl = document.getElementById('exception-header-summary');
+    if (exHdrEl) {
+        exHdrEl.textContent = exceptions.length > 0
+            ? `${exceptions.length}   \u20AC${exHdrTotal.toFixed(2)}`
+            : '';
+    }
     refreshHeaderAndSteps();
 }
 
@@ -1025,10 +1025,12 @@ function refreshHeaderAndSteps() {
         reason.textContent = blockers.length ? ("To close stop: " + blockers.join(" ")) : "";
     }
 
-    const btnEx = document.getElementById('btnPrintExceptions');
-    if (btnEx) btnEx.disabled = exceptions.length === 0;
-    const exSummary = document.getElementById('ex-summary');
-    if (exSummary) exSummary.textContent = `Exceptions: ${exceptions.length} (\u20AC${exTot.toFixed(2)})`;
+    const exHdrEl2 = document.getElementById('exception-header-summary');
+    if (exHdrEl2) {
+        exHdrEl2.textContent = exceptions.length > 0
+            ? `${exceptions.length}   \u20AC${exTot.toFixed(2)}`
+            : '';
+    }
 
     const reqEx = document.getElementById('reqExProof');
     if (reqEx) {
