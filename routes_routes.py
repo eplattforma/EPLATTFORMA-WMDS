@@ -246,6 +246,19 @@ def upsert():
         
         # Validation: only when transitioning TO DISPATCHED (not when already DISPATCHED and editing other fields)
         if new_status == 'DISPATCHED' and old_status != 'DISPATCHED':
+            try:
+                from datawarehouse_sync import sync_invoices_from_date
+                from datetime import timedelta
+                today = datetime.now().date()
+                yesterday = (today - timedelta(days=1)).strftime('%Y-%m-%d')
+                today_str = today.strftime('%Y-%m-%d')
+                logging.info(f"Dispatch trigger: syncing invoices from {yesterday} to {today_str}")
+                sync_invoices_from_date(db.session, yesterday, today_str)
+                flash("Invoice sync completed for today and yesterday.", "info")
+            except Exception as sync_err:
+                logging.error(f"Dispatch invoice sync failed: {sync_err}", exc_info=True)
+                flash(f"Invoice sync warning: {sync_err}", "warning")
+
             invoices = Invoice.query.filter_by(route_id=int(route_id)).all()
             if not invoices:
                 flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
@@ -1288,6 +1301,21 @@ def change_route_status(shipment_id):
     
     # Validation: only when transitioning TO DISPATCHED (not when already DISPATCHED)
     if new_status == 'DISPATCHED' and old_status != 'DISPATCHED':
+        try:
+            from datawarehouse_sync import sync_invoices_from_date
+            from datetime import timedelta
+            today = datetime.now().date()
+            yesterday = (today - timedelta(days=1)).strftime('%Y-%m-%d')
+            today_str = today.strftime('%Y-%m-%d')
+            logging.info(f"Dispatch trigger: syncing invoices from {yesterday} to {today_str}")
+            sync_invoices_from_date(db.session, yesterday, today_str)
+            flash("Invoice sync completed for today and yesterday.", "info")
+        except Exception as sync_err:
+            logging.error(f"Dispatch invoice sync failed: {sync_err}", exc_info=True)
+            flash(f"Invoice sync warning: {sync_err}", "warning")
+
+        invoices = Invoice.query.filter_by(route_id=shipment_id).all()
+
         if not invoices:
             flash("Cannot mark as DISPATCHED: Route has no invoices", "danger")
             return redirect(url_for("routes.detail", shipment_id=shipment_id))
