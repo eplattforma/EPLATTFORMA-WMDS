@@ -1512,9 +1512,12 @@ def print_exceptions_png(stop_id):
 
     exceptions_list = [{
         'type': exc.discrepancy_type or '',
+        'item_code': exc.item_code_expected or '',
         'item_name': exc.item_name or '',
         'qty_expected': exc.qty_expected or '',
         'qty_actual': exc.qty_actual or '',
+        'qty_not_delivered': max(0, (exc.qty_expected or 0) - int(exc.qty_actual or 0)),
+        'deduct_amount': float(exc.deduct_amount or 0),
         'note': exc.note or ''
     } for exc in exceptions_raw]
 

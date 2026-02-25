@@ -114,18 +114,30 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         exceptions_data = data.get("exceptions") or []
         if exceptions_data:
-            add_b(f"EXCEPTIONS ({len(exceptions_data)})")
+            add_b("Items Not Delivered")
+            add(sep)
+            hdr_item = "ITEM"
+            hdr_name = "ITEM NAME"
+            hdr_nd = "ND"
+            hdr_amt = "AMOUNT"
+            col_item = 10
+            col_nd = 4
+            col_amt = 10
+            col_name = cols - col_item - col_nd - col_amt
+            add(f"{hdr_item:<{col_item}}{hdr_name:<{col_name}}{hdr_nd:>{col_nd}}{hdr_amt:>{col_amt}}")
+            add(sep)
+            total_deductions = 0.0
             for exc in exceptions_data:
-                exc_type = str(exc.get("type", "")).upper()
-                item = str(exc.get("item_name", ""))
-                qty_e = exc.get("qty_expected", "")
-                qty_a = exc.get("qty_actual", "")
-                add(f"  {exc_type}: {item}")
-                add(f"  Exp: {qty_e} | Act: {qty_a}")
-                note = (exc.get("note") or "").strip()
-                if note:
-                    for w_line in wrap(note):
-                        add(f"  {w_line}")
+                item_code = str(exc.get("item_code", ""))[:col_item]
+                item_name = str(exc.get("item_name", ""))
+                nd = str(exc.get("qty_not_delivered", ""))
+                amt = exc.get("deduct_amount", 0)
+                total_deductions += float(amt)
+                amt_str = money(amt)
+                name_trunc = item_name[:col_name].strip()
+                add(f"{item_code:<{col_item}}{name_trunc:<{col_name}}{nd:>{col_nd}}{amt_str:>{col_amt}}")
+            add(sep)
+            add(_pad_right("TOTAL DEDUCTIONS", money(total_deductions), cols))
             add(sep)
 
         sig_line = "_" * cols
