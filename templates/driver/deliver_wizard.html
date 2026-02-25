@@ -1096,27 +1096,41 @@ async function submitDelivery() {
             window.deliverySaved = true;
 
             if (data.print_png_url) {
+                let printOk = false;
                 try {
                     const printRes = await fetch(data.print_png_url, { cache: 'no-store' });
                     if (!printRes.ok) {
                         let errMsg = 'Could not register payment in Powersoft.';
                         try { const errData = await printRes.json(); errMsg = errData.error || errMsg; } catch (_) {}
-                        alert(`Receipt not printed:\n\n${errMsg}\n\nPlease retry or contact the office.`);
-                        return;
-                    }
-                    const blob = await printRes.blob();
-                    const filename = `receipt-stop${stopId}.png`;
-                    const file = new File([blob], filename, { type: 'image/png' });
-                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                        await navigator.share({ files: [file], title: 'Receipt' });
+                        const retry = confirm(`Receipt not printed:\n\n${errMsg}\n\nTap OK to retry, or Cancel to go to stops list (office can reprint).`);
+                        if (retry) return;
                     } else {
-                        const objUrl = URL.createObjectURL(blob);
-                        window.open(objUrl, '_blank');
+                        const blob = await printRes.blob();
+                        const filename = `receipt-stop${stopId}.png`;
+                        const file = new File([blob], filename, { type: 'image/png' });
+                        try {
+                            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                                await navigator.share({ files: [file], title: 'Receipt' });
+                            } else {
+                                const objUrl = URL.createObjectURL(blob);
+                                window.open(objUrl, '_blank');
+                            }
+                            printOk = true;
+                        } catch (shareErr) {
+                            if (shareErr.name === 'AbortError') {
+                                // Driver dismissed the share sheet — receipt is issued, treat as success
+                                printOk = true;
+                            } else {
+                                console.error('Share error:', shareErr);
+                                const retry = confirm('Could not open share dialog.\n\nTap OK to retry, or Cancel to go to stops list.');
+                                if (retry) return;
+                            }
+                        }
                     }
-                } catch (printErr) {
-                    console.error('Print error:', printErr);
-                    alert('Receipt printing failed. Please retry.');
-                    return;
+                } catch (fetchErr) {
+                    console.error('Print fetch error:', fetchErr);
+                    const retry = confirm('Network error while printing receipt.\n\nTap OK to retry, or Cancel to go to stops list.');
+                    if (retry) return;
                 }
             }
 
