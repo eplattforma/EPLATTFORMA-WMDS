@@ -427,6 +427,43 @@ def deliver_wizard(stop_id):
                     'line_total_incl': line_total_incl
                 })
     
+    # Get existing exceptions/discrepancies for this stop
+    from models import DeliveryDiscrepancy
+    existing_discs = DeliveryDiscrepancy.query.filter(
+        DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
+    ).all() if invoice_nos else []
+    
+    existing_exceptions_payload = []
+    for disc in existing_discs:
+        is_rebate = (disc.discrepancy_type == 'rebate')
+        
+        # Determine the 'qty' as it's used in the frontend (difference/variance)
+        # Frontend: qty = missing qty. disc.qty_actual = delivered qty.
+        # So missing = expected - actual
+        missing_qty = float(Decimal(str(disc.qty_expected or 0)) - Decimal(str(disc.qty_actual or 0)))
+        
+        ex_payload = {
+            'invoice_no': disc.invoice_no,
+            'item_code': disc.item_code_expected,
+            'item_name': disc.item_name,
+            'type': disc.discrepancy_type.upper(),
+            'qty': 1 if is_rebate else missing_qty,
+            'amount': float(disc.reported_value or 0) if is_rebate else None,
+            'qty_ordered': float(disc.qty_expected or 0),
+            'unit_type': '', # Will be filled if possible, or left blank
+            'notes': disc.note or '',
+            'damagedAccepted': False, # Not stored explicitly but usually false for active exceptions
+            'actual': {
+                'barcode': getattr(disc, 'actual_barcode', None),
+                'item_code': getattr(disc, 'actual_item_code', None),
+                'qty': getattr(disc, 'actual_qty', None)
+            } if disc.discrepancy_type == 'wrong' else None,
+            'exception_value': float(disc.reported_value or 0),
+            'is_rebate': is_rebate,
+            'from_db': True
+        }
+        existing_exceptions_payload.append(ex_payload)
+
     return render_template('driver/deliver_wizard.html',
                          route=route,
                          stop=stop,
@@ -434,7 +471,8 @@ def deliver_wizard(stop_id):
                          invoice_nos=invoice_nos,
                          invoices=invoices_data,
                          total_invoices_amount=float(total_invoices_amount),
-                         terms=terms)
+                         terms=terms,
+                         existing_exceptions=existing_exceptions_payload)
 
 # --- Save Exceptions (called before printing exceptions proof) ---
 

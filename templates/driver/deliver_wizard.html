@@ -516,7 +516,14 @@ const invoices = {{ invoices|tojson }};
 const totalInvoicesAmount = {{ total_invoices_amount }};
 const routeId = {{ route.id }};
 const stopId = {{ stop.route_stop_id }};
-const exceptions = [];
+const exceptions = {{ existing_exceptions|tojson if existing_exceptions else '[]' }};
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (exceptions.length > 0) {
+        renderExceptions();
+        calculateCODVariance();
+    }
+});
 
 const app = document.getElementById('deliverApp');
 const isCredit = app.dataset.isCredit === '1';
