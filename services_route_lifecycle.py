@@ -50,8 +50,11 @@ def recompute_route_completion(route_id, *, commit: bool = True):
         )
     ).count()
 
-    # Also count stops that have never been explicitly closed by the driver.
-    # A stop with zero active RSIs but no delivered_at/failed_at has not been visited yet.
+    # Count stops that have never been explicitly closed by the driver.
+    # Deliberately includes soft-deleted stops: a stop removed from the route
+    # during an active delivery still needs a closure event (delivered_at or
+    # failed_at) before it can be ignored. This prevents premature COMPLETED
+    # when stops are accidentally soft-deleted mid-route.
     unvisited_stops_count = db.session.query(RouteStop).outerjoin(
         RouteStopInvoice,
         db.and_(
@@ -60,7 +63,6 @@ def recompute_route_completion(route_id, *, commit: bool = True):
         )
     ).filter(
         RouteStop.shipment_id == route_id,
-        RouteStop.deleted_at == None,
         RouteStop.delivered_at.is_(None),
         RouteStop.failed_at.is_(None),
         RouteStopInvoice.route_stop_id.is_(None)  # no active RSI records
