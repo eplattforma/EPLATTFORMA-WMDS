@@ -561,6 +561,18 @@ function saveException() {
     const selectedOption = document.querySelector('#ex-item option:checked');
     const item = JSON.parse(selectedOption.dataset.item);
 
+    if (!item.is_rebate) {
+        const invoiceNo = document.getElementById('ex-invoice').value;
+        const alreadyExcepted = exceptions
+            .filter(ex => ex.invoice_no === invoiceNo && ex.item_code === itemCode && !ex.is_rebate)
+            .reduce((sum, ex) => sum + (ex.qty || 0), 0);
+        const maxAllowed = (item.qty_ordered || 0) - alreadyExcepted;
+        if (qty > maxAllowed) {
+            alert(`Quantity exceeds what is on the invoice. Ordered: ${item.qty_ordered}, already excepted: ${alreadyExcepted}, max you can enter: ${maxAllowed}`);
+            return;
+        }
+    }
+
     const actual = (type === 'WRONG') ? {
         barcode: document.getElementById('ex-actual-barcode').value.trim() || null,
         item_code: document.getElementById('ex-actual-code').value.trim() || null,

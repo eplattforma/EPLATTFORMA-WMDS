@@ -528,6 +528,22 @@ def save_exceptions(stop_id):
             key = (invoice_no, item_code) if invoice_no and item_code else None
             item_obj = items_by_key.get(key) if key else None
 
+            if not is_rebate and item_obj:
+                ordered = Decimal(str(item_obj.qty or 0))
+                already_in_db = sum(
+                    Decimal(str(d.qty_expected or 0)) - Decimal(str(d.qty_actual or 0))
+                    for d in existing_discs
+                    if d.invoice_no == invoice_no and d.item_code_expected == item_code and d.id in kept_ids
+                )
+                already_new = sum(
+                    Decimal(str(prev.get('qty', 0) or 0))
+                    for prev in exceptions_data[:exceptions_data.index(ex)]
+                    if not prev.get('id') and prev.get('invoice_no') == invoice_no
+                    and prev.get('item_code') == item_code and prev.get('item_code') != 'REB-00'
+                )
+                if qty + already_in_db + already_new > ordered:
+                    return jsonify({'error': f"Exception qty exceeds ordered qty {ordered} for {item_code} on {invoice_no}"}), 400
+
             disc = DeliveryDiscrepancy(
                 invoice_no=invoice_no,
                 item_code_expected=item_code or 'UNKNOWN',
@@ -683,6 +699,18 @@ def submit_delivery(stop_id):
             
             # Special handling for Rebate REB-00
             is_rebate = (item_code == 'REB-00')
+
+            if not is_rebate and key and key in items_by_key:
+                ordered = items_by_key[key]['ordered']
+                already_excepted = sum(
+                    Decimal(str(prev.get('qty', 0) or 0))
+                    for prev in exceptions[:exceptions.index(ex)]
+                    if prev.get('invoice_no') == invoice_no
+                    and prev.get('item_code') == item_code
+                    and prev.get('item_code') != 'REB-00'
+                )
+                if qty + already_excepted > ordered:
+                    abort(400, description=f"Exception qty {qty + already_excepted} exceeds ordered qty {ordered} for item {item_code} on {invoice_no}")
             rebate_amount = Decimal(str(ex.get('amount', 0) or 0)) if is_rebate else Decimal(0)
             if is_rebate:
                 total_rebate_reduction += rebate_amount
