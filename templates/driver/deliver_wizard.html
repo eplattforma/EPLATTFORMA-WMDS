@@ -174,7 +174,7 @@ input[type=number]::-webkit-inner-spin-button {
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                         data-bs-target="#cSignature" aria-expanded="false" aria-controls="cSignature">
                     <strong><i class="fas fa-pen-nib"></i> Signature</strong>
-                    <span class="badge bg-secondary ms-2" id="sigBadge">Optional</span>
+                    <span id="sigBadge" class="ms-auto pe-2 text-nowrap fw-bold" style="font-size:0.8rem;"></span>
                 </button>
             </h2>
             <div id="cSignature" class="accordion-collapse collapse" aria-labelledby="hSignature" data-bs-parent="#closeoutAcc">
@@ -786,14 +786,26 @@ function updateSignatureRequirementUI() {
         help.textContent = 'Required for Credit / Pay Online / Post-dated cheque.';
         warn.style.display = sw.checked ? 'none' : 'block';
         block.classList.toggle('border-danger', !sw.checked);
-        if (sigBadge) { sigBadge.textContent = 'Required'; sigBadge.className = 'badge bg-danger ms-2'; }
     } else {
         badge.textContent = 'Optional';
         badge.className = 'badge bg-secondary ms-2';
         help.textContent = 'Recommended, but optional for Cash/Day Cheque/Card.';
         warn.style.display = 'none';
         block.classList.remove('border-danger');
-        if (sigBadge) { sigBadge.textContent = 'Optional'; sigBadge.className = 'badge bg-secondary ms-2'; }
+    }
+
+    // Header badge: COLLECTED (green) > REQUIRED (orange-red) > OPTIONAL (muted white)
+    if (sigBadge) {
+        if (sw.checked) {
+            sigBadge.textContent = 'COLLECTED';
+            sigBadge.style.color = '#22c55e';
+        } else if (required) {
+            sigBadge.textContent = 'REQUIRED';
+            sigBadge.style.color = '#f97316';
+        } else {
+            sigBadge.textContent = 'OPTIONAL';
+            sigBadge.style.color = 'rgba(255,255,255,0.55)';
+        }
     }
     refreshHeaderAndSteps();
 }
