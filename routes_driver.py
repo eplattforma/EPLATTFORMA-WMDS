@@ -991,7 +991,11 @@ def submit_delivery(stop_id):
         print_png_url = None
         if cod_receipt:
             print_png_url = url_for('driver.print_receipt_png_by_id', receipt_id=cod_receipt.id)
-        
+
+        exceptions_print_url = None
+        if discrepancies:
+            exceptions_print_url = url_for('driver.print_exceptions_png', stop_id=stop_id)
+
         return jsonify({
             'success': True,
             'cod': {
@@ -1000,7 +1004,8 @@ def submit_delivery(stop_id):
                 'method': cod_method
             },
             'receipt_id': cod_receipt.id if cod_receipt else None,
-            'print_png_url': print_png_url
+            'print_png_url': print_png_url,
+            'exceptions_print_url': exceptions_print_url
         })
     
     except Exception as e:
@@ -1239,6 +1244,74 @@ def print_receipt_png_by_id(receipt_id):
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     return resp
+
+@driver_bp.route('/stops/<int:stop_id>/print_exceptions.png')
+@driver_required
+def print_exceptions_png(stop_id):
+    """Generate exceptions proof PNG for BIXOLON thermal printing via Share API."""
+    from services.receipt_render_png import render_receipt_png
+    from models import DeliveryDiscrepancy
+    from io import BytesIO
+
+    stop = RouteStop.query.get_or_404(stop_id)
+    route = Shipment.query.get(stop.shipment_id)
+
+    stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
+    invoice_nos = [rsi.invoice_no for rsi in stop_invoices]
+
+    exceptions_raw = DeliveryDiscrepancy.query.filter(
+        DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
+    ).all() if invoice_nos else []
+
+    if not exceptions_raw:
+        return ('', 204)
+
+    invoices_list = []
+    invoice_total_sum = Decimal('0')
+    for inv_no in invoice_nos:
+        inv = Invoice.query.get(inv_no)
+        inv_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
+        invoices_list.append({'invoice_no': inv_no, 'total': float(inv_total)})
+        invoice_total_sum += inv_total
+
+    exceptions_list = [{
+        'type': exc.discrepancy_type or '',
+        'item_name': exc.item_name or '',
+        'qty_expected': exc.qty_expected or '',
+        'qty_actual': exc.qty_actual or '',
+        'note': exc.note or ''
+    } for exc in exceptions_raw]
+
+    stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
+    date_str = utc_now().strftime('%Y-%m-%d %H:%M')
+
+    png_data = {
+        'doc_mode': 'exceptions',
+        'receipt_no': f'{route.id}-{stop_no}' if route else str(stop_id),
+        'date_str': date_str,
+        'route_no': route.id if route else '',
+        'stop_no': stop_no,
+        'driver_name': route.driver_name if route else current_user.username,
+        'customer_code': stop.customer_code or '',
+        'customer_name': stop.stop_name or '',
+        'customer_addr': stop.stop_addr or '',
+        'invoices': invoices_list,
+        'exceptions': exceptions_list,
+    }
+
+    w = request.args.get('w', type=int)
+    png_bytes = render_receipt_png(png_data, dot_width=w if w in (576, 640, 832) else None)
+
+    resp = make_response(send_file(
+        BytesIO(png_bytes),
+        mimetype='image/png',
+        download_name=f'exceptions-stop{stop_id}.png',
+        as_attachment=False
+    ))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
+
 
 @driver_bp.route('/stops/<int:stop_id>/print_receipt')
 @driver_required

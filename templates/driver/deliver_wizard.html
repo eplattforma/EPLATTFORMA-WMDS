@@ -123,7 +123,7 @@ input[type=number]::-webkit-inner-spin-button {
         </div>
     </div>
 
-    {% if stop.notes %}
+    {% if stop.notes and stop.notes.strip() %}
     <div class="mb-3 p-3" style="background-color: #f5f5f5; border-left: 4px solid #6c757d; border-radius: 4px;">
         <div style="color: #000;"><i class="fas fa-sticky-note me-2"></i>{{ stop.notes }}</div>
     </div>
@@ -1122,6 +1122,29 @@ async function submitDelivery() {
                     console.error('Print fetch error:', fetchErr);
                     const retry = confirm('Network error while printing receipt.\n\nTap OK to retry, or Cancel to go to stops list.');
                     if (retry) return;
+                }
+            }
+
+            if (data.exceptions_print_url) {
+                try {
+                    const excRes = await fetch(data.exceptions_print_url, { cache: 'no-store' });
+                    if (excRes.ok && excRes.status !== 204) {
+                        const excBlob = await excRes.blob();
+                        const excFile = new File([excBlob], `exceptions-stop${stopId}.png`, { type: 'image/png' });
+                        try {
+                            if (navigator.canShare && navigator.canShare({ files: [excFile] })) {
+                                await navigator.share({ files: [excFile], title: 'Exceptions Proof' });
+                            } else {
+                                window.open(URL.createObjectURL(excBlob), '_blank');
+                            }
+                        } catch (shareErr) {
+                            if (shareErr.name !== 'AbortError') {
+                                console.error('Exceptions share error:', shareErr);
+                            }
+                        }
+                    }
+                } catch (excFetchErr) {
+                    console.error('Exceptions print fetch error:', excFetchErr);
                 }
             }
 
