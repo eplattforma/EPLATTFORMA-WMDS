@@ -204,9 +204,16 @@ def assign_invoices_to_route_grouped_by_customer(shipment_id: int, invoice_nos: 
             inv.stop_id = stop.route_stop_id
             
     # Determine expected payment method from customer terms
+            from models import CreditTerms
+            ct = CreditTerms.query.filter_by(customer_code=inv.customer_code).filter(
+                db.or_(CreditTerms.valid_to.is_(None), CreditTerms.valid_to >= db.func.current_date())
+            ).order_by(CreditTerms.id.desc()).first()
+            if ct and ct.is_credit:
+                expected_method = 'CREDIT'
+            else:
+                expected_method = 'CASH'
             from models import PaymentCustomer
             payment_terms = PaymentCustomer.query.filter_by(code=inv.customer_code).first()
-            expected_method = 'CREDIT'
             if payment_terms:
                 # Map the PS365 code to our canonical payment method
                 # The field name is actually 'payment_type_code_365' but we should be safe
