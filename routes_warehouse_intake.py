@@ -49,43 +49,48 @@ def intake_dashboard():
         invoice._intake_case = case
         failed_invoices.append(invoice)
     
-    # Also include invoices with delivery_failed or returned_to_warehouse status that don't have a case yet
-    # Auto-create intake cases so they can be processed through the intake workflow
+    cased_invoice_nos = {inv.invoice_no for inv in failed_invoices}
+
+    existing_active_cases = db.session.query(InvoicePostDeliveryCase.invoice_no).filter(
+        InvoicePostDeliveryCase.status.in_(['OPEN', 'INTAKE_RECEIVED', 'REROUTE_QUEUED']),
+    ).all()
+    cased_invoice_nos.update(row.invoice_no for row in existing_active_cases)
+
     uncased_invoices = Invoice.query.filter(
-        Invoice.status.in_(['delivery_failed', 'returned_to_warehouse'])
+        Invoice.status.in_(['delivery_failed', 'returned_to_warehouse']),
+        ~Invoice.invoice_no.in_(cased_invoice_nos) if cased_invoice_nos else Invoice.invoice_no.isnot(None)
     ).all()
     for invoice in uncased_invoices:
-        if not any(inv.invoice_no == invoice.invoice_no for inv in failed_invoices):
-            route_id = None
-            route_stop_id = None
-            rsi = (
-                db.session.query(RouteStopInvoice)
-                .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
-                .filter(RouteStopInvoice.invoice_no == invoice.invoice_no)
-                .order_by(RouteStopInvoice.is_active.desc(), RouteStopInvoice.route_stop_invoice_id.desc())
-                .first()
-            )
-            if rsi:
-                route_stop_id = rsi.route_stop_id
-                stop = db.session.query(RouteStop).filter_by(
-                    route_stop_id=rsi.route_stop_id
-                ).first()
-                if stop:
-                    route_id = stop.shipment_id
+        route_id = None
+        route_stop_id = None
+        rsi = (
+            db.session.query(RouteStopInvoice)
+            .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+            .filter(RouteStopInvoice.invoice_no == invoice.invoice_no)
+            .order_by(RouteStopInvoice.is_active.desc(), RouteStopInvoice.route_stop_invoice_id.desc())
+            .first()
+        )
+        if rsi:
+            route_stop_id = rsi.route_stop_id
+            stop = db.session.query(RouteStop).filter_by(
+                route_stop_id=rsi.route_stop_id
+            ).first()
+            if stop:
+                route_id = stop.shipment_id
 
-            new_case = InvoicePostDeliveryCase(
-                invoice_no=invoice.invoice_no,
-                route_id=route_id,
-                route_stop_id=route_stop_id,
-                status='OPEN',
-                reason=f'{invoice.status.replace("_", " ").title()} - auto-created for intake',
-                notes='Auto-created intake case for failed/returned delivery',
-                created_by='system'
-            )
-            db.session.add(new_case)
-            db.session.flush()
-            invoice._intake_case = new_case
-            failed_invoices.append(invoice)
+        new_case = InvoicePostDeliveryCase(
+            invoice_no=invoice.invoice_no,
+            route_id=route_id,
+            route_stop_id=route_stop_id,
+            status='OPEN',
+            reason=f'{invoice.status.replace("_", " ").title()} - auto-created for intake',
+            notes='Auto-created intake case for failed/returned delivery',
+            created_by='system'
+        )
+        db.session.add(new_case)
+        db.session.flush()
+        invoice._intake_case = new_case
+        failed_invoices.append(invoice)
     
     db.session.commit()
     

@@ -1164,6 +1164,46 @@ def print_receipt(receipt_id):
     route = Shipment.query.get(receipt.route_id)
     stop = RouteStop.query.get(receipt.route_stop_id)
     
+    if receipt.status != 'VOIDED':
+        doc_type_val = (receipt.doc_type or 'official').lower()
+        if doc_type_val == 'official' and not receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                invoice_nos_list = receipt.invoice_nos or []
+                inv_list_str = ', '.join(invoice_nos_list[:5])
+                if len(invoice_nos_list) > 5:
+                    inv_list_str += f' +{len(invoice_nos_list)-5}'
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code if stop else '',
+                    amount_val=float(receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=receipt.driver_username,
+                    user_code=current_user.username,
+                    route_stop_id=receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=receipt.cheque_number or '',
+                    cheque_date=receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                receipt.ps365_reference_number = ref_num
+                receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                receipt.ps365_synced_at = utc_now()
+            except Exception as ps365_err:
+                logging.error(f"PS365 receipt creation failed for receipt {receipt_id}: {ps365_err}")
+
+        now = utc_now()
+        if receipt.status != 'ISSUED':
+            receipt.status = 'ISSUED'
+            receipt.locked_at = now
+            receipt.locked_by = current_user.username
+            receipt.print_count = 1
+            receipt.first_printed_at = now
+            receipt.last_printed_at = now
+        else:
+            receipt.print_count = (receipt.print_count or 0) + 1
+            receipt.last_printed_at = now
+        db.session.commit()
+    
     invoices = []
     for invoice_no in receipt.invoice_nos:
         inv = Invoice.query.get(invoice_no)
@@ -1183,6 +1223,46 @@ def print_receipt_80mm(receipt_id):
     receipt = CODReceipt.query.get_or_404(receipt_id)
     route = Shipment.query.get(receipt.route_id)
     stop = RouteStop.query.get(receipt.route_stop_id)
+    
+    if receipt.status != 'VOIDED':
+        doc_type_val = (receipt.doc_type or 'official').lower()
+        if doc_type_val == 'official' and not receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                invoice_nos_list = receipt.invoice_nos or []
+                inv_list_str = ', '.join(invoice_nos_list[:5])
+                if len(invoice_nos_list) > 5:
+                    inv_list_str += f' +{len(invoice_nos_list)-5}'
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code if stop else '',
+                    amount_val=float(receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=receipt.driver_username,
+                    user_code=current_user.username,
+                    route_stop_id=receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=receipt.cheque_number or '',
+                    cheque_date=receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                receipt.ps365_reference_number = ref_num
+                receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                receipt.ps365_synced_at = utc_now()
+            except Exception as ps365_err:
+                logging.error(f"PS365 receipt creation failed for receipt {receipt_id}: {ps365_err}")
+
+        now = utc_now()
+        if receipt.status != 'ISSUED':
+            receipt.status = 'ISSUED'
+            receipt.locked_at = now
+            receipt.locked_by = current_user.username
+            receipt.print_count = 1
+            receipt.first_printed_at = now
+            receipt.last_printed_at = now
+        else:
+            receipt.print_count = (receipt.print_count or 0) + 1
+            receipt.last_printed_at = now
+        db.session.commit()
     
     invoices = []
     for invoice_no in receipt.invoice_nos:
@@ -1438,8 +1518,47 @@ def print_stop_receipt(stop_id):
         CODReceipt.created_at.desc()
     ).first()
     
+    if cod_receipt and cod_receipt.status != 'VOIDED':
+        doc_type_val = (cod_receipt.doc_type or 'official').lower()
+        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                invoice_nos_list = cod_receipt.invoice_nos or []
+                inv_list_str = ', '.join(invoice_nos_list[:5])
+                if len(invoice_nos_list) > 5:
+                    inv_list_str += f' +{len(invoice_nos_list)-5}'
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code if stop else '',
+                    amount_val=float(cod_receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=cod_receipt.driver_username,
+                    user_code=current_user.username,
+                    route_stop_id=cod_receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=cod_receipt.cheque_number or '',
+                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                cod_receipt.ps365_reference_number = ref_num
+                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                cod_receipt.ps365_synced_at = utc_now()
+            except Exception as ps365_err:
+                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
+
+        now = utc_now()
+        if cod_receipt.status != 'ISSUED':
+            cod_receipt.status = 'ISSUED'
+            cod_receipt.locked_at = now
+            cod_receipt.locked_by = current_user.username
+            cod_receipt.print_count = 1
+            cod_receipt.first_printed_at = now
+            cod_receipt.last_printed_at = now
+        else:
+            cod_receipt.print_count = (cod_receipt.print_count or 0) + 1
+            cod_receipt.last_printed_at = now
+        db.session.commit()
+
     if not cod_receipt:
-        # No COD receipt yet - get invoices for this stop
         stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id).all()
         invoice_numbers = [rsi.invoice_no for rsi in stop_invoices]
         
@@ -1449,7 +1568,6 @@ def print_stop_receipt(stop_id):
             if inv and inv.total_grand:
                 expected_amount += Decimal(str(inv.total_grand))
         
-        # Create receipt data showing NOT COLLECTED status
         receipt_data = {
             'receipt_id': f"PREVIEW-{stop_id}",
             'stop_name': stop.stop_name or 'N/A',
@@ -1532,9 +1650,47 @@ def print_stop_receipt_80mm(stop_id):
     for exc in exceptions:
         logging.info(f"  - {exc.discrepancy_type}: {exc.item_name} (Expected: {exc.qty_expected}, Actual: {exc.qty_actual})")
     
-    # If we have a COD receipt, use it; otherwise create preview data
+    if cod_receipt and cod_receipt.status != 'VOIDED':
+        doc_type_val = (cod_receipt.doc_type or 'official').lower()
+        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                invoice_nos_list = cod_receipt.invoice_nos or []
+                inv_list_str = ', '.join(invoice_nos_list[:5])
+                if len(invoice_nos_list) > 5:
+                    inv_list_str += f' +{len(invoice_nos_list)-5}'
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code if stop else '',
+                    amount_val=float(cod_receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=cod_receipt.driver_username,
+                    user_code=current_user.username,
+                    route_stop_id=cod_receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=cod_receipt.cheque_number or '',
+                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                cod_receipt.ps365_reference_number = ref_num
+                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                cod_receipt.ps365_synced_at = utc_now()
+            except Exception as ps365_err:
+                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
+
+        now = utc_now()
+        if cod_receipt.status != 'ISSUED':
+            cod_receipt.status = 'ISSUED'
+            cod_receipt.locked_at = now
+            cod_receipt.locked_by = current_user.username
+            cod_receipt.print_count = 1
+            cod_receipt.first_printed_at = now
+            cod_receipt.last_printed_at = now
+        else:
+            cod_receipt.print_count = (cod_receipt.print_count or 0) + 1
+            cod_receipt.last_printed_at = now
+        db.session.commit()
+
     if not cod_receipt:
-        # Create a mock receipt object for preview
         from datetime import datetime
         
         expected_amount = Decimal('0.00')

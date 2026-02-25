@@ -621,6 +621,8 @@ def get_route_active_invoices(route_id: int):
 def compute_stop_status(route_stop_id: int):
     """
     Compute aggregate status for a stop based on its active invoices.
+    Uses normalize_status for case-insensitive comparison and
+    TERMINAL_DELIVERY_STATUSES as the single source of truth.
     
     Returns:
         str: 'DELIVERED', 'FAILED', 'PARTIAL', or 'IN_PROGRESS'
@@ -630,8 +632,9 @@ def compute_stop_status(route_stop_id: int):
         return 'IN_PROGRESS'
     
     total = len(invoices)
-    delivered_count = sum(1 for i in invoices if normalize_status(i.status) == 'delivered')
-    failed_count = sum(1 for i in invoices if normalize_status(i.status) in ('delivery_failed', 'returned_to_warehouse'))
+    statuses = [normalize_status(i.status) for i in invoices]
+    delivered_count = sum(1 for s in statuses if s == 'delivered')
+    failed_count = sum(1 for s in statuses if s in TERMINAL_DELIVERY_STATUSES and s != 'delivered')
     terminal_count = delivered_count + failed_count
     
     if delivered_count == total:

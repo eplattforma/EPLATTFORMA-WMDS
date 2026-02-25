@@ -119,7 +119,12 @@ input[type=number]::-webkit-inner-spin-button {
             </div>
         </div>
         <div id="hdr-details" class="sub mt-2 border-top pt-2" style="display:none; border-color: rgba(255,255,255,0.1) !important;">
-            Inv: &euro;<span id="hdr-inv">0.00</span> &middot; Ex: &euro;<span id="hdr-ex">0.00</span> &middot; Entered: &euro;<span id="hdr-entered">0.00</span>
+            <div id="hdr-details-invoices"></div>
+            <div id="hdr-details-exceptions" style="display:none;" class="mt-2 pt-2" ></div>
+            <div class="d-flex justify-content-between mt-2 pt-2" style="border-top:1px solid rgba(255,255,255,0.15);">
+                <span style="color:#94a3b8;">To Collect</span>
+                <span style="font-weight:700;color:#f1c40f;">&euro;<span id="hdr-collect-detail">0.00</span></span>
+            </div>
         </div>
     </div>
 
@@ -432,6 +437,7 @@ document.addEventListener('DOMContentLoaded', function() {
         renderExceptions();
         calculateCODVariance();
     }
+    refreshAmountsUI();
 });
 
 const app = document.getElementById('deliverApp');
@@ -842,9 +848,7 @@ function refreshAmountsUI() {
     const hdrCollect = document.getElementById('hdr-collect');
     if (hdrCollect) hdrCollect.textContent = collectTarget.toFixed(2);
 
-    const hdrInv = document.getElementById('hdr-inv'); if (hdrInv) hdrInv.textContent = inv.toFixed(2);
-    const hdrEx = document.getElementById('hdr-ex'); if (hdrEx) hdrEx.textContent = exTot.toFixed(2);
-    const hdrEnt = document.getElementById('hdr-entered'); if (hdrEnt) hdrEnt.textContent = entered.toFixed(2);
+    renderHdrDetailsPanel(inv, exTot, collectTarget);
 
     const invMini = document.getElementById('cod-inv-mini'); if (invMini) invMini.textContent = inv.toFixed(2);
     const exMini = document.getElementById('cod-ex-mini'); if (exMini) exMini.textContent = exTot.toFixed(2);
@@ -878,6 +882,50 @@ function refreshAmountsUI() {
             }
         }
     }
+}
+
+function renderHdrDetailsPanel(inv, exTot, collectTarget) {
+    const invContainer = document.getElementById('hdr-details-invoices');
+    const exContainer = document.getElementById('hdr-details-exceptions');
+    const collectDetail = document.getElementById('hdr-collect-detail');
+    if (!invContainer) return;
+
+    let invHtml = '';
+    invoices.forEach(function(i) {
+        invHtml += '<div class="d-flex justify-content-between align-items-center py-1">' +
+            '<span style="color:#cbd5e1; font-size:0.92rem;">' + i.invoice_no + '</span>' +
+            '<span style="color:#22c55e; font-weight:600; font-size:0.92rem;">&euro;' + (i.total_grand || 0).toFixed(2) + '</span>' +
+            '</div>';
+    });
+    invContainer.innerHTML = invHtml;
+
+    if (exTot > 0) {
+        let exHtml = '<div style="border-top:1px solid rgba(255,255,255,0.15); padding-top:0.5rem;">' +
+            '<div class="d-flex justify-content-between align-items-center">' +
+            '<span style="color:#ef4444; font-weight:600; font-size:0.92rem;">Exceptions</span>' +
+            '<span style="color:#ef4444; font-weight:600; font-size:0.92rem;">&minus;&euro;' + exTot.toFixed(2) + '</span>' +
+            '</div>';
+        const exByInv = {};
+        exceptions.forEach(function(ex) {
+            const key = ex.invoice_no || 'Unknown';
+            if (!exByInv[key]) exByInv[key] = 0;
+            exByInv[key] += (ex.exception_value || 0);
+        });
+        Object.keys(exByInv).forEach(function(invNo) {
+            exHtml += '<div class="d-flex justify-content-between align-items-center py-0" style="padding-left:0.5rem;">' +
+                '<span style="color:#fca5a5; font-size:0.82rem;">' + invNo + '</span>' +
+                '<span style="color:#fca5a5; font-size:0.82rem;">&minus;&euro;' + exByInv[invNo].toFixed(2) + '</span>' +
+                '</div>';
+        });
+        exHtml += '</div>';
+        exContainer.innerHTML = exHtml;
+        exContainer.style.display = 'block';
+    } else {
+        exContainer.style.display = 'none';
+        exContainer.innerHTML = '';
+    }
+
+    if (collectDetail) collectDetail.textContent = collectTarget.toFixed(2);
 }
 
 function toggleHdrDetails() {
