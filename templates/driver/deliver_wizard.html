@@ -1057,6 +1057,32 @@ async function submitDelivery() {
         if (data.success) {
             lastSubmitData = data;
             window.deliverySaved = true;
+
+            if (data.print_png_url) {
+                try {
+                    const printRes = await fetch(data.print_png_url, { cache: 'no-store' });
+                    if (!printRes.ok) {
+                        let errMsg = 'Could not register payment in Powersoft.';
+                        try { const errData = await printRes.json(); errMsg = errData.error || errMsg; } catch (_) {}
+                        alert(`Receipt not printed:\n\n${errMsg}\n\nPlease retry or contact the office.`);
+                        return;
+                    }
+                    const blob = await printRes.blob();
+                    const filename = `receipt-stop${stopId}.png`;
+                    const file = new File([blob], filename, { type: 'image/png' });
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        await navigator.share({ files: [file], title: 'Receipt' });
+                    } else {
+                        const objUrl = URL.createObjectURL(blob);
+                        window.open(objUrl, '_blank');
+                    }
+                } catch (printErr) {
+                    console.error('Print error:', printErr);
+                    alert('Receipt printing failed. Please retry.');
+                    return;
+                }
+            }
+
             window.location.href = `/driver/routes/${routeId}/stops`;
             return;
         } else {

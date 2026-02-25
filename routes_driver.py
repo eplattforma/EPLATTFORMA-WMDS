@@ -882,39 +882,6 @@ def submit_delivery(stop_id):
                 )
                 db.session.add(cod_receipt)
                 db.session.flush()
-
-                if doc_type == 'official':
-                    try:
-                        from routes_receipts import create_receipt_core
-                        inv_list_str = ', '.join(invoice_nos[:5])
-                        if len(invoice_nos) > 5:
-                            inv_list_str += f' +{len(invoice_nos)-5}'
-                        comments = f"{inv_list_str}"
-                        savepoint = db.session.begin_nested()
-                        try:
-                            ps365_result = create_receipt_core(
-                                customer_code=stop.customer_code,
-                                amount_val=float(received),
-                                comments=comments,
-                                driver_username=current_user.username,
-                                route_stop_id=stop_id,
-                                invoice_no=inv_list_str,
-                                cheque_number=cod.get('cheque_number', ''),
-                                cheque_date=cod.get('cheque_date', ''),
-                                allow_duplicate_stop=True
-                            )
-                            if ps365_result and ps365_result.get('reference_number'):
-                                cod_receipt.ps365_reference_number = ps365_result['reference_number']
-                            if ps365_result and ps365_result.get('response_id'):
-                                cod_receipt.ps365_receipt_id = str(ps365_result['response_id'])
-                            cod_receipt.ps365_synced_at = utc_now()
-                        except Exception:
-                            savepoint.rollback()
-                            raise
-                    except Exception as ps365_err:
-                        logging.warning(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
-                        db.session.add(cod_receipt)
-                        db.session.flush()
             
             from models import CODInvoiceAllocation
             if not existing_receipt:
@@ -1151,6 +1118,37 @@ def print_receipt_png_by_id(receipt_id):
     from io import BytesIO
 
     receipt = CODReceipt.query.get_or_404(receipt_id)
+    stop = RouteStop.query.get(receipt.route_stop_id)
+    route = Shipment.query.get(receipt.route_id)
+
+    # For official receipts: call PS365 before printing.
+    # Only print when a valid reference number is returned; use it as the receipt number.
+    doc_type_val = (receipt.doc_type or 'official').lower()
+    if doc_type_val == 'official' and receipt.status != 'VOIDED':
+        if not receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                invoice_nos_list = receipt.invoice_nos or []
+                inv_list_str = ', '.join(invoice_nos_list[:5])
+                if len(invoice_nos_list) > 5:
+                    inv_list_str += f' +{len(invoice_nos_list)-5}'
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code if stop else '',
+                    amount_val=float(receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=receipt.driver_username,
+                    route_stop_id=receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=receipt.cheque_number or '',
+                    cheque_date=receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                receipt.ps365_reference_number = ref_num
+                receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                receipt.ps365_synced_at = utc_now()
+            except Exception as ps365_err:
+                logging.error(f"PS365 receipt creation failed for receipt {receipt_id}: {ps365_err}")
+                return jsonify({'error': f'Payment could not be registered in Powersoft: {ps365_err}. Receipt not printed.'}), 503
 
     if receipt.status != 'VOIDED':
         now = utc_now()
@@ -1165,9 +1163,6 @@ def print_receipt_png_by_id(receipt_id):
             receipt.print_count = (receipt.print_count or 0) + 1
             receipt.last_printed_at = now
         db.session.commit()
-
-    route = Shipment.query.get(receipt.route_id)
-    stop = RouteStop.query.get(receipt.route_stop_id)
 
     invoices_list = []
     invoice_total_sum = Decimal('0')
@@ -1197,12 +1192,16 @@ def print_receipt_png_by_id(receipt_id):
     payment_method = receipt.payment_method or 'not_collected'
     is_collected = collected > 0 and payment_method.lower() not in ('not_collected', 'online')
 
+    # Use PS365 reference number as receipt_no for official receipts; fall back to internal ID
+    ps365_ref = (receipt.ps365_reference_number or '').strip()
+    display_receipt_no = ps365_ref if ps365_ref else str(receipt.id)
+
     png_data = {
         'is_collected': is_collected,
         'is_credit': is_credit,
         'is_preview': False,
         'is_amended': False,
-        'receipt_no': str(receipt.id),
+        'receipt_no': display_receipt_no,
         'date_str': receipt.created_at.strftime('%Y-%m-%d %H:%M') if receipt.created_at else '',
         'route_no': route.id if route else '',
         'stop_no': str(stop.seq_no).zfill(3) if stop and stop.seq_no else '---',
