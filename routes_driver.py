@@ -99,6 +99,38 @@ def get_credit_terms(customer_code):
         'notes_for_driver': terms.notes_for_driver if terms.notes_for_driver and terms.notes_for_driver.strip() not in ('', 'None', 'null') else None
     }
 
+def _compute_due_date(invoice_nos, customer_code, issued_at):
+    """Compute the payment due date for a bank transfer payment advice."""
+    from models import DwInvoiceHeader
+    import datetime as dt
+
+    due_days = 7
+    if customer_code:
+        terms = CreditTerms.query.filter(
+            CreditTerms.customer_code == customer_code,
+            (CreditTerms.valid_to.is_(None)) | (CreditTerms.valid_to >= dt.date.today())
+        ).order_by(CreditTerms.valid_from.desc()).first()
+        if terms and terms.due_days:
+            due_days = terms.due_days
+
+    earliest_date = None
+    if invoice_nos:
+        for inv_no in invoice_nos:
+            hdr = DwInvoiceHeader.query.filter_by(invoice_no_365=inv_no).first()
+            if hdr and hdr.invoice_date_utc0:
+                if earliest_date is None or hdr.invoice_date_utc0 < earliest_date:
+                    earliest_date = hdr.invoice_date_utc0
+
+    if earliest_date is None and issued_at:
+        earliest_date = issued_at.date() if hasattr(issued_at, 'date') else issued_at
+
+    if earliest_date is None:
+        earliest_date = dt.date.today()
+
+    pay_by = earliest_date + timedelta(days=due_days)
+    return pay_by.strftime('%Y-%m-%d')
+
+
 # --- Routes Dashboard ---
 
 @driver_bp.route('/routes')
@@ -1351,13 +1383,19 @@ def print_receipt_png_by_id(receipt_id):
     exceptions_raw = DeliveryDiscrepancy.query.filter(
         DeliveryDiscrepancy.invoice_no.in_(receipt.invoice_nos)
     ).all() if receipt.invoice_nos else []
-    exceptions_list = [{
-        'type': exc.discrepancy_type or '',
-        'item_name': exc.item_name or '',
-        'qty_expected': exc.qty_expected or '',
-        'qty_actual': exc.qty_actual or '',
-        'note': exc.note or ''
-    } for exc in exceptions_raw]
+    exceptions_total = Decimal('0')
+    exceptions_list = []
+    for exc in exceptions_raw:
+        ded_val = float(exc.reported_value or 0)
+        exceptions_total += Decimal(str(exc.reported_value or 0))
+        exceptions_list.append({
+            'type': exc.discrepancy_type or '',
+            'item_name': exc.item_name or '',
+            'qty_expected': exc.qty_expected or '',
+            'qty_actual': exc.qty_actual or '',
+            'note': exc.note or '',
+            'deduction_value': ded_val,
+        })
 
     terms = get_credit_terms(stop.customer_code) if stop else {'is_credit': False}
     is_credit = terms['is_credit']
@@ -1381,11 +1419,16 @@ def print_receipt_png_by_id(receipt_id):
     if collected > 0 and payment_method.lower() not in ('not_collected',):
         payments_list.append({'method': method_label, 'amount': float(collected)})
 
-    # Use PS365 reference number as receipt_no for official receipts; fall back to internal ID
     ps365_ref = (receipt.ps365_reference_number or '').strip()
     display_receipt_no = ps365_ref if ps365_ref else str(receipt.id)
 
     collector_name = (receipt.driver_username or (route.driver_name if route else '') or '').strip()
+
+    net_payable = invoice_total_sum - exceptions_total
+
+    due_date_str = ''
+    if doc_type_val == 'online_notice':
+        due_date_str = _compute_due_date(receipt.invoice_nos, stop.customer_code if stop else None, receipt.created_at)
 
     png_data = {
         'is_collected': is_collected,
@@ -1413,8 +1456,12 @@ def print_receipt_png_by_id(receipt_id):
         'cheque_date': receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else None,
         'notes': receipt.note or '',
         'exceptions': exceptions_list,
-        'doc_type': getattr(receipt, 'doc_type', None) or 'official',
+        'doc_type': doc_type_val,
         'ps365_reference_number': getattr(receipt, 'ps365_reference_number', None) or '',
+        'invoices_subtotal': float(invoice_total_sum),
+        'exceptions_total': float(exceptions_total),
+        'net_payable': float(net_payable),
+        'due_date': due_date_str,
     }
 
     w = request.args.get('w', type=int)
@@ -1809,15 +1856,20 @@ def print_receipt_pdf(stop_id):
     exceptions_raw = DeliveryDiscrepancy.query.filter(
         DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
     ).all() if invoice_nos else []
-    exceptions_list = [{
-        'type': exc.discrepancy_type or '',
-        'item_name': exc.item_name or '',
-        'qty_expected': exc.qty_expected or '',
-        'qty_actual': exc.qty_actual or '',
-        'note': exc.note or ''
-    } for exc in exceptions_raw]
+    exceptions_total_dec = Decimal('0')
+    exceptions_list = []
+    for exc in exceptions_raw:
+        ded_val = float(exc.reported_value or 0)
+        exceptions_total_dec += Decimal(str(exc.reported_value or 0))
+        exceptions_list.append({
+            'type': exc.discrepancy_type or '',
+            'item_name': exc.item_name or '',
+            'qty_expected': exc.qty_expected or '',
+            'qty_actual': exc.qty_actual or '',
+            'note': exc.note or '',
+            'deduction_value': ded_val,
+        })
 
-    # If no DB exceptions (delivery not yet saved), fall back to JSON passed from driver app
     if not exceptions_list:
         import json as _json
         exc_param = request.args.get('exc', '')
@@ -1842,6 +1894,7 @@ def print_receipt_pdf(stop_id):
     receipt_no = f"PREVIEW-{stop_id}"
     date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
     expected_total = invoice_total_sum
+    doc_type_val = 'official'
 
     if cod_receipt:
         expected_total = Decimal(str(cod_receipt.expected_amount or 0)) or invoice_total_sum
@@ -1854,6 +1907,7 @@ def print_receipt_pdf(stop_id):
         ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
         receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
         date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
+        doc_type_val = (cod_receipt.doc_type or 'official').lower()
         is_preview = False
     else:
         form_collected = request.args.get('collected')
@@ -1879,6 +1933,11 @@ def print_receipt_pdf(stop_id):
     balance_due = expected_total - collected
 
     stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
+    net_payable = invoice_total_sum - exceptions_total_dec
+
+    due_date_str = ''
+    if doc_type_val == 'online_notice':
+        due_date_str = _compute_due_date(invoice_nos, stop.customer_code, cod_receipt.created_at if cod_receipt else None)
 
     pdf_data = {
         'is_collected': is_collected,
@@ -1902,8 +1961,12 @@ def print_receipt_pdf(stop_id):
         'cheque_date': cheque_date,
         'notes': notes,
         'exceptions': exceptions_list,
-        'doc_type': getattr(cod_receipt, 'doc_type', None) or 'official' if cod_receipt else 'official',
+        'doc_type': doc_type_val,
         'ps365_reference_number': getattr(cod_receipt, 'ps365_reference_number', None) or '' if cod_receipt else '',
+        'invoices_subtotal': float(invoice_total_sum),
+        'exceptions_total': float(exceptions_total_dec),
+        'net_payable': float(net_payable),
+        'due_date': due_date_str,
     }
 
     pdf_bytes = build_delivery_receipt_pdf(pdf_data)
@@ -2033,15 +2096,20 @@ def print_receipt_png(stop_id):
     exceptions_raw = DeliveryDiscrepancy.query.filter(
         DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
     ).all() if invoice_nos else []
-    exceptions_list = [{
-        'type': exc.discrepancy_type or '',
-        'item_name': exc.item_name or '',
-        'qty_expected': exc.qty_expected or '',
-        'qty_actual': exc.qty_actual or '',
-        'note': exc.note or ''
-    } for exc in exceptions_raw]
+    exceptions_total_dec = Decimal('0')
+    exceptions_list = []
+    for exc in exceptions_raw:
+        ded_val = float(exc.reported_value or 0)
+        exceptions_total_dec += Decimal(str(exc.reported_value or 0))
+        exceptions_list.append({
+            'type': exc.discrepancy_type or '',
+            'item_name': exc.item_name or '',
+            'qty_expected': exc.qty_expected or '',
+            'qty_actual': exc.qty_actual or '',
+            'note': exc.note or '',
+            'deduction_value': ded_val,
+        })
 
-    # If no DB exceptions (delivery not yet saved), fall back to JSON passed from driver app
     if not exceptions_list:
         import json as _json
         exc_param = request.args.get('exc', '')
@@ -2066,6 +2134,7 @@ def print_receipt_png(stop_id):
     receipt_no = f"PREVIEW-{stop_id}"
     date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
     expected_total = invoice_total_sum
+    doc_type_val = 'official'
 
     if cod_receipt:
         expected_total = Decimal(str(cod_receipt.expected_amount or 0)) or invoice_total_sum
@@ -2078,6 +2147,7 @@ def print_receipt_png(stop_id):
         ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
         receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
         date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
+        doc_type_val = (cod_receipt.doc_type or 'official').lower()
         is_preview = False
     else:
         form_collected = request.args.get('collected')
@@ -2102,6 +2172,11 @@ def print_receipt_png(stop_id):
 
     balance_due = expected_total - collected
     stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
+    net_payable = invoice_total_sum - exceptions_total_dec
+
+    due_date_str = ''
+    if doc_type_val == 'online_notice':
+        due_date_str = _compute_due_date(invoice_nos, stop.customer_code, cod_receipt.created_at if cod_receipt else None)
 
     png_data = {
         'is_collected': is_collected,
@@ -2125,9 +2200,13 @@ def print_receipt_png(stop_id):
         'cheque_date': cheque_date,
         'notes': notes,
         'exceptions': exceptions_list,
-        'doc_type': getattr(cod_receipt, 'doc_type', None) or 'official' if cod_receipt else 'official',
+        'doc_type': doc_type_val,
         'ps365_reference_number': getattr(cod_receipt, 'ps365_reference_number', None) or '' if cod_receipt else '',
         'doc_mode': (request.args.get('doc') or '').strip().lower(),
+        'invoices_subtotal': float(invoice_total_sum),
+        'exceptions_total': float(exceptions_total_dec),
+        'net_payable': float(net_payable),
+        'due_date': due_date_str,
     }
 
     w = request.args.get('w', type=int)

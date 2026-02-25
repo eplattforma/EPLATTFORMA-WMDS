@@ -290,6 +290,142 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         img.save(out, format="PNG")
         return out.getvalue()
 
+    if doc_type == "online_notice":
+        add_t("STEP EPLATTFORMA LTD")
+        add_c("Tel: 7000 0394  VAT: CY103532640")
+        add(sep)
+        add_t("PAYMENT ADVICE")
+        add_t("(BANK TRANSFER)")
+        add(sep)
+        add_c("NOT A RECEIPT")
+        add_c("INVOICES ISSUED SEPARATELY")
+        add(sep)
+
+        date_str = str(data.get("date_str", "")).strip()
+        due_date = str(data.get("due_date", "")).strip()
+        if date_str:
+            add_b(f"Issued: {date_str}")
+        if due_date:
+            add_b(f"Pay by: {due_date}")
+        add(sep)
+
+        add_b("CUSTOMER")
+        for w in wrap(data.get("customer_name", "")):
+            add(w)
+        for w in wrap(data.get("customer_addr", "")):
+            add(w)
+        add(sep)
+
+        invoices = data.get("invoices") or []
+        inv_subtotal = Decimal(str(data.get("invoices_subtotal", "0") or "0"))
+        if invoices:
+            add_b("INVOICES")
+            for inv in invoices:
+                inv_no = str(inv.get("invoice_no", "")).strip()
+                inv_total = inv.get("total")
+                if inv_total is not None:
+                    add(_pad_right(f"  {inv_no}", money(inv_total), cols))
+                else:
+                    add(f"  {inv_no}")
+            add(_pad_right("  Invoices subtotal:", money(inv_subtotal), cols))
+            add(sep)
+
+        exceptions_data = data.get("exceptions") or []
+        ex_total = Decimal(str(data.get("exceptions_total", "0") or "0"))
+        if exceptions_data:
+            add_b("EXCEPTIONS")
+            for exc in exceptions_data:
+                exc_type = str(exc.get("type", "")).upper()
+                item = str(exc.get("item_name", ""))
+                qty_e = exc.get("qty_expected", "")
+                qty_a = exc.get("qty_actual", "")
+                ded = exc.get("deduction_value")
+                add(f"  {exc_type}: {item}")
+                line_detail = f"  Exp: {qty_e} | Act: {qty_a}"
+                if ded is not None:
+                    try:
+                        line_detail += f"  {money(ded)}"
+                    except Exception:
+                        pass
+                add(line_detail)
+            add(sep)
+            add_b(_pad_right("  Exceptions deducted:", f"-{money(ex_total)}", cols))
+            add(sep)
+
+        net_payable = Decimal(str(data.get("net_payable", "0") or "0"))
+        font_net = ImageFont.truetype(FONT_BOLD_PATH, 38)
+        add("")
+        lines.append(("net_payable", f"NET PAYABLE: {money(net_payable)}"))
+        add("")
+        add(sep)
+
+        add_b("BANK TRANSFER DETAILS")
+        add("  Bank: Bank of Cyprus")
+        add("  IBAN: CY04 0020 0195 0000 0357")
+        add("        0208 4600")
+        add("  BIC/SWIFT: BCYPCY2N")
+        add("  Beneficiary: Step Eplattforma")
+        add(sep)
+
+        invoice_nos_plain = [str(inv.get("invoice_no", "")).strip() for inv in invoices if inv.get("invoice_no")]
+        if len(invoice_nos_plain) == 1:
+            ref_str = invoice_nos_plain[0]
+        elif len(invoice_nos_plain) > 1:
+            cust_name_short = (data.get("customer_name") or "CUSTOMER")[:20].strip()
+            ref_str = f"MULTI + {cust_name_short}"
+        else:
+            ref_str = "See invoices above"
+        add_b("TRANSFER REFERENCE:")
+        add_b(f"  {ref_str}")
+        add(sep)
+
+        sig_line = "_" * cols
+        add("")
+        add("Delivery Confirmed")
+        add("(Customer Signature):")
+        add(sig_line)
+        add("")
+        add("Driver Signature:")
+        add(sig_line)
+
+        line_h_body = 36
+        line_h_title = 44
+        line_h_net = 52
+        height = PADDING_Y * 2 + sum(
+            line_h_title if t == "title" else (line_h_net if t == "net_payable" else line_h_body)
+            for t, _ in lines
+        )
+        img = Image.new("L", (dot_width, height), 255)
+        draw = ImageDraw.Draw(img)
+        y = PADDING_Y
+        avail_w = dot_width - 2 * PADDING_X
+        for typ, txt in lines:
+            if typ == "title":
+                tw = draw.textlength(txt, font=font_title)
+                x = PADDING_X + max(0, (avail_w - tw) / 2)
+                draw.text((x, y), txt, font=font_title, fill=0)
+                y += line_h_title
+            elif typ == "center":
+                tw = draw.textlength(txt, font=font_body)
+                x = PADDING_X + max(0, (avail_w - tw) / 2)
+                draw.text((x, y), txt, font=font_body, fill=0)
+                y += line_h_body
+            elif typ == "net_payable":
+                tw = draw.textlength(txt, font=font_net)
+                x = PADDING_X + max(0, (avail_w - tw) / 2)
+                draw.text((x, y), txt, font=font_net, fill=0)
+                y += line_h_net
+            elif typ == "bold":
+                draw.text((PADDING_X, y), txt, font=font_bold, fill=0)
+                y += line_h_body
+            else:
+                draw.text((PADDING_X, y), txt, font=font_body, fill=0)
+                y += line_h_body
+        img = img.convert("1")
+        out = BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+
     if is_preview:
         add_t("*** PREVIEW ***")
         add_t("NOT A FINAL RECEIPT")
@@ -307,18 +443,6 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add_c("Post-dated cheque held pending")
         add_c("clearance. This is NOT a")
         add_c("payment receipt.")
-    elif doc_type == "online_notice":
-        add_t("PAY ONLINE \u2014 PAYMENT DUE")
-        add_t("STATUS: UNPAID")
-        add(sep)
-        add_b("BANK TRANSFER DETAILS")
-        add("  Bank: Bank of Cyprus")
-        add("  IBAN: CY04 0020 0195 0000 0357")
-        add("        0208 4600")
-        add("  BIC/SWIFT: BCYPCY2N")
-        add("  Beneficiary: Step Eplattforma")
-        add_c("Please use your invoice number")
-        add_c("as payment reference.")
     elif is_credit:
         add_t("DELIVERY CONFIRMATION")
         add_t("CREDIT ACCOUNT")
