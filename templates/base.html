@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{% block title %}EPLATTFORMA Picking System{% endblock %}</title>
+    <title>{% block title %}EPLATTFORMA WMDS System{% endblock %}</title>
     <!-- Replit-themed Bootstrap CSS -->
     <link rel="stylesheet" href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css">
     <!-- Font Awesome for icons -->
@@ -17,7 +17,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="/">
-                <i class="fas fa-box-open me-2"></i>EPLATTFORMA Picking System
+                <i class="fas fa-box-open me-2"></i>EPLATTFORMA WMDS System
             </a>
             {% if current_user.is_authenticated %}
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -313,7 +313,7 @@
 
     <footer class="footer bg-dark text-white mt-5 py-3">
         <div class="container text-center">
-            <span>EPLATTFORMA Picking System &copy; {{ now.year }}</span>
+            <span>EPLATTFORMA WMDS System &copy; {{ now.year }}</span>
         </div>
     </footer>
 
