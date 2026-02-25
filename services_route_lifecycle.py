@@ -49,10 +49,26 @@ def recompute_route_completion(route_id, *, commit: bool = True):
             func.lower(RouteStopInvoice.status).notin_(TERMINAL_DELIVERY_STATUSES)
         )
     ).count()
-    
+
+    # Also count stops that have never been explicitly closed by the driver.
+    # A stop with zero active RSIs but no delivered_at/failed_at has not been visited yet.
+    unvisited_stops_count = db.session.query(RouteStop).outerjoin(
+        RouteStopInvoice,
+        db.and_(
+            RouteStopInvoice.route_stop_id == RouteStop.route_stop_id,
+            RouteStopInvoice.is_active == True
+        )
+    ).filter(
+        RouteStop.shipment_id == route_id,
+        RouteStop.deleted_at == None,
+        RouteStop.delivered_at.is_(None),
+        RouteStop.failed_at.is_(None),
+        RouteStopInvoice.route_stop_id.is_(None)  # no active RSI records
+    ).count()
+
     status_changed = False
-    
-    if pending_count == 0:
+
+    if pending_count == 0 and unvisited_stops_count == 0:
         if shipment.status != "COMPLETED":
             shipment.status = "COMPLETED"
             if shipment.completed_at is None:
