@@ -806,10 +806,12 @@ function togglePaymentControls() {
         if (amountSection) amountSection.style.display = 'block';
         if (keypadWrap) keypadWrap.style.display = 'block';
         if (chequeDetails) chequeDetails.style.display = 'block';
+        setTimeout(() => keypadWrap && keypadWrap.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
     } else {
         if (amountSection) amountSection.style.display = 'block';
         if (keypadWrap) keypadWrap.style.display = 'block';
         if (chequeDetails) chequeDetails.style.display = 'none';
+        setTimeout(() => keypadWrap && keypadWrap.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
     }
 
     calculateCODVariance();
