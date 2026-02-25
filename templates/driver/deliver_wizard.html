@@ -1203,16 +1203,21 @@ async function submitDelivery() {
                     if (excRes.ok && excRes.status !== 204) {
                         const excBlob = await excRes.blob();
                         const excFile = new File([excBlob], `exceptions-stop${stopId}.png`, { type: 'image/png' });
+                        let excPrinted = false;
                         try {
                             if (navigator.canShare && navigator.canShare({ files: [excFile] })) {
                                 await navigator.share({ files: [excFile], title: 'Exceptions Proof' });
-                            } else {
-                                window.open(URL.createObjectURL(excBlob), '_blank');
+                                excPrinted = true;
                             }
                         } catch (shareErr) {
-                            if (shareErr.name !== 'AbortError') {
+                            if (shareErr.name === 'AbortError') {
+                                excPrinted = true;
+                            } else {
                                 console.error('Exceptions share error:', shareErr);
                             }
+                        }
+                        if (!excPrinted) {
+                            window.open(URL.createObjectURL(excBlob), '_blank');
                         }
                     }
                 } catch (excFetchErr) {
