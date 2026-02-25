@@ -148,13 +148,13 @@ input[type=number]::-webkit-inner-spin-button {
 
         <div class="accordion-item">
             <h2 class="accordion-header" id="hExceptions">
-                <button class="accordion-button" type="button" data-bs-toggle="collapse"
-                        data-bs-target="#cExceptions" aria-expanded="true" aria-controls="cExceptions">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#cExceptions" aria-expanded="false" aria-controls="cExceptions">
                     <strong><i class="fas fa-exclamation-triangle"></i> Exceptions</strong>
                     <span id="exception-header-summary" class="ms-auto text-nowrap d-flex align-items-center gap-2 pe-2"></span>
                 </button>
             </h2>
-            <div id="cExceptions" class="accordion-collapse collapse show" aria-labelledby="hExceptions" data-bs-parent="#closeoutAcc">
+            <div id="cExceptions" class="accordion-collapse collapse" aria-labelledby="hExceptions" data-bs-parent="#closeoutAcc">
                 <div class="accordion-body">
                     <div id="exceptions-list"></div>
                     <button class="btn btn-sm w-100 mt-2" style="color:#fd7e14;border-color:#fd7e14;" onclick="addException()">
