@@ -96,7 +96,7 @@ def get_credit_terms(customer_code):
         'allow_bank_transfer': terms.allow_bank_transfer,
         'allow_card_pos': terms.allow_card_pos,
         'cheque_days_allowed': terms.cheque_days_allowed,
-        'notes_for_driver': terms.notes_for_driver
+        'notes_for_driver': terms.notes_for_driver if terms.notes_for_driver and terms.notes_for_driver.strip() not in ('', 'None', 'null') else None
     }
 
 # --- Routes Dashboard ---
