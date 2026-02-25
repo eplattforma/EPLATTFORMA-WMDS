@@ -206,6 +206,7 @@ input[type=number]::-webkit-inner-spin-button {
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                         data-bs-target="#cPayment" aria-expanded="false" aria-controls="cPayment">
                     <strong><i class="fas fa-money-bill"></i> Payment</strong>
+                    <span id="payHdrBadge" class="ms-auto pe-2 text-nowrap fw-bold" style="font-size:0.8rem;"></span>
                 </button>
             </h2>
             <div id="cPayment" class="accordion-collapse collapse" aria-labelledby="hPayment" data-bs-parent="#closeoutAcc">
@@ -918,6 +919,31 @@ function refreshHeaderAndSteps() {
         if ((m === 'cash' || m === 'card' || m === 'cheque') && dueNow > 0 && received <= 0) payDone = false;
     }
     setStepDone('st-pay', payDone);
+
+    // Payment header badge: show method + amount when collapsed
+    const payBadge = document.getElementById('payHdrBadge');
+    if (payBadge) {
+        if (isCredit) {
+            payBadge.textContent = 'CREDIT';
+            payBadge.style.color = 'rgba(255,255,255,0.55)';
+        } else {
+            const m = document.getElementById('cod-method')?.value || '';
+            const received = (m === 'online') ? 0 : (parseFloat(document.getElementById('cod-received')?.value) || 0);
+            if (m) {
+                const methodLabel = m === 'online' ? 'ONLINE' : m.toUpperCase();
+                const amtStr = `€${received.toFixed(2)}`;
+                if (payDone) {
+                    payBadge.textContent = `${methodLabel}  ${amtStr}`;
+                    payBadge.style.color = '#22c55e';
+                } else {
+                    payBadge.textContent = `${methodLabel}  ${amtStr}`;
+                    payBadge.style.color = '#f97316';
+                }
+            } else {
+                payBadge.textContent = '';
+            }
+        }
+    }
 
     const blockers = [];
     if (sigRequired && !sigChecked) blockers.push("Signed invoice required.");
