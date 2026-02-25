@@ -193,8 +193,8 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add_t("STEP EPLATTFORMA LTD")
         add_c("Tel: 7000 0394  VAT: CY103532640")
         add(sep)
-        add_t("COLLECTION RECEIPT")
-        add_t("\u0391\u03a0\u039f\u0394\u0395\u0399\u039e\u0397 \u0395\u0399\u03a3\u03a0\u03a1\u0391\u039e\u0397\u03a3")
+        add_t("PAYMENT RECEIPT")
+        add_t("STATUS: PAID")
         add(sep)
 
         receipt_no = str(data.get("receipt_no", "")).strip()
@@ -208,6 +208,10 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
             add_b(f"Date: {d_part}  Time: {t_part}")
         else:
             add_b(f"Date: {d_part}")
+
+        ps365_ref = str(data.get("ps365_reference_number", "") or "").strip()
+        if ps365_ref:
+            add_b(f"PS365 Ref: {ps365_ref}")
         add(sep)
 
         add_b("Customer:")

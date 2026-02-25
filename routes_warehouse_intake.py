@@ -58,10 +58,13 @@ def intake_dashboard():
         if not any(inv.invoice_no == invoice.invoice_no for inv in failed_invoices):
             route_id = None
             route_stop_id = None
-            rsi = db.session.query(RouteStopInvoice).filter_by(
-                invoice_no=invoice.invoice_no,
-                is_active=True
-            ).first()
+            rsi = (
+                db.session.query(RouteStopInvoice)
+                .join(RouteStop, RouteStop.route_stop_id == RouteStopInvoice.route_stop_id)
+                .filter(RouteStopInvoice.invoice_no == invoice.invoice_no)
+                .order_by(RouteStopInvoice.is_active.desc(), RouteStopInvoice.route_stop_invoice_id.desc())
+                .first()
+            )
             if rsi:
                 route_stop_id = rsi.route_stop_id
                 stop = db.session.query(RouteStop).filter_by(

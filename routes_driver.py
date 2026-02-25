@@ -1013,6 +1013,53 @@ def submit_delivery(stop_id):
         logging.error(f"Error submitting delivery for stop {stop_id}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# --- Driver Correction Request ---
+
+@driver_bp.route('/receipts/<int:receipt_id>/request_correction', methods=['POST'])
+@driver_required
+def request_receipt_correction(receipt_id):
+    """Driver requests a correction on an ISSUED receipt.
+    
+    Creates a note against the receipt and flags it for admin review.
+    The driver cannot void/reissue directly; an admin must act on the request.
+    """
+    try:
+        receipt = CODReceipt.query.get_or_404(receipt_id)
+        route = Shipment.query.get(receipt.route_id)
+
+        if not route:
+            return jsonify({'success': False, 'error': 'Route not found'}), 404
+
+        if route.driver_name != current_user.username and current_user.role != 'admin':
+            abort(403, description="Not your receipt")
+
+        if receipt.status == 'VOIDED':
+            return jsonify({'success': False, 'error': 'Receipt is already voided; contact admin for reissue'}), 400
+
+        data = request.get_json(force=True) if request.is_json else {}
+        reason = (data.get('reason') or '').strip()
+        if not reason:
+            return jsonify({'success': False, 'error': 'A correction reason is required'}), 400
+
+        existing_note = receipt.note or ''
+        correction_flag = f"[CORRECTION REQUEST by {current_user.username} at {utc_now().strftime('%Y-%m-%d %H:%M')} UTC]: {reason}"
+        receipt.note = f"{existing_note}\n{correction_flag}".strip()
+
+        db.session.commit()
+        logging.info(f"Receipt {receipt_id} correction requested by {current_user.username}: {reason}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Correction request submitted. An admin will review and reissue if necessary.',
+            'receipt_id': receipt_id
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error requesting correction for receipt {receipt_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # --- Fail Delivery ---
 
 @driver_bp.route('/stops/<int:stop_id>/fail', methods=['POST'])
@@ -1499,6 +1546,33 @@ def print_receipt_pdf(stop_id):
     ).first()
 
     if cod_receipt and cod_receipt.status != 'VOIDED':
+        doc_type_val = (cod_receipt.doc_type or 'official').lower()
+        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                invoice_nos_list = cod_receipt.invoice_nos or []
+                inv_list_str = ', '.join(invoice_nos_list[:5])
+                if len(invoice_nos_list) > 5:
+                    inv_list_str += f' +{len(invoice_nos_list)-5}'
+                candidate_user = token_data.get('username') or ''
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code if stop else '',
+                    amount_val=float(cod_receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=cod_receipt.driver_username,
+                    user_code=candidate_user,
+                    route_stop_id=cod_receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=cod_receipt.cheque_number or '',
+                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                cod_receipt.ps365_reference_number = ref_num
+                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                cod_receipt.ps365_synced_at = utc_now()
+            except Exception as ps365_err:
+                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
+
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
             # Resolve valid locked_by BEFORE touching the model to prevent autoflush FK violation
@@ -1581,7 +1655,8 @@ def print_receipt_pdf(stop_id):
         notes = cod_receipt.note or ''
         cheque_number = cod_receipt.cheque_number
         cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
-        receipt_no = str(cod_receipt.id)
+        ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
+        receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
         date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
         is_preview = False
     else:
@@ -1631,6 +1706,8 @@ def print_receipt_pdf(stop_id):
         'cheque_date': cheque_date,
         'notes': notes,
         'exceptions': exceptions_list,
+        'doc_type': getattr(cod_receipt, 'doc_type', None) or 'official' if cod_receipt else 'official',
+        'ps365_reference_number': getattr(cod_receipt, 'ps365_reference_number', None) or '' if cod_receipt else '',
     }
 
     pdf_bytes = build_delivery_receipt_pdf(pdf_data)
@@ -1693,6 +1770,33 @@ def print_receipt_png(stop_id):
     ).first()
 
     if cod_receipt and cod_receipt.status != 'VOIDED':
+        doc_type_val = (cod_receipt.doc_type or 'official').lower()
+        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                invoice_nos_list = cod_receipt.invoice_nos or []
+                inv_list_str = ', '.join(invoice_nos_list[:5])
+                if len(invoice_nos_list) > 5:
+                    inv_list_str += f' +{len(invoice_nos_list)-5}'
+                candidate_user = token_data.get('username') or ''
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code if stop else '',
+                    amount_val=float(cod_receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=cod_receipt.driver_username,
+                    user_code=candidate_user,
+                    route_stop_id=cod_receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=cod_receipt.cheque_number or '',
+                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                cod_receipt.ps365_reference_number = ref_num
+                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                cod_receipt.ps365_synced_at = utc_now()
+            except Exception as ps365_err:
+                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
+
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
             # Resolve valid locked_by BEFORE touching the model to prevent autoflush FK violation
@@ -1775,7 +1879,8 @@ def print_receipt_png(stop_id):
         notes = cod_receipt.note or ''
         cheque_number = cod_receipt.cheque_number
         cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
-        receipt_no = str(cod_receipt.id)
+        ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
+        receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
         date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
         is_preview = False
     else:

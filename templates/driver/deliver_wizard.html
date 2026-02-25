@@ -201,6 +201,12 @@ input[type=number]::-webkit-inner-spin-button {
                         Credit customer — no receipt issued. Proceed to Print &amp; Close when ready.
                     </div>
                     {% else %}
+                    <div id="no-payment-needed" class="alert alert-success mb-3" style="display:none;">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <strong>Nothing to collect.</strong><br>
+                        All items returned — no payment required. Proceed to Close Stop.
+                    </div>
+                    <div id="payment-form-section">
                     <label class="form-label fw-bold mb-2">Payment Method</label>
                     <div class="row g-2 mb-3" id="method-tiles">
                         {% if terms.allow_cash %}
