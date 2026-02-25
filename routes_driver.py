@@ -443,6 +443,7 @@ def deliver_wizard(stop_id):
         missing_qty = float(Decimal(str(disc.qty_expected or 0)) - Decimal(str(disc.qty_actual or 0)))
         
         ex_payload = {
+            'id': disc.id,
             'invoice_no': disc.invoice_no,
             'item_code': disc.item_code_expected,
             'item_name': disc.item_name,
@@ -450,14 +451,10 @@ def deliver_wizard(stop_id):
             'qty': 1 if is_rebate else missing_qty,
             'amount': float(disc.reported_value or 0) if is_rebate else None,
             'qty_ordered': float(disc.qty_expected or 0),
-            'unit_type': '', # Will be filled if possible, or left blank
+            'unit_type': '',
             'notes': disc.note or '',
-            'damagedAccepted': False, # Not stored explicitly but usually false for active exceptions
-            'actual': {
-                'barcode': getattr(disc, 'actual_barcode', None),
-                'item_code': getattr(disc, 'actual_item_code', None),
-                'qty': getattr(disc, 'actual_qty', None)
-            } if disc.discrepancy_type == 'wrong' else None,
+            'damagedAccepted': False,
+            'actual': None,
             'exception_value': float(disc.reported_value or 0),
             'is_rebate': is_rebate,
             'from_db': True
@@ -494,25 +491,34 @@ def save_exceptions(stop_id):
         stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
         invoice_nos = [rsi.invoice_no for rsi in stop_invoices]
 
-        # Idempotent: if exceptions already saved for these invoices, skip
-        existing = DeliveryDiscrepancy.query.filter(
+        from services_discrepancy import process_discrepancy_for_settlement, create_or_update_post_delivery_case
+
+        # --- Sync: delete removed exceptions ---
+        # IDs that the driver still wants to keep
+        kept_ids = {int(ex['id']) for ex in exceptions_data if ex.get('id')}
+
+        existing_discs = DeliveryDiscrepancy.query.filter(
             DeliveryDiscrepancy.invoice_no.in_(invoice_nos),
             DeliveryDiscrepancy.reported_source == 'driver'
-        ).first() if invoice_nos else None
+        ).all() if invoice_nos else []
 
-        if existing:
-            return jsonify({'success': True, 'skipped': True, 'message': 'Exceptions already saved'})
+        deleted_count = 0
+        for disc in existing_discs:
+            if disc.id not in kept_ids:
+                db.session.delete(disc)
+                deleted_count += 1
 
-        # Load items for qty lookup
+        # --- Sync: add new exceptions (those without an id) ---
         items_by_key = {}
         for invoice_no in invoice_nos:
             items = InvoiceItem.query.filter_by(invoice_no=invoice_no).all()
             for item in items:
                 items_by_key[(invoice_no, item.item_code)] = item
 
-        from services_discrepancy import process_discrepancy_for_settlement, create_or_update_post_delivery_case
-
+        saved_count = 0
         for ex in exceptions_data:
+            if ex.get('id'):
+                continue  # already in DB, not deleted above, so keep it
             ex_type = str(ex.get('type', '')).upper()
             invoice_no = ex.get('invoice_no')
             item_code = ex.get('item_code')
@@ -520,7 +526,6 @@ def save_exceptions(stop_id):
             notes = ex.get('notes', '') or ''
             is_rebate = (item_code == 'REB-00')
             key = (invoice_no, item_code) if invoice_no and item_code else None
-
             item_obj = items_by_key.get(key) if key else None
 
             disc = DeliveryDiscrepancy(
@@ -547,7 +552,7 @@ def save_exceptions(stop_id):
                 event_type='created',
                 actor=current_user.username,
                 timestamp=utc_now(),
-                note='Saved at exceptions proof print time'
+                note='Saved by driver'
             ))
 
             create_or_update_post_delivery_case(
@@ -557,9 +562,34 @@ def save_exceptions(stop_id):
                 created_by=current_user.username,
                 reason=f"Discrepancy: {disc.discrepancy_type}"
             )
+            saved_count += 1
 
         db.session.commit()
-        return jsonify({'success': True, 'saved': len(exceptions_data)})
+
+        # Return updated list with IDs so frontend can track them
+        updated_discs = DeliveryDiscrepancy.query.filter(
+            DeliveryDiscrepancy.invoice_no.in_(invoice_nos),
+            DeliveryDiscrepancy.reported_source == 'driver'
+        ).all() if invoice_nos else []
+
+        updated_list = []
+        for d in updated_discs:
+            is_reb = (d.discrepancy_type == 'rebate')
+            updated_list.append({
+                'id': d.id,
+                'invoice_no': d.invoice_no,
+                'item_code': d.item_code_expected,
+                'item_name': d.item_name,
+                'type': d.discrepancy_type.upper(),
+                'qty': 1 if is_reb else float(Decimal(str(d.qty_expected or 0)) - Decimal(str(d.qty_actual or 0))),
+                'qty_ordered': float(d.qty_expected or 0),
+                'notes': d.note or '',
+                'exception_value': float(d.reported_value or 0),
+                'is_rebate': is_reb,
+                'from_db': True
+            })
+
+        return jsonify({'success': True, 'saved': saved_count, 'deleted': deleted_count, 'exceptions': updated_list})
 
     except Exception as e:
         db.session.rollback()
