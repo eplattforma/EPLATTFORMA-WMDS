@@ -151,7 +151,7 @@ input[type=number]::-webkit-inner-spin-button {
                 <button class="accordion-button" type="button" data-bs-toggle="collapse"
                         data-bs-target="#cExceptions" aria-expanded="true" aria-controls="cExceptions">
                     <strong><i class="fas fa-exclamation-triangle"></i> Exceptions</strong>
-                    <span id="exception-header-summary" class="ms-2 text-nowrap" style="font-size:0.85rem;opacity:0.85;"></span>
+                    <span id="exception-header-summary" class="ms-auto text-nowrap d-flex align-items-center gap-2 pe-2"></span>
                 </button>
             </h2>
             <div id="cExceptions" class="accordion-collapse collapse show" aria-labelledby="hExceptions" data-bs-parent="#closeoutAcc">
@@ -727,7 +727,7 @@ function renderExceptions() {
             <button type="button" class="btn btn-sm" onclick="removeException(${index})" style="background: none; border: none; font-size: 1.5rem; line-height: 1; color: #000; padding: 0; margin-right: 10px; cursor: pointer;">\u00D7</button>
             <div style="flex: 1;">
                 <strong><span style="color: ${typeColor};">${typeLabel}</span></strong> ${qtyText}${notesText}<br>
-                <small>${ex.item_name}<br>Expected: ${expectedQty} | Delivered: ${deliveredText}</small>
+                <small><strong>${ex.item_code}</strong> - ${ex.item_name}<br>Expected: ${expectedQty} | Delivered: ${deliveredText}</small>
             </div>
         `;
         list.appendChild(div);
@@ -736,8 +736,8 @@ function renderExceptions() {
     const exHdrTotal = exceptions.reduce((s, ex) => s + parseFloat(ex.exception_value || 0), 0);
     const exHdrEl = document.getElementById('exception-header-summary');
     if (exHdrEl) {
-        exHdrEl.textContent = exceptions.length > 0
-            ? `${exceptions.length}   \u20AC${exHdrTotal.toFixed(2)}`
+        exHdrEl.innerHTML = exceptions.length > 0
+            ? `<span style="font-size:0.8rem;opacity:0.75;">${exceptions.length}</span><span style="font-size:1.05rem;font-weight:700;color:#dc3545;">-\u20AC${exHdrTotal.toFixed(2)}</span>`
             : '';
     }
     refreshHeaderAndSteps();
@@ -1027,8 +1027,8 @@ function refreshHeaderAndSteps() {
 
     const exHdrEl2 = document.getElementById('exception-header-summary');
     if (exHdrEl2) {
-        exHdrEl2.textContent = exceptions.length > 0
-            ? `${exceptions.length}   \u20AC${exTot.toFixed(2)}`
+        exHdrEl2.innerHTML = exceptions.length > 0
+            ? `<span style="font-size:0.8rem;opacity:0.75;">${exceptions.length}</span><span style="font-size:1.05rem;font-weight:700;color:#dc3545;">-\u20AC${exTot.toFixed(2)}</span>`
             : '';
     }
 
