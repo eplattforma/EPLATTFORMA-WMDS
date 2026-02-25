@@ -39,8 +39,6 @@ def pending_payments():
     """List all pending payments (online and post-dated)"""
     from models import CODInvoiceAllocation, Shipment, Invoice
     
-    amount_due_expr = CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount
-
     pending_allocs = db.session.query(
         CODInvoiceAllocation,
         Shipment.driver_name,
@@ -53,8 +51,7 @@ def pending_payments():
         Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
     ).filter(
         Shipment.reconciliation_status == 'RECONCILED',
-        CODInvoiceAllocation.is_pending == True,
-        amount_due_expr > 0.01
+        CODInvoiceAllocation.is_pending == True
     ).order_by(
         Shipment.delivery_date.asc()
     ).all()
@@ -62,7 +59,11 @@ def pending_payments():
     # Group by customer for better visual presentation
     from collections import OrderedDict
     grouped = OrderedDict()
+    from datetime import date as date_type
     for alloc, driver_name, delivery_date, customer_name, customer_code in pending_allocs:
+        due = float((alloc.expected_amount or 0) - (alloc.deduct_amount or 0))
+        if due <= 0.01:
+            continue
         key = customer_name or 'Unknown'
         if key not in grouped:
             grouped[key] = {
@@ -71,8 +72,6 @@ def pending_payments():
                 'invoices': [],
                 'total_due': 0
             }
-        due = float((alloc.expected_amount or 0) - (alloc.received_amount or 0) - (alloc.deduct_amount or 0))
-        from datetime import date as date_type
         if delivery_date:
             age_days = (date_type.today() - (delivery_date if isinstance(delivery_date, date_type) else delivery_date.date())).days
         else:
