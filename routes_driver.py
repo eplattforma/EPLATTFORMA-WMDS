@@ -888,28 +888,40 @@ def submit_delivery(stop_id):
                 cheque_date_alloc = datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
                 is_postdated_alloc = cod_method == 'cheque' and cheque_date_alloc and cheque_date_alloc > datetime.now().date()
                 is_pending_method = cod_method in ('online', 'postdated', 'post_dated') or is_postdated_alloc
+
+                inv_rows = []
                 for invoice_no in invoice_nos:
                     inv = Invoice.query.get(invoice_no)
                     invoice_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
                     invoice_deduct = discrepancy_values_by_invoice.get(invoice_no, Decimal('0'))
-                    invoice_due = invoice_total - invoice_deduct
+                    invoice_due = max(invoice_total - invoice_deduct, Decimal('0'))
+                    inv_rows.append({
+                        'invoice_no': invoice_no,
+                        'invoice_total': invoice_total,
+                        'invoice_deduct': invoice_deduct,
+                        'invoice_due': invoice_due,
+                    })
 
-                    if cod_expected > 0 and len(invoice_nos) > 1:
-                        proportion = invoice_due / cod_expected
-                        invoice_received = (received * proportion).quantize(Decimal('0.01'))
+                inv_rows.sort(key=lambda r: r['invoice_due'])
+
+                remaining = received
+                for row in inv_rows:
+                    if len(invoice_nos) == 1:
+                        invoice_received = received
                     else:
-                        invoice_received = received if len(invoice_nos) == 1 else Decimal('0')
+                        invoice_received = min(row['invoice_due'], remaining)
+                        remaining -= invoice_received
 
-                    is_underpaid = (invoice_received + invoice_deduct) < invoice_total
+                    is_underpaid = (invoice_received + row['invoice_deduct']) < row['invoice_total']
                     is_pending = is_pending_method or is_underpaid
 
                     allocation = CODInvoiceAllocation(
                         cod_receipt_id=cod_receipt.id,
-                        invoice_no=invoice_no,
+                        invoice_no=row['invoice_no'],
                         route_id=route.id,
-                        expected_amount=invoice_total,
+                        expected_amount=row['invoice_total'],
                         received_amount=invoice_received,
-                        deduct_amount=invoice_deduct,
+                        deduct_amount=row['invoice_deduct'],
                         payment_method=cod_method,
                         is_pending=is_pending,
                         cheque_number=cod.get('cheque_number'),
