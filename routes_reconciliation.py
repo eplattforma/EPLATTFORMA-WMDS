@@ -39,7 +39,8 @@ def pending_payments():
     """List all pending payments (online and post-dated)"""
     from models import CODInvoiceAllocation, Shipment, Invoice
     
-    # Get all pending allocations (post-dated OR online OR explicitly flagged)
+    amount_due_expr = CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount
+
     pending_allocs = db.session.query(
         CODInvoiceAllocation,
         Shipment.driver_name,
@@ -52,17 +53,8 @@ def pending_payments():
         Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
     ).filter(
         Shipment.reconciliation_status == 'RECONCILED',
-        db.or_(
-            CODInvoiceAllocation.is_pending == True,
-            (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01,
-            db.and_(
-                db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online']),
-                db.or_(
-                    CODInvoiceAllocation.is_pending == True,
-                    (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01
-                )
-            )
-        )
+        CODInvoiceAllocation.is_pending == True,
+        amount_due_expr > 0.01
     ).order_by(
         Shipment.delivery_date.asc()
     ).all()
@@ -173,8 +165,22 @@ def api_reissue_receipt(receipt_id):
 
         old_receipt.replaced_by_cod_receipt_id = new_receipt.id
 
+        old_allocs = CODInvoiceAllocation.query.filter_by(cod_receipt_id=old_receipt.id).all()
+        new_method = new_receipt.payment_method or old_receipt.payment_method
+        new_is_pending = new_method in ('online', 'postdated', 'post_dated')
+        for alloc in old_allocs:
+            alloc.cod_receipt_id = new_receipt.id
+            alloc.payment_method = new_method
+            alloc.received_amount = new_receipt.received_amount / max(len(old_allocs), 1) if len(old_allocs) > 1 else new_receipt.received_amount
+            due = float((alloc.expected_amount or 0) - (alloc.received_amount or 0) - (alloc.deduct_amount or 0))
+            alloc.is_pending = new_is_pending and due > 0.01
+            if new_receipt.cheque_number:
+                alloc.cheque_number = new_receipt.cheque_number
+            if new_receipt.cheque_date:
+                alloc.cheque_date = new_receipt.cheque_date
+
         db.session.commit()
-        logger.info(f"Receipt {receipt_id} reissued as {new_receipt.id} by {current_user.username}")
+        logger.info(f"Receipt {receipt_id} reissued as {new_receipt.id} by {current_user.username}, {len(old_allocs)} allocations updated")
 
         return jsonify({
             'success': True,
