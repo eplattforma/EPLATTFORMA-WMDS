@@ -199,38 +199,6 @@ input[type=number]::-webkit-inner-spin-button {
                         </div>
                     </div>
 
-                    <div class="card mt-3">
-                        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
-                             style="cursor:pointer;" onclick="togglePodDetails()">
-                            <strong><i class="fas fa-signature"></i> Additional Delivery Details</strong>
-                            <i class="fas fa-chevron-down" id="pod-chevron"></i>
-                        </div>
-                        <div class="card-body" id="pod-details" style="display:none;">
-                            <div class="mb-2">
-                                <label class="form-label">Receiver Name</label>
-                                <input type="text" class="form-control" id="pod-receiver" placeholder="Who received the order?">
-                            </div>
-                            <div class="mb-2">
-                                <label class="form-label">Relationship</label>
-                                <select class="form-select" id="pod-relationship">
-                                    <option value="owner">Owner</option>
-                                    <option value="employee">Employee</option>
-                                    <option value="family">Family Member</option>
-                                    <option value="other">Other</option>
-                                </select>
-                            </div>
-                            <div class="mb-2">
-                                <label class="form-label">Photos (Optional)</label>
-                                <input type="file" class="form-control" id="pod-photos" accept="image/*" multiple>
-                                <small class="text-muted">You can select multiple photos</small>
-                            </div>
-                            <div class="mb-0">
-                                <label class="form-label">Notes</label>
-                                <textarea class="form-control" id="pod-notes" rows="2" placeholder="Optional notes"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="mt-3 d-grid">
                         <button class="btn btn-outline-secondary" onclick="markSignatureDoneAndNext()">Continue</button>
                     </div>
@@ -957,15 +925,7 @@ function checkPdcWarning() {
 }
 
 function togglePodDetails() {
-    const details = document.getElementById('pod-details');
-    const chevron = document.getElementById('pod-chevron');
-    if (details.style.display === 'none') {
-        details.style.display = 'block';
-        chevron.classList.replace('fa-chevron-down', 'fa-chevron-up');
-    } else {
-        details.style.display = 'none';
-        chevron.classList.replace('fa-chevron-up', 'fa-chevron-down');
-    }
+    // Removed
 }
 
 function openStep(which) {
