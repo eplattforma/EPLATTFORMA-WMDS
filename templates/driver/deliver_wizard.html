@@ -333,62 +333,11 @@ input[type=number]::-webkit-inner-spin-button {
             </div>
         </div>
 
-        <div class="accordion-item">
-            <h2 class="accordion-header" id="hPrint">
-                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-                        data-bs-target="#cPrint" aria-expanded="false" aria-controls="cPrint">
-                    <strong><i class="fas fa-print"></i> Print & Close</strong>
-                </button>
-            </h2>
-            <div id="cPrint" class="accordion-collapse collapse" aria-labelledby="hPrint" data-bs-parent="#closeoutAcc">
-                <div class="accordion-body">
-                    <div class="mb-2 small text-muted">Required documents:</div>
-                    <ul class="list-group mb-3">
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Exceptions Proof
-                            <span class="badge bg-secondary" id="reqExProof">Optional</span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            Payment Document (Receipt / Acknowledgement)
-                            <span class="badge bg-secondary" id="reqPayDoc">Required</span>
-                        </li>
-                    </ul>
-                    <div class="d-grid gap-2">
-                        <button class="btn btn-primary btn-lg" id="btnPrintRequired" onclick="printRequiredDocuments()">
-                            <i class="fas fa-print"></i> Print Required Documents
-                        </button>
-                        <button class="btn btn-outline-secondary" id="btnReprintEx" onclick="printExceptionsProof()" style="display:none;">
-                            Reprint Exceptions Proof
-                        </button>
-                        <button class="btn btn-outline-secondary" id="btnReprintPay" onclick="printPaymentDoc()" style="display:none;">
-                            Reprint Payment Document
-                        </button>
-                        <button class="btn btn-outline-danger" id="btnRequestCorrection" onclick="showCorrectionForm()" style="display:none;">
-                            Request Correction
-                        </button>
-                        <div id="correction-form" style="display:none;" class="mt-2 text-start">
-                            <label class="form-label">Reason for correction:</label>
-                            <textarea class="form-control mb-2" id="correction-reason" rows="2" placeholder="Describe what needs to be corrected"></textarea>
-                            <button class="btn btn-danger w-100" onclick="submitCorrectionRequest()">Submit Correction Request</button>
-                        </div>
-                    </div>
-                    <div class="alert alert-warning mt-3" id="closeBlockers" style="display:none;"></div>
-
-                    <hr class="my-3">
-                    <div class="d-grid">
-                        <button class="btn btn-success btn-lg" id="btnSaveDelivery" onclick="submitDelivery()">
-                            <i class="fas fa-check-circle me-1"></i> Confirm & Save Delivery
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     </div>
 
     <div class="mt-3">
         <div class="d-grid">
-            <button class="btn btn-dark btn-lg" id="btnFinishStop" onclick="finishStop()" disabled>
+            <button class="btn btn-success btn-lg" id="btnFinishStop" onclick="closeStop()" disabled>
                 <i class="fas fa-flag-checkered me-1"></i> Close Stop
             </button>
         </div>
@@ -493,8 +442,6 @@ const allowCheque = app.dataset.allowCheque === '1';
 const allowOnline = app.dataset.allowOnline === '1';
 const allowCard = app.dataset.allowCard === '1';
 
-window.exceptionsProofPrinted = false;
-window.paymentDocPrinted = false;
 window.deliverySaved = false;
 let rawCents = "";
 let lastSubmitData = null;
@@ -939,8 +886,7 @@ function openStep(which) {
     const map = {
         exceptions: 'cExceptions',
         signature: 'cSignature',
-        payment: 'cPayment',
-        print: 'cPrint'
+        payment: 'cPayment'
     };
     const id = map[which];
     if (!id) return;
@@ -960,8 +906,7 @@ function refreshHeaderAndSteps() {
     const inv = totalInvoicesAmount;
     const exTot = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
 
-    const exDone = (exceptions.length === 0) || window.exceptionsProofPrinted === true;
-    setStepDone('st-ex', exDone);
+    setStepDone('st-ex', true);
 
     const sigRequired = isSignatureRequired();
     const sigChecked = !!document.getElementById('signedInvoiceSwitch')?.checked;
@@ -977,16 +922,9 @@ function refreshHeaderAndSteps() {
     }
     setStepDone('st-pay', payDone);
 
-    const printDone = isCredit ? true : (window.paymentDocPrinted === true);
-    const exPrintDone = (exceptions.length === 0) ? true : (window.exceptionsProofPrinted === true);
-    setStepDone('st-prn', printDone && exPrintDone);
-
     const blockers = [];
     if (sigRequired && !sigChecked) blockers.push("Signed invoice required.");
     if (!payDone) blockers.push("Payment entry incomplete.");
-    if (!window.deliverySaved) blockers.push("Delivery must be saved first.");
-    if (!isCredit && !printDone) blockers.push("Payment document must be printed.");
-    if (exceptions.length > 0 && !exPrintDone) blockers.push("Exceptions proof required.");
 
     const btnFinish = document.getElementById('btnFinishStop');
     const reason = document.getElementById('finishReason');
@@ -1003,151 +941,18 @@ function refreshHeaderAndSteps() {
             : '';
     }
 
-    const reqEx = document.getElementById('reqExProof');
-    if (reqEx) {
-        reqEx.textContent = (exceptions.length > 0) ? "Required" : "N/A";
-        reqEx.className = (exceptions.length > 0) ? "badge bg-warning text-dark" : "badge bg-secondary";
-    }
-
-    const reqPay = document.getElementById('reqPayDoc');
-    if (reqPay) {
-        if (isCredit) {
-            reqPay.textContent = "N/A (Credit)";
-            reqPay.className = "badge bg-secondary";
-        } else {
-            reqPay.textContent = "Required";
-            reqPay.className = "badge bg-warning text-dark";
-        }
-    }
 }
 
 function markExceptionsDoneAndNext() { refreshHeaderAndSteps(); openStep('signature'); }
 
-async function saveAndContinueExceptions() {
-    const btn = document.getElementById('btnSaveExceptions');
-    const orig = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Saving...';
-    try {
-        const res = await fetch(`/driver/stops/${stopId}/save_exceptions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ exceptions: exceptions })
-        });
-        const data = await res.json();
-        if (!data.success) {
-            alert('Could not save exceptions: ' + (data.error || 'Unknown error'));
-            btn.disabled = false;
-            btn.innerHTML = orig;
-            return;
-        }
-        // Sync exceptions array with DB state (IDs assigned) to prevent duplicates on re-save
-        if (data.exceptions) {
-            exceptions.length = 0;
-            data.exceptions.forEach(ex => exceptions.push(ex));
-            renderExceptions();
-        }
-        markExceptionsDoneAndNext();
-    } catch (e) {
-        alert('Error saving exceptions: ' + e.message);
-        btn.disabled = false;
-        btn.innerHTML = orig;
-    }
-}
 function markSignatureDoneAndNext() { refreshHeaderAndSteps(); openStep('payment'); }
-function markPaymentDoneAndNext() { refreshHeaderAndSteps(); openStep('print'); }
+function markPaymentDoneAndNext() { refreshHeaderAndSteps(); }
 
-async function printExceptionsProof() {
-    // Save exceptions to DB first — the proof is a legal document
-    try {
-        const saveRes = await fetch(`/driver/stops/${stopId}/save_exceptions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ exceptions: exceptions })
-        });
-        const saveData = await saveRes.json();
-        if (!saveData.success) {
-            alert('Could not save exceptions: ' + (saveData.error || 'Unknown error'));
-            return;
-        }
-        if (saveData.exceptions) {
-            exceptions.length = 0;
-            saveData.exceptions.forEach(ex => exceptions.push(ex));
-            renderExceptions();
-        }
-    } catch (e) {
-        alert('Error saving exceptions: ' + e.message);
-        return;
-    }
-
-    const params = new URLSearchParams();
-    params.set('doc', 'exceptions');
-    params.set('fmt', 'png');
-
-    try {
-        const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
-        const data = await res.json();
-        if (!data.print_url) { alert('Could not generate exceptions proof'); return; }
-
-        await shareOrOpenReceipt(data.print_url, `exceptions-${stopId}.png`);
-        window.exceptionsProofPrinted = true;
-
-        const btn = document.getElementById('btnReprintEx');
-        if (btn) btn.style.display = 'block';
-
-        refreshHeaderAndSteps();
-    } catch (e) {
-        alert('Error printing exceptions proof: ' + e.message);
-    }
-}
-
-async function printPaymentDoc() {
-    const codAmountEl = document.getElementById('cod-received');
-    const codMethodEl = document.getElementById('cod-method');
-    const chequeNoEl = document.getElementById('cheque-number');
-    const chequeDateEl = document.getElementById('cheque-date');
-
-    const params = new URLSearchParams();
-    params.set('fmt', 'png');
-    if (codAmountEl) params.set('collected', codAmountEl.value || '0');
-    if (codMethodEl) params.set('payment_method', codMethodEl.value || '');
-    if (chequeNoEl && chequeNoEl.value) params.set('cheque_number', chequeNoEl.value);
-    if (chequeDateEl && chequeDateEl.value) params.set('cheque_date', chequeDateEl.value);
-
-    try {
-        const res = await fetch(`/driver/api/stops/${stopId}/print_token?${params.toString()}`);
-        const data = await res.json();
-        if (!data.print_url) { alert('Could not generate payment document'); return; }
-
-        await shareOrOpenReceipt(data.print_url, `payment-${stopId}.png`);
-        window.paymentDocPrinted = true;
-
-        const btn = document.getElementById('btnReprintPay');
-        if (btn) btn.style.display = 'block';
-
-        refreshHeaderAndSteps();
-    } catch (e) {
-        alert('Error printing payment document: ' + e.message);
-    }
-}
-
-async function printRequiredDocuments() {
-    if (exceptions.length > 0 && !window.exceptionsProofPrinted) {
-        await printExceptionsProof();
-    }
-    if (!isCredit && !window.paymentDocPrinted) {
-        await printPaymentDoc();
-    }
-    const corrBtn = document.getElementById('btnRequestCorrection');
-    if (corrBtn) corrBtn.style.display = 'block';
-    refreshHeaderAndSteps();
-}
-
-function finishStop() {
+async function closeStop() {
     refreshHeaderAndSteps();
     const btn = document.getElementById('btnFinishStop');
     if (btn && btn.disabled) return;
-    window.location.href = `/driver/routes/${routeId}/stops`;
+    await submitDelivery();
 }
 
 async function submitDelivery() {
@@ -1236,9 +1041,6 @@ async function submitDelivery() {
             cod: codPayload,
             pod: {
                 has_physical_signed_invoice: hasPhysicalInvoice,
-                receiver_name: document.getElementById('pod-receiver').value,
-                receiver_relationship: document.getElementById('pod-relationship').value,
-                notes: document.getElementById('pod-notes').value,
                 photos: []
             },
             gps: gps
@@ -1255,16 +1057,8 @@ async function submitDelivery() {
         if (data.success) {
             lastSubmitData = data;
             window.deliverySaved = true;
-
-            alert('Delivery saved. Now print required documents to close the stop.');
-
-            document.querySelectorAll('#cExceptions button, #cExceptions input, #cExceptions select, #cExceptions textarea').forEach(el => el.disabled = true);
-            document.querySelectorAll('#cSignature input, #cSignature select, #cSignature textarea').forEach(el => el.disabled = true);
-            document.querySelectorAll('#cPayment input, #cPayment select, #cPayment textarea, #cPayment button').forEach(el => el.disabled = true);
-            document.getElementById('btnSaveDelivery').disabled = true;
-
-            openStep('print');
-            refreshHeaderAndSteps();
+            window.location.href = `/driver/routes/${routeId}/stops`;
+            return;
         } else {
             alert(data.error || 'Failed to complete delivery');
         }
