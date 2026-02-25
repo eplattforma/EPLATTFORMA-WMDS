@@ -38,10 +38,10 @@ def get_shipment_invoices(shipment_id: int) -> List[Dict]:
         FROM route_stop rs
         JOIN route_stop_invoice rsi 
             ON rsi.route_stop_id = rs.route_stop_id 
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         JOIN invoices i ON i.invoice_no = rsi.invoice_no
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
         ORDER BY rs.seq_no, rsi.invoice_no
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -103,8 +103,8 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             GROUP BY invoice_no
         ) disc ON disc.invoice_no = rsi.invoice_no
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
-          AND rsi.is_active = true
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
+          AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         ORDER BY rs.seq_no, rsi.invoice_no
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -200,9 +200,9 @@ def check_missing_final_status(shipment_id: int) -> List[Dict]:
         FROM route_stop rs
         JOIN route_stop_invoice rsi 
             ON rsi.route_stop_id = rs.route_stop_id 
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND (rsi.status IS NULL OR LOWER(rsi.status) NOT IN ('delivered','delivery_failed','partial','returned_to_warehouse','skipped','failed','returned'))
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -216,12 +216,12 @@ def check_missing_pod(shipment_id: int) -> List[Dict]:
         FROM route_stop rs
         JOIN route_stop_invoice rsi
             ON rsi.route_stop_id = rs.route_stop_id
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         LEFT JOIN pod_records pr
             ON pr.route_id = rs.shipment_id
             AND pr.route_stop_id = rs.route_stop_id
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND LOWER(rsi.status) = 'delivered'
           AND pr.id IS NULL
     """)
@@ -236,11 +236,11 @@ def check_open_post_delivery_cases(shipment_id: int) -> List[Dict]:
         FROM invoice_post_delivery_cases ipdc
         JOIN route_stop_invoice rsi
             ON rsi.invoice_no = ipdc.invoice_no
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         JOIN route_stop rs
             ON rs.route_stop_id = rsi.route_stop_id
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND ipdc.status = 'OPEN'
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -254,11 +254,11 @@ def check_unresolved_discrepancies(shipment_id: int) -> List[Dict]:
         FROM delivery_discrepancies d
         JOIN route_stop_invoice rsi
             ON rsi.invoice_no = d.invoice_no
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         JOIN route_stop rs
             ON rs.route_stop_id = rsi.route_stop_id
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND d.is_resolved = false
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -293,21 +293,21 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
             FROM route_stop rs
             JOIN route_stop_invoice rsi 
                 ON rsi.route_stop_id = rs.route_stop_id 
-                AND rsi.is_active = true
+                AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
             WHERE rs.shipment_id = :shipment_id 
-              AND rs.deleted_at IS NULL
+              AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
         ),
         pod_missing AS (
             SELECT COUNT(*) AS cnt
             FROM route_stop rs
             JOIN route_stop_invoice rsi 
                 ON rsi.route_stop_id = rs.route_stop_id 
-                AND rsi.is_active = true
+                AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
             LEFT JOIN pod_records pr
                 ON pr.route_id = rs.shipment_id
                 AND pr.route_stop_id = rs.route_stop_id
             WHERE rs.shipment_id = :shipment_id
-              AND rs.deleted_at IS NULL
+              AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
               AND LOWER(rsi.status) = 'delivered'
               AND pr.id IS NULL
         ),
@@ -316,11 +316,11 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
             FROM invoice_post_delivery_cases ipdc
             JOIN route_stop_invoice rsi 
                 ON rsi.invoice_no = ipdc.invoice_no 
-                AND rsi.is_active = true
+                AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
             JOIN route_stop rs 
                 ON rs.route_stop_id = rsi.route_stop_id
             WHERE rs.shipment_id = :shipment_id
-              AND rs.deleted_at IS NULL
+              AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
               AND ipdc.status = 'OPEN'
         ),
         unresolved_disc AS (
@@ -328,11 +328,11 @@ def get_reconciliation_summary(shipment_id: int) -> Dict:
             FROM delivery_discrepancies d
             JOIN route_stop_invoice rsi 
                 ON rsi.invoice_no = d.invoice_no 
-                AND rsi.is_active = true
+                AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
             JOIN route_stop rs 
                 ON rs.route_stop_id = rsi.route_stop_id
             WHERE rs.shipment_id = :shipment_id
-              AND rs.deleted_at IS NULL
+              AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
               AND d.is_resolved = false
         ),
         cash AS (
@@ -375,7 +375,7 @@ def get_stop_details(shipment_id: int) -> List[Dict]:
             rs.customer_code
         FROM route_stop rs
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
         ORDER BY rs.seq_no
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -393,7 +393,7 @@ def get_stop_invoices(route_stop_id: int) -> List[Dict]:
         FROM route_stop_invoice rsi
         JOIN invoices i ON i.invoice_no = rsi.invoice_no
         WHERE rsi.route_stop_id = :route_stop_id 
-          AND rsi.is_active = true
+          AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         ORDER BY rsi.invoice_no
     """)
     result = db.session.execute(sql, {'route_stop_id': route_stop_id})
@@ -465,7 +465,7 @@ def get_exceptions_report(shipment_id: int) -> List[Dict]:
         FROM route_stop rs
         JOIN route_stop_invoice rsi 
             ON rsi.route_stop_id = rs.route_stop_id 
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         LEFT JOIN invoice_post_delivery_cases ipdc 
             ON ipdc.invoice_no = rsi.invoice_no AND ipdc.status = 'OPEN'
         LEFT JOIN delivery_discrepancies d 
@@ -475,7 +475,7 @@ def get_exceptions_report(shipment_id: int) -> List[Dict]:
         LEFT JOIN cod_receipts cr 
             ON cr.route_id = rs.shipment_id AND cr.route_stop_id = rs.route_stop_id
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND (
             rsi.status IS NULL
             OR LOWER(rsi.status) NOT IN ('delivered', 'delivery_failed', 'partial', 'returned_to_warehouse', 'skipped', 'failed', 'returned')
@@ -753,12 +753,12 @@ def check_failed_without_driver_handover(shipment_id: int) -> List[Dict]:
         FROM route_stop rs
         JOIN route_stop_invoice rsi 
             ON rsi.route_stop_id = rs.route_stop_id 
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         LEFT JOIN route_return_handover rrh
             ON rrh.route_id = rs.shipment_id
             AND rrh.invoice_no = rsi.invoice_no
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND LOWER(rsi.status) IN ('delivery_failed', 'returned_to_warehouse', 'failed')
           AND (rrh.driver_confirmed_at IS NULL OR rrh.id IS NULL)
     """)
@@ -773,12 +773,12 @@ def check_failed_without_warehouse_receipt(shipment_id: int) -> List[Dict]:
         FROM route_stop rs
         JOIN route_stop_invoice rsi 
             ON rsi.route_stop_id = rs.route_stop_id 
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         JOIN route_return_handover rrh
             ON rrh.route_id = rs.shipment_id
             AND rrh.invoice_no = rsi.invoice_no
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND LOWER(rsi.status) IN ('delivery_failed', 'returned_to_warehouse', 'failed')
           AND rrh.driver_confirmed_at IS NOT NULL
           AND rrh.warehouse_received_at IS NULL
@@ -795,11 +795,11 @@ def check_discrepancies_needing_credit_note(shipment_id: int) -> List[Dict]:
         FROM delivery_discrepancies d
         JOIN route_stop_invoice rsi
             ON rsi.invoice_no = d.invoice_no
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         JOIN route_stop rs
             ON rs.route_stop_id = rsi.route_stop_id
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND d.is_validated = true
           AND d.credit_note_required = true
           AND d.credit_note_no IS NULL
@@ -815,11 +815,11 @@ def check_discrepancies_needing_warehouse_check(shipment_id: int) -> List[Dict]:
         FROM delivery_discrepancies d
         JOIN route_stop_invoice rsi
             ON rsi.invoice_no = d.invoice_no
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         JOIN route_stop rs
             ON rs.route_stop_id = rsi.route_stop_id
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
           AND d.warehouse_checked_at IS NULL
     """)
     result = db.session.execute(sql, {'shipment_id': shipment_id})
@@ -855,7 +855,7 @@ def build_route_reconciliation(shipment_id: int) -> Dict:
         FROM route_stop rs
         JOIN route_stop_invoice rsi 
             ON rsi.route_stop_id = rs.route_stop_id 
-            AND rsi.is_active = true
+            AND (rsi.is_active = true OR LOWER(rsi.status) IN ('delivered', 'delivery_failed', 'returned_to_warehouse'))
         JOIN invoices i ON i.invoice_no = rsi.invoice_no
         LEFT JOIN LATERAL (
             SELECT is_credit, terms_code
@@ -866,7 +866,7 @@ def build_route_reconciliation(shipment_id: int) -> Dict:
             LIMIT 1
         ) ct ON true
         WHERE rs.shipment_id = :shipment_id
-          AND rs.deleted_at IS NULL
+          AND (rs.deleted_at IS NULL OR rs.delivered_at IS NOT NULL OR rs.failed_at IS NOT NULL)
         ORDER BY rs.seq_no, rsi.invoice_no
     """)
     invoices_result = db.session.execute(sql, {'shipment_id': shipment_id})

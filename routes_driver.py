@@ -2225,8 +2225,8 @@ def returns_screen(route_id):
         )
     ).filter(
         RouteStop.shipment_id == route_id,
-        RouteStop.deleted_at == None,
-        RouteStopInvoice.is_active == True,
+        db.or_(RouteStop.deleted_at == None, RouteStop.delivered_at.isnot(None), RouteStop.failed_at.isnot(None)),
+        db.or_(RouteStopInvoice.is_active == True, db.func.lower(RouteStopInvoice.status).in_(['delivered', 'delivery_failed', 'returned_to_warehouse'])),
         db.func.lower(RouteStopInvoice.status).in_(['delivery_failed', 'returned_to_warehouse', 'failed'])
     ).order_by(RouteStop.seq_no).all()
     
@@ -2339,8 +2339,8 @@ def confirm_all_returns(route_id):
         RouteStopInvoice.route_stop_id
     ).join(RouteStop).filter(
         RouteStop.shipment_id == route_id,
-        RouteStop.deleted_at == None,
-        RouteStopInvoice.is_active == True,
+        db.or_(RouteStop.deleted_at == None, RouteStop.delivered_at.isnot(None), RouteStop.failed_at.isnot(None)),
+        db.or_(RouteStopInvoice.is_active == True, db.func.lower(RouteStopInvoice.status).in_(['delivered', 'delivery_failed', 'returned_to_warehouse'])),
         db.func.lower(RouteStopInvoice.status).in_(['delivery_failed', 'returned_to_warehouse', 'failed'])
     ).all()
     
