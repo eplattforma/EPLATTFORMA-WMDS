@@ -854,11 +854,24 @@ function refreshAmountsUI() {
     if (checkEl) checkEl.classList.add('d-none');
     if (warnEl) warnEl.classList.add('d-none');
 
-    if (entered > 0) {
-        if (Math.abs(entered - collectTarget) < 0.01) {
+    const displayEl = document.getElementById('cod-display');
+    if (displayEl) {
+        if (entered <= 0) {
+            displayEl.style.color = '#ffffff';
+        } else if (Math.abs(entered - collectTarget) < 0.01 || entered > collectTarget) {
+            displayEl.style.color = '#22c55e';
             if (checkEl) checkEl.classList.remove('d-none');
         } else {
+            displayEl.style.color = '#f97316';
             if (warnEl) warnEl.classList.remove('d-none');
+        }
+    } else {
+        if (entered > 0) {
+            if (Math.abs(entered - collectTarget) < 0.01) {
+                if (checkEl) checkEl.classList.remove('d-none');
+            } else {
+                if (warnEl) warnEl.classList.remove('d-none');
+            }
         }
     }
 }
