@@ -129,19 +129,10 @@ input[type=number]::-webkit-inner-spin-button {
     </div>
     {% endif %}
 
-    {% if terms.is_credit %}
-    <div class="alert alert-info mb-2">
-        <strong><i class="fas fa-credit-card"></i> On Account (Credit)</strong> — Payment on account per credit terms.
-        {% if terms.notes_for_driver %}
-        <div class="small mt-1">{{ terms.notes_for_driver }}</div>
-        {% endif %}
-    </div>
-    {% else %}
     {% if terms.notes_for_driver %}
     <div class="alert alert-warning mb-2">
         <strong><i class="fas fa-info-circle"></i> Note:</strong> {{ terms.notes_for_driver }}
     </div>
-    {% endif %}
     {% endif %}
 
     <div class="accordion" id="closeoutAcc">
