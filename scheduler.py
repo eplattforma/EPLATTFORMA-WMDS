@@ -58,7 +58,18 @@ def setup_scheduler(app):
                 misfire_grace_time=3600
             )
             logger.info("✓ Incremental DW sync scheduled: Daily at 1:00 AM and 1:00 PM")
-            
+
+            scheduler.add_job(
+                func=_run_invoice_sync,
+                trigger=CronTrigger(hour=21, minute=0),
+                id='daily_invoice_sync',
+                name='Daily Invoice Sync from PS365',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Daily invoice sync scheduled: Daily at 9:00 PM")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
         
@@ -119,6 +130,37 @@ def _run_incremental_sync():
             logger.info("=" * 80)
     except Exception as e:
         logger.error(f"Error in scheduled incremental sync: {str(e)}", exc_info=True)
+
+
+def _run_invoice_sync():
+    """Wrapper to run daily PS365 invoice sync with proper app context."""
+    try:
+        from app import app
+        from services_powersoft import sync_invoices_from_ps365
+
+        with app.app_context():
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            logger.info("=" * 80)
+            logger.info("SCHEDULED DAILY INVOICE SYNC STARTED")
+            logger.info(f"Syncing invoices for date: {today}")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+
+            result = sync_invoices_from_ps365(import_date=today)
+
+            if result.get("success"):
+                logger.info(f"Invoice sync result: {result.get('created', 0)} created, "
+                            f"{result.get('updated', 0)} updated, "
+                            f"{result.get('processed', 0)} processed")
+            else:
+                logger.error(f"Invoice sync failed: {result.get('error', 'Unknown error')}")
+
+            logger.info("=" * 80)
+            logger.info("SCHEDULED DAILY INVOICE SYNC COMPLETED")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+    except Exception as e:
+        logger.error(f"Error in scheduled invoice sync: {str(e)}", exc_info=True)
 
 
 def add_custom_job(schedule_description, job_name, job_func, hour=None, minute=0, day_of_week=None):
