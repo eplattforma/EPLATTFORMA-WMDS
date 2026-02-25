@@ -1137,6 +1137,7 @@ def print_receipt_png_by_id(receipt_id):
                     amount_val=float(receipt.received_amount or 0),
                     comments=inv_list_str,
                     driver_username=receipt.driver_username,
+                    user_code=current_user.username,
                     route_stop_id=receipt.route_stop_id,
                     invoice_no=inv_list_str,
                     cheque_number=receipt.cheque_number or '',
