@@ -1172,11 +1172,13 @@ def print_receipt_png_by_id(receipt_id):
 
     invoices_list = []
     invoice_total_sum = Decimal('0')
+    invoice_nos_plain = []
     for inv_no in (receipt.invoice_nos or []):
         inv = Invoice.query.get(inv_no)
         inv_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
         invoices_list.append({'invoice_no': inv_no, 'total': inv_total})
         invoice_total_sum += inv_total
+        invoice_nos_plain.append(inv_no)
 
     from models import DeliveryDiscrepancy
     exceptions_raw = DeliveryDiscrepancy.query.filter(
@@ -1198,9 +1200,25 @@ def print_receipt_png_by_id(receipt_id):
     payment_method = receipt.payment_method or 'not_collected'
     is_collected = collected > 0 and payment_method.lower() not in ('not_collected', 'online')
 
+    _METHOD_LABELS = {
+        'cash': 'Cash',
+        'cheque': 'Cheque',
+        'post_dated_cheque': 'Post-Dated Cheque',
+        'pdc': 'Post-Dated Cheque',
+        'card': 'Card',
+        'online': 'Bank Transfer',
+        'credit': 'On Account',
+    }
+    method_label = _METHOD_LABELS.get(payment_method.lower(), payment_method.replace('_', ' ').title())
+    payments_list = []
+    if collected > 0 and payment_method.lower() not in ('not_collected',):
+        payments_list.append({'method': method_label, 'amount': float(collected)})
+
     # Use PS365 reference number as receipt_no for official receipts; fall back to internal ID
     ps365_ref = (receipt.ps365_reference_number or '').strip()
     display_receipt_no = ps365_ref if ps365_ref else str(receipt.id)
+
+    collector_name = (receipt.driver_username or (route.driver_name if route else '') or '').strip()
 
     png_data = {
         'is_collected': is_collected,
@@ -1212,10 +1230,14 @@ def print_receipt_png_by_id(receipt_id):
         'route_no': route.id if route else '',
         'stop_no': str(stop.seq_no).zfill(3) if stop and stop.seq_no else '---',
         'driver_name': route.driver_name if route else '',
+        'collector_name': collector_name,
         'customer_code': stop.customer_code or '' if stop else '',
         'customer_name': stop.stop_name or '' if stop else '',
         'customer_addr': stop.stop_addr or '' if stop else '',
         'invoices': invoices_list,
+        'invoice_nos_plain': invoice_nos_plain,
+        'payments': payments_list,
+        'total_collected': float(collected),
         'expected': expected_total,
         'collected': collected,
         'balance_due': expected_total - collected,
