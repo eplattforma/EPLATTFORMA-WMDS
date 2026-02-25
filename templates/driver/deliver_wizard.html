@@ -327,6 +327,9 @@ input[type=number]::-webkit-inner-spin-button {
                     </div>
                     {% endif %}
 
+                    <div class="mt-3 d-grid">
+                        <button class="btn btn-outline-secondary" onclick="markPaymentDoneAndNext()">Done — Review Summary</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -632,13 +635,15 @@ function renderExceptions() {
         const deliveredText = ex.is_rebate ? 'N/A' : `${deliveredQty}${unitText}`;
 
         const notesText = ex.notes ? ` | ${ex.notes}` : '';
+        const exVal = parseFloat(ex.exception_value || 0);
+        const valText = exVal > 0 ? ` <span style="color:#dc3545;font-weight:700;">\u2212\u20AC${exVal.toFixed(2)}</span>` : '';
 
         const div = document.createElement('div');
         div.className = 'alert alert-warning d-flex align-items-start';
         div.innerHTML = `
             <button type="button" class="btn btn-sm" onclick="removeException(${index})" style="background: none; border: none; font-size: 1.5rem; line-height: 1; color: #000; padding: 0; margin-right: 10px; cursor: pointer;">\u00D7</button>
             <div style="flex: 1;">
-                <strong><span style="color: ${typeColor};">${typeLabel}</span></strong> ${qtyText}${notesText}<br>
+                <strong><span style="color: ${typeColor};">${typeLabel}</span></strong> ${qtyText}${valText}${notesText}<br>
                 <small><strong>${ex.item_code}</strong> - ${ex.item_name}<br>Expected: ${expectedQty} | Delivered: ${deliveredText}</small>
             </div>
         `;
@@ -969,7 +974,11 @@ function refreshHeaderAndSteps() {
 function markExceptionsDoneAndNext() { refreshHeaderAndSteps(); openStep('signature'); }
 
 function markSignatureDoneAndNext() { refreshHeaderAndSteps(); openStep('payment'); }
-function markPaymentDoneAndNext() { refreshHeaderAndSteps(); }
+function markPaymentDoneAndNext() {
+    refreshHeaderAndSteps();
+    const el = document.getElementById('cPayment');
+    if (el) bootstrap.Collapse.getOrCreateInstance(el).hide();
+}
 
 async function closeStop() {
     refreshHeaderAndSteps();
