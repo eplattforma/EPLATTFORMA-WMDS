@@ -183,9 +183,6 @@ input[type=number]::-webkit-inner-spin-button {
                                 <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch" style="transform: scale(1.4);">
                             </div>
                         </div>
-                        <div id="sig-warn" class="small text-danger mt-2" style="display:none;">
-                            Required for Credit / Pay Online / Post-dated cheque.
-                        </div>
                     </div>
 
                     <div class="mt-3 d-grid">
@@ -719,24 +716,19 @@ function updateSignatureRequirementUI() {
     const required = isSignatureRequired();
     const badge = document.getElementById('sig-required-badge');
     const help = document.getElementById('sig-help');
-    const warn = document.getElementById('sig-warn');
     const sw = document.getElementById('signedInvoiceSwitch');
     const block = document.getElementById('sigBlock');
     const sigBadge = document.getElementById('sigBadge');
 
-    if (!badge || !help || !warn || !sw || !block) return;
+    if (!badge || !help || !sw || !block) return;
 
     if (required) {
         badge.textContent = 'REQUIRED';
         badge.className = 'badge bg-danger ms-2';
-        help.textContent = 'Required for Credit / Pay Online / Post-dated cheque.';
-        warn.style.display = sw.checked ? 'none' : 'block';
         block.classList.toggle('border-danger', !sw.checked);
     } else {
         badge.textContent = 'Optional';
         badge.className = 'badge bg-secondary ms-2';
-        help.textContent = 'Recommended, but optional for Cash/Day Cheque/Card.';
-        warn.style.display = 'none';
         block.classList.remove('border-danger');
     }
 
