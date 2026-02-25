@@ -111,9 +111,11 @@ def mark_intake_received(case_id):
     try:
         notes = request.form.get('notes', '')
         services_warehouse_intake.mark_intake_received(case_id, notes)
+        db.session.commit()
         flash('Case marked as received at warehouse', 'success')
         return redirect(url_for('warehouse.intake_dashboard'))
     except Exception as e:
+        db.session.rollback()
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('warehouse.intake_dashboard'))
 
@@ -125,9 +127,11 @@ def queue_reroute(case_id):
     try:
         notes = request.form.get('notes', '')
         reroute_request = services_warehouse_intake.queue_for_reroute(case_id, notes)
+        db.session.commit()
         flash(f'Invoice queued for reroute (Request #{reroute_request.id})', 'success')
         return redirect(url_for('warehouse.intake_dashboard'))
     except Exception as e:
+        db.session.rollback()
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('warehouse.intake_dashboard'))
 
@@ -139,9 +143,10 @@ def return_to_stock(case_id):
     try:
         notes = request.form.get('notes', '')
         case = services_warehouse_intake.return_to_stock(case_id, notes)
-        # Redirect to printable put-away list
+        db.session.commit()
         return redirect(url_for('warehouse.print_putaway_list', invoice_no=case.invoice_no))
     except Exception as e:
+        db.session.rollback()
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('warehouse.intake_dashboard'))
 
