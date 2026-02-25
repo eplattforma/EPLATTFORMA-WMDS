@@ -21,7 +21,7 @@
         <div class="card mb-3 shadow-sm">
             <div class="card-header bg-{{ status_class }} text-white d-flex justify-content-between align-items-center">
                 <div>
-                    <strong>Route #{{ route.id }}: {{ route.route_name or 'Untitled' }}</strong>
+                    <strong>{{ route.id }}: {{ route.route_name or 'Untitled' }}</strong>
                     <span class="badge bg-light text-dark ms-2">{{ route.status }}</span>
                 </div>
                 <small>{{ route.delivery_date.strftime('%d/%m/%Y') if route.delivery_date else 'No Date' }}</small>
