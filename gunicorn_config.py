@@ -1,34 +1,34 @@
 # Production-Ready Gunicorn Configuration
 import os
 
-# Worker configuration - 2 workers prevents single-worker blocking
+is_production = os.environ.get("REPLIT_DEPLOYMENT") == "1"
+
+# Worker configuration
 bind = "0.0.0.0:5000"
-workers = 2                 # Multiple workers prevent blocking during long operations
+workers = 2 if is_production else 1
 worker_class = "sync"
-worker_connections = 100    # Allow more concurrent connections per worker
-max_requests = 500          # Recycle workers after 500 requests to prevent memory leaks
-max_requests_jitter = 50    # Add randomness to prevent all workers recycling at once
+worker_connections = 100
+max_requests = 500
+max_requests_jitter = 50
 
 # Timeout settings - extended for large PO downloads with many items
-timeout = 300               # 5 minutes - allows for large PO downloads with many items
-keepalive = 5               # Keep connections alive longer for efficiency
-graceful_timeout = 30       # Allow graceful shutdown
+timeout = 300
+keepalive = 5
+graceful_timeout = 30
 
-# Logging - enable for production debugging
-loglevel = "warning"        # Log warnings and errors
-accesslog = "-"             # Log to stdout for Replit logs
-errorlog = "-"              # Log errors to stdout
-capture_output = True       # Capture print statements
+# Logging
+loglevel = "warning"
+accesslog = "-"
+errorlog = "-"
+capture_output = True
 enable_stdio_inheritance = True
 
 # Performance optimizations
-preload_app = True          # Load app once before forking (faster startup)
+preload_app = True
 reuse_port = True
 worker_tmp_dir = "/dev/shm"
-sendfile = True             # Use sendfile for static files
-tcp_nodelay = True          # Disable Nagle's algorithm for faster responses
-
-import os
+sendfile = True
+tcp_nodelay = True
 
 _scheduler_started = False
 
@@ -45,4 +45,5 @@ def post_fork(server, worker):
         except Exception as e:
             server.log.warning("Could not start scheduler: %s", e)
 
-print("Production config: 2 workers, 120s timeout, logging enabled")
+env_label = "Production" if is_production else "Development"
+print(f"{env_label} config: {workers} worker(s), {timeout}s timeout")
