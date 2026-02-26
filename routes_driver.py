@@ -1060,36 +1060,6 @@ def submit_delivery(stop_id):
         
         db.session.commit()
         
-        ps365_warning = None
-        if cod_receipt and (cod_receipt.doc_type or 'official') == 'official' and not cod_receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                inv_list_str = ', '.join(invoice_nos[:5])
-                if len(invoice_nos) > 5:
-                    inv_list_str += f' +{len(invoice_nos)-5}'
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code,
-                    amount_val=float(cod_receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=cod_receipt.driver_username,
-                    user_code=current_user.username,
-                    route_stop_id=cod_receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=cod_receipt.cheque_number or '',
-                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                if ok and ref_num:
-                    cod_receipt.ps365_reference_number = ref_num
-                    cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                    cod_receipt.ps365_synced_at = utc_now()
-                    db.session.commit()
-                else:
-                    ps365_warning = 'PS365 returned without a valid reference number'
-            except Exception as ps365_err:
-                logging.warning(f"PS365 receipt creation deferred for receipt {cod_receipt.id}: {ps365_err}")
-                ps365_warning = str(ps365_err)
-
         print_png_url = None
         if cod_receipt:
             print_png_url = url_for('driver.print_receipt_png_by_id', receipt_id=cod_receipt.id)
@@ -1098,7 +1068,10 @@ def submit_delivery(stop_id):
         if discrepancies:
             exceptions_print_url = url_for('driver.print_exceptions_png', stop_id=stop_id)
 
-        result = {
+        needs_ps365 = (cod_receipt and (cod_receipt.doc_type or 'official') == 'official'
+                       and not cod_receipt.ps365_reference_number)
+
+        return jsonify({
             'success': True,
             'cod': {
                 'expected': float(cod_expected),
@@ -1107,11 +1080,9 @@ def submit_delivery(stop_id):
             },
             'receipt_id': cod_receipt.id if cod_receipt else None,
             'print_png_url': print_png_url,
-            'exceptions_print_url': exceptions_print_url
-        }
-        if ps365_warning:
-            result['ps365_warning'] = 'Payment saved locally. PS365 sync pending — receipt can still be printed.'
-        return jsonify(result)
+            'exceptions_print_url': exceptions_print_url,
+            'needs_ps365_sync': needs_ps365
+        })
     
     except Exception as e:
         db.session.rollback()

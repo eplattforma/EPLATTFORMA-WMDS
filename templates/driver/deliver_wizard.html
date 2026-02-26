@@ -1158,21 +1158,6 @@ async function submitDelivery() {
             lastSubmitData = data;
             window.deliverySaved = true;
 
-            if (data.ps365_warning && data.receipt_id) {
-                const retrySync = confirm('Payment saved. PS365 sync pending.\n\nTap OK to retry sync now, or Cancel to print receipt without PS365 reference.');
-                if (retrySync) {
-                    try {
-                        const retryRes = await fetch(`/driver/receipts/${data.receipt_id}/retry_ps365`, { method: 'POST' });
-                        const retryData = await retryRes.json();
-                        if (!retryData.success) {
-                            alert('PS365 sync still pending. Receipt will print with local reference. Office can sync later.');
-                        }
-                    } catch (retryErr) {
-                        console.error('PS365 retry error:', retryErr);
-                    }
-                }
-            }
-
             if (data.print_png_url) {
                 let printOk = false;
                 try {
@@ -1186,28 +1171,41 @@ async function submitDelivery() {
                         const blob = await printRes.blob();
                         const filename = `receipt-stop${stopId}.png`;
                         const file = new File([blob], filename, { type: 'image/png' });
+                        let shared = false;
                         try {
                             if (navigator.canShare && navigator.canShare({ files: [file] })) {
                                 await navigator.share({ files: [file], title: 'Receipt' });
-                            } else {
-                                const objUrl = URL.createObjectURL(blob);
-                                window.open(objUrl, '_blank');
+                                shared = true;
                             }
-                            printOk = true;
                         } catch (shareErr) {
                             if (shareErr.name === 'AbortError') {
-                                printOk = true;
+                                shared = true;
                             } else {
-                                console.error('Share error:', shareErr);
-                                const retry = confirm('Could not open share dialog.\n\nTap OK to retry, or Cancel to go to stops list.');
-                                if (retry) return;
+                                console.warn('Share API unavailable, opening in new tab:', shareErr.message);
                             }
                         }
+                        if (!shared) {
+                            const objUrl = URL.createObjectURL(blob);
+                            window.open(objUrl, '_blank');
+                        }
+                        printOk = true;
                     }
                 } catch (fetchErr) {
                     console.error('Print fetch error:', fetchErr);
                     const retry = confirm('Network error while printing receipt.\n\nTap OK to retry, or Cancel to go to stops list.');
                     if (retry) return;
+                }
+            }
+
+            if (data.needs_ps365_sync && data.receipt_id) {
+                try {
+                    const syncRes = await fetch(`/driver/receipts/${data.receipt_id}/retry_ps365`, { method: 'POST' });
+                    const syncData = await syncRes.json();
+                    if (!syncData.success) {
+                        console.warn('PS365 sync deferred:', syncData.error);
+                    }
+                } catch (syncErr) {
+                    console.warn('PS365 background sync failed:', syncErr.message);
                 }
             }
 
@@ -1227,7 +1225,7 @@ async function submitDelivery() {
                             if (shareErr.name === 'AbortError') {
                                 excPrinted = true;
                             } else {
-                                console.error('Exceptions share error:', shareErr);
+                                console.warn('Exceptions share unavailable, opening in new tab:', shareErr.message);
                             }
                         }
                         if (!excPrinted) {
