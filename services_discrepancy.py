@@ -289,18 +289,12 @@ def get_route_settlement_summary(route_id):
             COALESCE(d.total_deductions, 0) as deductions,
             COALESCE(d.discrepancy_count, 0) as discrepancy_count,
             rsi.status as delivery_status,
-            COALESCE(ct.is_credit, false) as is_credit_customer
+            pt.payment_type_code_365 as expected_payment_group
         FROM invoices i
         JOIN route_stop_invoice rsi ON rsi.invoice_no = i.invoice_no AND rsi.is_active = true
         JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
-        LEFT JOIN LATERAL (
-            SELECT ct2.is_credit
-            FROM credit_terms ct2
-            WHERE ct2.customer_code = i.customer_code
-              AND (ct2.valid_to IS NULL OR ct2.valid_to >= CURRENT_DATE)
-            ORDER BY ct2.id DESC
-            LIMIT 1
-        ) ct ON true
+        LEFT JOIN ps_customers pc ON pc.customer_code_365 = i.customer_code_365
+        LEFT JOIN payment_customers pt ON pt.customer_code_365 = i.customer_code_365
         LEFT JOIN (
             SELECT 
                 invoice_no,
@@ -331,10 +325,10 @@ def get_route_settlement_summary(route_id):
             'amount_due': original - deductions,
             'discrepancy_count': row.discrepancy_count,
             'delivery_status': row.delivery_status,
-            'payment_group': 'CREDIT' if row.is_credit_customer else 'POD'
+            'payment_group': 'CREDIT' if row.expected_payment_group == 'CREDIT' else 'POD'
         })
         
-        if (row.delivery_status or '').lower() == 'delivered':
+        if row.delivery_status == 'DELIVERED':
             total_expected += original
             total_deductions += deductions
     

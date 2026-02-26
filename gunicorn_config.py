@@ -28,4 +28,4 @@ worker_tmp_dir = "/dev/shm"
 sendfile = True             # Use sendfile for static files
 tcp_nodelay = True          # Disable Nagle's algorithm for faster responses
 
-print("Production config: 2 workers, 300s timeout, logging enabled")
+print("Production config: 2 workers, 120s timeout, logging enabled")
