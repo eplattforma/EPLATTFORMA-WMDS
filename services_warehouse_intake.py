@@ -207,7 +207,7 @@ def mark_intake_received(case_id: int, notes: str = None):
         notes=f"Warehouse intake received. {notes or ''}"
     )
     
-    db.session.flush()
+    db.session.commit()
     return case
 
 
@@ -248,7 +248,7 @@ def queue_for_reroute(case_id: int, notes: str = None):
         notes=f"Reroute request #{reroute_request.id}. {notes or ''}"
     )
     
-    db.session.flush()
+    db.session.commit()
     return reroute_request
 
 
@@ -287,6 +287,6 @@ def return_to_stock(case_id: int, notes: str = None):
     )
     
     case.status = 'CLOSED'
-    db.session.flush()
+    db.session.commit()
     
     return case

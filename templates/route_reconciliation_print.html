@@ -259,9 +259,9 @@
                         <td>{{ stop_recon.customer_name }}</td>
                         <td>{{ disc.invoice_no }}</td>
                         <td>{{ disc.discrepancy_type or 'Return' }}</td>
-                        <td>{{ disc.item_code_expected or '-' }}</td>
+                        <td>{{ disc.item_code or '-' }}</td>
                         <td>{{ disc.item_name or '-' }}</td>
-                        <td class="text-end">{{ (disc.qty_expected - (disc.qty_actual | int if disc.qty_actual is not none else 0)) if disc.qty_expected else '-' }}</td>
+                        <td class="text-end">{{ disc.reported_qty or '-' }}</td>
                         <td class="text-end">{{ "%.2f"|format(disc.reported_value) if disc.reported_value else '-' }}</td>
                     </tr>
                     {% endfor %}

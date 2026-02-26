@@ -96,40 +96,8 @@ def get_credit_terms(customer_code):
         'allow_bank_transfer': terms.allow_bank_transfer,
         'allow_card_pos': terms.allow_card_pos,
         'cheque_days_allowed': terms.cheque_days_allowed,
-        'notes_for_driver': terms.notes_for_driver if terms.notes_for_driver and terms.notes_for_driver.strip() not in ('', 'None', 'null') else None
+        'notes_for_driver': terms.notes_for_driver
     }
-
-def _compute_due_date(invoice_nos, customer_code, issued_at):
-    """Compute the payment due date for a bank transfer payment advice."""
-    from models import DwInvoiceHeader
-    import datetime as dt
-
-    due_days = 7
-    if customer_code:
-        terms = CreditTerms.query.filter(
-            CreditTerms.customer_code == customer_code,
-            (CreditTerms.valid_to.is_(None)) | (CreditTerms.valid_to >= dt.date.today())
-        ).order_by(CreditTerms.valid_from.desc()).first()
-        if terms and terms.due_days:
-            due_days = terms.due_days
-
-    earliest_date = None
-    if invoice_nos:
-        for inv_no in invoice_nos:
-            hdr = DwInvoiceHeader.query.filter_by(invoice_no_365=inv_no).first()
-            if hdr and hdr.invoice_date_utc0:
-                if earliest_date is None or hdr.invoice_date_utc0 < earliest_date:
-                    earliest_date = hdr.invoice_date_utc0
-
-    if earliest_date is None and issued_at:
-        earliest_date = issued_at.date() if hasattr(issued_at, 'date') else issued_at
-
-    if earliest_date is None:
-        earliest_date = dt.date.today()
-
-    pay_by = earliest_date + timedelta(days=due_days)
-    return pay_by.strftime('%Y-%m-%d')
-
 
 # --- Routes Dashboard ---
 
@@ -560,22 +528,6 @@ def save_exceptions(stop_id):
             key = (invoice_no, item_code) if invoice_no and item_code else None
             item_obj = items_by_key.get(key) if key else None
 
-            if not is_rebate and item_obj:
-                ordered = Decimal(str(item_obj.qty or 0))
-                already_in_db = sum(
-                    Decimal(str(d.qty_expected or 0)) - Decimal(str(d.qty_actual or 0))
-                    for d in existing_discs
-                    if d.invoice_no == invoice_no and d.item_code_expected == item_code and d.id in kept_ids
-                )
-                already_new = sum(
-                    Decimal(str(prev.get('qty', 0) or 0))
-                    for prev in exceptions_data[:exceptions_data.index(ex)]
-                    if not prev.get('id') and prev.get('invoice_no') == invoice_no
-                    and prev.get('item_code') == item_code and prev.get('item_code') != 'REB-00'
-                )
-                if qty + already_in_db + already_new > ordered:
-                    return jsonify({'error': f"Exception qty exceeds ordered qty {ordered} for {item_code} on {invoice_no}"}), 400
-
             disc = DeliveryDiscrepancy(
                 invoice_no=invoice_no,
                 item_code_expected=item_code or 'UNKNOWN',
@@ -731,18 +683,6 @@ def submit_delivery(stop_id):
             
             # Special handling for Rebate REB-00
             is_rebate = (item_code == 'REB-00')
-
-            if not is_rebate and key and key in items_by_key:
-                ordered = items_by_key[key]['ordered']
-                already_excepted = sum(
-                    Decimal(str(prev.get('qty', 0) or 0))
-                    for prev in exceptions[:exceptions.index(ex)]
-                    if prev.get('invoice_no') == invoice_no
-                    and prev.get('item_code') == item_code
-                    and prev.get('item_code') != 'REB-00'
-                )
-                if qty + already_excepted > ordered:
-                    abort(400, description=f"Exception qty {qty + already_excepted} exceeds ordered qty {ordered} for item {item_code} on {invoice_no}")
             rebate_amount = Decimal(str(ex.get('amount', 0) or 0)) if is_rebate else Decimal(0)
             if is_rebate:
                 total_rebate_reduction += rebate_amount
@@ -948,40 +888,28 @@ def submit_delivery(stop_id):
                 cheque_date_alloc = datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
                 is_postdated_alloc = cod_method == 'cheque' and cheque_date_alloc and cheque_date_alloc > datetime.now().date()
                 is_pending_method = cod_method in ('online', 'postdated', 'post_dated') or is_postdated_alloc
-
-                inv_rows = []
                 for invoice_no in invoice_nos:
                     inv = Invoice.query.get(invoice_no)
                     invoice_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
                     invoice_deduct = discrepancy_values_by_invoice.get(invoice_no, Decimal('0'))
-                    invoice_due = max(invoice_total - invoice_deduct, Decimal('0'))
-                    inv_rows.append({
-                        'invoice_no': invoice_no,
-                        'invoice_total': invoice_total,
-                        'invoice_deduct': invoice_deduct,
-                        'invoice_due': invoice_due,
-                    })
+                    invoice_due = invoice_total - invoice_deduct
 
-                inv_rows.sort(key=lambda r: r['invoice_due'])
-
-                remaining = received
-                for row in inv_rows:
-                    if len(invoice_nos) == 1:
-                        invoice_received = received
+                    if cod_expected > 0 and len(invoice_nos) > 1:
+                        proportion = invoice_due / cod_expected
+                        invoice_received = (received * proportion).quantize(Decimal('0.01'))
                     else:
-                        invoice_received = min(row['invoice_due'], remaining)
-                        remaining -= invoice_received
+                        invoice_received = received if len(invoice_nos) == 1 else Decimal('0')
 
-                    is_underpaid = (invoice_received + row['invoice_deduct']) < row['invoice_total']
+                    is_underpaid = (invoice_received + invoice_deduct) < invoice_total
                     is_pending = is_pending_method or is_underpaid
 
                     allocation = CODInvoiceAllocation(
                         cod_receipt_id=cod_receipt.id,
-                        invoice_no=row['invoice_no'],
+                        invoice_no=invoice_no,
                         route_id=route.id,
-                        expected_amount=row['invoice_total'],
+                        expected_amount=invoice_total,
                         received_amount=invoice_received,
-                        deduct_amount=row['invoice_deduct'],
+                        deduct_amount=invoice_deduct,
                         payment_method=cod_method,
                         is_pending=is_pending,
                         cheque_number=cod.get('cheque_number'),
@@ -1085,53 +1013,6 @@ def submit_delivery(stop_id):
         logging.error(f"Error submitting delivery for stop {stop_id}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# --- Driver Correction Request ---
-
-@driver_bp.route('/receipts/<int:receipt_id>/request_correction', methods=['POST'])
-@driver_required
-def request_receipt_correction(receipt_id):
-    """Driver requests a correction on an ISSUED receipt.
-    
-    Creates a note against the receipt and flags it for admin review.
-    The driver cannot void/reissue directly; an admin must act on the request.
-    """
-    try:
-        receipt = CODReceipt.query.get_or_404(receipt_id)
-        route = Shipment.query.get(receipt.route_id)
-
-        if not route:
-            return jsonify({'success': False, 'error': 'Route not found'}), 404
-
-        if route.driver_name != current_user.username and current_user.role != 'admin':
-            abort(403, description="Not your receipt")
-
-        if receipt.status == 'VOIDED':
-            return jsonify({'success': False, 'error': 'Receipt is already voided; contact admin for reissue'}), 400
-
-        data = request.get_json(force=True) if request.is_json else {}
-        reason = (data.get('reason') or '').strip()
-        if not reason:
-            return jsonify({'success': False, 'error': 'A correction reason is required'}), 400
-
-        existing_note = receipt.note or ''
-        correction_flag = f"[CORRECTION REQUEST by {current_user.username} at {utc_now().strftime('%Y-%m-%d %H:%M')} UTC]: {reason}"
-        receipt.note = f"{existing_note}\n{correction_flag}".strip()
-
-        db.session.commit()
-        logging.info(f"Receipt {receipt_id} correction requested by {current_user.username}: {reason}")
-
-        return jsonify({
-            'success': True,
-            'message': 'Correction request submitted. An admin will review and reissue if necessary.',
-            'receipt_id': receipt_id
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        logging.error(f"Error requesting correction for receipt {receipt_id}: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
 # --- Fail Delivery ---
 
 @driver_bp.route('/stops/<int:stop_id>/fail', methods=['POST'])
@@ -1196,46 +1077,6 @@ def print_receipt(receipt_id):
     route = Shipment.query.get(receipt.route_id)
     stop = RouteStop.query.get(receipt.route_stop_id)
     
-    if receipt.status != 'VOIDED':
-        doc_type_val = (receipt.doc_type or 'official').lower()
-        if doc_type_val == 'official' and not receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                invoice_nos_list = receipt.invoice_nos or []
-                inv_list_str = ', '.join(invoice_nos_list[:5])
-                if len(invoice_nos_list) > 5:
-                    inv_list_str += f' +{len(invoice_nos_list)-5}'
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code if stop else '',
-                    amount_val=float(receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=receipt.driver_username,
-                    user_code=current_user.username,
-                    route_stop_id=receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=receipt.cheque_number or '',
-                    cheque_date=receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                receipt.ps365_reference_number = ref_num
-                receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                receipt.ps365_synced_at = utc_now()
-            except Exception as ps365_err:
-                logging.error(f"PS365 receipt creation failed for receipt {receipt_id}: {ps365_err}")
-
-        now = utc_now()
-        if receipt.status != 'ISSUED':
-            receipt.status = 'ISSUED'
-            receipt.locked_at = now
-            receipt.locked_by = current_user.username
-            receipt.print_count = 1
-            receipt.first_printed_at = now
-            receipt.last_printed_at = now
-        else:
-            receipt.print_count = (receipt.print_count or 0) + 1
-            receipt.last_printed_at = now
-        db.session.commit()
-    
     invoices = []
     for invoice_no in receipt.invoice_nos:
         inv = Invoice.query.get(invoice_no)
@@ -1255,46 +1096,6 @@ def print_receipt_80mm(receipt_id):
     receipt = CODReceipt.query.get_or_404(receipt_id)
     route = Shipment.query.get(receipt.route_id)
     stop = RouteStop.query.get(receipt.route_stop_id)
-    
-    if receipt.status != 'VOIDED':
-        doc_type_val = (receipt.doc_type or 'official').lower()
-        if doc_type_val == 'official' and not receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                invoice_nos_list = receipt.invoice_nos or []
-                inv_list_str = ', '.join(invoice_nos_list[:5])
-                if len(invoice_nos_list) > 5:
-                    inv_list_str += f' +{len(invoice_nos_list)-5}'
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code if stop else '',
-                    amount_val=float(receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=receipt.driver_username,
-                    user_code=current_user.username,
-                    route_stop_id=receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=receipt.cheque_number or '',
-                    cheque_date=receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                receipt.ps365_reference_number = ref_num
-                receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                receipt.ps365_synced_at = utc_now()
-            except Exception as ps365_err:
-                logging.error(f"PS365 receipt creation failed for receipt {receipt_id}: {ps365_err}")
-
-        now = utc_now()
-        if receipt.status != 'ISSUED':
-            receipt.status = 'ISSUED'
-            receipt.locked_at = now
-            receipt.locked_by = current_user.username
-            receipt.print_count = 1
-            receipt.first_printed_at = now
-            receipt.last_printed_at = now
-        else:
-            receipt.print_count = (receipt.print_count or 0) + 1
-            receipt.last_printed_at = now
-        db.session.commit()
     
     invoices = []
     for invoice_no in receipt.invoice_nos:
@@ -1371,31 +1172,23 @@ def print_receipt_png_by_id(receipt_id):
 
     invoices_list = []
     invoice_total_sum = Decimal('0')
-    invoice_nos_plain = []
     for inv_no in (receipt.invoice_nos or []):
         inv = Invoice.query.get(inv_no)
         inv_total = Decimal(str(inv.total_grand or 0)) if inv else Decimal('0')
         invoices_list.append({'invoice_no': inv_no, 'total': inv_total})
         invoice_total_sum += inv_total
-        invoice_nos_plain.append(inv_no)
 
     from models import DeliveryDiscrepancy
     exceptions_raw = DeliveryDiscrepancy.query.filter(
         DeliveryDiscrepancy.invoice_no.in_(receipt.invoice_nos)
     ).all() if receipt.invoice_nos else []
-    exceptions_total = Decimal('0')
-    exceptions_list = []
-    for exc in exceptions_raw:
-        ded_val = float(exc.reported_value or 0)
-        exceptions_total += Decimal(str(exc.reported_value or 0))
-        exceptions_list.append({
-            'type': exc.discrepancy_type or '',
-            'item_name': exc.item_name or '',
-            'qty_expected': exc.qty_expected or '',
-            'qty_actual': exc.qty_actual or '',
-            'note': exc.note or '',
-            'deduction_value': ded_val,
-        })
+    exceptions_list = [{
+        'type': exc.discrepancy_type or '',
+        'item_name': exc.item_name or '',
+        'qty_expected': exc.qty_expected or '',
+        'qty_actual': exc.qty_actual or '',
+        'note': exc.note or ''
+    } for exc in exceptions_raw]
 
     terms = get_credit_terms(stop.customer_code) if stop else {'is_credit': False}
     is_credit = terms['is_credit']
@@ -1405,30 +1198,9 @@ def print_receipt_png_by_id(receipt_id):
     payment_method = receipt.payment_method or 'not_collected'
     is_collected = collected > 0 and payment_method.lower() not in ('not_collected', 'online')
 
-    _METHOD_LABELS = {
-        'cash': 'Cash',
-        'cheque': 'Cheque',
-        'post_dated_cheque': 'Post-Dated Cheque',
-        'pdc': 'Post-Dated Cheque',
-        'card': 'Card',
-        'online': 'Bank Transfer',
-        'credit': 'On Account',
-    }
-    method_label = _METHOD_LABELS.get(payment_method.lower(), payment_method.replace('_', ' ').title())
-    payments_list = []
-    if collected > 0 and payment_method.lower() not in ('not_collected',):
-        payments_list.append({'method': method_label, 'amount': float(collected)})
-
+    # Use PS365 reference number as receipt_no for official receipts; fall back to internal ID
     ps365_ref = (receipt.ps365_reference_number or '').strip()
     display_receipt_no = ps365_ref if ps365_ref else str(receipt.id)
-
-    collector_name = (receipt.driver_username or (route.driver_name if route else '') or '').strip()
-
-    net_payable = invoice_total_sum - exceptions_total
-
-    due_date_str = ''
-    if doc_type_val == 'online_notice':
-        due_date_str = _compute_due_date(receipt.invoice_nos, stop.customer_code if stop else None, receipt.created_at)
 
     png_data = {
         'is_collected': is_collected,
@@ -1440,14 +1212,10 @@ def print_receipt_png_by_id(receipt_id):
         'route_no': route.id if route else '',
         'stop_no': str(stop.seq_no).zfill(3) if stop and stop.seq_no else '---',
         'driver_name': route.driver_name if route else '',
-        'collector_name': collector_name,
         'customer_code': stop.customer_code or '' if stop else '',
         'customer_name': stop.stop_name or '' if stop else '',
         'customer_addr': stop.stop_addr or '' if stop else '',
         'invoices': invoices_list,
-        'invoice_nos_plain': invoice_nos_plain,
-        'payments': payments_list,
-        'total_collected': float(collected),
         'expected': expected_total,
         'collected': collected,
         'balance_due': expected_total - collected,
@@ -1456,12 +1224,8 @@ def print_receipt_png_by_id(receipt_id):
         'cheque_date': receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else None,
         'notes': receipt.note or '',
         'exceptions': exceptions_list,
-        'doc_type': doc_type_val,
+        'doc_type': getattr(receipt, 'doc_type', None) or 'official',
         'ps365_reference_number': getattr(receipt, 'ps365_reference_number', None) or '',
-        'invoices_subtotal': float(invoice_total_sum),
-        'exceptions_total': float(exceptions_total),
-        'net_payable': float(net_payable),
-        'due_date': due_date_str,
     }
 
     w = request.args.get('w', type=int)
@@ -1512,12 +1276,9 @@ def print_exceptions_png(stop_id):
 
     exceptions_list = [{
         'type': exc.discrepancy_type or '',
-        'item_code': exc.item_code_expected or '',
         'item_name': exc.item_name or '',
         'qty_expected': exc.qty_expected or '',
         'qty_actual': exc.qty_actual or '',
-        'qty_not_delivered': max(0, (exc.qty_expected or 0) - int(exc.qty_actual or 0)),
-        'deduct_amount': float(exc.deduct_amount or 0),
         'note': exc.note or ''
     } for exc in exceptions_raw]
 
@@ -1568,47 +1329,8 @@ def print_stop_receipt(stop_id):
         CODReceipt.created_at.desc()
     ).first()
     
-    if cod_receipt and cod_receipt.status != 'VOIDED':
-        doc_type_val = (cod_receipt.doc_type or 'official').lower()
-        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                invoice_nos_list = cod_receipt.invoice_nos or []
-                inv_list_str = ', '.join(invoice_nos_list[:5])
-                if len(invoice_nos_list) > 5:
-                    inv_list_str += f' +{len(invoice_nos_list)-5}'
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code if stop else '',
-                    amount_val=float(cod_receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=cod_receipt.driver_username,
-                    user_code=current_user.username,
-                    route_stop_id=cod_receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=cod_receipt.cheque_number or '',
-                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                cod_receipt.ps365_reference_number = ref_num
-                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                cod_receipt.ps365_synced_at = utc_now()
-            except Exception as ps365_err:
-                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
-
-        now = utc_now()
-        if cod_receipt.status != 'ISSUED':
-            cod_receipt.status = 'ISSUED'
-            cod_receipt.locked_at = now
-            cod_receipt.locked_by = current_user.username
-            cod_receipt.print_count = 1
-            cod_receipt.first_printed_at = now
-            cod_receipt.last_printed_at = now
-        else:
-            cod_receipt.print_count = (cod_receipt.print_count or 0) + 1
-            cod_receipt.last_printed_at = now
-        db.session.commit()
-
     if not cod_receipt:
+        # No COD receipt yet - get invoices for this stop
         stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id).all()
         invoice_numbers = [rsi.invoice_no for rsi in stop_invoices]
         
@@ -1618,6 +1340,7 @@ def print_stop_receipt(stop_id):
             if inv and inv.total_grand:
                 expected_amount += Decimal(str(inv.total_grand))
         
+        # Create receipt data showing NOT COLLECTED status
         receipt_data = {
             'receipt_id': f"PREVIEW-{stop_id}",
             'stop_name': stop.stop_name or 'N/A',
@@ -1700,47 +1423,9 @@ def print_stop_receipt_80mm(stop_id):
     for exc in exceptions:
         logging.info(f"  - {exc.discrepancy_type}: {exc.item_name} (Expected: {exc.qty_expected}, Actual: {exc.qty_actual})")
     
-    if cod_receipt and cod_receipt.status != 'VOIDED':
-        doc_type_val = (cod_receipt.doc_type or 'official').lower()
-        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                invoice_nos_list = cod_receipt.invoice_nos or []
-                inv_list_str = ', '.join(invoice_nos_list[:5])
-                if len(invoice_nos_list) > 5:
-                    inv_list_str += f' +{len(invoice_nos_list)-5}'
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code if stop else '',
-                    amount_val=float(cod_receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=cod_receipt.driver_username,
-                    user_code=current_user.username,
-                    route_stop_id=cod_receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=cod_receipt.cheque_number or '',
-                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                cod_receipt.ps365_reference_number = ref_num
-                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                cod_receipt.ps365_synced_at = utc_now()
-            except Exception as ps365_err:
-                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
-
-        now = utc_now()
-        if cod_receipt.status != 'ISSUED':
-            cod_receipt.status = 'ISSUED'
-            cod_receipt.locked_at = now
-            cod_receipt.locked_by = current_user.username
-            cod_receipt.print_count = 1
-            cod_receipt.first_printed_at = now
-            cod_receipt.last_printed_at = now
-        else:
-            cod_receipt.print_count = (cod_receipt.print_count or 0) + 1
-            cod_receipt.last_printed_at = now
-        db.session.commit()
-
+    # If we have a COD receipt, use it; otherwise create preview data
     if not cod_receipt:
+        # Create a mock receipt object for preview
         from datetime import datetime
         
         expected_amount = Decimal('0.00')
@@ -1792,33 +1477,6 @@ def print_receipt_pdf(stop_id):
     ).first()
 
     if cod_receipt and cod_receipt.status != 'VOIDED':
-        doc_type_val = (cod_receipt.doc_type or 'official').lower()
-        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                invoice_nos_list = cod_receipt.invoice_nos or []
-                inv_list_str = ', '.join(invoice_nos_list[:5])
-                if len(invoice_nos_list) > 5:
-                    inv_list_str += f' +{len(invoice_nos_list)-5}'
-                candidate_user = token_data.get('username') or ''
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code if stop else '',
-                    amount_val=float(cod_receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=cod_receipt.driver_username,
-                    user_code=candidate_user,
-                    route_stop_id=cod_receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=cod_receipt.cheque_number or '',
-                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                cod_receipt.ps365_reference_number = ref_num
-                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                cod_receipt.ps365_synced_at = utc_now()
-            except Exception as ps365_err:
-                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
-
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
             # Resolve valid locked_by BEFORE touching the model to prevent autoflush FK violation
@@ -1859,20 +1517,15 @@ def print_receipt_pdf(stop_id):
     exceptions_raw = DeliveryDiscrepancy.query.filter(
         DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
     ).all() if invoice_nos else []
-    exceptions_total_dec = Decimal('0')
-    exceptions_list = []
-    for exc in exceptions_raw:
-        ded_val = float(exc.reported_value or 0)
-        exceptions_total_dec += Decimal(str(exc.reported_value or 0))
-        exceptions_list.append({
-            'type': exc.discrepancy_type or '',
-            'item_name': exc.item_name or '',
-            'qty_expected': exc.qty_expected or '',
-            'qty_actual': exc.qty_actual or '',
-            'note': exc.note or '',
-            'deduction_value': ded_val,
-        })
+    exceptions_list = [{
+        'type': exc.discrepancy_type or '',
+        'item_name': exc.item_name or '',
+        'qty_expected': exc.qty_expected or '',
+        'qty_actual': exc.qty_actual or '',
+        'note': exc.note or ''
+    } for exc in exceptions_raw]
 
+    # If no DB exceptions (delivery not yet saved), fall back to JSON passed from driver app
     if not exceptions_list:
         import json as _json
         exc_param = request.args.get('exc', '')
@@ -1897,7 +1550,6 @@ def print_receipt_pdf(stop_id):
     receipt_no = f"PREVIEW-{stop_id}"
     date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
     expected_total = invoice_total_sum
-    doc_type_val = 'official'
 
     if cod_receipt:
         expected_total = Decimal(str(cod_receipt.expected_amount or 0)) or invoice_total_sum
@@ -1907,10 +1559,8 @@ def print_receipt_pdf(stop_id):
         notes = cod_receipt.note or ''
         cheque_number = cod_receipt.cheque_number
         cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
-        ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
-        receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
+        receipt_no = str(cod_receipt.id)
         date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
-        doc_type_val = (cod_receipt.doc_type or 'official').lower()
         is_preview = False
     else:
         form_collected = request.args.get('collected')
@@ -1936,11 +1586,6 @@ def print_receipt_pdf(stop_id):
     balance_due = expected_total - collected
 
     stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
-    net_payable = invoice_total_sum - exceptions_total_dec
-
-    due_date_str = ''
-    if doc_type_val == 'online_notice':
-        due_date_str = _compute_due_date(invoice_nos, stop.customer_code, cod_receipt.created_at if cod_receipt else None)
 
     pdf_data = {
         'is_collected': is_collected,
@@ -1964,12 +1609,6 @@ def print_receipt_pdf(stop_id):
         'cheque_date': cheque_date,
         'notes': notes,
         'exceptions': exceptions_list,
-        'doc_type': doc_type_val,
-        'ps365_reference_number': getattr(cod_receipt, 'ps365_reference_number', None) or '' if cod_receipt else '',
-        'invoices_subtotal': float(invoice_total_sum),
-        'exceptions_total': float(exceptions_total_dec),
-        'net_payable': float(net_payable),
-        'due_date': due_date_str,
     }
 
     pdf_bytes = build_delivery_receipt_pdf(pdf_data)
@@ -2032,33 +1671,6 @@ def print_receipt_png(stop_id):
     ).first()
 
     if cod_receipt and cod_receipt.status != 'VOIDED':
-        doc_type_val = (cod_receipt.doc_type or 'official').lower()
-        if doc_type_val == 'official' and not cod_receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                invoice_nos_list = cod_receipt.invoice_nos or []
-                inv_list_str = ', '.join(invoice_nos_list[:5])
-                if len(invoice_nos_list) > 5:
-                    inv_list_str += f' +{len(invoice_nos_list)-5}'
-                candidate_user = token_data.get('username') or ''
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code if stop else '',
-                    amount_val=float(cod_receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=cod_receipt.driver_username,
-                    user_code=candidate_user,
-                    route_stop_id=cod_receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=cod_receipt.cheque_number or '',
-                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                cod_receipt.ps365_reference_number = ref_num
-                cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                cod_receipt.ps365_synced_at = utc_now()
-            except Exception as ps365_err:
-                logging.error(f"PS365 receipt creation failed for stop {stop_id}: {ps365_err}")
-
         now = utc_now()
         if cod_receipt.status != 'ISSUED':
             # Resolve valid locked_by BEFORE touching the model to prevent autoflush FK violation
@@ -2099,20 +1711,15 @@ def print_receipt_png(stop_id):
     exceptions_raw = DeliveryDiscrepancy.query.filter(
         DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
     ).all() if invoice_nos else []
-    exceptions_total_dec = Decimal('0')
-    exceptions_list = []
-    for exc in exceptions_raw:
-        ded_val = float(exc.reported_value or 0)
-        exceptions_total_dec += Decimal(str(exc.reported_value or 0))
-        exceptions_list.append({
-            'type': exc.discrepancy_type or '',
-            'item_name': exc.item_name or '',
-            'qty_expected': exc.qty_expected or '',
-            'qty_actual': exc.qty_actual or '',
-            'note': exc.note or '',
-            'deduction_value': ded_val,
-        })
+    exceptions_list = [{
+        'type': exc.discrepancy_type or '',
+        'item_name': exc.item_name or '',
+        'qty_expected': exc.qty_expected or '',
+        'qty_actual': exc.qty_actual or '',
+        'note': exc.note or ''
+    } for exc in exceptions_raw]
 
+    # If no DB exceptions (delivery not yet saved), fall back to JSON passed from driver app
     if not exceptions_list:
         import json as _json
         exc_param = request.args.get('exc', '')
@@ -2137,7 +1744,6 @@ def print_receipt_png(stop_id):
     receipt_no = f"PREVIEW-{stop_id}"
     date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
     expected_total = invoice_total_sum
-    doc_type_val = 'official'
 
     if cod_receipt:
         expected_total = Decimal(str(cod_receipt.expected_amount or 0)) or invoice_total_sum
@@ -2147,10 +1753,8 @@ def print_receipt_png(stop_id):
         notes = cod_receipt.note or ''
         cheque_number = cod_receipt.cheque_number
         cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
-        ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
-        receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
+        receipt_no = str(cod_receipt.id)
         date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
-        doc_type_val = (cod_receipt.doc_type or 'official').lower()
         is_preview = False
     else:
         form_collected = request.args.get('collected')
@@ -2175,11 +1779,6 @@ def print_receipt_png(stop_id):
 
     balance_due = expected_total - collected
     stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
-    net_payable = invoice_total_sum - exceptions_total_dec
-
-    due_date_str = ''
-    if doc_type_val == 'online_notice':
-        due_date_str = _compute_due_date(invoice_nos, stop.customer_code, cod_receipt.created_at if cod_receipt else None)
 
     png_data = {
         'is_collected': is_collected,
@@ -2203,13 +1802,9 @@ def print_receipt_png(stop_id):
         'cheque_date': cheque_date,
         'notes': notes,
         'exceptions': exceptions_list,
-        'doc_type': doc_type_val,
+        'doc_type': getattr(cod_receipt, 'doc_type', None) or 'official' if cod_receipt else 'official',
         'ps365_reference_number': getattr(cod_receipt, 'ps365_reference_number', None) or '' if cod_receipt else '',
         'doc_mode': (request.args.get('doc') or '').strip().lower(),
-        'invoices_subtotal': float(invoice_total_sum),
-        'exceptions_total': float(exceptions_total_dec),
-        'net_payable': float(net_payable),
-        'due_date': due_date_str,
     }
 
     w = request.args.get('w', type=int)
@@ -2503,8 +2098,8 @@ def returns_screen(route_id):
         )
     ).filter(
         RouteStop.shipment_id == route_id,
-        db.or_(RouteStop.deleted_at == None, RouteStop.delivered_at.isnot(None), RouteStop.failed_at.isnot(None)),
-        db.or_(RouteStopInvoice.is_active == True, db.func.lower(RouteStopInvoice.status).in_(['delivered', 'delivery_failed', 'returned_to_warehouse'])),
+        RouteStop.deleted_at == None,
+        RouteStopInvoice.is_active == True,
         db.func.lower(RouteStopInvoice.status).in_(['delivery_failed', 'returned_to_warehouse', 'failed'])
     ).order_by(RouteStop.seq_no).all()
     
@@ -2617,8 +2212,8 @@ def confirm_all_returns(route_id):
         RouteStopInvoice.route_stop_id
     ).join(RouteStop).filter(
         RouteStop.shipment_id == route_id,
-        db.or_(RouteStop.deleted_at == None, RouteStop.delivered_at.isnot(None), RouteStop.failed_at.isnot(None)),
-        db.or_(RouteStopInvoice.is_active == True, db.func.lower(RouteStopInvoice.status).in_(['delivered', 'delivery_failed', 'returned_to_warehouse'])),
+        RouteStop.deleted_at == None,
+        RouteStopInvoice.is_active == True,
         db.func.lower(RouteStopInvoice.status).in_(['delivery_failed', 'returned_to_warehouse', 'failed'])
     ).all()
     

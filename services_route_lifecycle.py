@@ -49,28 +49,10 @@ def recompute_route_completion(route_id, *, commit: bool = True):
             func.lower(RouteStopInvoice.status).notin_(TERMINAL_DELIVERY_STATUSES)
         )
     ).count()
-
-    # Count stops that have never been explicitly closed by the driver.
-    # Deliberately includes soft-deleted stops: a stop removed from the route
-    # during an active delivery still needs a closure event (delivered_at or
-    # failed_at) before it can be ignored. This prevents premature COMPLETED
-    # when stops are accidentally soft-deleted mid-route.
-    unvisited_stops_count = db.session.query(RouteStop).outerjoin(
-        RouteStopInvoice,
-        db.and_(
-            RouteStopInvoice.route_stop_id == RouteStop.route_stop_id,
-            RouteStopInvoice.is_active == True
-        )
-    ).filter(
-        RouteStop.shipment_id == route_id,
-        RouteStop.delivered_at.is_(None),
-        RouteStop.failed_at.is_(None),
-        RouteStopInvoice.route_stop_id.is_(None)  # no active RSI records
-    ).count()
-
+    
     status_changed = False
-
-    if pending_count == 0 and unvisited_stops_count == 0:
+    
+    if pending_count == 0:
         if shipment.status != "COMPLETED":
             shipment.status = "COMPLETED"
             if shipment.completed_at is None:
@@ -621,8 +603,6 @@ def get_route_active_invoices(route_id: int):
 def compute_stop_status(route_stop_id: int):
     """
     Compute aggregate status for a stop based on its active invoices.
-    Uses normalize_status for case-insensitive comparison and
-    TERMINAL_DELIVERY_STATUSES as the single source of truth.
     
     Returns:
         str: 'DELIVERED', 'FAILED', 'PARTIAL', or 'IN_PROGRESS'
@@ -632,9 +612,8 @@ def compute_stop_status(route_stop_id: int):
         return 'IN_PROGRESS'
     
     total = len(invoices)
-    statuses = [normalize_status(i.status) for i in invoices]
-    delivered_count = sum(1 for s in statuses if s == 'delivered')
-    failed_count = sum(1 for s in statuses if s in TERMINAL_DELIVERY_STATUSES and s != 'delivered')
+    delivered_count = sum(1 for i in invoices if normalize_status(i.status) == 'delivered')
+    failed_count = sum(1 for i in invoices if normalize_status(i.status) in ('delivery_failed', 'returned_to_warehouse'))
     terminal_count = delivered_count + failed_count
     
     if delivered_count == total:

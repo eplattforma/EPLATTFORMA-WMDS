@@ -187,9 +187,16 @@ def format_seq_filter(value):
     except:
         return str(value)
 
-# Scheduler initialization is handled by gunicorn post_fork hook (see gunicorn_config.py).
-# The scheduler uses a DB advisory lock so only one process ever runs jobs.
-# For non-Gunicorn usage (flask run / __main__), it starts at the bottom of main.py.
+# Initialize background scheduler for scheduled tasks
+try:
+    from scheduler import setup_scheduler, stop_scheduler
+    setup_scheduler(app)
+    # Ensure scheduler stops when app shuts down
+    atexit.register(stop_scheduler)
+    logging.info("Background scheduler initialized")
+except Exception as e:
+    logging.warning(f"Could not initialize background scheduler: {str(e)}")
+    logging.info("The app will work normally, but scheduled tasks won't run automatically")
 
 
 # CLI command for database maintenance
