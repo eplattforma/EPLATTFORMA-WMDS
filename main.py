@@ -272,147 +272,136 @@ def _create_default_terms_after_customer_insert(mapper, connection, target: Paym
     params["customer_code"] = target.code
     connection.execute(sql, params)
 
-# Run schema updates for both development and production
-with app.app_context():
-    # Update schema for skip and collect functionality
-    try:
-        update_database_schema()
-    except Exception as e:
-        logging.error(f"Error updating skip schema: {str(e)}")
-    
-    # Update schema for batch picking
-    try:
-        from update_batch_picking_schema import update_database_schema as update_batch_schema
-        update_batch_schema()
-    except Exception as e:
-        logging.error(f"Error updating batch schema: {str(e)}")
-        
-    # Update schema to add batch_number field
-    try:
-        from update_batch_number_schema import update_database_schema as update_batch_number_schema
-        update_batch_number_schema()
-        logging.info("Batch number schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating batch number schema: {str(e)}")
-        
-    # Update schema to add unit_types field
-    try:
-        from update_unit_types_schema import update_unit_types_schema
-        update_unit_types_schema()
-        logging.info("Unit types schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating unit types schema: {str(e)}")
-        
-    # Update schema for item time tracking AI features
-    try:
-        from update_item_tracking_schema import update_item_tracking_schema
-        update_item_tracking_schema()
-        logging.info("Item tracking schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating item tracking schema: {str(e)}")
-    
-    # Update invoice status timestamp schema
-    try:
-        from update_invoice_status_timestamp import add_status_timestamp_column
-        add_status_timestamp_column()
-        logging.info("Invoice status timestamp schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating invoice status timestamp schema: {str(e)}")
-    
-    # Update RouteStop schema for contact fields
-    try:
-        from update_route_stop_schema import update_route_stop_schema
-        update_route_stop_schema()
-        logging.info("RouteStop schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating RouteStop schema: {str(e)}")
-    
-    # Update Shipment settlement schema
-    try:
-        from update_shipment_settlement_schema import update_shipment_settlement_schema
-        update_shipment_settlement_schema()
-        logging.info("Shipment settlement schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating Shipment settlement schema: {str(e)}")
-    
-    # Update Warehouse Intake schema (post-delivery cases, reroute, route history)
-    try:
-        from update_warehouse_intake_schema import update_warehouse_intake_schema
-        update_warehouse_intake_schema()
-        logging.info("Warehouse intake schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating warehouse intake schema: {str(e)}")
-    
-    # Update schema for Operational Intelligence (OI) module
-    try:
-        from update_oi_schema import update_oi_schema
-        update_oi_schema()
-        logging.info("OI schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating OI schema: {str(e)}")
-    
-    # Update WmsPackingProfile schema for pack_mode fields
-    try:
-        from update_packing_profile_schema import update_packing_profile_schema
-        update_packing_profile_schema()
-        logging.info("WmsPackingProfile schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating WmsPackingProfile schema: {str(e)}")
-    
-    # Update route reconciliation schema
-    try:
-        from update_route_reconciliation_schema import update_route_reconciliation_schema
-        update_route_reconciliation_schema()
-        logging.info("Route reconciliation schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating route reconciliation schema: {str(e)}")
-    
-    # Update discrepancy verification schema (warehouse verification + credit notes)
-    try:
-        from update_discrepancy_verification_schema import update_discrepancy_verification_schema
-        update_discrepancy_verification_schema()
-        logging.info("Discrepancy verification schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating discrepancy verification schema: {str(e)}")
-    
-    # Update COD receipts locking schema (doc_type, status, locking, printing, voiding)
-    try:
-        from update_cod_receipts_locking_schema import update_cod_receipts_locking_schema
-        update_cod_receipts_locking_schema()
-        logging.info("COD receipts locking schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating COD receipts locking schema: {str(e)}")
-    
-    # Initialize remaining tables
-    from app import db
-    db.create_all()
-    
-    # Update to new order status system
-    try:
-        from update_order_status_system import update_order_status_system
-        update_order_status_system()
-        logging.info("Order status system migration completed")
-    except Exception as e:
-        logging.error(f"Error updating order status system: {str(e)}")
-    
-    # Initialize settings if they don't exist
-    try:
-        from models import Setting
-        # Check if skip_reasons setting exists
-        skip_reasons = Setting.query.filter_by(key='skip_reasons').first()
-        if not skip_reasons:
-            # Create default skip reasons
-            import json
-            default_reasons = ["Out of Stock", "Damaged", "Location Empty", "Other"]
-            new_setting = Setting()
-            new_setting.key = 'skip_reasons'
-            new_setting.value = json.dumps(default_reasons)
-            db.session.add(new_setting)
-            db.session.commit()
-            logging.info("Default skip reasons initialized")
-    except Exception as e:
-        logging.error(f"Error initializing settings: {str(e)}")
-        db.session.rollback()
+def _run_all_schema_migrations():
+    """Run all schema migrations. Called via before_first_request or background thread."""
+    with app.app_context():
+        try:
+            update_database_schema()
+        except Exception as e:
+            logging.error(f"Error updating skip schema: {str(e)}")
+
+        try:
+            from update_batch_picking_schema import update_database_schema as update_batch_schema
+            update_batch_schema()
+        except Exception as e:
+            logging.error(f"Error updating batch schema: {str(e)}")
+
+        try:
+            from update_batch_number_schema import update_database_schema as update_batch_number_schema
+            update_batch_number_schema()
+            logging.info("Batch number schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating batch number schema: {str(e)}")
+
+        try:
+            from update_unit_types_schema import update_unit_types_schema
+            update_unit_types_schema()
+            logging.info("Unit types schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating unit types schema: {str(e)}")
+
+        try:
+            from update_item_tracking_schema import update_item_tracking_schema
+            update_item_tracking_schema()
+            logging.info("Item tracking schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating item tracking schema: {str(e)}")
+
+        try:
+            from update_invoice_status_timestamp import add_status_timestamp_column
+            add_status_timestamp_column()
+            logging.info("Invoice status timestamp schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating invoice status timestamp schema: {str(e)}")
+
+        try:
+            from update_route_stop_schema import update_route_stop_schema
+            update_route_stop_schema()
+            logging.info("RouteStop schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating RouteStop schema: {str(e)}")
+
+        try:
+            from update_shipment_settlement_schema import update_shipment_settlement_schema
+            update_shipment_settlement_schema()
+            logging.info("Shipment settlement schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating Shipment settlement schema: {str(e)}")
+
+        try:
+            from update_warehouse_intake_schema import update_warehouse_intake_schema
+            update_warehouse_intake_schema()
+            logging.info("Warehouse intake schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating warehouse intake schema: {str(e)}")
+
+        try:
+            from update_oi_schema import update_oi_schema
+            update_oi_schema()
+            logging.info("OI schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating OI schema: {str(e)}")
+
+        try:
+            from update_packing_profile_schema import update_packing_profile_schema
+            update_packing_profile_schema()
+            logging.info("WmsPackingProfile schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating WmsPackingProfile schema: {str(e)}")
+
+        try:
+            from update_route_reconciliation_schema import update_route_reconciliation_schema
+            update_route_reconciliation_schema()
+            logging.info("Route reconciliation schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating route reconciliation schema: {str(e)}")
+
+        try:
+            from update_discrepancy_verification_schema import update_discrepancy_verification_schema
+            update_discrepancy_verification_schema()
+            logging.info("Discrepancy verification schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating discrepancy verification schema: {str(e)}")
+
+        try:
+            from update_cod_receipts_locking_schema import update_cod_receipts_locking_schema
+            update_cod_receipts_locking_schema()
+            logging.info("COD receipts locking schema updates completed")
+        except Exception as e:
+            logging.error(f"Error updating COD receipts locking schema: {str(e)}")
+
+        from app import db
+        db.create_all()
+
+        try:
+            from update_order_status_system import update_order_status_system
+            update_order_status_system()
+            logging.info("Order status system migration completed")
+        except Exception as e:
+            logging.error(f"Error updating order status system: {str(e)}")
+
+        try:
+            from models import Setting
+            skip_reasons = Setting.query.filter_by(key='skip_reasons').first()
+            if not skip_reasons:
+                import json
+                default_reasons = ["Out of Stock", "Damaged", "Location Empty", "Other"]
+                new_setting = Setting()
+                new_setting.key = 'skip_reasons'
+                new_setting.value = json.dumps(default_reasons)
+                db.session.add(new_setting)
+                db.session.commit()
+                logging.info("Default skip reasons initialized")
+        except Exception as e:
+            logging.error(f"Error initializing settings: {str(e)}")
+            db.session.rollback()
+
+        logging.info("✅ All schema migrations completed")
+
+import threading
+_migration_thread = threading.Thread(target=_run_all_schema_migrations, daemon=True)
+_migration_thread.start()
+logging.info("Schema migrations started in background thread")
 
 # Add download route for project export
 from flask import send_file, abort, flash, redirect, url_for, render_template_string, request
