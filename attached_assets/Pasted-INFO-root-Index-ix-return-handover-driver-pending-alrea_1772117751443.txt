@@ -1,0 +1,54 @@
+INFO:root:Index ix_return_handover_driver_pending already exists
+INFO:root:Index ix_dd_invoice_status already exists
+INFO:root:credit_note_amount column already exists in delivery_discrepancies table
+INFO:root:✅ Discrepancy verification schema update completed successfully
+INFO:root:Discrepancy verification schema updates completed
+INFO:root:credit_note_created_at column already exists in delivery_discrepancies table
+INFO:root:Index ux_return_handover_route_invoice already exists
+INFO:root:Index ix_return_handover_driver_pending already exists
+INFO:root:doc_type column already exists in cod_receipts table
+INFO:root:Index ix_dd_invoice_status already exists
+INFO:root:✅ Discrepancy verification schema update completed successfully
+INFO:root:Discrepancy verification schema updates completed
+INFO:root:status column already exists in cod_receipts table
+INFO:root:locked_at column already exists in cod_receipts table
+INFO:root:doc_type column already exists in cod_receipts table
+INFO:root:locked_by column already exists in cod_receipts table
+INFO:root:status column already exists in cod_receipts table
+INFO:root:print_count column already exists in cod_receipts table
+INFO:root:locked_at column already exists in cod_receipts table
+INFO:root:first_printed_at column already exists in cod_receipts table
+INFO:root:locked_by column already exists in cod_receipts table
+INFO:root:last_printed_at column already exists in cod_receipts table
+INFO:root:print_count column already exists in cod_receipts table
+INFO:root:voided_at column already exists in cod_receipts table
+INFO:root:first_printed_at column already exists in cod_receipts table
+INFO:root:voided_by column already exists in cod_receipts table
+INFO:root:last_printed_at column already exists in cod_receipts table
+INFO:root:void_reason column already exists in cod_receipts table
+INFO:root:voided_at column already exists in cod_receipts table
+INFO:root:replaced_by_cod_receipt_id column already exists in cod_receipts table
+INFO:root:client_request_id column already exists in cod_receipts table
+INFO:root:voided_by column already exists in cod_receipts table
+INFO:root:ps365_reference_number column already exists in cod_receipts table
+INFO:root:void_reason column already exists in cod_receipts table
+INFO:root:replaced_by_cod_receipt_id column already exists in cod_receipts table
+INFO:root:✅ COD receipts locking schema update completed successfully
+INFO:root:COD receipts locking schema updates completed
+INFO:root:client_request_id column already exists in cod_receipts table
+INFO:root:ps365_reference_number column already exists in cod_receipts table
+INFO:root:✅ COD receipts locking schema update completed successfully
+INFO:root:COD receipts locking schema updates completed
+INFO:root:Starting order status system migration...
+INFO:root:Starting order status system migration...
+INFO:root:✅ Order status system migration completed successfully!
+INFO:root:Updated 0 orders to new status system
+INFO:root:New status sequence: ['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing', 'ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse', 'cancelled']
+INFO:root:✅ Order status system migration completed successfully!
+INFO:root:Updated 0 orders to new status system
+INFO:root:New status sequence: ['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing', 'ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse', 'cancelled']
+INFO:root:Order status system migration completed
+INFO:root:Order status system migration completed
+10.81.12.91 - - [26/Feb/2026:16:54:30 +0200] "GET / HTTP/1.1" 302 215 "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/__replco/workspace_iframe.html?initialPath=%2F&id=%3Ar13r%3A" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+10.81.12.91 - - [26/Feb/2026:16:54:30 +0200] "GET /driver/routes HTTP/1.1" 200 5227 "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/__replco/workspace_iframe.html?initialPath=%2F&id=%3Ar13r%3A" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+10.81.12.91 - - [26/Feb/2026:16:54:30 +0200] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/driv

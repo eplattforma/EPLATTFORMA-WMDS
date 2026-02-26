@@ -1,13 +1,13 @@
 # Production-Ready Gunicorn Configuration
 import os
 
-# Worker configuration - 2 workers prevents single-worker blocking
+# Worker configuration - single worker to reduce memory usage in Replit
 bind = "0.0.0.0:5000"
-workers = 2                 # Multiple workers prevent blocking during long operations
-worker_class = "sync"
-worker_connections = 100    # Allow more concurrent connections per worker
-max_requests = 500          # Recycle workers after 500 requests to prevent memory leaks
-max_requests_jitter = 50    # Add randomness to prevent all workers recycling at once
+workers = 1                 # Single worker to stay within memory limits
+threads = 4                 # Use threads for concurrency instead of extra workers
+worker_class = "gthread"    # Threaded worker class
+max_requests = 1000         # Recycle worker after 1000 requests to prevent memory leaks
+max_requests_jitter = 50    # Add randomness to recycling
 
 # Timeout settings - extended for large PO downloads with many items
 timeout = 300               # 5 minutes - allows for large PO downloads with many items
@@ -22,10 +22,9 @@ capture_output = True       # Capture print statements
 enable_stdio_inheritance = True
 
 # Performance optimizations
-preload_app = False         # Load app per worker for faster deployment
-reuse_port = True
+preload_app = True          # Load app once then fork - saves memory
 worker_tmp_dir = "/dev/shm"
 sendfile = True             # Use sendfile for static files
 tcp_nodelay = True          # Disable Nagle's algorithm for faster responses
 
-print("Production config: 2 workers, 120s timeout, logging enabled")
+print("Production config: 1 worker, 4 threads, 300s timeout, preload enabled")
