@@ -1,0 +1,239 @@
+Production config: 2 workers, 120s timeout, logging enabled
+✓ Delete guards registered for: User, Invoice, Shipment, RouteStop, BatchPickingSession, PSCustomer, PurchaseOrder
+✓ Delete guards registered for: User, Invoice, Shipment, RouteStop, BatchPickingSession, PSCustomer, PurchaseOrder
+INFO:root:Database tables created if they didn't exist
+INFO:root:Database tables created if they didn't exist
+✅ pieces_per_unit_snapshot column already exists
+✅ expected_pick_pieces column already exists
+✅ Invoice items schema update completed successfully!
+✅ pieces_per_unit_snapshot column already exists
+✅ expected_pick_pieces column already exists
+✅ Invoice items schema update completed successfully!
+INFO:root:Settings initialized
+INFO:root:Settings initialized
+INFO:apscheduler.scheduler:Scheduler started
+DEBUG:apscheduler.scheduler:Looking for jobs to run
+DEBUG:apscheduler.scheduler:No jobs; waiting until a job is added
+INFO:scheduler:Background scheduler started successfully
+INFO:root:Background scheduler initialized
+INFO:apscheduler.scheduler:Scheduler started
+DEBUG:apscheduler.scheduler:Looking for jobs to run
+DEBUG:apscheduler.scheduler:No jobs; waiting until a job is added
+INFO:scheduler:Background scheduler started successfully
+INFO:root:Background scheduler initialized
+INFO:root:Admin Tools blueprint already registered
+INFO:root:Skip and collect schema updates already applied
+INFO:update_batch_picking_schema:Batch picking schema updates completed
+INFO:update_batch_number_schema:batch_number column already exists in batch_picking_sessions
+INFO:root:Batch number schema updates completed
+INFO:root:unit_types column already exists in batch_picking_sessions table
+INFO:root:Unit types schema updates completed
+INFO:root:✅ Item tracking schema update completed successfully
+INFO:root:Item tracking schema updates completed
+INFO:root:Admin Tools blueprint already registered
+INFO:update_invoice_status_timestamp:status_updated_at column already exists in invoices table
+INFO:root:Invoice status timestamp schema updates completed
+INFO:root:website column already exists in route_stop table
+INFO:root:phone column already exists in route_stop table
+INFO:root:delivered_at column already exists in route_stop table
+INFO:root:failed_at column already exists in route_stop table
+INFO:root:failure_reason column already exists in route_stop table
+INFO:root:✅ RouteStop schema update completed successfully
+INFO:root:RouteStop schema updates completed
+INFO:root:settlement_status column already exists in shipments table
+INFO:root:driver_submitted_at column already exists in shipments table
+INFO:root:cash_expected column already exists in shipments table
+INFO:root:cash_handed_in column already exists in shipments table
+INFO:root:Skip and collect schema updates already applied
+INFO:root:cash_variance column already exists in shipments table
+INFO:root:cash_variance_note column already exists in shipments table
+INFO:root:returns_count column already exists in shipments table
+INFO:root:returns_weight column already exists in shipments table
+INFO:root:settlement_notes column already exists in shipments table
+INFO:root:completion_reason column already exists in shipments table
+INFO:update_batch_picking_schema:Batch picking schema updates completed
+INFO:root:✅ Shipment settlement schema update completed successfully
+INFO:root:Shipment settlement schema updates completed
+INFO:root:Created invoice_post_delivery_cases table
+INFO:root:Created indexes for invoice_post_delivery_cases
+INFO:root:Created invoice_route_history table
+INFO:root:Created index for invoice_route_history
+INFO:root:Created reroute_requests table
+INFO:root:Created index for reroute_requests
+INFO:root:✅ Warehouse intake schema update completed successfully
+INFO:root:Warehouse intake schema updates completed
+INFO:update_batch_number_schema:batch_number column already exists in batch_picking_sessions
+INFO:root:Batch number schema updates completed
+DEBUG:update_oi_schema:Added/verified column: wms_zone
+DEBUG:update_oi_schema:Added/verified column: wms_unit_type
+DEBUG:update_oi_schema:Added/verified column: wms_fragility
+DEBUG:update_oi_schema:Added/verified column: wms_stackability
+DEBUG:update_oi_schema:Added/verified column: wms_temperature_sensitivity
+DEBUG:update_oi_schema:Added/verified column: wms_pressure_sensitivity
+DEBUG:update_oi_schema:Added/verified column: wms_shape_type
+DEBUG:update_oi_schema:Added/verified column: wms_spill_risk
+DEBUG:update_oi_schema:Added/verified column: wms_pick_difficulty
+DEBUG:update_oi_schema:Added/verified column: wms_shelf_height
+INFO:root:unit_types column already exists in batch_picking_sessions table
+DEBUG:update_oi_schema:Added/verified column: wms_box_fit_rule
+INFO:root:Unit types schema updates completed
+DEBUG:update_oi_schema:Added/verified column: wms_class_confidence
+DEBUG:update_oi_schema:Added/verified column: wms_class_source
+DEBUG:update_oi_schema:Added/verified column: wms_class_notes
+DEBUG:update_oi_schema:Added/verified column: wms_classified_at
+DEBUG:update_oi_schema:Added/verified column: wms_class_evidence
+INFO:update_oi_schema:WMS classification columns updated on ps_items_dw
+INFO:update_oi_schema:Created wms_category_defaults table
+INFO:update_oi_schema:Created wms_item_overrides table
+INFO:update_oi_schema:Created wms_classification_runs table
+INFO:update_oi_schema:Created wms_dynamic_rules table
+INFO:update_oi_schema:Added default_pack_mode column to wms_category_defaults
+INFO:update_oi_schema:Added pack_mode_override column to wms_item_overrides
+INFO:update_oi_schema:OI schema update complete
+INFO:root:OI schema updates completed
+INFO:root:WmsPackingProfile schema updates completed
+INFO:root:expected_payment_method column already exists in route_stop_invoice table
+INFO:root:expected_amount column already exists in route_stop_invoice table
+INFO:root:manifest_locked_at column already exists in route_stop_invoice table
+INFO:root:manifest_locked_by column already exists in route_stop_invoice table
+INFO:root:route_return_handover table already exists
+INFO:root:✅ Route reconciliation schema update completed successfully
+INFO:root:Route reconciliation schema updates completed
+INFO:root:warehouse_checked_by column already exists in delivery_discrepancies table
+INFO:root:warehouse_checked_at column already exists in delivery_discrepancies table
+INFO:root:warehouse_result column already exists in delivery_discrepancies table
+INFO:root:warehouse_note column already exists in delivery_discrepancies table
+INFO:root:credit_note_required column already exists in delivery_discrepancies table
+INFO:root:credit_note_no column already exists in delivery_discrepancies table
+INFO:root:✅ Item tracking schema update completed successfully
+INFO:root:Item tracking schema updates completed
+INFO:root:credit_note_amount column already exists in delivery_discrepancies table
+INFO:root:credit_note_created_at column already exists in delivery_discrepancies table
+INFO:root:Index ux_return_handover_route_invoice already exists
+INFO:root:Index ix_return_handover_driver_pending already exists
+INFO:root:Index ix_dd_invoice_status already exists
+INFO:root:✅ Discrepancy verification schema update completed successfully
+INFO:root:Discrepancy verification schema updates completed
+INFO:root:doc_type column already exists in cod_receipts table
+INFO:root:status column already exists in cod_receipts table
+INFO:root:locked_at column already exists in cod_receipts table
+INFO:root:locked_by column already exists in cod_receipts table
+INFO:update_invoice_status_timestamp:status_updated_at column already exists in invoices table
+INFO:root:print_count column already exists in cod_receipts table
+INFO:root:Invoice status timestamp schema updates completed
+INFO:root:first_printed_at column already exists in cod_receipts table
+INFO:root:website column already exists in route_stop table
+INFO:root:last_printed_at column already exists in cod_receipts table
+INFO:root:phone column already exists in route_stop table
+INFO:root:voided_at column already exists in cod_receipts table
+INFO:root:delivered_at column already exists in route_stop table
+INFO:root:voided_by column already exists in cod_receipts table
+INFO:root:failed_at column already exists in route_stop table
+INFO:root:void_reason column already exists in cod_receipts table
+INFO:root:failure_reason column already exists in route_stop table
+INFO:root:replaced_by_cod_receipt_id column already exists in cod_receipts table
+INFO:root:✅ RouteStop schema update completed successfully
+INFO:root:RouteStop schema updates completed
+INFO:root:client_request_id column already exists in cod_receipts table
+INFO:root:settlement_status column already exists in shipments table
+INFO:root:ps365_reference_number column already exists in cod_receipts table
+INFO:root:driver_submitted_at column already exists in shipments table
+INFO:root:✅ COD receipts locking schema update completed successfully
+INFO:root:COD receipts locking schema updates completed
+INFO:root:cash_expected column already exists in shipments table
+INFO:root:cash_handed_in column already exists in shipments table
+INFO:root:cash_variance column already exists in shipments table
+INFO:root:cash_variance_note column already exists in shipments table
+INFO:root:returns_count column already exists in shipments table
+INFO:root:returns_weight column already exists in shipments table
+INFO:root:settlement_notes column already exists in shipments table
+INFO:root:completion_reason column already exists in shipments table
+INFO:root:✅ Shipment settlement schema update completed successfully
+INFO:root:Shipment settlement schema updates completed
+INFO:root:Created invoice_post_delivery_cases table
+INFO:root:Created indexes for invoice_post_delivery_cases
+INFO:root:Created invoice_route_history table
+INFO:root:Created index for invoice_route_history
+INFO:root:Created reroute_requests table
+INFO:root:Created index for reroute_requests
+INFO:root:✅ Warehouse intake schema update completed successfully
+INFO:root:Warehouse intake schema updates completed
+DEBUG:update_oi_schema:Added/verified column: wms_zone
+DEBUG:update_oi_schema:Added/verified column: wms_unit_type
+DEBUG:update_oi_schema:Added/verified column: wms_fragility
+DEBUG:update_oi_schema:Added/verified column: wms_stackability
+DEBUG:update_oi_schema:Added/verified column: wms_temperature_sensitivity
+DEBUG:update_oi_schema:Added/verified column: wms_pressure_sensitivity
+DEBUG:update_oi_schema:Added/verified column: wms_shape_type
+DEBUG:update_oi_schema:Added/verified column: wms_spill_risk
+DEBUG:update_oi_schema:Added/verified column: wms_pick_difficulty
+DEBUG:update_oi_schema:Added/verified column: wms_shelf_height
+DEBUG:update_oi_schema:Added/verified column: wms_box_fit_rule
+DEBUG:update_oi_schema:Added/verified column: wms_class_confidence
+DEBUG:update_oi_schema:Added/verified column: wms_class_source
+DEBUG:update_oi_schema:Added/verified column: wms_class_notes
+DEBUG:update_oi_schema:Added/verified column: wms_classified_at
+DEBUG:update_oi_schema:Added/verified column: wms_class_evidence
+INFO:update_oi_schema:WMS classification columns updated on ps_items_dw
+INFO:update_oi_schema:Created wms_category_defaults table
+INFO:update_oi_schema:Created wms_item_overrides table
+INFO:update_oi_schema:Created wms_classification_runs table
+INFO:update_oi_schema:Created wms_dynamic_rules table
+INFO:update_oi_schema:Added default_pack_mode column to wms_category_defaults
+INFO:root:Starting order status system migration...
+INFO:update_oi_schema:Added pack_mode_override column to wms_item_overrides
+INFO:update_oi_schema:OI schema update complete
+INFO:root:OI schema updates completed
+INFO:root:WmsPackingProfile schema updates completed
+INFO:root:expected_payment_method column already exists in route_stop_invoice table
+INFO:root:expected_amount column already exists in route_stop_invoice table
+INFO:root:manifest_locked_at column already exists in route_stop_invoice table
+INFO:root:manifest_locked_by column already exists in route_stop_invoice table
+INFO:root:route_return_handover table already exists
+INFO:root:✅ Route reconciliation schema update completed successfully
+INFO:root:Route reconciliation schema updates completed
+INFO:root:warehouse_checked_by column already exists in delivery_discrepancies table
+INFO:root:warehouse_checked_at column already exists in delivery_discrepancies table
+INFO:root:warehouse_result column already exists in delivery_discrepancies table
+INFO:root:warehouse_note column already exists in delivery_discrepancies table
+INFO:root:credit_note_required column already exists in delivery_discrepancies table
+INFO:root:credit_note_no column already exists in delivery_discrepancies table
+INFO:root:credit_note_amount column already exists in delivery_discrepancies table
+INFO:root:credit_note_created_at column already exists in delivery_discrepancies table
+INFO:root:Index ux_return_handover_route_invoice already exists
+INFO:root:Index ix_return_handover_driver_pending already exists
+INFO:root:Index ix_dd_invoice_status already exists
+INFO:root:✅ Discrepancy verification schema update completed successfully
+INFO:root:Discrepancy verification schema updates completed
+INFO:root:doc_type column already exists in cod_receipts table
+INFO:root:status column already exists in cod_receipts table
+INFO:root:locked_at column already exists in cod_receipts table
+INFO:root:locked_by column already exists in cod_receipts table
+INFO:root:print_count column already exists in cod_receipts table
+INFO:root:first_printed_at column already exists in cod_receipts table
+INFO:root:last_printed_at column already exists in cod_receipts table
+INFO:root:voided_at column already exists in cod_receipts table
+INFO:root:voided_by column already exists in cod_receipts table
+INFO:root:void_reason column already exists in cod_receipts table
+INFO:root:replaced_by_cod_receipt_id column already exists in cod_receipts table
+INFO:root:client_request_id column already exists in cod_receipts table
+INFO:root:ps365_reference_number column already exists in cod_receipts table
+INFO:root:✅ COD receipts locking schema update completed successfully
+INFO:root:COD receipts locking schema updates completed
+INFO:root:Starting order status system migration...
+INFO:root:✅ Order status system migration completed successfully!
+INFO:root:Updated 0 orders to new status system
+INFO:root:New status sequence: ['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing', 'ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse', 'cancelled']
+INFO:root:Order status system migration completed
+10.81.12.91 - - [26/Feb/2026:10:09:48 +0200] "GET / HTTP/1.1" 302 219 "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/__replco/workspace_iframe.html?initialPath=%2F&id=%3Ar2he%3A" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+127.0.0.1 - - [26/Feb/2026:10:09:48 +0200] "GET / HTTP/1.1" 302 199 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.0.0 Safari/537.36"
+127.0.0.1 - - [26/Feb/2026:10:09:48 +0200] "GET /login HTTP/1.1" 200 3370 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.0.0 Safari/537.36"
+INFO:root:✅ Order status system migration completed successfully!
+INFO:root:Updated 0 orders to new status system
+INFO:root:New status sequence: ['not_started', 'picking', 'awaiting_batch_items', 'awaiting_packing', 'ready_for_dispatch', 'shipped', 'out_for_delivery', 'delivered', 'delivery_failed', 'returned_to_warehouse', 'cancelled']
+INFO:root:Order status system migration completed
+10.81.12.91 - - [26/Feb/2026:10:09:48 +0200] "GET /admin/dashboard HTTP/1.1" 200 352063 "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/__replco/workspace_iframe.html?initialPath=%2F&id=%3Ar2he%3A" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+10.81.13.44 - - [26/Feb/2026:10:09:48 +0200] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/admin/dashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+10.81.13.44 - - [26/Feb/2026:10:09:50 +0200] "GET /static/js/admin.js HTTP/1.1" 304 0 "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/admin/dashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+127.0.0.1 - - [26/Feb/2026:10:09:50 +0200] "GET /static/css/custom.css HTTP/1.1" 200 1525 "http://127.0.0.1:5000/login" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.0.0 Safari/537.36"
+127.0.0.1 - - [26/Feb/2026:10:09:51 +0200] "GET /favicon.ico HTTP/1.1" 404 1808 "http://127.0.0.1:5000/login" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.0.0 Safari/537.36"

@@ -22,7 +22,7 @@ capture_output = True       # Capture print statements
 enable_stdio_inheritance = True
 
 # Performance optimizations
-preload_app = False         # Load app per worker for faster deployment
+preload_app = False         # Load app per worker for scheduler compatibility
 reuse_port = True
 worker_tmp_dir = "/dev/shm"
 sendfile = True             # Use sendfile for static files
