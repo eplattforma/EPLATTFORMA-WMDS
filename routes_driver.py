@@ -1060,6 +1060,36 @@ def submit_delivery(stop_id):
         
         db.session.commit()
         
+        ps365_warning = None
+        if cod_receipt and (cod_receipt.doc_type or 'official') == 'official' and not cod_receipt.ps365_reference_number:
+            try:
+                from routes_receipts import create_receipt_core
+                inv_list_str = ', '.join(invoice_nos[:5])
+                if len(invoice_nos) > 5:
+                    inv_list_str += f' +{len(invoice_nos)-5}'
+                ok, ref_num, resp_id, _, _ = create_receipt_core(
+                    customer_code=stop.customer_code,
+                    amount_val=float(cod_receipt.received_amount or 0),
+                    comments=inv_list_str,
+                    driver_username=cod_receipt.driver_username,
+                    user_code=current_user.username,
+                    route_stop_id=cod_receipt.route_stop_id,
+                    invoice_no=inv_list_str,
+                    cheque_number=cod_receipt.cheque_number or '',
+                    cheque_date=cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else '',
+                    allow_duplicate_stop=True
+                )
+                if ok and ref_num:
+                    cod_receipt.ps365_reference_number = ref_num
+                    cod_receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+                    cod_receipt.ps365_synced_at = utc_now()
+                    db.session.commit()
+                else:
+                    ps365_warning = 'PS365 returned without a valid reference number'
+            except Exception as ps365_err:
+                logging.warning(f"PS365 receipt creation deferred for receipt {cod_receipt.id}: {ps365_err}")
+                ps365_warning = str(ps365_err)
+
         print_png_url = None
         if cod_receipt:
             print_png_url = url_for('driver.print_receipt_png_by_id', receipt_id=cod_receipt.id)
@@ -1068,7 +1098,7 @@ def submit_delivery(stop_id):
         if discrepancies:
             exceptions_print_url = url_for('driver.print_exceptions_png', stop_id=stop_id)
 
-        return jsonify({
+        result = {
             'success': True,
             'cod': {
                 'expected': float(cod_expected),
@@ -1078,7 +1108,10 @@ def submit_delivery(stop_id):
             'receipt_id': cod_receipt.id if cod_receipt else None,
             'print_png_url': print_png_url,
             'exceptions_print_url': exceptions_print_url
-        })
+        }
+        if ps365_warning:
+            result['ps365_warning'] = 'Payment saved locally. PS365 sync pending — receipt can still be printed.'
+        return jsonify(result)
     
     except Exception as e:
         db.session.rollback()
@@ -1086,6 +1119,56 @@ def submit_delivery(stop_id):
         return jsonify({'error': str(e)}), 500
 
 # --- Driver Correction Request ---
+
+@driver_bp.route('/receipts/<int:receipt_id>/retry_ps365', methods=['POST'])
+@driver_required
+def retry_ps365_sync(receipt_id):
+    """Retry PS365 sync for a receipt that failed during submit_delivery."""
+    try:
+        receipt = CODReceipt.query.get_or_404(receipt_id)
+        route = Shipment.query.get(receipt.route_id)
+        stop = RouteStop.query.get(receipt.route_stop_id)
+
+        if not route:
+            return jsonify({'success': False, 'error': 'Route not found'}), 404
+        if route.driver_name != current_user.username and current_user.role != 'admin':
+            abort(403)
+
+        if receipt.ps365_reference_number:
+            return jsonify({'success': True, 'message': 'Already synced', 'ps365_ref': receipt.ps365_reference_number})
+
+        if (receipt.doc_type or 'official') != 'official':
+            return jsonify({'success': True, 'message': 'Non-official receipt — no PS365 sync needed'})
+
+        from routes_receipts import create_receipt_core
+        invoice_nos_list = receipt.invoice_nos or []
+        inv_list_str = ', '.join(invoice_nos_list[:5])
+        if len(invoice_nos_list) > 5:
+            inv_list_str += f' +{len(invoice_nos_list)-5}'
+
+        ok, ref_num, resp_id, _, _ = create_receipt_core(
+            customer_code=stop.customer_code if stop else '',
+            amount_val=float(receipt.received_amount or 0),
+            comments=inv_list_str,
+            driver_username=receipt.driver_username,
+            user_code=current_user.username,
+            route_stop_id=receipt.route_stop_id,
+            invoice_no=inv_list_str,
+            cheque_number=receipt.cheque_number or '',
+            cheque_date=receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else '',
+            allow_duplicate_stop=True
+        )
+        receipt.ps365_reference_number = ref_num
+        receipt.ps365_receipt_id = str(resp_id) if resp_id else None
+        receipt.ps365_synced_at = utc_now()
+        db.session.commit()
+
+        return jsonify({'success': True, 'ps365_ref': ref_num})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"PS365 retry failed for receipt {receipt_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 502
+
 
 @driver_bp.route('/receipts/<int:receipt_id>/request_correction', methods=['POST'])
 @driver_required
@@ -1325,35 +1408,7 @@ def print_receipt_png_by_id(receipt_id):
     stop = RouteStop.query.get(receipt.route_stop_id)
     route = Shipment.query.get(receipt.route_id)
 
-    # For official receipts: call PS365 before printing.
-    # Only print when a valid reference number is returned; use it as the receipt number.
     doc_type_val = (receipt.doc_type or 'official').lower()
-    if doc_type_val == 'official' and receipt.status != 'VOIDED':
-        if not receipt.ps365_reference_number:
-            try:
-                from routes_receipts import create_receipt_core
-                invoice_nos_list = receipt.invoice_nos or []
-                inv_list_str = ', '.join(invoice_nos_list[:5])
-                if len(invoice_nos_list) > 5:
-                    inv_list_str += f' +{len(invoice_nos_list)-5}'
-                ok, ref_num, resp_id, _, _ = create_receipt_core(
-                    customer_code=stop.customer_code if stop else '',
-                    amount_val=float(receipt.received_amount or 0),
-                    comments=inv_list_str,
-                    driver_username=receipt.driver_username,
-                    user_code=current_user.username,
-                    route_stop_id=receipt.route_stop_id,
-                    invoice_no=inv_list_str,
-                    cheque_number=receipt.cheque_number or '',
-                    cheque_date=receipt.cheque_date.strftime('%Y-%m-%d') if receipt.cheque_date else '',
-                    allow_duplicate_stop=True
-                )
-                receipt.ps365_reference_number = ref_num
-                receipt.ps365_receipt_id = str(resp_id) if resp_id else None
-                receipt.ps365_synced_at = utc_now()
-            except Exception as ps365_err:
-                logging.error(f"PS365 receipt creation failed for receipt {receipt_id}: {ps365_err}")
-                return jsonify({'error': f'Payment could not be registered in Powersoft: {ps365_err}. Receipt not printed.'}), 503
 
     if receipt.status != 'VOIDED':
         now = utc_now()
