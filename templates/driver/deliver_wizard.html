@@ -119,7 +119,12 @@ input[type=number]::-webkit-inner-spin-button {
             </div>
         </div>
         <div id="hdr-details" class="sub mt-2 border-top pt-2" style="display:none; border-color: rgba(255,255,255,0.1) !important;">
-            Inv: &euro;<span id="hdr-inv">0.00</span> &middot; Ex: &euro;<span id="hdr-ex">0.00</span> &middot; Entered: &euro;<span id="hdr-entered">0.00</span>
+            <div id="hdr-details-invoices"></div>
+            <div id="hdr-details-exceptions" style="display:none;" class="mt-2 pt-2" ></div>
+            <div class="d-flex justify-content-between mt-2 pt-2" style="border-top:1px solid rgba(255,255,255,0.15);">
+                <span style="color:#94a3b8;">To Collect</span>
+                <span style="font-weight:700;color:#f1c40f;">&euro;<span id="hdr-collect-detail">0.00</span></span>
+            </div>
         </div>
     </div>
 
@@ -151,9 +156,6 @@ input[type=number]::-webkit-inner-spin-button {
                     <button class="btn btn-sm w-100 mt-2" style="color:#fd7e14;border-color:#fd7e14;" onclick="addException()">
                         <i class="fas fa-plus"></i> Add Exception
                     </button>
-                    <div class="mt-3 d-grid">
-                        <button class="btn btn-outline-secondary" onclick="markExceptionsDoneAndNext()">Continue</button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -183,14 +185,8 @@ input[type=number]::-webkit-inner-spin-button {
                                 <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch" style="transform: scale(1.4);">
                             </div>
                         </div>
-                        <div id="sig-warn" class="small text-danger mt-2" style="display:none;">
-                            Required for Credit / Pay Online / Post-dated cheque.
-                        </div>
                     </div>
 
-                    <div class="mt-3 d-grid">
-                        <button class="btn btn-outline-secondary" onclick="markSignatureDoneAndNext()">Continue</button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -210,6 +206,12 @@ input[type=number]::-webkit-inner-spin-button {
                         Credit customer — no receipt issued. Proceed to Print &amp; Close when ready.
                     </div>
                     {% else %}
+                    <div id="no-payment-needed" class="alert alert-success mb-3" style="display:none;">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <strong>Nothing to collect.</strong><br>
+                        All items returned — no payment required. Proceed to Close Stop.
+                    </div>
+                    <div id="payment-form-section">
                     <label class="form-label fw-bold mb-2">Payment Method</label>
                     <div class="row g-2 mb-3" id="method-tiles">
                         {% if terms.allow_cash %}
@@ -435,6 +437,7 @@ document.addEventListener('DOMContentLoaded', function() {
         renderExceptions();
         calculateCODVariance();
     }
+    refreshAmountsUI();
 });
 
 const app = document.getElementById('deliverApp');
@@ -563,6 +566,18 @@ function saveException() {
 
     const selectedOption = document.querySelector('#ex-item option:checked');
     const item = JSON.parse(selectedOption.dataset.item);
+
+    if (!item.is_rebate) {
+        const invoiceNo = document.getElementById('ex-invoice').value;
+        const alreadyExcepted = exceptions
+            .filter(ex => ex.invoice_no === invoiceNo && ex.item_code === itemCode && !ex.is_rebate)
+            .reduce((sum, ex) => sum + (ex.qty || 0), 0);
+        const maxAllowed = (item.qty_ordered || 0) - alreadyExcepted;
+        if (qty > maxAllowed) {
+            alert(`Quantity exceeds what is on the invoice. Ordered: ${item.qty_ordered}, already excepted: ${alreadyExcepted}, max you can enter: ${maxAllowed}`);
+            return;
+        }
+    }
 
     const actual = (type === 'WRONG') ? {
         barcode: document.getElementById('ex-actual-barcode').value.trim() || null,
@@ -719,24 +734,19 @@ function updateSignatureRequirementUI() {
     const required = isSignatureRequired();
     const badge = document.getElementById('sig-required-badge');
     const help = document.getElementById('sig-help');
-    const warn = document.getElementById('sig-warn');
     const sw = document.getElementById('signedInvoiceSwitch');
     const block = document.getElementById('sigBlock');
     const sigBadge = document.getElementById('sigBadge');
 
-    if (!badge || !help || !warn || !sw || !block) return;
+    if (!badge || !help || !sw || !block) return;
 
     if (required) {
         badge.textContent = 'REQUIRED';
         badge.className = 'badge bg-danger ms-2';
-        help.textContent = 'Required for Credit / Pay Online / Post-dated cheque.';
-        warn.style.display = sw.checked ? 'none' : 'block';
         block.classList.toggle('border-danger', !sw.checked);
     } else {
         badge.textContent = 'Optional';
         badge.className = 'badge bg-secondary ms-2';
-        help.textContent = 'Recommended, but optional for Cash/Day Cheque/Card.';
-        warn.style.display = 'none';
         block.classList.remove('border-danger');
     }
 
@@ -838,9 +848,7 @@ function refreshAmountsUI() {
     const hdrCollect = document.getElementById('hdr-collect');
     if (hdrCollect) hdrCollect.textContent = collectTarget.toFixed(2);
 
-    const hdrInv = document.getElementById('hdr-inv'); if (hdrInv) hdrInv.textContent = inv.toFixed(2);
-    const hdrEx = document.getElementById('hdr-ex'); if (hdrEx) hdrEx.textContent = exTot.toFixed(2);
-    const hdrEnt = document.getElementById('hdr-entered'); if (hdrEnt) hdrEnt.textContent = entered.toFixed(2);
+    renderHdrDetailsPanel(inv, exTot, collectTarget);
 
     const invMini = document.getElementById('cod-inv-mini'); if (invMini) invMini.textContent = inv.toFixed(2);
     const exMini = document.getElementById('cod-ex-mini'); if (exMini) exMini.textContent = exTot.toFixed(2);
@@ -854,13 +862,70 @@ function refreshAmountsUI() {
     if (checkEl) checkEl.classList.add('d-none');
     if (warnEl) warnEl.classList.add('d-none');
 
-    if (entered > 0) {
-        if (Math.abs(entered - collectTarget) < 0.01) {
+    const displayEl = document.getElementById('cod-display');
+    if (displayEl) {
+        if (entered <= 0) {
+            displayEl.style.color = '#ffffff';
+        } else if (Math.abs(entered - collectTarget) < 0.01 || entered > collectTarget) {
+            displayEl.style.color = '#22c55e';
             if (checkEl) checkEl.classList.remove('d-none');
         } else {
+            displayEl.style.color = '#f97316';
             if (warnEl) warnEl.classList.remove('d-none');
         }
+    } else {
+        if (entered > 0) {
+            if (Math.abs(entered - collectTarget) < 0.01) {
+                if (checkEl) checkEl.classList.remove('d-none');
+            } else {
+                if (warnEl) warnEl.classList.remove('d-none');
+            }
+        }
     }
+}
+
+function renderHdrDetailsPanel(inv, exTot, collectTarget) {
+    const invContainer = document.getElementById('hdr-details-invoices');
+    const exContainer = document.getElementById('hdr-details-exceptions');
+    const collectDetail = document.getElementById('hdr-collect-detail');
+    if (!invContainer) return;
+
+    let invHtml = '';
+    invoices.forEach(function(i) {
+        invHtml += '<div class="d-flex justify-content-between align-items-center py-1">' +
+            '<span style="color:#cbd5e1; font-size:0.92rem;">' + i.invoice_no + '</span>' +
+            '<span style="color:#22c55e; font-weight:600; font-size:0.92rem;">&euro;' + (i.total_grand || 0).toFixed(2) + '</span>' +
+            '</div>';
+    });
+    invContainer.innerHTML = invHtml;
+
+    if (exTot > 0) {
+        let exHtml = '<div style="border-top:1px solid rgba(255,255,255,0.15); padding-top:0.5rem;">' +
+            '<div class="d-flex justify-content-between align-items-center">' +
+            '<span style="color:#ef4444; font-weight:600; font-size:0.92rem;">Exceptions</span>' +
+            '<span style="color:#ef4444; font-weight:600; font-size:0.92rem;">&minus;&euro;' + exTot.toFixed(2) + '</span>' +
+            '</div>';
+        const exByInv = {};
+        exceptions.forEach(function(ex) {
+            const key = ex.invoice_no || 'Unknown';
+            if (!exByInv[key]) exByInv[key] = 0;
+            exByInv[key] += (ex.exception_value || 0);
+        });
+        Object.keys(exByInv).forEach(function(invNo) {
+            exHtml += '<div class="d-flex justify-content-between align-items-center py-0" style="padding-left:0.5rem;">' +
+                '<span style="color:#fca5a5; font-size:0.82rem;">' + invNo + '</span>' +
+                '<span style="color:#fca5a5; font-size:0.82rem;">&minus;&euro;' + exByInv[invNo].toFixed(2) + '</span>' +
+                '</div>';
+        });
+        exHtml += '</div>';
+        exContainer.innerHTML = exHtml;
+        exContainer.style.display = 'block';
+    } else {
+        exContainer.style.display = 'none';
+        exContainer.innerHTML = '';
+    }
+
+    if (collectDetail) collectDetail.textContent = collectTarget.toFixed(2);
 }
 
 function toggleHdrDetails() {
@@ -1138,16 +1203,21 @@ async function submitDelivery() {
                     if (excRes.ok && excRes.status !== 204) {
                         const excBlob = await excRes.blob();
                         const excFile = new File([excBlob], `exceptions-stop${stopId}.png`, { type: 'image/png' });
+                        let excPrinted = false;
                         try {
                             if (navigator.canShare && navigator.canShare({ files: [excFile] })) {
                                 await navigator.share({ files: [excFile], title: 'Exceptions Proof' });
-                            } else {
-                                window.open(URL.createObjectURL(excBlob), '_blank');
+                                excPrinted = true;
                             }
                         } catch (shareErr) {
-                            if (shareErr.name !== 'AbortError') {
+                            if (shareErr.name === 'AbortError') {
+                                excPrinted = true;
+                            } else {
                                 console.error('Exceptions share error:', shareErr);
                             }
+                        }
+                        if (!excPrinted) {
+                            window.open(URL.createObjectURL(excBlob), '_blank');
                         }
                     }
                 } catch (excFetchErr) {

@@ -1,0 +1,228 @@
+Below are clear “Instructions to Replit” to convert the current “delivery printout” into a Bank Transfer Payment Slip (payment advice) — not a receipt — and to remove unnecessary/internal fields.
+
+1) Rename the document (title + intent)
+Change title to (choose 1 and implement exactly)
+
+Preferred: PAYMENT ADVICE (BANK TRANSFER)
+Alt: BANK TRANSFER PAYMENT SLIP
+
+Add subtitle line directly under title (important)
+
+NOT A RECEIPT — INVOICES ISSUED SEPARATELY
+
+Remove / do NOT print anywhere
+
+“Rcpt: …” (Receipt number)
+
+Any wording that implies a receipt or collection confirmation
+
+Reason: customer must not confuse this with a fiscal receipt.
+
+2) Remove unnecessary data from the printout (internal ops)
+Remove entirely (do not print)
+
+Rcpt: ...
+
+Route: ...
+
+Stop: ...
+
+Driver: ...
+
+Collected: EUR 0.00
+
+STATUS: UNPAID (optional—remove by default)
+
+NOTES: Pay Online - Pending Collection
+
+Optional (your choice, but default = remove)
+
+Cust Code: 7770... (internal; only keep if you want it for support calls)
+
+Keep only what helps the customer pay correctly.
+
+3) Add the missing “Pay By / Due Date” field
+Add to the “Payment Summary” block (top, high visibility)
+
+Issued: YYYY-MM-DD HH:MM
+
+Pay by: YYYY-MM-DD ✅ (this is what you asked for)
+
+Due date source (implement best available):
+
+If invoice has due date from PS365 → use that
+
+Else derive: invoice_date + payment_terms_days
+
+Else fallback: Issued date + default_days (e.g., 7)
+
+4) Rework the “Amounts” section into the correct payment logic
+Replace current “AMOUNTS”
+
+Current shows: Expected / Collected / Balance Due
+This is confusing for bank transfer slips.
+
+New amounts block (must match your requirement)
+
+Invoices subtotal: EUR X.XX
+
+Less exceptions: EUR -Y.YY
+
+NET PAYABLE: EUR Z.ZZ (largest, bold)
+
+Where:
+
+Invoices subtotal = sum(invoice.amounts)
+
+Less exceptions = sum(exception_line.deduction_value)
+
+Net payable = Invoices subtotal - Less exceptions
+
+Important: You already seem to calculate something like “Expected”. That “Expected” should become NET PAYABLE, and you must also show the deduction total.
+
+5) Invoices section: keep, but format cleaner
+Keep:
+
+List of invoices with their amounts
+
+Show total (subtotal)
+
+Print format example
+
+INVOICES
+
+INV00053377 EUR 314.30
+
+INV00053378 EUR 120.00
+Invoices subtotal: EUR 434.30
+
+(If many invoices, show top N and a “+ X more” line, but still keep subtotal.)
+
+6) Exceptions section: keep, BUT add values + total deducted (mandatory)
+
+You requested: “exceptions + items not delivered + exceptions total subtracted”.
+
+Update Exceptions table to include:
+
+For each exception line, print:
+
+Type: SHORT / NOT DELIVERED / DAMAGED
+
+Item short name
+
+Qty
+
+Deduction value (EUR -X.XX)
+
+Then print:
+
+Exceptions total deducted: EUR -Y.YY
+
+Data requirement (backend)
+
+If your exceptions currently store only item/qty/type, Replit must:
+
+Attach a value to each exception line (deduction)
+
+Preferably compute from invoice line price excl/incl (choose one and be consistent) × qty short
+
+Save it so the slip matches the final invoice expectation
+
+7) Bank details section: keep, but tighten and make “Reference” explicit
+
+Keep:
+
+Beneficiary
+
+IBAN
+
+Bank name
+
+(Optional) SWIFT/BIC
+
+Add a strong instruction line:
+Transfer reference: use invoice no(s) above
+(or INV00053377 etc.)
+
+If Cyprus transfers sometimes require specific reference format, implement a single reference rule like:
+
+Reference: INV00053377 (if one invoice)
+
+Reference: MULTI + customer name (if multiple + bank limits reference length)
+
+8) Signature area: rename so it doesn’t imply payment
+
+If you keep signature lines, rename to:
+
+Delivery Confirmed (Customer Signature): __________
+
+Driver Signature: __________
+
+Do not say “Customer Signature (Delivery)” is fine, but don’t mention payment/collection.
+
+9) Implementation tasks (what Replit should change)
+A) Create a separate template (do not reuse “receipt” template)
+
+New print template name suggestion: payment_advice_transfer.html
+
+New document type: PAYMENT_ADVICE_TRANSFER
+
+Trigger it specifically when payment method = ONLINE_TRANSFER
+
+This prevents mixing with cash receipt logic.
+
+B) Update the print endpoint payload
+
+Make sure the print endpoint receives:
+
+customer display name + address lines
+
+issued datetime
+
+due_date
+
+invoices list: {invoice_no, amount}
+
+exceptions list: {type, item_name, qty, deduction_value}
+
+totals: invoices_subtotal, exceptions_total, net_payable
+
+C) Calculation rule (single source of truth)
+
+Compute totals server-side (not in template JS) to avoid mismatches:
+
+invoices_subtotal = Σ invoice_amount
+
+exceptions_total = Σ deduction_value
+
+net_payable = invoices_subtotal - exceptions_total
+
+D) Print layout rules (thermal friendly)
+
+Make NET PAYABLE the largest text
+
+Keep headings smaller
+
+Remove empty sections (don’t print “Exceptions (0)”)
+
+Keep it one page whenever possible
+
+10) Acceptance Criteria (Replit must verify)
+
+Printout clearly states NOT A RECEIPT
+
+No Route/Stop/Driver/Rcpt/Collected fields appear
+
+Slip includes Pay by (due date)
+
+Slip shows:
+
+invoices list + subtotal
+
+exceptions list with deduction values
+
+exceptions total deducted
+
+net payable (subtotal – exceptions)
+
+Bank transfer reference instruction is clear

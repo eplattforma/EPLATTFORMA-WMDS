@@ -27,3 +27,4 @@ Thumbs.db
 # Local export archives (do not commit)
 warehouse-system-export.tar.gz
 warehouse-system-export.zip
+cookies.txt

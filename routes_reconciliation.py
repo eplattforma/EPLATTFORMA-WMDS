@@ -39,7 +39,6 @@ def pending_payments():
     """List all pending payments (online and post-dated)"""
     from models import CODInvoiceAllocation, Shipment, Invoice
     
-    # Get all pending allocations (post-dated OR online OR explicitly flagged)
     pending_allocs = db.session.query(
         CODInvoiceAllocation,
         Shipment.driver_name,
@@ -52,17 +51,7 @@ def pending_payments():
         Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
     ).filter(
         Shipment.reconciliation_status == 'RECONCILED',
-        db.or_(
-            CODInvoiceAllocation.is_pending == True,
-            (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01,
-            db.and_(
-                db.func.lower(CODInvoiceAllocation.payment_method).in_(['postdated', 'post_dated', 'post dated chq', 'online']),
-                db.or_(
-                    CODInvoiceAllocation.is_pending == True,
-                    (CODInvoiceAllocation.expected_amount - CODInvoiceAllocation.received_amount - CODInvoiceAllocation.deduct_amount) > 0.01
-                )
-            )
-        )
+        CODInvoiceAllocation.is_pending == True
     ).order_by(
         Shipment.delivery_date.asc()
     ).all()
@@ -70,7 +59,11 @@ def pending_payments():
     # Group by customer for better visual presentation
     from collections import OrderedDict
     grouped = OrderedDict()
+    from datetime import date as date_type
     for alloc, driver_name, delivery_date, customer_name, customer_code in pending_allocs:
+        due = float((alloc.expected_amount or 0) - (alloc.deduct_amount or 0))
+        if due <= 0.01:
+            continue
         key = customer_name or 'Unknown'
         if key not in grouped:
             grouped[key] = {
@@ -79,8 +72,6 @@ def pending_payments():
                 'invoices': [],
                 'total_due': 0
             }
-        due = float((alloc.expected_amount or 0) - (alloc.received_amount or 0) - (alloc.deduct_amount or 0))
-        from datetime import date as date_type
         if delivery_date:
             age_days = (date_type.today() - (delivery_date if isinstance(delivery_date, date_type) else delivery_date.date())).days
         else:
@@ -173,8 +164,22 @@ def api_reissue_receipt(receipt_id):
 
         old_receipt.replaced_by_cod_receipt_id = new_receipt.id
 
+        old_allocs = CODInvoiceAllocation.query.filter_by(cod_receipt_id=old_receipt.id).all()
+        new_method = new_receipt.payment_method or old_receipt.payment_method
+        new_is_pending = new_method in ('online', 'postdated', 'post_dated')
+        for alloc in old_allocs:
+            alloc.cod_receipt_id = new_receipt.id
+            alloc.payment_method = new_method
+            alloc.received_amount = new_receipt.received_amount / max(len(old_allocs), 1) if len(old_allocs) > 1 else new_receipt.received_amount
+            due = float((alloc.expected_amount or 0) - (alloc.received_amount or 0) - (alloc.deduct_amount or 0))
+            alloc.is_pending = new_is_pending and due > 0.01
+            if new_receipt.cheque_number:
+                alloc.cheque_number = new_receipt.cheque_number
+            if new_receipt.cheque_date:
+                alloc.cheque_date = new_receipt.cheque_date
+
         db.session.commit()
-        logger.info(f"Receipt {receipt_id} reissued as {new_receipt.id} by {current_user.username}")
+        logger.info(f"Receipt {receipt_id} reissued as {new_receipt.id} by {current_user.username}, {len(old_allocs)} allocations updated")
 
         return jsonify({
             'success': True,
@@ -271,7 +276,29 @@ def shipment_detail(shipment_id):
     
     
     invoice_report = recon.get_invoice_reconciliation_report(shipment_id)
-    
+
+    # Inject stops that have no invoices so they appear in the report view
+    reported_stop_ids = {s['route_stop_id'] for s in invoice_report}
+    for stop in stops:
+        if stop['route_stop_id'] not in reported_stop_ids:
+            invoice_report.append({
+                'route_stop_id': stop['route_stop_id'],
+                'stop_seq': float(stop['seq_no'] or 0),
+                'customer_name': stop['stop_name'] or f"Stop {stop['seq_no']}",
+                'terms': '—',
+                'invoices': [],
+                'stop_expected': 0.0,
+                'stop_received': 0.0,
+                'stop_discrepancy': 0.0,
+                'stop_outstanding': 0.0,
+                'payment_type': '—',
+                'is_pending_payment': False,
+                'no_invoices': True,
+                'delivered_at': stop['delivered_at'],
+                'failed_at': stop['failed_at'],
+            })
+    invoice_report.sort(key=lambda s: s['stop_seq'])
+
     return render_template('reconciliation/shipment_detail.html',
                          shipment=shipment,
                          summary=summary,

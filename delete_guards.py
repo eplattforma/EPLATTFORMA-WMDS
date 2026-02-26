@@ -12,6 +12,7 @@ Usage:
 
 from sqlalchemy import event
 from sqlalchemy.orm import object_session
+from app import db
 
 
 def has_rows(sess, query):
@@ -86,7 +87,7 @@ def user_has_batch_sessions(sess, user):
 def user_has_cod_receipts(sess, user):
     """Check if user created COD receipts"""
     from models import CODReceipt
-    return has_rows(sess, sess.query(CODReceipt).filter_by(created_by=user.username))
+    return has_rows(sess, sess.query(CODReceipt).filter_by(driver_username=user.username))
 
 
 def user_has_pod_records(sess, user):
@@ -112,15 +113,19 @@ def invoice_has_discrepancies(sess, inv):
 
 
 def invoice_has_cod_receipts(sess, inv):
-    """Check if invoice has COD receipts"""
-    from models import CODReceipt
-    return has_rows(sess, sess.query(CODReceipt).filter_by(invoice_no=inv.invoice_no))
+    """Check if invoice has COD receipt allocations"""
+    from models import CODInvoiceAllocation
+    return has_rows(sess, sess.query(CODInvoiceAllocation).filter_by(invoice_no=inv.invoice_no))
 
 
 def invoice_has_pod_records(sess, inv):
     """Check if invoice has POD records"""
     from models import PODRecord
-    return has_rows(sess, sess.query(PODRecord).filter_by(invoice_no=inv.invoice_no))
+    from sqlalchemy import cast
+    from sqlalchemy.dialects.postgresql import JSONB
+    return has_rows(sess, sess.query(PODRecord).filter(
+        PODRecord.invoice_nos.cast(db.Text).contains(inv.invoice_no)
+    ))
 
 
 def invoice_has_activity_logs(sess, inv):
@@ -130,9 +135,12 @@ def invoice_has_activity_logs(sess, inv):
 
 
 def invoice_has_delivery_events(sess, inv):
-    """Check if invoice has delivery events"""
-    from models import DeliveryEvent
-    return has_rows(sess, sess.query(DeliveryEvent).filter_by(invoice_no=inv.invoice_no))
+    """Check if invoice has delivery events via route stop"""
+    from models import DeliveryEvent, RouteStopInvoice
+    rsi = sess.query(RouteStopInvoice.route_stop_id).filter_by(invoice_no=inv.invoice_no).subquery()
+    return has_rows(sess, sess.query(DeliveryEvent).filter(
+        DeliveryEvent.route_stop_id.in_(sess.query(rsi.c.route_stop_id))
+    ))
 
 
 def invoice_has_route_assignment(sess, inv):
