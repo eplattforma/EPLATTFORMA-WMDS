@@ -187,16 +187,17 @@ def format_seq_filter(value):
     except:
         return str(value)
 
-# Initialize background scheduler for scheduled tasks
-try:
-    from scheduler import setup_scheduler, stop_scheduler
-    setup_scheduler(app)
-    # Ensure scheduler stops when app shuts down
-    atexit.register(stop_scheduler)
-    logging.info("Background scheduler initialized")
-except Exception as e:
-    logging.warning(f"Could not initialize background scheduler: {str(e)}")
-    logging.info("The app will work normally, but scheduled tasks won't run automatically")
+# Scheduler is initialized via Gunicorn post_fork hook (see gunicorn_config.py)
+# to ensure it only runs in one worker process when using preload_app=True.
+# For non-Gunicorn usage (e.g. flask run), initialize here:
+if os.environ.get("GUNICORN_WORKER") != "1":
+    try:
+        from scheduler import setup_scheduler, stop_scheduler
+        setup_scheduler(app)
+        atexit.register(stop_scheduler)
+        logging.info("Background scheduler initialized (non-Gunicorn mode)")
+    except Exception as e:
+        logging.warning(f"Could not initialize background scheduler: {str(e)}")
 
 
 # CLI command for database maintenance
