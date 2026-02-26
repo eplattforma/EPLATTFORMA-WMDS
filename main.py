@@ -489,4 +489,9 @@ def admin_dedup_cod():
     """, duplicates=duplicates)
 
 if __name__ == "__main__":
+    try:
+        from scheduler import setup_scheduler
+        setup_scheduler(app)
+    except Exception as e:
+        logging.warning(f"Could not start scheduler: {e}")
     app.run(host="0.0.0.0", port=5000, debug=True)

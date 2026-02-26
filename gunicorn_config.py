@@ -30,20 +30,15 @@ worker_tmp_dir = "/dev/shm"
 sendfile = True
 tcp_nodelay = True
 
-_scheduler_started = False
-
 def post_fork(server, worker):
-    global _scheduler_started
-    os.environ["GUNICORN_WORKER"] = "1"
-    if not _scheduler_started:
-        _scheduler_started = True
-        try:
-            from scheduler import setup_scheduler
-            from app import app
+    """Start scheduler in exactly one worker using DB advisory lock."""
+    try:
+        from scheduler import setup_scheduler
+        from app import app
+        with app.app_context():
             setup_scheduler(app)
-            server.log.info("Background scheduler started in worker %s", worker.pid)
-        except Exception as e:
-            server.log.warning("Could not start scheduler: %s", e)
+    except Exception as e:
+        server.log.warning("Could not start scheduler: %s", e)
 
 env_label = "Production" if is_production else "Development"
 print(f"{env_label} config: {workers} worker(s), {timeout}s timeout")

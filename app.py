@@ -187,17 +187,9 @@ def format_seq_filter(value):
     except:
         return str(value)
 
-# Scheduler is initialized via Gunicorn post_fork hook (see gunicorn_config.py)
-# to ensure it only runs in one worker process when using preload_app=True.
-# For non-Gunicorn usage (e.g. flask run), initialize here:
-if os.environ.get("GUNICORN_WORKER") != "1":
-    try:
-        from scheduler import setup_scheduler, stop_scheduler
-        setup_scheduler(app)
-        atexit.register(stop_scheduler)
-        logging.info("Background scheduler initialized (non-Gunicorn mode)")
-    except Exception as e:
-        logging.warning(f"Could not initialize background scheduler: {str(e)}")
+# Scheduler initialization is handled by gunicorn post_fork hook (see gunicorn_config.py).
+# The scheduler uses a DB advisory lock so only one process ever runs jobs.
+# For non-Gunicorn usage (flask run / __main__), it starts at the bottom of main.py.
 
 
 # CLI command for database maintenance
