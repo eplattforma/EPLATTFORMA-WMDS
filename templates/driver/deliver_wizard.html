@@ -1146,6 +1146,8 @@ async function submitDelivery() {
             gps: gps
         };
 
+        const receiptWin = window.open('', '_blank');
+
         const response = await fetch(`/driver/stops/${stopId}/deliver`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1158,91 +1160,52 @@ async function submitDelivery() {
             lastSubmitData = data;
             window.deliverySaved = true;
 
-            if (data.print_png_url) {
-                let printOk = false;
-                try {
-                    const printRes = await fetch(data.print_png_url, { cache: 'no-store' });
-                    if (!printRes.ok) {
-                        let errMsg = 'Could not generate receipt image.';
-                        try { const errData = await printRes.json(); errMsg = errData.error || errMsg; } catch (_) {}
-                        const retry = confirm(`Receipt not printed:\n\n${errMsg}\n\nTap OK to retry, or Cancel to go to stops list (office can reprint).`);
-                        if (retry) return;
-                    } else {
-                        const blob = await printRes.blob();
-                        const filename = `receipt-stop${stopId}.png`;
-                        const file = new File([blob], filename, { type: 'image/png' });
-                        let shared = false;
-                        try {
-                            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                                await navigator.share({ files: [file], title: 'Receipt' });
-                                shared = true;
-                            }
-                        } catch (shareErr) {
-                            if (shareErr.name === 'AbortError') {
-                                shared = true;
-                            } else {
-                                console.warn('Share API unavailable, opening in new tab:', shareErr.message);
-                            }
-                        }
-                        if (!shared) {
-                            const objUrl = URL.createObjectURL(blob);
-                            window.open(objUrl, '_blank');
-                        }
-                        printOk = true;
-                    }
-                } catch (fetchErr) {
-                    console.error('Print fetch error:', fetchErr);
-                    const retry = confirm('Network error while printing receipt.\n\nTap OK to retry, or Cancel to go to stops list.');
-                    if (retry) return;
-                }
+            if (data.print_png_url && receiptWin) {
+                receiptWin.location.href = data.print_png_url;
+            } else if (data.print_png_url) {
+                window.open(data.print_png_url, '_blank');
+            } else if (receiptWin) {
+                receiptWin.close();
             }
 
             if (data.needs_ps365_sync && data.receipt_id) {
-                try {
-                    const syncRes = await fetch(`/driver/receipts/${data.receipt_id}/retry_ps365`, { method: 'POST' });
-                    const syncData = await syncRes.json();
-                    if (!syncData.success) {
-                        console.warn('PS365 sync deferred:', syncData.error);
-                    }
-                } catch (syncErr) {
-                    console.warn('PS365 background sync failed:', syncErr.message);
-                }
+                fetch(`/driver/receipts/${data.receipt_id}/retry_ps365`, { method: 'POST' })
+                    .then(r => r.json())
+                    .then(d => { if (!d.success) console.warn('PS365 sync deferred:', d.error); })
+                    .catch(e => console.warn('PS365 background sync failed:', e.message));
             }
 
             if (data.exceptions_print_url) {
                 try {
-                    const excRes = await fetch(data.exceptions_print_url, { cache: 'no-store' });
-                    if (excRes.ok && excRes.status !== 204) {
-                        const excBlob = await excRes.blob();
+                    const excBlob = await (await fetch(data.exceptions_print_url, { cache: 'no-store' })).blob();
+                    if (excBlob.size > 0) {
                         const excFile = new File([excBlob], `exceptions-stop${stopId}.png`, { type: 'image/png' });
-                        let excPrinted = false;
+                        let excShared = false;
                         try {
                             if (navigator.canShare && navigator.canShare({ files: [excFile] })) {
                                 await navigator.share({ files: [excFile], title: 'Exceptions Proof' });
-                                excPrinted = true;
+                                excShared = true;
                             }
                         } catch (shareErr) {
-                            if (shareErr.name === 'AbortError') {
-                                excPrinted = true;
-                            } else {
-                                console.warn('Exceptions share unavailable, opening in new tab:', shareErr.message);
-                            }
+                            if (shareErr.name === 'AbortError') excShared = true;
                         }
-                        if (!excPrinted) {
-                            window.open(URL.createObjectURL(excBlob), '_blank');
+                        if (!excShared) {
+                            window.open(data.exceptions_print_url, '_blank');
                         }
                     }
                 } catch (excFetchErr) {
-                    console.error('Exceptions print fetch error:', excFetchErr);
+                    console.warn('Exceptions print error:', excFetchErr.message);
                 }
             }
 
             window.location.href = `/driver/routes/${routeId}/stops`;
             return;
         } else {
+            if (receiptWin) receiptWin.close();
             alert(data.error || 'Failed to complete delivery');
         }
     } catch (error) {
+        if (receiptWin) receiptWin.close();
         console.error('Error:', error);
         alert('Error completing delivery. Please try again.');
     }
