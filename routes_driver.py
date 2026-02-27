@@ -924,6 +924,15 @@ def submit_delivery(stop_id):
                 else:
                     doc_type = 'official'
 
+                from models import PaymentEntry
+                active_pe = PaymentEntry.query.filter_by(route_stop_id=stop_id, is_active=True).first()
+                ps365_ref = None
+                if active_pe and active_pe.ps_status == 'SUCCESS' and active_pe.ps_reference:
+                    ps365_ref = active_pe.ps_reference
+                    doc_type = active_pe.doc_type
+                elif active_pe and active_pe.ps_status == 'SKIPPED':
+                    doc_type = active_pe.doc_type
+
                 cod_receipt = CODReceipt(
                     route_id=route.id,
                     route_stop_id=stop_id,
@@ -938,6 +947,7 @@ def submit_delivery(stop_id):
                     note=cod_note,
                     doc_type=doc_type,
                     status='DRAFT',
+                    ps365_reference_number=ps365_ref,
                     created_at=utc_now()
                 )
                 db.session.add(cod_receipt)

@@ -93,7 +93,7 @@ def commit_to_ps365(pe, customer_code, invoice_nos, driver_username):
         )
 
         pe.ps_status = 'SUCCESS'
-        pe.ps_reference = response_id or ref_number
+        pe.ps_reference = ref_number
         pe.ps_error = None
         pe.updated_at = datetime.utcnow()
         db.session.flush()
