@@ -196,6 +196,14 @@ input[type=number]::-webkit-inner-spin-button {
                 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                         data-bs-target="#cPayment" aria-expanded="false" aria-controls="cPayment">
                     <strong><i class="fas fa-money-bill"></i> Payment</strong>
+                    <span class="ms-2 d-flex align-items-center gap-1" style="font-size:0.85rem; opacity:0.7;">
+                        {% if not terms.is_credit %}
+                        {% if terms.allow_cash %}<i class="fas fa-money-bill" title="Cash"></i>{% endif %}
+                        {% if terms.allow_cheque %}<i class="fas fa-receipt" title="Cheque"></i>{% endif %}
+                        {% if terms.allow_bank_transfer %}<i class="fas fa-university" title="Online"></i>{% endif %}
+                        {% if terms.allow_card_pos %}<i class="fas fa-credit-card" title="Card"></i>{% endif %}
+                        {% endif %}
+                    </span>
                     <span id="payHdrBadge" class="ms-auto pe-2 text-nowrap fw-bold" style="font-size:0.8rem;"></span>
                 </button>
             </h2>
