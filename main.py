@@ -132,6 +132,9 @@ app.register_blueprint(payment_terms_bp)
 from routes_driver import driver_bp
 app.register_blueprint(driver_bp)
 
+from routes_payments import payments_bp
+app.register_blueprint(payments_bp)
+
 # Register the warehouse intake blueprint
 from routes_warehouse_intake import warehouse_bp
 app.register_blueprint(warehouse_bp)
@@ -383,6 +386,13 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating COD receipts locking schema: {str(e)}")
     
+    try:
+        from update_payment_entries_schema import update_payment_entries_schema
+        update_payment_entries_schema()
+        logging.info("Payment entries schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating payment entries schema: {str(e)}")
+
     # Initialize remaining tables
     from app import db
     db.create_all()

@@ -1,0 +1,347 @@
+Below are implementation instructions for Replit (Flask + SQLAlchemy) to replace the busy “Payment accordion keypad” with a clean full-screen wizard, and to support retry when PS365 commit fails.
+
+Goal Behavior
+
+Driver taps Payment → Add/Edit
+
+Wizard collects: Method + Amount + (Cheque fields if needed)
+
+System decides document type:
+
+Cash → commit to PS365 → if PS365 reference returned ⇒ Print Receipt
+
+Cheque → if cheque_date == today → commit to PS365 → reference ⇒ Receipt
+if cheque_date != today (future) → skip PS365 receipt ⇒ Print Acknowledgement
+
+Online transfer → skip PS365 ⇒ Print Acknowledgement and return
+
+If PS365 commit fails:
+
+show FAILED state, store error, allow Retry
+
+Close Stop is blocked until status becomes SUCCESS/SKIPPED
+
+A) Database
+1) Create payment_entries table (recommended; don’t overload receipt_log)
+
+Add migration file (or schema update script) to create:
+
+CREATE TABLE IF NOT EXISTS payment_entries (
+  id SERIAL PRIMARY KEY,
+  route_stop_id INTEGER NOT NULL REFERENCES route_stop(route_stop_id) ON DELETE CASCADE,
+
+  -- What driver entered
+  method VARCHAR(20) NOT NULL,              -- CASH | CHEQUE | ONLINE
+  amount NUMERIC(18,2) NOT NULL DEFAULT 0,
+  cheque_no VARCHAR(64),
+  cheque_date DATE,
+
+  -- Decision + outcome
+  commit_mode VARCHAR(20) NOT NULL,         -- COMMIT | SKIP
+  doc_type VARCHAR(20) NOT NULL,            -- RECEIPT | ACK
+  ps_status VARCHAR(20) NOT NULL,           -- NEW | SUCCESS | FAILED | SKIPPED
+  ps_reference VARCHAR(64),                 -- returned from PS365 when SUCCESS
+  ps_error TEXT,
+
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at TIMESTAMP,
+
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Ensure only one active payment per stop
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_entries_active
+ON payment_entries(route_stop_id)
+WHERE is_active = TRUE;
+2) Link successful commits to your existing receipt_log
+
+When PS365 returns reference, insert into receipt_log (keep your unique reference_number).
+
+Optional: add payment_entry_id column to receipt_log later, but not required.
+
+B) SQLAlchemy Model
+
+Create models/payment_entry.py:
+
+from app import db
+from datetime import datetime
+
+class PaymentEntry(db.Model):
+    __tablename__ = "payment_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    route_stop_id = db.Column(db.Integer, db.ForeignKey("route_stop.route_stop_id"), nullable=False, index=True)
+
+    method = db.Column(db.String(20), nullable=False)      # CASH | CHEQUE | ONLINE
+    amount = db.Column(db.Numeric(18,2), nullable=False, default=0)
+    cheque_no = db.Column(db.String(64))
+    cheque_date = db.Column(db.Date)
+
+    commit_mode = db.Column(db.String(20), nullable=False) # COMMIT | SKIP
+    doc_type = db.Column(db.String(20), nullable=False)    # RECEIPT | ACK
+    ps_status = db.Column(db.String(20), nullable=False, default="NEW")  # NEW | SUCCESS | FAILED | SKIPPED
+    ps_reference = db.Column(db.String(64))
+    ps_error = db.Column(db.Text)
+
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
+    last_attempt_at = db.Column(db.DateTime)
+
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+C) Backend Decision Logic (single source of truth)
+
+Create services/payments.py:
+
+from datetime import date, datetime
+from sqlalchemy.exc import IntegrityError
+from app import db
+from models.payment_entry import PaymentEntry
+from models.receipt_log import ReceiptLog  # adjust import
+from services.ps365 import ps365_create_receipt  # your wrapper
+
+def decide_commit_and_doc(method: str, cheque_date):
+    method = (method or "").upper()
+
+    if method == "ONLINE":
+        return ("SKIP", "ACK", "SKIPPED")
+
+    if method == "CHEQUE":
+        if cheque_date and cheque_date != date.today():
+            # post-dated (or not today) => acknowledgement, no PS365 receipt
+            return ("SKIP", "ACK", "SKIPPED")
+        # today cheque => treat as receipt flow
+        return ("COMMIT", "RECEIPT", "NEW")
+
+    # CASH default
+    return ("COMMIT", "RECEIPT", "NEW")
+
+
+def upsert_active_payment(route_stop_id: int, payload: dict) -> PaymentEntry:
+    # Deactivate old active entry (if exists)
+    old = PaymentEntry.query.filter_by(route_stop_id=route_stop_id, is_active=True).first()
+    if old:
+        old.is_active = False
+        db.session.add(old)
+
+    method = (payload.get("method") or "").upper()
+    amount = payload.get("amount") or 0
+    cheque_no = payload.get("cheque_no")
+    cheque_date = payload.get("cheque_date")  # date object already parsed in route
+
+    commit_mode, doc_type, initial_ps_status = decide_commit_and_doc(method, cheque_date)
+
+    pe = PaymentEntry(
+        route_stop_id=route_stop_id,
+        method=method,
+        amount=amount,
+        cheque_no=cheque_no,
+        cheque_date=cheque_date,
+        commit_mode=commit_mode,
+        doc_type=doc_type,
+        ps_status=initial_ps_status,
+        is_active=True,
+    )
+    db.session.add(pe)
+    db.session.commit()
+    return pe
+
+
+def commit_to_ps365_if_needed(pe: PaymentEntry, context: dict) -> PaymentEntry:
+    # If already successful, do nothing (idempotent)
+    if pe.ps_status == "SUCCESS" and pe.ps_reference:
+        return pe
+
+    # Only commit when COMMIT
+    if pe.commit_mode != "COMMIT":
+        # Should already be SKIPPED
+        pe.ps_status = "SKIPPED"
+        db.session.commit()
+        return pe
+
+    # Attempt commit
+    pe.attempt_count += 1
+    pe.last_attempt_at = datetime.utcnow()
+    pe.ps_error = None
+    db.session.commit()
+
+    try:
+        # Call your PS365 function - MUST return reference string on success
+        ref = ps365_create_receipt(
+            route_stop_id=pe.route_stop_id,
+            method=pe.method,
+            amount=float(pe.amount),
+            cheque_no=pe.cheque_no,
+            cheque_date=pe.cheque_date,
+            **context
+        )
+
+        if not ref:
+            raise RuntimeError("PS365 returned no reference")
+
+        pe.ps_reference = ref
+        pe.ps_status = "SUCCESS"
+        pe.doc_type = "RECEIPT"
+        db.session.add(pe)
+
+        # also log into receipt_log
+        rl = ReceiptLog(
+            reference_number=ref,
+            amount=pe.amount,
+            route_stop_id=pe.route_stop_id,
+            # invoice_no/customer_code fields if you have them in context
+            customer_code_365=context.get("customer_code_365"),
+            invoice_no=context.get("invoice_no"),
+            driver_username=context.get("driver_username"),
+        )
+        db.session.add(rl)
+        db.session.commit()
+        return pe
+
+    except Exception as e:
+        pe.ps_status = "FAILED"
+        pe.ps_error = str(e)[:2000]
+        db.session.commit()
+        return pe
+
+Important rule: “No reference” should only happen for SKIP/SKIPPED, not for failure.
+So on failure we set FAILED and force Retry.
+
+D) API Endpoints
+
+Add blueprint payments_bp:
+
+1) Create/Replace payment entry + optionally auto-commit
+
+POST /api/route-stops/<route_stop_id>/payment
+
+Parses payload
+
+Creates new active payment entry
+
+If commit_mode == COMMIT, attempt commit immediately
+
+Returns payment_entry JSON (includes status, ref, error)
+
+2) Retry commit
+
+POST /api/payments/<payment_id>/retry
+
+Loads payment entry
+
+Only allowed if ps_status == FAILED and commit_mode == COMMIT
+
+Calls commit_to_ps365_if_needed()
+
+Returns updated JSON
+
+3) Fetch active payment for stop
+
+GET /api/route-stops/<route_stop_id>/payment
+
+E) Close Stop Validation (block until SUCCESS or SKIPPED)
+
+Where you currently show: “Payment entry incomplete”
+Update condition:
+
+If stop requires payment:
+
+allow close only if active payment exists AND ps_status in ("SUCCESS", "SKIPPED")
+
+block if NEW or FAILED
+
+This prevents “acknowledgement by accident” when PS365 is down.
+
+F) UI Changes (Mobile)
+1) Accordion: keep it summary only
+
+Payment row shows:
+
+Status chip:
+
+✅ SUCCESS (shows ref)
+
+🟨 SKIPPED (ACK)
+
+❌ FAILED (Retry)
+
+⏳ NEW (committing)
+
+Buttons:
+
+Add/Edit
+
+If FAILED: Retry
+
+If SUCCESS or SKIPPED: Print
+
+2) Wizard (full-screen modal or dedicated page)
+
+Step 1: method tiles (Cash / Cheque / Online)
+Step 2: fields
+
+Cash: amount (prefilled due)
+
+Cheque: amount, cheque_no, cheque_date (default today)
+
+Online: no fields (or optional note)
+
+On submit:
+
+Call POST /api/route-stops/<id>/payment
+
+If response ps_status == FAILED: show error + Retry button (calls retry endpoint)
+
+If SUCCESS: go to Print Receipt
+
+If SKIPPED: go to Print Acknowledgement
+
+For Online: SKIPPED immediately → Print Acknowledgement
+
+3) Printing decision (single print function)
+
+In UI:
+
+if payment.ps_reference exists ⇒ print receipt template
+
+else ⇒ print acknowledgement template
+
+G) Printing Routes/Templates
+
+Create:
+
+/print/receipt/<payment_id>
+
+/print/ack/<payment_id>
+
+Receipt includes:
+
+PS365 reference, customer, amount, method, date/time, invoices list (if you include)
+
+Acknowledgement includes:
+
+“Acknowledgement of payment method” (Online transfer / Post-dated cheque)
+
+For cheque: cheque no + cheque date
+
+Amount due/expected
+
+No PS365 reference
+
+H) Testing Checklist
+
+Cash → PS365 success → receipt printed → close stop allowed
+
+Cash → PS365 fail → FAILED shown → retry works → close stop blocked until success
+
+Cheque today → receipt flow (commit)
+
+Cheque future → SKIPPED → acknowledgement printed → close stop allowed
+
+Online transfer → SKIPPED immediately → acknowledgement printed → close stop allowed
+
+Ensure repeated “retry” doesn’t create duplicates:
+
+If already SUCCESS, retry should no-op.

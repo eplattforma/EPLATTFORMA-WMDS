@@ -203,7 +203,7 @@ input[type=number]::-webkit-inner-spin-button {
                 <div class="accordion-body">
                     {% if terms.is_credit %}
                     <div class="alert alert-info mb-0">
-                        Credit customer — no receipt issued. Proceed to Print &amp; Close when ready.
+                        Credit customer — no receipt issued. Proceed to Close Stop when ready.
                     </div>
                     {% else %}
                     <div id="no-payment-needed" class="alert alert-success mb-3" style="display:none;">
@@ -211,115 +211,38 @@ input[type=number]::-webkit-inner-spin-button {
                         <strong>Nothing to collect.</strong><br>
                         All items returned — no payment required. Proceed to Close Stop.
                     </div>
-                    <div id="payment-form-section">
-                    <label class="form-label fw-bold mb-2">Payment Method</label>
-                    <div class="row g-2 mb-3" id="method-tiles">
-                        {% if terms.allow_cash %}
-                        <div class="col-6">
-                            <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cash" onclick="setMethod('cash')">
-                                <i class="fas fa-money-bill"></i><br><strong>Cash</strong>
-                            </button>
-                        </div>
-                        {% endif %}
-                        {% if terms.allow_cheque %}
-                        <div class="col-6">
-                            <button type="button" class="btn btn-outline-success w-100 py-3 method-tile" data-method="cheque" onclick="setMethod('cheque')">
-                                <i class="fas fa-receipt"></i><br><strong>Cheque</strong>
-                            </button>
-                        </div>
-                        {% endif %}
-                        {% if terms.allow_bank_transfer %}
-                        <div class="col-6">
-                            <button type="button" class="btn btn-outline-primary w-100 py-3 method-tile" data-method="online" onclick="setMethod('online')">
-                                <i class="fas fa-university"></i><br><strong>Pay Online</strong>
-                            </button>
-                        </div>
-                        {% endif %}
-                        {% if terms.allow_card_pos %}
-                        <div class="col-6">
-                            <button type="button" class="btn btn-outline-secondary w-100 py-3 method-tile" data-method="card" onclick="setMethod('card')">
-                                <i class="fas fa-credit-card"></i><br><strong>Card (POS)</strong>
-                            </button>
-                        </div>
-                        {% endif %}
+
+                    <input type="hidden" id="cod-received" value="0.00">
+                    <select class="form-select d-none" id="cod-method"></select>
+                    <div class="d-none">
+                        <div id="cod-remaining">&euro; 0.00</div>
+                        <span id="cod-inv-mini">0.00</span>
+                        <span id="cod-ex-mini">0.00</span>
+                        <span id="cod-net-mini">&euro;0.00</span>
                     </div>
 
-                    <select class="form-select d-none" id="cod-method">
-                        {% if terms.allow_cash %}
-                        <option value="cash">Cash</option>
-                        {% endif %}
-                        {% if terms.allow_cheque %}
-                        <option value="cheque">Cheque</option>
-                        {% endif %}
-                        {% if terms.allow_bank_transfer %}
-                        <option value="online">Pay Online</option>
-                        {% endif %}
-                        {% if terms.allow_card_pos %}
-                        <option value="card">Card (POS)</option>
-                        {% endif %}
-                    </select>
-
-                    <div id="cod-amount-section">
-                            <div class="d-flex justify-content-center align-items-center py-4 rounded mb-2" style="background-color: #1e293b; border: 1px solid rgba(255,255,255,0.1);">
-                                <div class="text-center">
-                                    <div class="fw-bold mb-1" style="font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">ENTERED</div>
-                                    <div class="d-flex align-items-center justify-content-center">
-                                        <div class="display-3 fw-bold" id="cod-display" style="line-height: 1; color: #ffffff;">&euro; 0.00</div>
-                                        <div id="cod-status-icon" class="ms-3" style="font-size: 2.5rem; line-height: 1;">
-                                            <i class="fas fa-check-circle text-success d-none" id="cod-success-check"></i>
-                                            <i class="fas fa-exclamation-triangle text-warning d-none" id="cod-warn-check"></i>
-                                        </div>
-                                    </div>
-                                </div>
+                    <div id="payment-summary-row">
+                        <div id="pe-status-area" class="d-flex align-items-center justify-content-between p-3 rounded mb-3" style="background:#1e293b;border:1px solid rgba(255,255,255,.12);">
+                            <div>
+                                <span id="pe-method-label" class="fw-bold text-white" style="font-size:1rem;">No payment entered</span>
+                                <span id="pe-status-chip" class="badge ms-2" style="display:none;"></span>
                             </div>
-                            
-                            <div class="d-none">
-                                <div id="cod-remaining">&euro; 0.00</div>
-                                <span id="cod-inv-mini">0.00</span>
-                                <span id="cod-ex-mini">0.00</span>
-                                <span id="cod-net-mini">&euro;0.00</span>
-                            </div>
-
-                        <input type="hidden" id="cod-received" value="0.00">
-
-                        <div id="keypadWrap" class="mb-2">
-                            <div class="row g-2">
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('1')">1</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('2')">2</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('3')">3</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('4')">4</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('5')">5</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('6')">6</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('7')">7</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('8')">8</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('9')">9</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-danger w-100 py-3 fs-4" onclick="kpBack()">&lsaquo;</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-dark w-100 py-3 fs-4" onclick="kp('0')">0</button></div>
-                                <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 py-3 fs-4" onclick="kpClear()">C</button></div>
-                                <div class="col-12"><button type="button" class="btn btn-success w-100 py-3" onclick="kpExact()">Exact Amount</button></div>
+                            <div>
+                                <span id="pe-amount-label" class="fw-bold" style="font-size:1.2rem;color:#f1c40f;display:none;"></span>
                             </div>
                         </div>
-                    </div>
-
-                    <div id="cheque-details" style="display: none;">
-                        <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <label class="form-label">Cheque Number <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" id="cheque-number" placeholder="Enter number">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label">Cheque Date <span class="text-danger">*</span></label>
-                                <input type="date" class="form-control" id="cheque-date">
-                            </div>
+                        <div id="pe-error-row" class="alert alert-danger small mb-3" style="display:none;">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            <span id="pe-error-msg"></span>
                         </div>
-                        <div id="pdc-warning" class="alert alert-warning small" style="display:none;">
-                            <i class="fas fa-info-circle"></i> Post-dated cheque: receipt will print as <strong>PDC Acknowledgement</strong> (subject to clearance).
+                        <div class="d-grid gap-2">
+                            <button type="button" class="btn btn-primary btn-lg" id="btnOpenPayWizard" onclick="openPaymentWizard()">
+                                <i class="fas fa-plus-circle me-1"></i> <span id="btnPayWizLabel">Add Payment</span>
+                            </button>
+                            <button type="button" class="btn btn-warning btn-lg" id="btnRetryPS365" onclick="retryPayment()" style="display:none;">
+                                <i class="fas fa-sync-alt me-1"></i> Retry Receipt Sync
+                            </button>
                         </div>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Notes <span class="text-muted small">(required if balance due &ne; 0)</span></label>
-                        <textarea class="form-control" id="cod-notes" rows="2" placeholder="Optional"></textarea>
                     </div>
                     {% endif %}
 
@@ -423,6 +346,123 @@ input[type=number]::-webkit-inner-spin-button {
     </div>
 </div>
 
+<div class="modal fade" id="paymentWizardModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content" style="background:#0f172a;color:#e2e8f0;">
+            <div class="modal-header border-0 py-2" style="background:#1e293b;">
+                <h5 class="modal-title fw-bold"><i class="fas fa-money-bill me-2"></i>Payment</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div id="pw-step1">
+                    <div class="text-center mb-3">
+                        <div style="color:#94a3b8;font-size:0.85rem;text-transform:uppercase;letter-spacing:.05em;">COLLECT</div>
+                        <div class="fw-bold" style="font-size:2rem;color:#f1c40f;" id="pw-due-display">&euro;0.00</div>
+                    </div>
+                    <h6 class="fw-bold mb-3">Select Payment Method</h6>
+                    <div class="row g-2" id="pw-method-tiles">
+                        {% if terms.allow_cash %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-success w-100 py-4 pw-method-btn" data-method="cash">
+                                <i class="fas fa-money-bill fa-2x mb-1"></i><br><strong>Cash</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                        {% if terms.allow_cheque %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-success w-100 py-4 pw-method-btn" data-method="cheque">
+                                <i class="fas fa-receipt fa-2x mb-1"></i><br><strong>Cheque</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                        {% if terms.allow_bank_transfer %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-primary w-100 py-4 pw-method-btn" data-method="online">
+                                <i class="fas fa-university fa-2x mb-1"></i><br><strong>Pay Online</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                        {% if terms.allow_card_pos %}
+                        <div class="col-6">
+                            <button type="button" class="btn btn-outline-secondary w-100 py-4 pw-method-btn" data-method="card">
+                                <i class="fas fa-credit-card fa-2x mb-1"></i><br><strong>Card (POS)</strong>
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div id="pw-step2" style="display:none;">
+                    <button type="button" class="btn btn-sm btn-link text-white-50 mb-2 p-0" onclick="pwGoStep1()">
+                        <i class="fas fa-arrow-left me-1"></i> Back
+                    </button>
+                    <div class="text-center mb-2">
+                        <span id="pw-selected-method-badge" class="badge bg-success" style="font-size:0.9rem;"></span>
+                    </div>
+
+                    <div id="pw-amount-section">
+                        <div class="d-flex justify-content-center align-items-center py-3 rounded mb-2" style="background:#1e293b;border:1px solid rgba(255,255,255,.1);">
+                            <div class="text-center">
+                                <div class="fw-bold mb-1" style="font-size:.85rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;">ENTERED</div>
+                                <div class="display-3 fw-bold" id="pw-amount-display" style="line-height:1;color:#ffffff;">&euro; 0.00</div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="pw-amount-val" value="0.00">
+
+                        <div id="pw-keypad" class="mb-2">
+                            <div class="row g-2">
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('1')">1</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('2')">2</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('3')">3</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('4')">4</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('5')">5</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('6')">6</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('7')">7</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('8')">8</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('9')">9</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-danger w-100 py-3 fs-4" onclick="pwKpBack()">&lsaquo;</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-light w-100 py-3 fs-4" onclick="pwKp('0')">0</button></div>
+                                <div class="col-4"><button type="button" class="btn btn-outline-secondary w-100 py-3 fs-4" onclick="pwKpClear()">C</button></div>
+                                <div class="col-12"><button type="button" class="btn btn-success w-100 py-3" onclick="pwKpExact()">Exact Amount</button></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="pw-cheque-section" style="display:none;">
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label">Cheque Number <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="pw-cheque-number" placeholder="Enter number">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Cheque Date <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" id="pw-cheque-date">
+                            </div>
+                        </div>
+                        <div id="pw-pdc-warning" class="alert alert-warning small" style="display:none;">
+                            <i class="fas fa-info-circle"></i> Post-dated cheque: receipt will print as <strong>PDC Acknowledgement</strong> (subject to clearance).
+                        </div>
+                    </div>
+
+                    <div id="pw-online-info" class="alert alert-info" style="display:none;">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Payment will be made online. Amount set to invoice total for record keeping.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 d-grid" style="background:#1e293b;">
+                <button type="button" class="btn btn-success btn-lg" id="pw-submit-btn" onclick="submitPaymentWizard()" disabled>
+                    <i class="fas fa-check-circle me-1"></i> Confirm Payment
+                </button>
+                <div id="pw-spinner" class="text-center py-2" style="display:none;">
+                    <div class="spinner-border text-light" role="status"></div>
+                    <div class="small text-white-50 mt-1">Syncing with PS365...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 const items = {{ items|tojson }};
 const invoiceNos = {{ invoice_nos|tojson }};
@@ -450,6 +490,9 @@ const allowCard = app.dataset.allowCard === '1';
 window.deliverySaved = false;
 let rawCents = "";
 let lastSubmitData = null;
+let activePayment = null;
+let pwRawCents = "";
+let pwSelectedMethod = null;
 
 function populateItems() {
     const invoiceNo = document.getElementById('ex-invoice').value;
@@ -685,35 +728,294 @@ function removeException(index) {
 function setMethod(m) {
     const sel = document.getElementById('cod-method');
     if (sel) sel.value = m;
-    document.querySelectorAll('.method-tile').forEach(btn => {
-        btn.classList.remove('active', 'btn-success', 'btn-primary', 'btn-secondary');
-        const orig = btn.dataset.method;
-        if (orig === m) {
-            btn.classList.add('active', 'btn-success');
-            btn.classList.remove('btn-outline-success', 'btn-outline-primary', 'btn-outline-secondary');
-        } else {
-            btn.classList.remove('btn-success', 'btn-primary', 'btn-secondary');
-            if (!btn.classList.contains('btn-outline-success') && !btn.classList.contains('btn-outline-primary') && !btn.classList.contains('btn-outline-secondary')) {
-                if (orig === 'online') btn.classList.add('btn-outline-primary');
-                else if (orig === 'card') btn.classList.add('btn-outline-secondary');
-                else btn.classList.add('btn-outline-success');
-            }
-        }
-    });
-    togglePaymentControls();
-    calculateCODVariance();
-    updateSignatureRequirementUI();
     refreshHeaderAndSteps();
 }
 
 function _getPaymentMethod() {
+    if (activePayment) return activePayment.method;
     const sel = document.getElementById('cod-method');
     return (sel ? sel.value : '').toLowerCase();
 }
 
 function _getChequeDateStr() {
-    const el = document.getElementById('cheque-date');
-    return el ? el.value : '';
+    if (activePayment && activePayment.cheque_date) return activePayment.cheque_date;
+    return '';
+}
+
+function getCollectDue() {
+    const exTot = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
+    return Math.max(0, totalInvoicesAmount - exTot);
+}
+
+function openPaymentWizard() {
+    pwSelectedMethod = null;
+    pwRawCents = "";
+    document.getElementById('pw-step1').style.display = 'block';
+    document.getElementById('pw-step2').style.display = 'none';
+    document.getElementById('pw-submit-btn').disabled = true;
+    document.getElementById('pw-submit-btn').style.display = 'block';
+    document.getElementById('pw-spinner').style.display = 'none';
+    const dueEl = document.getElementById('pw-due-display');
+    if (dueEl) dueEl.textContent = '\u20AC' + getCollectDue().toFixed(2);
+    document.querySelectorAll('.pw-method-btn').forEach(b => {
+        b.classList.remove('active','btn-success','btn-primary','btn-secondary');
+        const m = b.dataset.method;
+        if (m === 'online') b.classList.add('btn-outline-primary');
+        else if (m === 'card') b.classList.add('btn-outline-secondary');
+        else b.classList.add('btn-outline-success');
+    });
+    const modal = new bootstrap.Modal(document.getElementById('paymentWizardModal'));
+    modal.show();
+}
+
+document.querySelectorAll('.pw-method-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        pwSelectedMethod = this.dataset.method;
+        document.querySelectorAll('.pw-method-btn').forEach(b => {
+            b.classList.remove('active','btn-success','btn-primary','btn-secondary');
+            const m = b.dataset.method;
+            if (m === 'online') b.classList.add('btn-outline-primary');
+            else if (m === 'card') b.classList.add('btn-outline-secondary');
+            else b.classList.add('btn-outline-success');
+        });
+        this.classList.add('active');
+        this.classList.remove('btn-outline-success','btn-outline-primary','btn-outline-secondary');
+        this.classList.add('btn-success');
+        pwGoStep2();
+    });
+});
+
+function pwGoStep1() {
+    document.getElementById('pw-step1').style.display = 'block';
+    document.getElementById('pw-step2').style.display = 'none';
+    document.getElementById('pw-submit-btn').disabled = true;
+}
+
+function pwGoStep2() {
+    document.getElementById('pw-step1').style.display = 'none';
+    document.getElementById('pw-step2').style.display = 'block';
+    const badge = document.getElementById('pw-selected-method-badge');
+    const labels = {cash:'Cash',cheque:'Cheque',online:'Pay Online',card:'Card (POS)'};
+    badge.textContent = labels[pwSelectedMethod] || pwSelectedMethod;
+
+    const amtSec = document.getElementById('pw-amount-section');
+    const chqSec = document.getElementById('pw-cheque-section');
+    const onlInfo = document.getElementById('pw-online-info');
+
+    if (pwSelectedMethod === 'online') {
+        amtSec.style.display = 'none';
+        chqSec.style.display = 'none';
+        onlInfo.style.display = 'block';
+        const due = getCollectDue();
+        pwRawCents = String(Math.round(due * 100));
+        pwUpdateDisplay();
+        document.getElementById('pw-submit-btn').disabled = false;
+    } else if (pwSelectedMethod === 'cheque') {
+        amtSec.style.display = 'block';
+        chqSec.style.display = 'block';
+        onlInfo.style.display = 'none';
+        pwRawCents = "";
+        pwUpdateDisplay();
+        const chqDate = document.getElementById('pw-cheque-date');
+        if (chqDate && !chqDate.value) chqDate.value = new Date().toISOString().split('T')[0];
+        document.getElementById('pw-submit-btn').disabled = true;
+    } else {
+        amtSec.style.display = 'block';
+        chqSec.style.display = 'none';
+        onlInfo.style.display = 'none';
+        pwRawCents = "";
+        pwUpdateDisplay();
+        document.getElementById('pw-submit-btn').disabled = true;
+    }
+    pwValidateStep2();
+}
+
+function pwUpdateDisplay() {
+    const cents = pwRawCents === "" ? 0 : parseInt(pwRawCents, 10);
+    const amount = (cents / 100).toFixed(2);
+    document.getElementById('pw-amount-val').value = amount;
+    const display = document.getElementById('pw-amount-display');
+    if (display) display.textContent = '\u20AC ' + amount;
+    if (cents > 0) {
+        const due = getCollectDue();
+        display.style.color = Math.abs(parseFloat(amount) - due) < 0.01 ? '#22c55e' : '#f97316';
+    } else {
+        display.style.color = '#ffffff';
+    }
+}
+
+function pwKp(d) { pwRawCents = (pwRawCents + d).replace(/^0+/, ""); pwUpdateDisplay(); pwValidateStep2(); }
+function pwKpBack() { pwRawCents = pwRawCents.slice(0,-1); pwUpdateDisplay(); pwValidateStep2(); }
+function pwKpClear() { pwRawCents = ""; pwUpdateDisplay(); pwValidateStep2(); }
+function pwKpExact() {
+    const due = getCollectDue();
+    pwRawCents = String(Math.round(due * 100));
+    pwUpdateDisplay();
+    pwValidateStep2();
+}
+
+function pwValidateStep2() {
+    const btn = document.getElementById('pw-submit-btn');
+    if (!btn || !pwSelectedMethod) { if(btn) btn.disabled = true; return; }
+    if (pwSelectedMethod === 'online') { btn.disabled = false; return; }
+    const amt = parseFloat(document.getElementById('pw-amount-val').value) || 0;
+    if (amt <= 0) { btn.disabled = true; return; }
+    if (pwSelectedMethod === 'cheque') {
+        const chqNum = (document.getElementById('pw-cheque-number').value || '').trim();
+        const chqDate = (document.getElementById('pw-cheque-date').value || '').trim();
+        btn.disabled = !chqNum || !chqDate;
+        pwCheckPdc();
+        return;
+    }
+    btn.disabled = false;
+}
+
+function pwCheckPdc() {
+    const warn = document.getElementById('pw-pdc-warning');
+    if (!warn) return;
+    const d = document.getElementById('pw-cheque-date');
+    if (!d || !d.value) { warn.style.display = 'none'; return; }
+    const sel = new Date(d.value + 'T00:00:00');
+    const today = new Date(); today.setHours(0,0,0,0);
+    warn.style.display = sel > today ? 'block' : 'none';
+}
+
+async function submitPaymentWizard() {
+    const btn = document.getElementById('pw-submit-btn');
+    const spinner = document.getElementById('pw-spinner');
+    btn.style.display = 'none';
+    spinner.style.display = 'block';
+
+    const amount = parseFloat(document.getElementById('pw-amount-val').value) || 0;
+    const payload = { method: pwSelectedMethod, amount: amount };
+    if (pwSelectedMethod === 'cheque') {
+        payload.cheque_no = (document.getElementById('pw-cheque-number').value || '').trim();
+        payload.cheque_date = (document.getElementById('pw-cheque-date').value || '').trim();
+    }
+
+    try {
+        const res = await fetch(`/api/route-stops/${stopId}/payment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data) {
+            activePayment = data;
+            syncCodFromPayment(data);
+            renderPaymentSummary();
+            refreshHeaderAndSteps();
+            bootstrap.Modal.getInstance(document.getElementById('paymentWizardModal')).hide();
+        } else {
+            alert(data.error || 'Payment failed');
+            btn.style.display = 'block';
+            spinner.style.display = 'none';
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
+        btn.style.display = 'block';
+        spinner.style.display = 'none';
+    }
+}
+
+async function retryPayment() {
+    if (!activePayment || !activePayment.id) return;
+    const btn = document.getElementById('btnRetryPS365');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Retrying...';
+
+    try {
+        const res = await fetch(`/api/payments/${activePayment.id}/retry`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (res.ok && data) {
+            activePayment = data;
+            syncCodFromPayment(data);
+            renderPaymentSummary();
+            refreshHeaderAndSteps();
+        } else {
+            alert(data.error || 'Retry failed');
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+}
+
+function syncCodFromPayment(pe) {
+    const sel = document.getElementById('cod-method');
+    if (sel) sel.value = pe.method;
+    const recv = document.getElementById('cod-received');
+    if (recv) recv.value = pe.amount.toFixed(2);
+    rawCents = String(Math.round(pe.amount * 100));
+}
+
+function renderPaymentSummary() {
+    const pe = activePayment;
+    const methodLabel = document.getElementById('pe-method-label');
+    const chip = document.getElementById('pe-status-chip');
+    const amtLabel = document.getElementById('pe-amount-label');
+    const errRow = document.getElementById('pe-error-row');
+    const errMsg = document.getElementById('pe-error-msg');
+    const retryBtn = document.getElementById('btnRetryPS365');
+    const wizLabel = document.getElementById('btnPayWizLabel');
+
+    if (!pe) {
+        methodLabel.textContent = 'No payment entered';
+        chip.style.display = 'none';
+        amtLabel.style.display = 'none';
+        errRow.style.display = 'none';
+        retryBtn.style.display = 'none';
+        wizLabel.textContent = 'Add Payment';
+        return;
+    }
+
+    const labels = {cash:'Cash',cheque:'Cheque',online:'Pay Online',card:'Card (POS)'};
+    methodLabel.textContent = labels[pe.method] || pe.method;
+    amtLabel.textContent = '\u20AC' + pe.amount.toFixed(2);
+    amtLabel.style.display = 'inline';
+    wizLabel.textContent = 'Change Payment';
+
+    chip.style.display = 'inline-block';
+    if (pe.ps_status === 'SUCCESS') {
+        chip.className = 'badge bg-success ms-2';
+        chip.textContent = 'SYNCED';
+        errRow.style.display = 'none';
+        retryBtn.style.display = 'none';
+    } else if (pe.ps_status === 'SKIPPED') {
+        chip.className = 'badge bg-info ms-2';
+        chip.textContent = 'SKIPPED';
+        errRow.style.display = 'none';
+        retryBtn.style.display = 'none';
+    } else if (pe.ps_status === 'FAILED') {
+        chip.className = 'badge bg-danger ms-2';
+        chip.textContent = 'FAILED';
+        errRow.style.display = 'block';
+        errMsg.textContent = pe.ps_error || 'PS365 sync failed';
+        retryBtn.style.display = 'block';
+    } else {
+        chip.className = 'badge bg-warning text-dark ms-2';
+        chip.textContent = 'PENDING';
+        errRow.style.display = 'none';
+        retryBtn.style.display = 'none';
+    }
+}
+
+async function loadExistingPayment() {
+    try {
+        const res = await fetch(`/api/route-stops/${stopId}/payment`);
+        const data = await res.json();
+        if (data && data.id) {
+            activePayment = data;
+            syncCodFromPayment(data);
+            renderPaymentSummary();
+        }
+    } catch(e) {}
+    refreshHeaderAndSteps();
 }
 
 function isSignatureRequired() {
@@ -770,63 +1072,11 @@ function _setCollectedFromRaw() {
     const cents = rawCents === "" ? 0 : parseInt(rawCents, 10);
     const amount = (cents / 100).toFixed(2);
     document.getElementById('cod-received').value = amount;
-    const display = document.getElementById('cod-display');
-    if (display) display.textContent = '\u20AC ' + amount;
     calculateCODVariance();
-}
-
-function kp(d) {
-    rawCents = (rawCents + d).replace(/^0+/, "");
-    _setCollectedFromRaw();
-}
-function kpBack() {
-    rawCents = rawCents.slice(0, -1);
-    _setCollectedFromRaw();
-}
-function kpClear() {
-    rawCents = "";
-    _setCollectedFromRaw();
-}
-function kpExact() {
-    const invoiceTotal = totalInvoicesAmount;
-    const exceptionsTotal = exceptions.reduce((sum, ex) => sum + (ex.exception_value || 0), 0);
-    const due = Math.max(0, invoiceTotal - exceptionsTotal);
-    rawCents = String(Math.round(due * 100));
-    _setCollectedFromRaw();
 }
 
 function togglePaymentControls() {
-    if (isCredit) return;
-    const methodEl = document.getElementById('cod-method');
-    if (!methodEl) return;
-
-    const method = methodEl.value;
-    const amountSection = document.getElementById('cod-amount-section');
-    const keypadWrap = document.getElementById('keypadWrap');
-    const chequeDetails = document.getElementById('cheque-details');
-
-    if (method === 'online') {
-        if (amountSection) amountSection.style.display = 'block';
-        if (keypadWrap) keypadWrap.style.display = 'none';
-        document.getElementById('cod-received').value = '0';
-        const display = document.getElementById('cod-display');
-        if (display) display.textContent = '\u20AC 0.00';
-        rawCents = "";
-        if (chequeDetails) chequeDetails.style.display = 'none';
-    } else if (method === 'cheque') {
-        if (amountSection) amountSection.style.display = 'block';
-        if (keypadWrap) keypadWrap.style.display = 'block';
-        if (chequeDetails) chequeDetails.style.display = 'block';
-        setTimeout(() => keypadWrap && keypadWrap.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
-    } else {
-        if (amountSection) amountSection.style.display = 'block';
-        if (keypadWrap) keypadWrap.style.display = 'block';
-        if (chequeDetails) chequeDetails.style.display = 'none';
-        setTimeout(() => keypadWrap && keypadWrap.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
-    }
-
     calculateCODVariance();
-    checkPdcWarning();
     refreshHeaderAndSteps();
 }
 
@@ -984,43 +1234,69 @@ function refreshHeaderAndSteps() {
     setStepDone('st-sig', (!sigRequired) || sigChecked);
 
     let payDone = true;
+    let payBlocked = false;
     if (!isCredit) {
-        const m = document.getElementById('cod-method')?.value || '';
-        payDone = !!m;
         const dueNow = Math.max(0, inv - exTot);
-        const received = (m === 'online') ? 0 : (parseFloat(document.getElementById('cod-received')?.value) || 0);
-        if ((m === 'cash' || m === 'card' || m === 'cheque') && dueNow > 0 && received <= 0) payDone = false;
+        if (dueNow <= 0.01) {
+            payDone = true;
+            const noPay = document.getElementById('no-payment-needed');
+            if (noPay) noPay.style.display = 'block';
+            const summRow = document.getElementById('payment-summary-row');
+            if (summRow) summRow.style.display = 'none';
+        } else {
+            const noPay = document.getElementById('no-payment-needed');
+            if (noPay) noPay.style.display = 'none';
+            const summRow = document.getElementById('payment-summary-row');
+            if (summRow) summRow.style.display = 'block';
+
+            if (!activePayment) {
+                payDone = false;
+            } else {
+                const st = activePayment.ps_status;
+                if (st === 'SUCCESS' || st === 'SKIPPED') {
+                    payDone = true;
+                } else if (st === 'FAILED') {
+                    payDone = false;
+                    payBlocked = true;
+                } else {
+                    payDone = false;
+                }
+            }
+        }
     }
     setStepDone('st-pay', payDone);
 
-    // Payment header badge: show method + amount when collapsed
     const payBadge = document.getElementById('payHdrBadge');
     if (payBadge) {
         if (isCredit) {
             payBadge.textContent = 'CREDIT';
             payBadge.style.color = 'rgba(255,255,255,0.55)';
-        } else {
-            const m = document.getElementById('cod-method')?.value || '';
-            const received = (m === 'online') ? 0 : (parseFloat(document.getElementById('cod-received')?.value) || 0);
-            if (m) {
-                const methodLabel = m === 'online' ? 'ONLINE' : m.toUpperCase();
-                const amtStr = `€${received.toFixed(2)}`;
-                if (payDone) {
-                    payBadge.textContent = `${methodLabel}  ${amtStr}`;
-                    payBadge.style.color = '#22c55e';
-                } else {
-                    payBadge.textContent = `${methodLabel}  ${amtStr}`;
-                    payBadge.style.color = '#f97316';
-                }
+        } else if (activePayment) {
+            const labels = {cash:'CASH',cheque:'CHEQUE',online:'ONLINE',card:'CARD'};
+            const ml = labels[activePayment.method] || activePayment.method.toUpperCase();
+            const amtStr = '\u20AC' + activePayment.amount.toFixed(2);
+            payBadge.textContent = `${ml}  ${amtStr}`;
+            if (activePayment.ps_status === 'SUCCESS' || activePayment.ps_status === 'SKIPPED') {
+                payBadge.style.color = '#22c55e';
+            } else if (activePayment.ps_status === 'FAILED') {
+                payBadge.style.color = '#ef4444';
             } else {
-                payBadge.textContent = '';
+                payBadge.style.color = '#f97316';
             }
+        } else {
+            payBadge.textContent = '';
         }
     }
 
     const blockers = [];
     if (sigRequired && !sigChecked) blockers.push("Signed invoice required.");
-    if (!payDone) blockers.push("Payment entry incomplete.");
+    if (!payDone && !isCredit) {
+        if (payBlocked) {
+            blockers.push("Receipt sync failed — retry or change payment.");
+        } else {
+            blockers.push("Payment entry required.");
+        }
+    }
 
     const btnFinish = document.getElementById('btnFinishStop');
     const reason = document.getElementById('finishReason');
@@ -1057,46 +1333,13 @@ async function closeStop() {
 
 async function submitDelivery() {
     const hasPhysicalInvoice = !!document.getElementById('signedInvoiceSwitch')?.checked;
-    const codMethodEl = document.getElementById('cod-method');
-    const codMethod = codMethodEl ? codMethodEl.value : null;
-    const receivedAmountInput = document.getElementById('cod-received');
-    const chequeDateInput = document.getElementById('cheque-date');
 
-    if (codMethod === 'cheque' && chequeDateInput && chequeDateInput.value) {
-        const selectedDate = new Date(chequeDateInput.value);
-        selectedDate.setHours(0,0,0,0);
-
-        const today = new Date();
-        today.setHours(0,0,0,0);
-
-        const appEl = document.getElementById('deliverApp');
-        const allowedDays = parseInt(appEl.dataset.chequeDaysAllowed || '0');
-
-        const diffTime = selectedDate - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays < 0) {
-            alert('Cheque date cannot be in the past.');
-            return;
-        }
-
-        if (diffDays > allowedDays) {
-            const msg = `Cheque date is ${diffDays} day(s) ahead. This will be treated as POST-DATED and will print an acknowledgement (subject to clearance). Continue?`;
-            if (!confirm(msg)) return;
-        }
-    }
-
-    const receivedAmount = !isCredit ? (parseFloat(receivedAmountInput?.value) || 0) : 0;
+    const codMethod = activePayment ? activePayment.method : null;
+    const receivedAmount = activePayment ? activePayment.amount : 0;
 
     if (isSignatureRequired() && !hasPhysicalInvoice) {
         alert('Signed invoice is REQUIRED for Credit / Pay Online / Post-dated cheque.');
         updateSignatureRequirementUI();
-        return;
-    }
-
-    if (!isCredit && codMethod === 'cash' && (receivedAmount <= 0)) {
-        alert('Please enter the cash amount collected.');
-        if (receivedAmountInput) receivedAmountInput.focus();
         return;
     }
 
@@ -1114,24 +1357,13 @@ async function submitDelivery() {
         }
 
         let codPayload = null;
-        if (!isCredit) {
-            const method = document.getElementById('cod-method').value;
-            const received = method === 'online' ? 0 : (parseFloat(document.getElementById('cod-received').value) || 0);
-            const note = document.getElementById('cod-notes').value;
-
-            let chequeNum = null;
-            let chequeDate = null;
-            if (method === 'cheque') {
-                chequeNum = document.getElementById('cheque-number').value.trim();
-                chequeDate = document.getElementById('cheque-date').value;
-            }
-
+        if (!isCredit && activePayment) {
             codPayload = {
-                method: method,
-                received: received,
-                note: note,
-                cheque_number: chequeNum,
-                cheque_date: chequeDate
+                method: activePayment.method,
+                received: activePayment.amount,
+                note: '',
+                cheque_number: activePayment.cheque_no || null,
+                cheque_date: activePayment.cheque_date || null
             };
         }
 
@@ -1283,30 +1515,21 @@ async function shareOrOpenReceipt(printUrl, filename) {
 }
 
 if (!isCredit) {
-    const methodEl = document.getElementById('cod-method');
-    if (methodEl) {
-        methodEl.addEventListener('change', () => { togglePaymentControls(); updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
-    }
-    const chequeDateEl = document.getElementById('cheque-date');
-    if (chequeDateEl) {
-        chequeDateEl.addEventListener('change', () => { checkPdcWarning(); updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
-    }
-    setMethod(methodEl ? methodEl.value : 'cash');
-    togglePaymentControls();
-    calculateCODVariance();
+    const chqNumEl = document.getElementById('pw-cheque-number');
+    const chqDateEl = document.getElementById('pw-cheque-date');
+    if (chqNumEl) chqNumEl.addEventListener('input', pwValidateStep2);
+    if (chqDateEl) chqDateEl.addEventListener('change', () => { pwCheckPdc(); pwValidateStep2(); });
 }
 
 const sigSwitch = document.getElementById('signedInvoiceSwitch');
 if (sigSwitch) sigSwitch.addEventListener('change', () => { updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
 updateSignatureRequirementUI();
-refreshHeaderAndSteps();
 
 document.addEventListener('DOMContentLoaded', function() {
-    const dateInput = document.getElementById('cheque-date');
-    if (dateInput && !dateInput.value) {
-        const today = new Date().toISOString().split('T')[0];
-        dateInput.value = today;
+    if (!isCredit) {
+        loadExistingPayment();
     }
+    refreshAmountsUI();
     refreshHeaderAndSteps();
 });
 </script>

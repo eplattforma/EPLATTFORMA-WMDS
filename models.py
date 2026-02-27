@@ -1290,6 +1290,53 @@ class ReceiptLog(db.Model):
     def __repr__(self):
         return f"<ReceiptLog {self.reference_number}: {self.customer_code_365} ${self.amount}>"
 
+class PaymentEntry(db.Model):
+    __tablename__ = 'payment_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    route_stop_id = db.Column(db.Integer, db.ForeignKey('route_stop.route_stop_id', ondelete='CASCADE'), nullable=False, index=True)
+
+    method = db.Column(db.String(20), nullable=False)
+    amount = db.Column(db.Numeric(18, 2), nullable=False, default=0)
+    cheque_no = db.Column(db.String(64))
+    cheque_date = db.Column(db.Date)
+
+    commit_mode = db.Column(db.String(20), nullable=False)
+    doc_type = db.Column(db.String(20), nullable=False)
+    ps_status = db.Column(db.String(20), nullable=False, default='NEW')
+    ps_reference = db.Column(db.String(64))
+    ps_error = db.Column(db.Text)
+
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
+    last_attempt_at = db.Column(db.DateTime)
+
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=get_utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=get_utc_now, onupdate=get_utc_now)
+
+    stop = db.relationship('RouteStop', backref='payment_entries')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'route_stop_id': self.route_stop_id,
+            'method': self.method,
+            'amount': float(self.amount or 0),
+            'cheque_no': self.cheque_no,
+            'cheque_date': self.cheque_date.isoformat() if self.cheque_date else None,
+            'commit_mode': self.commit_mode,
+            'doc_type': self.doc_type,
+            'ps_status': self.ps_status,
+            'ps_reference': self.ps_reference,
+            'ps_error': self.ps_error,
+            'attempt_count': self.attempt_count,
+            'is_active': self.is_active,
+        }
+
+    def __repr__(self):
+        return f"<PaymentEntry {self.id} stop={self.route_stop_id} {self.method} {self.ps_status}>"
+
+
 # Payment Terms Management Models
 class PaymentCustomer(db.Model):
     """Customer reference for payment terms (separate from PS365 sync)"""
