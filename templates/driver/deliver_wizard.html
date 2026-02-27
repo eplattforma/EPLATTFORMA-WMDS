@@ -989,11 +989,13 @@ function renderPaymentSummary() {
     wizLabel.textContent = 'Change Payment';
 
     chip.style.display = 'inline-block';
+    const wizBtn = document.getElementById('btnOpenPayWizard');
     if (pe.ps_status === 'SUCCESS') {
         chip.className = 'badge bg-success ms-2';
         chip.textContent = 'SYNCED' + (pe.ps_reference ? ' #' + pe.ps_reference : '');
         errRow.style.display = 'none';
         retryBtn.style.display = 'none';
+        if (wizBtn) wizBtn.style.display = 'none';
     } else if (pe.ps_status === 'SKIPPED') {
         chip.className = 'badge bg-info ms-2';
         chip.textContent = 'SKIPPED';

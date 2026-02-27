@@ -28,6 +28,10 @@ def _get_stop_context(stop_id):
 def create_payment(stop_id):
     stop, invoice_nos, customer_code = _get_stop_context(stop_id)
 
+    existing = get_active_payment(stop_id)
+    if existing and existing.ps_status == 'SUCCESS':
+        return jsonify({'error': 'Payment already synced to PS365. Cannot change a committed receipt.'}), 409
+
     payload = request.get_json(silent=True) or {}
     method = (payload.get('method') or '').strip().lower()
     if method not in ('cash', 'cheque', 'online', 'card'):
