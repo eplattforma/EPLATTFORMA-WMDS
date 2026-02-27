@@ -1,0 +1,42 @@
+CREATE TABLE "payment_entries" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"route_stop_id" integer NOT NULL,
+	"method" varchar(20) NOT NULL,
+	"amount" numeric(18, 2) NOT NULL,
+	"cheque_no" varchar(64),
+	"cheque_date" date,
+	"commit_mode" varchar(20) NOT NULL,
+	"doc_type" varchar(20) NOT NULL,
+	"ps_status" varchar(20) NOT NULL,
+	"ps_reference" varchar(64),
+	"ps_error" text,
+	"attempt_count" integer NOT NULL,
+	"last_attempt_at" timestamp,
+	"is_active" boolean NOT NULL,
+	"created_at" timestamp NOT NULL,
+	"updated_at" timestamp NOT NULL
+);
+ALTER TABLE "cod_receipts" ADD COLUMN "doc_type" varchar(30) DEFAULT 'official' NOT NULL;
+ALTER TABLE "cod_receipts" ADD COLUMN "status" varchar(20) DEFAULT 'DRAFT' NOT NULL;
+ALTER TABLE "cod_receipts" ADD COLUMN "locked_at" timestamp with time zone;
+ALTER TABLE "cod_receipts" ADD COLUMN "locked_by" varchar(64);
+ALTER TABLE "cod_receipts" ADD COLUMN "print_count" integer DEFAULT 0 NOT NULL;
+ALTER TABLE "cod_receipts" ADD COLUMN "first_printed_at" timestamp with time zone;
+ALTER TABLE "cod_receipts" ADD COLUMN "last_printed_at" timestamp with time zone;
+ALTER TABLE "cod_receipts" ADD COLUMN "voided_at" timestamp with time zone;
+ALTER TABLE "cod_receipts" ADD COLUMN "voided_by" varchar(64);
+ALTER TABLE "cod_receipts" ADD COLUMN "void_reason" text;
+ALTER TABLE "cod_receipts" ADD COLUMN "replaced_by_cod_receipt_id" integer;
+ALTER TABLE "cod_receipts" ADD COLUMN "client_request_id" varchar(128);
+ALTER TABLE "cod_receipts" ADD COLUMN "ps365_reference_number" varchar(128);
+ALTER TABLE "payment_entries" ADD CONSTRAINT "payment_entries_route_stop_id_fkey" FOREIGN KEY ("route_stop_id") REFERENCES "public"."route_stop"("route_stop_id") ON DELETE cascade ON UPDATE no action;
+CREATE INDEX "ix_payment_entries_route_stop_id" ON "payment_entries" USING btree ("route_stop_id");
+CREATE INDEX "ix_payment_entries_stop" ON "payment_entries" USING btree ("route_stop_id");
+CREATE UNIQUE INDEX "uq_payment_entries_active" ON "payment_entries" USING btree ("route_stop_id") WHERE (is_active = true);
+ALTER TABLE "cod_receipts" ADD CONSTRAINT "cod_receipts_locked_by_fkey" FOREIGN KEY ("locked_by") REFERENCES "public"."users"("username") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "cod_receipts" ADD CONSTRAINT "cod_receipts_replaced_by_cod_receipt_id_fkey" FOREIGN KEY ("replaced_by_cod_receipt_id") REFERENCES "public"."cod_receipts"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "cod_receipts" ADD CONSTRAINT "cod_receipts_voided_by_fkey" FOREIGN KEY ("voided_by") REFERENCES "public"."users"("username") ON DELETE no action ON UPDATE no action;
+CREATE INDEX "idx_cod_receipts_client_request_id" ON "cod_receipts" USING btree ("client_request_id");
+CREATE INDEX "idx_cod_receipts_doc_type" ON "cod_receipts" USING btree ("doc_type");
+CREATE INDEX "idx_cod_receipts_status" ON "cod_receipts" USING btree ("status");
+CREATE UNIQUE INDEX "uq_cod_receipts_stop_non_voided" ON "cod_receipts" USING btree ("route_stop_id") WHERE ((status)::text <> 'VOIDED'::text);
