@@ -212,6 +212,11 @@
                                 </div>
                                 {% endif %}
                                 <small class="d-block mt-1 fw-bold text-dark">{{ stop.delivered_at|local_time }}</small>
+                                {% if stop.cod_receipts and stop.cod_receipts|length > 0 %}
+                                <button class="btn btn-outline-secondary btn-sm mt-2" onclick="reprintReceipt({{ stop.cod_receipts[0].id }})">
+                                    <i class="fas fa-print me-1"></i> Reprint Receipt
+                                </button>
+                                {% endif %}
                             </div>
                         </div>
                         {% elif item.status == 'failed' %}
@@ -328,6 +333,27 @@ async function submitFail() {
     } catch (error) {
         console.error('Error:', error);
         alert('Error submitting failure. Please try again.');
+    }
+}
+
+async function reprintReceipt(receiptId) {
+    try {
+        const res = await fetch(`/driver/receipts/${receiptId}/print.png`, { cache: 'no-store' });
+        if (!res.ok) {
+            alert('Could not load receipt. Please try again.');
+            return;
+        }
+        const blob = await res.blob();
+        const file = new File([blob], `receipt_${receiptId}.png`, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'Receipt' });
+        } else {
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+        }
+    } catch (err) {
+        console.error('Reprint error:', err);
+        alert('Error reprinting receipt. Please try again.');
     }
 }
 
