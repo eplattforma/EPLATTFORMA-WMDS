@@ -83,6 +83,7 @@ def commit_to_ps365(pe, customer_code, invoice_nos, driver_username):
             customer_code=customer_code,
             amount_val=float(pe.amount),
             comments=comments,
+            user_code=driver_username,
             invoice_no=inv_str,
             driver_username=driver_username,
             route_stop_id=pe.route_stop_id,
