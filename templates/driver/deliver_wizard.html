@@ -182,7 +182,7 @@ input[type=number]::-webkit-inner-spin-button {
                                 </div>
                             </div>
                             <div class="form-check form-switch m-0">
-                                <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch" style="transform: scale(1.4);">
+                                <input class="form-check-input" type="checkbox" id="signedInvoiceSwitch" style="transform: scale(1.4); background-color: #dc3545; border-color: #dc3545;">
                             </div>
                         </div>
                     </div>
@@ -1522,7 +1522,18 @@ if (!isCredit) {
 }
 
 const sigSwitch = document.getElementById('signedInvoiceSwitch');
-if (sigSwitch) sigSwitch.addEventListener('change', () => { updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
+function updateSwitchColor() {
+    if (!sigSwitch) return;
+    if (sigSwitch.checked) {
+        sigSwitch.style.backgroundColor = '#198754';
+        sigSwitch.style.borderColor = '#198754';
+    } else {
+        sigSwitch.style.backgroundColor = '#dc3545';
+        sigSwitch.style.borderColor = '#dc3545';
+    }
+}
+if (sigSwitch) sigSwitch.addEventListener('change', () => { updateSwitchColor(); updateSignatureRequirementUI(); refreshHeaderAndSteps(); });
+updateSwitchColor();
 updateSignatureRequirementUI();
 
 document.addEventListener('DOMContentLoaded', function() {
