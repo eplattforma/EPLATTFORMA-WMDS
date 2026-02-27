@@ -59,27 +59,28 @@ def update_cod_receipts_locking_schema():
                 "CREATE INDEX IF NOT EXISTS idx_cod_receipts_client_request_id ON cod_receipts(client_request_id)"
             ))
 
+            db.session.execute(text("""
+                UPDATE cod_receipts SET status = 'DRAFT'
+                WHERE status IS NULL
+            """))
+            db.session.execute(text("""
+                UPDATE cod_receipts SET status = 'VOIDED', void_reason = 'auto-dedup migration'
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (
+                            PARTITION BY route_stop_id
+                            ORDER BY created_at DESC NULLS LAST, id DESC
+                        ) AS rn
+                        FROM cod_receipts
+                        WHERE status <> 'VOIDED'
+                    ) sub WHERE rn > 1
+                )
+            """))
+
             idx_exists = db.session.execute(text(
                 "SELECT 1 FROM pg_indexes WHERE indexname = 'uq_cod_receipts_stop_non_voided'"
             )).fetchone()
             if not idx_exists:
-                db.session.execute(text("""
-                    UPDATE cod_receipts SET status = 'VOIDED', void_reason = 'auto-dedup migration'
-                    WHERE id IN (
-                        SELECT id FROM (
-                            SELECT id, ROW_NUMBER() OVER (
-                                PARTITION BY route_stop_id
-                                ORDER BY created_at DESC NULLS LAST, id DESC
-                            ) AS rn
-                            FROM cod_receipts
-                            WHERE (status IS NULL OR status <> 'VOIDED')
-                        ) sub WHERE rn > 1
-                    )
-                """))
-                db.session.execute(text("""
-                    UPDATE cod_receipts SET status = 'DRAFT'
-                    WHERE status IS NULL
-                """))
                 db.session.execute(text("""
                     CREATE UNIQUE INDEX uq_cod_receipts_stop_non_voided
                     ON cod_receipts(route_stop_id)
