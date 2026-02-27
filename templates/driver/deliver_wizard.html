@@ -991,7 +991,7 @@ function renderPaymentSummary() {
     chip.style.display = 'inline-block';
     if (pe.ps_status === 'SUCCESS') {
         chip.className = 'badge bg-success ms-2';
-        chip.textContent = 'SYNCED';
+        chip.textContent = 'SYNCED' + (pe.ps_reference ? ' #' + pe.ps_reference : '');
         errRow.style.display = 'none';
         retryBtn.style.display = 'none';
     } else if (pe.ps_status === 'SKIPPED') {
