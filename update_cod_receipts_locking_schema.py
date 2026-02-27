@@ -77,15 +77,9 @@ def update_cod_receipts_locking_schema():
                 )
             """))
 
-            idx_exists = db.session.execute(text(
-                "SELECT 1 FROM pg_indexes WHERE indexname = 'uq_cod_receipts_stop_non_voided'"
-            )).fetchone()
-            if not idx_exists:
-                db.session.execute(text("""
-                    CREATE UNIQUE INDEX uq_cod_receipts_stop_non_voided
-                    ON cod_receipts(route_stop_id)
-                    WHERE status <> 'VOIDED'
-                """))
+            db.session.execute(text(
+                "DROP INDEX IF EXISTS uq_cod_receipts_stop_non_voided"
+            ))
 
             db.session.commit()
             logging.info("✅ COD receipts locking schema update completed successfully")
