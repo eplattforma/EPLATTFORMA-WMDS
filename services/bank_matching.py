@@ -35,8 +35,13 @@ def parse_bank_statement(file_obj, filename):
     df.columns = [c.strip() for c in df.columns]
     col_map = _detect_columns(df)
     if not col_map.get('credit') and not col_map.get('amount'):
-        raise ValueError("Could not detect a credit/amount column in the file. "
-                         "Expected columns like: Credit, Amount, Deposit, etc.")
+        if len(df.columns) >= 8:
+            col_h = df.columns[7]
+            logger.info(f"No credit column detected by name, falling back to column H: '{col_h}'")
+            col_map['credit'] = col_h
+        else:
+            raise ValueError("Could not detect a credit/amount column in the file. "
+                             "Expected columns like: Credit, Amount, Deposit, etc.")
 
     return df, col_map
 
