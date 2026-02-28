@@ -220,7 +220,10 @@ $(document).ready(function() {
     const modal = new bootstrap.Modal(document.getElementById('clearPaymentModal'));
     const csrfToken = $('meta[name="csrf-token"]').attr('content');
 
-    function loadPaymentTypes() {
+    let currentMethod = '';
+
+    function loadPaymentTypes(method) {
+        currentMethod = (method || '').toUpperCase();
         if (paymentTypesCache) {
             renderPaymentTypes(paymentTypesCache);
             return;
@@ -244,9 +247,31 @@ $(document).ready(function() {
     }
 
     function renderPaymentTypes(types) {
+        let defaultCode = '';
+        if (currentMethod === 'CHEQUE' || currentMethod === 'POSTDATED') {
+            const cheqType = types.find(t => {
+                const c = (t.code || '').toUpperCase();
+                const n = (t.name || '').toUpperCase();
+                return c.indexOf('CHEQ') >= 0 || c.indexOf('CHQ') >= 0 || n.indexOf('CHEQUE') >= 0;
+            });
+            if (cheqType) defaultCode = cheqType.code;
+        } else if (currentMethod === 'ONLINE' || currentMethod === 'BANK_TRANSFER') {
+            const onlType = types.find(t => {
+                const c = (t.code || '').toUpperCase();
+                const n = (t.name || '').toUpperCase();
+                return c.indexOf('ONLINE') >= 0 || c.indexOf('BANK') >= 0 || c.indexOf('TRANSFER') >= 0
+                    || n.indexOf('ONLINE') >= 0 || n.indexOf('BANK') >= 0 || n.indexOf('TRANSFER') >= 0;
+            });
+            if (onlType) defaultCode = onlType.code;
+        } else {
+            const cashType = types.find(t => t.is_cash === true);
+            if (cashType) defaultCode = cashType.code;
+        }
+
         let html = '<option value="">-- Select payment type --</option>';
         types.forEach(function(t) {
-            html += `<option value="${t.code}">${t.name} (${t.code})</option>`;
+            const sel = t.code === defaultCode ? ' selected' : '';
+            html += `<option value="${t.code}"${sel}>${t.name} (${t.code})</option>`;
         });
         $('#clearPaymentType').html(html);
     }
@@ -290,7 +315,7 @@ $(document).ready(function() {
             $('#clearSendPs365').prop('checked', true);
             $('#clearPaymentTypeWrap').show();
             $('#clearReceiptDateWrap').show();
-            loadPaymentTypes();
+            loadPaymentTypes(method);
         } else {
             $('#clearNotEligible').show();
             $('#clearEligibleDate').text(chequeDate);
