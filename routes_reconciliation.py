@@ -314,10 +314,14 @@ def api_clear_pending(allocation_id):
                 if cr.note:
                     comments += f" | {cr.note}"
 
+                amount_for_ps365 = float(cr.received_amount or 0)
+                if not amount_for_ps365 and alloc:
+                    amount_for_ps365 = float((alloc.expected_amount or 0) - (alloc.deduct_amount or 0))
+
                 from routes_receipts import create_receipt_core
                 ok, ref_num, resp_id, status_code, ps_json = create_receipt_core(
                     customer_code=customer_code,
-                    amount_val=float(cr.received_amount or 0),
+                    amount_val=amount_for_ps365,
                     comments=comments,
                     agent_code="2",
                     user_code=current_user.username,
