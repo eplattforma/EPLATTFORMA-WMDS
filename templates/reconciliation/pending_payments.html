@@ -30,8 +30,17 @@
     {% endif %}
 
     {% if grouped_customers %}
-    <table class="table table-hover align-middle mb-0" id="pendingPaymentsTable">
-        <thead style="background-color: #e9ecef; position: sticky; top: 0; z-index: 10;">
+    <style>
+        #pendingPaymentsTable { border-collapse: separate; border-spacing: 0; }
+        #pendingPaymentsTable thead th { border-bottom: 2px solid #adb5bd; padding: 10px 12px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: #495057; }
+        .cust-header-row td { border-top: none !important; border-bottom: none !important; }
+        .cust-data-row td { border-top: none !important; border-bottom: 1px solid #e9ecef !important; padding-top: 8px !important; padding-bottom: 8px !important; }
+        .cust-data-row:hover { background-color: #f1f3f5 !important; }
+        .cust-spacer-row td { border: none !important; padding: 0 !important; height: 12px; background: transparent !important; }
+        .bank-match-row td { border-top: none !important; border-bottom: 1px solid #ffe69c !important; }
+    </style>
+    <table class="table align-middle mb-0" id="pendingPaymentsTable">
+        <thead style="background-color: #f8f9fa; position: sticky; top: 0; z-index: 10;">
             <tr>
                 <th style="width:11%;">Delivery Date</th>
                 <th style="width:6%;">Age</th>
@@ -47,7 +56,10 @@
         </thead>
         <tbody>
     {% for cust_name, cust_data in grouped_customers.items() %}
-            <tr style="background-color: #343a40; color: #fff;">
+            {% if not loop.first %}
+            <tr class="cust-spacer-row"><td colspan="10"></td></tr>
+            {% endif %}
+            <tr class="cust-header-row" style="background-color: #343a40; color: #fff;">
                 <td colspan="10" class="py-2 px-3">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
@@ -64,7 +76,7 @@
                 </td>
             </tr>
                     {% for inv in cust_data.invoices %}
-                    <tr>
+                    <tr class="cust-data-row">
                         <td>{{ inv.delivery_date.strftime('%Y-%m-%d') if inv.delivery_date else 'N/A' }}</td>
                         <td class="text-center">
                             {% set days = inv.age_days %}
