@@ -16,7 +16,8 @@ from models import (
     Shipment, RouteStop, RouteStopInvoice, Invoice, InvoiceItem,
     DeliveryEvent, DeliveryLine, CODReceipt, PODRecord,
     DeliveryDiscrepancy, DeliveryDiscrepancyEvent, User, CreditTerms, utc_now,
-    InvoicePostDeliveryCase, InvoiceRouteHistory, DwInvoiceLine, RouteReturnHandover
+    InvoicePostDeliveryCase, InvoiceRouteHistory, DwInvoiceLine, RouteReturnHandover,
+    PSCustomer
 )
 from timezone_utils import utc_now_for_db, get_local_time
 import services_warehouse_intake
@@ -358,6 +359,15 @@ def stops_list(route_id):
                 ).exists()
             ).scalar()
 
+        cust_lat = None
+        cust_lng = None
+        lookup_code = stop.customer_code
+        if lookup_code:
+            ps_cust = PSCustomer.query.get(lookup_code)
+            if ps_cust:
+                cust_lat = ps_cust.latitude
+                cust_lng = ps_cust.longitude
+
         stops_data.append({
             'stop': stop,
             'items_count': items_count,
@@ -367,6 +377,8 @@ def stops_list(route_id):
             'invoices': invoice_list,
             'payment_method': stop_payment_method,
             'has_exceptions': has_exceptions,
+            'lat': cust_lat,
+            'lng': cust_lng,
         })
     
     return render_template('driver/stops_list.html', route=route, stops_data=stops_data)

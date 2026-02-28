@@ -127,11 +127,13 @@
                         </p>
                         
                         <div class="d-flex flex-wrap gap-2 mb-3">
-                            <a href="https://www.google.com/maps/dir/?api=1&destination={{ stop.stop_addr|urlencode }}{% if stop.stop_city %},{{ stop.stop_city|urlencode }}{% endif %}" 
+                            {% if item.lat and item.lng %}
+                            <a href="https://www.google.com/maps/dir/?api=1&destination={{ item.lat }},{{ item.lng }}" 
                                target="_blank" 
                                class="btn btn-sm btn-outline-primary flex-fill">
                                 <i class="fas fa-directions"></i> Navigate
                             </a>
+                            {% endif %}
                             {% if stop.phone %}
                             <a href="tel:{{ stop.phone }}" class="btn btn-sm btn-outline-success flex-fill">
                                 <i class="fas fa-phone"></i> Call
