@@ -97,7 +97,8 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
                         cheque_number: str = "", cheque_date: str = "",
                         allow_duplicate_stop: bool = False,
                         payment_type_code_override: str = "",
-                        receipt_date_override: str = ""):
+                        receipt_date_override: str = "",
+                        bank_reference: str = ""):
     """
     Core receipt creation logic used by both API and form routes
     """
@@ -124,8 +125,9 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
             customer_name = customer.company_name.upper()
         
         desc_parts = []
-        # PRIORITY: Cheque number first (raw, without "CHQ " prefix as requested)
-        if cheque_number:
+        if bank_reference:
+            desc_parts.append(bank_reference)
+        elif cheque_number:
             desc_parts.append(cheque_number)
         
         if invoice_no:

@@ -131,6 +131,7 @@
                             {% set cr = inv.alloc.cod_receipt %}
                             {% set alloc_eligible = inv.alloc.payment_method == 'online' or (inv.alloc.payment_method in ['cheque','postdated'] and inv.alloc.cheque_date and inv.alloc.cheque_date <= today) %}
                             {% set already_sent = cr and (cr.ps365_receipt_id or cr.ps365_reference_number) %}
+                            {% set bm_list = bank_matches.get(inv.alloc.id, []) %}
                             <button type="button" class="btn btn-sm btn-success clear-payment-btn"
                                     data-id="{{ inv.alloc.id }}"
                                     data-customer="{{ cust_data.customer_name }}"
@@ -141,7 +142,8 @@
                                     data-eligible="{{ 'true' if alloc_eligible else 'false' }}"
                                     data-already-sent="{{ 'true' if already_sent else 'false' }}"
                                     data-ps365-ref="{{ (cr.ps365_reference_number or cr.ps365_receipt_id or '') if cr else '' }}"
-                                    data-cheque-date="{{ inv.alloc.cheque_date.strftime('%d/%m/%Y') if inv.alloc.cheque_date else '' }}">
+                                    data-cheque-date="{{ inv.alloc.cheque_date.strftime('%d/%m/%Y') if inv.alloc.cheque_date else '' }}"
+                                    data-bank-ref="{{ bm_list[0].reference if bm_list and bm_list[0].reference else '' }}">
                                 <i class="fas fa-check me-1"></i>Clear
                             </button>
                         </td>
@@ -243,6 +245,10 @@
                                 <option value="">Loading payment types...</option>
                             </select>
                         </div>
+                        <div class="mt-3" id="clearReferenceWrap">
+                            <label class="form-label small text-muted">Reference <small class="text-muted">(sent to PS365 description)</small></label>
+                            <input type="text" class="form-control form-control-sm" id="clearReference" placeholder="e.g. bank transfer reference" maxlength="50">
+                        </div>
                         <div class="mt-3" id="clearReceiptDateWrap">
                             <label class="form-label small text-muted">Receipt Date</label>
                             <input type="date" class="form-control form-control-sm" id="clearReceiptDate">
@@ -336,6 +342,7 @@ $(document).ready(function() {
         const alreadySent = currentBtn.data('already-sent') === 'true' || currentBtn.data('already-sent') === true;
         const ps365Ref = currentBtn.data('ps365-ref') || '';
         const chequeDate = currentBtn.data('cheque-date') || '';
+        const bankRef = currentBtn.data('bank-ref') || '';
 
         $('#clearCustomerName').text(customer);
         $('#clearInvoiceNo').text(invoice);
@@ -356,6 +363,8 @@ $(document).ready(function() {
         const todayStr = new Date().toISOString().split('T')[0];
         $('#clearReceiptDate').val(todayStr);
 
+        $('#clearReference').val(bankRef);
+
         if (alreadySent) {
             $('#clearAlreadySent').show();
             $('#clearPs365Ref').text(ps365Ref);
@@ -363,6 +372,7 @@ $(document).ready(function() {
             $('#clearSendSection').show();
             $('#clearSendPs365').prop('checked', true);
             $('#clearPaymentTypeWrap').show();
+            $('#clearReferenceWrap').show();
             $('#clearReceiptDateWrap').show();
             loadPaymentTypes(method);
         } else {
@@ -377,9 +387,11 @@ $(document).ready(function() {
     $('#clearSendPs365').change(function() {
         if ($(this).is(':checked')) {
             $('#clearPaymentTypeWrap').show();
+            $('#clearReferenceWrap').show();
             $('#clearReceiptDateWrap').show();
         } else {
             $('#clearPaymentTypeWrap').hide();
+            $('#clearReferenceWrap').hide();
             $('#clearReceiptDateWrap').hide();
         }
     });
@@ -418,6 +430,7 @@ $(document).ready(function() {
         const sendPs365 = $('#clearSendSection').is(':visible') && $('#clearSendPs365').is(':checked');
         const paymentTypeCode = sendPs365 ? ($('#clearPaymentType').val() || '') : '';
         const receiptDate = sendPs365 ? ($('#clearReceiptDate').val() || '') : '';
+        const reference = sendPs365 ? ($('#clearReference').val() || '') : '';
 
         $.ajax({
             url: `/reconciliation/api/pending-payments/${currentAllocId}/clear`,
@@ -427,7 +440,8 @@ $(document).ready(function() {
             data: JSON.stringify({
                 send_ps365: sendPs365,
                 payment_type_code: paymentTypeCode,
-                receipt_date: receiptDate
+                receipt_date: receiptDate,
+                reference: reference
             }),
             success: function(response) {
                 if (response.success) {
