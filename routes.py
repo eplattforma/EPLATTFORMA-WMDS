@@ -1746,6 +1746,15 @@ def admin_settings():
         save_setting('receiving_notes', receiving_notes)
         save_setting('enable_ai_feedback', request.form.get('enable_ai_feedback', 'true'))
         
+        save_setting('company_name', request.form.get('company_name', '').strip())
+        save_setting('company_address', request.form.get('company_address', '').strip())
+        save_setting('company_tel', request.form.get('company_tel', '').strip())
+        save_setting('company_vat', request.form.get('company_vat', '').strip())
+        save_setting('bank_name', request.form.get('bank_name', '').strip())
+        save_setting('bank_iban', request.form.get('bank_iban', '').strip())
+        save_setting('bank_bic', request.form.get('bank_bic', '').strip())
+        save_setting('bank_beneficiary', request.form.get('bank_beneficiary', '').strip())
+        
         db.session.commit()
         flash('Settings updated successfully', 'success')
         return redirect(url_for('admin_settings'))
@@ -1771,6 +1780,15 @@ def admin_settings():
     
     enable_ai_feedback = Setting.get(db.session, 'enable_ai_feedback', 'true')
     
+    company_name = Setting.get(db.session, 'company_name', 'STEP EPLATTFORMA LTD')
+    company_address = Setting.get(db.session, 'company_address', 'Digeni Akrita 13BC, 1055 Lefkosia')
+    company_tel = Setting.get(db.session, 'company_tel', '7000 0394')
+    company_vat = Setting.get(db.session, 'company_vat', 'CY103532640')
+    bank_name = Setting.get(db.session, 'bank_name', 'Bank of Cyprus')
+    bank_iban = Setting.get(db.session, 'bank_iban', 'CY04 0020 0195 0000 0357 0208 4600')
+    bank_bic = Setting.get(db.session, 'bank_bic', 'BCYPCY2N')
+    bank_beneficiary = Setting.get(db.session, 'bank_beneficiary', 'Step Eplattforma')
+
     # Get current alert settings for display
     from time_alerts import get_alert_settings
     alert_settings = get_alert_settings()
@@ -1779,13 +1797,20 @@ def admin_settings():
                          confirm_picking=confirm_picking, 
                          show_image=show_image,
                          show_multi_qty_warning=show_multi_qty_warning,
-                         # Batch picking template parameter removed - will be rebuilt
                          require_skip_reason=require_skip_reason,
                          skip_reasons=skip_reasons,
                          exception_reasons=exception_reasons,
                          receiving_notes=receiving_notes,
                          enable_ai_feedback=enable_ai_feedback,
-                         alert_settings=alert_settings)
+                         alert_settings=alert_settings,
+                         company_name=company_name,
+                         company_address=company_address,
+                         company_tel=company_tel,
+                         company_vat=company_vat,
+                         bank_name=bank_name,
+                         bank_iban=bank_iban,
+                         bank_bic=bank_bic,
+                         bank_beneficiary=bank_beneficiary)
 
 @app.route('/admin/discrepancy-config', methods=['GET', 'POST'])
 @login_required

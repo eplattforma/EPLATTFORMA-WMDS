@@ -2,6 +2,9 @@ from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 from decimal import Decimal
+import logging
+
+logger = logging.getLogger(__name__)
 
 DOT_WIDTH_DEFAULT = 576
 PADDING_X = 20
@@ -18,6 +21,34 @@ def money(v):
         return "EUR 0.00"
 
 
+def _load_company_settings():
+    try:
+        from app import db
+        from models import Setting
+        return {
+            'company_name': Setting.get(db.session, 'company_name', 'STEP EPLATTFORMA LTD'),
+            'company_address': Setting.get(db.session, 'company_address', 'Digeni Akrita 13BC, 1055 Lefkosia'),
+            'company_tel': Setting.get(db.session, 'company_tel', '7000 0394'),
+            'company_vat': Setting.get(db.session, 'company_vat', 'CY103532640'),
+            'bank_name': Setting.get(db.session, 'bank_name', 'Bank of Cyprus'),
+            'bank_iban': Setting.get(db.session, 'bank_iban', 'CY04 0020 0195 0000 0357 0208 4600'),
+            'bank_bic': Setting.get(db.session, 'bank_bic', 'BCYPCY2N'),
+            'bank_beneficiary': Setting.get(db.session, 'bank_beneficiary', 'Step Eplattforma'),
+        }
+    except Exception as e:
+        logger.warning(f"Could not load company settings: {e}")
+        return {
+            'company_name': 'STEP EPLATTFORMA LTD',
+            'company_address': 'Digeni Akrita 13BC, 1055 Lefkosia',
+            'company_tel': '7000 0394',
+            'company_vat': 'CY103532640',
+            'bank_name': 'Bank of Cyprus',
+            'bank_iban': 'CY04 0020 0195 0000 0357 0208 4600',
+            'bank_bic': 'BCYPCY2N',
+            'bank_beneficiary': 'Step Eplattforma',
+        }
+
+
 def _pad_right(label, value, width):
     label = str(label)
     value = str(value)
@@ -29,6 +60,8 @@ def _pad_right(label, value, width):
 
 def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     dot_width = dot_width or DOT_WIDTH_DEFAULT
+
+    cs = _load_company_settings()
 
     font_body = ImageFont.truetype(FONT_PATH, 28)
     font_bold = ImageFont.truetype(FONT_BOLD_PATH, 28)
@@ -57,6 +90,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     def add_t(s=""):
         lines.append(("title", s))
 
+    def add_company_header():
+        add_t(cs['company_name'])
+        add_c(cs['company_address'])
+        add_c(f"Tel: {cs['company_tel']}  VAT: {cs['company_vat']}")
+
     is_preview = bool(data.get("is_preview"))
     is_amended = bool(data.get("is_amended"))
     is_collected = bool(data.get("is_collected"))
@@ -65,9 +103,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     doc_mode = str(data.get("doc_mode", "") or "").strip().lower()
 
     if doc_mode == "exceptions":
-        add_t("STEP EPLATTFORMA LTD")
-        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
-        add_c("Tel: 7000 0394  VAT: CY103532640")
+        add_company_header()
         add(sep)
         add_t("DELIVERY EXCEPTIONS")
         add_t("ACKNOWLEDGEMENT")
@@ -216,9 +252,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         is_reprint = bool(data.get("is_reprint"))
 
-        add_t("STEP EPLATTFORMA LTD")
-        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
-        add_c("Tel: 7000 0394  VAT: CY103532640")
+        add_company_header()
         add(sep)
         reprint_label = "REPRINT" if is_reprint else ""
         if reprint_label:
@@ -333,9 +367,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         return out.getvalue()
 
     if doc_type == "online_notice":
-        add_t("STEP EPLATTFORMA LTD")
-        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
-        add_c("Tel: 7000 0394  VAT: CY103532640")
+        add_company_header()
         add(sep)
         add_t("PAYMENT ADVICE")
         add_t("(BANK TRANSFER)")
@@ -403,11 +435,15 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add(sep)
 
         add_b("BANK TRANSFER DETAILS")
-        add("  Bank: Bank of Cyprus")
-        add("  IBAN: CY04 0020 0195 0000 0357")
-        add("        0208 4600")
-        add("  BIC/SWIFT: BCYPCY2N")
-        add("  Beneficiary: Step Eplattforma")
+        add(f"  Bank: {cs['bank_name']}")
+        iban = cs['bank_iban']
+        if len(iban) > 24:
+            add(f"  IBAN: {iban[:24]}")
+            add(f"        {iban[24:].strip()}")
+        else:
+            add(f"  IBAN: {iban}")
+        add(f"  BIC/SWIFT: {cs['bank_bic']}")
+        add(f"  Beneficiary: {cs['bank_beneficiary']}")
         add(sep)
 
         invoice_nos_plain = [str(inv.get("invoice_no", "")).strip() for inv in invoices if inv.get("invoice_no")]
@@ -489,9 +525,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         is_reprint = bool(data.get("is_reprint"))
 
-        add_t("STEP EPLATTFORMA LTD")
-        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
-        add_c("Tel: 7000 0394  VAT: CY103532640")
+        add_company_header()
         add(sep)
         reprint_label = "REPRINT" if is_reprint else ""
         if reprint_label:
@@ -619,9 +653,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     if is_amended:
         add_t("*** AMENDED DELIVERY ***")
 
-    add_t("STEP EPLATTFORMA LTD")
-    add_c("Digeni Akrita 13BC, 1055 Lefkosia")
-    add_c("Tel: 7000 0394  VAT: CY103532640")
+    add_company_header()
     add(sep)
 
     if is_credit:
