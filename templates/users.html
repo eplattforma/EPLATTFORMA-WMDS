@@ -180,7 +180,12 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="edit_payment_code" class="form-label">Payment Type Code (PS365)</label>
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <label for="edit_payment_code" class="form-label mb-0">Payment Type Code (PS365)</label>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" id="btnRefreshPayTypes" onclick="refreshPaymentTypes()" title="Refresh from PS365">
+                                <i class="fas fa-sync-alt" id="refreshPayTypesIcon"></i>
+                            </button>
+                        </div>
                         <select class="form-select" id="edit_payment_code" name="payment_type_code_365">
                             <option value="">-- None --</option>
                         </select>
@@ -257,9 +262,14 @@
 
 <script>
 let ps365PaymentTypes = null;
+let ps365CacheTime = 0;
+const PS365_CACHE_TTL = 60000;
 
-async function loadPS365PaymentTypes() {
-    if (ps365PaymentTypes !== null) return ps365PaymentTypes;
+async function loadPS365PaymentTypes(forceRefresh) {
+    const now = Date.now();
+    if (!forceRefresh && ps365PaymentTypes !== null && (now - ps365CacheTime) < PS365_CACHE_TTL) {
+        return ps365PaymentTypes;
+    }
     try {
         const res = await fetch('/reconciliation/api/ps365-payment-types-all');
         const data = await res.json();
@@ -268,11 +278,29 @@ async function loadPS365PaymentTypes() {
         } else {
             ps365PaymentTypes = [];
         }
+        ps365CacheTime = now;
     } catch (e) {
         console.error('Failed to load PS365 payment types:', e);
-        ps365PaymentTypes = [];
+        if (ps365PaymentTypes === null) ps365PaymentTypes = [];
     }
     return ps365PaymentTypes;
+}
+
+async function refreshPaymentTypes() {
+    const icon = document.getElementById('refreshPayTypesIcon');
+    const btn = document.getElementById('btnRefreshPayTypes');
+    if (icon) icon.classList.add('fa-spin');
+    if (btn) btn.disabled = true;
+
+    const cashVal = document.getElementById('edit_payment_code')?.value || '';
+    const chequeVal = document.getElementById('edit_cheque_payment_code')?.value || '';
+
+    const types = await loadPS365PaymentTypes(true);
+    populatePaymentSelect('edit_payment_code', types, t => t.is_cash === true, cashVal);
+    populatePaymentSelect('edit_cheque_payment_code', types, () => true, chequeVal);
+
+    if (icon) icon.classList.remove('fa-spin');
+    if (btn) btn.disabled = false;
 }
 
 function populatePaymentSelect(selectId, types, filterFn, currentValue) {
