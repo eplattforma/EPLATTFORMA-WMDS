@@ -38,7 +38,7 @@
         .cust-data-row td { border-top: none !important; border-bottom: 1px solid #e9ecef !important; padding-top: 8px !important; padding-bottom: 8px !important; }
         .cust-data-row:hover { background-color: #f1f3f5 !important; }
         .cust-spacer-row td { border: none !important; padding: 0 !important; height: 12px; background: transparent !important; }
-        .bank-match-row td { border-top: none !important; border-bottom: 1px solid #ffe69c !important; }
+        .bank-match-row td { border-top: none !important; border-bottom: 1px solid #198754 !important; background-color: #1a4731 !important; color: #d1e7dd !important; }
     </style>
     <table class="table align-middle mb-0" id="pendingPaymentsTable">
         <thead style="background-color: #0d6efd; position: sticky; top: 0; z-index: 10; box-shadow: 0 3px 6px rgba(0,0,0,0.25);">
@@ -145,7 +145,7 @@
                     </tr>
                     {% if bank_matches.get(inv.alloc.id) %}
                     {% for bm in bank_matches[inv.alloc.id] %}
-                    <tr class="bank-match-row" style="background-color: #fff3cd;" id="bank-match-{{ bm.id }}">
+                    <tr class="bank-match-row" id="bank-match-{{ bm.id }}">
                         <td colspan="10" class="py-2 px-3">
                             <div class="d-flex align-items-center justify-content-between">
                                 <div class="d-flex align-items-center gap-3">

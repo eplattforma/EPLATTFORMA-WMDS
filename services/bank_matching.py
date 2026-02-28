@@ -163,6 +163,13 @@ def import_and_match(file_obj, filename, username):
     df, col_map = parse_bank_statement(file_obj, filename)
     batch_id = str(uuid.uuid4())[:8]
 
+    old_count = BankTransaction.query.filter(
+        BankTransaction.match_status.in_(['UNMATCHED', 'SUGGESTED'])
+    ).delete(synchronize_session=False)
+    if old_count:
+        db.session.flush()
+        logger.info(f"Cleared {old_count} old bank transactions before new import")
+
     pending = _load_pending_payments()
 
     transactions = []
