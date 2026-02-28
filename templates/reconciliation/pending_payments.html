@@ -38,10 +38,10 @@
         .cust-data-row td { border-top: none !important; border-bottom: 1px solid #e9ecef !important; padding-top: 8px !important; padding-bottom: 8px !important; }
         .cust-data-row:hover { background-color: #f1f3f5 !important; }
         .cust-spacer-row td { border: none !important; padding: 0 !important; height: 12px; background: transparent !important; }
-        .bank-match-row td { border-top: none !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important; }
-        .bank-match-high td { background-color: #1a4731 !important; color: #d1e7dd !important; }
-        .bank-match-medium td { background-color: #164050 !important; color: #b2ebf2 !important; }
-        .bank-match-low td { background-color: #3a3a3a !important; color: #adb5bd !important; }
+        #pendingPaymentsTable tr.bank-match-row > td { border-top: none !important; border-bottom: 1px solid rgba(255,255,255,0.15) !important; }
+        #pendingPaymentsTable tr.bank-match-row.bank-match-high > td { background-color: #1a4731 !important; color: #d1e7dd !important; }
+        #pendingPaymentsTable tr.bank-match-row.bank-match-medium > td { background-color: #164050 !important; color: #b2ebf2 !important; }
+        #pendingPaymentsTable tr.bank-match-row.bank-match-low > td { background-color: #3a3a3a !important; color: #adb5bd !important; }
     </style>
     <table class="table align-middle mb-0" id="pendingPaymentsTable">
         <thead style="background-color: #0d6efd; position: sticky; top: 0; z-index: 10; box-shadow: 0 3px 6px rgba(0,0,0,0.25);">
