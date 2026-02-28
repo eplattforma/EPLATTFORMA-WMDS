@@ -49,6 +49,11 @@ def _load_company_settings():
         }
 
 
+def format_iban(iban: str) -> str:
+    s = "".join((iban or "").split()).upper()
+    return " ".join(s[i:i+4] for i in range(0, len(s), 4))
+
+
 def _pad_right(label, value, width):
     label = str(label)
     value = str(value)
@@ -382,7 +387,19 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         if date_str:
             add_b(f"Issued: {date_str}")
         if due_date:
-            add_b(f"Due date: {due_date}")
+            overdue = False
+            try:
+                from datetime import datetime as _dt, date as _date
+                dd = _dt.strptime(due_date, "%Y-%m-%d").date() if isinstance(due_date, str) else due_date
+                print_date = _dt.strptime(date_str, "%Y-%m-%d").date() if date_str else _date.today()
+                if dd < print_date:
+                    overdue = True
+            except Exception:
+                pass
+            if overdue:
+                add_b(f"Due date: {due_date} (OVERDUE)")
+            else:
+                add_b(f"Due date: {due_date}")
         add(sep)
 
         add_b("Customer:")
@@ -392,7 +409,8 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         invoices = data.get("invoices") or []
         if invoices:
-            add_b("Invoice(s):")
+            inv_label = "Invoice:" if len(invoices) == 1 else "Invoices:"
+            add_b(inv_label)
             for inv in invoices:
                 inv_no = str(inv.get("invoice_no", "")).strip()
                 inv_total = inv.get("total")
@@ -432,15 +450,15 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add(sep)
 
         add_b("BANK TRANSFER DETAILS")
-        add(f"  Beneficiary: {cs['bank_beneficiary']}")
-        add(f"  Bank: {cs['bank_name']}")
-        iban = cs['bank_iban']
-        if len(iban) > 24:
-            add(f"  IBAN: {iban[:24]}")
-            add(f"        {iban[24:].strip()}")
-        else:
-            add(f"  IBAN: {iban}")
-        add(f"  BIC/SWIFT: {cs['bank_bic']}")
+        add("Beneficiary:")
+        for w in wrap(cs['bank_beneficiary']):
+            add(f"  {w}")
+        add(f"Bank: {cs['bank_name']}")
+        formatted_iban = format_iban(cs['bank_iban'])
+        add("IBAN:")
+        for w in wrap(formatted_iban):
+            add(f"  {w}")
+        add(f"BIC/SWIFT: {cs['bank_bic']}")
         add(sep)
 
         invoice_nos_plain = [str(inv.get("invoice_no", "")).strip() for inv in invoices if inv.get("invoice_no")]
