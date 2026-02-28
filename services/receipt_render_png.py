@@ -285,11 +285,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         collector = str(data.get("collector_name", "") or data.get("driver_name", "")).strip()
         if collector:
+            add("")
+            add("")
             add_b(f"Collector: {collector}")
 
         sig_line = "_" * cols
-        add("")
-        add("")
         add("Collector Signature:")
         add(sig_line)
         add(sep)
