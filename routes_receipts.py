@@ -95,7 +95,8 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
                         agent_code: str = "2", user_code: str = "", 
                         invoice_no: str = None, driver_username: str = None, route_stop_id: int = None,
                         cheque_number: str = "", cheque_date: str = "",
-                        allow_duplicate_stop: bool = False):
+                        allow_duplicate_stop: bool = False,
+                        payment_type_code_override: str = ""):
     """
     Core receipt creation logic used by both API and form routes
     """
@@ -133,9 +134,10 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
         if not receipt_description:
             receipt_description = "RECEIPT"
         
-        # Get payment type code from driver's user profile
-        payment_type_code = "DRVR1"  # Default fallback
-        if driver_username:
+        payment_type_code = "DRVR1"
+        if payment_type_code_override:
+            payment_type_code = payment_type_code_override
+        elif driver_username:
             from models import User
             driver = User.query.filter_by(username=driver_username).first()
             if driver and driver.payment_type_code_365:

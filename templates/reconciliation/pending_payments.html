@@ -93,7 +93,20 @@
                             {% endif %}
                         </td>
                         <td>
-                            <button type="button" class="btn btn-sm btn-success clear-payment-btn" data-id="{{ inv.alloc.id }}">
+                            {% set cr = inv.alloc.cod_receipt %}
+                            {% set alloc_eligible = inv.alloc.payment_method == 'online' or (inv.alloc.payment_method in ['cheque','postdated'] and inv.alloc.cheque_date and inv.alloc.cheque_date <= today) %}
+                            {% set already_sent = cr and (cr.ps365_receipt_id or cr.ps365_reference_number) %}
+                            <button type="button" class="btn btn-sm btn-success clear-payment-btn"
+                                    data-id="{{ inv.alloc.id }}"
+                                    data-customer="{{ cust_data.customer_name }}"
+                                    data-customer-code="{{ cust_data.customer_code }}"
+                                    data-invoice="{{ inv.alloc.invoice_no }}"
+                                    data-method="{{ inv.alloc.payment_method|upper }}"
+                                    data-amount="{{ '%.2f'|format(inv.due) }}"
+                                    data-eligible="{{ 'true' if alloc_eligible else 'false' }}"
+                                    data-already-sent="{{ 'true' if already_sent else 'false' }}"
+                                    data-ps365-ref="{{ (cr.ps365_reference_number or cr.ps365_receipt_id or '') if cr else '' }}"
+                                    data-cheque-date="{{ inv.alloc.cheque_date.strftime('%d/%m/%Y') if inv.alloc.cheque_date else '' }}">
                                 <i class="fas fa-check me-1"></i>Clear
                             </button>
                         </td>
@@ -119,16 +132,75 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
-                <h5 class="modal-title">Confirm Clearance</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title"><i class="fas fa-check-circle me-2"></i>Clear Payment</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p>Are you sure you want to mark this payment as <strong>CLEARED</strong>?</p>
-                <p class="text-muted small">This will move the payment from pending to received status in the reconciliation reports.</p>
+                <table class="table table-sm table-borderless mb-3">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted" style="width:35%;">Customer</td>
+                            <td class="fw-bold" id="clearCustomerName"></td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">Invoice</td>
+                            <td id="clearInvoiceNo"></td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">Method</td>
+                            <td id="clearMethod"></td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">Amount Due</td>
+                            <td class="fw-bold" id="clearAmount"></td>
+                        </tr>
+                        <tr id="clearChequeDateRow" style="display:none;">
+                            <td class="text-muted">Cheque Date</td>
+                            <td id="clearChequeDate"></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div id="clearPs365Section">
+                    <hr>
+                    <div id="clearAlreadySent" style="display:none;">
+                        <div class="alert alert-success py-2 mb-2">
+                            <i class="fas fa-check-circle me-1"></i>
+                            Already sent to PS365: <strong id="clearPs365Ref"></strong>
+                        </div>
+                    </div>
+
+                    <div id="clearSendSection" style="display:none;">
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="clearSendPs365" checked>
+                            <label class="form-check-label fw-bold" for="clearSendPs365">
+                                Send payment receipt to PS365
+                            </label>
+                        </div>
+                        <div id="clearPaymentTypeWrap">
+                            <label class="form-label small text-muted">Payment Type</label>
+                            <select class="form-select form-select-sm" id="clearPaymentType">
+                                <option value="">Loading payment types...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="clearNotEligible" style="display:none;">
+                        <div class="alert alert-warning py-2 mb-0">
+                            <i class="fas fa-clock me-1"></i>
+                            Post-dated cheque — not eligible for PS365 until <strong id="clearEligibleDate"></strong>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+                <p class="text-muted small mb-0">This will move the payment from pending to received status in the reconciliation reports.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="confirmClearBtn">Confirm Clearance</button>
+                <button type="button" class="btn btn-success" id="confirmClearBtn">
+                    <i class="fas fa-check me-1"></i>Clear Payment
+                </button>
             </div>
         </div>
     </div>
@@ -139,11 +211,92 @@
 <script>
 $(document).ready(function() {
     let currentAllocId = null;
+    let currentBtn = null;
+    let paymentTypesCache = null;
     const modal = new bootstrap.Modal(document.getElementById('clearPaymentModal'));
+    const csrfToken = $('meta[name="csrf-token"]').attr('content');
+
+    function loadPaymentTypes() {
+        if (paymentTypesCache) {
+            renderPaymentTypes(paymentTypesCache);
+            return;
+        }
+        $('#clearPaymentType').html('<option value="">Loading...</option>');
+        $.ajax({
+            url: '/reconciliation/api/ps365-payment-types',
+            method: 'GET',
+            success: function(resp) {
+                if (resp.success && resp.payment_types) {
+                    paymentTypesCache = resp.payment_types;
+                    renderPaymentTypes(resp.payment_types);
+                } else {
+                    $('#clearPaymentType').html('<option value="">Failed to load</option>');
+                }
+            },
+            error: function() {
+                $('#clearPaymentType').html('<option value="">Failed to load</option>');
+            }
+        });
+    }
+
+    function renderPaymentTypes(types) {
+        let html = '<option value="">-- Select payment type --</option>';
+        types.forEach(function(t) {
+            html += `<option value="${t.code}">${t.name} (${t.code})</option>`;
+        });
+        $('#clearPaymentType').html(html);
+    }
 
     $('.clear-payment-btn').click(function() {
-        currentAllocId = $(this).data('id');
+        currentBtn = $(this);
+        currentAllocId = currentBtn.data('id');
+        const customer = currentBtn.data('customer');
+        const invoice = currentBtn.data('invoice');
+        const method = currentBtn.data('method');
+        const amount = currentBtn.data('amount');
+        const eligible = currentBtn.data('eligible') === 'true' || currentBtn.data('eligible') === true;
+        const alreadySent = currentBtn.data('already-sent') === 'true' || currentBtn.data('already-sent') === true;
+        const ps365Ref = currentBtn.data('ps365-ref') || '';
+        const chequeDate = currentBtn.data('cheque-date') || '';
+
+        $('#clearCustomerName').text(customer);
+        $('#clearInvoiceNo').text(invoice);
+        $('#clearMethod').text(method);
+        $('#clearAmount').text('\u20AC' + amount);
+
+        if (chequeDate) {
+            $('#clearChequeDateRow').show();
+            $('#clearChequeDate').text(chequeDate);
+        } else {
+            $('#clearChequeDateRow').hide();
+        }
+
+        $('#clearAlreadySent').hide();
+        $('#clearSendSection').hide();
+        $('#clearNotEligible').hide();
+
+        if (alreadySent) {
+            $('#clearAlreadySent').show();
+            $('#clearPs365Ref').text(ps365Ref);
+        } else if (eligible) {
+            $('#clearSendSection').show();
+            $('#clearSendPs365').prop('checked', true);
+            loadPaymentTypes();
+        } else {
+            $('#clearNotEligible').show();
+            $('#clearEligibleDate').text(chequeDate);
+        }
+
+        $('#confirmClearBtn').prop('disabled', false).html('<i class="fas fa-check me-1"></i>Clear Payment');
         modal.show();
+    });
+
+    $('#clearSendPs365').change(function() {
+        if ($(this).is(':checked')) {
+            $('#clearPaymentTypeWrap').show();
+        } else {
+            $('#clearPaymentTypeWrap').hide();
+        }
     });
 
     $('.btn-send-ps365').click(function() {
@@ -154,7 +307,7 @@ $(document).ready(function() {
         $.ajax({
             url: `/cod_receipts/${codId}/send`,
             method: 'POST',
-            headers: { 'X-CSRF-Token': $('meta[name="csrf-token"]').attr('content') },
+            headers: { 'X-CSRF-Token': csrfToken },
             success: function(response) {
                 if (response.success) {
                     btn.replaceWith(`<span class="badge bg-success"><i class="fas fa-check me-1"></i>PS365: ${response.reference_number}</span>`);
@@ -173,27 +326,34 @@ $(document).ready(function() {
 
     $('#confirmClearBtn').click(function() {
         if (!currentAllocId) return;
-        
+
         const btn = $(this);
-        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i>Clearing...');
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i>Processing...');
+
+        const sendPs365 = $('#clearSendSection').is(':visible') && $('#clearSendPs365').is(':checked');
+        const paymentTypeCode = sendPs365 ? ($('#clearPaymentType').val() || '') : '';
 
         $.ajax({
             url: `/reconciliation/api/pending-payments/${currentAllocId}/clear`,
             method: 'POST',
-            headers: {
-                'X-CSRF-Token': $('meta[name="csrf-token"]').attr('content')
-            },
+            contentType: 'application/json',
+            headers: { 'X-CSRF-Token': csrfToken },
+            data: JSON.stringify({
+                send_ps365: sendPs365,
+                payment_type_code: paymentTypeCode
+            }),
             success: function(response) {
                 if (response.success) {
                     location.reload();
                 } else {
-                    alert('Error: ' + response.message);
-                    btn.prop('disabled', false).text('Confirm Clearance');
+                    alert('Error: ' + (response.error || response.message || 'Unknown error'));
+                    btn.prop('disabled', false).html('<i class="fas fa-check me-1"></i>Clear Payment');
                 }
             },
-            error: function() {
-                alert('Server error occurred');
-                btn.prop('disabled', false).text('Confirm Clearance');
+            error: function(xhr) {
+                const msg = xhr.responseJSON ? (xhr.responseJSON.error || xhr.responseJSON.message) : 'Server error';
+                alert('Error: ' + msg);
+                btn.prop('disabled', false).html('<i class="fas fa-check me-1"></i>Clear Payment');
             }
         });
     });

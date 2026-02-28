@@ -192,12 +192,106 @@ def api_reissue_receipt(receipt_id):
         logger.error(f"Error reissuing receipt {receipt_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@reconciliation_bp.route('/api/ps365-payment-types')
+@login_required
+@admin_or_warehouse_required
+def api_ps365_payment_types():
+    """Fetch payment types from PS365 API, filtered by display_on_app=true"""
+    import os, requests as req
+    base = os.getenv('POWERSOFT_BASE', '') or os.getenv('PS365_BASE_URL', '')
+    token = os.getenv('POWERSOFT_TOKEN', '') or os.getenv('PS365_TOKEN', '')
+    if not base or not token:
+        return jsonify({'success': False, 'error': 'PS365 not configured'}), 500
+    try:
+        url = f"{base.rstrip('/')}/payment_type"
+        resp = req.get(url, params={'token': token}, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and 'payment_type' in data:
+            pt = data['payment_type']
+            items = [pt] if isinstance(pt, dict) else pt if isinstance(pt, list) else []
+        elif isinstance(data, list):
+            items = data
+        else:
+            items = []
+        filtered = [
+            {'code': p.get('payment_type_code_365', ''),
+             'name': p.get('payment_type_name', ''),
+             'is_cash': p.get('is_cash', False),
+             'is_card': p.get('is_card', False)}
+            for p in items
+            if p.get('display_on_app') is True and p.get('active') is True
+        ]
+        filtered.sort(key=lambda x: x.get('name', ''))
+        return jsonify({'success': True, 'payment_types': filtered})
+    except Exception as e:
+        logger.error(f"Error fetching PS365 payment types: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @reconciliation_bp.route('/api/pending-payments/<int:allocation_id>/clear', methods=['POST'])
 @login_required
 @admin_or_warehouse_required
 def api_clear_pending(allocation_id):
-    """API: Clear a specific pending payment"""
+    """API: Clear a specific pending payment, optionally sending to PS365 first"""
     try:
+        data = request.get_json(silent=True) or {}
+        send_ps365 = data.get('send_ps365', False)
+        payment_type_code = data.get('payment_type_code', '')
+
+        if send_ps365:
+            alloc = CODInvoiceAllocation.query.get(allocation_id)
+            if not alloc:
+                return jsonify({'success': False, 'error': 'Allocation not found'}), 404
+
+            cr = alloc.cod_receipt
+            if not cr:
+                return jsonify({'success': False, 'error': 'No COD receipt linked to this allocation'}), 400
+
+            if cr.ps365_receipt_id or cr.ps365_reference_number:
+                pass
+            else:
+                from datetime import date as date_type
+                if (alloc.payment_method in ('cheque', 'postdated')
+                        and alloc.cheque_date and alloc.cheque_date > date_type.today()):
+                    return jsonify({
+                        'success': False,
+                        'error': f'Post-dated cheque not eligible until {alloc.cheque_date.strftime("%d/%m/%Y")}'
+                    }), 400
+
+                stop = RouteStop.query.get(cr.route_stop_id)
+                customer_code = stop.customer_code if stop else ''
+                invoice_nos = ", ".join(cr.invoice_nos) if isinstance(cr.invoice_nos, list) else str(cr.invoice_nos or '')
+                comments = f"Cust: {customer_code} | {(cr.payment_method or 'PAYMENT').upper()}"
+                if cr.note:
+                    comments += f" | {cr.note}"
+
+                from routes_receipts import create_receipt_core
+                ok, ref_num, resp_id, status_code, ps_json = create_receipt_core(
+                    customer_code=customer_code,
+                    amount_val=float(cr.received_amount or 0),
+                    comments=comments,
+                    agent_code="2",
+                    user_code=current_user.username,
+                    invoice_no=invoice_nos,
+                    driver_username=cr.driver_username,
+                    route_stop_id=cr.route_stop_id,
+                    cheque_number=cr.cheque_number or "",
+                    cheque_date=cr.cheque_date.strftime('%Y-%m-%d') if cr.cheque_date else "",
+                    allow_duplicate_stop=True,
+                    payment_type_code_override=payment_type_code
+                )
+                if not ok:
+                    return jsonify({
+                        'success': False,
+                        'error': f'PS365 receipt creation failed: {ps_json}'
+                    }), 500
+
+                cr.ps365_reference_number = ref_num
+                cr.ps365_receipt_id = str(resp_id) if resp_id else ref_num
+                cr.ps365_synced_at = utc_now()
+                db.session.flush()
+
         result = recon.clear_pending_payment(allocation_id, current_user.username)
         return jsonify(result)
     except Exception as e:
