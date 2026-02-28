@@ -128,6 +128,8 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
                 for name_line in wrap(item_name):
                     add(name_line)
                 add("")
+            add("")
+            add("")
             add(sep)
 
         sig_line = "_" * cols
@@ -135,8 +137,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add("Customer Signature (Acknowledgement):")
         add(sig_line)
         add("")
+        add("")
         add("Driver Signature:")
         add(sig_line)
+        add("")
+        add("")
         add(sep)
 
         customer_email = str(data.get("customer_email", "")).strip()
