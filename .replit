@@ -6,7 +6,7 @@ packages = ["freetype", "glibcLocales", "lcms2", "libimagequant", "libjpeg", "li
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
+run = ["gunicorn", "-c", "gunicorn_config.py", "main:app"]
 
 [workflows]
 runButton = "Project"
