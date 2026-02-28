@@ -1,0 +1,144 @@
+Replit Instructions — Update “Payment Advice (Bank Transfer)” Printout
+Objective
+
+Update the bank transfer slip so it clearly tells the customer they must pay, stays readable on thermal paper, and avoids redundant totals/signatures.
+
+1) Locate the print template / renderer
+
+Search the codebase for any of:
+
+"PAYMENT ADVICE"
+
+"BANK TRANSFER"
+
+"TRANSFER REFERENCE"
+
+"NOT A RECEIPT"
+
+"BIC/SWIFT"
+
+This identifies the function that builds the text for this printout.
+
+2) Update the header block (add “ACTION REQUIRED”)
+
+Immediately below NOT A RECEIPT, insert this line:
+
+Exact line to add:
+
+ACTION REQUIRED: Please pay by bank transfer.
+
+Also change the due-date label:
+
+Replace Pay by: with Due date:.
+
+Resulting header area should be:
+
+PAYMENT ADVICE – BANK TRANSFER
+NOT A RECEIPT
+ACTION REQUIRED: Please pay by bank transfer.
+3) Remove delivery/signature section from this document
+
+Delete these lines (or do not render them):
+
+Delivery Confirmed (Customer Signature):
+
+Driver Signature:
+
+Reason: this document is payment instructions, not proof of delivery.
+
+4) Simplify totals (avoid duplicates)
+
+If you currently print both:
+
+Invoices subtotal: EUR X
+
+NET PAYABLE: EUR X
+
+Keep only one:
+
+Use:
+
+TOTAL PAYABLE: EUR {total}
+
+Remove the other subtotal/net-payable lines.
+
+5) Invoices section rules
+
+Keep invoice numbers and amounts (needed for payment).
+
+If multiple invoices, list each invoice on its own line.
+
+Remove any extra line like “INVOICES ISSUED SEPARATELY”; if it exists, replace with nothing (or a simple “Invoice(s):”).
+
+Example:
+
+Invoice(s):
+  IN10053354                 EUR 96.31
+6) Make “Transfer Reference” very prominent
+
+Render this block exactly (spacing as your printer allows):
+
+TRANSFER REFERENCE (MUST BE USED):
+{reference_text}
+
+Where {reference_text} is:
+
+If single invoice: invoice number (e.g. IN10053354)
+
+If multiple invoices: use your current reference rule (keep existing logic). If you don’t have one, use the primary invoice or the receipt/document number, but ensure it’s stable and searchable in PS365/bank reconciliation.
+
+7) Footer spacing
+
+Add at least 6 blank lines at the end to avoid cutting off content.
+
+8) Final recommended layout (what the renderer should output)
+
+Use this as the target structure:
+
+STEP EPLATTFORMA LTD
+{address line}
+Tel: 7000 0394   VAT: CY103532640
+--------------------------------
+PAYMENT ADVICE – BANK TRANSFER
+NOT A RECEIPT
+ACTION REQUIRED: Please pay by bank transfer.
+--------------------------------
+Issued: {issued_dt}
+Due date: {due_date}
+--------------------------------
+Customer:
+{customer_name}
+--------------------------------
+Invoice(s):
+{invoice_lines_with_amounts}
+--------------------------------
+TOTAL PAYABLE:               EUR {total}
+--------------------------------
+BANK TRANSFER DETAILS
+Beneficiary: STEP EPLATTFORMA
+Bank: {bank_name}
+IBAN: {iban}
+BIC/SWIFT: {bic}
+--------------------------------
+TRANSFER REFERENCE (MUST BE USED):
+{transfer_reference}
+--------------------------------
+
+
+
+
+
+
+9) Quick regression test
+
+Print shows “ACTION REQUIRED…” line
+
+“Due date” label is used
+
+No delivery signatures on this document
+
+Only one total line (“TOTAL PAYABLE”)
+
+Transfer reference is clearly visible
+
+Footer has blank space

@@ -370,10 +370,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add_company_header()
         add(sep)
         add_t("PAYMENT ADVICE")
-        add_t("(BANK TRANSFER)")
+        add_t("BANK TRANSFER")
         add(sep)
         add_c("NOT A RECEIPT")
-        add_c("INVOICES ISSUED SEPARATELY")
+        add_c("ACTION REQUIRED:")
+        add_c("Please pay by bank transfer.")
         add(sep)
 
         date_str = str(data.get("date_str", "")).strip()
@@ -381,20 +382,17 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         if date_str:
             add_b(f"Issued: {date_str}")
         if due_date:
-            add_b(f"Pay by: {due_date}")
+            add_b(f"Due date: {due_date}")
         add(sep)
 
-        add_b("CUSTOMER")
+        add_b("Customer:")
         for w in wrap(data.get("customer_name", "")):
-            add(w)
-        for w in wrap(data.get("customer_addr", "")):
             add(w)
         add(sep)
 
         invoices = data.get("invoices") or []
-        inv_subtotal = Decimal(str(data.get("invoices_subtotal", "0") or "0"))
         if invoices:
-            add_b("INVOICES")
+            add_b("Invoice(s):")
             for inv in invoices:
                 inv_no = str(inv.get("invoice_no", "")).strip()
                 inv_total = inv.get("total")
@@ -402,7 +400,6 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
                     add(_pad_right(f"  {inv_no}", money(inv_total), cols))
                 else:
                     add(f"  {inv_no}")
-            add(_pad_right("  Invoices subtotal:", money(inv_subtotal), cols))
             add(sep)
 
         exceptions_data = data.get("exceptions") or []
@@ -430,11 +427,12 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         net_payable = Decimal(str(data.get("net_payable", "0") or "0"))
         font_net = ImageFont.truetype(FONT_BOLD_PATH, 38)
         add("")
-        lines.append(("net_payable", f"NET PAYABLE: {money(net_payable)}"))
+        lines.append(("net_payable", f"TOTAL PAYABLE: {money(net_payable)}"))
         add("")
         add(sep)
 
         add_b("BANK TRANSFER DETAILS")
+        add(f"  Beneficiary: {cs['bank_beneficiary']}")
         add(f"  Bank: {cs['bank_name']}")
         iban = cs['bank_iban']
         if len(iban) > 24:
@@ -443,7 +441,6 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         else:
             add(f"  IBAN: {iban}")
         add(f"  BIC/SWIFT: {cs['bank_bic']}")
-        add(f"  Beneficiary: {cs['bank_beneficiary']}")
         add(sep)
 
         invoice_nos_plain = [str(inv.get("invoice_no", "")).strip() for inv in invoices if inv.get("invoice_no")]
@@ -454,18 +451,13 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
             ref_str = f"MULTI + {cust_name_short}"
         else:
             ref_str = "See invoices above"
-        add_b("TRANSFER REFERENCE:")
+        add_b("TRANSFER REFERENCE")
+        add_b("(MUST BE USED):")
         add_b(f"  {ref_str}")
         add(sep)
 
-        sig_line = "_" * cols
-        add("")
-        add("Delivery Confirmed")
-        add("(Customer Signature):")
-        add(sig_line)
-        add("")
-        add("Driver Signature:")
-        add(sig_line)
+        for _ in range(6):
+            add("")
 
         line_h_body = 36
         line_h_title = 44
