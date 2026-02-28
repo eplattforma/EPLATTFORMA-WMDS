@@ -233,6 +233,7 @@ def api_clear_pending(allocation_id):
         data = request.get_json(silent=True) or {}
         send_ps365 = data.get('send_ps365', False)
         payment_type_code = data.get('payment_type_code', '')
+        receipt_date = data.get('receipt_date', '')
 
         if send_ps365:
             alloc = CODInvoiceAllocation.query.get(allocation_id)
@@ -274,7 +275,8 @@ def api_clear_pending(allocation_id):
                     cheque_number=cr.cheque_number or "",
                     cheque_date=cr.cheque_date.strftime('%Y-%m-%d') if cr.cheque_date else "",
                     allow_duplicate_stop=True,
-                    payment_type_code_override=payment_type_code
+                    payment_type_code_override=payment_type_code,
+                    receipt_date_override=receipt_date
                 )
                 if not ok:
                     return jsonify({

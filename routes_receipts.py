@@ -96,11 +96,16 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
                         invoice_no: str = None, driver_username: str = None, route_stop_id: int = None,
                         cheque_number: str = "", cheque_date: str = "",
                         allow_duplicate_stop: bool = False,
-                        payment_type_code_override: str = ""):
+                        payment_type_code_override: str = "",
+                        receipt_date_override: str = ""):
     """
     Core receipt creation logic used by both API and form routes
     """
-    receipt_date_local, receipt_date_utc0 = local_and_utc_now()
+    if receipt_date_override:
+        receipt_date_local = receipt_date_override
+        receipt_date_utc0 = f"{receipt_date_override} 00:00:00"
+    else:
+        receipt_date_local, receipt_date_utc0 = local_and_utc_now()
     
     try:
         # Check if receipt already exists for this route stop
