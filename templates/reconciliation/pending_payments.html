@@ -32,7 +32,8 @@
     {% if grouped_customers %}
     <style>
         #pendingPaymentsTable { border-collapse: separate; border-spacing: 0; }
-        #pendingPaymentsTable thead th { border-bottom: none; padding: 10px 12px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: #fff; font-weight: 700; }
+        #pendingPaymentsTable > thead { background-color: #0d6efd !important; }
+        #pendingPaymentsTable > thead > tr > th { background-color: #0d6efd !important; border-bottom: none; padding: 10px 12px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: #fff !important; font-weight: 700; }
         .cust-header-row td { border-top: none !important; border-bottom: none !important; color: #fff; }
         .cust-data-row td { border-top: none !important; border-bottom: 1px solid #e9ecef !important; padding-top: 8px !important; padding-bottom: 8px !important; }
         .cust-data-row:hover { background-color: #f1f3f5 !important; }
