@@ -249,20 +249,9 @@ $(document).ready(function() {
     function renderPaymentTypes(types) {
         let defaultCode = '';
         if (currentMethod === 'CHEQUE' || currentMethod === 'POSTDATED') {
-            const cheqType = types.find(t => {
-                const c = (t.code || '').toUpperCase();
-                const n = (t.name || '').toUpperCase();
-                return c.indexOf('CHEQ') >= 0 || c.indexOf('CHQ') >= 0 || n.indexOf('CHEQUE') >= 0;
-            });
-            if (cheqType) defaultCode = cheqType.code;
+            defaultCode = 'CHEQ';
         } else if (currentMethod === 'ONLINE' || currentMethod === 'BANK_TRANSFER') {
-            const onlType = types.find(t => {
-                const c = (t.code || '').toUpperCase();
-                const n = (t.name || '').toUpperCase();
-                return c.indexOf('ONLINE') >= 0 || c.indexOf('BANK') >= 0 || c.indexOf('TRANSFER') >= 0
-                    || n.indexOf('ONLINE') >= 0 || n.indexOf('BANK') >= 0 || n.indexOf('TRANSFER') >= 0;
-            });
-            if (onlType) defaultCode = onlType.code;
+            defaultCode = 'OLP';
         } else {
             const cashType = types.find(t => t.is_cash === true);
             if (cashType) defaultCode = cashType.code;
