@@ -518,7 +518,7 @@ def sync_active_customers():
                 existing.contact_first_name = customer.get("contact_first_name")
                 existing.agent_code_365 = customer.get("agent_code_365")
                 existing.agent_name = customer.get("agent_name")
-                existing.email = customer.get("e_mail") or customer.get("email")
+                existing.email = customer.get("email") or customer.get("e_mail")
                 if customer.get("text_field_1_value"):
                     try:
                         existing.latitude = float(customer.get("text_field_1_value"))
@@ -618,7 +618,7 @@ def upsert_single_customer(customer_code):
         existing.company_name = customer_data.get("company_name") or f"{customer_data.get('first_name', '')} {customer_data.get('last_name', '')}".strip()
         existing.mobile = customer_data.get("mobile")
         existing.tel_1 = customer_data.get("tel_1")
-        existing.email = customer_data.get("e_mail") or customer_data.get("email")
+        existing.email = customer_data.get("email") or customer_data.get("e_mail")
         existing.delivery_days = customer_data.get("text_field_4_value")
         
         # Normalize delivery days
