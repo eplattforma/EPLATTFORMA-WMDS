@@ -110,9 +110,9 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         for inv in invoices:
             inv_no = str(inv.get("invoice_no", "")).strip()
             add(f"  {inv_no}")
-        add("")
-        add("")
         add(sep)
+        add("")
+        add("")
 
         exceptions_data = data.get("exceptions") or []
         if exceptions_data:
