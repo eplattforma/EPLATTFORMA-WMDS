@@ -512,7 +512,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
             d_part, t_part = date_str.split(" ", 1)
         else:
             d_part, t_part = date_str, ""
-        add_b(f"Receipt No: {receipt_no}")
+        add_b(f"Doc No: {receipt_no}")
         if t_part:
             add_b(f"Date: {d_part}   Time: {t_part}")
         else:
@@ -574,9 +574,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add("")
         add("")
         add(sep)
-        add("Post-dated cheque acknowledgement")
-        add("for the invoice(s) referenced above.")
-        add("This is NOT a payment receipt.")
+        add("Final settlement is confirmed")
+        add("only after cheque clearance.")
+        add("Any credit notes/adjustments are")
+        add("issued by Accounts.")
+        add(sep)
         for _ in range(6):
             add("")
 
