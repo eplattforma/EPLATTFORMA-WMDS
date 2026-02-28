@@ -116,7 +116,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         exceptions_data = data.get("exceptions") or []
         if exceptions_data:
-            add_c("ITEMS NOT DELIVERED")
+            add_t("ITEMS NOT DELIVERED")
             add(sep)
             col_code = 12
             col_nd = 4
