@@ -66,6 +66,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
     if doc_mode == "exceptions":
         add_t("STEP EPLATTFORMA LTD")
+        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
         add_c("Tel: 7000 0394  VAT: CY103532640")
         add(sep)
         add_t("DELIVERY EXCEPTIONS")
@@ -209,6 +210,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         is_reprint = bool(data.get("is_reprint"))
 
         add_t("STEP EPLATTFORMA LTD")
+        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
         add_c("Tel: 7000 0394  VAT: CY103532640")
         add(sep)
         reprint_label = "REPRINT" if is_reprint else ""
@@ -324,6 +326,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
     if doc_type == "online_notice":
         add_t("STEP EPLATTFORMA LTD")
+        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
         add_c("Tel: 7000 0394  VAT: CY103532640")
         add(sep)
         add_t("PAYMENT ADVICE")
