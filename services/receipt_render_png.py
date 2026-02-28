@@ -374,12 +374,12 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     if doc_type == "online_notice":
         add_company_header()
         add(sep)
-        add_t("PAYMENT ADVICE")
         add_t("BANK TRANSFER")
+        add_t("PAYMENT REQUEST")
         add(sep)
         add_c("NOT A RECEIPT")
-        add_c("ACTION REQUIRED:")
-        add_c("Please pay by bank transfer.")
+        add_c("ACTION REQUIRED: Please pay")
+        add_c("the amount below by bank transfer.")
         add(sep)
 
         date_str = str(data.get("date_str", "")).strip()
