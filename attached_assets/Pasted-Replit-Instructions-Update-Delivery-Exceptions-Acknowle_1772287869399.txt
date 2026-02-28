@@ -1,0 +1,153 @@
+Replit Instructions — Update “Delivery Exceptions Acknowledgement” Printout (No Values)
+Objective
+
+Replace the current “EXCEPTIONS PROOF / CREDIT NOTE WILL BE ISSUED…” printout with a new document named:
+
+DELIVERY EXCEPTIONS ACKNOWLEDGEMENT
+
+and ensure it prints:
+
+Item Code ✅
+
+Full Item Name ✅ (wrapped to fit paper)
+
+Qty Not Delivered (ND) ✅
+
+Referenced invoice numbers ✅ (NO invoice amounts)
+
+Signatures: Customer + Driver ✅
+
+Disclaimer footer with customer email ✅
+
+No monetary fields anywhere (no invoice totals, no line values, no deductions totals)
+
+1) Locate the template / function
+
+Search in the codebase for any of:
+
+"EXCEPTIONS PROOF"
+
+"CREDIT NOTE WILL BE ISSUED"
+
+"Items Not Delivered"
+
+"TOTAL DEDUCTIONS"
+
+"INVOICES ("
+
+This will be the text builder used for this printout (PDF/text/ESC-POS).
+
+2) Replace header + remove money sections
+Replace the title block
+
+Old:
+
+EXCEPTIONS PROOF
+
+CREDIT NOTE WILL BE ISSUED AND SENT BY EMAIL
+
+New (exact):
+
+DELIVERY EXCEPTIONS ACKNOWLEDGEMENT
+
+Keep company header and contact line as-is.
+
+Remove these sections completely
+
+Any invoice amount printing (e.g. IN10053337 EUR 62.90)
+
+Any item amount/value column (e.g. EUR 0.00)
+
+Any TOTAL DEDUCTIONS lines
+
+Any totals or currency formatting
+
+3) Invoice reference section (NO values)
+
+Update the invoice list rendering to print only invoice numbers:
+
+Format:
+
+REFERENCED INVOICES ({count})
+  IN10053337
+  IN10053338
+
+No EUR columns, no amounts.
+
+4) Items not delivered section (keep item code + full name + ND)
+Table layout (thermal-friendly)
+
+Use a narrow header with code + qty, then print full name on wrapped lines under it.
+
+Print exactly like this per item:
+
+ITEM CODE   ND
+CHO-0188     1
+NESTLE (full name continues...)
+{wrap line 2 if needed}
+Data requirements
+
+For each exception line, the renderer must have:
+
+item_code
+
+item_name (full description, not shortened)
+
+qty_not_delivered (ND)
+
+Wrapping rule
+
+Implement a helper like wrap_text(item_name, width=28 or 30) (depending on your printer width) and print 1–3 lines max (your choice), but do not truncate aggressively—the point is the full name.
+
+5) Customer email in disclaimer footer
+
+At print time fetch the customer email:
+
+Preferred: from your customer master table (PS customers sync / ps_customers)
+
+Fallback: if missing, print Email on file: (not available)
+
+Disclaimer footer (exact text)
+
+Add at the bottom (before blank footer lines):
+
+This is an acknowledgement of items from the
+referenced invoice(s) that were not delivered.
+This document is NOT a credit note and has
+no monetary value.
+A credit note will be issued after the driver
+returns to the warehouse and will be emailed to:
+{customer_email}
+6) Signatures block
+
+Keep both signature lines:
+
+Customer Signature (Acknowledgement):
+____________________________________
+
+Driver Signature:
+____________________________________
+
+(If you want to save space, you can shorten labels but keep both lines.)
+
+7) Footer spacing
+
+After the disclaimer, print at least 6 blank lines to ensure physical footer space.
+
+8) Quick regression checklist
+
+Document prints with new title
+
+Invoice numbers show, no EUR anywhere
+
+Items show: code + ND + full name (wrapped)
+
+No “Total deductions”
+
+Disclaimer includes customer email (or fallback)
+
+Signature lines present
+
+Enough blank lines at end
+
+If you paste the current function that builds this exceptions printout (even just that one file), I will return a drop-in replacement code block with the updated string builder + wrap helper sized for your printer width.

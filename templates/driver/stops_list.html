@@ -217,6 +217,11 @@
                                     <i class="fas fa-print me-1"></i> Reprint Receipt
                                 </button>
                                 {% endif %}
+                                {% if item.has_exceptions %}
+                                <button class="btn btn-outline-warning btn-sm mt-1" onclick="printExceptions({{ stop.route_stop_id }})">
+                                    <i class="fas fa-exclamation-triangle me-1"></i> Print Exceptions
+                                </button>
+                                {% endif %}
                             </div>
                         </div>
                         {% elif item.status == 'failed' %}
@@ -333,6 +338,28 @@ async function submitFail() {
     } catch (error) {
         console.error('Error:', error);
         alert('Error submitting failure. Please try again.');
+    }
+}
+
+async function printExceptions(stopId) {
+    try {
+        const res = await fetch(`/driver/stops/${stopId}/exceptions.png`, { cache: 'no-store' });
+        if (!res.ok) {
+            if (res.status === 204) { alert('No exceptions found for this stop.'); return; }
+            alert('Could not load exceptions document. Please try again.');
+            return;
+        }
+        const blob = await res.blob();
+        const file = new File([blob], `exceptions_${stopId}.png`, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'Delivery Exceptions' });
+        } else {
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+        }
+    } catch (err) {
+        console.error('Exceptions print error:', err);
+        alert('Error printing exceptions. Please try again.');
     }
 }
 

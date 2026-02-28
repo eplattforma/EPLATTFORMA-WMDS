@@ -66,17 +66,23 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
     if doc_mode == "exceptions":
         add_t("STEP EPLATTFORMA LTD")
-        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
         add_c("Tel: 7000 0394  VAT: CY103532640")
         add(sep)
-        add_t("EXCEPTIONS PROOF")
-        add_t("CREDIT NOTE WILL BE ISSUED")
-        add_t("AND SENT BY EMAIL")
+        add_t("DELIVERY EXCEPTIONS")
+        add_t("ACKNOWLEDGEMENT")
         add(sep)
 
         receipt_no = str(data.get("receipt_no", "")).strip()
         date_str = str(data.get("date_str", "")).strip()
-        add_b(_pad_right(f"Rcpt: {receipt_no}", f"Date: {date_str}", cols))
+        if " " in date_str:
+            d_part, t_part = date_str.split(" ", 1)
+        else:
+            d_part, t_part = date_str, ""
+        add_b(f"Ref: {receipt_no}")
+        if t_part:
+            add_b(f"Date: {d_part}   Time: {t_part}")
+        else:
+            add_b(f"Date: {d_part}")
 
         route_no = str(data.get("route_no", "")).strip()
         stop_no_val = data.get("stop_no", "")
@@ -88,66 +94,64 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         add_b(f"Route: {route_no}  Stop: {stop_no_val}")
         add_b(f"Driver: {driver}")
-
-        cust_code = str(data.get("customer_code", "")).strip()
-        if cust_code:
-            add(f"Cust Code: {cust_code}")
         add(sep)
 
-        add_b("CUSTOMER")
+        add_b("Customer:")
         for w_line in wrap(data.get("customer_name", "")):
             add(w_line)
-        for w_line in wrap(data.get("customer_addr", "")):
-            add(w_line)
+        cust_code = str(data.get("customer_code", "")).strip()
+        if cust_code:
+            add(f"Code: {cust_code}")
         add(sep)
 
         invoices = data.get("invoices") or []
-        add_b(f"INVOICES ({len(invoices)})")
+        add_b(f"REFERENCED INVOICES ({len(invoices)})")
         for inv in invoices:
             inv_no = str(inv.get("invoice_no", "")).strip()
-            inv_total = inv.get("total")
-            if inv_total is not None:
-                add(_pad_right(f"  {inv_no}", money(inv_total), cols))
-            else:
-                add(f"  {inv_no}")
+            add(f"  {inv_no}")
         add(sep)
 
         exceptions_data = data.get("exceptions") or []
         if exceptions_data:
-            add_b("Items Not Delivered")
+            add_b("ITEMS NOT DELIVERED")
             add(sep)
-            hdr_item = "ITEM"
-            hdr_name = "ITEM NAME"
-            hdr_nd = "ND"
-            hdr_amt = "AMOUNT"
-            col_item = 10
+            col_code = 12
             col_nd = 4
-            col_amt = 10
-            col_name = cols - col_item - col_nd - col_amt
-            add(f"{hdr_item:<{col_item}}{hdr_name:<{col_name}}{hdr_nd:>{col_nd}}{hdr_amt:>{col_amt}}")
+            add_b(f"{'ITEM CODE':<{col_code}}{'ND':>{col_nd}}")
             add(sep)
-            total_deductions = 0.0
             for exc in exceptions_data:
-                item_code = str(exc.get("item_code", ""))[:col_item]
+                item_code = str(exc.get("item_code", ""))
                 item_name = str(exc.get("item_name", ""))
                 nd = str(exc.get("qty_not_delivered", ""))
-                amt = exc.get("deduct_amount", 0)
-                total_deductions += float(amt)
-                amt_str = money(amt)
-                name_trunc = item_name[:col_name].strip()
-                add(f"{item_code:<{col_item}}{name_trunc:<{col_name}}{nd:>{col_nd}}{amt_str:>{col_amt}}")
-            add(sep)
-            add(_pad_right("TOTAL DEDUCTIONS", money(total_deductions), cols))
+                add_b(f"{item_code:<{col_code}}{nd:>{col_nd}}")
+                for name_line in wrap(item_name):
+                    add(name_line)
+                add("")
             add(sep)
 
         sig_line = "_" * cols
         add("")
-        add("Customer Signature")
-        add("(Exceptions/Delivery):")
+        add("Customer Signature (Acknowledgement):")
         add(sig_line)
         add("")
         add("Driver Signature:")
         add(sig_line)
+        add(sep)
+
+        customer_email = str(data.get("customer_email", "")).strip()
+        if not customer_email:
+            customer_email = "(not available)"
+        add("This is an acknowledgement of items")
+        add("from the referenced invoice(s) that")
+        add("were not delivered.")
+        add("This document is NOT a credit note")
+        add("and has no monetary value.")
+        add("A credit note will be issued after")
+        add("the driver returns to the warehouse")
+        add("and will be emailed to:")
+        add_b(customer_email)
+        for _ in range(6):
+            add("")
 
         line_h_body = 36
         line_h_title = 44

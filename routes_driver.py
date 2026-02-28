@@ -348,6 +348,16 @@ def stops_list(route_id):
         else:
             stop_status = 'pending'
         
+        from models import DeliveryDiscrepancy
+        inv_nos_for_stop = [rsi.invoice_no for rsi in stop_invoices]
+        has_exceptions = False
+        if inv_nos_for_stop and stop_status == 'delivered':
+            has_exceptions = db.session.query(
+                DeliveryDiscrepancy.query.filter(
+                    DeliveryDiscrepancy.invoice_no.in_(inv_nos_for_stop)
+                ).exists()
+            ).scalar()
+
         stops_data.append({
             'stop': stop,
             'items_count': items_count,
@@ -355,7 +365,8 @@ def stops_list(route_id):
             'total_gross': float(total_gross),
             'status': stop_status,
             'invoices': invoice_list,
-            'payment_method': stop_payment_method
+            'payment_method': stop_payment_method,
+            'has_exceptions': has_exceptions,
         })
     
     return render_template('driver/stops_list.html', route=route, stops_data=stops_data)
@@ -1537,6 +1548,15 @@ def print_exceptions_png(stop_id):
     stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
     date_str = utc_now().strftime('%Y-%m-%d %H:%M')
 
+    customer_email = ''
+    if stop.customer_code:
+        from models import PSCustomer
+        ps_cust = PSCustomer.query.filter_by(customer_code_365=stop.customer_code).first()
+        if ps_cust and ps_cust.sms and '@' in str(ps_cust.sms or ''):
+            customer_email = ps_cust.sms.strip()
+        elif ps_cust and ps_cust.website and '@' in str(ps_cust.website or ''):
+            customer_email = ps_cust.website.strip()
+
     png_data = {
         'doc_mode': 'exceptions',
         'receipt_no': f'{route.id}-{stop_no}' if route else str(stop_id),
@@ -1549,6 +1569,7 @@ def print_exceptions_png(stop_id):
         'customer_addr': stop.stop_addr or '',
         'invoices': invoices_list,
         'exceptions': exceptions_list,
+        'customer_email': customer_email,
     }
 
     w = request.args.get('w', type=int)
