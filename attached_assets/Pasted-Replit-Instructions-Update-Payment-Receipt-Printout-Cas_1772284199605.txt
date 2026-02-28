@@ -1,0 +1,128 @@
+Replit Instructions — Update Payment Receipt Printout (Cash + Cheque compatible)
+Goal (exact changes)
+
+Remove the line: STATUS: PAID
+
+Remove the line: PS365 Ref: ... (redundant with receipt number)
+
+Add a clear invoice reference:
+
+If single invoice: Payment for Invoice: IN10053337
+
+If multiple invoices: keep a simple Invoices: list
+
+Add Collector Signature space (must be printed):
+
+Collector Signature: + long blank line
+
+Remove Customer Signature line and replace with an optional acknowledgment line:
+
+Received by (Name) (optional): + blank line
+
+Replace footer disclaimer text with:
+
+Payment acknowledgement for the invoice(s) referenced above. Not a tax invoice.
+
+Add footer spacing at the end (minimum 6 blank lines)
+
+Add REPRINT indicator when it’s not the first time printing the same receipt
+
+Important: The above must render correctly for both cash and cheque receipts (cheque logic already exists—just ensure the new layout displays cheque info in the same “Collected” section as before).
+
+Implementation steps
+1) Locate the receipt template / renderer
+
+Search in code for one of:
+
+PAYMENT RECEIPT
+
+PS365 Ref
+
+Customer Signature
+
+Collected:
+
+your print function name (PDF/Bixolon)
+
+This is the only file/function that needs layout edits.
+
+2) Update the text layout (replace the current block)
+
+Implement this layout (fixed-width text):
+
+STEP EPLATTFORMA LTD
+Tel: 7000 0394   VAT: CY103532640
+--------------------------------
+PAYMENT RECEIPT                 {REPRINT_LABEL}
+--------------------------------
+Receipt No: {receipt_no}
+Date: {yyyy-mm-dd}   Time: {hh:mm}
+--------------------------------
+Customer: {customer_name}
+{INVOICE_REFERENCE_BLOCK}
+--------------------------------
+Collected:
+{PAYMENT_METHOD_LINES}   <-- keep existing cash/cheque output here
+Total Paid:                      EUR {amount}
+--------------------------------
+Collector: {collector_name}
+Collector Signature:
+________________________________
+
+Received by (Name) (optional):
+________________________________
+--------------------------------
+Payment acknowledgement for the invoice(s) referenced above.
+Not a tax invoice.
+
+
+
+
+
+
+
+Rules
+
+{REPRINT_LABEL} = "REPRINT" only when reprinting, otherwise blank.
+
+{PAYMENT_METHOD_LINES} must reuse your existing cash/cheque formatting (do not rework the cheque implementation, only ensure it fits this section).
+
+Add at least 6 blank lines at the end (as shown).
+
+3) Invoice reference block logic
+
+Replace the current Invoices (1): header with:
+
+If 1 invoice:
+
+Payment for Invoice: {invoice_no}
+
+If many invoices:
+
+Invoices: then list each invoice number on its own line
+
+4) Reprint logic (minimal)
+
+Where printing happens:
+
+Determine is_reprint for the receipt (based on your existing approach—e.g., a printed_count, reprint flag, or “already printed” marker).
+
+If is_reprint == true, set {REPRINT_LABEL} = "REPRINT".
+
+If you don’t currently track reprints, add the lightest possible tracking:
+
+Store printed_count (default 0) per receipt
+
+First print increments to 1 (no label)
+
+Second+ prints show REPRINT
+
+5) Regression test (quick)
+
+Print cash receipt (first time): no REPRINT label
+
+Print same receipt again: REPRINT shows
+
+Print cheque receipt: cheque info still appears under Collected: and layout stays readable
+
+Confirm the end has visible footer space

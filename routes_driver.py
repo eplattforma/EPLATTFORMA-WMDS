@@ -1440,11 +1440,14 @@ def print_receipt_png_by_id(receipt_id):
     if doc_type_val == 'online_notice':
         due_date_str = _compute_due_date(receipt.invoice_nos, stop.customer_code if stop else None, receipt.created_at)
 
+    is_reprint = (receipt.print_count or 0) > 1
+
     png_data = {
         'is_collected': is_collected,
         'is_credit': is_credit,
         'is_preview': False,
         'is_amended': False,
+        'is_reprint': is_reprint,
         'receipt_no': display_receipt_no,
         'date_str': receipt.created_at.strftime('%Y-%m-%d %H:%M') if receipt.created_at else '',
         'route_no': route.id if route else '',

@@ -202,11 +202,16 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         if is_preview:
             add_t("*** PREVIEW ***")
 
+        is_reprint = bool(data.get("is_reprint"))
+
         add_t("STEP EPLATTFORMA LTD")
         add_c("Tel: 7000 0394  VAT: CY103532640")
         add(sep)
-        add_t("PAYMENT RECEIPT")
-        add_t("STATUS: PAID")
+        reprint_label = "REPRINT" if is_reprint else ""
+        if reprint_label:
+            add_b(_pad_right("PAYMENT RECEIPT", reprint_label, cols))
+        else:
+            add_t("PAYMENT RECEIPT")
         add(sep)
 
         receipt_no = str(data.get("receipt_no", "")).strip()
@@ -215,30 +220,28 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
             d_part, t_part = date_str.split(" ", 1)
         else:
             d_part, t_part = date_str, ""
-        add_b(f"No: {receipt_no}")
+        add_b(f"Receipt No: {receipt_no}")
         if t_part:
-            add_b(f"Date: {d_part}  Time: {t_part}")
+            add_b(f"Date: {d_part}   Time: {t_part}")
         else:
             add_b(f"Date: {d_part}")
-
-        ps365_ref = str(data.get("ps365_reference_number", "") or "").strip()
-        if ps365_ref:
-            add_b(f"PS365 Ref: {ps365_ref}")
         add(sep)
 
         add_b("Customer:")
         for w in wrap(data.get("customer_name", "")):
             add(w)
-        add(sep)
 
         invoice_nos_plain = data.get("invoice_nos_plain") or [
             inv.get("invoice_no", "") for inv in (data.get("invoices") or [])
         ]
         invoice_nos_plain = [str(n) for n in invoice_nos_plain if n]
         if invoice_nos_plain:
-            add_b(f"Invoices ({len(invoice_nos_plain)}):")
-            for ref_line in _wrap_inv_refs(invoice_nos_plain, cols - 2):
-                add("  " + ref_line)
+            if len(invoice_nos_plain) == 1:
+                add_b(f"Payment for Invoice: {invoice_nos_plain[0]}")
+            else:
+                add_b("Invoices:")
+                for ref_line in _wrap_inv_refs(invoice_nos_plain, cols - 2):
+                    add("  " + ref_line)
         add(sep)
 
         add_b("Collected:")
@@ -256,20 +259,33 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
             if pm and fallback_collected > 0:
                 add(_pad_right(f"  {pm}:", f"EUR {fallback_collected:,.2f}", cols))
                 total_collected = fallback_collected
-        add_b(_pad_right("  Total:", f"EUR {total_collected:,.2f}", cols))
+
+        cheque_number = str(data.get("cheque_number", "") or "").strip()
+        cheque_date = str(data.get("cheque_date", "") or "").strip()
+        if cheque_number:
+            add(f"  Cheque No: {cheque_number}")
+        if cheque_date:
+            add(f"  Cheque Date: {cheque_date}")
+
+        add_b(_pad_right("Total Paid:", f"EUR {total_collected:,.2f}", cols))
         add(sep)
 
         collector = str(data.get("collector_name", "") or data.get("driver_name", "")).strip()
         if collector:
             add_b(f"Collector: {collector}")
-        add(sep)
 
         sig_line = "_" * cols
-        add("")
-        add("Customer Signature:")
+        add("Collector Signature:")
         add(sig_line)
         add("")
-        add("Payment acknowledgement only.")
+        add("Received by (Name) (optional):")
+        add(sig_line)
+        add(sep)
+        add("Payment acknowledgement for the")
+        add("invoice(s) referenced above.")
+        add("Not a tax invoice.")
+        for _ in range(6):
+            add("")
 
         line_h_body = 36
         line_h_title = 44
