@@ -26,13 +26,15 @@ def parse_bank_statement(file_obj, filename):
                 continue
         else:
             text = raw.decode('utf-8', errors='replace')
-        df = pd.read_csv(io.StringIO(text))
+        df = pd.read_csv(io.StringIO(text), header=None)
     elif filename_lower.endswith(('.xlsx', '.xls')):
-        df = pd.read_excel(io.BytesIO(file_obj.read()))
+        df = pd.read_excel(io.BytesIO(file_obj.read()), header=None)
     else:
         raise ValueError("Unsupported file format. Please upload CSV or Excel.")
 
-    df.columns = [c.strip() for c in df.columns]
+    df, header_row_idx = _find_header_row(df)
+
+    df.columns = [str(c).strip() if pd.notna(c) else f'col_{i}' for i, c in enumerate(df.columns)]
     col_map = _detect_columns(df)
     if not col_map.get('credit') and not col_map.get('amount'):
         if len(df.columns) >= 8:
@@ -43,7 +45,23 @@ def parse_bank_statement(file_obj, filename):
             raise ValueError("Could not detect a credit/amount column in the file. "
                              "Expected columns like: Credit, Amount, Deposit, etc.")
 
+    logger.info(f"Bank statement parsed: header at row {header_row_idx}, "
+                f"{len(df)} data rows, columns mapped: {col_map}")
     return df, col_map
+
+
+def _find_header_row(df):
+    for i in range(min(15, len(df))):
+        row_vals = [str(v).strip().lower() for v in df.iloc[i] if pd.notna(v)]
+        if 'date' in row_vals and ('credit' in row_vals or 'amount' in row_vals or 'deposit' in row_vals):
+            new_header = df.iloc[i]
+            df = df.iloc[i + 1:].reset_index(drop=True)
+            df.columns = new_header.values
+            return df, i
+
+    df.columns = df.iloc[0]
+    df = df.iloc[1:].reset_index(drop=True)
+    return df, 0
 
 
 def _detect_columns(df):
@@ -51,8 +69,8 @@ def _detect_columns(df):
     cols_lower = {c: c.lower().strip() for c in df.columns}
 
     date_patterns = ['date', 'txn date', 'transaction date', 'value date', 'posting date']
-    desc_patterns = ['description', 'narrative', 'details', 'particulars', 'memo', 'remarks', 'beneficiary']
-    ref_patterns = ['reference', 'ref', 'cheque no', 'transaction ref', 'ref no']
+    desc_patterns = ['description', 'narrative', 'details', 'particulars', 'memo', 'remarks', 'beneficiary', 'transaction type']
+    ref_patterns = ['reference', 'ref', 'cheque no', 'transaction ref', 'ref no', 'reference number', 'bank reference']
     credit_patterns = ['credit', 'deposit', 'credit amount', 'cr']
     debit_patterns = ['debit', 'withdrawal', 'debit amount', 'dr']
     amount_patterns = ['amount']
