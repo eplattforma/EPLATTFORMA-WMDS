@@ -37,6 +37,7 @@
                         <th class="text-end">Paid</th>
                         <th class="text-end">Amount Due</th>
                         <th>Details</th>
+                        <th>PS365</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -75,6 +76,21 @@
                                 Due: {{ inv.alloc.cheque_date.strftime('%Y-%m-%d') if inv.alloc.cheque_date else 'N/A' }}
                                 {% endif %}
                             </small>
+                        </td>
+                        <td>
+                            {% set cr = inv.alloc.cod_receipt %}
+                            {% set cr_sent = cr and (cr.ps365_receipt_id or cr.ps365_reference_number) %}
+                            {% if cr_sent %}
+                            <span class="badge bg-success"><i class="fas fa-check me-1"></i>PS365: {{ cr.ps365_reference_number or cr.ps365_receipt_id }}</span>
+                            {% elif cr and inv.alloc.payment_method in ['cheque', 'postdated'] and inv.alloc.cheque_date and inv.alloc.cheque_date <= today %}
+                            <button type="button" class="btn btn-sm btn-primary btn-send-ps365" data-cod-id="{{ cr.id }}">
+                                <i class="fas fa-paper-plane me-1"></i>Send to PS365
+                            </button>
+                            {% elif cr and inv.alloc.payment_method == 'online' %}
+                            <span class="badge bg-secondary">Bank Transfer</span>
+                            {% elif cr and inv.alloc.cheque_date and inv.alloc.cheque_date > today %}
+                            <span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Due {{ inv.alloc.cheque_date.strftime('%d/%m/%Y') }}</span>
+                            {% endif %}
                         </td>
                         <td>
                             <button type="button" class="btn btn-sm btn-success clear-payment-btn" data-id="{{ inv.alloc.id }}">
@@ -128,6 +144,31 @@ $(document).ready(function() {
     $('.clear-payment-btn').click(function() {
         currentAllocId = $(this).data('id');
         modal.show();
+    });
+
+    $('.btn-send-ps365').click(function() {
+        const btn = $(this);
+        const codId = btn.data('cod-id');
+        if (!confirm('Send this receipt to PS365?')) return;
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i>Sending...');
+        $.ajax({
+            url: `/cod_receipts/${codId}/send`,
+            method: 'POST',
+            headers: { 'X-CSRF-Token': $('meta[name="csrf-token"]').attr('content') },
+            success: function(response) {
+                if (response.success) {
+                    btn.replaceWith(`<span class="badge bg-success"><i class="fas fa-check me-1"></i>PS365: ${response.reference_number}</span>`);
+                } else {
+                    alert('Error: ' + (response.error || 'Unknown error'));
+                    btn.prop('disabled', false).html('<i class="fas fa-paper-plane me-1"></i>Send to PS365');
+                }
+            },
+            error: function(xhr) {
+                const msg = xhr.responseJSON ? xhr.responseJSON.error : 'Server error';
+                alert('Error: ' + msg);
+                btn.prop('disabled', false).html('<i class="fas fa-paper-plane me-1"></i>Send to PS365');
+            }
+        });
     });
 
     $('#confirmClearBtn').click(function() {

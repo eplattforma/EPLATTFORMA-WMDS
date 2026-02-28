@@ -86,7 +86,8 @@ def pending_payments():
         grouped[key]['total_due'] += due
     
     return render_template('reconciliation/pending_payments.html',
-                         grouped_customers=grouped)
+                         grouped_customers=grouped,
+                         today=date_type.today())
 
 
 @reconciliation_bp.route('/api/receipts/<int:receipt_id>/void', methods=['POST'])
