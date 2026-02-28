@@ -10,7 +10,7 @@ from decimal import Decimal
 import logging
 
 from app import db
-from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice
+from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice, BankTransaction
 from models import utc_now
 import services_reconciliation as recon
 
@@ -85,9 +85,28 @@ def pending_payments():
         })
         grouped[key]['total_due'] += due
     
+    all_alloc_ids = []
+    for cust_data in grouped.values():
+        for inv in cust_data['invoices']:
+            all_alloc_ids.append(inv['alloc'].id)
+
+    from services.bank_matching import get_matches_for_allocations
+    bank_matches = get_matches_for_allocations(all_alloc_ids)
+
+    active_batches = db.session.query(
+        BankTransaction.batch_id,
+        db.func.min(BankTransaction.uploaded_at).label('uploaded_at'),
+        db.func.count(BankTransaction.id).label('total'),
+        db.func.sum(db.case((BankTransaction.match_status == 'SUGGESTED', 1), else_=0)).label('suggested'),
+    ).filter(
+        BankTransaction.dismissed == False
+    ).group_by(BankTransaction.batch_id).order_by(db.func.min(BankTransaction.uploaded_at).desc()).limit(5).all()
+
     return render_template('reconciliation/pending_payments.html',
                          grouped_customers=grouped,
-                         today=date_type.today())
+                         today=date_type.today(),
+                         bank_matches=bank_matches,
+                         active_batches=active_batches)
 
 
 @reconciliation_bp.route('/api/receipts/<int:receipt_id>/void', methods=['POST'])
@@ -617,3 +636,56 @@ def settlement_summary(shipment_id):
                          collected_total=float(collected_total),
                          pod_invoices=pod_invoices,
                          credit_invoices=credit_invoices)
+
+
+@reconciliation_bp.route('/bank-statement/upload', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def upload_bank_statement():
+    from services.bank_matching import import_and_match
+    f = request.files.get('bank_file')
+    if not f or not f.filename:
+        flash('Please select a bank statement file to upload.', 'error')
+        return redirect(url_for('reconciliation.pending_payments'))
+    try:
+        result = import_and_match(f, f.filename, current_user.username)
+        flash(f"Imported {result['credit_rows']} credit transactions. "
+              f"{result['matched']} matched to pending payments, "
+              f"{result['unmatched']} unmatched. (Batch: {result['batch_id']})", 'success')
+    except ValueError as e:
+        flash(f'Import error: {str(e)}', 'error')
+    except Exception as e:
+        logger.exception("Bank statement import failed")
+        flash(f'Import failed: {str(e)}', 'error')
+    return redirect(url_for('reconciliation.pending_payments'))
+
+
+@reconciliation_bp.route('/api/bank-match/<int:txn_id>/dismiss', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_dismiss_bank_match(txn_id):
+    from services.bank_matching import dismiss_match
+    bt = dismiss_match(txn_id)
+    if not bt:
+        return jsonify({'success': False, 'error': 'Transaction not found'}), 404
+    return jsonify({'success': True})
+
+
+@reconciliation_bp.route('/api/bank-match/<int:txn_id>/confirm', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_confirm_bank_match(txn_id):
+    from services.bank_matching import confirm_match
+    bt = confirm_match(txn_id)
+    if not bt:
+        return jsonify({'success': False, 'error': 'Transaction not found'}), 404
+    return jsonify({'success': True})
+
+
+@reconciliation_bp.route('/api/bank-batch/<batch_id>/clear', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_clear_bank_batch(batch_id):
+    count = BankTransaction.query.filter_by(batch_id=batch_id).update({'dismissed': True, 'match_status': 'DISMISSED'})
+    db.session.commit()
+    return jsonify({'success': True, 'cleared': count})

@@ -2483,3 +2483,25 @@ class Ps365ReservedStock777(db.Model):
 
     def __repr__(self):
         return f"<Ps365ReservedStock777 {self.item_code_365}>"
+
+
+class BankTransaction(db.Model):
+    __tablename__ = 'bank_transactions'
+    id = db.Column(db.Integer, primary_key=True)
+    batch_id = db.Column(db.String(36), nullable=False, index=True)
+    txn_date = db.Column(db.Date, nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    reference = db.Column(db.String(200), nullable=True)
+    credit = db.Column(db.Numeric(12, 2), nullable=True)
+    debit = db.Column(db.Numeric(12, 2), nullable=True)
+    balance = db.Column(db.Numeric(14, 2), nullable=True)
+    raw_row = db.Column(db.Text, nullable=True)
+    matched_allocation_id = db.Column(db.Integer, db.ForeignKey('cod_invoice_allocations.id'), nullable=True)
+    match_status = db.Column(db.String(20), nullable=False, default='UNMATCHED')
+    match_confidence = db.Column(db.String(20), nullable=True)
+    match_reason = db.Column(db.String(200), nullable=True)
+    dismissed = db.Column(db.Boolean, nullable=False, default=False)
+    uploaded_by = db.Column(db.String(64), nullable=True)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    allocation = db.relationship('CODInvoiceAllocation', backref='bank_matches', foreign_keys=[matched_allocation_id])

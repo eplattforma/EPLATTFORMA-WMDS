@@ -6,7 +6,28 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1><i class="fas fa-clock me-2"></i>Pending Payments</h1>
+        <div class="d-flex align-items-center gap-2">
+            <form action="{{ url_for('reconciliation.upload_bank_statement') }}" method="POST" enctype="multipart/form-data" class="d-flex align-items-center gap-2" id="bankUploadForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="file" name="bank_file" accept=".csv,.xlsx,.xls" class="form-control form-control-sm" style="max-width:260px;" required>
+                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap" id="bankUploadBtn">
+                    <i class="fas fa-file-import me-1"></i>Import Bank Statement
+                </button>
+            </form>
+        </div>
     </div>
+
+    {% if active_batches %}
+    <div class="alert alert-info py-2 mb-3 d-flex justify-content-between align-items-center">
+        <small>
+            <i class="fas fa-university me-1"></i>
+            Active imports:
+            {% for b in active_batches %}
+            <span class="badge bg-primary ms-1">{{ b.batch_id }} ({{ b.suggested }} matches / {{ b.total }} txns)</span>
+            {% endfor %}
+        </small>
+    </div>
+    {% endif %}
 
     {% if grouped_customers %}
     {% for cust_name, cust_data in grouped_customers.items() %}
@@ -111,6 +132,33 @@
                             </button>
                         </td>
                     </tr>
+                    {% if bank_matches.get(inv.alloc.id) %}
+                    {% for bm in bank_matches[inv.alloc.id] %}
+                    <tr class="bank-match-row" style="background-color: #fff3cd;" id="bank-match-{{ bm.id }}">
+                        <td colspan="10" class="py-2 px-3">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div class="d-flex align-items-center gap-3">
+                                    <span class="badge {% if bm.match_confidence == 'HIGH' %}bg-success{% elif bm.match_confidence == 'MEDIUM' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                        <i class="fas fa-university me-1"></i>{{ bm.match_confidence }} Match
+                                    </span>
+                                    <small>
+                                        <strong>&euro;{{ "%.2f"|format(bm.credit) }}</strong>
+                                        {% if bm.txn_date %}<span class="text-muted ms-2">{{ bm.txn_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+                                        {% if bm.description %}<span class="text-muted ms-2">{{ bm.description[:80] }}{% if bm.description|length > 80 %}...{% endif %}</span>{% endif %}
+                                        {% if bm.reference %}<span class="text-muted ms-2">(Ref: {{ bm.reference[:30] }})</span>{% endif %}
+                                    </small>
+                                    <small class="text-muted fst-italic">{{ bm.match_reason }}</small>
+                                </div>
+                                <div class="d-flex gap-1">
+                                    <button class="btn btn-sm btn-outline-danger btn-dismiss-match" data-txn-id="{{ bm.id }}" title="Dismiss this match">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
                     {% endfor %}
                 </tbody>
             </table>
@@ -381,6 +429,31 @@ $(document).ready(function() {
                 const msg = xhr.responseJSON ? (xhr.responseJSON.error || xhr.responseJSON.message) : 'Server error';
                 alert('Error: ' + msg);
                 btn.prop('disabled', false).html('<i class="fas fa-check me-1"></i>Clear Payment');
+            }
+        });
+    });
+
+    $('#bankUploadForm').on('submit', function() {
+        $('#bankUploadBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin me-1"></i>Importing...');
+    });
+
+    $(document).on('click', '.btn-dismiss-match', function() {
+        const btn = $(this);
+        const txnId = btn.data('txn-id');
+        btn.prop('disabled', true);
+        $.ajax({
+            url: `/reconciliation/api/bank-match/${txnId}/dismiss`,
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrfToken },
+            success: function(resp) {
+                if (resp.success) {
+                    $(`#bank-match-${txnId}`).fadeOut(300, function() { $(this).remove(); });
+                } else {
+                    btn.prop('disabled', false);
+                }
+            },
+            error: function() {
+                btn.prop('disabled', false);
             }
         });
     });

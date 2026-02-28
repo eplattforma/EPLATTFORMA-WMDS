@@ -393,6 +393,13 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating payment entries schema: {str(e)}")
 
+    try:
+        from update_bank_transactions_schema import update_bank_transactions_schema
+        update_bank_transactions_schema()
+        logging.info("Bank transactions schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating bank transactions schema: {str(e)}")
+
     # Initialize remaining tables
     from app import db
     db.create_all()

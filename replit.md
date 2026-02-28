@@ -38,6 +38,7 @@ Preferred communication style: Simple, everyday language.
     - **Order Status Lifecycle**: `not_started` to `DELIVERED`/`RETURNED`/`DELIVERY_FAILED` with intermediate states for picking, packing, and dispatch.
     - **Route Status Lifecycle**: Three-phase lifecycle: Operational (`Shipment.status`), Reconciliation (`Shipment.reconciliation_status`), and Archiving. Reconciliation gating on pending payments.
     - **Receipt Document Types**: CODReceipt supports doc_type (official/pdc_ack/online_notice) with DRAFT→ISSUED→VOIDED lifecycle, lock-on-first-print, void/reissue workflow, and PS365 receipt auto-creation for official receipts. Online notice renders as "PAYMENT ADVICE (BANK TRANSFER)" with NOT A RECEIPT disclaimer, Pay by date, invoices subtotal, exceptions with deduction values, NET PAYABLE, bank details, and transfer reference — no Route/Stop/Driver/Rcpt fields.
+    - **Bank Statement Import & Matching**: CSV/Excel bank statement upload on the pending payments page. Auto-matches credit transactions to pending payments by amount (exact/close), invoice number in description, customer name/code patterns. Matches shown inline below each pending payment with confidence badges (HIGH/MEDIUM/LOW). Users can dismiss false matches. `BankTransaction` model with batch tracking.
 
 ### System Design Choices
 - **UTC Timestamp Consistency**: All database timestamp writes use UTC; local timezone for display.
