@@ -288,10 +288,9 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
             add_b(f"Collector: {collector}")
 
         sig_line = "_" * cols
-        add("Collector Signature:")
-        add(sig_line)
         add("")
-        add("Received by (Name):")
+        add("")
+        add("Collector Signature:")
         add(sig_line)
         add(sep)
         add("Payment acknowledgement for the")
