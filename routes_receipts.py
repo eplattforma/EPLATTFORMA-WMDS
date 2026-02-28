@@ -140,26 +140,28 @@ def create_receipt_core(customer_code: str, amount_val: float, comments: str,
             receipt_description = "RECEIPT"
         
         payment_type_code = "DRVR1"
+        driver_obj = None
+        if driver_username:
+            from models import User
+            driver_obj = User.query.filter_by(username=driver_username).first()
+
         if payment_type_code_override:
             payment_type_code = payment_type_code_override
-        elif driver_username:
-            from models import User
-            driver = User.query.filter_by(username=driver_username).first()
-            if driver and driver.payment_type_code_365:
-                payment_type_code = driver.payment_type_code_365
+        elif driver_obj and driver_obj.payment_type_code_365:
+            payment_type_code = driver_obj.payment_type_code_365
         
-        # Enforce cheque behaviour + correct formats
         cheque_number = (cheque_number or "").strip()
         cheque_date = normalize_yyyy_mm_dd(cheque_date)
 
-        # enforce comment length
         comments = (comments or "").strip()
         if PS365_RECEIPT_COMMENTS_MAX and len(comments) > PS365_RECEIPT_COMMENTS_MAX:
             comments = comments[:PS365_RECEIPT_COMMENTS_MAX]
 
-        # If cheque info exists, force cheque payment type so PS365 stores cheque fields
         if cheque_number or cheque_date:
-            payment_type_code = PS365_CHEQUE_PAYMENT_TYPE_CODE
+            cheque_code = PS365_CHEQUE_PAYMENT_TYPE_CODE
+            if driver_obj and driver_obj.cheque_payment_type_code_365:
+                cheque_code = driver_obj.cheque_payment_type_code_365
+            payment_type_code = cheque_code
             
         # Build request for Powersoft365
         req_obj = {

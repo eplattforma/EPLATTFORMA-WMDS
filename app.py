@@ -95,7 +95,23 @@ with app.app_context():
             update_invoice_items_schema(db)
         except Exception as e:
             logging.warning(f"Could not run invoice items schema update: {str(e)}")
-        
+
+        try:
+            from sqlalchemy import text as _text
+            with db.engine.connect() as conn:
+                result = conn.execute(_text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name='users' AND column_name='cheque_payment_type_code_365'"
+                ))
+                if not result.fetchone():
+                    conn.execute(_text(
+                        "ALTER TABLE users ADD COLUMN cheque_payment_type_code_365 VARCHAR(50)"
+                    ))
+                    conn.commit()
+                    logging.info("Added cheque_payment_type_code_365 column to users table")
+        except Exception as e:
+            logging.warning(f"Could not add cheque_payment_type_code_365 column: {str(e)}")
+
         # Only initialize default users and settings in development
         if not is_production:
             from models import User, Setting

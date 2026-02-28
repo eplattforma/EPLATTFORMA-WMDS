@@ -1511,6 +1511,7 @@ def edit_user(username):
     new_username = request.form.get('username')
     new_role = request.form.get('role')
     payment_type_code_365 = request.form.get('payment_type_code_365', '').strip() or None
+    cheque_payment_type_code_365 = request.form.get('cheque_payment_type_code_365', '').strip() or None
     require_gps_check = request.form.get('require_gps_check') == 'on'
     
     if not new_username or not new_role:
@@ -1534,13 +1535,14 @@ def edit_user(username):
         new_user.password = user.password
         new_user.role = new_role
         new_user.payment_type_code_365 = payment_type_code_365
+        new_user.cheque_payment_type_code_365 = cheque_payment_type_code_365
         new_user.require_gps_check = require_gps_check
         db.session.delete(user)
         db.session.add(new_user)
     else:
-        # Just update role, payment code, and GPS setting
         user.role = new_role
         user.payment_type_code_365 = payment_type_code_365
+        user.cheque_payment_type_code_365 = cheque_payment_type_code_365
         user.require_gps_check = require_gps_check
     
     try:

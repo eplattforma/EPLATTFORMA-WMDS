@@ -117,6 +117,7 @@
                                             data-username="{{ user.username }}"
                                             data-role="{{ user.role }}"
                                             data-payment-code="{{ user.payment_type_code_365 or '' }}"
+                                            data-cheque-payment-code="{{ user.cheque_payment_type_code_365 or '' }}"
                                             data-require-gps="{{ user.require_gps_check }}"
                                             title="Edit User">
                                         <i class="fas fa-edit"></i>
@@ -180,8 +181,17 @@
                     </div>
                     <div class="mb-3">
                         <label for="edit_payment_code" class="form-label">Payment Type Code (PS365)</label>
-                        <input type="text" class="form-control" id="edit_payment_code" name="payment_type_code_365" placeholder="Optional - for receipt API">
-                        <small class="text-muted">Used for PS365 receipt API when sending customer receipts</small>
+                        <select class="form-select" id="edit_payment_code" name="payment_type_code_365">
+                            <option value="">-- None --</option>
+                        </select>
+                        <small class="text-muted">Cash payment types from PS365 for receipt API</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_cheque_payment_code" class="form-label">Cheque Payment Type Code (PS365)</label>
+                        <select class="form-select" id="edit_cheque_payment_code" name="cheque_payment_type_code_365">
+                            <option value="">-- None --</option>
+                        </select>
+                        <small class="text-muted">Cheque payment type from PS365 for cheque receipts</small>
                     </div>
                     <div class="mb-3 form-check">
                         <input type="checkbox" class="form-check-input" id="edit_require_gps_check" name="require_gps_check" value="on">
@@ -246,25 +256,61 @@
 </div>
 
 <script>
+let ps365PaymentTypes = null;
+
+async function loadPS365PaymentTypes() {
+    if (ps365PaymentTypes !== null) return ps365PaymentTypes;
+    try {
+        const res = await fetch('/reconciliation/api/ps365-payment-types-all');
+        const data = await res.json();
+        if (data.success) {
+            ps365PaymentTypes = data.payment_types || [];
+        } else {
+            ps365PaymentTypes = [];
+        }
+    } catch (e) {
+        console.error('Failed to load PS365 payment types:', e);
+        ps365PaymentTypes = [];
+    }
+    return ps365PaymentTypes;
+}
+
+function populatePaymentSelect(selectId, types, filterFn, currentValue) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">-- None --</option>';
+    const filtered = types.filter(filterFn);
+    filtered.forEach(pt => {
+        const opt = document.createElement('option');
+        opt.value = pt.code;
+        opt.textContent = pt.code + ' - ' + pt.name;
+        if (pt.code === currentValue) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Edit user buttons
     document.querySelectorAll('.edit-user-btn').forEach(button => {
-        button.addEventListener('click', function() {
+        button.addEventListener('click', async function() {
             const username = this.getAttribute('data-username');
             const role = this.getAttribute('data-role');
             const paymentCode = this.getAttribute('data-payment-code');
+            const chequePaymentCode = this.getAttribute('data-cheque-payment-code');
             const requireGps = this.getAttribute('data-require-gps') === 'True';
             
             console.log('Edit button clicked for username:', username);
             
             document.getElementById('edit_username').value = username;
             document.getElementById('edit_role').value = role;
-            document.getElementById('edit_payment_code').value = paymentCode || '';
             document.getElementById('edit_require_gps_check').checked = requireGps;
             
             const formAction = `/admin/users/${encodeURIComponent(username)}/edit`;
             console.log('Setting form action to:', formAction);
             document.getElementById('editUserForm').action = formAction;
+
+            const types = await loadPS365PaymentTypes();
+            populatePaymentSelect('edit_payment_code', types, t => t.is_cash === true, paymentCode);
+            populatePaymentSelect('edit_cheque_payment_code', types, () => true, chequePaymentCode);
             
             const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
             modal.show();

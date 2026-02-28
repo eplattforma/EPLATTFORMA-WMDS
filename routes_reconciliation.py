@@ -224,6 +224,38 @@ def api_ps365_payment_types():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@reconciliation_bp.route('/api/ps365-payment-types-all')
+@login_required
+@admin_or_warehouse_required
+def api_ps365_payment_types_all():
+    """Fetch all active payment types from PS365 list_payment_types API"""
+    import os, requests as req
+    base = os.getenv('POWERSOFT_BASE', '') or os.getenv('PS365_BASE_URL', '')
+    token = os.getenv('POWERSOFT_TOKEN', '') or os.getenv('PS365_TOKEN', '')
+    if not base or not token:
+        return jsonify({'success': False, 'error': 'PS365 not configured'}), 500
+    try:
+        url = f"{base.rstrip('/')}/list_payment_types"
+        resp = req.get(url, params={'token': token, 'active_type': 'active'}, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get('list_payment_types') or []
+        result = [
+            {'code': p.get('payment_type_code_365', ''),
+             'name': p.get('payment_type_name', ''),
+             'is_cash': p.get('is_cash', False),
+             'is_card': p.get('is_card', False),
+             'sort_order': p.get('sort_order', 999)}
+            for p in items
+            if p.get('active') is True
+        ]
+        result.sort(key=lambda x: x.get('sort_order', 999))
+        return jsonify({'success': True, 'payment_types': result})
+    except Exception as e:
+        logger.error(f"Error fetching PS365 payment types (all): {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @reconciliation_bp.route('/api/pending-payments/<int:allocation_id>/clear', methods=['POST'])
 @login_required
 @admin_or_warehouse_required
