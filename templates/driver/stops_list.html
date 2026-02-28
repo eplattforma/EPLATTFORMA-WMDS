@@ -343,7 +343,7 @@ async function submitFail() {
 
 async function printExceptions(stopId) {
     try {
-        const res = await fetch(`/driver/stops/${stopId}/exceptions.png`, { cache: 'no-store' });
+        const res = await fetch(`/driver/stops/${stopId}/print_exceptions.png`, { cache: 'no-store' });
         if (!res.ok) {
             if (res.status === 204) { alert('No exceptions found for this stop.'); return; }
             alert('Could not load exceptions document. Please try again.');
