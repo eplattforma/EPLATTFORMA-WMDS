@@ -286,6 +286,7 @@ def api_clear_pending(allocation_id):
         payment_type_code = data.get('payment_type_code', '')
         receipt_date = data.get('receipt_date', '')
         reference = (data.get('reference', '') or '').strip()
+        user_amount = data.get('amount', '')
 
         if send_ps365:
             alloc = CODInvoiceAllocation.query.get(allocation_id)
@@ -314,9 +315,13 @@ def api_clear_pending(allocation_id):
                 if cr.note:
                     comments += f" | {cr.note}"
 
-                amount_for_ps365 = float(cr.received_amount or 0)
-                if not amount_for_ps365 and alloc:
-                    amount_for_ps365 = float((alloc.expected_amount or 0) - (alloc.deduct_amount or 0))
+                if user_amount:
+                    amount_for_ps365 = round(float(user_amount), 2)
+                else:
+                    alloc_due = float((alloc.expected_amount or 0) - (alloc.deduct_amount or 0))
+                    amount_for_ps365 = float(cr.received_amount or 0) or alloc_due
+                    amount_for_ps365 = round(amount_for_ps365, 2)
+                logger.info(f"Clear pending {allocation_id}: user_amt={user_amount}, receipt_amt={cr.received_amount}, sending={amount_for_ps365}")
 
                 from routes_receipts import create_receipt_core
                 ok, ref_num, resp_id, status_code, ps_json = create_receipt_core(
