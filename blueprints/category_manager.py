@@ -20,6 +20,12 @@ ITEM_BRAND_COL = "brand_code_365"
 def _role_ok():
     return getattr(current_user, "role", None) in ("admin", "warehouse_manager")
 
+def _safe_float(value, default):
+    s = str(value).strip()
+    if s.lower() == "nan":
+        return default
+    return float(s)
+
 def _parse_date(v):
     if not v: return None
     return datetime.strptime(v, "%Y-%m-%d").date()
@@ -83,7 +89,7 @@ def api_category_gaps():
     customer = (request.args.get("customer_code") or "").strip()
     peer_group = request.args.get("peer_group") or "auto"
     include_credits = (request.args.get("include_credits") or "0") == "1"
-    min_pen = float(request.args.get("min_penetration") or "0.30")
+    min_pen = _safe_float(request.args.get("min_penetration") or "0.30", 0.30)
     d_from, d_to = _resolve_range(request.args)
     peers = _resolve_peer_customers(customer, peer_group)
     if not customer or not peers: return jsonify({"meta": {"peer_customers": len(peers)}, "items": []})
@@ -182,9 +188,9 @@ def api_category_suggestions():
     peer_group = request.args.get("peer_group") or "auto"
     category = (request.args.get("category") or "").strip()
     include_credits = (request.args.get("include_credits") or "0") == "1"
-    min_pen = float(request.args.get("min_penetration") or "0.30")
-    must_pen = float(request.args.get("must_pen") or "0.60")
-    variety_pen = float(request.args.get("variety_pen") or "0.15")
+    min_pen = _safe_float(request.args.get("min_penetration") or "0.30", 0.30)
+    must_pen = _safe_float(request.args.get("must_pen") or "0.60", 0.60)
+    variety_pen = _safe_float(request.args.get("variety_pen") or "0.15", 0.15)
     limit = max(30, min(int(request.args.get("limit") or 250), 500))
     d_from, d_to = _resolve_range(request.args)
     peers = _resolve_peer_customers(customer, peer_group)
