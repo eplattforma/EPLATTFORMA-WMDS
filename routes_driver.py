@@ -1552,10 +1552,8 @@ def print_exceptions_png(stop_id):
     if stop.customer_code:
         from models import PSCustomer
         ps_cust = PSCustomer.query.filter_by(customer_code_365=stop.customer_code).first()
-        if ps_cust and ps_cust.sms and '@' in str(ps_cust.sms or ''):
-            customer_email = ps_cust.sms.strip()
-        elif ps_cust and ps_cust.website and '@' in str(ps_cust.website or ''):
-            customer_email = ps_cust.website.strip()
+        if ps_cust and ps_cust.email:
+            customer_email = ps_cust.email.strip()
 
     png_data = {
         'doc_mode': 'exceptions',
