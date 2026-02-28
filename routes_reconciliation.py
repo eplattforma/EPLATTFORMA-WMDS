@@ -196,42 +196,28 @@ def api_reissue_receipt(receipt_id):
 @login_required
 @admin_or_warehouse_required
 def api_ps365_payment_types():
-    """Fetch payment types from PS365 API (individual lookups), filtered by display_on_app=true and active=true"""
+    """Fetch active payment types from PS365 list_payment_types API, filtered by display_on_app=true"""
     import os, requests as req
-    from models import Setting
     base = os.getenv('POWERSOFT_BASE', '') or os.getenv('PS365_BASE_URL', '')
     token = os.getenv('POWERSOFT_TOKEN', '') or os.getenv('PS365_TOKEN', '')
     if not base or not token:
         return jsonify({'success': False, 'error': 'PS365 not configured'}), 500
     try:
-        url = f"{base.rstrip('/')}/payment_type"
-        custom_codes = Setting.get(db.session, 'ps365_payment_type_codes', '').strip()
-        if custom_codes:
-            codes_to_check = [c.strip() for c in custom_codes.split(',') if c.strip()]
-        else:
-            codes_to_check = ['CASH', 'DRVR1', 'CHEQ', 'JCC', 'VIVA', 'PDC', 'BANK',
-                              'CARD', 'ONLINE', 'CC', 'VISA', 'MC', 'AMEX', 'EFT',
-                              'DEBIT', 'WIRE', 'TRF', 'TRANSFER', 'COD', 'REVOLUT']
-        filtered = []
-        for code in codes_to_check:
-            try:
-                resp = req.get(url, params={'token': token, 'payment_type_code_365': code}, timeout=8)
-                if resp.status_code != 200:
-                    continue
-                data = resp.json()
-                pt = data.get('payment_type')
-                if not pt or not isinstance(pt, dict):
-                    continue
-                if pt.get('display_on_app') is True and pt.get('active') is True:
-                    filtered.append({
-                        'code': pt.get('payment_type_code_365', code),
-                        'name': pt.get('payment_type_name', code),
-                        'is_cash': pt.get('is_cash', False),
-                        'is_card': pt.get('is_card', False)
-                    })
-            except Exception:
-                continue
-        filtered.sort(key=lambda x: x.get('name', ''))
+        url = f"{base.rstrip('/')}/list_payment_types"
+        resp = req.get(url, params={'token': token, 'active_type': 'active'}, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get('list_payment_types') or []
+        filtered = [
+            {'code': p.get('payment_type_code_365', ''),
+             'name': p.get('payment_type_name', ''),
+             'is_cash': p.get('is_cash', False),
+             'is_card': p.get('is_card', False),
+             'sort_order': p.get('sort_order', 999)}
+            for p in items
+            if p.get('display_on_app') is True
+        ]
+        filtered.sort(key=lambda x: x.get('sort_order', 999))
         return jsonify({'success': True, 'payment_types': filtered})
     except Exception as e:
         logger.error(f"Error fetching PS365 payment types: {e}", exc_info=True)
