@@ -426,10 +426,10 @@ def send_cod_receipt(cod_receipt_id):
                 'error': 'Cannot send: Route is already reconciled'
             }), 400
 
-        if cod_receipt.ps365_receipt_id:
+        if cod_receipt.ps365_receipt_id or cod_receipt.ps365_reference_number:
             return jsonify({
                 'error': 'Receipt already sent to PS365',
-                'reference': cod_receipt.ps365_receipt_id
+                'reference': cod_receipt.ps365_reference_number or cod_receipt.ps365_receipt_id
             }), 400
         
         from datetime import date as date_type
@@ -479,8 +479,8 @@ def send_cod_receipt(cod_receipt_id):
             allow_duplicate_stop=allow_duplicate_stop
         )
         
-        # Update COD receipt with PS365 reference
-        cod_receipt.ps365_receipt_id = reference_number
+        cod_receipt.ps365_reference_number = reference_number
+        cod_receipt.ps365_receipt_id = str(response_id) if response_id else reference_number
         cod_receipt.ps365_synced_at = datetime.utcnow()
         db.session.commit()
         

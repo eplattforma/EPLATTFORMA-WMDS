@@ -1595,9 +1595,16 @@ def reconciliation_report(shipment_id):
             route_stop_id=stop.route_stop_id
         ).all()
         
-        # Get COD receipt
         cod_receipt = CODReceipt.query.filter_by(
             route_stop_id=stop.route_stop_id
+        ).filter(
+            CODReceipt.status != 'VOIDED'
+        ).order_by(
+            db.case(
+                (CODReceipt.ps365_receipt_id.isnot(None), 0),
+                else_=1
+            ),
+            CODReceipt.id.desc()
         ).first()
         
         # Get POD record
