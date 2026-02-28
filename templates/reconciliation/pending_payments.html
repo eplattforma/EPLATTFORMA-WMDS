@@ -149,7 +149,7 @@
                     {% if bank_matches.get(inv.alloc.id) %}
                     {% for bm in bank_matches[inv.alloc.id] %}
                     <tr class="bank-match-row bank-match-{{ bm.match_confidence|lower }}" id="bank-match-{{ bm.id }}">
-                        <td colspan="10" class="py-2 px-3">
+                        <td colspan="10" class="py-2 px-3" style="background-color: {% if bm.match_confidence == 'HIGH' %}#1a4731{% elif bm.match_confidence == 'MEDIUM' %}#164050{% else %}#3a3a3a{% endif %} !important; color: {% if bm.match_confidence == 'HIGH' %}#d1e7dd{% elif bm.match_confidence == 'MEDIUM' %}#b2ebf2{% else %}#adb5bd{% endif %} !important;">
                             <div class="d-flex align-items-center justify-content-between">
                                 <div class="d-flex align-items-center gap-3">
                                     <span class="badge {% if bm.match_confidence == 'HIGH' %}bg-success{% elif bm.match_confidence == 'MEDIUM' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
