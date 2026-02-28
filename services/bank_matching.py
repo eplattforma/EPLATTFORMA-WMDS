@@ -35,15 +35,24 @@ def parse_bank_statement(file_obj, filename):
     df, header_row_idx = _find_header_row(df)
 
     df.columns = [str(c).strip() if pd.notna(c) else f'col_{i}' for i, c in enumerate(df.columns)]
+    logger.info(f"Columns after header detection: {list(df.columns)}")
     col_map = _detect_columns(df)
     if not col_map.get('credit') and not col_map.get('amount'):
-        if len(df.columns) >= 8:
-            col_h = df.columns[7]
-            logger.info(f"No credit column detected by name, falling back to column H: '{col_h}'")
-            col_map['credit'] = col_h
-        else:
-            raise ValueError("Could not detect a credit/amount column in the file. "
-                             "Expected columns like: Credit, Amount, Deposit, etc.")
+        for i, col_name in enumerate(df.columns):
+            sample_vals = df[col_name].dropna().head(10)
+            numeric_count = 0
+            for v in sample_vals:
+                parsed = _parse_amount(v)
+                if parsed is not None and parsed > 0:
+                    numeric_count += 1
+            if numeric_count >= 3:
+                logger.info(f"Fallback: using column '{col_name}' (index {i}) as credit — {numeric_count}/10 positive values")
+                col_map['credit'] = col_name
+                break
+
+    if not col_map.get('credit') and not col_map.get('amount'):
+        raise ValueError("Could not detect a credit/amount column in the file. "
+                         "Expected columns like: Credit, Amount, Deposit, etc.")
 
     logger.info(f"Bank statement parsed: header at row {header_row_idx}, "
                 f"{len(df)} data rows, columns mapped: {col_map}")
@@ -51,14 +60,19 @@ def parse_bank_statement(file_obj, filename):
 
 
 def _find_header_row(df):
-    for i in range(min(15, len(df))):
+    for i in range(min(20, len(df))):
         row_vals = [str(v).strip().lower() for v in df.iloc[i] if pd.notna(v)]
-        if 'date' in row_vals and ('credit' in row_vals or 'amount' in row_vals or 'deposit' in row_vals):
+        has_date = any(v in ('date', 'value date', 'txn date', 'transaction date', 'posting date') for v in row_vals)
+        has_credit = any(v in ('credit', 'amount', 'deposit', 'credit amount', 'cr') for v in row_vals)
+        has_desc = any(v in ('description', 'narrative', 'details', 'particulars') for v in row_vals)
+        if (has_date and has_credit) or (has_date and has_desc) or (has_credit and has_desc):
             new_header = df.iloc[i]
             df = df.iloc[i + 1:].reset_index(drop=True)
             df.columns = new_header.values
+            logger.info(f"Found header at row {i}: {[str(v) for v in new_header.values if pd.notna(v)]}")
             return df, i
 
+    logger.warning(f"No header row detected in first 20 rows. Row 0 values: {list(df.iloc[0])}")
     df.columns = df.iloc[0]
     df = df.iloc[1:].reset_index(drop=True)
     return df, 0
