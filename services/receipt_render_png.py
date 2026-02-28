@@ -469,6 +469,148 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         img.save(out, format="PNG")
         return out.getvalue()
 
+    if doc_type == "pdc_ack":
+        def _wrap_inv_refs_pdc(invoice_nos, width):
+            s = ", ".join(str(n) for n in invoice_nos)
+            ref_lines, line = [], ""
+            for part in s.split(", "):
+                candidate = part if not line else ", " + part
+                if len(line) + len(candidate) > width:
+                    ref_lines.append(line)
+                    line = part
+                else:
+                    line += candidate
+            if line:
+                ref_lines.append(line)
+            return ref_lines or [""]
+
+        if is_preview:
+            add_t("*** PREVIEW ***")
+
+        is_reprint = bool(data.get("is_reprint"))
+
+        add_t("STEP EPLATTFORMA LTD")
+        add_c("Digeni Akrita 13BC, 1055 Lefkosia")
+        add_c("Tel: 7000 0394  VAT: CY103532640")
+        add(sep)
+        reprint_label = "REPRINT" if is_reprint else ""
+        if reprint_label:
+            add_b(_pad_right("CHEQUE RECEIVED (PDC)", reprint_label, cols))
+            add_b("ACKNOWLEDGEMENT")
+        else:
+            add_t("CHEQUE RECEIVED (PDC)")
+            add_t("ACKNOWLEDGEMENT")
+        add_c("Post-dated cheque received -")
+        add_c("pending clearance.")
+        add_c("This document is NOT a")
+        add_c("payment receipt.")
+        add(sep)
+
+        receipt_no = str(data.get("receipt_no", "")).strip()
+        date_str = str(data.get("date_str", "")).strip()
+        if " " in date_str:
+            d_part, t_part = date_str.split(" ", 1)
+        else:
+            d_part, t_part = date_str, ""
+        add_b(f"Receipt No: {receipt_no}")
+        if t_part:
+            add_b(f"Date: {d_part}   Time: {t_part}")
+        else:
+            add_b(f"Date: {d_part}")
+        add(sep)
+
+        add_b("Customer:")
+        for w in wrap(data.get("customer_name", "")):
+            add(w)
+
+        invoice_nos_plain = data.get("invoice_nos_plain") or [
+            inv.get("invoice_no", "") for inv in (data.get("invoices") or [])
+        ]
+        invoice_nos_plain = [str(n) for n in invoice_nos_plain if n]
+        if invoice_nos_plain:
+            if len(invoice_nos_plain) == 1:
+                add_b(f"Payment for Invoice: {invoice_nos_plain[0]}")
+            else:
+                add_b("Invoices:")
+                for ref_line in _wrap_inv_refs_pdc(invoice_nos_plain, cols - 2):
+                    add("  " + ref_line)
+        add(sep)
+
+        add_b("Collected:")
+        payments = data.get("payments") or []
+        total_collected = Decimal("0")
+        if payments:
+            for p in payments:
+                method = str(p.get("method", "")).strip()
+                amt = Decimal(str(p.get("amount", "0") or "0"))
+                total_collected += amt
+                add(_pad_right(f"  {method}:", f"EUR {amt:,.2f}", cols))
+        else:
+            fallback_collected = Decimal(str(data.get("collected", "0") or "0"))
+            pm = str(data.get("payment_method", "")).replace("_", " ").title().strip()
+            if pm and fallback_collected > 0:
+                add(_pad_right(f"  {pm}:", f"EUR {fallback_collected:,.2f}", cols))
+                total_collected = fallback_collected
+
+        cheque_number = str(data.get("cheque_number", "") or "").strip()
+        cheque_date = str(data.get("cheque_date", "") or "").strip()
+        if cheque_number:
+            add(f"  Cheque No: {cheque_number}")
+        if cheque_date:
+            add(f"  Cheque Date: {cheque_date}")
+
+        add_b(_pad_right("Total Paid:", f"EUR {total_collected:,.2f}", cols))
+        add(sep)
+
+        collector = str(data.get("collector_name", "") or data.get("driver_name", "")).strip()
+        if collector:
+            add("")
+            add("")
+            add_b(f"Collector: {collector}")
+
+        sig_line = "_" * cols
+        add("Collector Signature:")
+        add(sig_line)
+        add("")
+        add("")
+        add(sep)
+        add("Post-dated cheque acknowledgement")
+        add("for the invoice(s) referenced above.")
+        add("This is NOT a payment receipt.")
+        for _ in range(6):
+            add("")
+
+        line_h_body = 36
+        line_h_title = 44
+        height = PADDING_Y * 2 + sum(
+            line_h_title if t == "title" else line_h_body for t, _ in lines
+        )
+        img = Image.new("L", (dot_width, height), 255)
+        draw = ImageDraw.Draw(img)
+        y = PADDING_Y
+        avail_w = dot_width - 2 * PADDING_X
+        for typ, txt in lines:
+            if typ == "title":
+                tw = draw.textlength(txt, font=font_title)
+                x = PADDING_X + max(0, (avail_w - tw) / 2)
+                draw.text((x, y), txt, font=font_title, fill=0)
+                y += line_h_title
+            elif typ == "center":
+                tw = draw.textlength(txt, font=font_body)
+                x = PADDING_X + max(0, (avail_w - tw) / 2)
+                draw.text((x, y), txt, font=font_body, fill=0)
+                y += line_h_body
+            elif typ == "bold":
+                draw.text((PADDING_X, y), txt, font=font_bold, fill=0)
+                y += line_h_body
+            else:
+                draw.text((PADDING_X, y), txt, font=font_body, fill=0)
+                y += line_h_body
+        img = img.convert("1")
+        out = BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+
     if is_preview:
         add_t("*** PREVIEW ***")
         add_t("NOT A FINAL RECEIPT")
@@ -480,13 +622,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     add_c("Tel: 7000 0394  VAT: CY103532640")
     add(sep)
 
-    if doc_type == "pdc_ack":
-        add_t("CHEQUE RECEIVED (PDC)")
-        add_t("ACKNOWLEDGEMENT")
-        add_c("Post-dated cheque held pending")
-        add_c("clearance. This is NOT a")
-        add_c("payment receipt.")
-    elif is_credit:
+    if is_credit:
         add_t("DELIVERY CONFIRMATION")
         add_t("CREDIT ACCOUNT")
     elif is_collected:
