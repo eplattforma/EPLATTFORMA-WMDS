@@ -708,21 +708,6 @@ def database_settings():
                 </div>
             </div>
             
-            <!-- Data Warehouse Operations -->
-            <div class="section">
-                <h2>🏭 Data Warehouse Operations</h2>
-                <p style="margin-bottom: 15px; color: #666;">Manual sync operations for data warehouse management.</p>
-                
-                <div class="button-group">
-                    <a href="/datawarehouse/menu" style="text-decoration: none;">
-                        <button class="btn-primary">Data Warehouse Menu</button>
-                    </a>
-                    <a href="/datawarehouse/logs" style="text-decoration: none;">
-                        <button class="btn-secondary">View Sync Logs</button>
-                    </a>
-                </div>
-            </div>
-            
             <div class="back-link">
                 <a href="/">← Back to Home</a>
             </div>
