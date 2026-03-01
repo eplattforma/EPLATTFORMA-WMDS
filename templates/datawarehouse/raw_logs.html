@@ -87,7 +87,7 @@
     </div>
     {% if recent_syncs|length >= 30 %}
     <div class="card-footer text-center">
-      <a href="{{ url_for('datawarehouse.sync_log_page') }}" class="btn btn-sm btn-outline-primary">View Full Sync Log</a>
+      <small class="text-muted">Showing last 30 entries</small>
     </div>
     {% endif %}
   </div>
