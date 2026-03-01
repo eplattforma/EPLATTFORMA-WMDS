@@ -69,7 +69,7 @@
                             {{ '%.2f'|format(s.cash_variance|float) if s.cash_variance else '-' }}
                         </td>
                         <td>
-                            <a href="{{ url_for('routes.reconciliation_report', shipment_id=s.id) }}" class="btn btn-sm btn-outline-primary">View</a>
+                            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=s.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                         </td>
                     </tr>
                     {% else %}

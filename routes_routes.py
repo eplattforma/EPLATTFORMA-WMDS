@@ -1521,151 +1521,17 @@ def api_update_stop_sequence():
 @login_required
 @admin_required
 def reconcile_view(shipment_id):
-    """View route details for reconciliation and allow reconciliation action"""
-    from services_route_lifecycle import get_route_reconciliation_summary
-    
-    route = Shipment.query.get_or_404(shipment_id)
-    summary = get_route_reconciliation_summary(shipment_id)
-    
-    return render_template('route_reconcile.html', route=route, summary=summary)
-
-
-@bp.route("/<int:shipment_id>/reconcile", methods=["POST"])
-@login_required
-@admin_required
-def reconcile_action(shipment_id):
-    """Perform route reconciliation"""
-    from services_route_lifecycle import reconcile_route
-    
-    force = request.form.get('force') == 'true'
-    
-    success, message = reconcile_route(shipment_id, current_user.username, force=force)
-    
-    if success:
-        flash(f"Route #{shipment_id} has been reconciled and archived.", "success")
-        return redirect(url_for("routes.dashboard", view="archived"))
-    else:
-        flash(f"Cannot reconcile: {message}", "danger")
-        return redirect(url_for("routes.reconcile_view", shipment_id=shipment_id))
+    """Redirect to canonical reconciliation detail page"""
+    return redirect(url_for("reconciliation.shipment_detail", shipment_id=shipment_id))
 
 
 @bp.route("/<int:shipment_id>/reconciliation")
 @login_required
 @admin_required
 def reconciliation_report(shipment_id):
-    """Comprehensive route reconciliation report for admin review"""
-    from models import (DeliveryEvent, DeliveryLine, CODReceipt, PODRecord, 
-                       DeliveryDiscrepancy, ReceiptLog, Invoice)
-    from app import db
-    
-    route = Shipment.query.get_or_404(shipment_id)
-    
-    # Get all delivery events
-    delivery_events = DeliveryEvent.query.filter_by(
-        route_id=shipment_id
-    ).order_by(DeliveryEvent.created_at.desc()).all()
-    
-    # Get all stops with delivery details
-    stops = RouteStop.query.filter_by(
-        shipment_id=shipment_id
-    ).order_by(RouteStop.seq_no).all()
-    
-    # Create stop lookup for delivery events (use primitives to avoid DetachedInstanceError)
-    stop_lookup = {
-        stop.route_stop_id: {
-            'seq_no': stop.seq_no,
-            'stop_name': stop.stop_name,
-            'customer_code': stop.customer_code
-        } for stop in stops
-    }
-    
-    # Organize data by stop
-    stops_data = []
-    for stop in stops:
-        # Get invoices for this stop
-        stop_invoices = db.session.query(Invoice).join(
-            RouteStopInvoice, Invoice.invoice_no == RouteStopInvoice.invoice_no
-        ).filter(
-            RouteStopInvoice.route_stop_id == stop.route_stop_id,
-            RouteStopInvoice.is_active == True
-        ).all()
-        
-        # Get delivery lines (exceptions)
-        delivery_lines = DeliveryLine.query.filter_by(
-            route_stop_id=stop.route_stop_id
-        ).all()
-        
-        cod_receipt = CODReceipt.query.filter_by(
-            route_stop_id=stop.route_stop_id
-        ).filter(
-            CODReceipt.status != 'VOIDED'
-        ).order_by(
-            db.case(
-                (CODReceipt.ps365_receipt_id.isnot(None), 0),
-                else_=1
-            ),
-            CODReceipt.id.desc()
-        ).first()
-        
-        # Get POD record
-        pod_record = PODRecord.query.filter_by(
-            route_stop_id=stop.route_stop_id
-        ).first()
-        
-        # Get discrepancies for this stop's invoices
-        invoice_nos = [inv.invoice_no for inv in stop_invoices]
-        discrepancies = DeliveryDiscrepancy.query.filter(
-            DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
-        ).all() if invoice_nos else []
-        
-        # Get PS365 receipt log if COD receipt was sent
-        ps365_receipt = None
-        if cod_receipt and cod_receipt.ps365_receipt_id:
-            ps365_receipt = ReceiptLog.query.filter_by(
-                reference_number=cod_receipt.ps365_receipt_id
-            ).first()
-        
-        stops_data.append({
-            'stop': stop,
-            'invoices': stop_invoices,
-            'delivery_lines': delivery_lines,
-            'cod_receipt': cod_receipt,
-            'pod_record': pod_record,
-            'discrepancies': discrepancies,
-            'ps365_receipt': ps365_receipt
-        })
-    
-    # Calculate totals
-    all_cod_receipts = CODReceipt.query.filter_by(route_id=shipment_id).all()
-    total_expected = sum(r.expected_amount for r in all_cod_receipts)
-    total_received = sum(r.received_amount for r in all_cod_receipts)
-    total_variance = total_received - total_expected
-    
-    # Settlement info
-    settlement_info = {
-        'submitted': route.driver_submitted_at is not None,
-        'submitted_at': route.driver_submitted_at,
-        'submitted_amount': route.cash_handed_in,
-        'cleared': route.settlement_status == 'SETTLED',
-        'cleared_at': route.completed_at,
-        'status': route.settlement_status
-    }
-    
-    import services_reconciliation as recon
-    invoice_report = recon.get_invoice_reconciliation_report(shipment_id) or []
-    
-    from datetime import date as date_type
-    return render_template('route_reconciliation.html',
-                         route=route,
-                         stops_data=stops_data,
-                         delivery_events=delivery_events,
-                         stop_lookup=stop_lookup,
-                         invoice_report=invoice_report,
-                         total_expected=float(total_expected),
-                         total_received=float(total_received),
-                         total_variance=float(total_variance),
-                         settlement_info=settlement_info,
-                         now_date=date_type.today())
+    """Redirect to canonical reconciliation detail page"""
+    return redirect(url_for("reconciliation.shipment_detail", shipment_id=shipment_id))
+
 
 @bp.route("/api/cod_receipts/<int:receipt_id>/update_amount", methods=["POST"])
 @login_required
@@ -1802,42 +1668,8 @@ def edit_cod_receipt(receipt_id):
 @bp.route("/<int:shipment_id>/reconciliation/print")
 @login_required
 def reconciliation_print(shipment_id):
-    """Printable route reconciliation summary"""
-    from models import DeliveryEvent, DeliveryLine, CODReceipt, PODRecord, DeliveryDiscrepancy, ReceiptLog, Invoice
-    from app import db
-    
-    route = Shipment.query.get_or_404(shipment_id)
-    
-    stops = RouteStop.query.filter_by(shipment_id=shipment_id).order_by(RouteStop.seq_no).all()
-    
-    stops_data = []
-    for stop in stops:
-        stop_invoices = db.session.query(Invoice).join(
-            RouteStopInvoice, Invoice.invoice_no == RouteStopInvoice.invoice_no
-        ).filter(RouteStopInvoice.route_stop_id == stop.route_stop_id).all()
-        
-        delivery_lines = DeliveryLine.query.filter_by(route_stop_id=stop.route_stop_id).all()
-        
-        invoice_nos = [inv.invoice_no for inv in stop_invoices]
-        discrepancies = DeliveryDiscrepancy.query.filter(
-            DeliveryDiscrepancy.invoice_no.in_(invoice_nos)
-        ).all() if invoice_nos else []
-        
-        stops_data.append({
-            'stop': stop,
-            'invoices': stop_invoices,
-            'delivery_lines': delivery_lines,
-            'discrepancies': discrepancies
-        })
-    
-    import services_reconciliation as recon
-    invoice_report = recon.get_invoice_reconciliation_report(shipment_id) or []
-    
-    return render_template('route_reconciliation_print.html',
-                         route=route,
-                         stops_data=stops_data,
-                         invoice_report=invoice_report,
-                         now=datetime.now())
+    """Redirect to canonical reconciliation detail (has built-in print support)"""
+    return redirect(url_for("reconciliation.shipment_detail", shipment_id=shipment_id))
 
 
 @bp.route("/<int:shipment_id>/reconciliation/export.xlsx")
@@ -1853,7 +1685,7 @@ def reconciliation_export_excel(shipment_id):
     
     if not excel_data:
         flash("Could not generate reconciliation report", "error")
-        return redirect(url_for("routes.reconciliation_report", shipment_id=shipment_id))
+        return redirect(url_for("reconciliation.shipment_detail", shipment_id=shipment_id))
     
     filename = f"route_{shipment_id}_reconciliation_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
     return send_file(

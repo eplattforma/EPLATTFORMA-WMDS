@@ -10,7 +10,7 @@
         </a>
         <h5 class="mb-0">Settlement - Route #{{ route.id }}</h5>
         {% if current_user.role == 'admin' %}
-        <a href="{{ url_for('routes.reconciliation_report', shipment_id=route.id) }}" class="btn btn-sm btn-info">
+        <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=route.id) }}" class="btn btn-sm btn-info">
             <i class="fas fa-file-invoice"></i> Full Reconciliation
         </a>
         {% else %}
