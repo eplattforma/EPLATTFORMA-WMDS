@@ -440,12 +440,14 @@ def shipment_detail(shipment_id):
             })
     invoice_report.sort(key=lambda s: s['stop_seq'])
 
+    from datetime import datetime
     return render_template('reconciliation/shipment_detail.html',
                          shipment=shipment,
                          summary=summary,
                          invoice_report=invoice_report,
                          stops=stops,
-                         issues=issues)
+                         issues=issues,
+                         generated_at=datetime.now().strftime('%Y-%m-%d %H:%M'))
 
 
 @reconciliation_bp.route('/shipments/<int:shipment_id>/exceptions')

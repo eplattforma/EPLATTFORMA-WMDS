@@ -57,7 +57,7 @@
             <div class="text-end">
                 <div class="fw-bold">Driver: {{ shipment.driver_name }}</div>
                 <div>Date: {{ shipment.delivery_date }}</div>
-                <div class="small">Generated: {{ now().strftime('%Y-%m-%d %H:%M') if now else '' }}</div>
+                <div class="small">Generated: {{ generated_at }}</div>
             </div>
         </div>
     </div>
