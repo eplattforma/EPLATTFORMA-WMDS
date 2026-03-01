@@ -36,9 +36,11 @@
         #pendingPaymentsTable > thead > tr > th { background-color: #0d6efd !important; border-bottom: none; padding: 10px 12px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: #fff !important; font-weight: 700; }
         .cust-header-row td { border-top: none !important; border-bottom: none !important; color: #fff; }
         .cust-data-row td { border-top: none !important; border-bottom: 1px solid #e9ecef !important; padding-top: 8px !important; padding-bottom: 8px !important; }
+        .cust-data-row.has-bank-match td { border-bottom: none !important; }
         .cust-data-row:hover { background-color: #f1f3f5 !important; }
         .cust-spacer-row td { border: none !important; padding: 0 !important; height: 12px; background: transparent !important; }
-        #pendingPaymentsTable tr.bank-match-row > td { border-top: none !important; border-bottom: 1px solid rgba(255,255,255,0.15) !important; }
+        #pendingPaymentsTable tr.bank-match-row > td { border-top: none !important; border-bottom: none !important; }
+        #pendingPaymentsTable tr.bank-match-row.bank-match-last > td { border-bottom: 1px solid #e9ecef !important; }
         #pendingPaymentsTable tr.bank-match-row.bank-match-high > td { background-color: #1a4731 !important; color: #d1e7dd !important; }
         #pendingPaymentsTable tr.bank-match-row.bank-match-medium > td { background-color: #164050 !important; color: #b2ebf2 !important; }
         #pendingPaymentsTable tr.bank-match-row.bank-match-low > td { background-color: #3a3a3a !important; color: #adb5bd !important; }
@@ -80,7 +82,8 @@
                 </td>
             </tr>
                     {% for inv in cust_data.invoices %}
-                    <tr class="cust-data-row">
+                    {% set has_bank_match = bank_matches.get(inv.alloc.id) %}
+                    <tr class="cust-data-row{% if has_bank_match %} has-bank-match{% endif %}">
                         <td>{{ inv.delivery_date.strftime('%Y-%m-%d') if inv.delivery_date else 'N/A' }}</td>
                         <td class="text-center">
                             {% set days = inv.age_days %}
@@ -151,7 +154,7 @@
                     </tr>
                     {% if bank_matches.get(inv.alloc.id) %}
                     {% for bm in bank_matches[inv.alloc.id] %}
-                    <tr class="bank-match-row bank-match-{{ bm.match_confidence|lower }}" id="bank-match-{{ bm.id }}">
+                    <tr class="bank-match-row bank-match-{{ bm.match_confidence|lower }}{% if loop.last %} bank-match-last{% endif %}" id="bank-match-{{ bm.id }}">
                         <td colspan="10" class="py-2 px-3" style="background-color: {% if bm.match_confidence == 'HIGH' %}#1a4731{% elif bm.match_confidence == 'MEDIUM' %}#164050{% else %}#3a3a3a{% endif %} !important; color: {% if bm.match_confidence == 'HIGH' %}#d1e7dd{% elif bm.match_confidence == 'MEDIUM' %}#b2ebf2{% else %}#adb5bd{% endif %} !important;">
                             <div class="d-flex align-items-center justify-content-between">
                                 <div class="d-flex align-items-center gap-3">
