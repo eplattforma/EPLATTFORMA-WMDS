@@ -101,6 +101,7 @@ def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
         row = db.session.execute(db.text("""
             SELECT customer_code_365,
                    COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
+                   COALESCE(NULLIF(contact_first_name,''), '') AS contact_first_name,
                    COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile_number
             FROM ps_customers
             WHERE customer_code_365 = :cid
@@ -201,6 +202,7 @@ def sms_compose():
         ctx_type=ctx_type, ctx_id=ctx_id, tpl_code=tpl_code,
         customer_code_365=ctx.get("customer_code_365"),
         customer_name=ctx.get("customer_name"),
+        contact_first_name=ctx.get("contact_first_name", ""),
         mobile_number=mobile,
         sender_title=sender,
         message=message,
