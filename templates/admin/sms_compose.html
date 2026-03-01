@@ -61,6 +61,16 @@
           <div class="form-text">Enable for messages containing non-ASCII characters. Reduces max length to ~70 chars per SMS part.</div>
         </div>
 
+        {% if bank_iban %}
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" id="includeBankDetails">
+          <label class="form-check-label" for="includeBankDetails">
+            <i class="fas fa-university me-1"></i>Include bank account details
+          </label>
+          <div class="form-text">Appends IBAN, beneficiary name and BIC to the message.</div>
+        </div>
+        {% endif %}
+
         <div class="mb-3">
           <label class="form-label fw-bold">Message</label>
           <textarea class="form-control" name="message" rows="5" maxlength="600" id="smsMessage"
@@ -90,7 +100,12 @@
   var charEl = document.getElementById('charCount');
   var partEl = document.getElementById('smsPartCount');
   var uniCb = document.getElementById('unicode_mode');
-  function update(){
+  var bankCb = document.getElementById('includeBankDetails');
+
+  var bankText = '\nIBAN: {{ bank_iban }}\n{{ bank_beneficiary }}\nBIC: {{ bank_bic }}';
+  var bankAdded = false;
+
+  function updateCounts(){
     var len = ta.value.length;
     charEl.textContent = len + ' / 600 characters';
     var isUni = uniCb.checked;
@@ -98,9 +113,23 @@
     var parts = Math.ceil(len / partSize) || 1;
     partEl.textContent = parts + ' SMS part' + (parts > 1 ? 's' : '') + ' (' + (isUni ? 'Unicode' : 'GSM') + ')';
   }
-  ta.addEventListener('input', update);
-  uniCb.addEventListener('change', update);
-  update();
+
+  if (bankCb) {
+    bankCb.addEventListener('change', function(){
+      if (this.checked && !bankAdded) {
+        ta.value = ta.value.trimEnd() + bankText;
+        bankAdded = true;
+      } else if (!this.checked && bankAdded) {
+        ta.value = ta.value.replace(bankText, '');
+        bankAdded = false;
+      }
+      updateCounts();
+    });
+  }
+
+  ta.addEventListener('input', updateCounts);
+  uniCb.addEventListener('change', updateCounts);
+  updateCounts();
 })();
 </script>
 {% endblock %}

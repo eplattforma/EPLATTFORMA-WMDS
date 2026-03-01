@@ -195,6 +195,11 @@ def sms_compose():
             flash(f"Template has missing placeholders ({tpl_err}). Edit the message before sending.", "warning")
         unicode_mode = bool(tpl.get("force_unicode")) or _needs_unicode(message)
 
+    from models import Setting
+    bank_iban = Setting.get(db.session, 'bank_iban', '')
+    bank_bic = Setting.get(db.session, 'bank_bic', '')
+    bank_beneficiary = Setting.get(db.session, 'bank_beneficiary', '')
+
     return render_template(
         "admin/sms_compose.html",
         ctx_type=ctx_type, ctx_id=ctx_id, tpl_code=tpl_code,
@@ -203,7 +208,10 @@ def sms_compose():
         mobile_number=mobile,
         sender_title=sender,
         message=message,
-        unicode_mode=unicode_mode
+        unicode_mode=unicode_mode,
+        bank_iban=bank_iban,
+        bank_bic=bank_bic,
+        bank_beneficiary=bank_beneficiary
     )
 
 

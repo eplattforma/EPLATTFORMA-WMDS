@@ -75,7 +75,7 @@
                             <small class="ms-2 opacity-75">{{ cust_data.customer_code }}</small>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <a href="{{ url_for('sms.sms_compose', ctx='customer', id=cust_data.customer_code, tpl='PAYMENT_PENDING', amount_due='%.2f'|format(cust_data.total_due), invoice_list=cust_data.invoices|map(attribute='alloc')|map(attribute='invoice_no')|join(', '), delivery_date=cust_data.invoices[0].delivery_date.strftime('%d/%m/%Y') if cust_data.invoices and cust_data.invoices[0].delivery_date else 'N/A', bank_account=bank_iban) }}"
+                            <a href="{{ url_for('sms.sms_compose', ctx='customer', id=cust_data.customer_code, tpl='PAYMENT_PENDING', amount_due='%.2f'|format(cust_data.total_due), invoice_list=cust_data.invoices|map(attribute='alloc')|map(attribute='invoice_no')|join(', '), delivery_date=cust_data.invoices[0].delivery_date.strftime('%d/%m/%Y') if cust_data.invoices and cust_data.invoices[0].delivery_date else 'N/A') }}"
                                class="btn btn-sm btn-outline-light" title="Send SMS payment reminder">
                                 <i class="fas fa-sms"></i>
                             </a>
