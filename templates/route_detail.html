@@ -80,8 +80,13 @@
                         </button>
                         {% endif %}
                     {% elif route.status in ['IN_TRANSIT', 'COMPLETED'] %}
-                    <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=route.id) }}" class="btn btn-info">
+                    <a href="{{ url_for('routes.reconciliation_report', shipment_id=route.id) }}" class="btn btn-info">
                         <i class="fas fa-file-invoice me-1"></i>Reconciliation
+                    </a>
+                    {% endif %}
+                    {% if route.status == 'COMPLETED' or route.reconciliation_status in ['PENDING', 'IN_REVIEW'] %}
+                    <a href="{{ url_for('routes.reconciliation_print', shipment_id=route.id) }}" class="btn btn-outline-secondary" target="_blank">
+                        <i class="fas fa-print me-1"></i>Print Summary
                     </a>
                     {% endif %}
                     

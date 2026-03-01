@@ -165,17 +165,19 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
 
     rows = []
     for stop_id, data in stops_data.items():
+        # Stop-level summary
         stop_expected = sum(inv['expected'] for inv in data['invoices'])
         stop_discrepancy = sum(inv['discrepancy'] or 0 for inv in data['invoices'])
         
+        # For outstanding: only count non-credit (POD) invoices
         pod_expected = sum(inv['expected'] for inv in data['invoices'] if not inv['is_credit'])
         pod_discrepancy = sum(inv['discrepancy'] or 0 for inv in data['invoices'] if not inv['is_credit'])
         
+        # Grand total received at stop (sum of all invoice allocations)
         stop_received = data['total_received']
         stop_outstanding = pod_expected - stop_received - pod_discrepancy
         
         rows.append({
-            'route_stop_id': stop_id,
             'stop_seq': data['stop_seq'],
             'customer_name': data['customer_name'],
             'payment_type': data['payment_method'] or '-',

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Reconcile Route #{{ route.id }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('routes.dashboard', view='pending') }}">Pending Reconciliation</a></li>
+                    <li class="breadcrumb-item active">Route #{{ route.id }}</li>
+                </ol>
+            </nav>
+            <h2><i class="fas fa-clipboard-check me-2"></i>Reconcile Route #{{ route.id }}</h2>
+            <p class="text-muted">{{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }}</p>
+        </div>
+    </div>
+
+    {% if summary %}
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Route Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Status:</strong> 
+                                <span class="badge bg-{{ 'success' if route.status == 'COMPLETED' else 'warning' }}">
+                                    {{ route.status }}
+                                </span>
+                            </p>
+                            <p><strong>Reconciliation Status:</strong> 
+                                <span class="badge bg-{{ 'warning' if summary.reconciliation_status == 'PENDING' else 'secondary' }}">
+                                    {{ summary.reconciliation_status }}
+                                </span>
+                            </p>
+                            <p><strong>Completed At:</strong> {{ route.completed_at|local_time if route.completed_at else 'Not completed' }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Total Invoices:</strong> {{ summary.invoices.total }}</p>
+                            <p><strong>Delivered:</strong> <span class="text-success">{{ summary.invoices.delivered }}</span></p>
+                            <p><strong>Failed:</strong> <span class="text-danger">{{ summary.invoices.failed }}</span></p>
+                            {% if summary.invoices.pending > 0 %}
+                            <p><strong>Pending:</strong> <span class="text-warning">{{ summary.invoices.pending }}</span></p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-money-bill-wave me-2"></i>Cash Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h6>Expected</h6>
+                            <h4>{{ "%.2f"|format(summary.cash.expected) }}</h4>
+                        </div>
+                        <div class="col-md-4">
+                            <h6>Collected</h6>
+                            <h4>{{ "%.2f"|format(summary.cash.handed_in) }}</h4>
+                        </div>
+                        <div class="col-md-4">
+                            <h6>Variance</h6>
+                            <h4 class="{{ 'text-danger' if summary.cash.variance != 0 else 'text-success' }}">
+                                {{ "%.2f"|format(summary.cash.variance) }}
+                            </h4>
+                        </div>
+                    </div>
+                    {% if summary.cash.variance != 0 and summary.cash.variance_note %}
+                    <div class="mt-3">
+                        <strong>Variance Note:</strong>
+                        <p class="text-muted">{{ summary.cash.variance_note }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="fas fa-check-double me-2"></i>Verification Checklist</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            COD Receipts Recorded
+                            <span class="badge bg-{{ 'success' if summary.cod_receipts_count > 0 else 'secondary' }} rounded-pill">
+                                {{ summary.cod_receipts_count }}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            POD Records
+                            <span class="badge bg-{{ 'success' if summary.pod_records_count > 0 else 'secondary' }} rounded-pill">
+                                {{ summary.pod_records_count }}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Unresolved Discrepancies
+                            <span class="badge bg-{{ 'danger' if summary.unresolved_discrepancies > 0 else 'success' }} rounded-pill">
+                                {{ summary.unresolved_discrepancies }}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Open Post-Delivery Cases
+                            <span class="badge bg-{{ 'warning' if summary.open_post_delivery_cases > 0 else 'success' }} rounded-pill">
+                                {{ summary.open_post_delivery_cases }}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Returns
+                            <span class="badge bg-{{ 'info' if summary.returns.count > 0 else 'secondary' }} rounded-pill">
+                                {{ summary.returns.count }} items
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card mb-4 {% if summary.blocking_issues %}border-warning{% else %}border-success{% endif %}">
+                <div class="card-header {% if summary.blocking_issues %}bg-warning text-dark{% else %}bg-success text-white{% endif %}">
+                    <h5 class="mb-0">
+                        {% if summary.blocking_issues %}
+                        <i class="fas fa-exclamation-triangle me-2"></i>Issues Found
+                        {% else %}
+                        <i class="fas fa-check-circle me-2"></i>Ready to Reconcile
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if summary.blocking_issues %}
+                    <ul class="mb-3">
+                        {% for issue in summary.blocking_issues %}
+                        <li class="text-danger">{{ issue }}</li>
+                        {% endfor %}
+                    </ul>
+                    <form method="POST" action="{{ url_for('routes.reconcile_action', shipment_id=route.id) }}">
+                        <input type="hidden" name="force" value="true">
+                        <button type="submit" class="btn btn-warning w-100" 
+                                onclick="return confirm('There are unresolved issues. Are you sure you want to force reconcile this route?')">
+                            <i class="fas fa-exclamation-triangle me-1"></i>Force Reconcile (Ignore Issues)
+                        </button>
+                    </form>
+                    {% else %}
+                    <p class="text-success mb-3">All checks passed. This route is ready for reconciliation.</p>
+                    <form method="POST" action="{{ url_for('routes.reconcile_action', shipment_id=route.id) }}">
+                        <button type="submit" class="btn btn-success w-100"
+                                onclick="return confirm('This will mark the route as reconciled and archive it. Continue?')">
+                            <i class="fas fa-check me-1"></i>Reconcile & Archive
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-link me-2"></i>Quick Links</h5>
+                </div>
+                <div class="card-body">
+                    <a href="{{ url_for('routes.detail', shipment_id=route.id) }}" class="btn btn-outline-primary w-100 mb-2">
+                        <i class="fas fa-eye me-1"></i>View Route Details
+                    </a>
+                    <a href="{{ url_for('routes.reconciliation_report', shipment_id=route.id) }}" class="btn btn-outline-info w-100 mb-2">
+                        <i class="fas fa-file-alt me-1"></i>Full Reconciliation Report
+                    </a>
+                    <a href="{{ url_for('routes.run_sheet', shipment_id=route.id) }}" class="btn btn-outline-secondary w-100" target="_blank">
+                        <i class="fas fa-print me-1"></i>Print Run Sheet
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-danger">
+        <i class="fas fa-exclamation-circle me-2"></i>Could not load route summary data.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

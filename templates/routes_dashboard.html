@@ -239,7 +239,7 @@
                                 <i class="fas fa-print"></i>
                             </a>
                             {% if view_mode == 'pending' and current_user.role in ['admin', 'warehouse_manager'] %}
-                            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=route.id) }}" class="btn btn-success" title="Reconcile Route">
+                            <a href="{{ url_for('routes.reconcile_view', shipment_id=route.id) }}" class="btn btn-success" title="Reconcile Route">
                                 <i class="fas fa-check-double"></i>
                             </a>
                             {% endif %}
