@@ -297,7 +297,7 @@ def upsert():
 @login_required
 def detail(shipment_id):
     """Display route details with all stops"""
-    from models import PSCustomer, CreditTerms
+    from models import PSCustomer, CreditTerms, RouteStopInvoice, CODReceipt, DeliveryEvent
     from app import db
     
     route = Shipment.query.get_or_404(shipment_id)
@@ -491,7 +491,75 @@ def detail(shipment_id):
     
     # Get all drivers for edit route modal
     drivers = User.query.filter_by(role='driver').all() if current_user.role in ['admin', 'warehouse_manager'] else []
-    
+
+    # Build live delivery progress for IN_TRANSIT / DISPATCHED / COMPLETED routes
+    delivery_progress = None
+    if route.status in ('DISPATCHED', 'IN_TRANSIT', 'COMPLETED'):
+        rsi_all = RouteStopInvoice.query.join(RouteStop).filter(
+            RouteStop.shipment_id == shipment_id,
+            RouteStopInvoice.is_active == True
+        ).all()
+
+        delivered_invoices = [r for r in rsi_all if (r.status or '').upper() == 'DELIVERED']
+        failed_invoices = [r for r in rsi_all if (r.status or '').upper() in ('FAILED', 'RETURNED')]
+        pending_invoices = [r for r in rsi_all if (r.status or '').upper() not in ('DELIVERED', 'FAILED', 'RETURNED')]
+
+        delivered_value = sum(float(r.invoice.total_grand or 0) for r in delivered_invoices if r.invoice)
+        failed_value = sum(float(r.invoice.total_grand or 0) for r in failed_invoices if r.invoice)
+        pending_value = sum(float(r.invoice.total_grand or 0) for r in pending_invoices if r.invoice)
+
+        # Stops progress
+        stop_ids_all = set()
+        stop_ids_done = set()
+        for r in rsi_all:
+            stop_ids_all.add(r.route_stop_id)
+        for r in delivered_invoices + failed_invoices:
+            stop_ids_done.add(r.route_stop_id)
+        stops_with_pending = stop_ids_all - stop_ids_done
+
+        # COD collected
+        cod_receipts = CODReceipt.query.filter_by(route_id=shipment_id).filter(
+            CODReceipt.status != 'VOIDED'
+        ).all()
+        cod_collected = sum(float(r.received_amount or 0) for r in cod_receipts)
+        cod_receipt_count = len(cod_receipts)
+
+        # Payment method breakdown
+        cod_cash = sum(float(r.received_amount or 0) for r in cod_receipts if r.payment_method == 'cash')
+        cod_cheque = sum(float(r.received_amount or 0) for r in cod_receipts if r.payment_method in ('cheque', 'day_cheque', 'post_dated'))
+        cod_card = sum(float(r.received_amount or 0) for r in cod_receipts if r.payment_method in ('card', 'bank_transfer'))
+
+        # Recent events timeline
+        recent_events = DeliveryEvent.query.filter_by(route_id=shipment_id).order_by(
+            DeliveryEvent.created_at.desc()
+        ).limit(10).all()
+
+        total_inv = len(rsi_all)
+        done_inv = len(delivered_invoices) + len(failed_invoices)
+        pct = round((done_inv / total_inv * 100) if total_inv > 0 else 0)
+
+        delivery_progress = {
+            'total_invoices': total_inv,
+            'delivered_count': len(delivered_invoices),
+            'delivered_value': delivered_value,
+            'failed_count': len(failed_invoices),
+            'failed_value': failed_value,
+            'pending_count': len(pending_invoices),
+            'pending_value': pending_value,
+            'pct': pct,
+            'stops_total': len(stop_ids_all),
+            'stops_done': len(stop_ids_done),
+            'stops_pending': len(stops_with_pending),
+            'cod_collected': cod_collected,
+            'cod_receipt_count': cod_receipt_count,
+            'cod_cash': cod_cash,
+            'cod_cheque': cod_cheque,
+            'cod_card': cod_card,
+            'recent_events': recent_events,
+            'started_at': route.started_at,
+            'completed_at': route.completed_at,
+        }
+
     # Use driver-specific template for drivers
     if current_user.role == 'driver':
         return render_template("driver_route_detail.html", route=route, stops=stops, progress=progress, orders=orders, stop_groups=stop_groups)
@@ -506,7 +574,8 @@ def detail(shipment_id):
                                kpis=kpis,
                                dispatch_blockers=dispatch_blockers,
                                show_filter=show_filter,
-                               blocked_stop_ids=blocked_stop_ids)
+                               blocked_stop_ids=blocked_stop_ids,
+                               delivery_progress=delivery_progress)
 
 
 @bp.route("/<int:shipment_id>/stops/new", methods=["GET", "POST"])
