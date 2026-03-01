@@ -443,12 +443,14 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
         db.session.rollback()
         return {"success": False, "error": str(e)}
 
-def sync_active_customers():
+def sync_active_customers(sync_trigger='manual'):
     """Sync active customers from PS365 API with pagination"""
     from models import PSCustomer, PaymentCustomer, db
     from ps365_client import call_ps365
+    from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
     import logging
     
+    slog = start_sync_log(db.session, 'CUSTOMER_SYNC', sync_trigger)
     try:
         logging.info("Starting customer sync from PS365...")
         page = 1
@@ -572,6 +574,11 @@ def sync_active_customers():
             page += 1
             
         logging.info(f"Customer sync completed successfully. Total synced: {total_synced}, Pages: {total_pages}, Payment terms created: {payment_terms_created}")
+        finish_sync_log(db.session, slog,
+                        items_found=total_synced,
+                        items_inserted=payment_terms_created,
+                        items_updated=total_synced,
+                        details=f"Pages: {total_pages}, Payment terms created: {payment_terms_created}")
         return {
             "success": True,
             "total_customers": total_synced,
@@ -582,6 +589,7 @@ def sync_active_customers():
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error syncing customers: {e}")
+        fail_sync_log(db.session, slog, str(e))
         return {"success": False, "error": str(e)}
 
 def upsert_single_customer(customer_code):

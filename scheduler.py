@@ -89,7 +89,7 @@ def _run_full_sync():
             logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
             logger.info("=" * 80)
             
-            full_dw_update(db.session)
+            full_dw_update(db.session, sync_trigger='scheduled')
             
             logger.info("=" * 80)
             logger.info("SCHEDULED FULL DW SYNC COMPLETED")
@@ -97,6 +97,15 @@ def _run_full_sync():
             logger.info("=" * 80)
     except Exception as e:
         logger.error(f"Error in scheduled full sync: {str(e)}", exc_info=True)
+        try:
+            from services.sync_logger import fail_sync_log
+            from models import PS365SyncLog
+            with app.app_context():
+                running = PS365SyncLog.query.filter_by(sync_type='FULL_DW_UPDATE', status='RUNNING').order_by(PS365SyncLog.started_at.desc()).first()
+                if running:
+                    fail_sync_log(db.session, running, str(e))
+        except Exception:
+            pass
 
 
 def _run_incremental_sync():
@@ -111,7 +120,7 @@ def _run_incremental_sync():
             logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
             logger.info("=" * 80)
             
-            incremental_dw_update(db.session)
+            incremental_dw_update(db.session, sync_trigger='scheduled')
             
             logger.info("=" * 80)
             logger.info("SCHEDULED INCREMENTAL DW SYNC COMPLETED")
@@ -119,6 +128,15 @@ def _run_incremental_sync():
             logger.info("=" * 80)
     except Exception as e:
         logger.error(f"Error in scheduled incremental sync: {str(e)}", exc_info=True)
+        try:
+            from services.sync_logger import fail_sync_log
+            from models import PS365SyncLog
+            with app.app_context():
+                running = PS365SyncLog.query.filter_by(sync_type='INCREMENTAL_ITEMS', status='RUNNING').order_by(PS365SyncLog.started_at.desc()).first()
+                if running:
+                    fail_sync_log(db.session, running, str(e))
+        except Exception:
+            pass
 
 
 def add_custom_job(schedule_description, job_name, job_func, hour=None, minute=0, day_of_week=None):

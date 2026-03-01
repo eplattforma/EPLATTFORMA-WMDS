@@ -410,14 +410,18 @@ def test_fetch_single_item(session: Session):
 # FULL UPDATE
 # ----------------------
 
-def full_dw_update(session: Session, force_update: bool = False):
+def full_dw_update(session: Session, force_update: bool = False, sync_trigger: str = 'manual'):
     """Full refresh of items + all dimensions. Called from menu option.
     
     Args:
         session: SQLAlchemy session
         force_update: If True, update all records regardless of hash match.
                       If False (default), only update records where hash changed.
+        sync_trigger: 'manual' or 'scheduled'
     """
+    from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
+    slog = start_sync_log(session, 'FULL_DW_UPDATE', sync_trigger)
+
     import io
     import logging as py_logging
     
@@ -774,6 +778,13 @@ def full_dw_update(session: Session, force_update: bool = False):
     finally:
         sync_logger.removeHandler(handler)
 
+    finish_sync_log(session, slog,
+                    items_found=total_inserted + total_skipped,
+                    items_inserted=total_inserted,
+                    items_updated=0,
+                    items_skipped=total_skipped,
+                    details=f"Total items in DB: {final_item_count}")
+
 
 # ----------------------
 # INCREMENTAL UPDATE
@@ -801,12 +812,14 @@ def _set_last_change_id(session: Session, change_id: int):
     session.commit()
 
 
-def incremental_dw_update(session: Session):
+def incremental_dw_update(session: Session, sync_trigger: str = 'manual'):
     """
     Incremental update for items - only syncs items modified since last sync.
     Uses date filtering to get only changed items from PS365 API.
     Shows which items have actual changes that will be updated.
     """
+    from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
+    slog = start_sync_log(session, 'INCREMENTAL_ITEMS', sync_trigger)
     logger.info("Starting incremental item update...")
     
     # Sync Attribute #3 (Zones) before items - ensures new zones are available
@@ -1015,6 +1028,18 @@ def incremental_dw_update(session: Session):
         logger.info(f"\nNo items require updating - all data already matches PS365")
     
     logger.info(f"{'='*80}\n")
+
+    new_count = sum(1 for c in all_changes if c['status'] == 'NEW')
+    upd_count = sum(1 for c in all_changes if c['status'] == 'UPDATED')
+    change_summary = '; '.join(f"{c['code']}: {c['details']}" for c in all_changes[:20])
+    if len(all_changes) > 20:
+        change_summary += f" ... and {len(all_changes) - 20} more"
+    finish_sync_log(session, slog,
+                    items_found=total_found,
+                    items_inserted=new_count,
+                    items_updated=upd_count,
+                    items_skipped=total_found - updated_count,
+                    details=change_summary or 'No changes detected')
 
 
 # ----------------------
@@ -1502,12 +1527,15 @@ def _update_invoice_sync_status(session: Session, status: str, message: str):
             pass
 
 
-def sync_invoices_from_date(session: Session, date_from: str, date_to: str = None):
+def sync_invoices_from_date(session: Session, date_from: str, date_to: str = None, sync_trigger: str = 'manual'):
     """
     Complete invoice sync: headers -> lines -> stores -> cashiers (uses existing PSCustomer table)
     date_from: YYYY-MM-DD format (required)
     date_to: YYYY-MM-DD format (optional, defaults to today)
     """
+    from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
+    slog = start_sync_log(session, 'INVOICE_SYNC', sync_trigger)
+
     # Setup file-based logging
     log_file = _setup_file_logging("sync_invoices")
     
@@ -1557,11 +1585,19 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         logger.info(f"Note: Using existing PSCustomer table for customers (not syncing separately)")
         logger.info(f"{'='*80}\n")
         
+        total_ins = h_ins + l_ins + s_ins + u_ins
+        total_upd = h_upd + l_upd + s_upd + u_upd
+        finish_sync_log(session, slog,
+                        items_found=total_ins + total_upd,
+                        items_inserted=total_ins,
+                        items_updated=total_upd,
+                        details=f"Range: {date_range_str}. Headers: {h_ins}/{h_upd}, Lines: {l_ins}/{l_upd}, Stores: {s_ins}/{s_upd}, Cashiers: {u_ins}/{u_upd}")
+
         return h_ins, h_upd
         
     except KeyboardInterrupt:
-        # Process was interrupted (timeout, SIGTERM, etc.)
         _update_invoice_sync_status(session, "FAILED", "Sync interrupted (timeout or external termination)")
+        fail_sync_log(session, slog, "Sync interrupted (timeout or external termination)")
         logger.error(f"\n{'='*80}")
         logger.error(f"❌ INVOICE SYNC FAILED - INTERRUPTED")
         logger.error(f"{'='*80}")
@@ -1571,9 +1607,9 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         raise
         
     except Exception as e:
-        # Any other error
         error_msg = str(e)[:200]
         _update_invoice_sync_status(session, "FAILED", error_msg)
+        fail_sync_log(session, slog, error_msg)
         logger.error(f"\n{'='*80}")
         logger.error(f"❌ INVOICE SYNC FAILED - ERROR")
         logger.error(f"{'='*80}")

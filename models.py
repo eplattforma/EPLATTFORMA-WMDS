@@ -2082,6 +2082,30 @@ class SyncState(db.Model):
         return f"<SyncState {self.key}={self.value[:50]}...>"
 
 
+class PS365SyncLog(db.Model):
+    __tablename__ = "ps365_sync_log"
+    __table_args__ = (
+        db.Index('ix_ps365_sync_log_started', 'started_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    sync_type = db.Column(db.String(50), nullable=False)
+    trigger = db.Column(db.String(20), nullable=False, default='manual')
+    status = db.Column(db.String(20), nullable=False, default='RUNNING')
+    started_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    finished_at = db.Column(UTCDateTime(), nullable=True)
+    duration_seconds = db.Column(db.Float, nullable=True)
+    items_found = db.Column(db.Integer, default=0)
+    items_inserted = db.Column(db.Integer, default=0)
+    items_updated = db.Column(db.Integer, default=0)
+    items_skipped = db.Column(db.Integer, default=0)
+    details = db.Column(db.Text, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+
+    def __repr__(self):
+        return f"<PS365SyncLog {self.id} {self.sync_type} {self.status}>"
+
+
 # Invoice DW Models (Star Schema)
 
 class DwInvoiceHeader(db.Model):

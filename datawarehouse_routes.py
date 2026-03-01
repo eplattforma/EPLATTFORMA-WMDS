@@ -42,11 +42,18 @@ def _capture_sync_output(sync_func):
             session = db.session
             try:
                 sync_func(session)
-                # Explicitly commit after sync to ensure data persists
                 session.commit()
             except Exception as e:
                 session.rollback()
                 logger.error(f"Sync error: {str(e)}", exc_info=True)
+                try:
+                    from models import PS365SyncLog
+                    from services.sync_logger import fail_sync_log
+                    running = PS365SyncLog.query.filter_by(status='RUNNING').order_by(PS365SyncLog.started_at.desc()).first()
+                    if running:
+                        fail_sync_log(db.session, running, str(e))
+                except Exception:
+                    pass
                 raise
             finally:
                 session.close()
@@ -153,9 +160,16 @@ def dw_menu():
             </div>
             
             <div class="menu-option">
+                <a href="/datawarehouse/sync-log">
+                    <h3>PS365 Sync Log</h3>
+                    <p>Detailed history of all PS365 synchronisations — when they ran, how many items were updated, and any errors.</p>
+                </a>
+            </div>
+
+            <div class="menu-option">
                 <a href="/datawarehouse/logs">
-                    <h3>View Sync Logs</h3>
-                    <p>View logs from recent sync operations to monitor progress and troubleshoot issues.</p>
+                    <h3>View Sync Logs (Raw)</h3>
+                    <p>View raw log files from recent sync operations to monitor progress and troubleshoot issues.</p>
                 </a>
             </div>
             
@@ -1225,6 +1239,37 @@ def invoice_lines_preview():
         logger.error(f"Error fetching invoice preview: {str(e)}", exc_info=True)
         flash(f'Error fetching invoice preview: {str(e)}', 'error')
         return redirect(url_for('datawarehouse.dw_menu'))
+
+
+@dw_bp.route('/sync-log', methods=['GET'])
+@login_required
+def sync_log_page():
+    if not (current_user.role in ('admin', 'warehouse_admin')):
+        flash('Not authorized', 'danger')
+        return redirect(url_for('index'))
+
+    from models import PS365SyncLog
+    page = request.args.get('page', 1, type=int)
+    per_page = 50
+    sync_type_filter = request.args.get('type', '')
+
+    query = PS365SyncLog.query.order_by(PS365SyncLog.started_at.desc())
+    if sync_type_filter:
+        query = query.filter(PS365SyncLog.sync_type == sync_type_filter)
+
+    total = query.count()
+    logs = query.offset((page - 1) * per_page).limit(per_page).all()
+    total_pages = (total + per_page - 1) // per_page
+
+    sync_types = [r[0] for r in db.session.query(PS365SyncLog.sync_type).distinct().order_by(PS365SyncLog.sync_type).all()]
+
+    return render_template('datawarehouse/sync_log.html',
+                         logs=logs,
+                         page=page,
+                         total_pages=total_pages,
+                         total=total,
+                         sync_type_filter=sync_type_filter,
+                         sync_types=sync_types)
 
 
 # Blueprint will be registered by routes.py
