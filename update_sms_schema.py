@@ -60,7 +60,10 @@ def update_sms_schema():
              TRUE),
             ('PAYMENT_DUE', 'Payment Reminder',
              E'Reminder: Invoice {{invoice_no}} amount \u20ac{{amount_due}} due {{due_date}}. \u2014 EPLATTFORMA',
-             FALSE)
+             FALSE),
+            ('PAYMENT_PENDING', 'Pending Bank Transfer',
+             E'\u03a5\u03a0\u0395\u039d\u0398\u03a5\u039c\u0399\u03a3\u0397 \u03a0\u039b\u0397\u03a1\u03a9\u039c\u0397\u03a3 \u20ac{{amount_due}} ({{invoice_no}}) \u2014 \u0395\u039a\u039a\u03a1\u0395\u039c\u0395\u0399 \u03a4\u03a1\u0391\u03a0\u0395\u0396\u0399\u039a\u0397 \u039c\u0395\u03a4\u0391\u03a6\u039f\u03a1\u0391 \u0391\u03a0\u039f {{delivery_date}}. \u03a0\u0391\u03a1\u0391\u039a\u0391\u039b\u039f\u03a5\u039c\u0395 \u039f\u03a0\u03a9\u03a3 \u03a4\u0391\u039a\u03a4\u039f\u03a0\u039f\u0399\u0397\u0398\u0395\u0399 \u0391\u039c\u0395\u03a3\u0391 \u03a3\u03a4\u039f\u039d \u039b\u039f\u0393\u0391\u03a1\u0399\u0391\u03a3\u039c\u039f {{bank_account}}. \u0395\u03a5\u03a7\u0391\u03a1\u0399\u03a3\u03a4\u039f\u03a5\u039c\u0395.',
+             TRUE)
             ON CONFLICT (code) DO NOTHING
         """))
 

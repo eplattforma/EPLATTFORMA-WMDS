@@ -164,6 +164,11 @@ def sms_compose():
         flash(str(e), "danger")
         return redirect(request.referrer or url_for("sms.sms_home"))
 
+    RESERVED_PARAMS = {"ctx", "id", "tpl"}
+    for k, v in request.args.items():
+        if k not in RESERVED_PARAMS and k not in ctx:
+            ctx[k] = v
+
     mobile = _normalize_mob(ctx.get("mobile_number") or "")
     if not mobile or not _is_valid_mob(mobile):
         flash("Customer has no valid mobile number.", "danger")

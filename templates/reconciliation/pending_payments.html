@@ -135,6 +135,11 @@
                             {% set alloc_eligible = inv.alloc.payment_method == 'online' or (inv.alloc.payment_method in ['cheque','postdated'] and inv.alloc.cheque_date and inv.alloc.cheque_date <= today) %}
                             {% set already_sent = cr and (cr.ps365_receipt_id or cr.ps365_reference_number) %}
                             {% set bm_list = bank_matches.get(inv.alloc.id, []) %}
+                            <div class="d-flex gap-1">
+                            <a href="{{ url_for('sms.sms_compose', ctx='customer', id=cust_data.customer_code, tpl='PAYMENT_PENDING', amount_due='%.2f'|format(inv.due), invoice_no=inv.alloc.invoice_no, delivery_date=inv.delivery_date.strftime('%d/%m/%Y') if inv.delivery_date else 'N/A') }}"
+                               class="btn btn-sm btn-outline-info" title="Send SMS reminder">
+                                <i class="fas fa-sms"></i>
+                            </a>
                             <button type="button" class="btn btn-sm btn-success clear-payment-btn"
                                     data-id="{{ inv.alloc.id }}"
                                     data-customer="{{ cust_data.customer_name }}"
@@ -150,6 +155,7 @@
                                     data-bank-amount="{{ '%.2f'|format(bm_list[0].credit) if bm_list and bm_list[0].credit else '' }}">
                                 <i class="fas fa-check me-1"></i>Clear
                             </button>
+                            </div>
                         </td>
                     </tr>
                     {% if bank_matches.get(inv.alloc.id) %}
