@@ -365,24 +365,8 @@ def api_clear_pending(allocation_id):
 @login_required
 @admin_or_warehouse_required
 def shipment_list():
-    """List shipments with reconciliation status"""
-    status_filter = request.args.get('status', '')
-    date_filter = request.args.get('date', '')
-    
-    query = Shipment.query.filter(Shipment.deleted_at.is_(None))
-    
-    if status_filter:
-        query = query.filter(Shipment.reconciliation_status == status_filter)
-    
-    if date_filter:
-        query = query.filter(Shipment.delivery_date == date_filter)
-    
-    shipments = query.order_by(Shipment.delivery_date.desc(), Shipment.id.desc()).limit(100).all()
-    
-    return render_template('reconciliation/shipment_list.html',
-                         shipments=shipments,
-                         status_filter=status_filter,
-                         date_filter=date_filter)
+    """Redirect to routes dashboard pending view"""
+    return redirect(url_for('routes.dashboard', view='pending'))
 
 
 @reconciliation_bp.route('/shipments/<int:shipment_id>')
@@ -393,7 +377,7 @@ def shipment_detail(shipment_id):
     shipment = db.session.get(Shipment, shipment_id)
     if not shipment:
         flash('Shipment not found', 'error')
-        return redirect(url_for('reconciliation.shipment_list'))
+        return redirect(url_for('routes.dashboard', view='pending'))
     
     summary = recon.get_reconciliation_summary(shipment_id)
     stops = recon.get_stop_details(shipment_id)
@@ -473,7 +457,7 @@ def exceptions_report(shipment_id):
     shipment = db.session.get(Shipment, shipment_id)
     if not shipment:
         flash('Shipment not found', 'error')
-        return redirect(url_for('reconciliation.shipment_list'))
+        return redirect(url_for('routes.dashboard', view='pending'))
     
     exceptions = recon.get_exceptions_report(shipment_id)
     

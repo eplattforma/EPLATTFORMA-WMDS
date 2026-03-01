@@ -4,7 +4,7 @@
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-            <a href="{{ url_for('reconciliation.shipment_list') }}" class="btn btn-sm btn-outline-secondary mb-2">&larr; Back to List</a>
+            <a href="{{ url_for('routes.dashboard', view='pending') }}" class="btn btn-sm btn-outline-secondary mb-2">&larr; Back to Routes</a>
             <h4 class="mb-0">Route #{{ shipment.id }}: {{ shipment.route_name or 'Unnamed' }}</h4>
             <small class="text-muted">Driver: {{ shipment.driver_name }} | Date: {{ shipment.delivery_date }}</small>
         </div>
