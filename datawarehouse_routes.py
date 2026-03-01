@@ -701,9 +701,10 @@ def database_settings():
                 <div class="settings-grid" style="margin-top: 15px;">
                     <div class="setting-item">
                         <label>Current Schedule:</label>
+                        <p>• Incremental Sync: Daily at 1:00 AM and 1:00 PM</p>
                         <p>• Full DW Sync: Daily at 3:00 AM</p>
                         <p>• Customer Sync: Daily at 4:00 AM</p>
-                        <p>• Incremental Sync: Daily at 1:00 AM and 1:00 PM</p>
+                        <p>• Invoice Sync: Daily at 6:00 PM (last 2 days)</p>
                         <p style="margin-top: 10px; color: #999; font-size: 12px;"><em>To modify schedules, edit scheduler.py</em></p>
                     </div>
                 </div>

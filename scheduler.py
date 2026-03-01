@@ -70,6 +70,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Customer sync scheduled: Daily at 4:00 AM")
 
+            scheduler.add_job(
+                func=_run_invoice_sync,
+                trigger=CronTrigger(hour=18, minute=0),
+                id='invoice_sync',
+                name='Invoice Sync from PS365',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Invoice sync scheduled: Daily at 6:00 PM (last 2 days)")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
         
@@ -148,6 +159,30 @@ def _run_incremental_sync():
                     fail_sync_log(db.session, running, str(e))
         except Exception:
             pass
+
+
+def _run_invoice_sync():
+    """Wrapper to run invoice sync (last 2 days) with proper app context."""
+    try:
+        from app import app, db
+        from datawarehouse_sync import sync_invoices_from_date
+        from datetime import timedelta
+
+        with app.app_context():
+            date_from = (datetime.utcnow() - timedelta(days=2)).strftime('%Y-%m-%d')
+            logger.info("=" * 80)
+            logger.info(f"SCHEDULED INVOICE SYNC STARTED (from {date_from})")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+
+            sync_invoices_from_date(db.session, date_from, sync_trigger='scheduled')
+
+            logger.info("=" * 80)
+            logger.info("SCHEDULED INVOICE SYNC COMPLETED")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+    except Exception as e:
+        logger.error(f"Error in scheduled invoice sync: {str(e)}", exc_info=True)
 
 
 def _run_customer_sync():
