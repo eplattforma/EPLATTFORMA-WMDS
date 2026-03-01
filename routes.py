@@ -1753,6 +1753,7 @@ def admin_settings():
         save_setting('company_tel', request.form.get('company_tel', '').strip())
         save_setting('company_vat', request.form.get('company_vat', '').strip())
         save_setting('bank_name', request.form.get('bank_name', '').strip())
+        save_setting('bank_account_no', request.form.get('bank_account_no', '').strip())
         save_setting('bank_iban', request.form.get('bank_iban', '').strip())
         save_setting('bank_bic', request.form.get('bank_bic', '').strip())
         save_setting('bank_beneficiary', request.form.get('bank_beneficiary', '').strip())
@@ -1787,6 +1788,7 @@ def admin_settings():
     company_tel = Setting.get(db.session, 'company_tel', '7000 0394')
     company_vat = Setting.get(db.session, 'company_vat', 'CY103532640')
     bank_name = Setting.get(db.session, 'bank_name', 'Bank of Cyprus')
+    bank_account_no = Setting.get(db.session, 'bank_account_no', '')
     bank_iban = Setting.get(db.session, 'bank_iban', 'CY04 0020 0195 0000 0357 0208 4600')
     bank_bic = Setting.get(db.session, 'bank_bic', 'BCYPCY2N')
     bank_beneficiary = Setting.get(db.session, 'bank_beneficiary', 'Step Eplattforma')
@@ -1810,6 +1812,7 @@ def admin_settings():
                          company_tel=company_tel,
                          company_vat=company_vat,
                          bank_name=bank_name,
+                         bank_account_no=bank_account_no,
                          bank_iban=bank_iban,
                          bank_bic=bank_bic,
                          bank_beneficiary=bank_beneficiary)

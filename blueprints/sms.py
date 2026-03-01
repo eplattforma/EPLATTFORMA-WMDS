@@ -193,6 +193,7 @@ def sms_compose():
         unicode_mode = bool(tpl.get("force_unicode")) or _needs_unicode(message)
 
     from models import Setting
+    bank_account_no = Setting.get(db.session, 'bank_account_no', '')
     raw_iban = Setting.get(db.session, 'bank_iban', '').replace(' ', '')
     bank_iban = ' '.join(raw_iban[i:i+4] for i in range(0, len(raw_iban), 4))
     bank_bic = Setting.get(db.session, 'bank_bic', '')
@@ -208,6 +209,7 @@ def sms_compose():
         sender_title=sender,
         message=message,
         unicode_mode=unicode_mode,
+        bank_account_no=bank_account_no,
         bank_iban=bank_iban,
         bank_bic=bank_bic,
         bank_beneficiary=bank_beneficiary
