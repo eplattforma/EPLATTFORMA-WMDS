@@ -88,11 +88,33 @@ def compute_balance_from_lines(statement_json: dict):
 
 def get_customer_balance_as_of_today(customer_code_365: str):
     today = _cyprus_today()
-    from_year = today.year - DEFAULT_LOOKBACK_YEARS
-    from_date = f"{from_year}-01-01"
     to_date = today.isoformat()
 
-    stmt = fetch_statement(customer_code_365, from_date=from_date, to_date=to_date)
-    bal = compute_balance_from_lines(stmt)
-    bal["as_of"] = to_date
-    return bal
+    lookback_attempts = [
+        DEFAULT_LOOKBACK_YEARS,
+        5,
+        3,
+        2,
+        1,
+    ]
+    seen = set()
+    for years in lookback_attempts:
+        from_year = today.year - years
+        from_date = f"{from_year}-01-01"
+        if from_date in seen:
+            continue
+        seen.add(from_date)
+        try:
+            stmt = fetch_statement(customer_code_365, from_date=from_date, to_date=to_date)
+            bal = compute_balance_from_lines(stmt)
+            bal["as_of"] = to_date
+            if years < DEFAULT_LOOKBACK_YEARS:
+                logger.info(f"Balance for {customer_code_365}: used {years}y lookback (default {DEFAULT_LOOKBACK_YEARS}y had too many rows)")
+            return bal
+        except RuntimeError as e:
+            if "more than 500 rows" in str(e).lower() or "500 rows" in str(e):
+                logger.warning(f"Balance for {customer_code_365}: {years}y lookback too large, trying shorter window")
+                continue
+            raise
+
+    raise RuntimeError(f"PS365 statement for {customer_code_365} exceeds 500 rows even with 1-year lookback")
