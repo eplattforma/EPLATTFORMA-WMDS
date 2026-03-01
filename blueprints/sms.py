@@ -104,8 +104,8 @@ def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
     if ctx_type == "customer":
         row = db.session.execute(db.text("""
             SELECT customer_code_365,
-                   COALESCE(company_name, customer_code_365) AS customer_name,
-                   COALESCE(mobile, sms, tel_1, '') AS mobile_number
+                   COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
+                   COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile_number
             FROM ps_customers
             WHERE customer_code_365 = :cid
         """), {"cid": ctx_id}).mappings().first()
