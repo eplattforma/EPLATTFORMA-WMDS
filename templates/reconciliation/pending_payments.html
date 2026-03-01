@@ -35,8 +35,9 @@
         #pendingPaymentsTable > thead { background-color: #0d6efd !important; }
         #pendingPaymentsTable > thead > tr > th { background-color: #0d6efd !important; border-bottom: none; padding: 10px 12px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: #fff !important; font-weight: 700; }
         .cust-header-row td { border-top: none !important; border-bottom: none !important; color: #fff; }
-        .cust-data-row td { border-top: none !important; border-bottom: 1px solid #e9ecef !important; padding-top: 8px !important; padding-bottom: 8px !important; }
-        .cust-data-row.has-bank-match td { border-bottom: none !important; }
+        .cust-data-row td { border-top: none !important; border-bottom: none !important; padding-top: 8px !important; padding-bottom: 8px !important; }
+        .cust-data-row.cust-data-last td { border-bottom: 1px solid #e9ecef !important; }
+        .cust-data-row.has-bank-match.cust-data-last td { border-bottom: none !important; }
         .cust-data-row:hover { background-color: #f1f3f5 !important; }
         .cust-spacer-row td { border: none !important; padding: 0 !important; height: 12px; background: transparent !important; }
         #pendingPaymentsTable tr.bank-match-row > td { border-top: none !important; border-bottom: none !important; }
@@ -74,7 +75,7 @@
                             <small class="ms-2 opacity-75">{{ cust_data.customer_code }}</small>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <a href="{{ url_for('sms.sms_compose', ctx='customer', id=cust_data.customer_code, tpl='PAYMENT_PENDING', amount_due='%.2f'|format(cust_data.total_due), invoice_list=cust_data.invoices|map(attribute='alloc')|map(attribute='invoice_no')|join(', '), delivery_date=cust_data.invoices[0].delivery_date.strftime('%d/%m/%Y') if cust_data.invoices and cust_data.invoices[0].delivery_date else 'N/A') }}"
+                            <a href="{{ url_for('sms.sms_compose', ctx='customer', id=cust_data.customer_code, tpl='PAYMENT_PENDING', amount_due='%.2f'|format(cust_data.total_due), invoice_list=cust_data.invoices|map(attribute='alloc')|map(attribute='invoice_no')|join(', '), delivery_date=cust_data.invoices[0].delivery_date.strftime('%d/%m/%Y') if cust_data.invoices and cust_data.invoices[0].delivery_date else 'N/A', bank_account=bank_iban) }}"
                                class="btn btn-sm btn-outline-light" title="Send SMS payment reminder">
                                 <i class="fas fa-sms"></i>
                             </a>
@@ -87,7 +88,7 @@
             </tr>
                     {% for inv in cust_data.invoices %}
                     {% set has_bank_match = bank_matches.get(inv.alloc.id) %}
-                    <tr class="cust-data-row{% if has_bank_match %} has-bank-match{% endif %}">
+                    <tr class="cust-data-row{% if has_bank_match %} has-bank-match{% endif %}{% if loop.last %} cust-data-last{% endif %}">
                         <td>{{ inv.delivery_date.strftime('%Y-%m-%d') if inv.delivery_date else 'N/A' }}</td>
                         <td class="text-center">
                             {% set days = inv.age_days %}

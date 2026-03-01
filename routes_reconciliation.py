@@ -102,11 +102,15 @@ def pending_payments():
         BankTransaction.dismissed == False
     ).group_by(BankTransaction.batch_id).order_by(db.func.min(BankTransaction.uploaded_at).desc()).limit(5).all()
 
+    from models import Setting
+    bank_iban = Setting.get(db.session, 'bank_iban', '')
+
     return render_template('reconciliation/pending_payments.html',
                          grouped_customers=grouped,
                          today=date_type.today(),
                          bank_matches=bank_matches,
-                         active_batches=active_batches)
+                         active_batches=active_batches,
+                         bank_iban=bank_iban)
 
 
 @reconciliation_bp.route('/api/receipts/<int:receipt_id>/void', methods=['POST'])
