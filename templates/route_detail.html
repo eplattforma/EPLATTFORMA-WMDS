@@ -206,6 +206,54 @@
                 {% if dp.cod_card > 0 %}<small><span class="text-muted">Card/Bank:</span> <strong>€{{ "%.2f"|format(dp.cod_card) }}</strong></small>{% endif %}
             </div>
             {% endif %}
+            {% if dp.disc_total > 0 %}
+            <div class="mt-3 border rounded p-3" style="background: rgba(220,53,69,0.05);">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <small class="fw-bold"><i class="fas fa-exclamation-triangle text-danger me-1"></i>Discrepancies ({{ dp.disc_total }})</small>
+                    <div>
+                        {% if dp.disc_open > 0 %}<span class="badge bg-danger">{{ dp.disc_open }} open</span>{% endif %}
+                        {% if dp.disc_resolved > 0 %}<span class="badge bg-secondary ms-1">{{ dp.disc_resolved }} resolved</span>{% endif %}
+                    </div>
+                </div>
+                {% if dp.disc_deduct_total > 0 %}
+                <div class="mb-2">
+                    <small class="text-muted">Total deductions:</small> <strong class="text-danger">€{{ "%.2f"|format(dp.disc_deduct_total) }}</strong>
+                    {% if dp.disc_credit_notes > 0 %}
+                    <span class="ms-2"><small class="text-muted">Credit notes:</small> <strong>{{ dp.disc_credit_notes }}</strong></span>
+                    {% endif %}
+                </div>
+                {% endif %}
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    {% for dtype, dinfo in dp.disc_by_type.items() %}
+                    <span class="badge bg-outline-secondary border" style="font-size: 0.75rem;">
+                        {{ dtype|replace('_', ' ')|capitalize }}: {{ dinfo.count }}
+                        {% if dinfo.value > 0 %}<span class="text-danger ms-1">€{{ "%.2f"|format(dinfo.value) }}</span>{% endif %}
+                    </span>
+                    {% endfor %}
+                </div>
+                <div style="max-height: 150px; overflow-y: auto;">
+                    {% for disc in dp.discrepancies[:10] %}
+                    <div class="d-flex align-items-center gap-2 py-1 border-bottom" style="font-size: 0.8rem;">
+                        {% if disc.is_resolved %}
+                        <span class="badge bg-secondary" style="width:18px;height:18px;padding:0;display:flex;align-items:center;justify-content:center;"><i class="fas fa-check" style="font-size:0.6rem;"></i></span>
+                        {% else %}
+                        <span class="badge bg-danger" style="width:18px;height:18px;padding:0;display:flex;align-items:center;justify-content:center;"><i class="fas fa-exclamation" style="font-size:0.6rem;"></i></span>
+                        {% endif %}
+                        <span class="text-muted">{{ disc.invoice_no }}</span>
+                        <span>{{ disc.item_name or disc.item_code_expected }}</span>
+                        <span class="badge bg-warning text-dark" style="font-size:0.7rem;">{{ disc.discrepancy_type|replace('_', ' ')|capitalize }}</span>
+                        <span class="text-nowrap"><small>{{ disc.qty_expected }}→{{ disc.qty_actual|default('?', true) }}</small></span>
+                        {% if disc.deduct_amount and disc.deduct_amount > 0 %}
+                        <span class="text-danger fw-bold ms-auto">-€{{ "%.2f"|format(disc.deduct_amount) }}</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% if dp.discrepancies|length > 10 %}
+                    <div class="text-center py-1"><small class="text-muted">+ {{ dp.discrepancies|length - 10 }} more...</small></div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
             {% if dp.recent_events %}
             <div class="mt-3">
                 <small class="text-muted fw-bold"><i class="fas fa-list-ul me-1"></i>Recent Activity</small>

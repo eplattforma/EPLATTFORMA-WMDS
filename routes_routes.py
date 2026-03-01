@@ -529,6 +529,29 @@ def detail(shipment_id):
         cod_cheque = sum(float(r.received_amount or 0) for r in cod_receipts if r.payment_method in ('cheque', 'day_cheque', 'post_dated'))
         cod_card = sum(float(r.received_amount or 0) for r in cod_receipts if r.payment_method in ('card', 'bank_transfer'))
 
+        # Discrepancies for this route's invoices
+        from models import DeliveryDiscrepancy
+        route_invoice_nos = [r.invoice_no for r in rsi_all]
+        discrepancies = []
+        if route_invoice_nos:
+            discrepancies = DeliveryDiscrepancy.query.filter(
+                DeliveryDiscrepancy.invoice_no.in_(route_invoice_nos)
+            ).order_by(DeliveryDiscrepancy.reported_at.desc()).all()
+        disc_total = len(discrepancies)
+        disc_open = sum(1 for d in discrepancies if not d.is_resolved)
+        disc_resolved = sum(1 for d in discrepancies if d.is_resolved)
+        disc_deduct_total = sum(float(d.deduct_amount or 0) for d in discrepancies)
+        disc_credit_notes = sum(1 for d in discrepancies if d.credit_note_required)
+
+        # Group by type
+        disc_by_type = {}
+        for d in discrepancies:
+            t = d.discrepancy_type or 'other'
+            if t not in disc_by_type:
+                disc_by_type[t] = {'count': 0, 'value': 0.0}
+            disc_by_type[t]['count'] += 1
+            disc_by_type[t]['value'] += float(d.deduct_amount or 0)
+
         # Recent events timeline
         recent_events = DeliveryEvent.query.filter_by(route_id=shipment_id).order_by(
             DeliveryEvent.created_at.desc()
@@ -558,6 +581,13 @@ def detail(shipment_id):
             'recent_events': recent_events,
             'started_at': route.started_at,
             'completed_at': route.completed_at,
+            'disc_total': disc_total,
+            'disc_open': disc_open,
+            'disc_resolved': disc_resolved,
+            'disc_deduct_total': disc_deduct_total,
+            'disc_credit_notes': disc_credit_notes,
+            'disc_by_type': disc_by_type,
+            'discrepancies': discrepancies,
         }
 
     # Use driver-specific template for drivers
