@@ -82,6 +82,9 @@
                             <span class="badge bg-danger fs-6 px-3 py-2">
                                 Total Due: &euro;{{ "%.2f"|format(cust_data.total_due) }}
                             </span>
+                            <span class="badge fs-6 px-3 py-2 cust-balance-badge" data-customer-code="{{ cust_data.customer_code }}" style="background-color: #495057; min-width: 120px;">
+                                <i class="fas fa-scale-balanced me-1"></i>Balance: <span class="bal-text"><i class="fas fa-spinner fa-spin" style="font-size: 0.75rem;"></i></span>
+                            </span>
                         </div>
                     </div>
                 </td>
@@ -304,6 +307,47 @@ $(document).ready(function() {
 
     let currentMethod = '';
 
+    function fetchAllBalances(force) {
+        $('.cust-balance-badge').each(function() {
+            var badge = $(this);
+            var code = badge.data('customer-code');
+            if (!code) {
+                badge.find('.bal-text').text('-');
+                return;
+            }
+            var url = '/reconciliation/api/customer-balance?customer_code_365=' + encodeURIComponent(code) + (force ? '&force=1' : '');
+            $.ajax({
+                url: url,
+                method: 'GET',
+                success: function(j) {
+                    if (!j.ok) {
+                        badge.find('.bal-text').text('N/A');
+                        badge.css('background-color', '#856404');
+                        badge.attr('title', 'Could not fetch balance');
+                        return;
+                    }
+                    var bal = Number(j.balance);
+                    var drcr = j.drcr;
+                    if (bal < 0.005) {
+                        badge.find('.bal-text').text('\u20AC0.00');
+                        badge.css('background-color', '#495057');
+                    } else {
+                        badge.find('.bal-text').text('\u20AC' + bal.toLocaleString('en', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + drcr);
+                        badge.css('background-color', drcr === 'DR' ? '#dc3545' : '#198754');
+                    }
+                    badge.attr('title', 'As of ' + j.as_of + (j.source === 'stale_cache' ? ' (cached)' : ''));
+                },
+                error: function() {
+                    badge.find('.bal-text').text('N/A');
+                    badge.css('background-color', '#856404');
+                    badge.attr('title', 'Could not fetch balance');
+                }
+            });
+        });
+    }
+
+    fetchAllBalances(false);
+
     function loadPaymentTypes(method) {
         currentMethod = (method || '').toUpperCase();
         if (paymentTypesCache) {
@@ -436,6 +480,7 @@ $(document).ready(function() {
             success: function(response) {
                 if (response.success) {
                     btn.replaceWith(`<span class="badge bg-success"><i class="fas fa-check me-1"></i>PS365: ${response.reference_number}</span>`);
+                    setTimeout(function() { fetchAllBalances(true); }, 2000);
                 } else {
                     alert('Error: ' + (response.error || 'Unknown error'));
                     btn.prop('disabled', false).html('<i class="fas fa-paper-plane me-1"></i>Send to PS365');
