@@ -224,7 +224,7 @@ def sms_send():
 
     sender = (request.form.get("sender_title") or os.getenv("MICROSMS_SENDER", "")).strip()
     message = (request.form.get("message") or "").strip()
-    unicode_mode = (request.form.get("unicode_mode") == "1")
+    unicode_mode = _needs_unicode(message)
 
     mobile = _normalize_mob(request.form.get("mobile_number") or "")
     if not sender:

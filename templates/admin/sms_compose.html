@@ -52,15 +52,6 @@
           <small class="text-muted">Max 11 characters recommended for sender ID.</small>
         </div>
 
-        <div class="form-check mb-3">
-          <input class="form-check-input" type="checkbox" value="1" id="unicode_mode" name="unicode_mode"
-                 {% if unicode_mode %}checked{% endif %}>
-          <label class="form-check-label" for="unicode_mode">
-            <i class="fas fa-language me-1"></i>Unicode mode (Greek / special characters)
-          </label>
-          <div class="form-text">Enable for messages containing non-ASCII characters. Reduces max length to ~70 chars per SMS part.</div>
-        </div>
-
         {% if bank_iban %}
         <div class="form-check mb-3">
           <input class="form-check-input" type="checkbox" id="includeBankDetails">
@@ -99,7 +90,6 @@
   var ta = document.getElementById('smsMessage');
   var charEl = document.getElementById('charCount');
   var partEl = document.getElementById('smsPartCount');
-  var uniCb = document.getElementById('unicode_mode');
   var bankCb = document.getElementById('includeBankDetails');
 
   var bankText = '\nIBAN: {{ bank_iban }}\n{{ bank_beneficiary }}\nBIC: {{ bank_bic }}';
@@ -108,10 +98,9 @@
   function updateCounts(){
     var len = ta.value.length;
     charEl.textContent = len + ' / 600 characters';
-    var isUni = uniCb.checked;
-    var partSize = isUni ? 70 : 160;
+    var partSize = 70;
     var parts = Math.ceil(len / partSize) || 1;
-    partEl.textContent = parts + ' SMS part' + (parts > 1 ? 's' : '') + ' (' + (isUni ? 'Unicode' : 'GSM') + ')';
+    partEl.textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
   }
 
   if (bankCb) {
@@ -128,7 +117,6 @@
   }
 
   ta.addEventListener('input', updateCounts);
-  uniCb.addEventListener('change', updateCounts);
   updateCounts();
 })();
 </script>
