@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from app import db
 from flask_login import UserMixin
 from sqlalchemy import and_, String, Boolean, DateTime, CHAR
@@ -2529,3 +2530,22 @@ class BankTransaction(db.Model):
     uploaded_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     allocation = db.relationship('CODInvoiceAllocation', backref='bank_matches', foreign_keys=[matched_allocation_id])
+
+
+class CustomerBalanceCache(db.Model):
+    __tablename__ = "customer_balance_cache"
+
+    customer_code_365 = db.Column(db.String(50), primary_key=True)
+    as_of_date = db.Column(db.Date, nullable=False)
+    balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    drcr = db.Column(db.String(2), nullable=False, default="DR")
+    signed_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    ps_last_line_balance = db.Column(db.Numeric(12, 2), nullable=True)
+    ps_last_balance_drcr = db.Column(db.String(2), nullable=True)
+    fetched_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    @staticmethod
+    def is_fresh(row, max_minutes: int):
+        if not row:
+            return False
+        return row.fetched_at >= (datetime.utcnow() - timedelta(minutes=max_minutes))

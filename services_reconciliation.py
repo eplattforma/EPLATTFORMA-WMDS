@@ -74,6 +74,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             ca.cheque_date,
             ca.is_pending AS alloc_pending,
             rsi.route_stop_id,
+            COALESCE(NULLIF(i.customer_code_365, ''), i.customer_code) AS customer_code_365,
             COALESCE(disc.discrepancy_total, 0) AS discrepancy_value
         FROM route_stop_invoice rsi
         JOIN route_stop rs ON rs.route_stop_id = rsi.route_stop_id
@@ -119,6 +120,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             stops_data[stop_id] = {
                 'stop_seq': float(r['stop_seq'] or 0),
                 'customer_name': r['customer_name'] or '',
+                'customer_code_365': r.get('customer_code_365') or '',
                 'invoices': [],
                 'total_received': 0,
                 'payment_method': None,
@@ -180,6 +182,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
         rows.append({
             'stop_seq': data['stop_seq'],
             'customer_name': data['customer_name'],
+            'customer_code_365': data.get('customer_code_365', ''),
             'payment_type': data['payment_method'] or '-',
             'terms': 'CREDIT' if any(inv['is_credit'] for inv in data['invoices']) else 'POD',
             'stop_expected': float(stop_expected),

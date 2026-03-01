@@ -704,3 +704,75 @@ def api_clear_bank_batch(batch_id):
     count = BankTransaction.query.filter_by(batch_id=batch_id).update({'dismissed': True, 'match_status': 'DISMISSED'})
     db.session.commit()
     return jsonify({'success': True, 'cleared': count})
+
+
+@reconciliation_bp.route('/api/customer-balance', methods=['GET'])
+@login_required
+@admin_or_warehouse_required
+def api_customer_balance():
+    import os
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from models import CustomerBalanceCache
+
+    customer_code = (request.args.get("customer_code_365") or "").strip()
+    if not customer_code:
+        return jsonify({"ok": False, "error": "customer_code_365 is required"}), 400
+
+    force = request.args.get("force", "0") == "1"
+    cache_minutes = int(os.getenv("PS365_BALANCE_CACHE_MINUTES", "60"))
+
+    try:
+        today = datetime.now(ZoneInfo("Asia/Nicosia")).date()
+    except Exception:
+        today = datetime.utcnow().date()
+
+    cached = CustomerBalanceCache.query.get(customer_code)
+    if not force and cached and cached.as_of_date == today and CustomerBalanceCache.is_fresh(cached, cache_minutes):
+        return jsonify({
+            "ok": True,
+            "source": "cache",
+            "customer_code_365": customer_code,
+            "as_of": str(cached.as_of_date),
+            "balance": float(cached.balance),
+            "drcr": cached.drcr,
+            "signed_balance": float(cached.signed_balance),
+        })
+
+    try:
+        from services.ps365_statement import get_customer_balance_as_of_today
+        bal = get_customer_balance_as_of_today(customer_code)
+        row = cached or CustomerBalanceCache(customer_code_365=customer_code)
+        row.as_of_date = today
+        row.balance = bal["balance"]
+        row.drcr = bal["drcr"]
+        row.signed_balance = bal["signed_balance"]
+        row.ps_last_line_balance = bal.get("ps_last_line_balance")
+        row.ps_last_balance_drcr = bal.get("ps_last_balance_drcr")
+        row.fetched_at = datetime.utcnow()
+
+        db.session.add(row)
+        db.session.commit()
+
+        return jsonify({
+            "ok": True,
+            "source": "ps365",
+            "customer_code_365": customer_code,
+            "as_of": bal["as_of"],
+            "balance": bal["balance"],
+            "drcr": bal["drcr"],
+            "signed_balance": bal["signed_balance"],
+        })
+    except Exception as e:
+        logger.error(f"Failed to fetch balance for {customer_code}: {e}")
+        if cached:
+            return jsonify({
+                "ok": True,
+                "source": "stale_cache",
+                "customer_code_365": customer_code,
+                "as_of": str(cached.as_of_date),
+                "balance": float(cached.balance),
+                "drcr": cached.drcr,
+                "signed_balance": float(cached.signed_balance),
+            })
+        return jsonify({"ok": False, "error": "Could not retrieve balance from PS365"}), 500

@@ -249,6 +249,27 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             background: rgba(34,197,94,0.14) !important;
             border-radius: 3px;
         }
+        .kpi-balance {
+            background: rgba(148,163,184,0.06);
+            color: #94A3B8;
+            transition: all 0.3s;
+        }
+        .kpi-balance-dr {
+            background: rgba(239,68,68,0.12) !important;
+            color: #EF4444 !important;
+        }
+        .kpi-balance-cr {
+            background: rgba(34,197,94,0.12) !important;
+            color: #22C55E !important;
+        }
+        .kpi-balance-zero {
+            background: rgba(148,163,184,0.06) !important;
+            color: #94A3B8 !important;
+        }
+        .kpi-balance-error {
+            background: rgba(245,158,11,0.12) !important;
+            color: #F59E0B !important;
+        }
         .recon-divider {
             width: 2px;
             background: rgba(255,255,255,0.08);
@@ -368,6 +389,10 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
                                 {% else %}
                                 <span class="kpi-value">&nbsp;</span>
                                 {% endif %}
+                            </div>
+                            <div class="recon-kpi-pill kpi-balance" id="bal-pill-{{ loop.index }}" data-customer-code="{{ stop_recon.customer_code_365 }}" style="min-width: 90px;">
+                                <span class="kpi-label">Balance</span>
+                                <span class="kpi-value bal-value" id="bal-val-{{ loop.index }}"><i class="bi bi-hourglass-split" style="font-size: 0.7rem;"></i></span>
                             </div>
                             <div class="ms-2" onclick="event.stopPropagation();">
                                 <input type="checkbox" class="stop-check" 
@@ -807,6 +832,13 @@ document.querySelectorAll('.btn-send-ps365').forEach(btn => {
                     '<span style="color: #94A3B8; font-size: 0.68rem;">PS365</span>' +
                     '<span style="color: #E2E8F0; font-size: 0.72rem; font-weight: 600;">' + data.reference_number + '</span>' +
                     '</div>';
+                var stopCard = btn.closest('.recon-stop-card');
+                if (stopCard) {
+                    var balPill = stopCard.querySelector('.kpi-balance');
+                    if (balPill) {
+                        setTimeout(function() { fetchCustomerBalance(balPill, true); }, 2000);
+                    }
+                }
             } else {
                 alert('Error: ' + (data.error || 'Unknown error'));
                 btn.disabled = false;
@@ -849,6 +881,68 @@ function markReconciled() {
         btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Mark as Reconciled';
     });
 }
+
+function fetchCustomerBalance(pillEl, force) {
+    const code = pillEl.dataset.customerCode;
+    if (!code) {
+        const valEl = pillEl.querySelector('.bal-value');
+        valEl.textContent = '-';
+        return Promise.resolve();
+    }
+    const valEl = pillEl.querySelector('.bal-value');
+    valEl.innerHTML = '<i class="bi bi-hourglass-split" style="font-size: 0.7rem;"></i>';
+    pillEl.className = 'recon-kpi-pill kpi-balance';
+
+    const url = '/reconciliation/api/customer-balance?customer_code_365=' + encodeURIComponent(code) + (force ? '&force=1' : '');
+    return fetch(url)
+        .then(r => r.json())
+        .then(j => {
+            if (!j.ok) {
+                valEl.textContent = 'N/A';
+                pillEl.classList.add('kpi-balance-error');
+                pillEl.title = 'Could not fetch balance';
+                return;
+            }
+            const bal = Number(j.balance);
+            const drcr = j.drcr;
+            if (bal < 0.005) {
+                valEl.textContent = '\u20AC0.00';
+                pillEl.classList.add('kpi-balance-zero');
+            } else {
+                valEl.textContent = '\u20AC' + bal.toLocaleString('en', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + drcr;
+                pillEl.classList.add(drcr === 'DR' ? 'kpi-balance-dr' : 'kpi-balance-cr');
+            }
+            if (j.source === 'stale_cache') {
+                pillEl.title = 'Cached balance (refresh pending)';
+                pillEl.classList.add('kpi-balance-error');
+            } else {
+                pillEl.title = 'As of ' + j.as_of;
+            }
+        })
+        .catch(function() {
+            valEl.textContent = 'N/A';
+            pillEl.classList.add('kpi-balance-error');
+            pillEl.title = 'Could not fetch balance';
+        });
+}
+
+function refreshAllBalances(force) {
+    document.querySelectorAll('.kpi-balance').forEach(pill => {
+        fetchCustomerBalance(pill, force || false);
+    });
+}
+
+function refreshBalanceByCode(customerCode) {
+    document.querySelectorAll('.kpi-balance').forEach(pill => {
+        if (pill.dataset.customerCode === customerCode) {
+            fetchCustomerBalance(pill, true);
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    refreshAllBalances(false);
+});
 </script>
 
 <div class="modal fade" id="editReceiptModal" tabindex="-1" aria-hidden="true">

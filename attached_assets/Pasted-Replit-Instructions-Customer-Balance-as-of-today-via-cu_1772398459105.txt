@@ -1,0 +1,307 @@
+Replit Instructions — “Customer Balance (as of today)” via /customer_statement_of_account
+0) Secrets / Environment variables (DO NOT hardcode)
+
+In Replit Secrets, add:
+
+PS365_API_BASE_URL = https://<your-powersoft-api-host>
+(the base URL that your other PS365 calls already use)
+
+PS365_API_TOKEN = <token from Powersoft>
+
+Optional:
+
+PS365_BALANCE_LOOKBACK_YEARS = 10 (default 10 years)
+
+PS365_BALANCE_CACHE_MINUTES = 60 (default 60 minutes)
+
+1) Create a small PS365 client helper
+
+Create file: services/ps365_statement.py
+
+import os
+import requests
+from datetime import date
+from zoneinfo import ZoneInfo
+
+PS365_API_BASE_URL = os.getenv("PS365_API_BASE_URL", "").rstrip("/")
+PS365_API_TOKEN = os.getenv("PS365_API_TOKEN", "")
+
+DEFAULT_LOOKBACK_YEARS = int(os.getenv("PS365_BALANCE_LOOKBACK_YEARS", "10"))
+
+def _today_cyprus():
+    return date.today() if ZoneInfo is None else date.today()
+
+def _today_cyprus_safe():
+    # Cyprus date (Asia/Nicosia) — avoids UTC date rollover issues
+    try:
+        from datetime import datetime
+        return datetime.now(ZoneInfo("Asia/Nicosia")).date()
+    except Exception:
+        return date.today()
+
+def fetch_statement(customer_code_365: str, from_date: str, to_date: str):
+    if not PS365_API_BASE_URL:
+        raise RuntimeError("Missing PS365_API_BASE_URL")
+    if not PS365_API_TOKEN:
+        raise RuntimeError("Missing PS365_API_TOKEN")
+
+    url = f"{PS365_API_BASE_URL}/customer_statement_of_account"
+
+    payload = {
+        "api_credentials": {"token": PS365_API_TOKEN},
+        "filter_define": {
+            "customer_code_365": str(customer_code_365),
+            "from_date": from_date,
+            "to_date": to_date,
+            "include_general_description": False,
+            "include_detail_description": False,
+            "include_receipt_description": False,
+            "include_cheque_information": False,
+            "include_entity_name": False
+        }
+    }
+
+    r = requests.post(url, json=payload, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+
+    api_resp = (data or {}).get("api_response", {}) or {}
+    if str(api_resp.get("response_code")) != "1":
+        raise RuntimeError(f"PS365 error: {api_resp.get('response_msg') or 'Unknown error'}")
+
+    return data
+
+def compute_balance_from_lines(statement_json: dict):
+    """
+    Returns:
+      {
+        "balance": float (absolute),
+        "drcr": "DR"|"CR",
+        "signed_balance": float (DR positive, CR negative),
+        "as_of": "YYYY-MM-DD"
+      }
+    """
+    lines = (statement_json or {}).get("list_statement_lines") or []
+
+    # Prefer robust computed balance from DR/CR amounts (handles odd line_balance anomalies)
+    signed = 0.0
+    for ln in lines:
+        amt = float(ln.get("transaction_amount") or 0.0)
+        drcr = (ln.get("transaction_drcr") or "").upper().strip()
+        if drcr == "DR":
+            signed += amt
+        elif drcr == "CR":
+            signed -= amt
+
+    drcr_out = "DR" if signed >= 0 else "CR"
+    abs_bal = abs(round(signed, 2))
+
+    # Use PS line_balance as a secondary check (if present on last line)
+    last_lb = None
+    last_drcr = None
+    for ln in reversed(lines):
+        if ln.get("line_balance") is not None:
+            last_lb = float(ln.get("line_balance") or 0.0)
+            last_drcr = (ln.get("balance_drcr") or "").upper().strip() or None
+            break
+
+    return {
+        "balance": abs_bal,
+        "drcr": drcr_out,
+        "signed_balance": round(signed, 2),
+        "ps_last_line_balance": last_lb,
+        "ps_last_balance_drcr": last_drcr,
+    }
+
+def get_customer_balance_as_of_today(customer_code_365: str):
+    today = _today_cyprus_safe()
+    # Lookback window (safe default). If you want “all time”, set from_date to something like 2000-01-01.
+    from_year = today.year - DEFAULT_LOOKBACK_YEARS
+    from_date = f"{from_year}-01-01"
+    to_date = today.isoformat()
+
+    stmt = fetch_statement(customer_code_365, from_date=from_date, to_date=to_date)
+    bal = compute_balance_from_lines(stmt)
+    bal["as_of"] = to_date
+    return bal
+
+Important note: We use Cyprus date to avoid “today” being wrong when server runs in UTC.
+
+2) Add a cache table (recommended)
+
+This avoids hammering PS365 if you show balances in many screens.
+
+Create model: models/customer_balance_cache.py
+
+from datetime import datetime, timedelta
+from app import db
+
+class CustomerBalanceCache(db.Model):
+    __tablename__ = "customer_balance_cache"
+
+    customer_code_365 = db.Column(db.String, primary_key=True)
+    as_of_date = db.Column(db.Date, nullable=False)
+    balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
+    drcr = db.Column(db.String(2), nullable=False, default="DR")
+    signed_balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
+
+    ps_last_line_balance = db.Column(db.Numeric(12,2), nullable=True)
+    ps_last_balance_drcr = db.Column(db.String(2), nullable=True)
+
+    fetched_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    @staticmethod
+    def is_fresh(row, max_minutes: int):
+        if not row: return False
+        return row.fetched_at >= (datetime.utcnow() - timedelta(minutes=max_minutes))
+
+Run your usual “create tables if not exist” init, or add Alembic migration if you use it.
+
+3) Create an internal endpoint in Flask to return the balance
+
+Create blueprint: blueprints/customer_balance.py
+
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from flask import Blueprint, request, jsonify
+from flask_login import login_required, current_user
+
+from app import db
+from models.customer_balance_cache import CustomerBalanceCache
+from services.ps365_statement import get_customer_balance_as_of_today
+
+customer_balance_bp = Blueprint("customer_balance", __name__, url_prefix="/api/customer")
+
+def _role_ok():
+    # adjust to your roles
+    return getattr(current_user, "role", None) in ("admin", "finance", "warehouse_manager")
+
+def _cyprus_today():
+    try:
+        return datetime.now(ZoneInfo("Asia/Nicosia")).date()
+    except Exception:
+        return datetime.utcnow().date()
+
+@login_required
+@customer_balance_bp.get("/balance")
+def customer_balance():
+    if not _role_ok():
+        return jsonify({"ok": False, "error": "Access denied"}), 403
+
+    customer_code = (request.args.get("customer_code_365") or "").strip()
+    if not customer_code:
+        return jsonify({"ok": False, "error": "customer_code_365 is required"}), 400
+
+    cache_minutes = int(os.getenv("PS365_BALANCE_CACHE_MINUTES", "60"))
+    today = _cyprus_today()
+
+    cached = CustomerBalanceCache.query.get(customer_code)
+    if cached and cached.as_of_date == today and CustomerBalanceCache.is_fresh(cached, cache_minutes):
+        return jsonify({
+            "ok": True,
+            "source": "cache",
+            "customer_code_365": customer_code,
+            "as_of": str(cached.as_of_date),
+            "balance": float(cached.balance),
+            "drcr": cached.drcr,
+            "signed_balance": float(cached.signed_balance),
+        })
+
+    try:
+        bal = get_customer_balance_as_of_today(customer_code)
+        row = cached or CustomerBalanceCache(customer_code_365=customer_code)
+        row.as_of_date = today
+        row.balance = bal["balance"]
+        row.drcr = bal["drcr"]
+        row.signed_balance = bal["signed_balance"]
+        row.ps_last_line_balance = bal.get("ps_last_line_balance")
+        row.ps_last_balance_drcr = bal.get("ps_last_balance_drcr")
+        row.fetched_at = datetime.utcnow()
+
+        db.session.add(row)
+        db.session.commit()
+
+        return jsonify({
+            "ok": True,
+            "source": "ps365",
+            "customer_code_365": customer_code,
+            "as_of": bal["as_of"],
+            "balance": bal["balance"],
+            "drcr": bal["drcr"],
+            "signed_balance": bal["signed_balance"],
+            # optional debug fields:
+            "ps_last_line_balance": bal.get("ps_last_line_balance"),
+            "ps_last_balance_drcr": bal.get("ps_last_balance_drcr"),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+Register blueprint in your app factory / app.py wherever you register blueprints:
+
+from blueprints.customer_balance import customer_balance_bp
+app.register_blueprint(customer_balance_bp)
+4) Add a simple Admin UI page (optional but useful)
+A) Route + template
+
+Create blueprints/admin_balance_view.py (or put inside your existing admin blueprint):
+
+Page: /admin/customer-balance
+
+Input: customer code
+
+Button: “Fetch”
+
+Result: € X,XXX.XX DR/CR (as of YYYY-MM-DD)
+
+B) Frontend (AJAX)
+
+In the template:
+
+<input id="cust" placeholder="Customer code 365">
+<button onclick="loadBal()">Get balance</button>
+<div id="out"></div>
+
+<script>
+async function loadBal(){
+  const code = document.getElementById('cust').value.trim();
+  const out = document.getElementById('out');
+  out.textContent = 'Loading...';
+  const r = await fetch(`/api/customer/balance?customer_code_365=${encodeURIComponent(code)}`);
+  const j = await r.json();
+  if(!j.ok){ out.textContent = 'Error: ' + (j.error || 'Unknown'); return; }
+  out.textContent = `Balance: €${Number(j.balance).toFixed(2)} ${j.drcr} (as of ${j.as_of}) [${j.source}]`;
+}
+</script>
+5) How to reuse it “in various locations” (customer screens, invoices, route stops)
+
+Anywhere you already have a customer_code_365, you can show a small badge by calling the API:
+
+On customer profile header: call /api/customer/balance?customer_code_365=...
+
+On invoice view: use invoice customer code
+
+On route stop: use stop customer code
+
+UI pattern (recommended):
+
+Show cached value immediately (fast)
+
+Add “↻ refresh” icon that forces refresh:
+
+Add query &force=1 and in backend bypass cache when force=1
+
+6) What exactly you will display as “Balance”
+
+Use:
+
+signed_balance computed from DR/CR lines (DR positive, CR negative)
+
+Display absolute amount + DR/CR label:
+
+€{abs(signed):.2f} DR if signed ≥ 0
+
+€{abs(signed):.2f} CR if signed < 0
+
+This is consistent even if PS365 returns occasional duplicated pairs or confusing line_balance.
