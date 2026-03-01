@@ -419,13 +419,12 @@ def shipment_detail(shipment_id):
     
     invoice_report = recon.get_invoice_reconciliation_report(shipment_id)
 
-    # Inject stops that have no invoices so they appear in the report view
-    reported_stop_ids = {s['route_stop_id'] for s in invoice_report}
+    reported_seqs = {s['stop_seq'] for s in invoice_report}
     for stop in stops:
-        if stop['route_stop_id'] not in reported_stop_ids:
+        seq = float(stop['seq_no'] or 0)
+        if seq not in reported_seqs:
             invoice_report.append({
-                'route_stop_id': stop['route_stop_id'],
-                'stop_seq': float(stop['seq_no'] or 0),
+                'stop_seq': seq,
                 'customer_name': stop['stop_name'] or f"Stop {stop['seq_no']}",
                 'terms': '—',
                 'invoices': [],
@@ -436,8 +435,8 @@ def shipment_detail(shipment_id):
                 'payment_type': '—',
                 'is_pending_payment': False,
                 'no_invoices': True,
-                'delivered_at': stop['delivered_at'],
-                'failed_at': stop['failed_at'],
+                'delivered_at': stop.get('delivered_at'),
+                'failed_at': stop.get('failed_at'),
             })
     invoice_report.sort(key=lambda s: s['stop_seq'])
 
