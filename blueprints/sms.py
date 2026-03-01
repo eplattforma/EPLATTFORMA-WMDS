@@ -56,9 +56,16 @@ def _needs_unicode(s: str) -> bool:
     except Exception:
         return True
 
-def _render_db_template(body: str, ctx: dict) -> str:
+def _render_db_template(body: str, ctx: dict) -> tuple:
+    from jinja2 import UndefinedError
     tpl = jinja_env.from_string(body or "")
-    return tpl.render(**(ctx or {})).strip()
+    try:
+        return tpl.render(**(ctx or {})).strip(), None
+    except UndefinedError as e:
+        from jinja2 import DebugUndefined
+        safe_env = Environment(undefined=DebugUndefined, autoescape=False)
+        fallback = safe_env.from_string(body or "").render(**(ctx or {})).strip()
+        return fallback, str(e)
 
 def _parse_provider_response(text: str):
     t = (text or "").strip()
@@ -178,7 +185,9 @@ def sms_compose():
             return redirect(request.referrer or url_for("sms.sms_home"))
 
         sender = (tpl.get("sender_title") or sender).strip()
-        message = _render_db_template(tpl["body"], ctx)
+        message, tpl_err = _render_db_template(tpl["body"], ctx)
+        if tpl_err:
+            flash(f"Template has missing placeholders ({tpl_err}). Edit the message before sending.", "warning")
         unicode_mode = bool(tpl.get("force_unicode")) or _needs_unicode(message)
 
     return render_template(
