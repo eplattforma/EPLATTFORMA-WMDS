@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Route Reconciliation{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Route Reconciliation</h4>
+    </div>
+    
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Status</label>
+                    <select name="status" class="form-select form-select-sm">
+                        <option value="">All Statuses</option>
+                        <option value="NOT_READY" {% if status_filter == 'NOT_READY' %}selected{% endif %}>Not Ready</option>
+                        <option value="PENDING" {% if status_filter == 'PENDING' %}selected{% endif %}>Pending</option>
+                        <option value="IN_REVIEW" {% if status_filter == 'IN_REVIEW' %}selected{% endif %}>In Review</option>
+                        <option value="RECONCILED" {% if status_filter == 'RECONCILED' %}selected{% endif %}>Reconciled</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Delivery Date</label>
+                    <input type="date" name="date" class="form-control form-control-sm" value="{{ date_filter }}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                    <a href="{{ url_for('reconciliation.shipment_list') }}" class="btn btn-outline-secondary btn-sm">Clear</a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Route ID</th>
+                        <th>Route Name</th>
+                        <th>Driver</th>
+                        <th>Delivery Date</th>
+                        <th>Route Status</th>
+                        <th>Recon Status</th>
+                        <th>Cash Expected</th>
+                        <th>Cash Collected</th>
+                        <th>Variance</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in shipments %}
+                    <tr>
+                        <td>{{ s.id }}</td>
+                        <td>{{ s.route_name or '-' }}</td>
+                        <td>{{ s.driver_name }}</td>
+                        <td>{{ s.delivery_date }}</td>
+                        <td>
+                            {% set status_colors = {'created': 'secondary', 'PLANNED': 'info', 'DISPATCHED': 'primary', 'IN_TRANSIT': 'warning', 'COMPLETED': 'success', 'CANCELLED': 'danger'} %}
+                            <span class="badge bg-{{ status_colors.get(s.status, 'secondary') }}">{{ s.status }}</span>
+                        </td>
+                        <td>
+                            {% set recon_colors = {'NOT_READY': 'secondary', 'PENDING': 'warning', 'IN_REVIEW': 'info', 'RECONCILED': 'success'} %}
+                            <span class="badge bg-{{ recon_colors.get(s.reconciliation_status, 'secondary') }}">{{ s.reconciliation_status }}</span>
+                        </td>
+                        <td class="text-end">{{ '%.2f'|format(s.cash_expected|float) if s.cash_expected else '-' }}</td>
+                        <td class="text-end">{{ '%.2f'|format(s.cash_collected|float) if s.cash_collected else '-' }}</td>
+                        <td class="text-end {% if s.cash_variance and s.cash_variance != 0 %}text-danger fw-bold{% endif %}">
+                            {{ '%.2f'|format(s.cash_variance|float) if s.cash_variance else '-' }}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('reconciliation.shipment_detail', shipment_id=s.id) }}" class="btn btn-sm btn-outline-primary">View</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="10" class="text-center text-muted py-4">No shipments found</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

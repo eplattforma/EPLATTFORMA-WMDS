@@ -365,8 +365,24 @@ def api_clear_pending(allocation_id):
 @login_required
 @admin_or_warehouse_required
 def shipment_list():
-    """Redirect to routes dashboard pending view"""
-    return redirect(url_for('routes.dashboard', view='pending'))
+    """List shipments with reconciliation status"""
+    status_filter = request.args.get('status', '')
+    date_filter = request.args.get('date', '')
+    
+    query = Shipment.query.filter(Shipment.deleted_at.is_(None))
+    
+    if status_filter:
+        query = query.filter(Shipment.reconciliation_status == status_filter)
+    
+    if date_filter:
+        query = query.filter(Shipment.delivery_date == date_filter)
+    
+    shipments = query.order_by(Shipment.delivery_date.desc(), Shipment.id.desc()).limit(100).all()
+    
+    return render_template('reconciliation/shipment_list.html',
+                         shipments=shipments,
+                         status_filter=status_filter,
+                         date_filter=date_filter)
 
 
 @reconciliation_bp.route('/shipments/<int:shipment_id>')
@@ -377,7 +393,7 @@ def shipment_detail(shipment_id):
     shipment = db.session.get(Shipment, shipment_id)
     if not shipment:
         flash('Shipment not found', 'error')
-        return redirect(url_for('routes.dashboard', view='pending'))
+        return redirect(url_for('reconciliation.shipment_list'))
     
     summary = recon.get_reconciliation_summary(shipment_id)
     stops = recon.get_stop_details(shipment_id)
@@ -419,12 +435,13 @@ def shipment_detail(shipment_id):
     
     invoice_report = recon.get_invoice_reconciliation_report(shipment_id)
 
-    reported_seqs = {s['stop_seq'] for s in invoice_report}
+    # Inject stops that have no invoices so they appear in the report view
+    reported_stop_ids = {s['route_stop_id'] for s in invoice_report}
     for stop in stops:
-        seq = float(stop['seq_no'] or 0)
-        if seq not in reported_seqs:
+        if stop['route_stop_id'] not in reported_stop_ids:
             invoice_report.append({
-                'stop_seq': seq,
+                'route_stop_id': stop['route_stop_id'],
+                'stop_seq': float(stop['seq_no'] or 0),
                 'customer_name': stop['stop_name'] or f"Stop {stop['seq_no']}",
                 'terms': '—',
                 'invoices': [],
@@ -435,19 +452,17 @@ def shipment_detail(shipment_id):
                 'payment_type': '—',
                 'is_pending_payment': False,
                 'no_invoices': True,
-                'delivered_at': stop.get('delivered_at'),
-                'failed_at': stop.get('failed_at'),
+                'delivered_at': stop['delivered_at'],
+                'failed_at': stop['failed_at'],
             })
     invoice_report.sort(key=lambda s: s['stop_seq'])
 
-    from datetime import datetime
     return render_template('reconciliation/shipment_detail.html',
                          shipment=shipment,
                          summary=summary,
                          invoice_report=invoice_report,
                          stops=stops,
-                         issues=issues,
-                         generated_at=datetime.now().strftime('%Y-%m-%d %H:%M'))
+                         issues=issues)
 
 
 @reconciliation_bp.route('/shipments/<int:shipment_id>/exceptions')
@@ -458,7 +473,7 @@ def exceptions_report(shipment_id):
     shipment = db.session.get(Shipment, shipment_id)
     if not shipment:
         flash('Shipment not found', 'error')
-        return redirect(url_for('routes.dashboard', view='pending'))
+        return redirect(url_for('reconciliation.shipment_list'))
     
     exceptions = recon.get_exceptions_report(shipment_id)
     
