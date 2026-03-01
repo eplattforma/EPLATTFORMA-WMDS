@@ -266,6 +266,10 @@ document.getElementById('deliveryEventsCollapse').addEventListener('hide.bs.coll
             background: rgba(148,163,184,0.06) !important;
             color: #94A3B8 !important;
         }
+        .kpi-balance-minor {
+            background: rgba(245,158,11,0.12) !important;
+            color: #F59E0B !important;
+        }
         .kpi-balance-error {
             background: rgba(245,158,11,0.12) !important;
             color: #F59E0B !important;
@@ -908,6 +912,9 @@ function fetchCustomerBalance(pillEl, force) {
             if (bal < 0.005) {
                 valEl.textContent = '\u20AC0.00';
                 pillEl.classList.add('kpi-balance-zero');
+            } else if (bal < 5) {
+                valEl.textContent = '\u20AC' + bal.toLocaleString('en', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + drcr;
+                pillEl.classList.add('kpi-balance-minor');
             } else {
                 valEl.textContent = '\u20AC' + bal.toLocaleString('en', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + drcr;
                 pillEl.classList.add(drcr === 'DR' ? 'kpi-balance-dr' : 'kpi-balance-cr');
