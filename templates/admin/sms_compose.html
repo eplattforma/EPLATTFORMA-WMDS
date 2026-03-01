@@ -98,7 +98,7 @@
   function updateCounts(){
     var len = ta.value.length;
     charEl.textContent = len + ' / 600 characters';
-    var partSize = 70;
+    var partSize = 160;
     var parts = Math.ceil(len / partSize) || 1;
     partEl.textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
   }

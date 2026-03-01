@@ -50,11 +50,7 @@ def _is_valid_mob(n: str) -> bool:
     return bool(re.fullmatch(r"\d{8,15}", n))
 
 def _needs_unicode(s: str) -> bool:
-    try:
-        (s or "").encode("ascii")
-        return False
-    except Exception:
-        return True
+    return False
 
 def _render_db_template(body: str, ctx: dict) -> tuple:
     from jinja2 import UndefinedError
