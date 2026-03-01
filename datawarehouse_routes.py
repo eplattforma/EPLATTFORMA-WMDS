@@ -247,7 +247,7 @@ def dw_menu():
             <div class="menu-option">
                 <a href="/datawarehouse/database-settings">
                     <h3>Database Settings</h3>
-                    <p>Manage scheduled tasks, clone database, and database configuration.</p>
+                    <p>Manage scheduled tasks and database configuration.</p>
                 </a>
             </div>
             
@@ -708,28 +708,6 @@ def database_settings():
                 </div>
             </div>
             
-            <!-- Database Clone Section -->
-            <div class="section">
-                <h2>📋 Database Management</h2>
-                
-                <div class="warning-box">
-                    <strong>⚠️ Important:</strong>
-                    Make sure that you published all changes before proceeding with database operations.
-                </div>
-                
-                <div class="settings-grid">
-                    <div class="setting-item">
-                        <label>Clone Production to Development</label>
-                        <p>Create a copy of the production database for development and testing purposes. This will overwrite the development database with production data.</p>
-                        <div class="button-group">
-                            <button class="btn-primary" onclick="cloneDatabase()">Clone Database</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div id="clone-status" style="margin-top: 15px; display: none;"></div>
-            </div>
-            
             <!-- Data Warehouse Operations -->
             <div class="section">
                 <h2>🏭 Data Warehouse Operations</h2>
@@ -750,42 +728,7 @@ def database_settings():
             </div>
         </div>
         
-        <script>
-            async function cloneDatabase() {
-                const statusDiv = document.getElementById('clone-status');
-                
-                if (!confirm('This will overwrite the development database with production data.\\n\\nMake sure you published all your changes first!\\n\\nContinue?')) {
-                    return;
-                }
-                
-                const btn = event.target;
-                btn.disabled = true;
-                btn.textContent = 'Cloning...';
-                
-                statusDiv.style.display = 'block';
-                statusDiv.innerHTML = '<div class="success-message">Starting database clone...</div>';
-                
-                try {
-                    const response = await fetch('/admin/clone-database', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'}
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        statusDiv.innerHTML = '<div class="success-message"><strong>✓ Success!</strong><br>' + result.message + '</div>';
-                    } else {
-                        statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + result.message + '</div>';
-                    }
-                } catch (error) {
-                    statusDiv.innerHTML = '<div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 12px; border-radius: 5px; color: #721c24;"><strong>✗ Error:</strong><br>' + error.message + '</div>';
-                } finally {
-                    btn.disabled = false;
-                    btn.textContent = 'Clone Database';
-                }
-            }
-        </script>
+        <script></script>
     </body>
     </html>
     """
