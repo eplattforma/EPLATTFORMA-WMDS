@@ -198,6 +198,10 @@ app.register_blueprint(benchmark_bp)
 from routes_ai_feedback import ai_feedback_bp
 app.register_blueprint(ai_feedback_bp)
 
+# Register the SMS blueprint
+from blueprints.sms import sms_bp
+app.register_blueprint(sms_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal
@@ -399,6 +403,13 @@ with app.app_context():
         logging.info("Bank transactions schema updates completed")
     except Exception as e:
         logging.error(f"Error updating bank transactions schema: {str(e)}")
+
+    try:
+        from update_sms_schema import update_sms_schema
+        update_sms_schema()
+        logging.info("SMS schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating SMS schema: {str(e)}")
 
     # Initialize remaining tables
     from app import db

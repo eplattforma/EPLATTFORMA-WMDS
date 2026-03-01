@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}SMS Service — EPLATTFORMA{% endblock %}
+{% block content %}
+<div class="container-fluid mt-4" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0"><i class="fas fa-sms me-2"></i>SMS Service</h3>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sms.sms_balance') }}">
+      <i class="fas fa-wallet me-1"></i>Check Balance
+    </a>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  {% for category, message in messages %}
+  <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+  {% endif %}
+  {% endwith %}
+
+  <div class="card mb-4">
+    <div class="card-header">
+      <i class="fas fa-info-circle me-1"></i>How to use
+    </div>
+    <div class="card-body">
+      <p class="mb-1">Action buttons in other pages open the composer via:</p>
+      <code>/admin/sms/compose?ctx=customer&amp;id=CUST_CODE&amp;tpl=DELIVERY_TODAY</code>
+      <p class="mt-2 mb-0 text-muted">Default sender: <strong>{{ default_sender }}</strong></p>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">
+      <i class="fas fa-file-alt me-1"></i>Templates
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-2">
+        {% for t in templates %}
+        <span class="badge {% if t.is_enabled %}bg-success{% else %}bg-secondary{% endif %} fs-6 px-3 py-2">
+          <i class="fas fa-{% if t.is_enabled %}check-circle{% else %}times-circle{% endif %} me-1"></i>
+          {{ t.title }} <small class="opacity-75">({{ t.code }})</small>
+        </span>
+        {% endfor %}
+        {% if not templates %}
+        <span class="text-muted">No templates configured yet.</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="fas fa-history me-1"></i>Recent SMS History</span>
+      <small class="text-muted">Last 80 messages</small>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>User</th>
+              <th>Customer</th>
+              <th>To</th>
+              <th>Template</th>
+              <th>Status</th>
+              <th>MsgID</th>
+              <th>DLR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in history %}
+            <tr>
+              <td><small>{{ r.created_at|local_time }}</small></td>
+              <td><small>{{ r.created_by_username or '' }}</small></td>
+              <td>
+                <small>
+                  {% if r.customer_name %}{{ r.customer_name }}{% endif %}
+                  {% if r.customer_code_365 %}<span class="text-muted">({{ r.customer_code_365 }})</span>{% endif %}
+                </small>
+              </td>
+              <td><small>{{ r.mobile_number }}</small></td>
+              <td>
+                {% if r.template_code %}
+                <span class="badge bg-info text-dark">{{ r.template_code }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.provider_status == 'OK' %}
+                <span class="badge bg-success">OK</span>
+                {% elif r.provider_status == 'ERROR' %}
+                <span class="badge bg-danger">ERROR{% if r.provider_error_code %} {{ r.provider_error_code }}{% endif %}</span>
+                {% else %}
+                <span class="badge bg-secondary">{{ r.provider_status }}</span>
+                {% endif %}
+              </td>
+              <td><small class="text-muted">{{ r.provider_message_id or '' }}</small></td>
+              <td>
+                {% if r.dlr_status %}
+                {% if r.dlr_status == 'Delivered' %}
+                <span class="badge bg-success">{{ r.dlr_status }}</span>
+                {% elif r.dlr_status in ['FAILED', 'Cancelled'] %}
+                <span class="badge bg-danger">{{ r.dlr_status }}</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">{{ r.dlr_status }}</span>
+                {% endif %}
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not history %}
+            <tr>
+              <td colspan="8" class="text-center text-muted py-4">No SMS messages sent yet.</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

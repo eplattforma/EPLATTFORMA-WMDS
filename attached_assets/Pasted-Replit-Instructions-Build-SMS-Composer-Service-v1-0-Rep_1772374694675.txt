@@ -1,0 +1,515 @@
+Replit Instructions — Build “SMS Composer Service” (v1)
+0) Replit Secrets (DO NOT hardcode)
+
+Create these in Replit → Secrets:
+
+MICROSMS_USER = your Microsms login (email)
+
+MICROSMS_PASS = your Microsms password (rotated)
+
+MICROSMS_SENDER = e.g. EPLATTFORMA (Microsms XML header limit is 11 chars; direct title also should be short)
+
+(optional, for delivery reports) MICROSMS_DLR_TOKEN = random long string
+
+1) Database schema
+A) Create tables
+
+Run this SQL migration:
+
+CREATE TABLE IF NOT EXISTS sms_template (
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,            -- e.g. DELIVERY_TODAY, PAYMENT_DUE
+  title TEXT NOT NULL,                  -- human name
+  sender_title TEXT,                    -- optional override
+  body TEXT NOT NULL,                   -- Jinja placeholders: {{customer_name}}, {{invoice_no}}, etc
+  force_unicode BOOLEAN NOT NULL DEFAULT FALSE,
+  is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  allowed_roles TEXT[] NOT NULL DEFAULT ARRAY['admin','warehouse_manager','crm_admin'],
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_sms_template_enabled ON sms_template(is_enabled);
+
+CREATE TABLE IF NOT EXISTS sms_log (
+  id BIGSERIAL PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by_username TEXT,
+
+  context_type TEXT,                    -- customer | invoice | route_stop | ...
+  context_id TEXT,                      -- id used in compose
+  template_code TEXT,                   -- sms_template.code
+
+  customer_code_365 TEXT,
+  customer_name TEXT,
+  mobile_number TEXT NOT NULL,
+
+  sender_title TEXT,
+  batch_id TEXT,
+  unicode_mode BOOLEAN NOT NULL DEFAULT FALSE,
+  message_text TEXT NOT NULL,
+
+  provider_status TEXT NOT NULL,        -- OK | ERROR | UNKNOWN
+  provider_message_id TEXT,
+  provider_error_code INT,
+  provider_raw_response TEXT,
+
+  dlr_status TEXT,                      -- Delivered / FAILED / BUFFERED / DELAYED / Cancelled (if you enable DLR)
+  dlr_received_at TIMESTAMPTZ,
+  dlr_raw_xml TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ix_sms_log_created_at ON sms_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_sms_log_mobile ON sms_log(mobile_number);
+CREATE INDEX IF NOT EXISTS ix_sms_log_batch ON sms_log(batch_id);
+B) Seed 2–3 templates (optional, but recommended)
+INSERT INTO sms_template (code, title, body, force_unicode)
+VALUES
+('DELIVERY_TODAY', 'Delivery Today', 'Καλημέρα {{customer_name}}, η παράδοση σας είναι προγραμματισμένη για {{delivery_date}}. — EPLATTFORMA', TRUE),
+('PAYMENT_DUE', 'Payment Reminder', 'Reminder: Invoice {{invoice_no}} amount €{{amount_due}} due {{due_date}}. — EPLATTFORMA', FALSE)
+ON CONFLICT (code) DO NOTHING;
+2) Add Blueprint: blueprints/sms.py
+
+Create: blueprints/sms.py
+
+import os
+import re
+import uuid
+from datetime import datetime
+import requests
+from jinja2 import Environment, StrictUndefined
+from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
+from flask_login import login_required, current_user
+from app import db
+
+sms_bp = Blueprint("sms", __name__, url_prefix="/admin/sms")
+
+MICROSMS_DIRECT_URL = "https://api.microsms.net/sendapidirect.asp"
+BALANCE_URL = "https://ssl.microsms.net/getbalance.asp"
+
+jinja_env = Environment(undefined=StrictUndefined, autoescape=False)
+
+ERR_MAP = {
+    1: "Configuration Error",
+    32: "Username disabled",
+    37: "Account must be activated",
+    43: "Username failed",
+    47: "Incorrect Password",
+    49: "Not available balance",
+    50: "IP is Blocked",
+    51: "User not authorized",
+    130: "XML Error",
+    137: "Title cannot be empty",
+    138: "Message cannot be empty",
+    142: "Message length exceeds maximum",
+    162: "Mobile number is empty",
+    163: "Mobile number is not numeric",
+    165: "Error regarding mobile number",
+    181: "Mobile number is in blacklist",
+    183: "Country not available",
+}
+
+def _role_ok():
+    return getattr(current_user, "role", None) in ("admin", "warehouse_manager", "crm_admin")
+
+def _normalize_mob(n: str) -> str:
+    if not n:
+        return ""
+    n = n.strip().replace(" ", "").replace("-", "")
+    if n.startswith("+"):
+        n = n[1:]
+    return n
+
+def _is_valid_mob(n: str) -> bool:
+    return bool(re.fullmatch(r"\d{8,15}", n))
+
+def _needs_unicode(s: str) -> bool:
+    try:
+        (s or "").encode("ascii")
+        return False
+    except Exception:
+        return True
+
+def _render_db_template(body: str, ctx: dict) -> str:
+    tpl = jinja_env.from_string(body or "")
+    return tpl.render(**(ctx or {})).strip()
+
+def _parse_provider_response(text: str):
+    t = (text or "").strip()
+    if t.lower().startswith("ok"):
+        msgid = next((p for p in t.split() if p.isdigit()), None)
+        return ("OK", msgid, None)
+    if t.lower().startswith("error"):
+        code = next((p for p in t.split() if p.isdigit()), None)
+        return ("ERROR", None, int(code) if code else None)
+    return ("UNKNOWN", None, None)
+
+def _microsms_send_direct(mobile: str, title: str, message: str, unicode_mode: bool, batch_id: str):
+    usr = os.getenv("MICROSMS_USER", "").strip()
+    psw = os.getenv("MICROSMS_PASS", "").strip()
+    if not usr or not psw:
+        raise RuntimeError("Missing MICROSMS_USER / MICROSMS_PASS.")
+
+    params = {
+        "usr": usr,
+        "psw": psw,
+        "mobnu": mobile,
+        "title": title or "",
+        "message": message or "",
+        "Batchid": batch_id or "",
+        "Dtype": "4" if unicode_mode else "1",  # 1=plain, 4=unicode
+    }
+    r = requests.get(MICROSMS_DIRECT_URL, params=params, timeout=15)
+    r.raise_for_status()
+    return r.text
+
+# ---------- Context resolvers (extend later) ----------
+def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
+    ctx_type = (ctx_type or "").strip().lower()
+    ctx_id = (ctx_id or "").strip()
+
+    if ctx_type == "customer":
+        row = db.session.execute(db.text("""
+            SELECT customer_code_365,
+                   COALESCE(customer_name, customer_code_365) AS customer_name,
+                   COALESCE(mobile, mobile_number, phone_mobile, '') AS mobile_number
+            FROM ps_customers
+            WHERE customer_code_365 = :cid
+        """), {"cid": ctx_id}).mappings().first()
+        if not row:
+            raise ValueError("Customer not found.")
+        return dict(row)
+
+    # Keep these disabled until you confirm your exact schema names/columns.
+    # elif ctx_type == "invoice": ...
+    # elif ctx_type == "route_stop": ...
+
+    raise ValueError(f"Unsupported context type: {ctx_type}")
+
+# ---------- Pages ----------
+@sms_bp.route("/", methods=["GET"])
+@login_required
+def sms_home():
+    if not _role_ok():
+        flash("Not authorized.", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    history = db.session.execute(db.text("""
+        SELECT id, created_at, created_by_username,
+               context_type, context_id, template_code,
+               customer_code_365, customer_name, mobile_number,
+               batch_id, provider_status, provider_message_id, provider_error_code, dlr_status
+        FROM sms_log
+        ORDER BY created_at DESC
+        LIMIT 80
+    """)).mappings().all()
+
+    templates = db.session.execute(db.text("""
+        SELECT code, title, is_enabled
+        FROM sms_template
+        ORDER BY title
+    """)).mappings().all()
+
+    return render_template(
+        "admin/sms_home.html",
+        history=history,
+        templates=templates,
+        default_sender=os.getenv("MICROSMS_SENDER", "EPLATTFORMA")
+    )
+
+@sms_bp.route("/compose", methods=["GET"])
+@login_required
+def sms_compose():
+    if not _role_ok():
+        flash("Not authorized.", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    ctx_type = request.args.get("ctx")
+    ctx_id = request.args.get("id")
+    tpl_code = (request.args.get("tpl") or "").strip() or None
+
+    ctx = _resolve_context(ctx_type, ctx_id)
+
+    mobile = _normalize_mob(ctx.get("mobile_number") or "")
+    if not mobile or not _is_valid_mob(mobile):
+        flash("Customer has no valid mobile number.", "danger")
+        return redirect(request.referrer or url_for("sms.sms_home"))
+
+    sender = os.getenv("MICROSMS_SENDER", "EPLATTFORMA")
+    message = ""
+    unicode_mode = False
+
+    if tpl_code:
+        tpl = db.session.execute(db.text("""
+            SELECT code, title, sender_title, body, force_unicode
+            FROM sms_template
+            WHERE code = :c AND is_enabled = TRUE
+        """), {"c": tpl_code}).mappings().first()
+
+        if not tpl:
+            flash("Template not found or disabled.", "danger")
+            return redirect(request.referrer or url_for("sms.sms_home"))
+
+        sender = (tpl.get("sender_title") or sender).strip()
+        message = _render_db_template(tpl["body"], ctx)
+        unicode_mode = bool(tpl.get("force_unicode")) or _needs_unicode(message)
+
+    return render_template(
+        "admin/sms_compose.html",
+        ctx_type=ctx_type, ctx_id=ctx_id, tpl_code=tpl_code,
+        customer_code_365=ctx.get("customer_code_365"),
+        customer_name=ctx.get("customer_name"),
+        mobile_number=mobile,
+        sender_title=sender,
+        message=message,
+        unicode_mode=unicode_mode
+    )
+
+@sms_bp.route("/send", methods=["POST"])
+@login_required
+def sms_send():
+    if not _role_ok():
+        flash("Not authorized.", "danger")
+        return redirect(url_for("sms.sms_home"))
+
+    sender = (request.form.get("sender_title") or os.getenv("MICROSMS_SENDER", "")).strip()
+    message = (request.form.get("message") or "").strip()
+    unicode_mode = (request.form.get("unicode_mode") == "1")
+
+    mobile = _normalize_mob(request.form.get("mobile_number") or "")
+    if not sender:
+        flash("Sender title is required.", "danger")
+        return redirect(request.referrer or url_for("sms.sms_home"))
+    if not message:
+        flash("Message is required.", "danger")
+        return redirect(request.referrer or url_for("sms.sms_home"))
+    if not mobile or not _is_valid_mob(mobile):
+        flash("Invalid mobile number.", "danger")
+        return redirect(request.referrer or url_for("sms.sms_home"))
+
+    ctx_type = request.form.get("ctx_type")
+    ctx_id = request.form.get("ctx_id")
+    tpl_code = request.form.get("tpl_code")
+
+    # Pull minimal customer fields for logging (don’t trust the client)
+    customer_code_365 = request.form.get("customer_code_365") or None
+    customer_name = request.form.get("customer_name") or None
+
+    batch_id = f"sms-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+
+    raw = ""
+    status = "UNKNOWN"
+    msgid = None
+    err_code = None
+
+    try:
+        raw = _microsms_send_direct(mobile, sender, message, unicode_mode, batch_id)
+        status, msgid, err_code = _parse_provider_response(raw)
+    except Exception as e:
+        status = "ERROR"
+        raw = f"EXCEPTION: {type(e).__name__}: {e}"
+
+    db.session.execute(db.text("""
+        INSERT INTO sms_log (
+          created_by_username,
+          context_type, context_id, template_code,
+          customer_code_365, customer_name,
+          mobile_number, sender_title, batch_id,
+          unicode_mode, message_text,
+          provider_status, provider_message_id, provider_error_code, provider_raw_response
+        ) VALUES (
+          :u, :ct, :cid, :tpl,
+          :cc, :cn,
+          :mob, :sender, :batch,
+          :uni, :msg,
+          :st, :msgid, :ecode, :raw
+        )
+    """), {
+        "u": getattr(current_user, "username", None),
+        "ct": ctx_type, "cid": ctx_id, "tpl": tpl_code,
+        "cc": customer_code_365, "cn": customer_name,
+        "mob": mobile,
+        "sender": sender,
+        "batch": batch_id,
+        "uni": unicode_mode,
+        "msg": message,
+        "st": status,
+        "msgid": msgid,
+        "ecode": err_code,
+        "raw": raw
+    })
+    db.session.commit()
+
+    if status == "OK":
+        flash(f"SMS sent OK. MsgID: {msgid} (Batch: {batch_id})", "success")
+    else:
+        human = ERR_MAP.get(err_code, "") if err_code else ""
+        flash(f"SMS failed. {('Error ' + str(err_code) + ' ' + human).strip()} (Batch: {batch_id})", "danger")
+
+    return redirect(url_for("sms.sms_home"))
+
+@sms_bp.route("/balance", methods=["GET"])
+@login_required
+def sms_balance():
+    if not _role_ok():
+        flash("Not authorized.", "danger")
+        return redirect(url_for("sms.sms_home"))
+
+    usr = os.getenv("MICROSMS_USER", "").strip()
+    psw = os.getenv("MICROSMS_PASS", "").strip()
+    try:
+        r = requests.get(BALANCE_URL, params={"usr": usr, "psw": psw}, timeout=15)
+        r.raise_for_status()
+        flash(f"Balance: {r.text.strip()}", "info")
+    except Exception as e:
+        flash(f"Balance check failed: {e}", "danger")
+
+    return redirect(url_for("sms.sms_home"))
+
+# ---------- Delivery report receiver (optional) ----------
+@sms_bp.route("/dlr", methods=["POST"])
+def microsms_dlr():
+    token = os.getenv("MICROSMS_DLR_TOKEN", "").strip()
+    if token and request.args.get("token") != token:
+        return Response("forbidden", status=403)
+
+    raw_xml = request.data.decode("utf-8", errors="replace")
+    # Minimal parse without external deps:
+    # Find phonenumber + smsstatus + batchid pairs
+    records = re.findall(r'phonenumber="([^"]+)"\s+smsstatus="([^"]+)"\s+batchid="([^"]+)"', raw_xml)
+
+    now = datetime.utcnow()
+    for phone, smsstatus, batchid in records:
+        mob = _normalize_mob(phone)
+        db.session.execute(db.text("""
+            UPDATE sms_log
+            SET dlr_status = :st,
+                dlr_received_at = :ts,
+                dlr_raw_xml = :raw
+            WHERE mobile_number = :mob
+              AND batch_id = :batch
+        """), {"st": smsstatus, "ts": now, "raw": raw_xml, "mob": mob, "batch": batchid})
+
+    db.session.commit()
+    return Response("ok", status=200)
+3) Templates (HTML)
+A) templates/admin/sms_home.html
+
+Create:
+
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="container" style="max-width: 980px;">
+  <div class="d-flex justify-content-between align-items-center">
+    <h3 class="mb-0">SMS</h3>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sms.sms_balance') }}">Check Balance</a>
+  </div>
+
+  <div class="alert alert-info mt-3">
+    This page is the SMS service hub. Action buttons in other pages will open the composer via:
+    <code>/admin/sms/compose?ctx=customer&id=CUST123&tpl=DELIVERY_TODAY</code>
+  </div>
+
+  <h5 class="mt-4">Templates</h5>
+  <div class="d-flex flex-wrap gap-2">
+    {% for t in templates %}
+      <span class="badge {% if t.is_enabled %}bg-success{% else %}bg-secondary{% endif %}">
+        {{ t.title }} ({{ t.code }})
+      </span>
+    {% endfor %}
+  </div>
+
+  <hr class="my-4">
+
+  <h5>Recent SMS History</h5>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>To</th>
+          <th>Template</th>
+          <th>Status</th>
+          <th>MsgID</th>
+          <th>DLR</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in history %}
+        <tr>
+          <td>{{ r.created_at }}</td>
+          <td>{{ r.mobile_number }}</td>
+          <td>{{ r.template_code or '' }}</td>
+          <td>{{ r.provider_status }}</td>
+          <td>{{ r.provider_message_id or '' }}</td>
+          <td>{{ r.dlr_status or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+B) templates/admin/sms_compose.html
+
+Create:
+
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="container" style="max-width: 820px;">
+  <h4>Compose SMS</h4>
+
+  <div class="text-muted mb-2">
+    {{ customer_name }} ({{ customer_code_365 }}) — <strong>{{ mobile_number }}</strong>
+  </div>
+
+  <form method="post" action="{{ url_for('sms.sms_send') }}">
+    <input type="hidden" name="ctx_type" value="{{ ctx_type }}">
+    <input type="hidden" name="ctx_id" value="{{ ctx_id }}">
+    <input type="hidden" name="tpl_code" value="{{ tpl_code or '' }}">
+    <input type="hidden" name="customer_code_365" value="{{ customer_code_365 }}">
+    <input type="hidden" name="customer_name" value="{{ customer_name }}">
+    <input type="hidden" name="mobile_number" value="{{ mobile_number }}">
+
+    <label class="form-label">Sender title</label>
+    <input class="form-control" name="sender_title" value="{{ sender_title }}" maxlength="20">
+
+    <div class="form-check mt-2">
+      <input class="form-check-input" type="checkbox" value="1" id="unicode_mode" name="unicode_mode" {% if unicode_mode %}checked{% endif %}>
+      <label class="form-check-label" for="unicode_mode">Unicode mode (Greek)</label>
+    </div>
+
+    <label class="form-label mt-3">Message</label>
+    <textarea class="form-control" name="message" rows="5" maxlength="600">{{ message }}</textarea>
+
+    <div class="d-flex gap-2 mt-3">
+      <button class="btn btn-primary" type="submit">Send</button>
+      <a class="btn btn-outline-secondary" href="{{ request.referrer or url_for('sms.sms_home') }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+4) Register blueprint + add menu link
+A) Register blueprint (e.g. in app.py)
+from blueprints.sms import sms_bp
+app.register_blueprint(sms_bp)
+B) Add menu item (Admin / Operations)
+
+Add link to: /admin/sms/
+
+5) Test flow (must pass before we add buttons)
+
+Go to /admin/sms/compose?ctx=customer&id=<CUSTOMER_CODE>&tpl=DELIVERY_TODAY
+
+Confirm the form is prefilled and sending works.
+
+Check /admin/sms/ history shows OK ... message id or error codes.
+
+6) Optional: enable Delivery Reports (DLR)
+
+Deploy the endpoint:
+https://<your-domain>/admin/sms/dlr?token=<MICROSMS_DLR_TOKEN>
+
+Email Microsms: request@microsatit.com with your DLR URL so they push delivery statuses.
+
+Once they enable it, your sms_log.dlr_status will update automatically.
