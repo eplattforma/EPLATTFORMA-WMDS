@@ -900,7 +900,12 @@ def view_logs():
     </html>
     """
     
-    return render_template_string(html, logs_list=logs_list)
+    from models import PS365SyncLog
+    recent_syncs = PS365SyncLog.query.order_by(PS365SyncLog.started_at.desc()).limit(30).all()
+
+    return render_template('datawarehouse/raw_logs.html',
+                         logs_list=logs_list,
+                         recent_syncs=recent_syncs)
 
 
 @dw_bp.route('/log-content/<filename>', methods=['GET'])

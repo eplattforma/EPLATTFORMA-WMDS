@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Sync Logs — EPLATTFORMA{% endblock %}
+{% block content %}
+<div class="container-fluid mt-3" style="max-width:1200px;">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{{ url_for('datawarehouse.dw_menu') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left"></i>
+    </a>
+    <h4 class="mb-0"><i class="fas fa-file-alt me-2"></i>Sync Logs</h4>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Sync Operations</h5>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th style="width:155px;">When</th>
+            <th>Type</th>
+            <th style="width:75px;">Trigger</th>
+            <th style="width:75px;">Status</th>
+            <th style="width:75px;" class="text-end">Duration</th>
+            <th style="width:65px;" class="text-end">Found</th>
+            <th style="width:65px;" class="text-end">New</th>
+            <th style="width:65px;" class="text-end">Updated</th>
+            <th style="width:65px;" class="text-end">Skipped</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in recent_syncs %}
+          <tr>
+            <td class="text-nowrap"><small>{{ s.started_at.strftime('%d/%m/%Y %H:%M') if s.started_at else '—' }}</small></td>
+            <td>
+              {% if s.sync_type == 'FULL_DW_UPDATE' %}<span class="badge bg-primary">Full DW</span>
+              {% elif s.sync_type == 'INCREMENTAL_ITEMS' %}<span class="badge bg-info text-dark">Incremental</span>
+              {% elif s.sync_type == 'INVOICE_SYNC' %}<span class="badge bg-warning text-dark">Invoices</span>
+              {% elif s.sync_type == 'CUSTOMER_SYNC' %}<span class="badge bg-success">Customers</span>
+              {% else %}<span class="badge bg-secondary">{{ s.sync_type }}</span>{% endif %}
+            </td>
+            <td>
+              {% if s.trigger == 'scheduled' %}<i class="fas fa-clock text-muted"></i> <small>auto</small>
+              {% else %}<i class="fas fa-hand-pointer text-primary"></i> <small>manual</small>{% endif %}
+            </td>
+            <td>
+              {% if s.status == 'SUCCESS' %}<span class="badge bg-success"><i class="fas fa-check"></i> OK</span>
+              {% elif s.status == 'RUNNING' %}<span class="badge bg-warning text-dark"><i class="fas fa-spinner fa-spin"></i></span>
+              {% elif s.status == 'FAILED' %}<span class="badge bg-danger"><i class="fas fa-times"></i> Fail</span>
+              {% else %}<span class="badge bg-secondary">{{ s.status }}</span>{% endif %}
+            </td>
+            <td class="text-end text-nowrap">
+              {% if s.duration_seconds is not none %}
+                {% if s.duration_seconds >= 60 %}<small>{{ '%d' | format(s.duration_seconds // 60) }}m {{ '%d' | format(s.duration_seconds % 60) }}s</small>
+                {% else %}<small>{{ '%.1f' | format(s.duration_seconds) }}s</small>{% endif %}
+              {% else %}<small class="text-muted">—</small>{% endif %}
+            </td>
+            <td class="text-end">{{ s.items_found or 0 }}</td>
+            <td class="text-end">
+              {% if s.items_inserted %}<span class="text-success fw-bold">{{ s.items_inserted }}</span>
+              {% else %}<span class="text-muted">0</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if s.items_updated %}<span class="text-info fw-bold">{{ s.items_updated }}</span>
+              {% else %}<span class="text-muted">0</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if s.items_skipped %}<span class="text-warning">{{ s.items_skipped }}</span>
+              {% else %}<span class="text-muted">0</span>{% endif %}
+            </td>
+            <td>
+              {% if s.error_message %}
+                <small class="text-danger" title="{{ s.error_message }}"><i class="fas fa-exclamation-triangle me-1"></i>{{ s.error_message[:120] }}{% if s.error_message|length > 120 %}...{% endif %}</small>
+              {% elif s.details %}
+                <small class="text-muted" title="{{ s.details }}">{{ s.details[:150] }}{% if s.details|length > 150 %}...{% endif %}</small>
+              {% else %}
+                <small class="text-muted">—</small>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-muted py-3">No sync operations recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if recent_syncs|length >= 30 %}
+    <div class="card-footer text-center">
+      <a href="{{ url_for('datawarehouse.sync_log_page') }}" class="btn btn-sm btn-outline-primary">View Full Sync Log</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h5 class="mb-0"><i class="fas fa-file-code me-2"></i>Raw Log Files</h5>
+    </div>
+    {% if logs_list %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th class="text-end">Size</th>
+            <th style="width:150px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in logs_list %}
+          <tr>
+            <td><code>{{ log.name }}</code></td>
+            <td class="text-end"><small>{{ log.size }} bytes</small></td>
+            <td>
+              <a class="btn btn-sm btn-outline-primary" onclick="viewLog('{{ log.name }}')"><i class="fas fa-eye me-1"></i>View</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('datawarehouse.download_log', filename=log.name) }}" target="_blank"><i class="fas fa-download"></i></a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+      <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
+      No raw log files found. Run a sync to generate logs.
+    </div>
+    {% endif %}
+  </div>
+
+  <div id="log-viewer" style="display:none;" class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h5 class="mb-0" id="log-viewer-title">Log Content</h5>
+      <button class="btn btn-sm btn-outline-secondary" onclick="closeLogViewer()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="card-body">
+      <pre class="mb-0" id="log-content" style="max-height:500px; overflow-y:auto; font-size:0.8rem; white-space:pre-wrap; word-break:break-word;"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+async function viewLog(filename) {
+  try {
+    var resp = await fetch('/datawarehouse/log-content/' + filename);
+    var data = await resp.json();
+    document.getElementById('log-content').textContent = data.content;
+    document.getElementById('log-viewer-title').textContent = filename;
+    document.getElementById('log-viewer').style.display = 'block';
+    document.getElementById('log-viewer').scrollIntoView({behavior:'smooth'});
+  } catch(e) { alert('Error loading log: ' + e.message); }
+}
+function closeLogViewer() { document.getElementById('log-viewer').style.display = 'none'; }
+</script>
+{% endblock %}
