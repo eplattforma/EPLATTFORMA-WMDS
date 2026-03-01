@@ -517,12 +517,18 @@ def detail(shipment_id):
             stop_ids_done.add(r.route_stop_id)
         stops_with_pending = stop_ids_all - stop_ids_done
 
-        # COD collected
+        # COD expected vs collected
+        cod_expected = sum(float(r.expected_amount or r.invoice.total_grand or 0)
+                          for r in rsi_all
+                          if r.invoice and (r.expected_payment_method or '').upper() not in ('CREDIT', ''))
+
         cod_receipts = CODReceipt.query.filter_by(route_id=shipment_id).filter(
             CODReceipt.status != 'VOIDED'
         ).all()
         cod_collected = sum(float(r.received_amount or 0) for r in cod_receipts)
         cod_receipt_count = len(cod_receipts)
+        cod_expected_total = sum(float(r.expected_amount or 0) for r in cod_receipts)
+        cod_variance = cod_collected - cod_expected_total
 
         # Payment method breakdown
         cod_cash = sum(float(r.received_amount or 0) for r in cod_receipts if r.payment_method == 'cash')
@@ -573,11 +579,15 @@ def detail(shipment_id):
             'stops_total': len(stop_ids_all),
             'stops_done': len(stop_ids_done),
             'stops_pending': len(stops_with_pending),
+            'cod_expected': cod_expected,
             'cod_collected': cod_collected,
             'cod_receipt_count': cod_receipt_count,
+            'cod_expected_total': cod_expected_total,
+            'cod_variance': cod_variance,
             'cod_cash': cod_cash,
             'cod_cheque': cod_cheque,
             'cod_card': cod_card,
+            'cod_receipts': cod_receipts,
             'recent_events': recent_events,
             'started_at': route.started_at,
             'completed_at': route.completed_at,
