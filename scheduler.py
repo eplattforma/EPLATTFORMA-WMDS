@@ -58,7 +58,18 @@ def setup_scheduler(app):
                 misfire_grace_time=3600
             )
             logger.info("✓ Incremental DW sync scheduled: Daily at 1:00 AM and 1:00 PM")
-            
+
+            scheduler.add_job(
+                func=_run_customer_sync,
+                trigger=CronTrigger(hour=4, minute=0),
+                id='customer_sync',
+                name='Customer Sync from PS365',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Customer sync scheduled: Daily at 4:00 AM")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
         
@@ -133,6 +144,53 @@ def _run_incremental_sync():
             from models import PS365SyncLog
             with app.app_context():
                 running = PS365SyncLog.query.filter_by(sync_type='INCREMENTAL_ITEMS', status='RUNNING').order_by(PS365SyncLog.started_at.desc()).first()
+                if running:
+                    fail_sync_log(db.session, running, str(e))
+        except Exception:
+            pass
+
+
+def _run_customer_sync():
+    """Wrapper to run customer sync with proper app context."""
+    try:
+        from app import app, db
+        from background_sync import start_customer_sync_background
+        from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
+
+        with app.app_context():
+            logger.info("=" * 80)
+            logger.info("SCHEDULED CUSTOMER SYNC STARTED")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+
+            slog = start_sync_log(db.session, 'CUSTOMER_SYNC', trigger='scheduled')
+            result = start_customer_sync_background(app)
+
+            if result.get("success"):
+                import time
+                from background_sync import get_sync_status, is_sync_running
+                for _ in range(300):
+                    time.sleep(2)
+                    if not is_sync_running():
+                        break
+                status = get_sync_status()
+                finish_sync_log(db.session, slog,
+                    items_found=status.get('total', 0),
+                    items_inserted=status.get('created', 0),
+                    items_updated=status.get('updated', 0),
+                    items_skipped=status.get('skipped', 0),
+                    details=status.get('message', ''))
+                logger.info("SCHEDULED CUSTOMER SYNC COMPLETED")
+            else:
+                fail_sync_log(db.session, slog, result.get('error', 'Failed to start'))
+                logger.error(f"Customer sync failed to start: {result.get('error')}")
+    except Exception as e:
+        logger.error(f"Error in scheduled customer sync: {str(e)}", exc_info=True)
+        try:
+            from services.sync_logger import fail_sync_log
+            from models import PS365SyncLog
+            with app.app_context():
+                running = PS365SyncLog.query.filter_by(sync_type='CUSTOMER_SYNC', status='RUNNING').order_by(PS365SyncLog.started_at.desc()).first()
                 if running:
                     fail_sync_log(db.session, running, str(e))
         except Exception:
