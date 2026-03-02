@@ -432,6 +432,11 @@ def deliver_wizard(stop_id):
     
     require_in_transit(route)
     
+    stop_invoices_check = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
+    if any(rsi.status in ('delivered', 'delivery_failed') for rsi in stop_invoices_check):
+        flash("This stop has already been closed. You can reprint from the stops list.", "warning")
+        return redirect(url_for('driver.stops_list', route_id=route.id))
+    
     # Check permissions
     if route.driver_name != current_user.username and current_user.role != 'admin':
         abort(403, description="Not your route")
@@ -541,6 +546,10 @@ def save_exceptions(stop_id):
 
         if route.driver_name != current_user.username and current_user.role != 'admin':
             abort(403)
+
+        stop_invoices_check = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
+        if any(rsi.status in ('delivered', 'delivery_failed') for rsi in stop_invoices_check):
+            return jsonify({'success': False, 'error': 'This stop is already closed. No modifications allowed.'}), 409
 
         # Get invoice nos for this stop
         stop_invoices = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
@@ -691,6 +700,10 @@ def submit_delivery(stop_id):
         # Check permissions
         if route.driver_name != current_user.username and current_user.role != 'admin':
             abort(403)
+        
+        stop_invoices_check = RouteStopInvoice.query.filter_by(route_stop_id=stop_id, is_active=True).all()
+        if any(rsi.status in ('delivered', 'delivery_failed') for rsi in stop_invoices_check):
+            return jsonify({'success': False, 'error': 'This stop is already closed and cannot be submitted again.'}), 409
         
         # Get customer credit terms
         terms = get_credit_terms(stop.customer_code)
