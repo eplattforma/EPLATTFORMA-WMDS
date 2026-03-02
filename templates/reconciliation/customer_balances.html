@@ -56,8 +56,8 @@
         <div class="col-md-3">
             <div class="card bg-dark border-secondary">
                 <div class="card-body text-center">
-                    <div class="fs-3 fw-bold text-info">{{ with_balance_count }}</div>
-                    <div class="text-muted small">With Balance ({{ fetched_count }}/{{ total_customers }} fetched)</div>
+                    <div class="fs-3 fw-bold text-info">{{ fetched_count }}/{{ total_customers }}</div>
+                    <div class="text-muted small">Fetched ({{ with_balance_count }} with balance)</div>
                 </div>
             </div>
         </div>
@@ -112,7 +112,7 @@
                     <th class="text-end">Credit Limit</th>
                     <th class="text-end">Balance</th>
                     <th class="text-center">DR/CR</th>
-                    <th>As Of</th>
+                    <th>Last Updated</th>
                 </tr>
             </thead>
             <tbody id="balancesBody">
@@ -140,7 +140,7 @@
                     <td class="text-end text-muted small">Not fetched</td>
                     <td class="text-center"><span class="badge bg-dark text-muted">?</span></td>
                     {% endif %}
-                    <td class="text-muted small">{{ c.as_of }}</td>
+                    <td class="text-muted small">{% if c.has_data %}{{ c.fetched_at }}{% else %}-{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -203,6 +203,19 @@ function sortTable() {
     rows.forEach(row => tbody.appendChild(row));
 }
 
+function formatElapsed(utcStr) {
+    if (!utcStr) return '';
+    const started = new Date(utcStr + 'Z');
+    const now = new Date();
+    const secs = Math.floor((now - started) / 1000);
+    if (secs < 60) return secs + 's';
+    const mins = Math.floor(secs / 60);
+    const rem = secs % 60;
+    if (mins < 60) return mins + 'm ' + rem + 's';
+    const hrs = Math.floor(mins / 60);
+    return hrs + 'h ' + (mins % 60) + 'm';
+}
+
 let _pollInterval = null;
 
 async function fetchAllBalances() {
@@ -246,13 +259,19 @@ function startPolling() {
             const done = s.success + s.failed + s.skipped;
             const pct = s.total > 0 ? Math.round((done / s.total) * 100) : 0;
             const progressDiv = document.getElementById('fetch-progress');
+            const elapsed = s.started_at ? formatElapsed(s.started_at) : '';
             progressDiv.innerHTML = `
                 <div class="d-flex align-items-center justify-content-between">
                     <div class="d-flex align-items-center">
                         <div class="spinner-border spinner-border-sm me-3"></div>
                         <div>
                             <strong>Fetching balances... ${pct}%</strong> (${done} / ${s.total})
-                            <div class="small text-muted">${s.success} ok, ${s.failed} failed, ${s.skipped} skipped</div>
+                            <div class="small text-muted">
+                                <span class="text-success">${s.success} updated</span> &bull;
+                                <span class="text-warning">${s.skipped} already cached</span> &bull;
+                                <span class="text-danger">${s.failed} failed</span>
+                                ${elapsed ? ` &bull; Running for ${elapsed}` : ''}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -264,12 +283,20 @@ function startPolling() {
             if (s.done || (!s.running && s.total > 0)) {
                 clearInterval(_pollInterval);
                 _pollInterval = null;
-                let msg = `Done! ${s.success} fetched, ${s.skipped} already cached, ${s.failed} failed.`;
-                if (s.errors && s.errors.length > 0) {
-                    msg += '\n\nFirst errors:\n' + s.errors.join('\n');
-                }
-                alert(msg);
-                location.reload();
+                progressDiv.className = 'alert alert-success';
+                progressDiv.innerHTML = `
+                    <div>
+                        <strong><i class="fas fa-check-circle me-2"></i>Fetch Complete!</strong>
+                        <div class="small mt-1">
+                            <span class="text-success">${s.success} updated</span> &bull;
+                            <span>${s.skipped} already cached</span> &bull;
+                            <span class="text-danger">${s.failed} failed</span>
+                            ${s.finished_at ? ' &bull; Finished at ' + new Date(s.finished_at + 'Z').toLocaleTimeString() : ''}
+                        </div>
+                        ${s.errors && s.errors.length > 0 ? '<div class="small text-danger mt-1">Errors: ' + s.errors.slice(0, 5).join(', ') + '</div>' : ''}
+                    </div>
+                `;
+                setTimeout(() => location.reload(), 3000);
             }
         } catch (_) {}
     }, 3000);
@@ -277,6 +304,20 @@ function startPolling() {
 
 document.addEventListener('DOMContentLoaded', function() {
     filterTable();
+
+    fetch('/reconciliation/api/customer-balances/fetch-status')
+        .then(r => r.json())
+        .then(s => {
+            if (s.running) {
+                const btn = document.getElementById('btnFetchAll');
+                const progress = document.getElementById('fetch-progress');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Fetching...';
+                progress.style.display = 'block';
+                startPolling();
+            }
+        })
+        .catch(() => {});
 });
 </script>
 {% endblock %}

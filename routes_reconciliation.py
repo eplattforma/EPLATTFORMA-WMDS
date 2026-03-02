@@ -865,7 +865,7 @@ def customer_balances_report():
                            with_balance_count=with_balance_count)
 
 
-_balance_fetch_status = {'running': False, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False}
+_balance_fetch_status = {'running': False, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False, 'started_at': None, 'finished_at': None}
 
 
 def _run_balance_fetch(app):
@@ -918,6 +918,7 @@ def _run_balance_fetch(app):
         db.session.commit()
         _balance_fetch_status['done'] = True
         _balance_fetch_status['running'] = False
+        _balance_fetch_status['finished_at'] = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         logger.info(f"Balance fetch complete: {_balance_fetch_status['success']} ok, {_balance_fetch_status['failed']} failed, {_balance_fetch_status['skipped']} skipped")
 
 
@@ -932,7 +933,8 @@ def api_fetch_all_balances():
     if _balance_fetch_status.get('running'):
         return jsonify({'ok': True, 'status': 'already_running', **_balance_fetch_status})
 
-    _balance_fetch_status = {'running': True, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False}
+    from datetime import datetime
+    _balance_fetch_status = {'running': True, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False, 'started_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), 'finished_at': None}
     app = current_app._get_current_object()
     t = threading.Thread(target=_run_balance_fetch, args=(app,), daemon=True)
     t.start()
