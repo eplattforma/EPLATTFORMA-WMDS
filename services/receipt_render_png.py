@@ -31,6 +31,7 @@ def _load_company_settings():
             'company_tel': Setting.get(db.session, 'company_tel', '7000 0394'),
             'company_vat': Setting.get(db.session, 'company_vat', 'CY103532640'),
             'bank_name': Setting.get(db.session, 'bank_name', 'Bank of Cyprus'),
+            'bank_account': Setting.get(db.session, 'bank_account_no', ''),
             'bank_iban': Setting.get(db.session, 'bank_iban', 'CY04 0020 0195 0000 0357 0208 4600'),
             'bank_bic': Setting.get(db.session, 'bank_bic', 'BCYPCY2N'),
             'bank_beneficiary': Setting.get(db.session, 'bank_beneficiary', 'Step Eplattforma'),
@@ -43,6 +44,7 @@ def _load_company_settings():
             'company_tel': '7000 0394',
             'company_vat': 'CY103532640',
             'bank_name': 'Bank of Cyprus',
+            'bank_account': '',
             'bank_iban': 'CY04 0020 0195 0000 0357 0208 4600',
             'bank_bic': 'BCYPCY2N',
             'bank_beneficiary': 'Step Eplattforma',
@@ -456,18 +458,17 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add(sep)
 
         add_b("BANK TRANSFER DETAILS")
-        add("Beneficiary:")
-        for w in textwrap.wrap(cs['bank_beneficiary'], width=cols - 2):
-            add(f"  {w}")
-        bank_line = f"Bank: {cs['bank_name']}"
-        for w in wrap(bank_line):
+        for w in textwrap.wrap(cs['bank_beneficiary'], width=cols):
             add(w)
+        for w in wrap(cs['bank_name']):
+            add(w)
+        if cs.get('bank_account'):
+            for w in wrap(cs['bank_account']):
+                add(w)
         formatted_iban = format_iban(cs['bank_iban'])
-        add("IBAN:")
-        for w in textwrap.wrap(formatted_iban, width=cols - 2):
-            add(f"  {w}")
-        bic_line = f"BIC/SWIFT: {cs['bank_bic']}"
-        for w in wrap(bic_line):
+        for w in wrap(formatted_iban):
+            add(w)
+        for w in wrap(cs['bank_bic']):
             add(w)
         add(sep)
 
