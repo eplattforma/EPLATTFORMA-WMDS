@@ -195,6 +195,8 @@ function sortTable() {
     rows.forEach(row => tbody.appendChild(row));
 }
 
+let _pollInterval = null;
+
 async function fetchAllBalances() {
     const btn = document.getElementById('btnFetchAll');
     const progress = document.getElementById('fetch-progress');
@@ -210,22 +212,59 @@ async function fetchAllBalances() {
         const data = await response.json();
 
         if (data.ok) {
-            let msg = `Done! ${data.success} fetched, ${data.skipped} already cached, ${data.failed} failed.`;
-            if (data.errors && data.errors.length > 0) {
-                msg += '\n\nErrors:\n' + data.errors.join('\n');
-            }
-            alert(msg);
-            location.reload();
+            startPolling();
         } else {
-            alert(data.error || 'Failed to fetch balances');
+            alert(data.error || 'Failed to start fetch');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Fetch All from PS365';
+            progress.style.display = 'none';
         }
     } catch (error) {
         alert('Error: ' + error.message);
-    } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Fetch All from PS365';
         progress.style.display = 'none';
     }
+}
+
+function startPolling() {
+    if (_pollInterval) clearInterval(_pollInterval);
+    _pollInterval = setInterval(async () => {
+        try {
+            const res = await fetch('/reconciliation/api/customer-balances/fetch-status');
+            const s = res.ok ? await res.json() : null;
+            if (!s) return;
+
+            const done = s.success + s.failed + s.skipped;
+            const pct = s.total > 0 ? Math.round((done / s.total) * 100) : 0;
+            const progressDiv = document.getElementById('fetch-progress');
+            progressDiv.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-3"></div>
+                        <div>
+                            <strong>Fetching balances... ${pct}%</strong> (${done} / ${s.total})
+                            <div class="small text-muted">${s.success} ok, ${s.failed} failed, ${s.skipped} skipped</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="progress mt-2" style="height:6px;">
+                    <div class="progress-bar bg-success" style="width:${pct}%"></div>
+                </div>
+            `;
+
+            if (s.done || (!s.running && s.total > 0)) {
+                clearInterval(_pollInterval);
+                _pollInterval = null;
+                let msg = `Done! ${s.success} fetched, ${s.skipped} already cached, ${s.failed} failed.`;
+                if (s.errors && s.errors.length > 0) {
+                    msg += '\n\nFirst errors:\n' + s.errors.join('\n');
+                }
+                alert(msg);
+                location.reload();
+            }
+        } catch (_) {}
+    }, 3000);
 }
 </script>
 {% endblock %}

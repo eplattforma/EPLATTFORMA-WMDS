@@ -837,64 +837,83 @@ def customer_balances_report():
                            cached_count=cached_count)
 
 
+_balance_fetch_status = {'running': False, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False}
+
+
+def _run_balance_fetch(app):
+    import time
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from services.ps365_statement import get_customer_balance_as_of_today
+
+    global _balance_fetch_status
+    with app.app_context():
+        try:
+            today = datetime.now(ZoneInfo("Asia/Nicosia")).date()
+        except Exception:
+            today = datetime.utcnow().date()
+
+        all_customers = PSCustomer.query.all()
+        _balance_fetch_status['total'] = len(all_customers)
+
+        for cust in all_customers:
+            code = cust.customer_code_365
+            cached = CustomerBalanceCache.query.get(code)
+            if cached and cached.as_of_date == today and CustomerBalanceCache.is_fresh(cached, 120):
+                _balance_fetch_status['skipped'] += 1
+                continue
+
+            try:
+                bal = get_customer_balance_as_of_today(code)
+                row = cached or CustomerBalanceCache(customer_code_365=code)
+                row.as_of_date = today
+                row.balance = bal["balance"]
+                row.drcr = bal["drcr"]
+                row.signed_balance = bal["signed_balance"]
+                row.ps_last_line_balance = bal.get("ps_last_line_balance")
+                row.ps_last_balance_drcr = bal.get("ps_last_balance_drcr")
+                row.fetched_at = datetime.utcnow()
+                db.session.add(row)
+                _balance_fetch_status['success'] += 1
+
+                if _balance_fetch_status['success'] % 10 == 0:
+                    db.session.commit()
+
+                time.sleep(0.1)
+
+            except Exception as e:
+                _balance_fetch_status['failed'] += 1
+                if _balance_fetch_status['failed'] <= 10:
+                    _balance_fetch_status['errors'].append(f"{code}: {str(e)[:80]}")
+                logger.warning(f"Balance fetch failed for {code}: {e}")
+
+        db.session.commit()
+        _balance_fetch_status['done'] = True
+        _balance_fetch_status['running'] = False
+        logger.info(f"Balance fetch complete: {_balance_fetch_status['success']} ok, {_balance_fetch_status['failed']} failed, {_balance_fetch_status['skipped']} skipped")
+
+
 @reconciliation_bp.route('/api/customer-balances/fetch-all', methods=['POST'])
 @login_required
 @admin_or_warehouse_required
 def api_fetch_all_balances():
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    from services.ps365_statement import get_customer_balance_as_of_today
-    import time
+    import threading
+    from flask import current_app
 
-    try:
-        today = datetime.now(ZoneInfo("Asia/Nicosia")).date()
-    except Exception:
-        today = datetime.utcnow().date()
+    global _balance_fetch_status
+    if _balance_fetch_status.get('running'):
+        return jsonify({'ok': True, 'status': 'already_running', **_balance_fetch_status})
 
-    all_customers = PSCustomer.query.filter_by(is_deleted=False).all()
-    success = 0
-    failed = 0
-    skipped = 0
-    errors = []
+    _balance_fetch_status = {'running': True, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False}
+    app = current_app._get_current_object()
+    t = threading.Thread(target=_run_balance_fetch, args=(app,), daemon=True)
+    t.start()
 
-    for cust in all_customers:
-        code = cust.customer_code_365
-        cached = CustomerBalanceCache.query.get(code)
-        if cached and cached.as_of_date == today and CustomerBalanceCache.is_fresh(cached, 120):
-            skipped += 1
-            continue
+    return jsonify({'ok': True, 'status': 'started'})
 
-        try:
-            bal = get_customer_balance_as_of_today(code)
-            row = cached or CustomerBalanceCache(customer_code_365=code)
-            row.as_of_date = today
-            row.balance = bal["balance"]
-            row.drcr = bal["drcr"]
-            row.signed_balance = bal["signed_balance"]
-            row.ps_last_line_balance = bal.get("ps_last_line_balance")
-            row.ps_last_balance_drcr = bal.get("ps_last_balance_drcr")
-            row.fetched_at = datetime.utcnow()
-            db.session.add(row)
-            success += 1
 
-            if success % 25 == 0:
-                db.session.commit()
-
-            time.sleep(0.15)
-
-        except Exception as e:
-            failed += 1
-            if failed <= 10:
-                errors.append(f"{code}: {str(e)[:80]}")
-            logger.warning(f"Balance fetch failed for {code}: {e}")
-
-    db.session.commit()
-
-    return jsonify({
-        'ok': True,
-        'success': success,
-        'failed': failed,
-        'skipped': skipped,
-        'total': len(all_customers),
-        'errors': errors,
-    })
+@reconciliation_bp.route('/api/customer-balances/fetch-status', methods=['GET'])
+@login_required
+@admin_or_warehouse_required
+def api_fetch_balances_status():
+    return jsonify(_balance_fetch_status)
