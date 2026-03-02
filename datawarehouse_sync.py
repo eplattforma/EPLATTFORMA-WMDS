@@ -199,6 +199,9 @@ def build_item_core(ps_item: dict) -> dict:
         "supplier_item_code": ps_item.get("text_field_2_value") or None,
         "min_order_qty": to_int(ps_item.get("number_field_5_value")),
         "barcode": extract_primary_barcode(ps_item),
+        "vat_code_365": ps_item.get("vat_code_365") or None,
+        "vat_percent": to_float(ps_item.get("vat_percent")),
+        "cost_price": to_float(ps_item.get("maximum_purchase_price")),
     }
 
 
@@ -352,7 +355,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,list_item_barcodes",
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,maximum_purchase_price",
             },
         })
         
@@ -591,7 +594,7 @@ def full_dw_update(session: Session, force_update: bool = False, sync_trigger: s
     logger.info("Syncing items...")
     
     # Debug: Print the list_items endpoint payload being sent
-    logger.info("Using display_fields: item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_5_value,text_field_2_value,list_item_barcodes")
+    logger.info("Using display_fields: item_code_365,item_name,active,...,vat_code_365,vat_percent,maximum_purchase_price")
 
     page = 1
     total_inserted = 0
@@ -910,7 +913,7 @@ def incremental_dw_update(session: Session, sync_trigger: str = 'manual'):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,list_item_barcodes",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,maximum_purchase_price",
                 },
             })
             

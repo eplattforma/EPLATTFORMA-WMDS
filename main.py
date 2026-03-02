@@ -411,6 +411,27 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating SMS schema: {str(e)}")
 
+    try:
+        from app import db as _db
+        from sqlalchemy import text as sa_text
+        inspector = _db.inspect(_db.engine)
+        dw_cols = [col['name'] for col in inspector.get_columns('ps_items_dw')]
+        for col_name, col_def in [
+            ('vat_code_365', 'VARCHAR(20)'),
+            ('vat_percent', 'NUMERIC(6,2)'),
+            ('cost_price', 'NUMERIC(12,4)'),
+        ]:
+            if col_name not in dw_cols:
+                _db.session.execute(sa_text(f'ALTER TABLE ps_items_dw ADD COLUMN {col_name} {col_def}'))
+                logging.info(f"Added {col_name} column to ps_items_dw")
+        _db.session.commit()
+    except Exception as e:
+        logging.warning(f"DwItem pricing columns migration: {e}")
+        try:
+            _db.session.rollback()
+        except:
+            pass
+
     # Initialize remaining tables
     from app import db
     db.create_all()

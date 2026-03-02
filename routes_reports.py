@@ -153,7 +153,7 @@ def reserved_stock_777_send_po():
     if not PS365_BASE_URL or not PS365_TOKEN:
         return jsonify({"success": False, "error": "PS365 API not configured"}), 400
     
-    from models import SeasonSupplierSetting, Ps365ReservedStock777
+    from models import SeasonSupplierSetting, Ps365ReservedStock777, DwItem
     from app import db
     
     payload = request.get_json(force=True) or {}
@@ -169,6 +169,12 @@ def reserved_stock_777_send_po():
     
     rows = Ps365ReservedStock777.query.filter_by(season_name=season_code).all()
     
+    item_codes = [r.item_code_365 for r in rows]
+    dw_map = {}
+    if item_codes:
+        dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+        dw_map = {d.item_code_365: d for d in dw_items}
+    
     po_lines = []
     for r in rows:
         stock_val = float(r.stock or 0)
@@ -182,15 +188,21 @@ def reserved_stock_777_send_po():
         
         if required > 0:
             ps365_qty = math.ceil(required / pieces_per_unit)
-            po_lines.append({
+            dw = dw_map.get(r.item_code_365)
+            line_data = {
                 "item_code_365": r.item_code_365,
                 "item_name": r.item_name,
                 "line_quantity": str(ps365_qty),
                 "required_qty": required,
                 "pieces_per_unit": pieces_per_unit,
                 "barcode": r.barcode or "",
-                "supplier_item_code": r.supplier_item_code or ""
-            })
+                "supplier_item_code": r.supplier_item_code or "",
+            }
+            if dw and dw.cost_price is not None and float(dw.cost_price) > 0:
+                line_data["cost_price"] = float(dw.cost_price)
+            if dw and dw.vat_code_365:
+                line_data["vat_code_365"] = dw.vat_code_365
+            po_lines.append(line_data)
     
     if not po_lines:
         return jsonify({"success": False, "error": "No items require ordering (all items already on PO)"}), 400
@@ -219,11 +231,16 @@ def reserved_stock_777_send_po():
         }
         
         for idx, ln in enumerate(po_lines, start=1):
-            po_payload["order"]["list_purchase_order_details"].append({
+            line_detail = {
                 "line_number": str(idx),
                 "item_code_365": ln["item_code_365"],
-                "line_quantity": ln["line_quantity"]
-            })
+                "line_quantity": ln["line_quantity"],
+            }
+            if "cost_price" in ln:
+                line_detail["line_price_excl_vat"] = str(ln["cost_price"])
+            if "vat_code_365" in ln:
+                line_detail["line_vat_code_365"] = ln["vat_code_365"]
+            po_payload["order"]["list_purchase_order_details"].append(line_detail)
         
         url = f"{PS365_BASE_URL}/purchaseorder"
         resp = requests.post(url, json=po_payload, timeout=120)
@@ -393,7 +410,7 @@ def reserved_stock_777_create_po():
         flash("PS365 API not configured. Please set PS365_BASE_URL and PS365_TOKEN.", "danger")
         return redirect(url_for("reports.reserved_stock_777"))
     
-    from models import Ps365ReservedStock777
+    from models import Ps365ReservedStock777, DwItem
     
     supplier_filter = request.form.get("supplier_filter", "")
     supplier_code = request.form.get("supplier_code", "").strip()
@@ -403,6 +420,12 @@ def reserved_stock_777_create_po():
         return redirect(url_for("reports.reserved_stock_777"))
     
     rows = Ps365ReservedStock777.query.all()
+    
+    all_item_codes = [r.item_code_365 for r in rows]
+    dw_map2 = {}
+    if all_item_codes:
+        dw_items2 = DwItem.query.filter(DwItem.item_code_365.in_(all_item_codes)).all()
+        dw_map2 = {d.item_code_365: d for d in dw_items2}
     
     po_lines = []
     for r in rows:
@@ -420,15 +443,21 @@ def reserved_stock_777_create_po():
         
         if required > 0:
             ps365_qty = math.ceil(required / pieces_per_unit)
-            po_lines.append({
+            dw = dw_map2.get(r.item_code_365)
+            line_data = {
                 "item_code_365": r.item_code_365,
                 "item_name": r.item_name,
                 "line_quantity": str(ps365_qty),
                 "required_qty": required,
                 "pieces_per_unit": pieces_per_unit,
                 "barcode": r.barcode or "",
-                "supplier_item_code": r.supplier_item_code or ""
-            })
+                "supplier_item_code": r.supplier_item_code or "",
+            }
+            if dw and dw.cost_price is not None and float(dw.cost_price) > 0:
+                line_data["cost_price"] = float(dw.cost_price)
+            if dw and dw.vat_code_365:
+                line_data["vat_code_365"] = dw.vat_code_365
+            po_lines.append(line_data)
     
     if not po_lines:
         flash("No items with Required > 0 found for the selected filter.", "warning")
@@ -459,11 +488,16 @@ def reserved_stock_777_create_po():
         }
         
         for idx, ln in enumerate(po_lines, start=1):
-            payload["order"]["list_purchase_order_details"].append({
+            line_detail2 = {
                 "line_number": str(idx),
                 "item_code_365": ln["item_code_365"],
-                "line_quantity": ln["line_quantity"]
-            })
+                "line_quantity": ln["line_quantity"],
+            }
+            if "cost_price" in ln:
+                line_detail2["line_price_excl_vat"] = str(ln["cost_price"])
+            if "vat_code_365" in ln:
+                line_detail2["line_vat_code_365"] = ln["vat_code_365"]
+            payload["order"]["list_purchase_order_details"].append(line_detail2)
         
         url = f"{PS365_BASE_URL}/purchaseorder"
         resp = requests.post(url, json=payload, timeout=120)
