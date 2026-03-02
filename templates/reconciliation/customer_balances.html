@@ -56,8 +56,8 @@
         <div class="col-md-3">
             <div class="card bg-dark border-secondary">
                 <div class="card-body text-center">
-                    <div class="fs-3 fw-bold text-info">{{ customers|length }}</div>
-                    <div class="text-muted small">Customers with Balance ({{ cached_count }}/{{ total_customers }} cached)</div>
+                    <div class="fs-3 fw-bold text-info">{{ with_balance_count }}</div>
+                    <div class="text-muted small">With Balance ({{ fetched_count }}/{{ total_customers }} fetched)</div>
                 </div>
             </div>
         </div>
@@ -70,9 +70,11 @@
             </div>
             <div class="col-md-2">
                 <select class="form-select bg-dark text-white border-secondary" id="filterType" onchange="filterTable()">
-                    <option value="all">All Balances</option>
+                    <option value="with_balance">With Balance Only</option>
                     <option value="dr">Debtors Only (DR)</option>
                     <option value="cr">Credits Only (CR)</option>
+                    <option value="not_fetched">Not Fetched</option>
+                    <option value="all">All Customers</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -115,7 +117,7 @@
             </thead>
             <tbody id="balancesBody">
                 {% for c in customers %}
-                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}">
+                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}" data-fetched="{{ '1' if c.has_data else '0' }}">
                     <td><span class="text-info">{{ c.code }}</span></td>
                     <td>{{ c.name }}</td>
                     <td class="text-muted">{{ c.town }}</td>
@@ -123,23 +125,24 @@
                     <td class="text-muted small">{{ c.agent }}</td>
                     <td class="text-muted small">{{ c.phone }}</td>
                     <td class="text-end">{% if c.credit_limit %}&euro;{{ "{:,.2f}".format(c.credit_limit) }}{% else %}-{% endif %}</td>
-                    <td class="text-end fw-bold {% if c.drcr == 'DR' %}text-danger{% else %}text-success{% endif %}">
-                        &euro;{{ "{:,.2f}".format(c.balance) }}
+                    {% if c.has_data %}
+                    <td class="text-end fw-bold {% if c.drcr == 'DR' %}text-danger{% elif c.drcr == 'CR' %}text-success{% endif %}">
+                        {% if c.signed_balance != 0 %}&euro;{{ "{:,.2f}".format(c.balance) }}{% else %}&euro;0.00{% endif %}
                     </td>
                     <td class="text-center">
+                        {% if c.signed_balance != 0 %}
                         <span class="badge {% if c.drcr == 'DR' %}bg-danger{% else %}bg-success{% endif %}">{{ c.drcr }}</span>
+                        {% else %}
+                        <span class="badge bg-secondary">-</span>
+                        {% endif %}
                     </td>
+                    {% else %}
+                    <td class="text-end text-muted small">Not fetched</td>
+                    <td class="text-center"><span class="badge bg-dark text-muted">?</span></td>
+                    {% endif %}
                     <td class="text-muted small">{{ c.as_of }}</td>
                 </tr>
                 {% endfor %}
-                {% if not customers %}
-                <tr>
-                    <td colspan="10" class="text-center text-muted py-4">
-                        <i class="fas fa-info-circle me-2"></i>
-                        No cached balances found. Click "Fetch All from PS365" to retrieve balances.
-                    </td>
-                </tr>
-                {% endif %}
             </tbody>
         </table>
     </div>
@@ -164,12 +167,17 @@ function filterTable() {
         const drcr = row.dataset.drcr;
         const agent = row.dataset.agent;
 
+        const fetched = row.dataset.fetched;
+        const signed = parseFloat(row.dataset.signed);
+
         let show = true;
         if (search && !code.includes(search) && !name.includes(search) && !town.includes(search)) {
             show = false;
         }
-        if (typeFilter === 'dr' && drcr !== 'dr') show = false;
-        if (typeFilter === 'cr' && drcr !== 'cr') show = false;
+        if (typeFilter === 'with_balance' && (fetched !== '1' || signed === 0)) show = false;
+        if (typeFilter === 'dr' && (drcr !== 'dr' || signed <= 0)) show = false;
+        if (typeFilter === 'cr' && (drcr !== 'cr' || signed >= 0)) show = false;
+        if (typeFilter === 'not_fetched' && fetched !== '0') show = false;
         if (agentFilter && agent !== agentFilter) show = false;
 
         row.style.display = show ? '' : 'none';
@@ -266,5 +274,9 @@ function startPolling() {
         } catch (_) {}
     }, 3000);
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    filterTable();
+});
 </script>
 {% endblock %}

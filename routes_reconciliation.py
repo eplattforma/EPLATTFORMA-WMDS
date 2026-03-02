@@ -778,6 +778,15 @@ def api_customer_balance():
         return jsonify({"ok": False, "error": "Could not retrieve balance from PS365"}), 500
 
 
+def _customer_base_filter():
+    return PSCustomer.query.filter(
+        PSCustomer.active == True,
+        db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
+        db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
+        db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%HELLENIC PETROLEUM%')),
+    )
+
+
 @reconciliation_bp.route('/customer-balances')
 @login_required
 @admin_or_warehouse_required
@@ -786,7 +795,7 @@ def customer_balances_report():
 
     rows = (
         db.session.query(
-            CustomerBalanceCache,
+            PSCustomer.customer_code_365,
             PSCustomer.company_name,
             PSCustomer.town,
             PSCustomer.category_1_name,
@@ -794,53 +803,66 @@ def customer_balances_report():
             PSCustomer.tel_1,
             PSCustomer.mobile,
             PSCustomer.credit_limit_amount,
+            CustomerBalanceCache.balance,
+            CustomerBalanceCache.drcr,
+            CustomerBalanceCache.signed_balance,
+            CustomerBalanceCache.as_of_date,
+            CustomerBalanceCache.fetched_at,
         )
-        .join(PSCustomer, PSCustomer.customer_code_365 == CustomerBalanceCache.customer_code_365)
+        .outerjoin(CustomerBalanceCache, CustomerBalanceCache.customer_code_365 == PSCustomer.customer_code_365)
         .filter(
-            CustomerBalanceCache.signed_balance != 0,
             PSCustomer.active == True,
             db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
             db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
             db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%HELLENIC PETROLEUM%')),
         )
-        .order_by(CustomerBalanceCache.signed_balance.desc())
         .all()
     )
 
     customers = []
     total_dr = Decimal('0')
     total_cr = Decimal('0')
-    for cache, name, town, cat, agent, tel, mobile, credit_limit in rows:
-        sb = cache.signed_balance or Decimal('0')
+    fetched_count = 0
+    with_balance_count = 0
+
+    for code, name, town, cat, agent, tel, mobile, credit_limit, balance, drcr, signed_balance, as_of, fetched_at in rows:
+        has_data = balance is not None
+        if has_data:
+            fetched_count += 1
+        sb = Decimal(str(signed_balance or 0))
+        bal = float(balance or 0)
         if sb > 0:
             total_dr += sb
-        else:
+        elif sb < 0:
             total_cr += abs(sb)
+        if has_data and sb != 0:
+            with_balance_count += 1
         customers.append({
-            'code': cache.customer_code_365,
-            'name': name or cache.customer_code_365,
+            'code': code,
+            'name': name or code,
             'town': town or '',
             'category': cat or '',
             'agent': agent or '',
             'phone': mobile or tel or '',
             'credit_limit': float(credit_limit or 0),
-            'balance': float(cache.balance),
-            'drcr': cache.drcr,
+            'balance': bal,
+            'drcr': drcr or '',
             'signed_balance': float(sb),
-            'as_of': str(cache.as_of_date) if cache.as_of_date else '',
-            'fetched_at': cache.fetched_at.strftime('%Y-%m-%d %H:%M') if cache.fetched_at else '',
+            'as_of': str(as_of) if as_of else '',
+            'fetched_at': fetched_at.strftime('%Y-%m-%d %H:%M') if fetched_at else '',
+            'has_data': has_data,
         })
 
-    total_customers = db.session.query(func.count(PSCustomer.customer_code_365)).scalar() or 0
-    cached_count = db.session.query(func.count(CustomerBalanceCache.customer_code_365)).scalar() or 0
+    customers.sort(key=lambda c: c['signed_balance'], reverse=True)
 
     return render_template('reconciliation/customer_balances.html',
                            customers=customers,
                            total_dr=float(total_dr),
                            total_cr=float(total_cr),
                            net_balance=float(total_dr - total_cr),
-                           total_customers=total_customers,
-                           cached_count=cached_count)
+                           total_customers=len(rows),
+                           fetched_count=fetched_count,
+                           with_balance_count=with_balance_count)
 
 
 _balance_fetch_status = {'running': False, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False}
@@ -859,12 +881,7 @@ def _run_balance_fetch(app):
         except Exception:
             today = datetime.utcnow().date()
 
-        all_customers = PSCustomer.query.filter(
-            PSCustomer.active == True,
-            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
-            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
-            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%HELLENIC PETROLEUM%')),
-        ).all()
+        all_customers = _customer_base_filter().all()
         _balance_fetch_status['total'] = len(all_customers)
 
         for cust in all_customers:
