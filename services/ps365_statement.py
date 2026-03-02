@@ -86,35 +86,37 @@ def compute_balance_from_lines(statement_json: dict):
     }
 
 
-def get_customer_balance_as_of_today(customer_code_365: str):
+def get_customer_balance_quick(customer_code_365: str):
     today = _cyprus_today()
     to_date = today.isoformat()
 
-    lookback_attempts = [
-        DEFAULT_LOOKBACK_YEARS,
-        5,
-        3,
-        2,
-        1,
-    ]
-    seen = set()
-    for years in lookback_attempts:
-        from_year = today.year - years
-        from_date = f"{from_year}-01-01"
-        if from_date in seen:
-            continue
-        seen.add(from_date)
-        try:
-            stmt = fetch_statement(customer_code_365, from_date=from_date, to_date=to_date)
-            bal = compute_balance_from_lines(stmt)
-            bal["as_of"] = to_date
-            if years < DEFAULT_LOOKBACK_YEARS:
-                logger.info(f"Balance for {customer_code_365}: used {years}y lookback (default {DEFAULT_LOOKBACK_YEARS}y had too many rows)")
-            return bal
-        except RuntimeError as e:
-            if "more than 500 rows" in str(e).lower() or "500 rows" in str(e):
-                logger.warning(f"Balance for {customer_code_365}: {years}y lookback too large, trying shorter window")
-                continue
-            raise
+    stmt = fetch_statement(customer_code_365, from_date=to_date, to_date=to_date)
+    lines = (stmt or {}).get("list_statement_lines") or []
 
-    raise RuntimeError(f"PS365 statement for {customer_code_365} exceeds 500 rows even with 1-year lookback")
+    if not lines:
+        return {
+            "balance": 0.0,
+            "drcr": "DR",
+            "signed_balance": 0.0,
+            "ps_last_line_balance": None,
+            "ps_last_balance_drcr": None,
+            "as_of": to_date,
+        }
+
+    last = lines[-1]
+    lb = float(last.get("line_balance") or 0.0)
+    drcr = (last.get("balance_drcr") or "DR").upper().strip()
+    signed = lb if drcr == "DR" else -lb
+
+    return {
+        "balance": lb,
+        "drcr": drcr,
+        "signed_balance": round(signed, 2),
+        "ps_last_line_balance": lb,
+        "ps_last_balance_drcr": drcr,
+        "as_of": to_date,
+    }
+
+
+def get_customer_balance_as_of_today(customer_code_365: str):
+    return get_customer_balance_quick(customer_code_365)
