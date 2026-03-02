@@ -795,8 +795,13 @@ def customer_balances_report():
             PSCustomer.mobile,
             PSCustomer.credit_limit_amount,
         )
-        .outerjoin(PSCustomer, PSCustomer.customer_code_365 == CustomerBalanceCache.customer_code_365)
-        .filter(CustomerBalanceCache.signed_balance != 0)
+        .join(PSCustomer, PSCustomer.customer_code_365 == CustomerBalanceCache.customer_code_365)
+        .filter(
+            CustomerBalanceCache.signed_balance != 0,
+            PSCustomer.active == True,
+            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
+            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
+        )
         .order_by(CustomerBalanceCache.signed_balance.desc())
         .all()
     )
@@ -853,7 +858,11 @@ def _run_balance_fetch(app):
         except Exception:
             today = datetime.utcnow().date()
 
-        all_customers = PSCustomer.query.all()
+        all_customers = PSCustomer.query.filter(
+            PSCustomer.active == True,
+            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
+            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
+        ).all()
         _balance_fetch_status['total'] = len(all_customers)
 
         for cust in all_customers:
