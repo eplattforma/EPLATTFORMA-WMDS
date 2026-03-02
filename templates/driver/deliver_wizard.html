@@ -1362,10 +1362,14 @@ function markPaymentDoneAndNext() {
 }
 
 async function closeStop() {
-    refreshHeaderAndSteps();
     const btn = document.getElementById('btnFinishStop');
-    if (btn && btn.disabled) return;
-    await submitDelivery();
+    if (btn) btn.disabled = true;
+    try {
+        await submitDelivery();
+    } finally {
+        if (btn) btn.disabled = false;
+        refreshHeaderAndSteps();
+    }
 }
 
 async function submitDelivery() {
