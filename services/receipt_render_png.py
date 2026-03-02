@@ -7,8 +7,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 DOT_WIDTH_DEFAULT = 576
-PADDING_X = 20
-PADDING_Y = 20
+PADDING_X = 16
+PADDING_Y = 14
 
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 FONT_BOLD_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
@@ -70,9 +70,9 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
     cs = _load_company_settings()
 
-    font_body = ImageFont.truetype(FONT_PATH, 28)
-    font_bold = ImageFont.truetype(FONT_BOLD_PATH, 28)
-    font_title = ImageFont.truetype(FONT_BOLD_PATH, 34)
+    font_body = ImageFont.truetype(FONT_PATH, 24)
+    font_bold = ImageFont.truetype(FONT_BOLD_PATH, 24)
+    font_title = ImageFont.truetype(FONT_BOLD_PATH, 30)
 
     dummy = Image.new("L", (dot_width, 200), 255)
     d = ImageDraw.Draw(dummy)
@@ -202,11 +202,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add("the driver returns to the warehouse")
         add("and will be emailed to:")
         add_b(customer_email)
-        for _ in range(6):
+        for _ in range(3):
             add("")
 
-        line_h_body = 36
-        line_h_title = 44
+        line_h_body = 30
+        line_h_title = 38
         height = PADDING_Y * 2 + sum(
             line_h_title if t == "title" else line_h_body for t, _ in lines
         )
@@ -236,7 +236,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         img = img.convert("1")
         out = BytesIO()
-        img.save(out, format="PNG")
+        img.save(out, format="PNG", optimize=True, compress_level=9)
         return out.getvalue()
 
     if doc_type == "official":
@@ -340,11 +340,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add("Payment acknowledgement for the")
         add("invoice(s) referenced above.")
         add("Not a tax invoice.")
-        for _ in range(6):
+        for _ in range(3):
             add("")
 
-        line_h_body = 36
-        line_h_title = 44
+        line_h_body = 30
+        line_h_title = 38
         height = PADDING_Y * 2 + sum(
             line_h_title if t == "title" else line_h_body for t, _ in lines
         )
@@ -371,7 +371,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
                 y += line_h_body
         img = img.convert("1")
         out = BytesIO()
-        img.save(out, format="PNG")
+        img.save(out, format="PNG", optimize=True, compress_level=9)
         return out.getvalue()
 
     if doc_type == "online_notice":
@@ -451,7 +451,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
             add(sep)
 
         net_payable = Decimal(str(data.get("net_payable", "0") or "0"))
-        font_net = ImageFont.truetype(FONT_BOLD_PATH, 32)
+        font_net = ImageFont.truetype(FONT_BOLD_PATH, 28)
         add("")
         lines.append(("net_payable", f"TOTAL PAYABLE: {money(net_payable)}"))
         add("")
@@ -485,11 +485,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add_b(f"  {ref_str}")
         add(sep)
 
-        for _ in range(6):
+        for _ in range(3):
             add("")
 
-        line_h_body = 36
-        line_h_title = 44
+        line_h_body = 30
+        line_h_title = 38
         line_h_net = 46
         height = PADDING_Y * 2 + sum(
             line_h_title if t == "title" else (line_h_net if t == "net_payable" else line_h_body)
@@ -523,7 +523,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
                 y += line_h_body
         img = img.convert("1")
         out = BytesIO()
-        img.save(out, format="PNG")
+        img.save(out, format="PNG", optimize=True, compress_level=9)
         return out.getvalue()
 
     if doc_type == "pdc_ack":
@@ -634,11 +634,11 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         add("Any credit notes/adjustments are")
         add("issued by Accounts.")
         add(sep)
-        for _ in range(6):
+        for _ in range(3):
             add("")
 
-        line_h_body = 36
-        line_h_title = 44
+        line_h_body = 30
+        line_h_title = 38
         height = PADDING_Y * 2 + sum(
             line_h_title if t == "title" else line_h_body for t, _ in lines
         )
@@ -665,7 +665,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
                 y += line_h_body
         img = img.convert("1")
         out = BytesIO()
-        img.save(out, format="PNG")
+        img.save(out, format="PNG", optimize=True, compress_level=9)
         return out.getvalue()
 
     if is_preview:
@@ -796,8 +796,8 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
     add("Driver Signature:")
     add(sig_line)
 
-    line_h_body = 36
-    line_h_title = 44
+    line_h_body = 30
+    line_h_title = 38
     height = PADDING_Y * 2 + sum(
         line_h_title if t == "title" else line_h_body for t, _ in lines
     )
@@ -827,5 +827,5 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
     img = img.convert("1")
     out = BytesIO()
-    img.save(out, format="PNG")
+    img.save(out, format="PNG", optimize=True, compress_level=9)
     return out.getvalue()
