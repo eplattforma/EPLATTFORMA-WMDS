@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}Customer Balances Report{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <a href="{{ url_for('reconciliation.shipment_list') }}" class="btn btn-sm btn-outline-secondary me-2">
+                <i class="fas fa-arrow-left"></i> Back
+            </a>
+        </div>
+        <h4 class="mb-0"><i class="fas fa-balance-scale text-primary"></i> Customer Balances</h4>
+        <div>
+            <button class="btn btn-primary" id="btnFetchAll" onclick="fetchAllBalances()">
+                <i class="fas fa-sync-alt me-1"></i> Fetch All from PS365
+            </button>
+        </div>
+    </div>
+
+    <div id="fetch-progress" class="alert alert-info" style="display:none;">
+        <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-3"></div>
+            <div>
+                <strong>Fetching balances from PS365...</strong>
+                <div class="small text-muted">This may take a few minutes for {{ total_customers }} customers. Please wait.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-dark border-secondary">
+                <div class="card-body text-center">
+                    <div class="text-danger fs-3 fw-bold">&euro;{{ "{:,.2f}".format(total_dr) }}</div>
+                    <div class="text-muted small">Total Debtors (DR)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-dark border-secondary">
+                <div class="card-body text-center">
+                    <div class="text-success fs-3 fw-bold">&euro;{{ "{:,.2f}".format(total_cr) }}</div>
+                    <div class="text-muted small">Total Credits (CR)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-dark border-secondary">
+                <div class="card-body text-center">
+                    <div class="fs-3 fw-bold {% if net_balance > 0 %}text-danger{% else %}text-success{% endif %}">&euro;{{ "{:,.2f}".format(net_balance) }}</div>
+                    <div class="text-muted small">Net Balance</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-dark border-secondary">
+                <div class="card-body text-center">
+                    <div class="fs-3 fw-bold text-info">{{ customers|length }}</div>
+                    <div class="text-muted small">Customers with Balance ({{ cached_count }}/{{ total_customers }} cached)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <div class="row g-2">
+            <div class="col-md-4">
+                <input type="text" class="form-control bg-dark text-white border-secondary" id="searchInput" placeholder="Search customer name, code, town..." oninput="filterTable()">
+            </div>
+            <div class="col-md-2">
+                <select class="form-select bg-dark text-white border-secondary" id="filterType" onchange="filterTable()">
+                    <option value="all">All Balances</option>
+                    <option value="dr">Debtors Only (DR)</option>
+                    <option value="cr">Credits Only (CR)</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select class="form-select bg-dark text-white border-secondary" id="filterAgent" onchange="filterTable()">
+                    <option value="">All Agents</option>
+                    {% set agents = customers|map(attribute='agent')|unique|sort %}
+                    {% for a in agents %}
+                    {% if a %}
+                    <option value="{{ a }}">{{ a }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select class="form-select bg-dark text-white border-secondary" id="sortBy" onchange="sortTable()">
+                    <option value="balance_desc">Balance (High to Low)</option>
+                    <option value="balance_asc">Balance (Low to High)</option>
+                    <option value="name_asc">Name (A-Z)</option>
+                    <option value="code_asc">Code (A-Z)</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-dark table-striped table-hover" id="balancesTable">
+            <thead class="table-secondary">
+                <tr>
+                    <th>Code</th>
+                    <th>Customer</th>
+                    <th>Town</th>
+                    <th>Category</th>
+                    <th>Agent</th>
+                    <th>Phone</th>
+                    <th class="text-end">Credit Limit</th>
+                    <th class="text-end">Balance</th>
+                    <th class="text-center">DR/CR</th>
+                    <th>As Of</th>
+                </tr>
+            </thead>
+            <tbody id="balancesBody">
+                {% for c in customers %}
+                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}">
+                    <td><span class="text-info">{{ c.code }}</span></td>
+                    <td>{{ c.name }}</td>
+                    <td class="text-muted">{{ c.town }}</td>
+                    <td class="text-muted small">{{ c.category }}</td>
+                    <td class="text-muted small">{{ c.agent }}</td>
+                    <td class="text-muted small">{{ c.phone }}</td>
+                    <td class="text-end">{% if c.credit_limit %}&euro;{{ "{:,.2f}".format(c.credit_limit) }}{% else %}-{% endif %}</td>
+                    <td class="text-end fw-bold {% if c.drcr == 'DR' %}text-danger{% else %}text-success{% endif %}">
+                        &euro;{{ "{:,.2f}".format(c.balance) }}
+                    </td>
+                    <td class="text-center">
+                        <span class="badge {% if c.drcr == 'DR' %}bg-danger{% else %}bg-success{% endif %}">{{ c.drcr }}</span>
+                    </td>
+                    <td class="text-muted small">{{ c.as_of }}</td>
+                </tr>
+                {% endfor %}
+                {% if not customers %}
+                <tr>
+                    <td colspan="10" class="text-center text-muted py-4">
+                        <i class="fas fa-info-circle me-2"></i>
+                        No cached balances found. Click "Fetch All from PS365" to retrieve balances.
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="text-muted small mt-2" id="rowCount">
+        Showing {{ customers|length }} customers with outstanding balances
+    </div>
+</div>
+
+<script>
+function filterTable() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const typeFilter = document.getElementById('filterType').value;
+    const agentFilter = document.getElementById('filterAgent').value;
+    const rows = document.querySelectorAll('#balancesBody tr[data-code]');
+    let visible = 0;
+
+    rows.forEach(row => {
+        const code = row.dataset.code.toLowerCase();
+        const name = row.dataset.name;
+        const town = row.dataset.town;
+        const drcr = row.dataset.drcr;
+        const agent = row.dataset.agent;
+
+        let show = true;
+        if (search && !code.includes(search) && !name.includes(search) && !town.includes(search)) {
+            show = false;
+        }
+        if (typeFilter === 'dr' && drcr !== 'dr') show = false;
+        if (typeFilter === 'cr' && drcr !== 'cr') show = false;
+        if (agentFilter && agent !== agentFilter) show = false;
+
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+
+    document.getElementById('rowCount').textContent = `Showing ${visible} customers`;
+}
+
+function sortTable() {
+    const sortBy = document.getElementById('sortBy').value;
+    const tbody = document.getElementById('balancesBody');
+    const rows = Array.from(tbody.querySelectorAll('tr[data-code]'));
+
+    rows.sort((a, b) => {
+        if (sortBy === 'balance_desc') return parseFloat(b.dataset.signed) - parseFloat(a.dataset.signed);
+        if (sortBy === 'balance_asc') return parseFloat(a.dataset.signed) - parseFloat(b.dataset.signed);
+        if (sortBy === 'name_asc') return a.dataset.name.localeCompare(b.dataset.name);
+        if (sortBy === 'code_asc') return a.dataset.code.localeCompare(b.dataset.code);
+        return 0;
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+async function fetchAllBalances() {
+    const btn = document.getElementById('btnFetchAll');
+    const progress = document.getElementById('fetch-progress');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Fetching...';
+    progress.style.display = 'block';
+
+    try {
+        const response = await fetch('/reconciliation/api/customer-balances/fetch-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+
+        if (data.ok) {
+            let msg = `Done! ${data.success} fetched, ${data.skipped} already cached, ${data.failed} failed.`;
+            if (data.errors && data.errors.length > 0) {
+                msg += '\n\nErrors:\n' + data.errors.join('\n');
+            }
+            alert(msg);
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to fetch balances');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Fetch All from PS365';
+        progress.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

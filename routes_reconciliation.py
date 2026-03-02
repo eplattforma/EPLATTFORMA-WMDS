@@ -10,7 +10,7 @@ from decimal import Decimal
 import logging
 
 from app import db
-from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice, BankTransaction
+from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice, BankTransaction, PSCustomer, CustomerBalanceCache
 from models import utc_now
 import services_reconciliation as recon
 
@@ -776,3 +776,125 @@ def api_customer_balance():
                 "signed_balance": float(cached.signed_balance),
             })
         return jsonify({"ok": False, "error": "Could not retrieve balance from PS365"}), 500
+
+
+@reconciliation_bp.route('/customer-balances')
+@login_required
+@admin_or_warehouse_required
+def customer_balances_report():
+    from sqlalchemy import func
+
+    rows = (
+        db.session.query(
+            CustomerBalanceCache,
+            PSCustomer.company_name,
+            PSCustomer.town,
+            PSCustomer.category_1_name,
+            PSCustomer.agent_name,
+            PSCustomer.tel_1,
+            PSCustomer.mobile,
+            PSCustomer.credit_limit_amount,
+        )
+        .outerjoin(PSCustomer, PSCustomer.customer_code_365 == CustomerBalanceCache.customer_code_365)
+        .filter(CustomerBalanceCache.signed_balance != 0)
+        .order_by(CustomerBalanceCache.signed_balance.desc())
+        .all()
+    )
+
+    customers = []
+    total_dr = Decimal('0')
+    total_cr = Decimal('0')
+    for cache, name, town, cat, agent, tel, mobile, credit_limit in rows:
+        sb = cache.signed_balance or Decimal('0')
+        if sb > 0:
+            total_dr += sb
+        else:
+            total_cr += abs(sb)
+        customers.append({
+            'code': cache.customer_code_365,
+            'name': name or cache.customer_code_365,
+            'town': town or '',
+            'category': cat or '',
+            'agent': agent or '',
+            'phone': mobile or tel or '',
+            'credit_limit': float(credit_limit or 0),
+            'balance': float(cache.balance),
+            'drcr': cache.drcr,
+            'signed_balance': float(sb),
+            'as_of': str(cache.as_of_date) if cache.as_of_date else '',
+            'fetched_at': cache.fetched_at.strftime('%Y-%m-%d %H:%M') if cache.fetched_at else '',
+        })
+
+    total_customers = db.session.query(func.count(PSCustomer.customer_code_365)).scalar() or 0
+    cached_count = db.session.query(func.count(CustomerBalanceCache.customer_code_365)).scalar() or 0
+
+    return render_template('reconciliation/customer_balances.html',
+                           customers=customers,
+                           total_dr=float(total_dr),
+                           total_cr=float(total_cr),
+                           net_balance=float(total_dr - total_cr),
+                           total_customers=total_customers,
+                           cached_count=cached_count)
+
+
+@reconciliation_bp.route('/api/customer-balances/fetch-all', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_fetch_all_balances():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from services.ps365_statement import get_customer_balance_as_of_today
+    import time
+
+    try:
+        today = datetime.now(ZoneInfo("Asia/Nicosia")).date()
+    except Exception:
+        today = datetime.utcnow().date()
+
+    all_customers = PSCustomer.query.filter_by(is_deleted=False).all()
+    success = 0
+    failed = 0
+    skipped = 0
+    errors = []
+
+    for cust in all_customers:
+        code = cust.customer_code_365
+        cached = CustomerBalanceCache.query.get(code)
+        if cached and cached.as_of_date == today and CustomerBalanceCache.is_fresh(cached, 120):
+            skipped += 1
+            continue
+
+        try:
+            bal = get_customer_balance_as_of_today(code)
+            row = cached or CustomerBalanceCache(customer_code_365=code)
+            row.as_of_date = today
+            row.balance = bal["balance"]
+            row.drcr = bal["drcr"]
+            row.signed_balance = bal["signed_balance"]
+            row.ps_last_line_balance = bal.get("ps_last_line_balance")
+            row.ps_last_balance_drcr = bal.get("ps_last_balance_drcr")
+            row.fetched_at = datetime.utcnow()
+            db.session.add(row)
+            success += 1
+
+            if success % 25 == 0:
+                db.session.commit()
+
+            time.sleep(0.15)
+
+        except Exception as e:
+            failed += 1
+            if failed <= 10:
+                errors.append(f"{code}: {str(e)[:80]}")
+            logger.warning(f"Balance fetch failed for {code}: {e}")
+
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'success': success,
+        'failed': failed,
+        'skipped': skipped,
+        'total': len(all_customers),
+        'errors': errors,
+    })

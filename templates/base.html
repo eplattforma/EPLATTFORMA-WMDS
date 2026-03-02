@@ -225,9 +225,15 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint and 'reconciliation' in request.endpoint and request.endpoint != 'reconciliation.pending_payments' %}active{% endif %}" 
+                                <a class="dropdown-item {% if request.endpoint and 'reconciliation' in request.endpoint and request.endpoint != 'reconciliation.pending_payments' and request.endpoint != 'reconciliation.customer_balances_report' %}active{% endif %}" 
                                    href="{{ url_for('reconciliation.shipment_list') }}">
                                     <i class="fas fa-check-double me-2"></i>Route Reconciliation
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'reconciliation.customer_balances_report' %}active{% endif %}" 
+                                   href="{{ url_for('reconciliation.customer_balances_report') }}">
+                                    <i class="fas fa-balance-scale me-2"></i>Customer Balances
                                 </a>
                             </li>
                         </ul>
