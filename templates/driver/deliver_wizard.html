@@ -471,6 +471,33 @@ input[type=number]::-webkit-inner-spin-button {
     </div>
 </div>
 
+<div id="delivery-success-overlay" style="display:none; position:fixed; inset:0; z-index:9999; background:#1a1a2e; flex-direction:column; align-items:center; justify-content:center; padding:24px;">
+    <div style="text-align:center; max-width:400px; width:100%;">
+        <div style="font-size:64px; margin-bottom:12px;">&#10004;</div>
+        <h2 style="color:#2ecc71; font-size:1.8rem; margin-bottom:8px;">Delivery Complete</h2>
+        <p style="color:#95a5a6; margin-bottom:28px;">Stop closed successfully</p>
+
+        <div style="margin-bottom:16px;">
+            <button id="btn-print-receipt" class="btn btn-lg w-100" style="display:none; background:#2980b9; color:#fff; border:none; padding:18px; font-size:1.2rem; border-radius:12px;" onclick="printReceiptFromOverlay()">
+                <i class="fas fa-print me-2"></i> Print Receipt
+            </button>
+            <div id="receipt-print-status" style="color:#95a5a6; font-size:0.85rem; margin-top:6px;"></div>
+        </div>
+
+        <div style="margin-bottom:28px;">
+            <button id="btn-print-exceptions" class="btn btn-lg w-100" style="display:none; background:#e67e22; color:#fff; border:none; padding:18px; font-size:1.2rem; border-radius:12px;" onclick="printExceptionsFromOverlay()">
+                <i class="fas fa-exclamation-triangle me-2"></i> Print Exceptions
+            </button>
+            <div id="exceptions-print-status" style="color:#95a5a6; font-size:0.85rem; margin-top:6px;"></div>
+        </div>
+
+        <a href="/driver/routes/{{ route.id }}/stops" class="btn btn-lg w-100" style="background:#27ae60; color:#fff; border:none; padding:16px; font-size:1.2rem; border-radius:12px;">
+            <i class="fas fa-arrow-left me-2"></i> Back to Stops
+        </a>
+        <p style="color:#7f8c8d; font-size:0.8rem; margin-top:16px;">You can also reprint from the stops list</p>
+    </div>
+</div>
+
 <script>
 const items = {{ items|tojson }};
 const invoiceNos = {{ invoice_nos|tojson }};
@@ -1400,74 +1427,7 @@ async function submitDelivery() {
             lastSubmitData = data;
             window.deliverySaved = true;
 
-            if (data.print_png_url) {
-                let printOk = false;
-                try {
-                    const printRes = await fetch(data.print_png_url, { cache: 'no-store' });
-                    if (!printRes.ok) {
-                        let errMsg = 'Could not register payment in Powersoft.';
-                        try { const errData = await printRes.json(); errMsg = errData.error || errMsg; } catch (_) {}
-                        const retry = confirm(`Receipt not printed:\n\n${errMsg}\n\nTap OK to retry, or Cancel to go to stops list (office can reprint).`);
-                        if (retry) return;
-                    } else {
-                        const blob = await printRes.blob();
-                        const filename = `receipt-stop${stopId}.png`;
-                        const file = new File([blob], filename, { type: 'image/png' });
-                        try {
-                            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                                await navigator.share({ files: [file], title: 'Receipt' });
-                            } else {
-                                const objUrl = URL.createObjectURL(blob);
-                                window.open(objUrl, '_blank');
-                            }
-                            printOk = true;
-                        } catch (shareErr) {
-                            if (shareErr.name === 'AbortError') {
-                                // Driver dismissed the share sheet — receipt is issued, treat as success
-                                printOk = true;
-                            } else {
-                                console.error('Share error:', shareErr);
-                                const retry = confirm('Could not open share dialog.\n\nTap OK to retry, or Cancel to go to stops list.');
-                                if (retry) return;
-                            }
-                        }
-                    }
-                } catch (fetchErr) {
-                    console.error('Print fetch error:', fetchErr);
-                    const retry = confirm('Network error while printing receipt.\n\nTap OK to retry, or Cancel to go to stops list.');
-                    if (retry) return;
-                }
-            }
-
-            if (data.exceptions_print_url) {
-                try {
-                    const excRes = await fetch(data.exceptions_print_url, { cache: 'no-store' });
-                    if (excRes.ok && excRes.status !== 204) {
-                        const excBlob = await excRes.blob();
-                        const excFile = new File([excBlob], `exceptions-stop${stopId}.png`, { type: 'image/png' });
-                        let excPrinted = false;
-                        try {
-                            if (navigator.canShare && navigator.canShare({ files: [excFile] })) {
-                                await navigator.share({ files: [excFile], title: 'Exceptions Proof' });
-                                excPrinted = true;
-                            }
-                        } catch (shareErr) {
-                            if (shareErr.name === 'AbortError') {
-                                excPrinted = true;
-                            } else {
-                                console.error('Exceptions share error:', shareErr);
-                            }
-                        }
-                        if (!excPrinted) {
-                            window.open(URL.createObjectURL(excBlob), '_blank');
-                        }
-                    }
-                } catch (excFetchErr) {
-                    console.error('Exceptions print fetch error:', excFetchErr);
-                }
-            }
-
-            window.location.href = `/driver/routes/${routeId}/stops`;
+            showDeliverySuccess(data);
             return;
         } else {
             alert(data.error || 'Failed to complete delivery');
@@ -1476,6 +1436,118 @@ async function submitDelivery() {
         console.error('Error:', error);
         alert('Error completing delivery. Please try again.');
     }
+}
+
+let _receiptBlob = null;
+let _exceptionsBlob = null;
+
+function showDeliverySuccess(data) {
+    const overlay = document.getElementById('delivery-success-overlay');
+    const receiptBtn = document.getElementById('btn-print-receipt');
+    const exceptionsBtn = document.getElementById('btn-print-exceptions');
+    const receiptStatus = document.getElementById('receipt-print-status');
+    const exceptionsStatus = document.getElementById('exceptions-print-status');
+
+    receiptBtn.style.display = 'none';
+    exceptionsBtn.style.display = 'none';
+    receiptStatus.textContent = '';
+    exceptionsStatus.textContent = '';
+    _receiptBlob = null;
+    _exceptionsBlob = null;
+
+    overlay.style.display = 'flex';
+    document.getElementById('deliverApp').style.display = 'none';
+
+    if (data.print_png_url) {
+        receiptBtn.style.display = '';
+        receiptBtn.disabled = true;
+        receiptStatus.textContent = 'Loading...';
+        fetch(data.print_png_url, { cache: 'no-store' })
+            .then(r => {
+                if (!r.ok) throw new Error('Receipt generation failed');
+                return r.blob();
+            })
+            .then(blob => {
+                _receiptBlob = blob;
+                receiptBtn.disabled = false;
+                receiptStatus.textContent = '';
+            })
+            .catch(err => {
+                console.error('Receipt fetch error:', err);
+                receiptStatus.textContent = 'Could not load — use Reprint from stops list';
+                receiptBtn.disabled = true;
+            });
+    }
+
+    if (data.exceptions_print_url) {
+        exceptionsBtn.style.display = '';
+        exceptionsBtn.disabled = true;
+        exceptionsStatus.textContent = 'Loading...';
+        fetch(data.exceptions_print_url, { cache: 'no-store' })
+            .then(r => {
+                if (!r.ok || r.status === 204) throw new Error('No exceptions');
+                return r.blob();
+            })
+            .then(blob => {
+                _exceptionsBlob = blob;
+                exceptionsBtn.disabled = false;
+                exceptionsStatus.textContent = '';
+            })
+            .catch(err => {
+                console.error('Exceptions fetch error:', err);
+                exceptionsBtn.style.display = 'none';
+            });
+    }
+}
+
+async function printReceiptFromOverlay() {
+    if (!_receiptBlob) return;
+    const btn = document.getElementById('btn-print-receipt');
+    const status = document.getElementById('receipt-print-status');
+    btn.disabled = true;
+    try {
+        const file = new File([_receiptBlob], `receipt-stop${stopId}.png`, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'Receipt' });
+        } else {
+            window.open(URL.createObjectURL(_receiptBlob), '_blank');
+        }
+        status.innerHTML = '<i class="fas fa-check text-success"></i> Sent';
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            status.innerHTML = '<i class="fas fa-check text-success"></i> Done';
+        } else {
+            console.error('Share error:', e);
+            window.open(URL.createObjectURL(_receiptBlob), '_blank');
+            status.innerHTML = '<i class="fas fa-check text-success"></i> Opened';
+        }
+    }
+    btn.disabled = false;
+}
+
+async function printExceptionsFromOverlay() {
+    if (!_exceptionsBlob) return;
+    const btn = document.getElementById('btn-print-exceptions');
+    const status = document.getElementById('exceptions-print-status');
+    btn.disabled = true;
+    try {
+        const file = new File([_exceptionsBlob], `exceptions-stop${stopId}.png`, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'Exceptions Proof' });
+        } else {
+            window.open(URL.createObjectURL(_exceptionsBlob), '_blank');
+        }
+        status.innerHTML = '<i class="fas fa-check text-success"></i> Sent';
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            status.innerHTML = '<i class="fas fa-check text-success"></i> Done';
+        } else {
+            console.error('Share error:', e);
+            window.open(URL.createObjectURL(_exceptionsBlob), '_blank');
+            status.innerHTML = '<i class="fas fa-check text-success"></i> Opened';
+        }
+    }
+    btn.disabled = false;
 }
 
 function showCorrectionForm() {
