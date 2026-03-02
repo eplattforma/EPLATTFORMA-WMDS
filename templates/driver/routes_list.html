@@ -94,33 +94,42 @@
 <script>
 async function startRoute(routeId) {
     if (!confirm('Are you ready to start this route?')) return;
-    
+
+    const btn = event.target.closest('button');
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Starting...';
+    }
+
     try {
-        // Get GPS location if available (optional - don't fail if unavailable)
         let gps = null;
-        if (navigator.geolocation) {
-            try {
-                const position = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
-                });
-                gps = {
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude
-                };
-            } catch (gpsError) {
-                console.log('GPS not available, continuing without location');
-                // Continue without GPS - it's optional
+        try {
+            if (navigator.geolocation) {
+                const position = await Promise.race([
+                    new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            timeout: 2000,
+                            maximumAge: 60000,
+                            enableHighAccuracy: false
+                        });
+                    }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('gps_skip')), 2000))
+                ]).catch(() => null);
+                if (position && position.coords) {
+                    gps = { lat: position.coords.latitude, lng: position.coords.longitude };
+                }
             }
-        }
-        
+        } catch (_) {}
+
         const response = await fetch(`/driver/routes/${routeId}/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ gps })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             window.location.href = `/driver/routes/${routeId}/stops`;
         } else if (response.status === 409 && data.active_route_id) {
@@ -133,6 +142,11 @@ async function startRoute(routeId) {
     } catch (error) {
         console.error('Error starting route:', error);
         alert('Error starting route. Please try again.');
+    } finally {
+        if (btn) {
+            btn.innerHTML = origHtml;
+            btn.disabled = false;
+        }
     }
 }
 </script>
