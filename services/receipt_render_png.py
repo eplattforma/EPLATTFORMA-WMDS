@@ -90,7 +90,8 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
         lines.append(("bold", s))
 
     def add_c(s=""):
-        lines.append(("center", s))
+        for w_line in textwrap.wrap(s, width=cols) or [""]:
+            lines.append(("center", w_line))
 
     def add_t(s=""):
         lines.append(("title", s))
@@ -430,20 +431,25 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
                 qty_e = exc.get("qty_expected", "")
                 qty_a = exc.get("qty_actual", "")
                 ded = exc.get("deduction_value")
-                add(f"  {exc_type}: {item}")
+                exc_header = f"  {exc_type}: {item}"
+                for w in textwrap.wrap(exc_header, width=cols):
+                    add(w)
                 line_detail = f"  Exp: {qty_e} | Act: {qty_a}"
                 if ded is not None:
                     try:
                         line_detail += f"  {money(ded)}"
                     except Exception:
                         pass
-                add(line_detail)
+                for w in textwrap.wrap(line_detail, width=cols):
+                    add(w)
             add(sep)
-            add_b(_pad_right("  Exceptions deducted:", f"-{money(ex_total)}", cols))
+            ded_label = "Exceptions:"
+            ded_value = f"-{money(ex_total)}"
+            add_b(_pad_right(f"  {ded_label}", ded_value, cols))
             add(sep)
 
         net_payable = Decimal(str(data.get("net_payable", "0") or "0"))
-        font_net = ImageFont.truetype(FONT_BOLD_PATH, 38)
+        font_net = ImageFont.truetype(FONT_BOLD_PATH, 32)
         add("")
         lines.append(("net_payable", f"TOTAL PAYABLE: {money(net_payable)}"))
         add("")
@@ -451,14 +457,18 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         add_b("BANK TRANSFER DETAILS")
         add("Beneficiary:")
-        for w in wrap(cs['bank_beneficiary']):
+        for w in textwrap.wrap(cs['bank_beneficiary'], width=cols - 2):
             add(f"  {w}")
-        add(f"Bank: {cs['bank_name']}")
+        bank_line = f"Bank: {cs['bank_name']}"
+        for w in wrap(bank_line):
+            add(w)
         formatted_iban = format_iban(cs['bank_iban'])
         add("IBAN:")
-        for w in wrap(formatted_iban):
+        for w in textwrap.wrap(formatted_iban, width=cols - 2):
             add(f"  {w}")
-        add(f"BIC/SWIFT: {cs['bank_bic']}")
+        bic_line = f"BIC/SWIFT: {cs['bank_bic']}"
+        for w in wrap(bic_line):
+            add(w)
         add(sep)
 
         invoice_nos_plain = [str(inv.get("invoice_no", "")).strip() for inv in invoices if inv.get("invoice_no")]
@@ -479,7 +489,7 @@ def render_receipt_png(data: dict, dot_width: int = None) -> bytes:
 
         line_h_body = 36
         line_h_title = 44
-        line_h_net = 52
+        line_h_net = 46
         height = PADDING_Y * 2 + sum(
             line_h_title if t == "title" else (line_h_net if t == "net_payable" else line_h_body)
             for t, _ in lines
