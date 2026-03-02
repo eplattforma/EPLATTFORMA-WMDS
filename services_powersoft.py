@@ -119,6 +119,10 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
         import_errors = 0
         invoices_found_in_api = 0
         
+        from services_oi_time_estimator import DEFAULT_PARAMS, normalize_unit_type
+        oi_params = Setting.get_json(db.session, "oi_time_params_v1", DEFAULT_PARAMS)
+        pick_config = oi_params.get("pick", {})
+        
         if import_date:
             from_date = import_date
             to_date = import_date
@@ -240,17 +244,31 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                         invoice_committed = True
                         continue
 
-                    # Prefetch barcodes from DW
+                    import time as _time
+                    _inv_start = _time.time()
+                    
                     dw_items = DwItem.query.filter(DwItem.item_code_365.in_(all_item_codes)).all()
                     dw_map = {d.item_code_365: d for d in dw_items}
                     
-                    # Prefetch ALL existing items for this invoice (not just incoming codes)
                     all_existing_items = InvoiceItem.query.filter(
                         InvoiceItem.invoice_no == invoice_no_ps365
                     ).all()
                     existing_map = {it.item_code: it for it in all_existing_items}
                     existing_codes = set(existing_map.keys())
                     incoming_codes = set(all_item_codes)
+
+                    codes_needing_barcode = [c for c in all_item_codes if not (dw_map.get(c) and dw_map[c].barcode)]
+                    barcode_map = {}
+                    if codes_needing_barcode:
+                        try:
+                            from ps365_util import find_barcodes_for_items_ps365
+                            barcode_map = find_barcodes_for_items_ps365(codes_needing_barcode, timeout=15)
+                            for ic, bc in barcode_map.items():
+                                dw = dw_map.get(ic)
+                                if dw and bc:
+                                    dw.barcode = bc
+                        except Exception as bc_err:
+                            logging.warning(f"Batch barcode lookup failed for {invoice_no_ps365}: {bc_err}")
 
                     # BATCH fetch shelf locations for ALL items in this invoice
                     shelf_map = {}
@@ -277,16 +295,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                         qty_int = qty_by_code[item_code]
 
                         dw = dw_map.get(item_code)
-                        barcode = dw.barcode if dw else None
-                        
-                        if not barcode:
-                            try:
-                                from ps365_util import find_barcode_for_item_ps365
-                                barcode = _norm_barcode(find_barcode_for_item_ps365(item_code, timeout=10))
-                                if dw and barcode:
-                                    dw.barcode = barcode
-                            except:
-                                pass
+                        barcode = dw.barcode if dw else barcode_map.get(item_code)
 
                         shelf_location = shelf_map.get(item_code)
 
@@ -312,9 +321,6 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
 
                         exp_time_minutes = (15 + 16 * qty_int) / 60
                         try:
-                            from services_oi_time_estimator import DEFAULT_PARAMS, normalize_unit_type
-                            oi_params = Setting.get_json(db.session, "oi_time_params_v1", DEFAULT_PARAMS)
-                            pick_config = oi_params.get("pick", {})
                             norm_unit = normalize_unit_type(unit_type)
                             base_pick_seconds = pick_config.get("base_by_unit_type", {}).get(norm_unit, 6)
                             per_qty_seconds = pick_config.get("per_qty_by_unit_type", {}).get(norm_unit, 1.1)
@@ -396,6 +402,8 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
                     recalculate_invoice_totals(invoice_no_ps365, commit=False)
                     db.session.commit()
                     invoice_committed = True
+                    _inv_elapsed = _time.time() - _inv_start
+                    logging.info(f"Invoice {invoice_no_ps365}: processed {len(all_item_codes)} items in {_inv_elapsed:.1f}s")
                     
                 except Exception as inv_err:
                     db.session.rollback()

@@ -51,11 +51,30 @@ def get_sync_status(sync_type="invoices"):
         status = _read_status_file()
         return status.get(sync_type, {}).copy()
 
+STALE_LOCK_TIMEOUT_SECONDS = 1800
+
 def is_sync_running(sync_type="invoices"):
-    """Check if a sync is currently running"""
+    """Check if a sync is currently running. Auto-clears stale locks older than 30 minutes."""
     with _lock:
         status = _read_status_file()
-        return status.get(sync_type, {}).get("running", False)
+        sync_status = status.get(sync_type, {})
+        if not sync_status.get("running", False):
+            return False
+        started_at = sync_status.get("started_at")
+        if started_at:
+            try:
+                started_dt = datetime.fromisoformat(started_at)
+                elapsed = (datetime.now() - started_dt).total_seconds()
+                if elapsed > STALE_LOCK_TIMEOUT_SECONDS:
+                    logging.warning(f"Clearing stale {sync_type} sync lock (started {elapsed:.0f}s ago)")
+                    status[sync_type]["running"] = False
+                    status[sync_type]["error"] = f"Stale lock cleared after {elapsed:.0f}s"
+                    status[sync_type]["completed_at"] = datetime.now().isoformat()
+                    _write_status_file(status)
+                    return False
+            except (ValueError, TypeError):
+                pass
+        return True
 
 def _run_invoice_sync(app, invoice_no, import_date):
     """Background worker for invoice sync"""
