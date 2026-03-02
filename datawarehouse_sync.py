@@ -981,24 +981,8 @@ def incremental_dw_update(session: Session, sync_trigger: str = 'manual'):
                     })
                     
                     if existing:
-                        existing.item_name = core["item_name"]
-                        existing.active = core["active"]
-                        existing.category_code_365 = core["category_code_365"]
-                        existing.brand_code_365 = core["brand_code_365"]
-                        existing.season_code_365 = core["season_code_365"]
-                        existing.attribute_1_code_365 = core["attribute_1_code_365"]
-                        existing.attribute_2_code_365 = core["attribute_2_code_365"]
-                        existing.attribute_3_code_365 = core["attribute_3_code_365"]
-                        existing.attribute_4_code_365 = core["attribute_4_code_365"]
-                        existing.attribute_5_code_365 = core["attribute_5_code_365"]
-                        existing.attribute_6_code_365 = core["attribute_6_code_365"]
-                        existing.item_length = core["item_length"]
-                        existing.item_width = core["item_width"]
-                        existing.item_height = core["item_height"]
-                        existing.item_weight = core["item_weight"]
-                        existing.number_of_pieces = core["number_of_pieces"]
-                        existing.selling_qty = core["selling_qty"]
-                        existing.min_order_qty = core["min_order_qty"]
+                        for k, v in core.items():
+                            setattr(existing, k, v)
                         existing.attr_hash = attr_hash
                         existing.last_sync_at = now
                     else:
