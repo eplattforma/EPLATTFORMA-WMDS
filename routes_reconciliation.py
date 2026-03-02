@@ -801,6 +801,7 @@ def customer_balances_report():
             PSCustomer.active == True,
             db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
             db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
+            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%HELLENIC PETROLEUM%')),
         )
         .order_by(CustomerBalanceCache.signed_balance.desc())
         .all()
@@ -862,6 +863,7 @@ def _run_balance_fetch(app):
             PSCustomer.active == True,
             db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
             db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
+            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%HELLENIC PETROLEUM%')),
         ).all()
         _balance_fetch_status['total'] = len(all_customers)
 
