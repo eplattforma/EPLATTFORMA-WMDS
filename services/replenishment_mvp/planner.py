@@ -207,6 +207,9 @@ def generate_replenishment_run(
 
 
 def _resolve_case_qty(master: dict, settings: dict) -> float | None:
+    cq = master.get("case_qty")
+    if cq and cq > 0:
+        return float(cq)
     moq = master.get("min_order_qty")
     if moq and moq > 0:
         return float(moq)

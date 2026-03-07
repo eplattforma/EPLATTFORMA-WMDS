@@ -42,6 +42,7 @@ def get_item_master_for_codes(item_codes: list) -> dict:
             "item_code_365": item.item_code_365,
             "item_name": item.item_name,
             "min_order_qty": item.min_order_qty,
+            "case_qty": item.case_qty,
             "selling_qty": float(item.selling_qty) if item.selling_qty else None,
             "cost_price": float(item.cost_price) if item.cost_price else None,
             "barcode": item.barcode,

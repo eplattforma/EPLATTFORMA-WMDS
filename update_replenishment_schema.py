@@ -105,6 +105,13 @@ def update_replenishment_schema():
                 ON replenishment_run_lines(item_code_365)
             """))
 
+            try:
+                conn.execute(text("ALTER TABLE ps_items_dw ADD COLUMN case_qty INTEGER"))
+                logger.info("Added case_qty column to ps_items_dw")
+            except Exception:
+                conn.rollback()
+                logger.info("case_qty column already exists in ps_items_dw")
+
             conn.execute(text("""
                 UPDATE replenishment_suppliers SET supplier_code = '10000159'
                 WHERE supplier_code = 'CORINA_SNACKS'
