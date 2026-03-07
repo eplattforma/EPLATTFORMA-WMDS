@@ -43,7 +43,7 @@ def fetch_supplier_stock(supplier_code: str, warehouse_store_code: str = REPLENI
             error_msg = resp.get("api_response", {}).get("response_message", "Unknown error") if resp else "No response"
             raise RuntimeError(f"PS365 stock page {page} failed: {error_msg}")
 
-        for item in resp.get("items", []):
+        for item in (resp.get("list_items_stock") or resp.get("items") or []):
             item_code = item.get("item_code_365", "")
             if not item_code:
                 continue

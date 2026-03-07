@@ -105,14 +105,19 @@ def update_replenishment_schema():
                 ON replenishment_run_lines(item_code_365)
             """))
 
+            conn.execute(text("""
+                UPDATE replenishment_suppliers SET supplier_code = '10000159'
+                WHERE supplier_code = 'CORINA_SNACKS'
+            """))
+
             existing = conn.execute(text(
-                "SELECT id FROM replenishment_suppliers WHERE supplier_code = 'CORINA_SNACKS'"
+                "SELECT id FROM replenishment_suppliers WHERE supplier_code = '10000159'"
             )).fetchone()
             if not existing:
                 conn.execute(text("""
                     INSERT INTO replenishment_suppliers (supplier_code, supplier_name, is_active, sort_order, notes, created_at, updated_at)
-                    VALUES ('CORINA_SNACKS', 'Corina Snacks Ltd', TRUE, 1,
-                            'Placeholder supplier code - update with actual PS365 supplier code', NOW(), NOW())
+                    VALUES ('10000159', 'Corina Snacks Ltd', TRUE, 1,
+                            'PS365 supplier code 10000159', NOW(), NOW())
                 """))
                 logger.info("Seeded Corina Snacks Ltd into replenishment_suppliers")
 
