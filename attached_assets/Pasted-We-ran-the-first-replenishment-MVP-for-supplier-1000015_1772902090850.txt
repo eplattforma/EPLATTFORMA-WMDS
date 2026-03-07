@@ -1,0 +1,144 @@
+We ran the first replenishment MVP for supplier 10000159 (Corina Snacks Ltd) and almost all items came back with Suggested Cases = 0.
+
+I reviewed the migration script and there are two priorities:
+
+==================================================
+A. FIX THE MIGRATION SCRIPT FIRST
+==================================================
+
+In update_replenishment_schema():
+
+1. REMOVE this dangerous pattern:
+
+try:
+    conn.execute(text("ALTER TABLE ps_items_dw ADD COLUMN case_qty INTEGER"))
+    logger.info("Added case_qty column to ps_items_dw")
+except Exception:
+    conn.rollback()
+    logger.info("case_qty column already exists in ps_items_dw")
+
+2. Replace it with either:
+   OPTION 1 (preferred):
+   ALTER TABLE ps_items_dw ADD COLUMN IF NOT EXISTS case_qty INTEGER
+
+   OR OPTION 2:
+   remove the case_qty column addition entirely if planner is not using it
+
+3. IMPORTANT:
+Do not rollback the whole transaction just because a column already exists.
+
+4. Use the replenishment case qty resolution consistently:
+- first ps_items_dw.min_order_qty
+- else replenishment_item_settings.case_qty_units
+- else CASE_QTY_MISSING
+
+Do NOT rely on ps_items_dw.case_qty unless you intentionally wire it and populate it.
+
+==================================================
+B. DEBUG WHY FORECAST IS ZERO FOR MOST ITEMS
+==================================================
+
+The stock API appears to be working, but the sales forecast is mostly zero.
+
+Add a debug mode for a run that prints and stores detailed forecast diagnostics for these sample Corina items:
+- SNA-0091
+- SNA-0114
+- SNA-0118
+- SNA-0101
+
+For each of these items show:
+
+1. item_code_365
+2. item_name
+3. resolved case_qty_units
+4. case qty source:
+   - min_order_qty
+   - item_settings_override
+   - missing
+
+5. Which date column from dw_invoice_header is being used
+   - delivery_date
+   - invoice_date
+   - fallback column name
+
+6. For each weekday needed by the run:
+   - the last 4 dates selected
+   - quantity found for the item on each date
+   - computed average
+
+Example structure:
+{
+  "item_code": "SNA-0091",
+  "case_qty_units": 1,
+  "case_qty_source": "min_order_qty",
+  "sales_date_field": "invoice_date",
+  "weekday_debug": {
+    "2": {
+      "dates_used": ["2026-02-04", "2026-02-11", "2026-02-18", "2026-02-25"],
+      "qty_by_date": {
+        "2026-02-04": 12,
+        "2026-02-11": 18,
+        "2026-02-18": 9,
+        "2026-02-25": 14
+      },
+      "average": 13.25
+    }
+  }
+}
+
+==================================================
+C. CHECK THE SALES MAPPING
+==================================================
+
+Inspect dw_invoice_header and confirm the correct sales date field actually exists.
+Use this priority:
+1. delivery_date
+2. invoice_date
+3. another posted document date
+
+But do not assume.
+Print which field was selected.
+
+Also check filters:
+- include only posted/completed invoices
+- exclude cancelled/draft docs if schema supports it
+
+==================================================
+D. CHECK ITEM CODE MATCHING
+==================================================
+
+Verify that PS365 item codes returned by /list_items_stock exactly match dw_invoice_line.item_code_365.
+
+For the sample SKUs above:
+- run direct SQL counts in dw_invoice_line
+- confirm there are rows
+- confirm quantities are not all zero
+- confirm item codes match exactly (no spaces, different formatting, etc.)
+
+==================================================
+E. ADD A RUN VALIDATION CHECK
+==================================================
+
+The generated file was named as a Tuesday run on 2026-03-07, which is actually a Saturday.
+
+Add validation:
+- Tuesday run can only be generated on a Tuesday
+- Friday run can only be generated on a Friday
+
+If user selects a mismatched run date, show validation error.
+
+==================================================
+F. OUTPUT NEEDED
+==================================================
+
+After fixing and debugging, report:
+
+1. whether the migration script was corrected
+2. what date field from dw_invoice_header is actually used
+3. for each sample SKU:
+   - case qty source and value
+   - last 4 dates used per weekday
+   - qty found
+   - final average
+4. whether item-code matching between PS365 and dw_invoice_line is correct
+5. why the first run produced mostly zero forecast

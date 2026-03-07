@@ -1,6 +1,6 @@
 """
 Schema migration for Replenishment MVP tables.
-Safe to run multiple times - uses CREATE TABLE IF NOT EXISTS.
+Safe to run multiple times - uses CREATE TABLE IF NOT EXISTS and ADD COLUMN IF NOT EXISTS.
 """
 import logging
 from sqlalchemy import text
@@ -105,12 +105,9 @@ def update_replenishment_schema():
                 ON replenishment_run_lines(item_code_365)
             """))
 
-            try:
-                conn.execute(text("ALTER TABLE ps_items_dw ADD COLUMN case_qty INTEGER"))
-                logger.info("Added case_qty column to ps_items_dw")
-            except Exception:
-                conn.rollback()
-                logger.info("case_qty column already exists in ps_items_dw")
+            conn.execute(text("""
+                ALTER TABLE ps_items_dw ADD COLUMN IF NOT EXISTS case_qty INTEGER
+            """))
 
             conn.execute(text("""
                 UPDATE replenishment_suppliers SET supplier_code = '10000159'

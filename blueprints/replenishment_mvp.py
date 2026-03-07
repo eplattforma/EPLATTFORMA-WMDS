@@ -94,6 +94,13 @@ def generate():
         flash('Invalid date format.', 'error')
         return redirect(url_for('replenishment_mvp.index'))
 
+    today = date.today()
+    if run_date > today:
+        flash('Run date cannot be in the future (no sales data exists yet).', 'error')
+        return redirect(url_for('replenishment_mvp.index'))
+    if (today - run_date).days > 7:
+        flash('Run date is more than 7 days in the past. Stock snapshot may be stale.', 'warning')
+
     try:
         run_id = generate_replenishment_run(
             supplier_code=supplier_code,

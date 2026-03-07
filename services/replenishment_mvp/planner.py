@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 WARNING_PRIORITY = [
     "CASE_QTY_MISSING",
     "NEGATIVE_PROJECTED_STOCK",
+    "NO_RECENT_SALES",
     "EXPIRY_SOON",
     "HAS_ORDERED_STOCK",
     "HAS_CURRENT_RESERVED",
@@ -44,6 +45,7 @@ WARNING_PRIORITY = [
 WARNING_TEXT_MAP = {
     "CASE_QTY_MISSING": "No valid case quantity found - cannot calculate order",
     "NEGATIVE_PROJECTED_STOCK": "Projected stock at receipt is negative - potential stockout",
+    "NO_RECENT_SALES": "No sales in lookback window - forecast is zero",
     "EXPIRY_SOON": "Stock expiring within 30 days",
     "HAS_ORDERED_STOCK": "Has open purchase orders",
     "HAS_CURRENT_RESERVED": "Has currently reserved stock",
@@ -87,6 +89,13 @@ def generate_replenishment_run(
     pre_forecast = get_forecast_for_dates(item_codes, pre_receipt_dates, weekday_avgs)
     cover_forecast = get_forecast_for_dates(item_codes, cover_dates, weekday_avgs)
 
+    items_with_sales = sum(1 for ic in item_codes if any(weekday_avgs.get(ic, {}).get(wd, 0) > 0 for wd in all_needed_weekdays))
+    logger.info(f"Forecast diagnostics: {len(item_codes)} items, "
+                f"{items_with_sales} with non-zero weekday averages, "
+                f"weekdays={all_needed_weekdays}")
+    if items_with_sales == 0:
+        logger.warning("ALL items have zero weekday averages - check sales data in dw_invoice_header/dw_invoice_line")
+
     run = ReplenishmentRun(
         supplier_code=supplier_code,
         supplier_name=supplier.supplier_name,
@@ -119,7 +128,7 @@ def generate_replenishment_run(
 
         cover_fcst = sum(cover_forecast.get(item_code, {}).get(d, 0) for d in cover_dates)
 
-        case_qty = _resolve_case_qty(master, settings)
+        case_qty, case_qty_source = _resolve_case_qty(master, settings)
         min_order_cases = float(settings.get("min_order_cases") or 1)
         safety_days = float(settings.get("safety_days_override") or 1.0)
 
@@ -139,7 +148,7 @@ def generate_replenishment_run(
 
         warnings = _build_warnings(
             case_qty, projected_at_receipt, reserved_now, ordered_now,
-            expiry, suggested_cases
+            expiry, suggested_cases, pre_receipt_fcst, cover_fcst
         )
         warning_code = warnings[0][0] if warnings else None
         warning_text = warnings[0][1] if warnings else None
@@ -169,7 +178,9 @@ def generate_replenishment_run(
             "safety_stock_units": safety_stock,
             "raw_needed_units": raw_needed,
             "case_qty_units": case_qty or 0,
+            "case_qty_source": case_qty_source,
             "min_order_cases": min_order_cases,
+            "sales_date_field": "invoice_date_utc0",
         }
 
         line = ReplenishmentRunLine(
@@ -206,20 +217,17 @@ def generate_replenishment_run(
     return run.id
 
 
-def _resolve_case_qty(master: dict, settings: dict) -> float | None:
-    cq = master.get("case_qty")
-    if cq and cq > 0:
-        return float(cq)
+def _resolve_case_qty(master: dict, settings: dict) -> tuple[float | None, str]:
     moq = master.get("min_order_qty")
     if moq and moq > 0:
-        return float(moq)
+        return float(moq), "min_order_qty"
     override = settings.get("case_qty_units")
     if override and override > 0:
-        return float(override)
-    return None
+        return float(override), "item_settings_override"
+    return None, "missing"
 
 
-def _build_warnings(case_qty, projected_at_receipt, reserved_now, ordered_now, expiry, suggested_cases) -> list:
+def _build_warnings(case_qty, projected_at_receipt, reserved_now, ordered_now, expiry, suggested_cases, pre_receipt_fcst=0, cover_fcst=0) -> list:
     warnings = []
 
     if not case_qty or case_qty <= 0:
@@ -227,6 +235,9 @@ def _build_warnings(case_qty, projected_at_receipt, reserved_now, ordered_now, e
 
     if projected_at_receipt < 0:
         warnings.append(("NEGATIVE_PROJECTED_STOCK", WARNING_TEXT_MAP["NEGATIVE_PROJECTED_STOCK"]))
+
+    if pre_receipt_fcst == 0 and cover_fcst == 0:
+        warnings.append(("NO_RECENT_SALES", WARNING_TEXT_MAP["NO_RECENT_SALES"]))
 
     earliest_exp = expiry.get("earliest_expiry_date")
     exp_qty = expiry.get("expiring_within_30_days_units", 0)

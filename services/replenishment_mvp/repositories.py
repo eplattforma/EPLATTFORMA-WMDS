@@ -107,6 +107,10 @@ def get_same_weekday_sales_averages(item_codes: list, weekdays_needed: list, loo
         for row in rows:
             item_day_totals[row.item_code_365].append(float(row.day_qty or 0))
 
+        items_with_data = len(item_day_totals)
+        logger.debug(f"Weekday {wd}: lookback dates={[str(d) for d in ref_dates]}, "
+                     f"items with sales={items_with_data}/{len(item_codes)}")
+
         for ic in item_codes:
             totals = item_day_totals.get(ic, [])
             if totals:
