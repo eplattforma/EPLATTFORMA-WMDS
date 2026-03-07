@@ -1,0 +1,79 @@
+<div class="table-responsive">
+    <table class="table table-dark table-striped table-hover table-sm" id="proposalTable">
+        <thead class="table-secondary" style="position: sticky; top: 0; z-index: 1;">
+            <tr>
+                <th>Item Code</th>
+                <th>Item Name</th>
+                <th class="text-end">Case Qty</th>
+                <th class="text-end">Stock Now</th>
+                <th class="text-end">Reserved</th>
+                <th class="text-end">Ordered</th>
+                <th class="text-end">Transfer</th>
+                <th class="text-end">Available</th>
+                <th class="text-end">Pre-Rcpt Fcst</th>
+                <th class="text-end">Proj@Rcpt</th>
+                <th class="text-end">Cover Fcst</th>
+                <th class="text-end">Safety</th>
+                <th class="text-end text-info">Sugg Cases</th>
+                <th class="text-end text-info">Sugg Units</th>
+                <th class="text-end">Expiry</th>
+                <th class="text-end">Exp Qty</th>
+                <th class="text-center" style="min-width:90px;">Final Cases</th>
+                <th class="text-end">Final Units</th>
+                <th>Warning</th>
+                <th>Explanation</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in lines %}
+            <tr class="{% if l.warning_code == 'CASE_QTY_MISSING' %}table-danger{% elif l.warning_code == 'NEGATIVE_PROJECTED_STOCK' %}table-warning{% elif l.suggested_cases > 0 %}{% endif %}">
+                <td><span class="text-info small">{{ l.item_code_365 }}</span></td>
+                <td class="small">{{ l.item_name or '' }}</td>
+                <td class="text-end">{{ l.case_qty_units|float|int if l.case_qty_units else '-' }}</td>
+                <td class="text-end">{{ l.stock_now_units|float|int }}</td>
+                <td class="text-end {% if l.reserved_now_units > 0 %}text-warning{% endif %}">
+                    {{ l.reserved_now_units|float|int }}
+                </td>
+                <td class="text-end {% if l.ordered_now_units > 0 %}text-info{% endif %}">
+                    {{ l.ordered_now_units|float|int }}
+                </td>
+                <td class="text-end text-muted">{{ l.on_transfer_now_units|float|int }}</td>
+                <td class="text-end fw-bold">{{ l.available_base_units|float|int }}</td>
+                <td class="text-end">{{ "%.1f"|format(l.pre_receipt_forecast_units|float) }}</td>
+                <td class="text-end {% if l.projected_units_at_receipt < 0 %}text-danger fw-bold{% endif %}">
+                    {{ "%.1f"|format(l.projected_units_at_receipt|float) }}
+                </td>
+                <td class="text-end">{{ "%.1f"|format(l.cover_forecast_units|float) }}</td>
+                <td class="text-end text-muted">{{ "%.1f"|format(l.safety_stock_units|float) }}</td>
+                <td class="text-end fw-bold text-info">{{ l.suggested_cases|float|int }}</td>
+                <td class="text-end text-info">{{ l.suggested_units|float|int }}</td>
+                <td class="text-end small text-muted">{{ l.earliest_expiry_date or '' }}</td>
+                <td class="text-end small">{{ l.qty_at_earliest_expiry|float|int if l.qty_at_earliest_expiry else '' }}</td>
+                <td class="text-center">
+                    <input type="number" name="final_cases_{{ l.id }}" min="0" step="1"
+                           class="form-control form-control-sm bg-dark text-white border-secondary text-center final-cases-input"
+                           value="{{ l.final_cases|float|int if l.final_cases else 0 }}"
+                           data-case-qty="{{ l.case_qty_units|float }}"
+                           data-line-id="{{ l.id }}"
+                           style="width:80px;">
+                </td>
+                <td class="text-end final-units" id="final-units-{{ l.id }}">
+                    {{ l.final_units|float|int if l.final_units else 0 }}
+                </td>
+                <td>
+                    {% if l.warning_code %}
+                    <span class="badge bg-{% if l.warning_code == 'CASE_QTY_MISSING' %}danger{% elif l.warning_code == 'NEGATIVE_PROJECTED_STOCK' %}warning text-dark{% elif l.warning_code == 'EXPIRY_SOON' %}warning text-dark{% elif l.warning_code == 'ZERO_ORDER' %}secondary{% else %}info{% endif %}"
+                          title="{{ l.warning_text or '' }}">
+                        {{ l.warning_code }}
+                    </span>
+                    {% endif %}
+                </td>
+                <td class="small text-muted" style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                    title="{{ l.explanation_text or '' }}">
+                    {{ l.explanation_text or '' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

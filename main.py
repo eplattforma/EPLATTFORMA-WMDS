@@ -202,6 +202,9 @@ app.register_blueprint(ai_feedback_bp)
 from blueprints.sms import sms_bp
 app.register_blueprint(sms_bp)
 
+from blueprints.replenishment_mvp import replenishment_bp
+app.register_blueprint(replenishment_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal
@@ -431,6 +434,13 @@ with app.app_context():
             _db.session.rollback()
         except:
             pass
+
+    try:
+        from update_replenishment_schema import update_replenishment_schema
+        update_replenishment_schema()
+        logging.info("Replenishment schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating replenishment schema: {str(e)}")
 
     # Initialize remaining tables
     from app import db

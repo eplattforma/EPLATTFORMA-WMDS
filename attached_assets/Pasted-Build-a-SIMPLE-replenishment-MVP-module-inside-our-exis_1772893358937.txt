@@ -1,0 +1,927 @@
+Build a SIMPLE replenishment MVP module inside our existing Flask + SQLAlchemy + PostgreSQL app.
+
+This prompt gives the FULL picture. Assume you know nothing yet about our system.
+
+==================================================
+1. WHAT WE ARE BUILDING
+==================================================
+
+We want a first MVP replenishment proposal tool for selected suppliers/items.
+
+This is NOT a full forecasting platform.
+Keep it simple and focused.
+
+Business use case for MVP:
+- We sell by UNIT
+- We buy by CASE
+- We want the system to PROPOSE how many CASES to order
+- We operate Monday to Friday only
+- For this first use case:
+  - Friday order -> Tuesday receipt
+  - Tuesday order -> Thursday receipt
+- Use:
+  - current stock
+  - current reserved stock
+  - current stock already ordered
+  - historical sales
+  - small safety stock
+- Do NOT yet implement seasonality, Christmas logic, weekly suppliers, 15-day suppliers, expiry-based ordering, or future customer demand by delivery date
+
+The first real supplier to support in the UI is:
+- Corina Snacks Ltd
+
+The UI must allow selecting a supplier.
+For now we will seed Corina Snacks Ltd into a local supplier table and use its PS365 supplier code for API calls.
+
+==================================================
+2. HIGH-LEVEL MVP LOGIC
+==================================================
+
+For each item of the selected supplier:
+
+A) Take current stock data from PS365 for warehouse store 777:
+- stock
+- stock_reserved
+- stock_ordered
+- stock_on_transfer
+
+B) Calculate:
+available_base_units =
+    stock
+    - stock_reserved
+    + stock_ordered
+
+For V1:
+- Do NOT include stock_on_transfer in the math yet
+- Show it in the UI only
+
+C) Forecast short-term demand using historical weekday averages from invoice history
+
+D) Calculate projected stock at receipt:
+projected_units_at_receipt =
+    available_base_units - pre_receipt_forecast_units
+
+E) Calculate how much the next cycle needs to cover:
+- Tuesday run (receipt Thursday) should cover:
+  Friday + Monday + Tuesday
+- Friday run (receipt Tuesday) should cover:
+  Wednesday + Thursday
+
+F) Add safety stock:
+- default = 1 day of average forecast
+- allow per-item override later
+
+G) Order need:
+raw_needed_units =
+    max(0, cycle_forecast_units + safety_stock_units - projected_units_at_receipt)
+
+H) Convert to cases:
+suggested_cases = ceil(raw_needed_units / case_qty_units)
+suggested_units = suggested_cases * case_qty_units
+
+==================================================
+3. IMPORTANT MVP LIMITATIONS
+==================================================
+
+Document clearly in code and UI notes that V1 does NOT yet use:
+- future reserved demand by delivery date
+- open customer orders by required delivery date
+- seasonality
+- expiry-aware ordering
+- arbitrary supplier calendars
+- auto creation of supplier PO
+- approval workflow beyond saving final values
+
+V1 uses:
+- current reserved stock only
+- current ordered stock only
+- historical weekday sales averages only
+
+==================================================
+4. DATA SOURCES TO USE
+==================================================
+
+----------------------------------------
+4.1 PS365 API: CURRENT STOCK SNAPSHOT
+----------------------------------------
+
+Use endpoint:
+POST /list_items_stock
+
+This is the PRIMARY source for stock snapshot.
+
+We need the stock for the selected supplier and warehouse store 777.
+
+Important API behavior:
+- first call with only_counted = "Y"
+- then call with only_counted = "N" and fetch all pages
+- when analytical_per_store = true, max page_size = 50
+
+Use this payload pattern:
+
+{
+  "api_credentials": {
+    "token": "<PS365_TOKEN>"
+  },
+  "filter_define": {
+    "page_number": 1,
+    "page_size": 50,
+    "only_counted": "Y" or "N",
+    "stores_selection": "777",
+    "exclude_stores_selection": "",
+    "item_active_type": "active",
+    "ecommerce_type": "all",
+    "categories_selection": "",
+    "departments_selection": "",
+    "items_supplier_selection": "<SELECTED_SUPPLIER_CODE>",
+    "brands_selection": "",
+    "seasons_selection": "",
+    "models_selection": "",
+    "items_selection": "",
+    "colours_selection": "",
+    "sizes_selection": "",
+    "sizes_group_selection": "",
+    "attributes_1_selection": "",
+    "attributes_2_selection": "",
+    "attributes_3_selection": "",
+    "attributes_4_selection": "",
+    "attributes_5_selection": "",
+    "attributes_6_selection": "",
+    "last_modified_from": "",
+    "last_modified_to": "",
+    "creation_date_from": "",
+    "creation_date_to": "",
+    "analytical_per_store": true,
+    "model_level": false
+  }
+}
+
+From the response, for each item, take the row from list_stock_store where:
+- store_code_365 = "777"
+
+Map:
+- stock -> on_hand_units_now
+- stock_reserved -> reserved_units_now
+- stock_ordered -> ordered_units_now
+- stock_on_transfer -> on_transfer_units_now
+
+If list_stock_store is empty or store 777 is missing:
+- default all 4 values to 0
+
+Do not use total_stock if analytical_per_store=true and store-specific row exists.
+Use the store 777 row.
+
+----------------------------------------
+4.2 ITEM MASTER: ps_items_dw
+----------------------------------------
+
+Use table:
+public.ps_items_dw
+
+Columns available include:
+- item_code_365
+- item_name
+- active
+- category_code_365
+- brand_code_365
+- season_code_365
+- barcode
+- supplier_item_code
+- min_order_qty
+- selling_qty
+- cost_price
+- plus many WMS columns
+
+Use ps_items_dw as the master enrichment table AFTER the stock API has already returned the supplier’s item list.
+
+Important:
+ps_items_dw as provided does NOT show a supplier_code column.
+Therefore:
+- DO NOT try to drive supplier filtering from ps_items_dw
+- Instead:
+  1. get the item list for supplier from PS365 API
+  2. join those item codes to ps_items_dw for enrichment
+
+For case size:
+- default case_qty_units = ps_items_dw.min_order_qty
+- if min_order_qty is null or <= 0, fallback to local override table replenishment_item_settings.case_qty_units
+- if still missing, set warning CASE_QTY_MISSING and suggested order = 0
+
+----------------------------------------
+4.3 HISTORICAL SALES: dw_invoice_line + dw_invoice_header
+----------------------------------------
+
+Use:
+public.dw_invoice_line
+joined to
+public.dw_invoice_header
+
+dw_invoice_line columns include:
+- invoice_no_365
+- line_number
+- item_code_365
+- quantity
+- price_excl
+- price_incl
+- discount_percent
+- line totals
+- last_sync_at
+
+Use historical sales by item to produce weekday averages.
+
+Need to identify the usable sales date from dw_invoice_header.
+Inspect dw_invoice_header and use the best date column in this priority:
+1. delivery_date if exists
+2. invoice_date if exists
+3. another posted document date if exists
+
+Put this date-column mapping logic ONLY inside repositories.py.
+
+Forecast method for V1:
+- For each weekday needed, get the last 4 occurrences of that weekday
+- Sum quantity by item for each of those dates
+- Average those date totals
+- If fewer than 4 occurrences exist, average what exists
+- If none exist, return 0
+
+Examples:
+- Wednesday forecast = average qty from last 4 Wednesdays
+- Monday forecast = average qty from last 4 Mondays
+
+If document status/type fields exist:
+- include only posted/completed sales
+- exclude cancelled/draft documents
+- if credit notes are represented as negative lines, allow them to net off naturally unless schema clearly requires exclusion
+Keep all such filtering logic inside repositories.py
+
+----------------------------------------
+4.4 EXPIRY VISIBILITY: stock_positions
+----------------------------------------
+
+Use table:
+public.stock_positions
+
+Columns include:
+- id
+- item_code
+- item_description
+- store_code
+- store_name
+- expiry_date   (VARCHAR)
+- stock_quantity
+- imported_at
+
+This table is for visibility only in V1.
+Do NOT use expiry in ordering calculations yet.
+
+Filter:
+- store_code = "777"
+
+For each item calculate:
+- earliest_expiry_date
+- qty_at_earliest_expiry
+- expiring_within_30_days_units
+- latest_imported_at
+
+Because expiry_date is VARCHAR:
+- parse safely
+- support common date formats
+- if parsing fails, ignore that row for date-based expiry summary
+
+==================================================
+5. LOCAL TABLES TO CREATE
+==================================================
+
+Create these new tables.
+
+----------------------------------------
+5.1 replenishment_suppliers
+----------------------------------------
+
+Purpose:
+Local supplier selector for the UI.
+This is REQUIRED because the UI must allow supplier selection by name, but the PS365 stock API needs supplier code.
+
+Columns:
+- id PK
+- supplier_code VARCHAR(50) NOT NULL UNIQUE
+- supplier_name VARCHAR(255) NOT NULL
+- is_active BOOLEAN NOT NULL DEFAULT TRUE
+- sort_order INT NULL
+- notes TEXT NULL
+- created_at TIMESTAMP NOT NULL DEFAULT now()
+- updated_at TIMESTAMP NOT NULL DEFAULT now()
+
+Seed at least one row:
+- supplier_name = 'Corina Snacks Ltd'
+- supplier_code = '<PUT ACTUAL PS365 SUPPLIER CODE HERE OR TEMP PLACEHOLDER>'
+
+IMPORTANT:
+If actual supplier code is not yet known, still create the supplier row and make supplier_code editable later.
+But the system cannot call PS365 correctly until the actual supplier code is set.
+
+----------------------------------------
+5.2 replenishment_item_settings
+----------------------------------------
+
+Purpose:
+Optional local overrides per item.
+
+Columns:
+- id PK
+- item_code_365 VARCHAR(64) NOT NULL UNIQUE
+- case_qty_units NUMERIC(12,2) NULL
+- safety_days_override NUMERIC(8,2) NULL
+- min_order_cases NUMERIC(12,2) NULL DEFAULT 1
+- is_active BOOLEAN NOT NULL DEFAULT TRUE
+- sort_order INT NULL
+- notes TEXT NULL
+- created_at TIMESTAMP NOT NULL DEFAULT now()
+- updated_at TIMESTAMP NOT NULL DEFAULT now()
+
+Important:
+This table is OPTIONAL override data.
+Primary case quantity should come from ps_items_dw.min_order_qty.
+
+----------------------------------------
+5.3 replenishment_runs
+----------------------------------------
+
+Columns:
+- id PK
+- supplier_code VARCHAR(50) NOT NULL
+- supplier_name VARCHAR(255) NOT NULL
+- run_date DATE NOT NULL
+- run_type VARCHAR(20) NOT NULL   -- 'tuesday' or 'friday'
+- receipt_date DATE NOT NULL
+- include_today_demand BOOLEAN NOT NULL DEFAULT TRUE
+- status VARCHAR(20) NOT NULL DEFAULT 'draft'
+- created_by VARCHAR(100) NULL
+- created_at TIMESTAMP NOT NULL DEFAULT now()
+- notes TEXT NULL
+
+----------------------------------------
+5.4 replenishment_run_lines
+----------------------------------------
+
+Columns:
+- id PK
+- run_id BIGINT NOT NULL REFERENCES replenishment_runs(id) ON DELETE CASCADE
+- item_code_365 VARCHAR(64) NOT NULL
+- item_name VARCHAR(255) NULL
+- case_qty_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- stock_now_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- reserved_now_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- ordered_now_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- on_transfer_now_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- available_base_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- pre_receipt_forecast_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- projected_units_at_receipt NUMERIC(12,2) NOT NULL DEFAULT 0
+- cover_forecast_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- safety_stock_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- raw_needed_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- suggested_cases NUMERIC(12,2) NOT NULL DEFAULT 0
+- suggested_units NUMERIC(12,2) NOT NULL DEFAULT 0
+- final_cases NUMERIC(12,2) NULL
+- final_units NUMERIC(12,2) NULL
+- earliest_expiry_date DATE NULL
+- qty_at_earliest_expiry NUMERIC(12,2) NULL
+- expiring_within_30_days_units NUMERIC(12,2) NULL
+- warning_code VARCHAR(50) NULL
+- warning_text TEXT NULL
+- explanation_text TEXT NULL
+- calc_json JSONB NULL
+- created_at TIMESTAMP NOT NULL DEFAULT now()
+
+Indexes:
+- on replenishment_runs.supplier_code
+- on replenishment_runs.run_date
+- on replenishment_run_lines.run_id
+- on replenishment_run_lines.item_code_365
+
+==================================================
+6. FILES TO CREATE
+==================================================
+
+Create these files:
+
+blueprints/replenishment_mvp.py
+services/replenishment_mvp/calendar.py
+services/replenishment_mvp/ps365_client.py
+services/replenishment_mvp/repositories.py
+services/replenishment_mvp/forecast.py
+services/replenishment_mvp/planner.py
+templates/replenishment_mvp/index.html
+templates/replenishment_mvp/run_detail.html
+templates/replenishment_mvp/_proposal_table.html
+static/js/replenishment_mvp.js
+
+Register the blueprint in the app.
+
+URL prefix:
+- /replenishment-mvp
+
+==================================================
+7. CONFIG / ENVIRONMENT
+==================================================
+
+Add config support for:
+- PS365 token
+- PS365 base URL if needed
+- WAREHOUSE_STORE_CODE = "777"
+
+Use a constant or config entry:
+- REPLENISHMENT_WAREHOUSE_STORE = "777"
+
+Do not hardcode the token in source code.
+
+==================================================
+8. ACCESS CONTROL
+==================================================
+
+Restrict this screen to admin / warehouse manager / purchasing roles using our existing role framework.
+
+Reuse our existing role-check pattern.
+
+==================================================
+9. UI REQUIREMENTS
+==================================================
+
+The UI must be practical and simple.
+
+----------------------------------------
+9.1 Main page
+----------------------------------------
+
+Route:
+GET /replenishment-mvp
+
+Show:
+- Supplier dropdown
+- Run date
+- Run type dropdown:
+  - Tuesday run
+  - Friday run
+- Checkbox:
+  - Include today’s demand
+- Generate Proposal button
+
+Supplier dropdown source:
+- replenishment_suppliers where is_active = true
+- default select Corina Snacks Ltd if present
+
+Display supplier dropdown as supplier_name.
+POST supplier_code as the actual value.
+
+----------------------------------------
+9.2 Run detail page
+----------------------------------------
+
+Route:
+GET /replenishment-mvp/run/<run_id>
+
+Show:
+- supplier
+- run date
+- run type
+- receipt date
+- note that V1 uses current reserved/current ordered + historical weekday sales only
+
+Proposal table columns:
+- Item Code
+- Item Name
+- Case Qty
+- Stock Now
+- Reserved Now
+- Ordered Now
+- On Transfer Now
+- Available Base
+- Pre-Receipt Forecast
+- Projected At Receipt
+- Cover Forecast
+- Safety Stock
+- Suggested Cases
+- Suggested Units
+- Earliest Expiry
+- Expiry Qty
+- Final Cases (editable)
+- Final Units (auto-calculated)
+- Warning
+- Explanation
+
+Rules:
+- final_cases defaults to suggested_cases
+- final_units = final_cases * case_qty_units
+- changing final_cases in browser updates final_units immediately
+
+Add CSV export button.
+
+No charts.
+No overdesigned dashboard.
+
+==================================================
+10. CALENDAR LOGIC
+==================================================
+
+Create helpers in calendar.py:
+
+- get_receipt_date(run_date, run_type)
+- get_pre_receipt_dates(run_date, run_type, include_today_demand)
+- get_cover_dates_after_receipt(receipt_date, run_type)
+
+Weekdays:
+- Monday = 0
+- Tuesday = 1
+- Wednesday = 2
+- Thursday = 3
+- Friday = 4
+
+Rules:
+
+If run_type = 'tuesday':
+- receipt_date = next Thursday from run_date
+- if include_today_demand = true:
+  pre_receipt_dates = [Tuesday, Wednesday]
+- if include_today_demand = false:
+  pre_receipt_dates = [Wednesday]
+- cover dates after receipt = [Friday, Monday, Tuesday]
+
+If run_type = 'friday':
+- receipt_date = next Tuesday from run_date
+- if include_today_demand = true:
+  pre_receipt_dates = [Friday, Monday]
+- if include_today_demand = false:
+  pre_receipt_dates = [Monday]
+- cover dates after receipt = [Wednesday, Thursday]
+
+Do NOT generalize beyond this in V1.
+
+==================================================
+11. PS365 CLIENT
+==================================================
+
+Implement ps365_client.py for /list_items_stock.
+
+Required behavior:
+- first request only_counted = "Y"
+- read total_items
+- fetch all pages with only_counted = "N"
+- analytical_per_store = true
+- stores_selection = warehouse store code
+- items_supplier_selection = selected supplier_code
+- page_size = 50
+- proper timeout
+- structured logging
+- raise clear exception if api_response.response_code != "1"
+
+Return normalized data keyed by item_code_365.
+
+Normalized structure:
+{
+  item_code_365: {
+    "item_name": "...",
+    "stock_now_units": ...,
+    "reserved_now_units": ...,
+    "ordered_now_units": ...,
+    "on_transfer_now_units": ...
+  }
+}
+
+==================================================
+12. REPOSITORY LAYER
+==================================================
+
+Keep all DB access here.
+Do NOT spread raw SQL into the blueprint.
+
+Implement these functions in repositories.py:
+
+----------------------------------------
+12.1 get_active_suppliers()
+----------------------------------------
+Returns active supplier dropdown list from replenishment_suppliers.
+
+----------------------------------------
+12.2 get_supplier_by_code(supplier_code)
+----------------------------------------
+Returns supplier row.
+
+----------------------------------------
+12.3 get_supplier_stock_snapshot(supplier_code, warehouse_store_code)
+----------------------------------------
+Calls PS365 client and returns supplier stock snapshot from API.
+
+----------------------------------------
+12.4 get_item_master_for_codes(item_codes)
+----------------------------------------
+Source:
+ps_items_dw
+
+Input:
+list of item codes returned by stock API
+
+Return per item:
+- item_code_365
+- item_name
+- min_order_qty
+- selling_qty
+- cost_price
+- barcode
+- supplier_item_code
+- brand_code_365
+- category_code_365
+- season_code_365
+- active
+
+If item not found in ps_items_dw:
+- still allow it to appear in the run
+- fallback to API item_name
+- set warnings later if case size missing
+
+----------------------------------------
+12.5 get_item_settings_for_codes(item_codes)
+----------------------------------------
+Source:
+replenishment_item_settings
+
+Return overrides for:
+- case_qty_units
+- safety_days_override
+- min_order_cases
+- is_active
+
+If no settings row exists, that is fine.
+
+----------------------------------------
+12.6 get_same_weekday_sales_averages(item_codes, weekdays_needed, lookback_occurrences=4)
+----------------------------------------
+Source:
+dw_invoice_line + dw_invoice_header
+
+Goal:
+Return average sales per item for each weekday needed.
+
+Output:
+dict[item_code][weekday_int] = avg_units
+
+Implementation:
+- detect usable date column from dw_invoice_header
+- for each needed weekday:
+  - find the last 4 relevant dates
+  - aggregate total item quantity per date
+  - average across those dates
+- do this efficiently in SQL, not a loop per item
+
+If fewer than 4 dates exist:
+- use what exists
+
+If none:
+- 0
+
+----------------------------------------
+12.7 get_expiry_summary(item_codes, warehouse_store_code)
+----------------------------------------
+Source:
+stock_positions
+
+Return per item:
+- earliest_expiry_date
+- qty_at_earliest_expiry
+- expiring_within_30_days_units
+
+Parse expiry_date safely.
+
+==================================================
+13. FORECAST LOGIC
+==================================================
+
+Create forecast.py
+
+For V1, demand per future day is only:
+historical average for same weekday
+
+No seasonality.
+No future order commitments by date.
+
+Implement helper:
+get_forecast_for_dates(item_codes, dates, weekday_avg_map)
+
+Output:
+dict[item_code][date] = forecast_units
+
+==================================================
+14. PLANNER LOGIC
+==================================================
+
+Create planner.py
+
+Main function:
+generate_replenishment_run(supplier_code, run_date, run_type, include_today_demand, current_user=None)
+
+Flow:
+
+Step 1:
+Load supplier row from replenishment_suppliers.
+If supplier not found or inactive, error.
+
+Step 2:
+Get receipt date, pre-receipt dates, and cover dates from calendar.py.
+
+Step 3:
+Call PS365 stock snapshot for the supplier using supplier_code and warehouse store 777.
+
+Step 4:
+From returned item codes, load:
+- ps_items_dw master data
+- replenishment_item_settings overrides
+- weekday sales averages for all weekdays needed
+- expiry summary
+
+Step 5:
+For each item:
+- item_name = ps_items_dw.item_name else API item_name
+- stock_now_units = API stock
+- reserved_now_units = API reserved
+- ordered_now_units = API ordered
+- on_transfer_now_units = API on_transfer
+
+available_base_units =
+    stock_now_units - reserved_now_units + ordered_now_units
+
+pre_receipt_forecast_units =
+    sum of weekday forecast for pre-receipt dates
+
+projected_units_at_receipt =
+    available_base_units - pre_receipt_forecast_units
+
+cover_forecast_units =
+    sum of weekday forecast for cover dates
+
+Resolve case_qty_units:
+- first ps_items_dw.min_order_qty
+- if invalid, fallback replenishment_item_settings.case_qty_units
+- if still invalid => warning CASE_QTY_MISSING and suggested = 0
+
+Resolve min_order_cases:
+- from replenishment_item_settings.min_order_cases if present
+- else default 1
+
+Resolve safety_days:
+- default 1.0
+- override from replenishment_item_settings.safety_days_override if present
+
+avg_daily_cover_forecast =
+    cover_forecast_units / number_of_cover_dates
+
+safety_stock_units =
+    avg_daily_cover_forecast * safety_days
+
+raw_needed_units =
+    max(0, cover_forecast_units + safety_stock_units - projected_units_at_receipt)
+
+If case_qty_units valid and raw_needed_units > 0:
+    suggested_cases = ceil(raw_needed_units / case_qty_units)
+    suggested_cases = max(suggested_cases, min_order_cases)
+    suggested_units = suggested_cases * case_qty_units
+Else:
+    suggested_cases = 0
+    suggested_units = 0
+
+final_cases = suggested_cases
+final_units = suggested_units
+
+Step 6:
+Build warnings:
+- CASE_QTY_MISSING if no valid case qty
+- NEGATIVE_PROJECTED_STOCK if projected_units_at_receipt < 0
+- HAS_CURRENT_RESERVED if reserved_now_units > 0
+- HAS_ORDERED_STOCK if ordered_now_units > 0
+- EXPIRY_SOON if earliest_expiry_date within 30 days and qty > 0
+- ZERO_ORDER if suggested_cases = 0
+
+It is acceptable to store only one warning_code and one warning_text in V1.
+If multiple conditions exist, prefer this priority:
+1. CASE_QTY_MISSING
+2. NEGATIVE_PROJECTED_STOCK
+3. EXPIRY_SOON
+4. HAS_ORDERED_STOCK
+5. HAS_CURRENT_RESERVED
+6. ZERO_ORDER
+
+Step 7:
+Create explanation_text like:
+"Available base = stock 1126 - reserved 0 + ordered 0 = 1126. Pre-receipt forecast 180 => projected at receipt 946. Cover forecast 240 + safety 80 => raw need 0."
+
+Store calc_json with:
+- pre_receipt_dates
+- cover_dates
+- weekday averages used
+- all numeric components
+
+Step 8:
+Save replenishment_runs header
+Save replenishment_run_lines detail rows
+
+Return run_id
+
+==================================================
+15. BLUEPRINT ROUTES
+==================================================
+
+Create these routes:
+
+GET /replenishment-mvp
+- show supplier dropdown + form
+
+POST /replenishment-mvp/generate
+Inputs:
+- supplier_code
+- run_date
+- run_type
+- include_today_demand
+Generate run and redirect to run detail
+
+GET /replenishment-mvp/run/<int:run_id>
+- show run detail
+
+POST /replenishment-mvp/run/<int:run_id>/save
+- save manual final_cases
+- final_units = final_cases * case_qty_units
+
+GET /replenishment-mvp/run/<int:run_id>/export-csv
+- export rows including final quantities
+
+Optional:
+GET /replenishment-mvp/api/run/<int:run_id>
+- return JSON debug payload
+
+==================================================
+16. JAVASCRIPT BEHAVIOR
+==================================================
+
+In replenishment_mvp.js:
+- when Final Cases changes, auto-update Final Units
+- final_units = final_cases * case_qty_units
+- keep numeric formatting simple
+
+==================================================
+17. SEED DATA
+==================================================
+
+Provide migration or seed script to insert:
+
+Supplier seed:
+- supplier_name = 'Corina Snacks Ltd'
+- supplier_code = '<ACTUAL_PS365_CODE_OR_TEMP>'
+
+Also provide sample SQL for item overrides if needed, but item settings can remain empty initially.
+
+==================================================
+18. IMPORTANT ASSUMPTIONS TO HANDLE CLEANLY
+==================================================
+
+A) Supplier code
+The stock API needs items_supplier_selection = supplier code.
+Because I only told you the name "Corina Snacks Ltd", the system must use a local supplier table with both code and name.
+The UI selects by name, but posts supplier_code.
+
+B) ps_items_dw has no supplier code in the schema shown
+Therefore:
+- supplier item population must come from the PS365 stock API response
+- ps_items_dw is only for enrichment by item_code_365
+
+C) dw_invoice_header date field may vary
+Inspect actual table and isolate the date-field choice in repositories.py
+
+D) stock_positions.expiry_date is text
+Parse safely and fail gracefully
+
+==================================================
+19. WHAT TO EXCLUDE
+==================================================
+
+Do NOT add:
+- seasonality
+- Christmas logic
+- supplier calendars beyond Tuesday/Friday
+- weekly or 15-day cycles
+- future demand by delivery date
+- auto PO creation
+- approval workflow
+- batch/expiry-based ordering math
+- ML/AI forecasting
+- promotion logic
+
+==================================================
+20. DELIVERABLE AT THE END
+==================================================
+
+When finished, report:
+1. files created/updated
+2. schema changes
+3. exact assumptions used for:
+   - supplier seed and supplier code
+   - dw_invoice_header date field
+   - min_order_qty/case_qty resolution
+   - expiry parsing
+4. any TODO items that need my confirmation

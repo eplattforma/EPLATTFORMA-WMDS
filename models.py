@@ -2553,3 +2553,80 @@ class CustomerBalanceCache(db.Model):
         if not row:
             return False
         return row.fetched_at >= (datetime.utcnow() - timedelta(minutes=max_minutes))
+
+
+class ReplenishmentSupplier(db.Model):
+    __tablename__ = "replenishment_suppliers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    supplier_code = db.Column(db.String(50), nullable=False, unique=True)
+    supplier_name = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    sort_order = db.Column(db.Integer, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class ReplenishmentItemSetting(db.Model):
+    __tablename__ = "replenishment_item_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_code_365 = db.Column(db.String(64), nullable=False, unique=True)
+    case_qty_units = db.Column(db.Numeric(12, 2), nullable=True)
+    safety_days_override = db.Column(db.Numeric(8, 2), nullable=True)
+    min_order_cases = db.Column(db.Numeric(12, 2), nullable=True, default=1)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    sort_order = db.Column(db.Integer, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class ReplenishmentRun(db.Model):
+    __tablename__ = "replenishment_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    supplier_code = db.Column(db.String(50), nullable=False, index=True)
+    supplier_name = db.Column(db.String(255), nullable=False)
+    run_date = db.Column(db.Date, nullable=False, index=True)
+    run_type = db.Column(db.String(20), nullable=False)
+    receipt_date = db.Column(db.Date, nullable=False)
+    include_today_demand = db.Column(db.Boolean, nullable=False, default=True)
+    status = db.Column(db.String(20), nullable=False, default='draft')
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    notes = db.Column(db.Text, nullable=True)
+    lines = db.relationship('ReplenishmentRunLine', backref='run', lazy='dynamic', cascade='all, delete-orphan')
+
+
+class ReplenishmentRunLine(db.Model):
+    __tablename__ = "replenishment_run_lines"
+
+    id = db.Column(db.Integer, primary_key=True)
+    run_id = db.Column(db.BigInteger, db.ForeignKey('replenishment_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    item_code_365 = db.Column(db.String(64), nullable=False, index=True)
+    item_name = db.Column(db.String(255), nullable=True)
+    case_qty_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    stock_now_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    reserved_now_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    ordered_now_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    on_transfer_now_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    available_base_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    pre_receipt_forecast_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    projected_units_at_receipt = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    cover_forecast_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    safety_stock_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    raw_needed_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    suggested_cases = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    suggested_units = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    final_cases = db.Column(db.Numeric(12, 2), nullable=True)
+    final_units = db.Column(db.Numeric(12, 2), nullable=True)
+    earliest_expiry_date = db.Column(db.Date, nullable=True)
+    qty_at_earliest_expiry = db.Column(db.Numeric(12, 2), nullable=True)
+    expiring_within_30_days_units = db.Column(db.Numeric(12, 2), nullable=True)
+    warning_code = db.Column(db.String(50), nullable=True)
+    warning_text = db.Column(db.Text, nullable=True)
+    explanation_text = db.Column(db.Text, nullable=True)
+    calc_json = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)

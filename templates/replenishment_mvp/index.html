@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Replenishment MVP{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="mb-0"><i class="fas fa-boxes text-primary"></i> Replenishment Proposal</h4>
+    </div>
+
+    <div class="alert alert-secondary small">
+        <i class="fas fa-info-circle me-1"></i>
+        <strong>V1 MVP:</strong> Uses current stock snapshot + historical weekday sales averages.
+        Does not yet include future reserved demand by delivery date, seasonality, or expiry-based ordering.
+    </div>
+
+    <div class="row">
+        <div class="col-md-5">
+            <div class="card bg-dark border-secondary">
+                <div class="card-header border-secondary">
+                    <h5 class="mb-0">Generate Proposal</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('replenishment_mvp.generate') }}" id="generateForm">
+                        <div class="mb-3">
+                            <label class="form-label">Supplier</label>
+                            <select name="supplier_code" class="form-select bg-dark text-white border-secondary" required>
+                                <option value="">-- Select Supplier --</option>
+                                {% for s in suppliers %}
+                                <option value="{{ s.supplier_code }}" {% if s.supplier_name == 'Corina Snacks Ltd' %}selected{% endif %}>
+                                    {{ s.supplier_name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Run Date</label>
+                            <input type="date" name="run_date" class="form-control bg-dark text-white border-secondary"
+                                   value="{{ today }}" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Run Type</label>
+                            <select name="run_type" class="form-select bg-dark text-white border-secondary" required>
+                                <option value="tuesday" {% if default_type == 'tuesday' %}selected{% endif %}>
+                                    Tuesday Run (receipt Thursday, covers Fri+Mon+Tue)
+                                </option>
+                                <option value="friday" {% if default_type == 'friday' %}selected{% endif %}>
+                                    Friday Run (receipt Tuesday, covers Wed+Thu)
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" name="include_today_demand"
+                                   id="includeTodayDemand" checked>
+                            <label class="form-check-label" for="includeTodayDemand">
+                                Include today's demand in pre-receipt forecast
+                            </label>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100" id="btnGenerate">
+                            <i class="fas fa-calculator me-2"></i>Generate Proposal
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card bg-dark border-secondary">
+                <div class="card-header border-secondary">
+                    <h5 class="mb-0">Recent Runs</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-dark table-striped table-hover mb-0">
+                            <thead class="table-secondary">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Supplier</th>
+                                    <th>Run Date</th>
+                                    <th>Type</th>
+                                    <th>Receipt</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in recent_runs %}
+                                <tr>
+                                    <td>{{ r.id }}</td>
+                                    <td>{{ r.supplier_name }}</td>
+                                    <td>{{ r.run_date }}</td>
+                                    <td>
+                                        <span class="badge bg-{% if r.run_type == 'tuesday' %}info{% else %}warning{% endif %}">
+                                            {{ r.run_type|capitalize }}
+                                        </span>
+                                    </td>
+                                    <td>{{ r.receipt_date }}</td>
+                                    <td>
+                                        <span class="badge bg-{% if r.status == 'saved' %}success{% else %}secondary{% endif %}">
+                                            {{ r.status }}
+                                        </span>
+                                    </td>
+                                    <td class="small text-muted">{{ r.created_at.strftime('%d/%m %H:%M') if r.created_at else '' }}</td>
+                                    <td>
+                                        <a href="{{ url_for('replenishment_mvp.run_detail', run_id=r.id) }}"
+                                           class="btn btn-sm btn-outline-primary">View</a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% if not recent_runs %}
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-3">No runs yet</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('generateForm').addEventListener('submit', function() {
+    var btn = document.getElementById('btnGenerate');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Generating...';
+});
+</script>
+{% endblock %}
