@@ -1,0 +1,86 @@
+CHEETOS LOTTO 30GR (SNA-0091) is still not getting an order proposal and this is not operationally acceptable.
+
+Current row shows:
+- Stock Now = 25
+- Reserved Now = 25
+- Available Base = 0
+- Pre-Receipt Forecast = 0
+- Cover Forecast = 0
+- Safety Stock = 0
+- Suggested Cases = 0
+- Warning = NO_RECENT_SALES
+
+This means the forecast layer is still failing for this SKU.
+
+Please debug and fix specifically for SNA-0091 and then apply the fix generally.
+
+1. DEBUG SALES HISTORY FOR SNA-0091
+Run direct checks against:
+- dw_invoice_line
+- dw_invoice_header
+
+Show:
+- whether item_code_365 = 'SNA-0091' exists in dw_invoice_line
+- total row count
+- total quantity sold
+- last 20 document dates found
+- which header date field is being used in the planner
+- whether document status filters are excluding these rows
+
+2. CHECK ITEM CODE MATCH
+Verify exact match between:
+- PS365 stock API item_code_365
+- dw_invoice_line.item_code_365
+
+Check for:
+- trimming issues
+- uppercase/lowercase issues
+- hidden spaces
+- old/new code mismatch
+
+3. ADD FORECAST FALLBACK
+If same-weekday average returns zero / no rows, do NOT stop there.
+Add fallback logic:
+
+Fallback order:
+A. same weekday average from last 4 occurrences
+B. average daily sales over last 20 working days
+C. average daily sales over last 60 days
+D. if still zero and reserved_now_units > 0, set warning MANUAL_REVIEW_REQUIRED
+
+For V1, use:
+forecast_for_day = first non-zero result from A/B/C
+
+4. SAFETY STOCK FALLBACK
+Safety stock should not become zero just because same-weekday sales are missing.
+Use the chosen fallback forecast basis.
+
+5. NEW WARNING RULE
+If:
+- reserved_now_units > 0
+- available_base_units <= 0
+- cover_forecast_units = 0
+
+then do NOT just leave warning as NO_RECENT_SALES.
+Use:
+warning_code = 'MANUAL_REVIEW_REQUIRED'
+warning_text = 'Stock is already fully reserved but no valid forecast history was found.'
+
+6. OPTIONAL TEMPORARY BUSINESS SAFETY RULE
+For fast-moving snack items only, optionally allow:
+if reserved_now_units > 0 and available_base_units <= 0 and no forecast found:
+- propose at least 1 case
+OR
+- mark clearly for manual review in a highlighted row
+
+Do not auto-enable this for all items unless clearly coded as a temporary safety fallback.
+
+7. REPORT BACK
+For SNA-0091 show:
+- rows found in dw_invoice_line
+- header date field used
+- same-weekday average
+- 20-working-day fallback average
+- 60-day fallback average
+- final chosen forecast
+- resulting suggested cases

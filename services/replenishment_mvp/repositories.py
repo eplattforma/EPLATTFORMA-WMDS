@@ -3,6 +3,13 @@ Replenishment MVP - Repository Layer
 
 All DB access for replenishment logic. No raw SQL in the blueprint.
 Date column: dw_invoice_header.invoice_date_utc0
+
+Forecast fallback tiers:
+  A. Same-weekday average (last 4 occurrences within 120 days)
+  B. Average daily sales over last 30 calendar days (working days only)
+  C. Average daily sales over last 90 calendar days (working days only)
+  D. Average daily sales over last 180 calendar days (working days only)
+  E. If still zero → returns 0, caller handles MANUAL_REVIEW_REQUIRED
 """
 import logging
 from datetime import date, timedelta
@@ -119,6 +126,88 @@ def get_same_weekday_sales_averages(item_codes: list, weekdays_needed: list, loo
                 result[ic][wd] = 0.0
 
     return dict(result)
+
+
+def get_fallback_daily_averages(item_codes: list, reference_date: date = None) -> dict:
+    if not item_codes:
+        return {}
+
+    ref = reference_date or date.today()
+    result = {}
+
+    tiers = [
+        ("avg_30d", 30),
+        ("avg_90d", 90),
+        ("avg_180d", 180),
+    ]
+
+    sql_template = text(f"""
+        SELECT l.item_code_365,
+               COALESCE(SUM(l.quantity), 0) AS total_qty,
+               COUNT(DISTINCT h.{SALES_DATE_COLUMN}) AS days_with_sales
+        FROM dw_invoice_line l
+        JOIN dw_invoice_header h ON h.invoice_no_365 = l.invoice_no_365
+        WHERE l.item_code_365 = ANY(:codes)
+          AND h.{SALES_DATE_COLUMN} >= :cutoff
+          AND h.{SALES_DATE_COLUMN} < :ref_date
+          AND EXTRACT(DOW FROM h.{SALES_DATE_COLUMN}) BETWEEN 1 AND 5
+        GROUP BY l.item_code_365
+    """)
+
+    tier_results = {}
+    tier_working_days = {}
+
+    for tier_name, cal_days in tiers:
+        cutoff = ref - timedelta(days=cal_days)
+        wd_count = _count_working_days(cutoff, ref)
+        tier_working_days[tier_name] = wd_count
+
+        rows = db.session.execute(sql_template, {
+            "codes": list(item_codes),
+            "cutoff": cutoff,
+            "ref_date": ref,
+        }).fetchall()
+
+        avgs = {}
+        for row in rows:
+            total = float(row.total_qty)
+            if total > 0 and wd_count > 0:
+                avgs[row.item_code_365] = total / wd_count
+        tier_results[tier_name] = avgs
+
+    for ic in item_codes:
+        chosen = 0.0
+        source = "none"
+        for tier_name, _ in tiers:
+            val = tier_results[tier_name].get(ic, 0.0)
+            if val > 0:
+                chosen = val
+                source = tier_name
+                break
+
+        result[ic] = {
+            "daily_avg": chosen,
+            "source": source,
+            "avg_30d": tier_results["avg_30d"].get(ic, 0.0),
+            "avg_90d": tier_results["avg_90d"].get(ic, 0.0),
+            "avg_180d": tier_results["avg_180d"].get(ic, 0.0),
+            "working_days_30cal": tier_working_days["avg_30d"],
+            "working_days_90cal": tier_working_days["avg_90d"],
+            "working_days_180cal": tier_working_days["avg_180d"],
+        }
+
+    logger.info(f"Fallback averages: {sum(1 for v in result.values() if v['daily_avg'] > 0)}/{len(item_codes)} items got non-zero fallback")
+    return result
+
+
+def _count_working_days(start: date, end: date) -> int:
+    count = 0
+    d = start
+    while d < end:
+        if d.weekday() < 5:
+            count += 1
+        d += timedelta(days=1)
+    return count
 
 
 def _find_last_n_weekday_dates(weekday: int, n: int, reference_date: date = None) -> list:

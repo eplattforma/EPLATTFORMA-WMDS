@@ -4,12 +4,8 @@ Replenishment MVP - Planner
 Main orchestration: generate_replenishment_run()
 Pulls all data sources together and produces a saved run with lines.
 
-V1 limitations:
-- Uses current reserved stock only (not future reserved by delivery date)
-- Uses current ordered stock only
-- Historical weekday sales averages only (no seasonality)
-- No expiry-based ordering math
-- No auto PO creation
+V1.1: Three-tier forecast fallback (weekday avg → 20 working day → 60 day).
+MANUAL_REVIEW_REQUIRED warning for reserved stock with no forecast.
 """
 import logging
 import math
@@ -26,14 +22,15 @@ from services.replenishment_mvp.ps365_client import fetch_supplier_stock, REPLEN
 from services.replenishment_mvp.repositories import (
     get_supplier_by_code, get_item_master_for_codes,
     get_item_settings_for_codes, get_same_weekday_sales_averages,
-    get_expiry_summary
+    get_expiry_summary, get_fallback_daily_averages
 )
-from services.replenishment_mvp.forecast import get_forecast_for_dates
+from services.replenishment_mvp.forecast import get_forecast_for_dates, resolve_forecast_sources
 
 logger = logging.getLogger(__name__)
 
 WARNING_PRIORITY = [
     "CASE_QTY_MISSING",
+    "MANUAL_REVIEW_REQUIRED",
     "NEGATIVE_PROJECTED_STOCK",
     "NO_RECENT_SALES",
     "EXPIRY_SOON",
@@ -44,8 +41,9 @@ WARNING_PRIORITY = [
 
 WARNING_TEXT_MAP = {
     "CASE_QTY_MISSING": "No valid case quantity found - cannot calculate order",
+    "MANUAL_REVIEW_REQUIRED": "Stock is fully reserved but no valid forecast history was found",
     "NEGATIVE_PROJECTED_STOCK": "Projected stock at receipt is negative - potential stockout",
-    "NO_RECENT_SALES": "No sales in lookback window - forecast is zero",
+    "NO_RECENT_SALES": "No sales in any lookback window - forecast is zero",
     "EXPIRY_SOON": "Stock expiring within 30 days",
     "HAS_ORDERED_STOCK": "Has open purchase orders",
     "HAS_CURRENT_RESERVED": "Has currently reserved stock",
@@ -84,17 +82,19 @@ def generate_replenishment_run(
     item_master = get_item_master_for_codes(item_codes)
     item_settings = get_item_settings_for_codes(item_codes)
     weekday_avgs = get_same_weekday_sales_averages(item_codes, all_needed_weekdays, reference_date=run_date)
+    fallback_avgs = get_fallback_daily_averages(item_codes, reference_date=run_date)
     expiry_data = get_expiry_summary(item_codes, REPLENISHMENT_WAREHOUSE_STORE)
 
-    pre_forecast = get_forecast_for_dates(item_codes, pre_receipt_dates, weekday_avgs)
-    cover_forecast = get_forecast_for_dates(item_codes, cover_dates, weekday_avgs)
+    forecast_sources = resolve_forecast_sources(item_codes, weekday_avgs, fallback_avgs)
 
-    items_with_sales = sum(1 for ic in item_codes if any(weekday_avgs.get(ic, {}).get(wd, 0) > 0 for wd in all_needed_weekdays))
-    logger.info(f"Forecast diagnostics: {len(item_codes)} items, "
-                f"{items_with_sales} with non-zero weekday averages, "
-                f"weekdays={all_needed_weekdays}")
-    if items_with_sales == 0:
-        logger.warning("ALL items have zero weekday averages - check sales data in dw_invoice_header/dw_invoice_line")
+    pre_forecast = get_forecast_for_dates(item_codes, pre_receipt_dates, weekday_avgs, fallback_avgs)
+    cover_forecast = get_forecast_for_dates(item_codes, cover_dates, weekday_avgs, fallback_avgs)
+
+    items_weekday = sum(1 for ic in item_codes if forecast_sources.get(ic) == "weekday_average")
+    items_fallback = sum(1 for ic in item_codes if forecast_sources.get(ic) in ("avg_30d", "avg_90d", "avg_180d"))
+    items_none = sum(1 for ic in item_codes if forecast_sources.get(ic) == "none")
+    logger.info(f"Forecast sources: {items_weekday} weekday_avg, {items_fallback} fallback, "
+                f"{items_none} no_data (total {len(item_codes)})")
 
     run = ReplenishmentRun(
         supplier_code=supplier_code,
@@ -114,6 +114,8 @@ def generate_replenishment_run(
         master = item_master.get(item_code, {})
         settings = item_settings.get(item_code, {})
         expiry = expiry_data.get(item_code, {})
+        fb_info = fallback_avgs.get(item_code, {})
+        fcst_source = forecast_sources.get(item_code, "none")
 
         item_name = master.get("item_name") or api_data.get("item_name", item_code)
         stock_now = api_data["stock_now_units"]
@@ -148,7 +150,8 @@ def generate_replenishment_run(
 
         warnings = _build_warnings(
             case_qty, projected_at_receipt, reserved_now, ordered_now,
-            expiry, suggested_cases, pre_receipt_fcst, cover_fcst
+            expiry, suggested_cases, pre_receipt_fcst, cover_fcst,
+            available_base, fcst_source
         )
         warning_code = warnings[0][0] if warnings else None
         warning_text = warnings[0][1] if warnings else None
@@ -156,10 +159,11 @@ def generate_replenishment_run(
         explanation = (
             f"Available base = stock {stock_now:.0f} - reserved {reserved_now:.0f} "
             f"+ ordered {ordered_now:.0f} = {available_base:.0f}. "
-            f"Pre-receipt forecast {pre_receipt_fcst:.0f} => "
-            f"projected at receipt {projected_at_receipt:.0f}. "
-            f"Cover forecast {cover_fcst:.0f} + safety {safety_stock:.0f} "
-            f"=> raw need {raw_needed:.0f}."
+            f"Pre-receipt forecast {pre_receipt_fcst:.1f} => "
+            f"projected at receipt {projected_at_receipt:.1f}. "
+            f"Cover forecast {cover_fcst:.1f} + safety {safety_stock:.1f} "
+            f"=> raw need {raw_needed:.1f}. "
+            f"Forecast source: {fcst_source}."
         )
 
         weekday_avgs_used = {}
@@ -170,6 +174,11 @@ def generate_replenishment_run(
             "pre_receipt_dates": [str(d) for d in pre_receipt_dates],
             "cover_dates": [str(d) for d in cover_dates],
             "weekday_averages": weekday_avgs_used,
+            "forecast_source": fcst_source,
+            "fallback_avg_30d": fb_info.get("avg_30d", 0),
+            "fallback_avg_90d": fb_info.get("avg_90d", 0),
+            "fallback_avg_180d": fb_info.get("avg_180d", 0),
+            "fallback_daily_avg": fb_info.get("daily_avg", 0),
             "available_base_units": available_base,
             "pre_receipt_forecast_units": pre_receipt_fcst,
             "projected_units_at_receipt": projected_at_receipt,
@@ -227,16 +236,22 @@ def _resolve_case_qty(master: dict, settings: dict) -> tuple[float | None, str]:
     return None, "missing"
 
 
-def _build_warnings(case_qty, projected_at_receipt, reserved_now, ordered_now, expiry, suggested_cases, pre_receipt_fcst=0, cover_fcst=0) -> list:
+def _build_warnings(case_qty, projected_at_receipt, reserved_now, ordered_now,
+                    expiry, suggested_cases, pre_receipt_fcst=0, cover_fcst=0,
+                    available_base=0, forecast_source="none") -> list:
     warnings = []
 
     if not case_qty or case_qty <= 0:
         warnings.append(("CASE_QTY_MISSING", WARNING_TEXT_MAP["CASE_QTY_MISSING"]))
 
+    if (reserved_now > 0 and available_base <= 0 and
+            forecast_source == "none"):
+        warnings.append(("MANUAL_REVIEW_REQUIRED", WARNING_TEXT_MAP["MANUAL_REVIEW_REQUIRED"]))
+
     if projected_at_receipt < 0:
         warnings.append(("NEGATIVE_PROJECTED_STOCK", WARNING_TEXT_MAP["NEGATIVE_PROJECTED_STOCK"]))
 
-    if pre_receipt_fcst == 0 and cover_fcst == 0:
+    if pre_receipt_fcst == 0 and cover_fcst == 0 and forecast_source == "none":
         warnings.append(("NO_RECENT_SALES", WARNING_TEXT_MAP["NO_RECENT_SALES"]))
 
     earliest_exp = expiry.get("earliest_expiry_date")
