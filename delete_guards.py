@@ -84,9 +84,13 @@ def user_has_batch_sessions(sess, user):
 
 
 def user_has_cod_receipts(sess, user):
-    """Check if user created COD receipts"""
+    """Check if user is referenced in COD receipts (as driver, locker, or voider)"""
     from models import CODReceipt
-    return has_rows(sess, sess.query(CODReceipt).filter_by(created_by=user.username))
+    return has_rows(sess, sess.query(CODReceipt).filter(
+        (CODReceipt.driver_username == user.username) |
+        (CODReceipt.locked_by == user.username) |
+        (CODReceipt.voided_by == user.username)
+    ))
 
 
 def user_has_pod_records(sess, user):
@@ -112,9 +116,12 @@ def invoice_has_discrepancies(sess, inv):
 
 
 def invoice_has_cod_receipts(sess, inv):
-    """Check if invoice has COD receipts"""
+    """Check if invoice has COD receipts (invoice_nos is a JSON array)"""
     from models import CODReceipt
-    return has_rows(sess, sess.query(CODReceipt).filter_by(invoice_no=inv.invoice_no))
+    from sqlalchemy import cast, String
+    return has_rows(sess, sess.query(CODReceipt).filter(
+        cast(CODReceipt.invoice_nos, String).contains(inv.invoice_no)
+    ))
 
 
 def invoice_has_pod_records(sess, inv):
