@@ -27,7 +27,7 @@
                 <ul class="navbar-nav ms-auto">
                     {% if current_user.role in ['admin', 'warehouse_manager'] %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['admin_dashboard', 'warehouse.intake_dashboard', 'stock_dashboard'] %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['admin_dashboard', 'warehouse.intake_dashboard', 'stock_dashboard', 'routes.dashboard'] %}active{% endif %}" 
                            href="#" id="dashboardDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-tachometer-alt me-1"></i>Dashboard
                         </a>
@@ -42,6 +42,12 @@
                                 <a class="dropdown-item {% if request.endpoint == 'warehouse.intake_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('warehouse.intake_dashboard') }}">
                                     <i class="fas fa-warehouse me-2"></i>Warehouse Intake Dashboard
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'routes.dashboard' %}active{% endif %}" 
+                                   href="{{ url_for('routes.dashboard') }}">
+                                    <i class="fas fa-truck me-2"></i>Delivery Dashboard
                                 </a>
                             </li>
                             <li>
