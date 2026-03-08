@@ -136,7 +136,7 @@
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['payment_terms.index', 'customer_reporting_groups.index'] or (request.endpoint and request.endpoint.startswith('sms.')) %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['payment_terms.index', 'customer_reporting_groups.index', 'reconciliation.customer_balances_report'] or (request.endpoint and request.endpoint.startswith('sms.')) %}active{% endif %}" 
                            href="#" id="customersDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-users me-1"></i>Customers
                         </a>
@@ -151,6 +151,12 @@
                                 <a class="dropdown-item {% if request.endpoint == 'customer_reporting_groups.index' %}active{% endif %}" 
                                    href="{{ url_for('customer_reporting_groups.index') }}">
                                     <i class="fas fa-tags me-2"></i>Reporting Groups
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'reconciliation.customer_balances_report' %}active{% endif %}" 
+                                   href="{{ url_for('reconciliation.customer_balances_report') }}">
+                                    <i class="fas fa-balance-scale me-2"></i>Customer Balances
                                 </a>
                             </li>
                             <li>
@@ -250,12 +256,6 @@
                                 <a class="dropdown-item {% if request.endpoint and 'reconciliation' in request.endpoint and request.endpoint != 'reconciliation.customer_balances_report' %}active{% endif %}" 
                                    href="{{ url_for('reconciliation.shipment_list') }}">
                                     <i class="fas fa-check-double me-2"></i>Route Reconciliation
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint == 'reconciliation.customer_balances_report' %}active{% endif %}" 
-                                   href="{{ url_for('reconciliation.customer_balances_report') }}">
-                                    <i class="fas fa-balance-scale me-2"></i>Customer Balances
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
