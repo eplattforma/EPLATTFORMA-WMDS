@@ -1,0 +1,166 @@
+customer_statement_of_account
+
+POST /customer_statement_of_account
+To get the customer statement of account.
+
+
+            {
+                "api_credentials": {
+                    "token": "XXX"
+                },
+                "filter_define": {
+                    "customer_code_365": "10001800",
+                    "from_date": "2020-01-01",
+                    "to_date": "2020-12-31",
+                    "include_general_description": false,
+                    "include_detail_description": false,
+                    "include_receipt_description": false,
+                    "include_cheque_information": false,
+                    "include_entity_name": false
+                }
+            }
+        
+
+field	type	description
+api_credentials
+token	string	Credentials provided by Powersoft that allow access to the API
+filter_define
+customer_code_365	string	365 customer code. Required.
+from_date	string	Statement from date. Required.
+to_date	string	Statement to date. Required.
+include_general_description	boolean	If includes in the statement line description the general decription of the transaction.
+include_detail_description	boolean	If includes in the statement line description the detail decription of the transaction.
+include_receipt_description	boolean	If includes in the statement line description the receipt decription of the transaction.
+include_cheque_information	boolean	If includes in the statement line description the cheque information of the transaction.
+include_entity_name	boolean	If includes in the statement line description the entity name of the transaction.
+Returns
+
+          {
+            "api_response": {
+                "response_code": "1",
+                "response_msg": "OK",
+                "response_id": ""
+            },
+            "aging_analysis": {
+                "postdated_payments": 0.0,
+                "aging_0_30": 0.0,
+                "aging_30_60": 0.0,
+                "aging_60_90": 0.0,
+                "aging_90_120": 1504.35,
+                "aging_121": 99295.65
+            },
+            "list_statement_lines": [
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2019-12-31",
+                    "transaction_number": "",
+                    "reference_number": "",
+                    "transaction_description": "BALANCE CARRIED FORWARD",
+                    "transaction_amount": 0.0,
+                    "transaction_drcr": "CR",
+                    "line_balance": 0.00,
+                    "balance_drcr": ""
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-08-28",
+                    "transaction_number": "10002157",
+                    "reference_number": "BI28082020001",
+                    "transaction_description": "",
+                    "transaction_amount": 100000.00,
+                    "transaction_drcr": "DR",
+                    "line_balance": 100000.00,
+                    "balance_drcr": "DR"
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-09-22",
+                    "transaction_number": "10002248",
+                    "reference_number": "A1247888",
+                    "transaction_description": "",
+                    "transaction_amount": 1000.00,
+                    "transaction_drcr": "DR",
+                    "line_balance": 101000.00,
+                    "balance_drcr": "DR"
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-09-22",
+                    "transaction_number": "10002251",
+                    "reference_number": "IN10000950",
+                    "transaction_description": "",
+                    "transaction_amount": 404.35,
+                    "transaction_drcr": "CR",
+                    "line_balance": 100595.65,
+                    "balance_drcr": "DR"
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-09-22",
+                    "transaction_number": "10002251",
+                    "reference_number": "IN10000950",
+                    "transaction_description": "",
+                    "transaction_amount": 404.35,
+                    "transaction_drcr": "DR",
+                    "line_balance": 101000.00,
+                    "balance_drcr": "DR"
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-09-24",
+                    "transaction_number": "10002264",
+                    "reference_number": "S46456",
+                    "transaction_description": "",
+                    "transaction_amount": 100.00,
+                    "transaction_drcr": "DR",
+                    "line_balance": 101100.00,
+                    "balance_drcr": "DR"
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-10-02",
+                    "transaction_number": "11100042",
+                    "reference_number": "REC20201001001",
+                    "transaction_description": "",
+                    "transaction_amount": 100.00,
+                    "transaction_drcr": "CR",
+                    "line_balance": 101000.00,
+                    "balance_drcr": "DR"
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-10-02",
+                    "transaction_number": "11100043",
+                    "reference_number": "REC20201001002",
+                    "transaction_description": "",
+                    "transaction_amount": 100.00,
+                    "transaction_drcr": "CR",
+                    "line_balance": 100900.00,
+                    "balance_drcr": "DR"
+                },
+                {
+                    "account_code_365": "12211895",
+                    "account_name": "SERVICE CUSTOMER EUC",
+                    "transaction_date": "2020-10-02",
+                    "transaction_number": "11100044",
+                    "reference_number": "REC20201001003",
+                    "transaction_description": "",
+                    "transaction_amount": 100.00,
+                    "transaction_drcr": "CR",
+                    "line_balance": 100800.00,
+                    "balance_drcr": "DR"
+                }
+            ]
+        }
+        
+© 2026 - Powersoft Computer Solutions Ltd
+
+Last updated: 12 January 2026

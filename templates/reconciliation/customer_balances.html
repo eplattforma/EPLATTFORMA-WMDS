@@ -324,6 +324,22 @@ async function fetchStatement(code) {
         if (data.truncated) {
             html += '<div class="alert alert-warning py-1 px-2 small mb-2"><i class="fas fa-exclamation-triangle me-1"></i>' + esc(data.note) + '</div>';
         }
+
+        const ag = data.aging || {};
+        const hasAging = ag.aging_0_30 || ag.aging_30_60 || ag.aging_60_90 || ag.aging_90_120 || ag.aging_121 || ag.postdated_payments;
+        if (hasAging) {
+            const fmt = (v) => '&euro;' + Number(v || 0).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2});
+            html += '<div class="mb-3"><h6 class="text-info small mb-2"><i class="fas fa-chart-pie me-1"></i>Aging Analysis</h6>';
+            html += '<div class="d-flex flex-wrap gap-2 small">';
+            if (ag.aging_0_30) html += '<span class="badge bg-success py-1 px-2">0-30d: ' + fmt(ag.aging_0_30) + '</span>';
+            if (ag.aging_30_60) html += '<span class="badge bg-info py-1 px-2">30-60d: ' + fmt(ag.aging_30_60) + '</span>';
+            if (ag.aging_60_90) html += '<span class="badge bg-warning text-dark py-1 px-2">60-90d: ' + fmt(ag.aging_60_90) + '</span>';
+            if (ag.aging_90_120) html += '<span class="badge bg-orange py-1 px-2" style="background:#fd7e14!important">90-120d: ' + fmt(ag.aging_90_120) + '</span>';
+            if (ag.aging_121) html += '<span class="badge bg-danger py-1 px-2">120d+: ' + fmt(ag.aging_121) + '</span>';
+            if (ag.postdated_payments) html += '<span class="badge bg-secondary py-1 px-2">Postdated: ' + fmt(ag.postdated_payments) + '</span>';
+            html += '</div></div>';
+        }
+
         html += '<div class="small text-muted mb-2">' + lines.length + ' transactions (' + esc(data.from_date) + ' to ' + esc(data.to_date) + ')</div>';
         html += '<div style="max-height:350px; overflow-y:auto;">';
         html += '<table class="table table-sm table-dark table-striped mb-0 stmt-table">';

@@ -35,7 +35,7 @@ def fetch_statement(customer_code_365: str, from_date: str, to_date: str):
             "customer_code_365": str(customer_code_365),
             "from_date": from_date,
             "to_date": to_date,
-            "include_general_description": False,
+            "include_general_description": True,
             "include_detail_description": False,
             "include_receipt_description": False,
             "include_cheque_information": False,

@@ -951,7 +951,17 @@ def api_customer_statement(customer_code):
                 'balance_drcr': (ln.get('balance_drcr') or '').upper().strip(),
             })
 
-        resp = {'ok': True, 'lines': result, 'from_date': from_date, 'to_date': to_date}
+        aging = (stmt or {}).get("aging_analysis") or {}
+        aging_data = {
+            'postdated_payments': float(aging.get('postdated_payments') or 0),
+            'aging_0_30': float(aging.get('aging_0_30') or 0),
+            'aging_30_60': float(aging.get('aging_30_60') or 0),
+            'aging_60_90': float(aging.get('aging_60_90') or 0),
+            'aging_90_120': float(aging.get('aging_90_120') or 0),
+            'aging_121': float(aging.get('aging_121') or 0),
+        }
+
+        resp = {'ok': True, 'lines': result, 'from_date': from_date, 'to_date': to_date, 'aging': aging_data}
         if truncated:
             resp['truncated'] = True
             resp['note'] = f'Statement limited to {from_date} onwards (PS365 max 500 lines)'
