@@ -142,7 +142,7 @@
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['payment_terms.index', 'customer_reporting_groups.index', 'reconciliation.customer_balances_report'] or (request.endpoint and request.endpoint.startswith('sms.')) %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['payment_terms.index', 'customer_reporting_groups.index', 'reconciliation.customer_balances_report'] or (request.endpoint and (request.endpoint.startswith('sms.') or request.endpoint.startswith('customer_analytics.') or request.endpoint.startswith('customer_benchmark.'))) %}active{% endif %}" 
                            href="#" id="customersDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-users me-1"></i>Customers
                         </a>
@@ -171,10 +171,23 @@
                                     <i class="fas fa-sms me-2"></i>SMS Service
                                 </a>
                             </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('customer_analytics.') %}active{% endif %}" 
+                                   href="{{ url_for('customer_analytics.customer_analytics_home') }}">
+                                    <i class="fas fa-user-chart me-2"></i>Customer 360
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('customer_benchmark.') %}active{% endif %}" 
+                                   href="{{ url_for('customer_benchmark.page') }}">
+                                    <i class="fas fa-chart-bar me-2"></i>Customer Benchmark
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['analytics.analytics_home', 'shift_reports'] %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['analytics.analytics_home', 'shift_reports', 'time_analysis_dashboard'] %}active{% endif %}" 
                            href="#" id="reportsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-chart-line me-1"></i>Reports
                         </a>
@@ -195,19 +208,6 @@
                                 <a class="dropdown-item {% if request.endpoint == 'time_analysis_dashboard' %}active{% endif %}" 
                                    href="{{ url_for('time_analysis_dashboard') }}">
                                     <i class="fas fa-stopwatch me-2"></i>Time Analysis
-                                </a>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('customer_analytics.') %}active{% endif %}" 
-                                   href="{{ url_for('customer_analytics.customer_analytics_home') }}">
-                                    <i class="fas fa-user-chart me-2"></i>Customer 360
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('customer_benchmark.') %}active{% endif %}" 
-                                   href="{{ url_for('customer_benchmark.page') }}">
-                                    <i class="fas fa-chart-bar me-2"></i>Customer Benchmark
                                 </a>
                             </li>
                         </ul>
