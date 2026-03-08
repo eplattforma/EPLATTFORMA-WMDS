@@ -1,4 +1,4 @@
-"""Bank statement import and matching service for pending payments."""
+"""Bank statement import service."""
 import io
 import re
 import uuid
@@ -9,7 +9,7 @@ from datetime import datetime
 import pandas as pd
 
 from app import db
-from models import BankTransaction, CODInvoiceAllocation, Invoice, Shipment
+from models import BankTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -170,8 +170,6 @@ def import_and_match(file_obj, filename, username):
         db.session.flush()
         logger.info(f"Cleared {old_count} old bank transactions before new import")
 
-    pending = _load_pending_payments()
-
     transactions = []
     for _, row in df.iterrows():
         credit_val = None
@@ -209,131 +207,16 @@ def import_and_match(file_obj, filename, username):
             uploaded_by=username,
         )
 
-        best_match = _find_best_match(bt, pending)
-        if best_match:
-            bt.matched_allocation_id = best_match['alloc_id']
-            bt.match_status = 'SUGGESTED'
-            bt.match_confidence = best_match['confidence']
-            bt.match_reason = best_match['reason']
-
         db.session.add(bt)
         transactions.append(bt)
 
     db.session.commit()
 
-    matched = sum(1 for t in transactions if t.match_status == 'SUGGESTED')
     return {
         'batch_id': batch_id,
         'total_rows': len(df),
         'credit_rows': len(transactions),
-        'matched': matched,
-        'unmatched': len(transactions) - matched,
     }
-
-
-def _load_pending_payments():
-    rows = db.session.query(
-        CODInvoiceAllocation,
-        Invoice.customer_name,
-        Invoice.customer_code
-    ).join(
-        Shipment, CODInvoiceAllocation.route_id == Shipment.id
-    ).join(
-        Invoice, CODInvoiceAllocation.invoice_no == Invoice.invoice_no
-    ).filter(
-        Shipment.reconciliation_status == 'RECONCILED',
-        CODInvoiceAllocation.is_pending == True
-    ).all()
-
-    result = []
-    for alloc, cust_name, cust_code in rows:
-        due = float((alloc.expected_amount or 0) - (alloc.deduct_amount or 0))
-        if due <= 0.01:
-            continue
-        result.append({
-            'alloc_id': alloc.id,
-            'invoice_no': alloc.invoice_no or '',
-            'customer_name': cust_name or '',
-            'customer_code': cust_code or '',
-            'due': round(due, 2),
-            'payment_method': (alloc.payment_method or '').lower(),
-        })
-    return result
-
-
-def _find_best_match(bt, pending_list):
-    credit = float(bt.credit) if bt.credit else 0
-    desc_upper = (bt.description or '').upper()
-    ref_upper = (bt.reference or '').upper()
-    search_text = desc_upper + ' ' + ref_upper
-
-    candidates = []
-    for p in pending_list:
-        score = 0
-        reasons = []
-
-        if credit > 0 and abs(credit - p['due']) < 0.02:
-            score += 50
-            reasons.append(f"Exact amount match €{p['due']:.2f}")
-        elif credit > 0 and abs(credit - p['due']) < 1.0:
-            score += 30
-            reasons.append(f"Close amount (€{credit:.2f} vs €{p['due']:.2f})")
-
-        inv_no = p['invoice_no'].upper()
-        if inv_no and inv_no in search_text:
-            score += 40
-            reasons.append(f"Invoice {p['invoice_no']} found in description")
-
-        cust_name = p['customer_name'].upper()
-        if cust_name and len(cust_name) >= 3:
-            name_parts = [w for w in cust_name.split() if len(w) >= 3]
-            matched_parts = [w for w in name_parts if w in search_text]
-            if matched_parts:
-                ratio = len(matched_parts) / max(len(name_parts), 1)
-                if ratio >= 0.5:
-                    score += 25
-                    reasons.append(f"Customer name match: {' '.join(matched_parts)}")
-                elif matched_parts:
-                    score += 10
-                    reasons.append(f"Partial name: {' '.join(matched_parts)}")
-
-        cust_code = p['customer_code'].upper()
-        if cust_code and len(cust_code) >= 3 and cust_code in search_text:
-            score += 15
-            reasons.append(f"Customer code {p['customer_code']} in description")
-
-        if score >= 30:
-            confidence = 'HIGH' if score >= 70 else 'MEDIUM' if score >= 50 else 'LOW'
-            candidates.append({
-                'alloc_id': p['alloc_id'],
-                'score': score,
-                'confidence': confidence,
-                'reason': '; '.join(reasons),
-            })
-
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda x: x['score'], reverse=True)
-    return candidates[0]
-
-
-def get_matches_for_allocations(alloc_ids):
-    if not alloc_ids:
-        return {}
-    matches = BankTransaction.query.filter(
-        BankTransaction.matched_allocation_id.in_(alloc_ids),
-        BankTransaction.match_status == 'SUGGESTED',
-        BankTransaction.dismissed == False
-    ).order_by(BankTransaction.match_confidence.desc()).all()
-
-    result = {}
-    for m in matches:
-        aid = m.matched_allocation_id
-        if aid not in result:
-            result[aid] = []
-        result[aid].append(m)
-    return result
 
 
 def dismiss_match(txn_id):

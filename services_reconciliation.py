@@ -72,7 +72,6 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             ca.received_amount,
             ca.deduct_amount,
             ca.cheque_date,
-            ca.is_pending AS alloc_pending,
             rsi.route_stop_id,
             COALESCE(NULLIF(i.customer_code_365, ''), i.customer_code) AS customer_code_365,
             COALESCE(disc.discrepancy_total, 0) AS discrepancy_value
@@ -92,8 +91,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
                 SUM(ca2.received_amount) AS received_amount,
                 SUM(ca2.deduct_amount) AS deduct_amount,
                 MAX(ca2.payment_method) as payment_method,
-                MAX(ca2.cheque_date) AS cheque_date,
-                BOOL_OR(ca2.is_pending) AS is_pending
+                MAX(ca2.cheque_date) AS cheque_date
             FROM cod_invoice_allocations ca2
             WHERE ca2.invoice_no = rsi.invoice_no 
               AND ca2.route_id = rs.shipment_id
@@ -146,9 +144,6 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             stops_data[stop_id]['payment_method'] = pm_upper
             stops_data[stop_id]['is_day_cheque'] = is_day_cheque
         
-        if r.get('alloc_pending'):
-            stops_data[stop_id]['has_pending'] = True
-
         # Stored allocation value for this invoice
         # Formula: Expected - Received - Discrepancy
         outstanding = expected - received - discrepancy
@@ -189,8 +184,7 @@ def get_invoice_reconciliation_report(shipment_id: int) -> List[Dict]:
             'stop_received': float(stop_received),
             'stop_discrepancy': float(stop_discrepancy),
             'stop_outstanding': float(stop_outstanding),
-            'invoices': data['invoices'],
-            'is_pending_payment': data.get('has_pending', False)
+            'invoices': data['invoices']
         })
     
     return rows
@@ -702,51 +696,6 @@ def get_reroute_audit(date_from: str, date_to: str) -> List[Dict]:
     """)
     result = db.session.execute(sql, {'d1': date_from, 'd2': date_to})
     return [dict(row._mapping) for row in result]
-
-
-def clear_pending_payment(allocation_id: int, actor: str) -> Dict:
-    """Clear a specific pending payment allocation"""
-    from models import CODInvoiceAllocation, CODReceipt
-    alloc = db.session.get(CODInvoiceAllocation, allocation_id)
-    if not alloc:
-        return {'success': False, 'message': 'Allocation not found'}
-    
-    shipment = db.session.get(Shipment, alloc.route_id)
-    if shipment and shipment.reconciliation_status != 'RECONCILED':
-        return {
-            'success': False,
-            'message': f'Cannot clear pending payment: route must be RECONCILED first (current: {shipment.reconciliation_status})'
-        }
-    
-    # Calculate the difference between what was previously recorded as received
-    # and what should be received now that it's cleared.
-    # Usually for pending payments (Online), received_amount is 0.
-    # For post-dated cheques, it might already be the full amount.
-    target_amount = alloc.expected_amount - alloc.deduct_amount
-    diff = target_amount - alloc.received_amount
-    
-    alloc.received_amount = target_amount
-    alloc.is_pending = False
-    
-    # Update the parent receipt totals if linked to maintain consistency
-    if alloc.cod_receipt_id:
-        receipt = db.session.get(CODReceipt, alloc.cod_receipt_id)
-        if receipt:
-            # Increment the total received amount on the receipt by the difference
-            receipt.received_amount = (receipt.received_amount or 0) + diff
-            # Update variance (Received - Expected)
-            receipt.variance = receipt.received_amount - receipt.expected_amount
-            
-    db.session.commit()
-    
-    # Explicitly verify the update by refreshing the object
-    db.session.refresh(alloc)
-    if alloc.is_pending:
-        logger.error(f"Failed to clear pending status for allocation {allocation_id}")
-        return {'success': False, 'message': 'Failed to update database state'}
-
-    logger.info(f"Pending payment {allocation_id} cleared by {actor}. Received amount updated to {target_amount}")
-    return {'success': True, 'message': 'Payment cleared successfully'}
 
 
 def check_failed_without_driver_handover(shipment_id: int) -> List[Dict]:

@@ -992,9 +992,6 @@ def submit_delivery(stop_id):
             from models import CODInvoiceAllocation
             if not existing_receipt:
                 cheque_date_alloc = datetime.strptime(cod.get('cheque_date'), '%Y-%m-%d').date() if cod.get('cheque_date') else None
-                is_postdated_alloc = cod_method == 'cheque' and cheque_date_alloc and cheque_date_alloc > datetime.now().date()
-                is_pending_method = cod_method in ('online', 'postdated', 'post_dated') or is_postdated_alloc
-
                 inv_rows = []
                 for invoice_no in invoice_nos:
                     inv = Invoice.query.get(invoice_no)
@@ -1018,9 +1015,6 @@ def submit_delivery(stop_id):
                         invoice_received = min(row['invoice_due'], remaining)
                         remaining -= invoice_received
 
-                    is_underpaid = (invoice_received + row['invoice_deduct']) < row['invoice_total']
-                    is_pending = is_pending_method or is_underpaid
-
                     allocation = CODInvoiceAllocation(
                         cod_receipt_id=cod_receipt.id,
                         invoice_no=row['invoice_no'],
@@ -1029,7 +1023,7 @@ def submit_delivery(stop_id):
                         received_amount=invoice_received,
                         deduct_amount=row['invoice_deduct'],
                         payment_method=cod_method,
-                        is_pending=is_pending,
+                        is_pending=False,
                         cheque_number=cod.get('cheque_number'),
                         cheque_date=cheque_date_alloc
                     )

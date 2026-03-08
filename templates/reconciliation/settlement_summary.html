@@ -42,14 +42,6 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card bg-warning text-dark">
-                <div class="card-body text-center">
-                    <h6>Pending</h6>
-                    <h3>&euro;{{ "%.2f"|format(pending_total) }}</h3>
-                </div>
-            </div>
-        </div>
     </div>
 
     <div class="row">
@@ -87,11 +79,7 @@
                                 <td class="text-end">&euro;{{ "%.2f"|format(data.expected) }}</td>
                                 <td class="text-end">&euro;{{ "%.2f"|format(data.received) }}</td>
                                 <td class="text-center">
-                                    {% if data.is_pending %}
-                                    <span class="badge bg-warning text-dark">Pending</span>
-                                    {% else %}
                                     <span class="badge bg-success">Collected</span>
-                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
