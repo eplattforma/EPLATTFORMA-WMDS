@@ -323,7 +323,7 @@ async function fetchStatement(code) {
         let html = '<div class="small text-muted mb-2">' + lines.length + ' transactions (' + esc(data.from_date) + ' to ' + esc(data.to_date) + ')</div>';
         html += '<div style="max-height:350px; overflow-y:auto;">';
         html += '<table class="table table-sm table-dark table-striped mb-0 stmt-table">';
-        html += '<thead><tr><th>Date</th><th>Doc #</th><th>Type</th><th class="text-end">Amount</th><th class="text-center">DR/CR</th><th class="text-end">Balance</th></tr></thead>';
+        html += '<thead><tr><th>Date</th><th>Doc #</th><th>Description</th><th class="text-end">Amount</th><th class="text-center">DR/CR</th><th class="text-end">Balance</th></tr></thead>';
         html += '<tbody>';
         for (let i = lines.length - 1; i >= 0; i--) {
             const ln = lines[i];
@@ -332,7 +332,7 @@ async function fetchStatement(code) {
             html += '<tr>';
             html += '<td class="text-nowrap">' + esc(ln.date) + '</td>';
             html += '<td>' + esc(ln.doc_number) + '</td>';
-            html += '<td class="text-muted">' + esc(ln.type) + '</td>';
+            html += '<td class="text-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(ln.description) + '">' + esc(ln.description) + '</td>';
             html += '<td class="text-end ' + amtClass + '">&euro;' + Number(ln.amount).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>';
             html += '<td class="text-center"><span class="badge ' + (ln.drcr === 'DR' ? 'bg-danger' : 'bg-success') + '">' + esc(ln.drcr) + '</span></td>';
             if (ln.line_balance !== null) {

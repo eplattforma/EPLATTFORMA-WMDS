@@ -916,9 +916,9 @@ def api_customer_statement(customer_code):
         for ln in lines:
             result.append({
                 'date': ln.get('transaction_date', ''),
-                'doc_number': ln.get('document_number', ''),
-                'type': ln.get('transaction_type', ''),
-                'description': ln.get('general_description', '') or ln.get('detail_description', ''),
+                'doc_number': ln.get('transaction_number', '') or ln.get('reference_number', '') or ln.get('document_number', ''),
+                'type': ln.get('transaction_type', '') or '',
+                'description': ln.get('transaction_description', '') or ln.get('general_description', '') or ln.get('detail_description', '') or '',
                 'amount': float(ln.get('transaction_amount') or 0),
                 'drcr': (ln.get('transaction_drcr') or '').upper().strip(),
                 'line_balance': float(ln.get('line_balance') or 0) if ln.get('line_balance') is not None else None,
