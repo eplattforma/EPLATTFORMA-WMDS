@@ -817,6 +817,14 @@ def customer_balances_report():
             CustomerBalanceCache.signed_balance,
             CustomerBalanceCache.as_of_date,
             CustomerBalanceCache.fetched_at,
+            PSCustomer.address_line_1,
+            PSCustomer.address_line_2,
+            PSCustomer.postal_code,
+            PSCustomer.email,
+            PSCustomer.vat_registration_number,
+            PSCustomer.contact_first_name,
+            PSCustomer.contact_last_name,
+            PSCustomer.category_2_name,
         )
         .outerjoin(CustomerBalanceCache, CustomerBalanceCache.customer_code_365 == PSCustomer.customer_code_365)
         .filter(PSCustomer.active == True)
@@ -832,7 +840,9 @@ def customer_balances_report():
     fetched_count = 0
     with_balance_count = 0
 
-    for code, name, town, cat, agent, tel, mobile, credit_limit, balance, drcr, signed_balance, as_of, fetched_at in rows:
+    for (code, name, town, cat, agent, tel, mobile, credit_limit,
+         balance, drcr, signed_balance, as_of, fetched_at,
+         addr1, addr2, postal, email, vat, contact_first, contact_last, cat2) in rows:
         has_data = balance is not None
         if has_data:
             fetched_count += 1
@@ -844,13 +854,19 @@ def customer_balances_report():
             total_cr += abs(sb)
         if has_data and sb != 0:
             with_balance_count += 1
+        addr_parts = [p for p in [addr1, addr2, postal, town] if p]
+        contact_name = ' '.join(p for p in [contact_first, contact_last] if p)
         customers.append({
             'code': code,
             'name': name or code,
             'town': town or '',
             'category': cat or '',
+            'category2': cat2 or '',
             'agent': agent or '',
             'phone': mobile or tel or '',
+            'tel': tel or '',
+            'mobile': mobile or '',
+            'email': email or '',
             'credit_limit': float(credit_limit or 0),
             'balance': bal,
             'drcr': drcr or '',
@@ -858,6 +874,9 @@ def customer_balances_report():
             'as_of': str(as_of) if as_of else '',
             'fetched_at': fetched_at.strftime('%Y-%m-%d %H:%M') if fetched_at else '',
             'has_data': has_data,
+            'address': ', '.join(addr_parts),
+            'vat': vat or '',
+            'contact': contact_name,
         })
 
     customers.sort(key=lambda c: c['signed_balance'], reverse=True)
@@ -871,6 +890,45 @@ def customer_balances_report():
                            fetched_count=fetched_count,
                            with_balance_count=with_balance_count,
                            excluded_agents=excluded)
+
+
+@reconciliation_bp.route('/api/customer-statement/<customer_code>')
+@login_required
+@admin_or_warehouse_required
+def api_customer_statement(customer_code):
+    try:
+        from services.ps365_statement import fetch_statement
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        try:
+            today = datetime.now(ZoneInfo("Asia/Nicosia")).date()
+        except Exception:
+            today = datetime.utcnow().date()
+
+        lookback = int(os.getenv("PS365_BALANCE_LOOKBACK_YEARS", "10"))
+        from_date = f"{today.year - lookback}-01-01"
+        to_date = today.isoformat()
+
+        stmt = fetch_statement(customer_code, from_date=from_date, to_date=to_date)
+        lines = (stmt or {}).get("list_statement_lines") or []
+
+        result = []
+        for ln in lines:
+            result.append({
+                'date': ln.get('transaction_date', ''),
+                'doc_number': ln.get('document_number', ''),
+                'type': ln.get('transaction_type', ''),
+                'description': ln.get('general_description', '') or ln.get('detail_description', ''),
+                'amount': float(ln.get('transaction_amount') or 0),
+                'drcr': (ln.get('transaction_drcr') or '').upper().strip(),
+                'line_balance': float(ln.get('line_balance') or 0) if ln.get('line_balance') is not None else None,
+                'balance_drcr': (ln.get('balance_drcr') or '').upper().strip(),
+            })
+
+        return jsonify({'ok': True, 'lines': result, 'from_date': from_date, 'to_date': to_date})
+    except Exception as e:
+        logger.error(f"Failed to fetch statement for {customer_code}: {e}")
+        return jsonify({'ok': False, 'error': 'Could not retrieve statement from PS365. Please try again later.'}), 500
 
 
 @reconciliation_bp.route('/api/customer-balances/excluded-agents', methods=['POST'])

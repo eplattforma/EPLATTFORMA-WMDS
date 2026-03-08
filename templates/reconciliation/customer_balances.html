@@ -3,6 +3,13 @@
 {% block title %}Customer Balances Report{% endblock %}
 
 {% block content %}
+<style>
+    .cursor-pointer { cursor: pointer; }
+    .cursor-pointer:hover { background-color: rgba(255,255,255,0.03) !important; }
+    .detail-chevron { transition: transform 0.2s; }
+    .detail-chevron.open { transform: rotate(90deg); }
+    .stmt-table th { position: sticky; top: 0; background: #1a1a2e; z-index: 1; }
+</style>
 <div class="container-fluid p-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
@@ -143,8 +150,8 @@
             </thead>
             <tbody id="balancesBody">
                 {% for c in customers %}
-                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}" data-fetched="{{ '1' if c.has_data else '0' }}">
-                    <td><span class="text-info">{{ c.code }}</span></td>
+                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}" data-fetched="{{ '1' if c.has_data else '0' }}" class="cursor-pointer" onclick="toggleDetail('{{ c.code }}')">
+                    <td><span class="text-info">{{ c.code }}</span> <i class="fas fa-chevron-right small text-muted detail-chevron" id="chevron-{{ c.code }}"></i></td>
                     <td>{{ c.name }}</td>
                     <td class="text-muted">{{ c.town }}</td>
                     <td class="text-muted small">{{ c.category }}</td>
@@ -166,6 +173,53 @@
                     <td class="text-center"><span class="badge bg-dark text-muted">?</span></td>
                     {% endif %}
                     <td class="text-muted small">{% if c.has_data %}{{ c.fetched_at }}{% else %}-{% endif %}</td>
+                </tr>
+                <tr class="detail-row" id="detail-{{ c.code }}" style="display:none;" onclick="event.stopPropagation();">
+                    <td colspan="9" class="p-0 border-0">
+                        <div class="bg-dark border border-secondary rounded m-2 p-3">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <h6 class="text-info mb-2"><i class="fas fa-user me-1"></i>Contact</h6>
+                                    <div class="small">
+                                        {% if c.contact %}<div><i class="fas fa-id-badge text-muted me-1"></i> {{ c.contact }}</div>{% endif %}
+                                        {% if c.tel %}<div><i class="fas fa-phone text-muted me-1"></i> {{ c.tel }}</div>{% endif %}
+                                        {% if c.mobile %}<div><i class="fas fa-mobile-alt text-muted me-1"></i> {{ c.mobile }}</div>{% endif %}
+                                        {% if c.email %}<div><i class="fas fa-envelope text-muted me-1"></i> {{ c.email }}</div>{% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <h6 class="text-info mb-2"><i class="fas fa-map-marker-alt me-1"></i>Address</h6>
+                                    <div class="small text-muted">{{ c.address or 'N/A' }}</div>
+                                    {% if c.vat %}<div class="small mt-1"><span class="text-muted">VAT:</span> {{ c.vat }}</div>{% endif %}
+                                    {% if c.category2 %}<div class="small mt-1"><span class="text-muted">Category 2:</span> {{ c.category2 }}</div>{% endif %}
+                                </div>
+                                <div class="col-md-4">
+                                    <h6 class="text-info mb-2"><i class="fas fa-chart-bar me-1"></i>Balance Info</h6>
+                                    <div class="small">
+                                        <div><span class="text-muted">Credit Limit:</span> &euro;{{ "{:,.2f}".format(c.credit_limit) }}</div>
+                                        {% if c.has_data %}
+                                        <div><span class="text-muted">Balance:</span> <span class="{% if c.drcr == 'DR' %}text-danger{% else %}text-success{% endif %}">&euro;{{ "{:,.2f}".format(c.balance) }} {{ c.drcr }}</span></div>
+                                        <div><span class="text-muted">As of:</span> {{ c.as_of }}</div>
+                                        <div><span class="text-muted">Fetched:</span> {{ c.fetched_at }}</div>
+                                        {% if c.credit_limit > 0 and c.signed_balance > 0 %}
+                                        {% set usage_pct = (c.signed_balance / c.credit_limit * 100) %}
+                                        <div class="mt-1">
+                                            <span class="text-muted">Credit Usage:</span>
+                                            <span class="{% if usage_pct > 100 %}text-danger fw-bold{% elif usage_pct > 80 %}text-warning{% else %}text-success{% endif %}">{{ "{:.0f}".format(usage_pct) }}%</span>
+                                        </div>
+                                        {% endif %}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-3 border-top border-secondary pt-3">
+                                <button class="btn btn-sm btn-outline-info" onclick="event.stopPropagation(); fetchStatement('{{ c.code }}');" id="stmt-btn-{{ c.code }}">
+                                    <i class="fas fa-file-invoice me-1"></i>Load Statement from PS365
+                                </button>
+                                <div id="stmt-area-{{ c.code }}" class="mt-2" style="display:none;"></div>
+                            </div>
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -212,10 +266,92 @@ function filterTable() {
         if (minBalance > 0 && fetched === '1' && Math.abs(signed) < minBalance) show = false;
 
         row.style.display = show ? '' : 'none';
+        const detailRow = document.getElementById('detail-' + row.dataset.code);
+        if (detailRow && !show) {
+            detailRow.style.display = 'none';
+            const chev = document.getElementById('chevron-' + row.dataset.code);
+            if (chev) chev.classList.remove('open');
+        }
         if (show) visible++;
     });
 
     document.getElementById('rowCount').textContent = `Showing ${visible} customers`;
+}
+
+function toggleDetail(code) {
+    const detailRow = document.getElementById('detail-' + code);
+    const chevron = document.getElementById('chevron-' + code);
+    if (!detailRow) return;
+    const isOpen = detailRow.style.display !== 'none';
+    detailRow.style.display = isOpen ? 'none' : '';
+    if (chevron) chevron.classList.toggle('open', !isOpen);
+}
+
+function esc(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+}
+
+async function fetchStatement(code) {
+    const btn = document.getElementById('stmt-btn-' + code);
+    const area = document.getElementById('stmt-area-' + code);
+    if (!btn || !area) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
+    area.style.display = 'block';
+    area.innerHTML = '<div class="text-muted small"><i class="fas fa-spinner fa-spin me-1"></i>Fetching statement from PS365...</div>';
+
+    try {
+        const res = await fetch('/reconciliation/api/customer-statement/' + encodeURIComponent(code));
+        const data = await res.json();
+        if (!data.ok) {
+            area.innerHTML = '<div class="text-danger small"><i class="fas fa-exclamation-circle me-1"></i>' + esc(data.error || 'Failed to load statement') + '</div>';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-file-invoice me-1"></i>Retry';
+            return;
+        }
+
+        const lines = data.lines || [];
+        if (lines.length === 0) {
+            area.innerHTML = '<div class="text-muted small">No statement lines found for period ' + esc(data.from_date) + ' to ' + esc(data.to_date) + '</div>';
+            btn.style.display = 'none';
+            return;
+        }
+
+        let html = '<div class="small text-muted mb-2">' + lines.length + ' transactions (' + esc(data.from_date) + ' to ' + esc(data.to_date) + ')</div>';
+        html += '<div style="max-height:350px; overflow-y:auto;">';
+        html += '<table class="table table-sm table-dark table-striped mb-0 stmt-table">';
+        html += '<thead><tr><th>Date</th><th>Doc #</th><th>Type</th><th class="text-end">Amount</th><th class="text-center">DR/CR</th><th class="text-end">Balance</th></tr></thead>';
+        html += '<tbody>';
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const ln = lines[i];
+            const amtClass = ln.drcr === 'DR' ? 'text-danger' : 'text-success';
+            const balClass = ln.balance_drcr === 'DR' ? 'text-danger' : (ln.balance_drcr === 'CR' ? 'text-success' : '');
+            html += '<tr>';
+            html += '<td class="text-nowrap">' + esc(ln.date) + '</td>';
+            html += '<td>' + esc(ln.doc_number) + '</td>';
+            html += '<td class="text-muted">' + esc(ln.type) + '</td>';
+            html += '<td class="text-end ' + amtClass + '">&euro;' + Number(ln.amount).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>';
+            html += '<td class="text-center"><span class="badge ' + (ln.drcr === 'DR' ? 'bg-danger' : 'bg-success') + '">' + esc(ln.drcr) + '</span></td>';
+            if (ln.line_balance !== null) {
+                html += '<td class="text-end ' + balClass + '">&euro;' + Number(ln.line_balance).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ' + esc(ln.balance_drcr) + '</td>';
+            } else {
+                html += '<td class="text-end text-muted">-</td>';
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        area.innerHTML = html;
+        btn.innerHTML = '<i class="fas fa-check me-1"></i>Statement Loaded';
+        btn.classList.remove('btn-outline-info');
+        btn.classList.add('btn-outline-success');
+    } catch (e) {
+        area.innerHTML = '<div class="text-danger small"><i class="fas fa-exclamation-circle me-1"></i>Error loading statement. Please try again.</div>';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-file-invoice me-1"></i>Retry';
+    }
 }
 
 function sortTable() {
@@ -231,7 +367,11 @@ function sortTable() {
         return 0;
     });
 
-    rows.forEach(row => tbody.appendChild(row));
+    rows.forEach(row => {
+        tbody.appendChild(row);
+        const detail = document.getElementById('detail-' + row.dataset.code);
+        if (detail) tbody.appendChild(detail);
+    });
 }
 
 function formatElapsed(utcStr) {
