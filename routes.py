@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import json
 import re
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from app import app, db
 from models import User, Invoice, InvoiceItem, PickingException, Setting, Shift, IdlePeriod, ActivityLog, BatchPickingSession, BatchSessionInvoice, StockPosition, WmsPackingProfile, WmsPallet, WmsPalletOrder
@@ -1508,7 +1508,7 @@ def edit_user(username):
     
     user = User.query.get_or_404(username)
     
-    new_username = request.form.get('username')
+    new_username = (request.form.get('username') or '').strip()
     new_role = request.form.get('role')
     payment_type_code_365 = request.form.get('payment_type_code_365', '').strip() or None
     cheque_payment_type_code_365 = request.form.get('cheque_payment_type_code_365', '').strip() or None
@@ -1518,41 +1518,72 @@ def edit_user(username):
         flash('Username and role are required', 'danger')
         return redirect(url_for('manage_users'))
     
-    # Check if username already exists (and it's not the current user)
-    if new_username != username:
-        existing_user = User.query.filter_by(username=new_username).first()
-        if existing_user:
-            flash(f'Username {new_username} already exists', 'danger')
-            return redirect(url_for('manage_users'))
+    changing_own_username = (new_username != username and username == current_user.username)
     
-    old_username = user.username
-    
-    # If username is changing, we need to delete and recreate due to primary key
-    if new_username != old_username:
-        # Create new user with new username
-        new_user = User()  # type: ignore
-        new_user.username = new_username
-        new_user.password = user.password
-        new_user.role = new_role
-        new_user.payment_type_code_365 = payment_type_code_365
-        new_user.cheque_payment_type_code_365 = cheque_payment_type_code_365
-        new_user.require_gps_check = require_gps_check
-        db.session.delete(user)
-        db.session.add(new_user)
-    else:
+    try:
+        if new_username != username:
+            existing_user = User.query.filter_by(username=new_username).first()
+            if existing_user:
+                flash(f'Username "{new_username}" already exists', 'danger')
+                return redirect(url_for('manage_users'))
+            
+            fk_refs = db.session.execute(text("""
+                SELECT kcu.table_name, kcu.column_name
+                FROM information_schema.key_column_usage kcu
+                JOIN information_schema.table_constraints tc 
+                    ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.referential_constraints rc 
+                    ON rc.constraint_name = tc.constraint_name
+                    AND rc.constraint_schema = tc.table_schema
+                JOIN information_schema.key_column_usage kcu2 
+                    ON kcu2.constraint_name = rc.unique_constraint_name
+                    AND kcu2.table_schema = rc.unique_constraint_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND kcu2.table_name = 'users'
+                  AND kcu2.column_name = 'username'
+                  AND kcu.table_schema = 'public'
+            """)).fetchall()
+            
+            identifier_pattern = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+            for ref in fk_refs:
+                tbl = ref.table_name
+                col = ref.column_name
+                if not identifier_pattern.match(tbl) or not identifier_pattern.match(col):
+                    logging.warning(f"Skipping invalid FK identifier: {tbl}.{col}")
+                    continue
+                db.session.execute(text(
+                    f'UPDATE "{tbl}" SET "{col}" = :new_val WHERE "{col}" = :old_val'
+                ), {'new_val': new_username, 'old_val': username})
+            
+            db.session.execute(text(
+                'UPDATE users SET username = :new_val WHERE username = :old_val'
+            ), {'new_val': new_username, 'old_val': username})
+            db.session.flush()
+            
+            user = User.query.get(new_username)
+        
         user.role = new_role
         user.payment_type_code_365 = payment_type_code_365
         user.cheque_payment_type_code_365 = cheque_payment_type_code_365
         user.require_gps_check = require_gps_check
-    
-    try:
+        
         db.session.commit()
-        if new_username != old_username:
-            flash(f'User {old_username} updated successfully to {new_username} with role {new_role}', 'success')
+        
+        if new_username != username:
+            flash(f'User renamed from "{username}" to "{new_username}" and updated successfully', 'success')
         else:
-            flash(f'User {old_username} updated successfully', 'success')
+            flash(f'User {username} updated successfully', 'success')
+        
+        if changing_own_username:
+            from flask_login import logout_user
+            logout_user()
+            flash('You changed your own username. Please log in again with your new username.', 'info')
+            return redirect(url_for('login'))
+        
     except Exception as e:
         db.session.rollback()
+        logging.error(f"Error updating user {username}: {e}", exc_info=True)
         flash(f'Error updating user: {str(e)}', 'danger')
     
     return redirect(url_for('manage_users'))
