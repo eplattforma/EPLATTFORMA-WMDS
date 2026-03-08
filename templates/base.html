@@ -53,17 +53,11 @@
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['import_excel', 'admin_shift_management', 'find_invoice.find_invoice_route'] %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['import_excel', 'admin_shift_management'] %}active{% endif %}" 
                            href="#" id="warehouseDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-warehouse me-1"></i>Warehouse
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="warehouseDropdown">
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint == 'find_invoice.find_invoice_route' %}active{% endif %}" 
-                                   href="{{ url_for('find_invoice.find_invoice_route') }}">
-                                    <i class="fas fa-search me-2"></i>Find Invoice/Route
-                                </a>
-                            </li>
                             <li>
                                 <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('po_receiving.') %}active{% endif %}" 
                                    href="{{ url_for('po_receiving.index') }}">
@@ -104,7 +98,7 @@
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['routes.dashboard', 'delivery_issues.review_issues'] %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['routes.dashboard', 'delivery_issues.review_issues', 'find_invoice.find_invoice_route'] %}active{% endif %}" 
                            href="#" id="deliveryDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-truck me-1"></i>Delivery
                         </a>
@@ -113,6 +107,12 @@
                                 <a class="dropdown-item {% if request.endpoint == 'routes.dashboard' %}active{% endif %}" 
                                    href="{{ url_for('routes.dashboard') }}">
                                     <i class="fas fa-truck me-2"></i>Delivery Dashboard
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'find_invoice.find_invoice_route' %}active{% endif %}" 
+                                   href="{{ url_for('find_invoice.find_invoice_route') }}">
+                                    <i class="fas fa-search me-2"></i>Find Invoice/Route
                                 </a>
                             </li>
                             <li>
