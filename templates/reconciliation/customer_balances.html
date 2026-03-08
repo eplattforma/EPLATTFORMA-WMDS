@@ -109,7 +109,6 @@
                     <th>Category</th>
                     <th>Agent</th>
                     <th>Phone</th>
-                    <th class="text-end">Credit Limit</th>
                     <th class="text-end">Balance</th>
                     <th class="text-center">DR/CR</th>
                     <th>Last Updated</th>
@@ -124,7 +123,6 @@
                     <td class="text-muted small">{{ c.category }}</td>
                     <td class="text-muted small">{{ c.agent }}</td>
                     <td class="text-muted small">{{ c.phone }}</td>
-                    <td class="text-end">{% if c.credit_limit %}&euro;{{ "{:,.2f}".format(c.credit_limit) }}{% else %}-{% endif %}</td>
                     {% if c.has_data %}
                     <td class="text-end fw-bold {% if c.drcr == 'DR' %}text-danger{% elif c.drcr == 'CR' %}text-success{% endif %}">
                         {% if c.signed_balance != 0 %}&euro;{{ "{:,.2f}".format(c.balance) }}{% else %}&euro;0.00{% endif %}
