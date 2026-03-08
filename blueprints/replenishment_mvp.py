@@ -194,6 +194,52 @@ def export_csv(run_id):
     )
 
 
+@replenishment_bp.route('/run/<int:run_id>/export-order-csv')
+@admin_or_warehouse_required
+def export_order_csv(run_id):
+    from services.replenishment_mvp.repositories import get_item_master_for_codes
+
+    run = ReplenishmentRun.query.get_or_404(run_id)
+    lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).order_by(
+        ReplenishmentRunLine.item_code_365.asc()
+    ).all()
+
+    order_lines = [l for l in lines if (l.final_cases or l.suggested_cases) > 0]
+
+    item_codes = [l.item_code_365 for l in order_lines]
+    item_master = get_item_master_for_codes(item_codes)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'Item Code', 'Supplier Item Code', 'Barcode', 'Item Name',
+        'Order Qty (Cases)', 'Units Per Case', 'Order Qty (Units)'
+    ])
+
+    for line in order_lines:
+        master = item_master.get(line.item_code_365, {})
+        cases = float(line.final_cases if line.final_cases is not None else line.suggested_cases)
+        case_qty = float(line.case_qty_units)
+        units = cases * case_qty
+
+        writer.writerow([
+            line.item_code_365,
+            master.get("supplier_item_code", ""),
+            master.get("barcode", ""),
+            line.item_name or "",
+            int(cases) if cases == int(cases) else cases,
+            int(case_qty) if case_qty == int(case_qty) else case_qty,
+            int(units) if units == int(units) else units,
+        ])
+
+    filename = f"order_{run.supplier_code}_{run.run_date}_{run.run_type}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
+
+
 @replenishment_bp.route('/api/run/<int:run_id>')
 @admin_or_warehouse_required
 def api_run_json(run_id):
