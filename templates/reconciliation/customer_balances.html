@@ -12,9 +12,30 @@
         </div>
         <h4 class="mb-0"><i class="fas fa-balance-scale text-primary"></i> Customer Balances</h4>
         <div>
+            <button class="btn btn-sm btn-outline-secondary me-2" data-bs-toggle="collapse" data-bs-target="#excludedAgentsPanel">
+                <i class="fas fa-cog me-1"></i>Settings
+            </button>
             <button class="btn btn-primary" id="btnFetchAll" onclick="fetchAllBalances()">
                 <i class="fas fa-sync-alt me-1"></i> Fetch All from PS365
             </button>
+        </div>
+    </div>
+
+    <div class="collapse mb-3" id="excludedAgentsPanel">
+        <div class="card bg-dark border-secondary">
+            <div class="card-body py-3">
+                <h6 class="card-title mb-2"><i class="fas fa-user-slash text-warning me-1"></i> Excluded Agents</h6>
+                <p class="text-muted small mb-2">Customers belonging to these agents will be excluded from the list and from "Fetch All". Comma-separated, partial match.</p>
+                <div class="input-group">
+                    <input type="text" class="form-control bg-dark text-white border-secondary" id="excludedAgentsInput"
+                           value="{{ excluded_agents|join(', ') }}"
+                           placeholder="e.g. EKO, PETROLINA, HELLENIC PETROLEUM">
+                    <button class="btn btn-outline-warning" type="button" onclick="saveExcludedAgents()">
+                        <i class="fas fa-save me-1"></i>Save
+                    </button>
+                </div>
+                <div id="excludedAgentsMsg" class="small mt-1" style="display:none;"></div>
+            </div>
         </div>
     </div>
 
@@ -320,5 +341,32 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(() => {});
 });
+
+async function saveExcludedAgents() {
+    const input = document.getElementById('excludedAgentsInput');
+    const msg = document.getElementById('excludedAgentsMsg');
+    try {
+        const res = await fetch('/reconciliation/api/customer-balances/excluded-agents', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({agents: input.value})
+        });
+        const data = await res.json();
+        if (data.ok) {
+            msg.className = 'small mt-1 text-success';
+            msg.textContent = 'Saved. Reload the page to see updated results.';
+            msg.style.display = 'block';
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            msg.className = 'small mt-1 text-danger';
+            msg.textContent = 'Error saving settings.';
+            msg.style.display = 'block';
+        }
+    } catch (e) {
+        msg.className = 'small mt-1 text-danger';
+        msg.textContent = 'Error: ' + e.message;
+        msg.style.display = 'block';
+    }
+}
 </script>
 {% endblock %}

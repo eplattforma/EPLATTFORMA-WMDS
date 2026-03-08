@@ -778,13 +778,20 @@ def api_customer_balance():
         return jsonify({"ok": False, "error": "Could not retrieve balance from PS365"}), 500
 
 
+def _get_excluded_agents():
+    from models import Setting
+    raw = Setting.get(db.session, 'balance_excluded_agents', '')
+    if not raw or not raw.strip():
+        return []
+    return [a.strip() for a in raw.split(',') if a.strip()]
+
+
 def _customer_base_filter():
-    return PSCustomer.query.filter(
-        PSCustomer.active == True,
-        db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
-        db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
-        db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%HELLENIC PETROLEUM%')),
-    )
+    excluded = _get_excluded_agents()
+    q = PSCustomer.query.filter(PSCustomer.active == True)
+    for agent in excluded:
+        q = q.filter(db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike(f'%{agent}%')))
+    return q
 
 
 @reconciliation_bp.route('/customer-balances')
@@ -793,7 +800,9 @@ def _customer_base_filter():
 def customer_balances_report():
     from sqlalchemy import func
 
-    rows = (
+    excluded = _get_excluded_agents()
+
+    q = (
         db.session.query(
             PSCustomer.customer_code_365,
             PSCustomer.company_name,
@@ -810,14 +819,12 @@ def customer_balances_report():
             CustomerBalanceCache.fetched_at,
         )
         .outerjoin(CustomerBalanceCache, CustomerBalanceCache.customer_code_365 == PSCustomer.customer_code_365)
-        .filter(
-            PSCustomer.active == True,
-            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%EKO%')),
-            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%PETROLINA%')),
-            db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike('%HELLENIC PETROLEUM%')),
-        )
-        .all()
+        .filter(PSCustomer.active == True)
     )
+    for agent in excluded:
+        q = q.filter(db.or_(PSCustomer.agent_name == None, ~PSCustomer.agent_name.ilike(f'%{agent}%')))
+
+    rows = q.all()
 
     customers = []
     total_dr = Decimal('0')
@@ -862,7 +869,21 @@ def customer_balances_report():
                            net_balance=float(total_dr - total_cr),
                            total_customers=len(rows),
                            fetched_count=fetched_count,
-                           with_balance_count=with_balance_count)
+                           with_balance_count=with_balance_count,
+                           excluded_agents=excluded)
+
+
+@reconciliation_bp.route('/api/customer-balances/excluded-agents', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_save_excluded_agents():
+    from models import Setting
+    data = request.get_json(silent=True) or {}
+    agents_raw = data.get('agents', '').strip()
+    Setting.set(db.session, 'balance_excluded_agents', agents_raw)
+    db.session.commit()
+    excluded = [a.strip() for a in agents_raw.split(',') if a.strip()]
+    return jsonify({'ok': True, 'excluded': excluded})
 
 
 _balance_fetch_status = {'running': False, 'success': 0, 'failed': 0, 'skipped': 0, 'total': 0, 'errors': [], 'done': False, 'started_at': None, 'finished_at': None}
