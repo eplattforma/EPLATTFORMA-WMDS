@@ -1074,10 +1074,10 @@ _balance_fetch_status = {'running': False, 'success': 0, 'failed': 0, 'skipped':
 
 
 def _run_balance_fetch(app):
-    import time
+    import requests
     from datetime import datetime
     from zoneinfo import ZoneInfo
-    from services.ps365_statement import get_customer_balance_as_of_today
+    from config_ps365 import PS365_BASE_URL, PS365_TOKEN
 
     global _balance_fetch_status
     with app.app_context():
@@ -1086,45 +1086,111 @@ def _run_balance_fetch(app):
         except Exception:
             today = datetime.utcnow().date()
 
-        all_customers = _customer_base_filter().all()
-        _balance_fetch_status['total'] = len(all_customers)
+        base = PS365_BASE_URL
+        token = PS365_TOKEN
+        if not base or not token:
+            _balance_fetch_status['errors'].append("Missing PS365_BASE_URL or PS365_TOKEN")
+            _balance_fetch_status['done'] = True
+            _balance_fetch_status['running'] = False
+            _balance_fetch_status['finished_at'] = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            return
 
-        for cust in all_customers:
-            code = cust.customer_code_365
-            cached = CustomerBalanceCache.query.get(code)
-            if cached and cached.as_of_date == today and CustomerBalanceCache.is_fresh(cached, 120):
-                _balance_fetch_status['skipped'] += 1
-                continue
+        url = f"{base.rstrip('/')}/list_customers"
 
+        try:
+            count_payload = {
+                "api_credentials": {"token": token},
+                "filter_define": {
+                    "only_counted": "Y",
+                    "active_type": "active",
+                }
+            }
+            r = requests.post(url, json=count_payload, timeout=60)
+            r.raise_for_status()
+            total_count = r.json().get("total_count_list_customers", 0)
+            _balance_fetch_status['total'] = total_count
+            logger.info(f"Balance fetch: {total_count} active customers to fetch via list_customers API")
+        except Exception as e:
+            _balance_fetch_status['errors'].append(f"Count API failed: {str(e)[:100]}")
+            _balance_fetch_status['done'] = True
+            _balance_fetch_status['running'] = False
+            _balance_fetch_status['finished_at'] = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            logger.error(f"Balance fetch count failed: {e}")
+            return
+
+        page_size = 200
+        page = 1
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+        while page <= total_pages:
             try:
-                bal = get_customer_balance_as_of_today(code)
-                row = cached or CustomerBalanceCache(customer_code_365=code)
-                row.as_of_date = today
-                row.balance = bal["balance"]
-                row.drcr = bal["drcr"]
-                row.signed_balance = bal["signed_balance"]
-                row.ps_last_line_balance = bal.get("ps_last_line_balance")
-                row.ps_last_balance_drcr = bal.get("ps_last_balance_drcr")
-                row.fetched_at = datetime.utcnow()
-                db.session.add(row)
-                _balance_fetch_status['success'] += 1
+                payload = {
+                    "api_credentials": {"token": token},
+                    "filter_define": {
+                        "only_counted": "N",
+                        "page_number": page,
+                        "page_size": page_size,
+                        "active_type": "active",
+                        "display_fields": "customer_code_365,balance",
+                    }
+                }
+                r = requests.post(url, json=payload, timeout=120)
+                r.raise_for_status()
+                data = r.json()
+                customers_list = data.get("list_customers", [])
 
-                if _balance_fetch_status['success'] % 10 == 0:
-                    db.session.commit()
+                if not customers_list:
+                    break
 
-                time.sleep(0.1)
+                for cust_data in customers_list:
+                    code = cust_data.get("customer_code_365", "")
+                    if not code:
+                        continue
+
+                    raw_balance = cust_data.get("balance", 0)
+                    try:
+                        balance_val = float(raw_balance or 0)
+                    except (ValueError, TypeError):
+                        balance_val = 0.0
+
+                    abs_balance = abs(balance_val)
+                    if balance_val > 0:
+                        drcr = "DR"
+                    elif balance_val < 0:
+                        drcr = "CR"
+                    else:
+                        drcr = ""
+
+                    try:
+                        cached = CustomerBalanceCache.query.get(code)
+                        row = cached or CustomerBalanceCache(customer_code_365=code)
+                        row.as_of_date = today
+                        row.balance = abs_balance
+                        row.drcr = drcr
+                        row.signed_balance = balance_val
+                        row.fetched_at = datetime.utcnow()
+                        db.session.add(row)
+                        _balance_fetch_status['success'] += 1
+                    except Exception as e:
+                        _balance_fetch_status['failed'] += 1
+                        if _balance_fetch_status['failed'] <= 10:
+                            _balance_fetch_status['errors'].append(f"{code}: {str(e)[:80]}")
+
+                db.session.commit()
+                logger.info(f"Balance fetch: page {page}/{total_pages} done ({len(customers_list)} customers)")
+                page += 1
 
             except Exception as e:
                 _balance_fetch_status['failed'] += 1
                 if _balance_fetch_status['failed'] <= 10:
-                    _balance_fetch_status['errors'].append(f"{code}: {str(e)[:80]}")
-                logger.warning(f"Balance fetch failed for {code}: {e}")
+                    _balance_fetch_status['errors'].append(f"Page {page} failed: {str(e)[:100]}")
+                logger.warning(f"Balance fetch page {page} failed: {e}")
+                page += 1
 
-        db.session.commit()
         _balance_fetch_status['done'] = True
         _balance_fetch_status['running'] = False
         _balance_fetch_status['finished_at'] = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        logger.info(f"Balance fetch complete: {_balance_fetch_status['success']} ok, {_balance_fetch_status['failed']} failed, {_balance_fetch_status['skipped']} skipped")
+        logger.info(f"Balance fetch complete: {_balance_fetch_status['success']} ok, {_balance_fetch_status['failed']} failed")
 
 
 @reconciliation_bp.route('/api/customer-balances/fetch-all', methods=['POST'])

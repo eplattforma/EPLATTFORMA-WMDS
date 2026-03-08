@@ -1,0 +1,836 @@
+list_customers
+
+Changelog
+September 1, 2025
+In the post method for filtering added a new option display_fields.
+September 3, 2025
+In the post method for filtering added a new option display_b2b_fields.
+October 29, 2025
+Added new fields to the customer record response: general_ledger_header_code_365, general_ledger_header_name, detail_account_header_code_365, detail_account_header_name.
+GET /list_customers
+To get the TOTAL COUNT of the list of customers for search criteria.
+
+Use this method FIRST to determine how many total records there are for the given criteria.
+
+After you call this method, then call the method below, and pass the required paging parameters.
+
+
+/list_customers?token=XXXXX&active_type=active
+field	description
+token	Credentials provided by Powersoft that allow access to the API
+active_type	'active' = Only the active customers. 'inactive' = Only the inactive customers. 'all' = All the customers(active and inactive)
+Returns
+
+{
+    "api_response": {
+        "response_code": "1",
+        "response_msg": "OK",
+        "response_id": ""
+    },
+    "total_count_list_customers": 2
+}
+
+GET /list_customers
+To get a list of customers.
+
+
+/list_customers?token=XXXXX&active_type=active&page_number=1&page_size=10
+field	description
+token	Credentials provided by Powersoft that allow access to the API
+active_type	'active' = Only the active customers. 'inactive' = Only the inactive customers. 'all' = All the customers(active and inactive)
+page_number	The page number in the entire list. eg Page 1
+page_size	The number of rows to return. eg 10 rows
+display_fields	Comma separated list of fields to be displayed in the response. If empty all fields will be displayed.
+Returns
+
+{
+    "api_response": {
+        "response_code": "1",
+        "response_msg": "OK",
+        "response_id": ""
+    },
+    "list_customers": [
+        {
+            "customer_code_365": "00100010",
+            "customer_code_secondary": "00100010",
+            "is_company": false,
+            "company_name": "",
+            "last_name": "BALDWIN",
+            "first_name": "ALEX",
+            "store_code_365": "001",
+            "active": true,
+            "date_of_birth": "2000-01-12",
+            "gender": "",
+            "tel_1": "",
+            "tel_2": "",
+            "mobile": "",
+            "sms": "",
+            "fax": "",
+            "email": "",
+            "website": "",
+            "category_code_365": "",
+            "category_name": "",
+            "category_2_code_365": "",
+            "category_2_name": "",
+            "company_activity_code_365": "",
+            "company_activity_name": "",
+            "credit_limit_amount": 99999.99,
+            "customer_id": "",
+            "vat_registration_number": "",
+            "tax_office": "",
+            "remarks": "",
+            "address_line_1": "",
+            "address_line_2": "",
+            "address_line_3": "",
+            "postal_code": "",
+            "town": "",
+            "country_code_iso2": "",
+            "country_name": "",
+            "contact_last_name": "",
+            "contact_first_name": "",
+            "default_price": 0,
+            "loyalty_factor": 0,
+            "text_field_1_value": "",
+            "text_field_2_value": "",
+            "text_field_3_value": "",
+            "text_field_4_value": "",
+            "text_field_5_value": "",
+            "number_field_1_value": 0,
+            "number_field_2_value": 0,
+            "number_field_3_value": 0,
+            "number_field_4_value": 0,
+            "number_field_5_value": 0,
+            "date_field_1_value": "",
+            "date_field_2_value": "",
+            "date_field_3_value": "",
+            "date_field_4_value": "",
+            "date_field_5_value": "",
+            "points_balance": 0,
+            "points_ever_balance": 0,
+            "is_euc": "no",
+            "is_export": "no",
+            "autoemail": false,
+            "autosms": false,
+            "discount_limit": 0,
+            "agent_code_365": "",
+            "agent_name": " ",
+            "balance": 0,
+            "b2b": false,
+            "general_ledger_header_code_365": "4111",
+            "general_ledger_header_name": "GENERAL SALES",
+            "detail_account_header_code_365": "1221",
+            "detail_account_header_name": "TRADE DEBTORS"
+        },
+        {
+            "customer_code_365": "00100011",
+            "customer_code_secondary": "00100011",
+            "is_company": false,
+            "company_name": "",
+            "last_name": "BALDWIN",
+            "first_name": "ALEX",
+            "store_code_365": "001",
+            "active": true,
+            "date_of_birth": "",
+            "gender": "",
+            "tel_1": "",
+            "tel_2": "",
+            "mobile": "",
+            "sms": "",
+            "fax": "",
+            "email": "",
+            "website": "",
+            "category_code_365": "",
+            "category_name": "",
+            "category_2_code_365": "",
+            "category_2_name": "",
+            "company_activity_code_365": "",
+            "company_activity_name": "",
+            "credit_limit_amount": 99999.99,
+            "customer_id": "",
+            "vat_registration_number": "",
+            "tax_office": "",
+            "remarks": "",
+            "address_line_1": "",
+            "address_line_2": "",
+            "address_line_3": "",
+            "postal_code": "",
+            "town": "",
+            "country_code_iso2": "",
+            "country_name": "",
+            "contact_last_name": "",
+            "contact_first_name": "",
+            "default_price": 0,
+            "loyalty_factor": 0,
+            "text_field_1_value": "",
+            "text_field_2_value": "",
+            "text_field_3_value": "",
+            "text_field_4_value": "",
+            "text_field_5_value": "",
+            "number_field_1_value": 0,
+            "number_field_2_value": 0,
+            "number_field_3_value": 0,
+            "number_field_4_value": 0,
+            "number_field_5_value": 0,
+            "date_field_1_value": "",
+            "date_field_2_value": "",
+            "date_field_3_value": "",
+            "date_field_4_value": "",
+            "date_field_5_value": "",
+            "points_balance": 0,
+            "points_ever_balance": 0,
+            "is_euc": "no",
+            "is_export": "no",
+            "autoemail": false,
+            "autosms": false,
+            "discount_limit": 0,
+            "agent_code_365": "",
+            "agent_name": " ",
+            "balance": 100,
+            "b2b": false,
+            "general_ledger_header_code_365": "4111",
+            "general_ledger_header_name": "GENERAL SALES",
+            "detail_account_header_code_365": "1221",
+            "detail_account_header_name": "TRADE DEBTORS"
+        }
+    ]
+}
+POST /list_customers
+To get the TOTAL COUNT of list of customers for multiple search criteria.
+
+Use this method with only_counted = 'Y' FIRST to determine how many total records there are for the given criteria.
+
+After you call this method with only_counted = 'Y', then call again this method with only_counted = 'N', and pass the required paging parameters.
+
+
+{
+    "api_credentials": {
+        "token": "XXXXX"
+    },
+    "filter_define": {
+        "only_counted": "Y",
+        "customer_code_365_selection": "",
+        "customer_code_secondary_selection": "",
+        "company_type": "all",
+        "company_name_selection": "",
+        "last_name_selection": "",
+        "first_name_selection": "",
+        "store_code_365_selection": "",
+        "active_type": "all",
+        "date_of_birth_from": "",
+        "date_of_birth_to": "",
+        "tel_1_selection": "",
+        "tel_2_selection": "",
+        "mobile_selection": "",
+        "sms_selection": "",
+        "fax_selection": "",
+        "email_selection": "",
+        "website_selection": "",
+        "categories_1_selection": "",
+        "categories_2_selection": "",
+        "credit_limit_amount_from": "",
+        "credit_limit_amount_to": "",
+        "customer_id_selection": "",
+        "vat_registration_number_selection": "",
+        "remarks_selection": "",
+        "address_line_1_selection": "",
+        "address_line_2_selection": "",
+        "address_line_3_selection": "",
+        "postal_code_selection": "",
+        "town_selection": "",
+        "country_code_iso2_selection": "",
+        "contact_last_name_selection": "",
+        "contact_first_name_selection": "",
+        "default_price_selection": "",
+        "text_field_1_selection": "",
+        "text_field_2_selection": "",
+        "text_field_3_selection": "",
+        "text_field_4_selection": "",
+        "text_field_5_selection": "",
+        "number_field_1_selection": "",
+        "number_field_2_selection": "",
+        "number_field_3_selection": "",
+        "number_field_4_selection": "",
+        "number_field_5_selection": "",
+        "date_field_1_from": "",
+        "date_field_1_to": "",
+        "date_field_2_from": "",
+        "date_field_2_to": "",
+        "date_field_3_from": "",
+        "date_field_3_to": "",
+        "date_field_4_from": "",
+        "date_field_4_to": "",
+        "date_field_5_from": "",
+        "date_field_5_to": "",
+        "agent_code_365_selection": "",
+        "last_modified_from": "",
+        "last_modified_to": "",
+        "b2b_type": "all",
+        "company_activity_selection": "",
+        "balance_selection": true,
+        "balance_comparison_operator": "IsGreater",
+        "balance_from": 0,
+        "balance_to": 9999999,
+        "short_name_selection": "",
+        "creation_date_from": "",
+        "creation_date_to": ""
+    }
+}
+To get a list of customers for multiple search criteria.
+
+
+{
+    "api_credentials": {
+        "token": "XXXXX"
+    },
+    "filter_define": {
+        "only_counted": "N",
+        "page_number": 1,
+        "page_size": 10,
+        "customer_code_365_selection": "",
+        "customer_code_secondary_selection": "",
+        "company_type": "all",
+        "company_name_selection": "",
+        "last_name_selection": "",
+        "first_name_selection": "",
+        "store_code_365_selection": "",
+        "active_type": "all",
+        "date_of_birth_from": "",
+        "date_of_birth_to": "",
+        "tel_1_selection": "",
+        "tel_2_selection": "",
+        "mobile_selection": "",
+        "sms_selection": "",
+        "fax_selection": "",
+        "email_selection": "",
+        "website_selection": "",
+        "categories_1_selection": "",
+        "categories_2_selection": "",
+        "credit_limit_amount_from": "",
+        "credit_limit_amount_to": "",
+        "customer_id_selection": "",
+        "vat_registration_number_selection": "",
+        "remarks_selection": "",
+        "address_line_1_selection": "",
+        "address_line_2_selection": "",
+        "address_line_3_selection": "",
+        "postal_code_selection": "",
+        "town_selection": "",
+        "country_code_iso2_selection": "",
+        "contact_last_name_selection": "",
+        "contact_first_name_selection": "",
+        "default_price_selection": "",
+        "text_field_1_selection": "",
+        "text_field_2_selection": "",
+        "text_field_3_selection": "",
+        "text_field_4_selection": "",
+        "text_field_5_selection": "",
+        "number_field_1_selection": "",
+        "number_field_2_selection": "",
+        "number_field_3_selection": "",
+        "number_field_4_selection": "",
+        "number_field_5_selection": "",
+        "date_field_1_from": "",
+        "date_field_1_to": "",
+        "date_field_2_from": "",
+        "date_field_2_to": "",
+        "date_field_3_from": "",
+        "date_field_3_to": "",
+        "date_field_4_from": "",
+        "date_field_4_to": "",
+        "date_field_5_from": "",
+        "date_field_5_to": "",
+        "agent_code_365_selection": "",
+        "last_modified_from": "",
+        "last_modified_to": "",
+        "b2b_type": "all",
+        "company_activity_selection": "",
+        "balance_selection": true,
+        "balance_comparison_operator": "IsGreater",
+        "balance_from": 0,
+        "balance_to": 9999999,
+        "short_name_selection": "",
+        "creation_date_from": "",
+        "creation_date_to": "",
+        "display_fields": "",
+        "display_b2b_fields": false
+    }
+}
+
+field	type	description
+api_credentials
+token	string	Credentials provided by Powersoft that allow access to the API
+filter_define
+only_counted	string	'Y' = brings only the total of customers found based on user filter criteria. 'N' = brings the list of the customers found based on user filter criteria
+page_number	integer	The page number in the entire list. eg Page 1.
+page_size	integer	The number of rows to return. eg 10 rows
+customer_code_365_selection	string	A comma separated list of 365 customers codes (eg '10000002,10000012,10000202,...'). If the value is empty then no search criteria by 365 customer code is applied.
+customer_code_secondary_selection	string	A comma separated list of 365 customers secondary codes (eg 'CC1,WQ12,10000202,...'). If the value is empty then no search criteria by 365 customer secondary code is applied.
+company_type	string	'company' = Only the customers flagged as company. 'person'= Only the customers flagged as person. 'all' = All the customers regardless whether they are flagged as company or person
+company_name_selection	string	A comma separated list of company name (eg 'COMPANY 1 LTD,John Doe,...'). If the value is empty then no search criteria by company name is applied.
+last_name_selection	string	A comma separated list of company last name (eg 'COMPANY 1 LTD,Doe,...'). If the value is empty then no search criteria by company last name is applied.
+first_name_selection	string	A comma separated list of company first name (eg 'Maria,John,...'). If the value is empty then no search criteria by company first name is applied.
+store_code_365_selection	string	A comma separated list of 365 store codes (eg '001,003,100,...'). If the value is empty then no search criteria by 365 store code is applied.
+active_type	string	'active' = Only the active customers. 'inactive' = Only the inactive customers. 'all' = All the customers(active and inactive)
+date_of_birth_from	string	Birth date from. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by birth date is applied.
+date_of_birth_to	string	Birth date to. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by birth date is applied.
+tel_1_selection	string	A comma separated list of telephone number 1 (eg '25XXXXXX,22XXXXXX,...'). If the value is empty then no search criteria by telephone number 1 is applied.
+tel_2_selection	string	A comma separated list of telephone number 2 (eg '25XXXXXX,22XXXXXX,...'). If the value is empty then no search criteria by telephone number 2 is applied.
+mobile_selection	string	A comma separated list of mobile number (eg '96XXXXXX,99XXXXXX,...'). If the value is empty then no search criteria by mobile number is applied.
+sms_selection	string	A comma separated list of sms number (eg '96XXXXXX,99XXXXXX,...'). If the value is empty then no search criteria by sms number is applied.
+fax_selection	string	A comma separated list of fax number (eg '25XXXXXX,22XXXXXX,...'). If the value is empty then no search criteria by fax number is applied.
+email_selection	string	A comma separated list of e-mail address (eg 'XX@test.com,aa@test.com.cy,...'). If the value is empty then no search criteria by e-mail address is applied.
+website_selection	string	A comma separated list of website address (eg 'www.test.com,www.test1.com.cy,...'). If the value is empty then no search criteria by website address is applied.
+categories_1_selection	string	A comma separated list of 365 customers categories 1 codes (eg 'VIP,PROSPECT,...'). If the value is empty then no search criteria by customer category 1 is applied.
+categories_2_selection	string	A comma separated list of 365 customers categories 2 codes (eg 'IT,SUPERMARKET,...'). If the value is empty then no search criteria by customer category 2 is applied.
+credit_limit_amount_from	string	Credit Limit Amount from. The value must be provided as a decimal value ("25.4"). If the value is empty then no search criteria by credit limit amount is applied.
+credit_limit_amount_to	string	Credit Limit Amount to. The value must be provided as a decimal value ("125.0"). If the value is empty then no search criteria by credit limit amount is applied.
+customer_id_selection	string	A comma separated list of customers IDs (eg 'ID123455,IDXXXX,...'). If the value is empty then no search criteria by customers IDs is applied.
+vat_registration_number_selection	string	A comma separated list of customers VAT registration number (eg 'VAT11111,VATXXXXX,...'). If the value is empty then no search criteria by customers VAT registration number is applied.
+remarks_selection	string	A value that is contained in the customer remarks (LIKE) (eg 'notes'). If the value is empty then no search criteria by remarks is applied.
+address_line_1_selection	string	A value that is contained in the customer address line 1 (LIKE) (eg 'AVENUE'). If the value is empty then no search criteria by address line 1 is applied.
+address_line_2_selection	string	A value that is contained in the customer address line 2 (LIKE) (eg 'AVENUE'). If the value is empty then no search criteria by address line 2 is applied.
+address_line_3_selection	string	A value that is contained in the customer address line 3 (LIKE) (eg 'AVENUE'). If the value is empty then no search criteria by address line 3 is applied.
+postal_code_selection	string	A comma separated list of postal codes (eg '1641,3105,...'). If the value is empty then no search criteria by postal code is applied.
+town_selection	string	A comma separated list of towns (eg 'Nicosia,Larnaca,...'). If the value is empty then no search criteria by town is applied.
+country_code_iso2_selection	string	A comma separated list of ISO country codes (eg 'CY,GR,...'). If the value is empty then no search criteria by country code is applied.
+contact_first_name_selection	string	A comma separated list of contact first name (eg 'Maria,John,...'). If the value is empty then no search criteria by contact first name is applied.
+contact_last_name_selection	string	A comma separated list of contact last name (eg 'Smith,Doe,...'). If the value is empty then no search criteria by contact last name is applied.
+default_price_selection	string	A comma separated list of default price (eg '1,2,...'). If the value is empty then no search criteria by default is applied.
+text_field_1_selection	string	A comma separated list of text field 1 (eg 'AAAA,Something,...'). If the value is empty then no search criteria by text field 1 is applied.
+text_field_2_selection	string	A comma separated list of text field 2 (eg 'AAAA,Something,...'). If the value is empty then no search criteria by text field 2 is applied.
+text_field_3_selection	string	A comma separated list of text field 3 (eg 'AAAA,Something,...'). If the value is empty then no search criteria by text field 3 is applied.
+text_field_4_selection	string	A comma separated list of text field 4 (eg 'AAAA,Something,...'). If the value is empty then no search criteria by text field 4 is applied.
+text_field_5_selection	string	A comma separated list of text field 5 (eg 'AAAA,Something,...'). If the value is empty then no search criteria by text field 5 is applied.
+number_field_1_selection	string	A comma separated list of number field 1 (eg '0.25,17.00,...'). If the value is empty then no search criteria by number field 1 is applied.
+number_field_2_selection	string	A comma separated list of number field 2 (eg '0.25,17.00,...'). If the value is empty then no search criteria by number field 2 is applied.
+number_field_3_selection	string	A comma separated list of number field 3 (eg '0.25,17.00,...'). If the value is empty then no search criteria by number field 3 is applied.
+number_field_4_selection	string	A comma separated list of number field 4 (eg '0.25,17.00,...'). If the value is empty then no search criteria by number field 4 is applied.
+number_field_5_selection	string	A comma separated list of number field 5 (eg '0.25,17.00,...'). If the value is empty then no search criteria by number field 5 is applied.
+date_field_1_from	string	Date field 1 from. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 1 is applied.
+date_field_1_to	string	Date field 1 to. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 1 is applied.
+date_field_2_from	string	Date field 2 from. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 2 is applied.
+date_field_2_to	string	Date field 2 to. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 2 is applied.
+date_field_3_from	string	Date field 3 from. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 3 is applied.
+date_field_3_to	string	Date field 3 to. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 3 is applied.
+date_field_4_from	string	Date field 4 from. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 4 is applied.
+date_field_4_to	string	Date field 4 to. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 4 is applied.
+date_field_5_from	string	Date field 5 from. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 5 is applied.
+date_field_5_to	string	Date field 5 to. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by date field 5 is applied.
+agent_code_365_selection	string	A comma separated list of agent 365 codes (eg 'AG1,AG2,...'). If the value is empty then no search criteria by agent 365 codes is applied.
+last_modified_from	string	UTC last modified date from. The date must be provided in format yyyy-mm-dd HH:mm:ss. If the value is empty then no search criteria by last modified date is applied.
+last_modified_to	string	UTC last modified date to. The date must be provided in format yyyy-mm-dd HH:mm:ss. If the value is empty then no search criteria by last modified date is applied.
+creation_date_from	string	Creation date from. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by creation date is applied.
+creation_date_to	string	Creation date to. The date must be provided in format yyyy-mm-dd. If the value is empty then no search criteria by creation date is applied.
+b2b_type	string	'onlyB2B' = Only the customers flagged as B2B. 'notB2B' = Only the customers not flagged as B2B. 'all' = All the customers.
+company_activity_selection	string	A comma separated list of company act (eg 'COMPANY 1 LTD,John Doe,...'). If the value is empty then no search criteria by company name is applied.
+short_name_selection	string	A comma separated list of short name (eg 'Maria,John,...'). If the value is empty then no search criteria by short name is applied.
+balance_selection	bool	If balance filter occurs.
+balance_from	decimal	Minimum balance value used for filtering.
+balance_to	decimal	Maximum balance value used for filtering.
+balance_comparison_operator	string	
+Comparison operator used for filtering. The following values are accepted:
+IsLess	Brings all customers with balance less than the balance_from value provided
+IsLessOrEqual	Brings all customers with balance less or equal than the balance_from value provided
+IsEqual	Brings all customers with balance equal with the balance_from value provided
+IsGreater	Brings all customers with balance greater than the balance_from value provided
+IsGreaterOrEqual	Brings all customers with balance greater or equal than the balance_from value provided
+IsBetween	Brings all customers with balance between the balance_from and balance_to values provided
+IsNotEqual	Brings all customers with balance not equal with the balance_from value provided
+display_fields	string	Comma separated list of the fields to be displayed in the response. If the value is empty or not passed all the fields will be included in the response.
+display_b2b_fields	boolean	Indicates if the customer b2b fields are displayed. When set to true, the b2b_fields object is always shown for customers flagged as B2B, regardless of the display_fields selection. When set to false, the b2b_fields object is shown only if b2b_fields is explicitly included in display_fields.
+Returns
+TOTAL COUNT of list of customers for multiple search criteria (only_counted='Y').
+
+
+{
+    "api_response": {
+        "response_code": "1",
+        "response_msg": "OK",
+        "response_id": ""
+    },
+    "total_count_list_customers": 179,
+    "list_customers": null
+}
+List of customers for multiple search criteria (only_counted='N').
+
+
+{
+    "api_response": {
+        "response_code": "1",
+        "response_msg": "OK",
+        "response_id": ""
+    },
+    "total_count_list_customers": 2,
+    "list_customers": [
+        {
+            "customer_code_365": "00100010",
+            "customer_code_secondary": "00100010",
+            "is_company": false,
+            "company_name": "",
+            "last_name": "BALDWIN",
+            "first_name": "ALEX",
+            "store_code_365": "001",
+            "active": true,
+            "date_of_birth": "2000-01-12",
+            "gender": "",
+            "tel_1": "",
+            "tel_2": "",
+            "mobile": "",
+            "sms": "",
+            "fax": "",
+            "email": "",
+            "website": "",
+            "category_code_1_365": "",
+            "category_1_name": "",
+            "category_code_2_365": "",
+            "category_2_name": "",
+            "credit_limit_amount": 99999.99,
+            "customer_id": "",
+            "vat_registration_number": "",
+            "remarks": "",
+            "address_line_1": "",
+            "address_line_2": "",
+            "address_line_3": "",
+            "postal_code": "",
+            "town": "",
+            "country_code_iso2": "",
+            "country_name": "",
+            "contact_last_name": "",
+            "contact_first_name": "",
+            "default_price": 0,
+            "loyalty_factor": 0,
+            "text_field_1_value": "",
+            "text_field_2_value": "",
+            "text_field_3_value": "",
+            "text_field_4_value": "",
+            "text_field_5_value": "",
+            "number_field_1_value": 0,
+            "number_field_2_value": 0,
+            "number_field_3_value": 0,
+            "number_field_4_value": 0,
+            "number_field_5_value": 0,
+            "date_field_1_value": "",
+            "date_field_2_value": "",
+            "date_field_3_value": "",
+            "date_field_4_value": "",
+            "date_field_5_value": "",
+            "points_balance": 0,
+            "points_ever_balance": 0,
+            "is_euc": "no",
+            "is_export": "no",
+            "discount_limit": 0,
+            "agent_code_365": "",
+            "agent_name": " ",
+            "balance": -47,
+            "b2b": false,
+            "general_ledger_header_code_365": "4111",
+            "general_ledger_header_name": "GENERAL SALES",
+            "detail_account_header_code_365": "1221",
+            "detail_account_header_name": "TRADE DEBTORS"
+        },
+        {
+            "customer_code_365": "00100011",
+            "customer_code_secondary": "00100011",
+            "is_company": false,
+            "company_name": "",
+            "last_name": "JOHN",
+            "first_name": "DOE",
+            "store_code_365": "001",
+            "active": true,
+            "date_of_birth": "",
+            "gender": "",
+            "tel_1": "",
+            "tel_2": "",
+            "mobile": "",
+            "sms": "",
+            "fax": "",
+            "email": "",
+            "website": "",
+            "category_code_1_365": "",
+            "category_1_name": "",
+            "category_code_2_365": "",
+            "category_2_name": "",
+            "credit_limit_amount": 99999.99,
+            "customer_id": "",
+            "vat_registration_number": "",
+            "remarks": "",
+            "address_line_1": "",
+            "address_line_2": "",
+            "address_line_3": "",
+            "postal_code": "",
+            "town": "",
+            "country_code_iso2": "",
+            "country_name": "",
+            "contact_last_name": "",
+            "contact_first_name": "",
+            "default_price": 0,
+            "loyalty_factor": 0,
+            "text_field_1_value": "",
+            "text_field_2_value": "",
+            "text_field_3_value": "",
+            "text_field_4_value": "",
+            "text_field_5_value": "",
+            "number_field_1_value": 0,
+            "number_field_2_value": 0,
+            "number_field_3_value": 0,
+            "number_field_4_value": 0,
+            "number_field_5_value": 0,
+            "date_field_1_value": "",
+            "date_field_2_value": "",
+            "date_field_3_value": "",
+            "date_field_4_value": "",
+            "date_field_5_value": "",
+            "points_balance": 0,
+            "points_ever_balance": 0,
+            "is_euc": "no",
+            "is_export": "no",
+            "discount_limit": 0,
+            "agent_code_365": "",
+            "agent_name": " ",
+            "balance": -47,
+            "b2b": false,
+            "general_ledger_header_code_365": "4111",
+            "general_ledger_header_name": "GENERAL SALES",
+            "detail_account_header_code_365": "1221",
+            "detail_account_header_name": "TRADE DEBTORS"
+        }
+    ]
+}
+List of customers for multiple search criteria (only_counted='N') with b2b fields.
+
+
+{
+    "api_response": {
+        "response_code": "1",
+        "response_msg": "OK",
+        "response_id": ""
+    },
+    "total_count_list_customers": 2,
+    "list_customers": [
+        {
+            "customer_code_365": "10000003",
+            "customer_code_secondary": "",
+            "account_code_365": "1221102",
+            "is_company": false,
+            "company_name": "",
+            "last_name": "G.",
+            "first_name": "Corina",
+            "short_name": "",
+            "store_code_365": "100",
+            "active": true,
+            "date_of_birth": "2004-06-12",
+            "gender": "F",
+            "tel_1": "22YYYYY",
+            "tel_2": "24YYYYYY",
+            "mobile": "99XXXXX",
+            "sms": "99XXXX",
+            "fax": "25ZZZZZ",
+            "email": "",
+            "website": "www.powersoft365.com.cy",
+            "category_code_1_365": "",
+            "category_1_name": "",
+            "category_code_2_365": "",
+            "category_2_name": "",
+            "company_activity_code_365": "",
+            "company_activity_name": "",
+            "credit_limit_amount": 999999.99,
+            "customer_id": "",
+            "vat_registration_number": "",
+            "remarks": "",
+            "address_line_1": "Agias Paraskevis",
+            "address_line_2": "",
+            "address_line_3": "Aradippou",
+            "postal_code": "7101",
+            "town": "Larnaka",
+            "country_code_iso2": "CY",
+            "country_name": "CYPRUS",
+            "contact_last_name": "",
+            "contact_first_name": "",
+            "default_price": 0,
+            "loyalty_factor": 1,
+            "text_field_1_value": "",
+            "text_field_2_value": "",
+            "text_field_3_value": "",
+            "text_field_4_value": "",
+            "text_field_5_value": "",
+            "number_field_1_value": 0,
+            "number_field_2_value": 0,
+            "number_field_3_value": 0,
+            "number_field_4_value": 0,
+            "number_field_5_value": 0,
+            "date_field_1_value": "",
+            "date_field_2_value": "",
+            "date_field_3_value": "",
+            "date_field_4_value": "",
+            "date_field_5_value": "",
+            "points_balance": 0,
+            "points_ever_balance": 0,
+            "is_euc": "no",
+            "is_export": "no",
+            "discount_limit": 0,
+            "agent_code_365": "TECH1",
+            "agent_name": "1 TECHNICIAN SAP",
+            "balance": 34.5,
+            "b2b": true,
+            "general_ledger_header_code_365": "4111",
+            "general_ledger_header_name": "GENERAL SALES",
+            "detail_account_header_code_365": "1221",
+            "detail_account_header_name": "TRADE DEBTORS",
+            "b2b_fields": {
+                "user_id_365": "2",
+                "user_name_365": "b2b03",
+                "max_items_to_order": 100,
+                "max_time_to_order": "23:59",
+                "text_field_01_value": "text_field_01",
+                "text_field_02_value": "text_field_02",
+                "text_field_03_value": "text_field_03",
+                "text_field_04_value": "text_field_04",
+                "text_field_05_value": "text_field_05",
+                "text_field_06_value": "text_field_06",
+                "text_field_07_value": "text_field_07",
+                "text_field_08_value": "text_field_08",
+                "text_field_09_value": "text_field_09",
+                "text_field_10_value": "text_field_10",
+                "number_field_01_value": 125,
+                "number_field_02_value": 225,
+                "number_field_03_value": 325,
+                "number_field_04_value": 425,
+                "number_field_05_value": 525,
+                "number_field_06_value": 625,
+                "number_field_07_value": 725,
+                "number_field_08_value": 825,
+                "number_field_09_value": 925,
+                "number_field_10_value": 1025,
+                "boolean_field_01_value": false,
+                "boolean_field_02_value": false,
+                "boolean_field_03_value": false,
+                "boolean_field_04_value": false,
+                "boolean_field_05_value": false,
+                "boolean_field_06_value": false,
+                "boolean_field_07_value": false,
+                "boolean_field_08_value": false,
+                "boolean_field_09_value": false,
+                "boolean_field_10_value": false,
+                "date_field_01_value": "2017-01-01",
+                "date_field_02_value": "2017-02-01",
+                "date_field_03_value": "2017-03-01",
+                "date_field_04_value": "2017-04-01",
+                "date_field_05_value": "2017-05-01"
+            }
+        },
+        {
+            "customer_code_365": "10000002",
+            "customer_code_secondary": "",
+            "account_code_365": "1221101",
+            "is_company": false,
+            "company_name": "",
+            "last_name": "T.",
+            "first_name": "Cris",
+            "short_name": "",
+            "store_code_365": "100",
+            "active": true,
+            "date_of_birth": "1980-05-25",
+            "gender": "F",
+            "tel_1": "22 445566",
+            "tel_2": "24YYYYYY",
+            "mobile": "99XXXXX",
+            "sms": "99XXXXX",
+            "fax": "25ZZZZZ",
+            "email": "",
+            "website": "www.powersoft365.com.cy",
+            "category_code_1_365": "",
+            "category_1_name": "",
+            "category_code_2_365": "",
+            "category_2_name": "",
+            "company_activity_code_365": "SUPERMARKE",
+            "company_activity_name": "SUPREMARKET",
+            "credit_limit_amount": 0,
+            "customer_id": "",
+            "vat_registration_number": "",
+            "remarks": "",
+            "address_line_1": "Andrea Dimitriou 1 - 47, 2 - 58",
+            "address_line_2": "",
+            "address_line_3": "Strovolos",
+            "postal_code": "2024",
+            "town": "Lefkosia",
+            "country_code_iso2": "CY",
+            "country_name": "CYPRUS",
+            "contact_last_name": "",
+            "contact_first_name": "",
+            "default_price": 72,
+            "loyalty_factor": 1,
+            "text_field_1_value": "",
+            "text_field_2_value": "",
+            "text_field_3_value": "",
+            "text_field_4_value": "",
+            "text_field_5_value": "",
+            "number_field_1_value": 0,
+            "number_field_2_value": 0,
+            "number_field_3_value": 0,
+            "number_field_4_value": 0,
+            "number_field_5_value": 0,
+            "date_field_1_value": "",
+            "date_field_2_value": "",
+            "date_field_3_value": "",
+            "date_field_4_value": "",
+            "date_field_5_value": "",
+            "points_balance": 1,
+            "points_ever_balance": 101,
+            "is_euc": "no",
+            "is_export": "no",
+            "discount_limit": 18,
+            "agent_code_365": "CT",
+            "agent_name": "Agent CT",
+            "balance": 3223.03,
+            "b2b": true,
+            "general_ledger_header_code_365": "4111",
+            "general_ledger_header_name": "GENERAL SALES",
+            "detail_account_header_code_365": "1221",
+            "detail_account_header_name": "TRADE DEBTORS",
+            "b2b_fields": {
+                "user_id_365": "1",
+                "user_name_365": "b2b01",
+                "max_items_to_order": 100,
+                "max_time_to_order": "23:59",
+                "text_field_01_value": "text_field_01",
+                "text_field_02_value": "text_field_02",
+                "text_field_03_value": "text_field_03",
+                "text_field_04_value": "text_field_04",
+                "text_field_05_value": "text_field_05",
+                "text_field_06_value": "text_field_06",
+                "text_field_07_value": "text_field_07",
+                "text_field_08_value": "text_field_08",
+                "text_field_09_value": "text_field_09",
+                "text_field_10_value": "text_field_10",
+                "number_field_01_value": 125,
+                "number_field_02_value": 225,
+                "number_field_03_value": 325,
+                "number_field_04_value": 425,
+                "number_field_05_value": 525,
+                "number_field_06_value": 625,
+                "number_field_07_value": 725,
+                "number_field_08_value": 825,
+                "number_field_09_value": 925,
+                "number_field_10_value": 1025,
+                "boolean_field_01_value": true,
+                "boolean_field_02_value": true,
+                "boolean_field_03_value": true,
+                "boolean_field_04_value": false,
+                "boolean_field_05_value": true,
+                "boolean_field_06_value": true,
+                "boolean_field_07_value": true,
+                "boolean_field_08_value": true,
+                "boolean_field_09_value": false,
+                "boolean_field_10_value": true,
+                "date_field_01_value": "2017-01-01",
+                "date_field_02_value": "2017-02-01",
+                "date_field_03_value": "2017-03-01",
+                "date_field_04_value": "2017-04-01",
+                "date_field_05_value": "2017-05-01"
+            }
+        }
+    ]
+}
+© 2026 - Powersoft Computer Solutions Ltd
+
+Last updated: 12 January 2026
