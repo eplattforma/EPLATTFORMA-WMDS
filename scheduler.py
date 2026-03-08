@@ -81,6 +81,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Invoice sync scheduled: Daily at 6:00 PM (last 2 days)")
 
+            scheduler.add_job(
+                func=_run_balance_fetch,
+                trigger=CronTrigger(hour=2, minute=30),
+                id='balance_fetch',
+                name='Customer Balance Fetch from PS365',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Balance fetch scheduled: Daily at 2:30 AM")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
         
@@ -230,6 +241,38 @@ def _run_customer_sync():
                     fail_sync_log(db.session, running, str(e))
         except Exception:
             pass
+
+
+def _run_balance_fetch():
+    """Wrapper to run customer balance fetch with proper app context."""
+    try:
+        from app import app
+        import routes_reconciliation as recon_routes
+
+        logger.info("=" * 80)
+        logger.info("SCHEDULED CUSTOMER BALANCE FETCH STARTED")
+        logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+        logger.info("=" * 80)
+
+        if recon_routes._balance_fetch_status.get('running'):
+            logger.warning("Balance fetch already running, skipping scheduled run")
+            return
+
+        recon_routes._balance_fetch_status = {
+            'running': True, 'success': 0, 'failed': 0, 'skipped': 0,
+            'total': 0, 'errors': [], 'done': False,
+            'started_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            'finished_at': None
+        }
+
+        recon_routes._run_balance_fetch(app)
+
+        logger.info("=" * 80)
+        logger.info("SCHEDULED CUSTOMER BALANCE FETCH COMPLETED")
+        logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+        logger.info("=" * 80)
+    except Exception as e:
+        logger.error(f"Error in scheduled balance fetch: {str(e)}", exc_info=True)
 
 
 def add_custom_job(schedule_description, job_name, job_func, hour=None, minute=0, day_of_week=None):
