@@ -842,14 +842,20 @@ def _get_last_delivery_info(customer_codes):
     for ccode, inv_no, delivered_at, total_grand, route_name, delivery_date, driver_name, expected_pm in rows:
         if ccode in result:
             continue
-        actual_pm = None
-        alloc = db.session.query(CODInvoiceAllocation.payment_method).filter(
+        alloc = db.session.query(
+            CODInvoiceAllocation.payment_method,
+            CODInvoiceAllocation.received_amount,
+        ).filter(
             CODInvoiceAllocation.invoice_no == inv_no
         ).first()
-        if alloc:
-            actual_pm = alloc[0]
 
-        pm = actual_pm or expected_pm or ''
+        if alloc:
+            pm = alloc[0] or ''
+            received = float(alloc[1] or 0)
+        else:
+            pm = expected_pm or ''
+            received = 0
+
         pm_display = pm.replace('_', ' ').title() if pm else 'N/A'
 
         result[ccode] = {
@@ -858,6 +864,7 @@ def _get_last_delivery_info(customer_codes):
             'invoice_no': inv_no or '',
             'invoice_amount': float(total_grand) if total_grand else 0,
             'payment_method': pm_display,
+            'payment_received': received,
             'driver_name': driver_name or '',
         }
     return result
@@ -955,6 +962,7 @@ def customer_balances_report():
             'last_invoice_no': ld.get('invoice_no', ''),
             'last_invoice_amount': ld.get('invoice_amount', ''),
             'last_payment_method': ld.get('payment_method', ''),
+            'last_payment_received': ld.get('payment_received', 0),
             'last_driver': ld.get('driver_name', ''),
         })
 

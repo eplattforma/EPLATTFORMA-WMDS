@@ -191,6 +191,7 @@
                                         <div>
                                             <i class="fas fa-credit-card text-muted me-1"></i> <span class="text-muted">Payment:</span>
                                             <span class="badge {% if 'Cash' in c.last_payment_method %}bg-success{% elif 'Credit' in c.last_payment_method %}bg-warning text-dark{% elif 'Cheque' in c.last_payment_method %}bg-info{% else %}bg-secondary{% endif %} ms-1">{{ c.last_payment_method }}</span>
+                                            {% if c.last_payment_received %}<span class="text-white-50 ms-1">&euro;{{ "{:,.2f}".format(c.last_payment_received) }}</span>{% endif %}
                                         </div>
                                     </div>
                                     {% else %}
