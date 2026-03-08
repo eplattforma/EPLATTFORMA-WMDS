@@ -899,18 +899,43 @@ def customer_balances_report():
 def api_customer_statement(customer_code):
     try:
         from services.ps365_statement import fetch_statement
-        from datetime import datetime
+        from datetime import datetime, timedelta
         from zoneinfo import ZoneInfo
         try:
             today = datetime.now(ZoneInfo("Asia/Nicosia")).date()
         except Exception:
             today = datetime.utcnow().date()
 
-        lookback = int(os.getenv("PS365_BALANCE_LOOKBACK_YEARS", "10"))
-        from_date = f"{today.year - lookback}-01-01"
+        months = request.args.get('months', type=int)
+        if months:
+            from_dt = today - timedelta(days=months * 30)
+            from_date = from_dt.isoformat()
+        else:
+            lookback = int(os.getenv("PS365_BALANCE_LOOKBACK_YEARS", "10"))
+            from_date = f"{today.year - lookback}-01-01"
         to_date = today.isoformat()
 
-        stmt = fetch_statement(customer_code, from_date=from_date, to_date=to_date)
+        truncated = False
+        try:
+            stmt = fetch_statement(customer_code, from_date=from_date, to_date=to_date)
+        except RuntimeError as e:
+            if 'more than 500 rows' in str(e).lower() or '500 rows' in str(e):
+                for fallback_months in [24, 12, 6, 3]:
+                    try:
+                        from_dt = today - timedelta(days=fallback_months * 30)
+                        from_date = from_dt.isoformat()
+                        stmt = fetch_statement(customer_code, from_date=from_date, to_date=to_date)
+                        truncated = True
+                        break
+                    except RuntimeError as e2:
+                        if 'more than 500 rows' not in str(e2).lower() and '500 rows' not in str(e2):
+                            raise
+                        continue
+                else:
+                    raise RuntimeError("Statement too large even for 3-month range")
+            else:
+                raise
+
         lines = (stmt or {}).get("list_statement_lines") or []
 
         result = []
@@ -926,7 +951,11 @@ def api_customer_statement(customer_code):
                 'balance_drcr': (ln.get('balance_drcr') or '').upper().strip(),
             })
 
-        return jsonify({'ok': True, 'lines': result, 'from_date': from_date, 'to_date': to_date})
+        resp = {'ok': True, 'lines': result, 'from_date': from_date, 'to_date': to_date}
+        if truncated:
+            resp['truncated'] = True
+            resp['note'] = f'Statement limited to {from_date} onwards (PS365 max 500 lines)'
+        return jsonify(resp)
     except Exception as e:
         logger.error(f"Failed to fetch statement for {customer_code}: {e}")
         return jsonify({'ok': False, 'error': 'Could not retrieve statement from PS365. Please try again later.'}), 500

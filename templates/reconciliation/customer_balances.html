@@ -320,7 +320,11 @@ async function fetchStatement(code) {
             return;
         }
 
-        let html = '<div class="small text-muted mb-2">' + lines.length + ' transactions (' + esc(data.from_date) + ' to ' + esc(data.to_date) + ')</div>';
+        let html = '';
+        if (data.truncated) {
+            html += '<div class="alert alert-warning py-1 px-2 small mb-2"><i class="fas fa-exclamation-triangle me-1"></i>' + esc(data.note) + '</div>';
+        }
+        html += '<div class="small text-muted mb-2">' + lines.length + ' transactions (' + esc(data.from_date) + ' to ' + esc(data.to_date) + ')</div>';
         html += '<div style="max-height:350px; overflow-y:auto;">';
         html += '<table class="table table-sm table-dark table-striped mb-0 stmt-table">';
         html += '<thead><tr><th>Date</th><th>Doc #</th><th>Description</th><th class="text-end">Amount</th><th class="text-center">DR/CR</th><th class="text-end">Balance</th></tr></thead>';
