@@ -795,6 +795,74 @@ def _customer_base_filter():
     return q
 
 
+def _get_last_delivery_info(customer_codes):
+    from sqlalchemy import func, text
+    if not customer_codes:
+        return {}
+
+    last_inv_sub = (
+        db.session.query(
+            Invoice.customer_code_365,
+            func.max(Invoice.delivered_at).label('max_delivered')
+        )
+        .filter(
+            Invoice.customer_code_365.in_(customer_codes),
+            Invoice.status == 'delivered',
+            Invoice.delivered_at.isnot(None),
+            Invoice.route_id.isnot(None),
+        )
+        .group_by(Invoice.customer_code_365)
+        .subquery()
+    )
+
+    rows = (
+        db.session.query(
+            Invoice.customer_code_365,
+            Invoice.invoice_no,
+            Invoice.delivered_at,
+            Invoice.total_grand,
+            Shipment.route_name,
+            Shipment.delivery_date,
+            Shipment.driver_name,
+            RouteStopInvoice.expected_payment_method,
+        )
+        .join(last_inv_sub, db.and_(
+            Invoice.customer_code_365 == last_inv_sub.c.customer_code_365,
+            Invoice.delivered_at == last_inv_sub.c.max_delivered,
+        ))
+        .join(Shipment, Invoice.route_id == Shipment.id)
+        .outerjoin(RouteStopInvoice, db.and_(
+            RouteStopInvoice.invoice_no == Invoice.invoice_no,
+            RouteStopInvoice.is_active == True,
+        ))
+        .all()
+    )
+
+    result = {}
+    for ccode, inv_no, delivered_at, total_grand, route_name, delivery_date, driver_name, expected_pm in rows:
+        if ccode in result:
+            continue
+        actual_pm = None
+        alloc = db.session.query(CODInvoiceAllocation.payment_method).filter(
+            CODInvoiceAllocation.invoice_no == inv_no
+        ).first()
+        if alloc:
+            actual_pm = alloc[0]
+
+        pm = actual_pm or expected_pm or ''
+        pm_display = pm.replace('_', ' ').title() if pm else 'N/A'
+
+        result[ccode] = {
+            'route_name': route_name or '',
+            'delivery_date': delivery_date.strftime('%d/%m/%Y') if delivery_date else (delivered_at.strftime('%d/%m/%Y') if delivered_at else ''),
+            'invoice_no': inv_no or '',
+            'invoice_amount': float(total_grand) if total_grand else 0,
+            'payment_method': pm_display,
+            'driver_name': driver_name or '',
+        }
+    return result
+
+
 @reconciliation_bp.route('/customer-balances')
 @login_required
 @admin_or_warehouse_required
@@ -835,6 +903,9 @@ def customer_balances_report():
 
     rows = q.all()
 
+    customer_codes = [r[0] for r in rows]
+    last_delivery_map = _get_last_delivery_info(customer_codes)
+
     customers = []
     total_dr = Decimal('0')
     total_cr = Decimal('0')
@@ -857,6 +928,7 @@ def customer_balances_report():
             with_balance_count += 1
         addr_parts = [p for p in [addr1, addr2, postal, town] if p]
         contact_name = ' '.join(p for p in [contact_first, contact_last] if p)
+        ld = last_delivery_map.get(code, {})
         customers.append({
             'code': code,
             'name': name or code,
@@ -878,6 +950,12 @@ def customer_balances_report():
             'address': ', '.join(addr_parts),
             'vat': vat or '',
             'contact': contact_name,
+            'last_route': ld.get('route_name', ''),
+            'last_delivery_date': ld.get('delivery_date', ''),
+            'last_invoice_no': ld.get('invoice_no', ''),
+            'last_invoice_amount': ld.get('invoice_amount', ''),
+            'last_payment_method': ld.get('payment_method', ''),
+            'last_driver': ld.get('driver_name', ''),
         })
 
     customers.sort(key=lambda c: c['signed_balance'], reverse=True)
