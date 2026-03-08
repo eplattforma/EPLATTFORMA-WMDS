@@ -1118,7 +1118,7 @@ def _run_balance_fetch(app):
             logger.error(f"Balance fetch count failed: {e}")
             return
 
-        page_size = 200
+        page_size = 100
         page = 1
         total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
 
@@ -1137,7 +1137,7 @@ def _run_balance_fetch(app):
                 r = requests.post(url, json=payload, timeout=120)
                 r.raise_for_status()
                 data = r.json()
-                customers_list = data.get("list_customers", [])
+                customers_list = data.get("list_customers") or []
 
                 if not customers_list:
                     break
