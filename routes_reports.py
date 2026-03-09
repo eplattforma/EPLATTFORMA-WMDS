@@ -22,46 +22,66 @@ PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 
 def _fetch_item_pricing_from_ps365(item_codes):
     """Fetch cost_price and vat_code from PS365 for given item codes.
+    Uses the same list_items API format as datawarehouse_sync with items_selection filter.
     Returns dict[item_code] = {'cost_price': float, 'vat_code_365': str}
     Also updates DwItem records so data is cached for next time."""
     if not item_codes or not PS365_BASE_URL or not PS365_TOKEN:
         return {}
     
+    from ps365_client import call_ps365
+    
     pricing = {}
+    items_selection = ",".join(item_codes)
     page = 1
     page_size = 100
-    codes_set = set(item_codes)
     
     while True:
         try:
-            resp = requests.post(
-                f"{PS365_BASE_URL}/list_items",
-                json={
-                    "api_credentials": {"token": PS365_TOKEN},
-                    "display_fields": "item_code_365,vat_code_365,vat_percent,maximum_purchase_price",
+            response = call_ps365("list_items", {
+                "filter_define": {
+                    "only_counted": "N",
                     "page_number": page,
                     "page_size": page_size,
+                    "active_type": "all",
+                    "ecommerce_type": "all",
+                    "items_selection": items_selection,
+                    "categories_selection": "",
+                    "departments_selection": "",
+                    "items_supplier_selection": "",
+                    "brands_selection": "",
+                    "seasons_selection": "",
+                    "models_selection": "",
+                    "colours_selection": "",
+                    "sizes_selection": "",
+                    "sizes_group_selection": "",
+                    "display_fields": "item_code_365,item_name,vat_code_365,vat_percent,maximum_purchase_price",
                 },
-                timeout=60,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("list_items") or []
+            })
+            
+            api_response = response.get("api_response", {}) or {}
+            if api_response.get("response_code") != "1":
+                logger.warning(f"PS365 list_items error: {api_response.get('response_msg', 'Unknown')}")
+                break
+            
+            items = response.get("list_items") or []
+            logger.info(f"_fetch_item_pricing: page {page} returned {len(items)} items")
             if not items:
                 break
             
             for item in items:
                 code = (item.get("item_code_365") or "").strip()
-                if code in codes_set:
-                    cost = None
-                    try:
-                        raw = item.get("maximum_purchase_price")
-                        if raw is not None and str(raw).strip():
-                            cost = float(raw)
-                    except (ValueError, TypeError):
-                        pass
-                    vat = item.get("vat_code_365") or None
-                    pricing[code] = {"cost_price": cost, "vat_code_365": vat}
+                if not code:
+                    continue
+                cost = None
+                try:
+                    raw = item.get("maximum_purchase_price")
+                    if raw is not None and str(raw).strip():
+                        cost = float(raw)
+                except (ValueError, TypeError):
+                    pass
+                vat = item.get("vat_code_365") or None
+                pricing[code] = {"cost_price": cost, "vat_code_365": vat}
+                logger.info(f"  Item {code}: cost_price={cost}, vat_code={vat}")
             
             if len(items) < page_size:
                 break
@@ -77,10 +97,12 @@ def _fetch_item_pricing_from_ps365(item_codes):
             for code, vals in pricing.items():
                 dw = DwItem.query.filter_by(item_code_365=code).first()
                 if dw:
-                    if vals["cost_price"] is not None and (dw.cost_price is None or float(dw.cost_price) == 0):
+                    if vals["cost_price"] is not None and dw.cost_price is None:
                         dw.cost_price = vals["cost_price"]
+                        logger.info(f"  Updated DwItem {code} cost_price = {vals['cost_price']}")
                     if vals["vat_code_365"] and not dw.vat_code_365:
                         dw.vat_code_365 = vals["vat_code_365"]
+                        logger.info(f"  Updated DwItem {code} vat_code_365 = {vals['vat_code_365']}")
             db.session.commit()
         except Exception as e:
             logger.warning(f"Failed to update DwItem with pricing: {e}")
@@ -247,7 +269,7 @@ def reserved_stock_777_send_po():
     missing_pricing_codes = [
         code for code in item_codes
         if not dw_map.get(code)
-        or not dw_map[code].cost_price or float(dw_map[code].cost_price or 0) == 0
+        or dw_map[code].cost_price is None
         or not dw_map[code].vat_code_365
     ]
     ps365_pricing = _fetch_item_pricing_from_ps365(missing_pricing_codes) if missing_pricing_codes else {}
@@ -279,9 +301,11 @@ def reserved_stock_777_send_po():
                 "barcode": r.barcode or "",
                 "supplier_item_code": r.supplier_item_code or "",
             }
-            cost = (float(dw.cost_price) if dw and dw.cost_price and float(dw.cost_price) > 0 else None) or ps_price.get("cost_price")
+            cost = (float(dw.cost_price) if dw and dw.cost_price is not None else None)
+            if cost is None:
+                cost = ps_price.get("cost_price")
             vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
-            if cost is not None and cost > 0:
+            if cost is not None:
                 line_data["cost_price"] = cost
             if vat:
                 line_data["vat_code_365"] = vat
@@ -519,7 +543,7 @@ def reserved_stock_777_create_po():
     missing_pricing_codes2 = [
         code for code in all_item_codes
         if not dw_map2.get(code)
-        or not dw_map2[code].cost_price or float(dw_map2[code].cost_price or 0) == 0
+        or dw_map2[code].cost_price is None
         or not dw_map2[code].vat_code_365
     ]
     ps365_pricing2 = _fetch_item_pricing_from_ps365(missing_pricing_codes2) if missing_pricing_codes2 else {}
@@ -554,9 +578,11 @@ def reserved_stock_777_create_po():
                 "barcode": r.barcode or "",
                 "supplier_item_code": r.supplier_item_code or "",
             }
-            cost = (float(dw.cost_price) if dw and dw.cost_price and float(dw.cost_price) > 0 else None) or ps_price.get("cost_price")
+            cost = (float(dw.cost_price) if dw and dw.cost_price is not None else None)
+            if cost is None:
+                cost = ps_price.get("cost_price")
             vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
-            if cost is not None and cost > 0:
+            if cost is not None:
                 line_data["cost_price"] = cost
             if vat:
                 line_data["vat_code_365"] = vat
