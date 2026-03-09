@@ -112,7 +112,7 @@
             <th style="white-space: nowrap;">Item Code</th>
             <th>Item Name</th>
             <th style="white-space: nowrap;">Supplier</th>
-            <th style="text-align:right; white-space: nowrap;">Cost Price</th>
+            <th style="text-align:right; white-space: nowrap;">Selling Price</th>
             <th style="text-align:right; white-space: nowrap;">VAT</th>
             <th style="text-align:right; white-space: nowrap;">Pcs/Unit</th>
             <th style="text-align:right; white-space: nowrap;">Min Qty</th>
@@ -142,7 +142,7 @@
                      value="{{ '%.2f'|format(item_pricing.cost_price) if item_pricing.cost_price is not none else '' }}"
                      style="width: 80px; text-align: right; display: inline-block; font-size: 0.8rem; padding: 1px 4px;"
                      onchange="saveCostPrice(this)"
-                     title="Click to edit cost price">
+                     title="Click to edit selling price">
               {% else %}
               {{ '%.2f'|format(item_pricing.cost_price) if item_pricing.cost_price is not none else '' }}
               {% endif %}

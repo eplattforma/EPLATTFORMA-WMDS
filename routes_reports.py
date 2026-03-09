@@ -54,7 +54,7 @@ def _fetch_item_pricing_from_ps365(item_codes):
                     "colours_selection": "",
                     "sizes_selection": "",
                     "sizes_group_selection": "",
-                    "display_fields": "item_code_365,item_name,vat_code_365,vat_percent,maximum_purchase_price",
+                    "display_fields": "item_code_365,item_name,vat_code_365,vat_percent,price_excl_1",
                 },
             })
             
@@ -72,18 +72,18 @@ def _fetch_item_pricing_from_ps365(item_codes):
                 code = (item.get("item_code_365") or "").strip()
                 if not code:
                     continue
-                cost = None
+                sell = None
                 try:
-                    raw = item.get("maximum_purchase_price")
+                    raw = item.get("price_excl_1")
                     if raw is not None and str(raw).strip():
                         parsed = float(raw)
                         if parsed > 0:
-                            cost = parsed
+                            sell = parsed
                 except (ValueError, TypeError):
                     pass
                 vat = item.get("vat_code_365") or None
-                pricing[code] = {"cost_price": cost, "vat_code_365": vat}
-                logger.info(f"  Item {code}: cost_price={cost}, vat_code={vat}")
+                pricing[code] = {"cost_price": sell, "vat_code_365": vat}
+                logger.info(f"  Item {code}: selling_price={sell}, vat_code={vat}")
             
             if len(items) < page_size:
                 break
@@ -503,7 +503,7 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
                     <th>Description</th>
                     <th>Barcode</th>
                     <th>Supplier Item Code</th>
-                    <th>Cost Price</th>
+                    <th>Selling Price</th>
                     <th>VAT Code</th>
                     <th>Qty (pcs)</th>
                 </tr>
