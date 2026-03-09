@@ -240,6 +240,124 @@ def export_order_csv(run_id):
     )
 
 
+@replenishment_bp.route('/run/<int:run_id>/send-po', methods=['POST'])
+@admin_or_warehouse_required
+def send_po_to_ps365(run_id):
+    import os
+    import requests as http_requests
+    from datetime import datetime, timezone, timedelta
+    from models import DwItem
+    from routes_reports import _build_po_lines, _fetch_item_pricing_from_ps365
+
+    PS365_BASE_URL = os.getenv("PS365_BASE_URL", "").rstrip("/")
+    PS365_TOKEN = os.getenv("PS365_TOKEN", "")
+
+    if not PS365_BASE_URL or not PS365_TOKEN:
+        flash("PS365 API not configured.", "error")
+        return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+    run = ReplenishmentRun.query.get_or_404(run_id)
+    lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()
+
+    order_lines = [l for l in lines if l.final_units and float(l.final_units) > 0]
+    if not order_lines:
+        flash("No items with Final Units > 0 to order.", "warning")
+        return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+    item_codes = [l.item_code_365 for l in order_lines]
+    dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+    dw_map = {d.item_code_365: d for d in dw_items}
+
+    missing_pricing_codes = [
+        code for code in item_codes
+        if not dw_map.get(code)
+        or dw_map[code].cost_price is None
+        or not dw_map[code].vat_code_365
+        or dw_map[code].vat_percent is None
+    ]
+    ps365_pricing = _fetch_item_pricing_from_ps365(missing_pricing_codes) if missing_pricing_codes else {}
+    if ps365_pricing:
+        dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+        dw_map = {d.item_code_365: d for d in dw_items}
+
+    po_lines = []
+    for line in order_lines:
+        dw = dw_map.get(line.item_code_365)
+        ps_price = ps365_pricing.get(line.item_code_365, {})
+        cost = (float(dw.cost_price) if dw and dw.cost_price is not None and float(dw.cost_price) > 0 else None)
+        if cost is None:
+            ps_cost = ps_price.get("cost_price")
+            if ps_cost is not None and ps_cost > 0:
+                cost = ps_cost
+        vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
+        vat_pct = (float(dw.vat_percent) if dw and dw.vat_percent is not None else None) or ps_price.get("vat_percent")
+
+        line_data = {
+            "item_code_365": line.item_code_365,
+            "line_quantity": str(int(float(line.final_units))),
+        }
+        if cost is not None:
+            line_data["cost_price"] = cost
+        if vat:
+            line_data["vat_code_365"] = vat
+        if vat_pct is not None:
+            line_data["vat_percent"] = vat_pct
+        po_lines.append(line_data)
+
+    try:
+        detail_lines, h_totals = _build_po_lines(po_lines)
+        now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+        deliver_by_utc = (now_utc + timedelta(days=7)).replace(microsecond=0)
+        shopping_cart_code = f"WMDS-RPL-{now_utc.strftime('%Y%m%d-%H%M%S')}-{run.supplier_code}"
+
+        payload = {
+            "api_credentials": {"token": PS365_TOKEN},
+            "order": {
+                "purchase_order_header": {
+                    "shopping_cart_code": shopping_cart_code,
+                    "order_date_local": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                    "order_date_utc0": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                    "order_date_deliverby_utc0": deliver_by_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                    "supplier_code_365": run.supplier_code,
+                    "agent_code_365": "",
+                    "user_code_365": current_user.username,
+                    "comments": f"Replenishment Run #{run.id} - {run.run_type} - {len(po_lines)} items",
+                    "search_additional_barcodes": False,
+                    "order_status_code_365": "PROC",
+                    "order_status_name": "PROCESSING",
+                    **h_totals,
+                },
+                "list_purchase_order_details": detail_lines,
+            }
+        }
+
+        import json as _json
+        logger.debug("Replenishment PO payload lines: %s", _json.dumps(detail_lines[:3], indent=2))
+
+        url = f"{PS365_BASE_URL}/purchaseorder"
+        resp = http_requests.post(url, json=payload, timeout=120)
+        resp.raise_for_status()
+        result = resp.json()
+
+        api_response = result.get("api_response", {})
+        if api_response.get("response_code") == "1":
+            po_code = api_response.get("response_id", "Unknown")
+            flash(f"Purchase Order created successfully! PO Code: {po_code} ({len(po_lines)} items)", "success")
+            logger.info(f"Replenishment PO {po_code} created for run #{run.id}, supplier {run.supplier_code}")
+            run.status = 'po_sent'
+            run.notes = (run.notes or '') + f"\nPO {po_code} sent {now_utc.strftime('%Y-%m-%d %H:%M')}"
+            db.session.commit()
+        else:
+            error_msg = api_response.get("response_msg", "Unknown error")
+            logger.error(f"PS365 PO creation failed for replenishment run #{run.id}: {api_response}")
+            flash(f"PS365 error: {error_msg}", "error")
+    except Exception as e:
+        logger.exception(f"Failed to create PO for replenishment run #{run.id}")
+        flash(f"Error creating PO: {str(e)}", "error")
+
+    return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+
 @replenishment_bp.route('/api/run/<int:run_id>')
 @admin_or_warehouse_required
 def api_run_json(run_id):

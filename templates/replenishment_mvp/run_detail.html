@@ -12,6 +12,15 @@
         </div>
         <h4 class="mb-0"><i class="fas fa-clipboard-list text-primary"></i> Run #{{ run.id }}</h4>
         <div>
+            {% if run.status != 'po_sent' %}
+            <form method="POST" action="{{ url_for('replenishment_mvp.send_po_to_ps365', run_id=run.id) }}"
+                  style="display:inline" onsubmit="return confirm('Send Purchase Order to PS365 for all items with Final Units > 0?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-warning me-2">
+                    <i class="fas fa-paper-plane me-1"></i>Send PO to PS365
+                </button>
+            </form>
+            {% endif %}
             <a href="{{ url_for('replenishment_mvp.export_order_csv', run_id=run.id) }}"
                class="btn btn-sm btn-success me-2">
                 <i class="fas fa-truck me-1"></i>Export Order to Supplier
@@ -20,7 +29,7 @@
                class="btn btn-sm btn-outline-secondary me-2">
                 <i class="fas fa-file-csv me-1"></i>Export Full CSV
             </a>
-            <span class="badge bg-{% if run.status == 'saved' %}success{% else %}secondary{% endif %} fs-6">
+            <span class="badge bg-{% if run.status == 'po_sent' %}primary{% elif run.status == 'saved' %}success{% else %}secondary{% endif %} fs-6">
                 {{ run.status|upper }}
             </span>
         </div>
