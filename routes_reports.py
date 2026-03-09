@@ -408,19 +408,23 @@ def reserved_stock_777_send_po():
         }
         
         for idx, ln in enumerate(po_lines, start=1):
+            price = ln.get("cost_price", 0) or 0
+            qty = float(ln["line_quantity"])
+            vat_pct = ln.get("vat_percent", 0) or 0
+            subtotal = round(price * qty, 2)
+            vat_amount = round(subtotal * vat_pct / 100, 2)
             line_detail = {
                 "line_number": str(idx),
                 "item_code_365": ln["item_code_365"],
                 "line_quantity": ln["line_quantity"],
+                "line_price_excl_vat": str(price),
+                "line_total_sub": str(subtotal),
+                "line_total_discount": "0",
+                "line_total_vat_percentage": str(vat_pct),
+                "line_total_vat": str(vat_amount),
             }
-            if "cost_price" in ln:
-                line_detail["line_price_excl_vat"] = str(ln["cost_price"])
-                qty = float(ln["line_quantity"])
-                line_detail["line_total_sub"] = str(round(ln["cost_price"] * qty, 2))
             if "vat_code_365" in ln:
                 line_detail["line_vat_code_365"] = ln["vat_code_365"]
-            if "vat_percent" in ln:
-                line_detail["line_total_vat_percentage"] = str(ln["vat_percent"])
             po_payload["order"]["list_purchase_order_details"].append(line_detail)
         
         url = f"{PS365_BASE_URL}/purchaseorder"
@@ -697,19 +701,23 @@ def reserved_stock_777_create_po():
         }
         
         for idx, ln in enumerate(po_lines, start=1):
+            price = ln.get("cost_price", 0) or 0
+            qty = float(ln["line_quantity"])
+            vat_pct = ln.get("vat_percent", 0) or 0
+            subtotal = round(price * qty, 2)
+            vat_amount = round(subtotal * vat_pct / 100, 2)
             line_detail2 = {
                 "line_number": str(idx),
                 "item_code_365": ln["item_code_365"],
                 "line_quantity": ln["line_quantity"],
+                "line_price_excl_vat": str(price),
+                "line_total_sub": str(subtotal),
+                "line_total_discount": "0",
+                "line_total_vat_percentage": str(vat_pct),
+                "line_total_vat": str(vat_amount),
             }
-            if "cost_price" in ln:
-                line_detail2["line_price_excl_vat"] = str(ln["cost_price"])
-                qty = float(ln["line_quantity"])
-                line_detail2["line_total_sub"] = str(round(ln["cost_price"] * qty, 2))
             if "vat_code_365" in ln:
                 line_detail2["line_vat_code_365"] = ln["vat_code_365"]
-            if "vat_percent" in ln:
-                line_detail2["line_total_vat_percentage"] = str(ln["vat_percent"])
             payload["order"]["list_purchase_order_details"].append(line_detail2)
         
         import json as _json
