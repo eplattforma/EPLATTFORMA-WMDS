@@ -19,6 +19,75 @@ logger = logging.getLogger(__name__)
 PS365_BASE_URL = os.getenv("PS365_BASE_URL", "").rstrip("/")
 PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 
+
+def _fetch_item_pricing_from_ps365(item_codes):
+    """Fetch cost_price and vat_code from PS365 for given item codes.
+    Returns dict[item_code] = {'cost_price': float, 'vat_code_365': str}
+    Also updates DwItem records so data is cached for next time."""
+    if not item_codes or not PS365_BASE_URL or not PS365_TOKEN:
+        return {}
+    
+    pricing = {}
+    page = 1
+    page_size = 100
+    codes_set = set(item_codes)
+    
+    while True:
+        try:
+            resp = requests.post(
+                f"{PS365_BASE_URL}/list_items",
+                json={
+                    "api_credentials": {"token": PS365_TOKEN},
+                    "display_fields": "item_code_365,vat_code_365,vat_percent,maximum_purchase_price",
+                    "page_number": page,
+                    "page_size": page_size,
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("list_items") or []
+            if not items:
+                break
+            
+            for item in items:
+                code = (item.get("item_code_365") or "").strip()
+                if code in codes_set:
+                    cost = None
+                    try:
+                        raw = item.get("maximum_purchase_price")
+                        if raw is not None and str(raw).strip():
+                            cost = float(raw)
+                    except (ValueError, TypeError):
+                        pass
+                    vat = item.get("vat_code_365") or None
+                    pricing[code] = {"cost_price": cost, "vat_code_365": vat}
+            
+            if len(items) < page_size:
+                break
+            page += 1
+        except Exception as e:
+            logger.warning(f"Failed to fetch item pricing from PS365 page {page}: {e}")
+            break
+    
+    if pricing:
+        try:
+            from models import DwItem
+            from app import db
+            for code, vals in pricing.items():
+                dw = DwItem.query.filter_by(item_code_365=code).first()
+                if dw:
+                    if vals["cost_price"] is not None and (dw.cost_price is None or float(dw.cost_price) == 0):
+                        dw.cost_price = vals["cost_price"]
+                    if vals["vat_code_365"] and not dw.vat_code_365:
+                        dw.vat_code_365 = vals["vat_code_365"]
+            db.session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to update DwItem with pricing: {e}")
+    
+    return pricing
+
+
 @reports_bp.route("/reserved-stock-777")
 @login_required
 def reserved_stock_777():
@@ -175,6 +244,17 @@ def reserved_stock_777_send_po():
         dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
         dw_map = {d.item_code_365: d for d in dw_items}
     
+    missing_pricing_codes = [
+        code for code in item_codes
+        if not dw_map.get(code)
+        or not dw_map[code].cost_price or float(dw_map[code].cost_price or 0) == 0
+        or not dw_map[code].vat_code_365
+    ]
+    ps365_pricing = _fetch_item_pricing_from_ps365(missing_pricing_codes) if missing_pricing_codes else {}
+    if ps365_pricing:
+        dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+        dw_map = {d.item_code_365: d for d in dw_items}
+    
     po_lines = []
     for r in rows:
         stock_val = float(r.stock or 0)
@@ -189,6 +269,7 @@ def reserved_stock_777_send_po():
         if required > 0:
             ps365_qty = math.ceil(required / pieces_per_unit)
             dw = dw_map.get(r.item_code_365)
+            ps_price = ps365_pricing.get(r.item_code_365, {})
             line_data = {
                 "item_code_365": r.item_code_365,
                 "item_name": r.item_name,
@@ -198,10 +279,12 @@ def reserved_stock_777_send_po():
                 "barcode": r.barcode or "",
                 "supplier_item_code": r.supplier_item_code or "",
             }
-            if dw and dw.cost_price is not None and float(dw.cost_price) > 0:
-                line_data["cost_price"] = float(dw.cost_price)
-            if dw and dw.vat_code_365:
-                line_data["vat_code_365"] = dw.vat_code_365
+            cost = (float(dw.cost_price) if dw and dw.cost_price and float(dw.cost_price) > 0 else None) or ps_price.get("cost_price")
+            vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
+            if cost is not None and cost > 0:
+                line_data["cost_price"] = cost
+            if vat:
+                line_data["vat_code_365"] = vat
             po_lines.append(line_data)
     
     if not po_lines:
@@ -340,11 +423,15 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
                     <th>Description</th>
                     <th>Barcode</th>
                     <th>Supplier Item Code</th>
+                    <th>Cost Price</th>
+                    <th>VAT Code</th>
                     <th>Qty (pcs)</th>
                 </tr>
         """
         
         for idx, ln in enumerate(lines, start=1):
+            cost_display = f"{ln['cost_price']:.2f}" if ln.get('cost_price') else ""
+            vat_display = ln.get('vat_code_365', '') or ""
             html_body += f"""
                 <tr>
                     <td>{idx}</td>
@@ -352,6 +439,8 @@ def send_season_po_email(to, cc, po_code, season_code, lines, comment=None):
                     <td>{ln['item_name']}</td>
                     <td>{ln.get('barcode', '')}</td>
                     <td>{ln.get('supplier_item_code', '')}</td>
+                    <td>{cost_display}</td>
+                    <td>{vat_display}</td>
                     <td>{ln['required_qty']}</td>
                 </tr>
             """
@@ -427,6 +516,17 @@ def reserved_stock_777_create_po():
         dw_items2 = DwItem.query.filter(DwItem.item_code_365.in_(all_item_codes)).all()
         dw_map2 = {d.item_code_365: d for d in dw_items2}
     
+    missing_pricing_codes2 = [
+        code for code in all_item_codes
+        if not dw_map2.get(code)
+        or not dw_map2[code].cost_price or float(dw_map2[code].cost_price or 0) == 0
+        or not dw_map2[code].vat_code_365
+    ]
+    ps365_pricing2 = _fetch_item_pricing_from_ps365(missing_pricing_codes2) if missing_pricing_codes2 else {}
+    if ps365_pricing2:
+        dw_items2 = DwItem.query.filter(DwItem.item_code_365.in_(all_item_codes)).all()
+        dw_map2 = {d.item_code_365: d for d in dw_items2}
+    
     po_lines = []
     for r in rows:
         if supplier_filter and r.season_name != supplier_filter:
@@ -444,6 +544,7 @@ def reserved_stock_777_create_po():
         if required > 0:
             ps365_qty = math.ceil(required / pieces_per_unit)
             dw = dw_map2.get(r.item_code_365)
+            ps_price = ps365_pricing2.get(r.item_code_365, {})
             line_data = {
                 "item_code_365": r.item_code_365,
                 "item_name": r.item_name,
@@ -453,10 +554,12 @@ def reserved_stock_777_create_po():
                 "barcode": r.barcode or "",
                 "supplier_item_code": r.supplier_item_code or "",
             }
-            if dw and dw.cost_price is not None and float(dw.cost_price) > 0:
-                line_data["cost_price"] = float(dw.cost_price)
-            if dw and dw.vat_code_365:
-                line_data["vat_code_365"] = dw.vat_code_365
+            cost = (float(dw.cost_price) if dw and dw.cost_price and float(dw.cost_price) > 0 else None) or ps_price.get("cost_price")
+            vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
+            if cost is not None and cost > 0:
+                line_data["cost_price"] = cost
+            if vat:
+                line_data["vat_code_365"] = vat
             po_lines.append(line_data)
     
     if not po_lines:
