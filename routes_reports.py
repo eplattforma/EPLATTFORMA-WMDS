@@ -415,6 +415,8 @@ def reserved_stock_777_send_po():
             }
             if "cost_price" in ln:
                 line_detail["line_price_excl_vat"] = str(ln["cost_price"])
+                qty = float(ln["line_quantity"])
+                line_detail["line_total_sub"] = str(round(ln["cost_price"] * qty, 2))
             if "vat_code_365" in ln:
                 line_detail["line_vat_code_365"] = ln["vat_code_365"]
             if "vat_percent" in ln:
@@ -702,6 +704,8 @@ def reserved_stock_777_create_po():
             }
             if "cost_price" in ln:
                 line_detail2["line_price_excl_vat"] = str(ln["cost_price"])
+                qty = float(ln["line_quantity"])
+                line_detail2["line_total_sub"] = str(round(ln["cost_price"] * qty, 2))
             if "vat_code_365" in ln:
                 line_detail2["line_vat_code_365"] = ln["vat_code_365"]
             if "vat_percent" in ln:
