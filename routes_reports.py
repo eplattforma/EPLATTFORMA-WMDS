@@ -335,6 +335,7 @@ def reserved_stock_777_send_po():
         if not dw_map.get(code)
         or dw_map[code].cost_price is None
         or not dw_map[code].vat_code_365
+        or dw_map[code].vat_percent is None
     ]
     ps365_pricing = _fetch_item_pricing_from_ps365(missing_pricing_codes) if missing_pricing_codes else {}
     if ps365_pricing:
@@ -616,6 +617,7 @@ def reserved_stock_777_create_po():
         if not dw_map2.get(code)
         or dw_map2[code].cost_price is None
         or not dw_map2[code].vat_code_365
+        or dw_map2[code].vat_percent is None
     ]
     ps365_pricing2 = _fetch_item_pricing_from_ps365(missing_pricing_codes2) if missing_pricing_codes2 else {}
     if ps365_pricing2:
@@ -705,6 +707,9 @@ def reserved_stock_777_create_po():
             if "vat_percent" in ln:
                 line_detail2["line_total_vat_percentage"] = str(ln["vat_percent"])
             payload["order"]["list_purchase_order_details"].append(line_detail2)
+        
+        import json as _json
+        logger.debug("PO payload lines: %s", _json.dumps(payload["order"]["list_purchase_order_details"][:3], indent=2))
         
         url = f"{PS365_BASE_URL}/purchaseorder"
         resp = requests.post(url, json=payload, timeout=120)
