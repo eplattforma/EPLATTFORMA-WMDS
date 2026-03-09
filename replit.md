@@ -77,5 +77,5 @@ Preferred communication style: Simple, everyday language.
 - **PostgreSQL 16**: Production database.
 
 ### Integrations
-- **PS365**: Used for shelf location lookup, PO receiving, customer data synchronization, integrated receipt system, zone synchronization, and customer statement of account balance lookups via `/customer_statement_of_account` API (cached in `customer_balance_cache` table).
+- **PS365**: Used for shelf location lookup, PO receiving, customer data synchronization, integrated receipt system, zone synchronization, and customer statement of account balance lookups via `/customer_statement_of_account` API (cached in `customer_balance_cache` table). **Note**: PS365 `list_items` API returns `maximum_purchase_price=0` for all items — cost prices must be manually set via the Cross Shipping Orders page (`/reports/reserved-stock-777`) inline editing. DW sync preserves manually-set cost prices.
 - **SMTP Email**: Configured for sending supplier purchase orders.

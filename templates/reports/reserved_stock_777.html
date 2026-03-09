@@ -112,6 +112,8 @@
             <th style="white-space: nowrap;">Item Code</th>
             <th>Item Name</th>
             <th style="white-space: nowrap;">Supplier</th>
+            <th style="text-align:right; white-space: nowrap;">Cost Price</th>
+            <th style="text-align:right; white-space: nowrap;">VAT</th>
             <th style="text-align:right; white-space: nowrap;">Pcs/Unit</th>
             <th style="text-align:right; white-space: nowrap;">Min Qty</th>
             <th style="text-align:right; white-space: nowrap;">Stock</th>
@@ -128,10 +130,24 @@
           {% set min_order = (r.number_field_5_value|int or 0) %}
           {% set raw_required = (shortage * pieces_per_unit)|int if shortage > 0 else 0 %}
           {% set required_display = ([raw_required, min_order]|max) if raw_required > 0 else 0 %}
+          {% set item_pricing = dw_prices.get(r.item_code_365, {}) %}
           <tr data-season="{{ r.season_name or '' }}" data-required="{{ required_display }}">
             <td style="white-space: nowrap;">{{ r.item_code_365 }}</td>
             <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ r.item_name }}">{{ r.item_name }}</td>
             <td style="white-space: nowrap;">{{ r.season_name or '' }}</td>
+            <td style="text-align:right; white-space: nowrap; padding: 2px 4px;">
+              {% if current_user.role in ['admin', 'warehouse_manager'] %}
+              <input type="number" step="0.01" min="0" class="form-control form-control-sm cost-price-input"
+                     data-item="{{ r.item_code_365 }}"
+                     value="{{ '%.2f'|format(item_pricing.cost_price) if item_pricing.cost_price is not none else '' }}"
+                     style="width: 80px; text-align: right; display: inline-block; font-size: 0.8rem; padding: 1px 4px;"
+                     onchange="saveCostPrice(this)"
+                     title="Click to edit cost price">
+              {% else %}
+              {{ '%.2f'|format(item_pricing.cost_price) if item_pricing.cost_price is not none else '' }}
+              {% endif %}
+            </td>
+            <td style="text-align:right; font-size: 0.85rem;">{{ item_pricing.vat_code_365 or '' }}</td>
             <td style="text-align:right;">{{ r.number_of_pieces or 0 }}</td>
             <td style="text-align:right;">{{ r.number_field_5_value or 0 }}</td>
             <td style="text-align:right;">{{ "%.1f"|format(r.stock|float) }}</td>
@@ -261,6 +277,35 @@ async function saveSeasonSettings(seasonCode, idx) {
     }
   } catch(e) {
     alert('Error saving: ' + e.message);
+  }
+}
+
+async function saveCostPrice(input) {
+  const itemCode = input.getAttribute('data-item');
+  const val = input.value.trim();
+  const costPrice = val === '' ? null : parseFloat(val);
+
+  input.style.backgroundColor = '#fffde7';
+  try {
+    const res = await fetch('/reports/reserved-stock-777/save-cost-price', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCsrfToken()
+      },
+      body: JSON.stringify({item_code_365: itemCode, cost_price: costPrice})
+    });
+    const data = await res.json();
+    if (data.success) {
+      input.style.backgroundColor = '#e8f5e9';
+      setTimeout(() => { input.style.backgroundColor = ''; }, 1500);
+    } else {
+      input.style.backgroundColor = '#ffebee';
+      alert('Save failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch(e) {
+    input.style.backgroundColor = '#ffebee';
+    alert('Error saving cost price: ' + e.message);
   }
 }
 

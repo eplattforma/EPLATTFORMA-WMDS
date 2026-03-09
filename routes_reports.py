@@ -76,7 +76,9 @@ def _fetch_item_pricing_from_ps365(item_codes):
                 try:
                     raw = item.get("maximum_purchase_price")
                     if raw is not None and str(raw).strip():
-                        cost = float(raw)
+                        parsed = float(raw)
+                        if parsed > 0:
+                            cost = parsed
                 except (ValueError, TypeError):
                     pass
                 vat = item.get("vat_code_365") or None
@@ -97,7 +99,7 @@ def _fetch_item_pricing_from_ps365(item_codes):
             for code, vals in pricing.items():
                 dw = DwItem.query.filter_by(item_code_365=code).first()
                 if dw:
-                    if vals["cost_price"] is not None and dw.cost_price is None:
+                    if vals["cost_price"] is not None and vals["cost_price"] > 0 and (dw.cost_price is None or float(dw.cost_price) == 0):
                         dw.cost_price = vals["cost_price"]
                         logger.info(f"  Updated DwItem {code} cost_price = {vals['cost_price']}")
                     if vals["vat_code_365"] and not dw.vat_code_365:
@@ -113,12 +115,21 @@ def _fetch_item_pricing_from_ps365(item_codes):
 @reports_bp.route("/reserved-stock-777")
 @login_required
 def reserved_stock_777():
-    from models import Ps365ReservedStock777, SeasonSupplierSetting
+    from models import Ps365ReservedStock777, SeasonSupplierSetting, DwItem
     
-    # Show existing data (user clicks Refresh button to update)
     rows = Ps365ReservedStock777.query.order_by(Ps365ReservedStock777.stock_reserved.desc(), Ps365ReservedStock777.item_code_365).all()
     seasons = sorted(set(r.season_name for r in rows if r.season_name))
     synced_at = rows[0].synced_at if rows else None
+    
+    item_codes = [r.item_code_365 for r in rows]
+    dw_prices = {}
+    if item_codes:
+        dw_items = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+        for d in dw_items:
+            dw_prices[d.item_code_365] = {
+                "cost_price": float(d.cost_price) if d.cost_price is not None else None,
+                "vat_code_365": d.vat_code_365 or "",
+            }
     
     season_settings = {}
     all_settings = SeasonSupplierSetting.query.all()
@@ -130,7 +141,7 @@ def reserved_stock_777():
             "email_comment": s.email_comment or ""
         }
     
-    return render_template("reports/reserved_stock_777.html", rows=rows, seasons=seasons, synced_at=synced_at, count=len(rows), season_settings=season_settings)
+    return render_template("reports/reserved_stock_777.html", rows=rows, seasons=seasons, synced_at=synced_at, count=len(rows), season_settings=season_settings, dw_prices=dw_prices)
 
 @reports_bp.route("/reserved-stock-777/download")
 @login_required
@@ -189,6 +200,49 @@ def reserved_stock_777_refresh():
         logger.error(f"Error refreshing report: {e}")
         flash(f"Error refreshing: {str(e)}", "danger")
     return redirect(url_for("reports.reserved_stock_777"))
+
+
+@reports_bp.route("/reserved-stock-777/save-cost-price", methods=["POST"])
+@login_required
+def reserved_stock_777_save_cost_price():
+    from routes import validate_csrf_token
+    if not validate_csrf_token():
+        return jsonify({"success": False, "error": "Invalid CSRF token"}), 403
+
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        return jsonify({"success": False, "error": "Access denied"}), 403
+
+    from models import DwItem
+    from app import db
+
+    payload = request.get_json(force=True) or {}
+    item_code = (payload.get("item_code_365") or "").strip()
+    if not item_code:
+        return jsonify({"success": False, "error": "Missing item_code_365"}), 400
+
+    try:
+        cost_val = payload.get("cost_price")
+        if cost_val is None or str(cost_val).strip() == "":
+            cost_price = None
+        else:
+            cost_price = round(float(cost_val), 4)
+            if cost_price < 0:
+                return jsonify({"success": False, "error": "Cost price cannot be negative"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid cost price value"}), 400
+
+    try:
+        dw = DwItem.query.filter_by(item_code_365=item_code).first()
+        if not dw:
+            return jsonify({"success": False, "error": f"Item {item_code} not found"}), 404
+        dw.cost_price = cost_price
+        db.session.commit()
+        logger.info(f"Cost price updated for {item_code}: {cost_price} by {current_user.username}")
+        return jsonify({"success": True, "cost_price": cost_price})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error saving cost price: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @reports_bp.route("/reserved-stock-777/settings/save", methods=["POST"])
@@ -301,9 +355,11 @@ def reserved_stock_777_send_po():
                 "barcode": r.barcode or "",
                 "supplier_item_code": r.supplier_item_code or "",
             }
-            cost = (float(dw.cost_price) if dw and dw.cost_price is not None else None)
+            cost = (float(dw.cost_price) if dw and dw.cost_price is not None and float(dw.cost_price) > 0 else None)
             if cost is None:
-                cost = ps_price.get("cost_price")
+                ps_cost = ps_price.get("cost_price")
+                if ps_cost is not None and ps_cost > 0:
+                    cost = ps_cost
             vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
             if cost is not None:
                 line_data["cost_price"] = cost
@@ -578,9 +634,11 @@ def reserved_stock_777_create_po():
                 "barcode": r.barcode or "",
                 "supplier_item_code": r.supplier_item_code or "",
             }
-            cost = (float(dw.cost_price) if dw and dw.cost_price is not None else None)
+            cost = (float(dw.cost_price) if dw and dw.cost_price is not None and float(dw.cost_price) > 0 else None)
             if cost is None:
-                cost = ps_price.get("cost_price")
+                ps_cost = ps_price.get("cost_price")
+                if ps_cost is not None and ps_cost > 0:
+                    cost = ps_cost
             vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
             if cost is not None:
                 line_data["cost_price"] = cost
