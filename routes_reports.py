@@ -20,6 +20,50 @@ PS365_BASE_URL = os.getenv("PS365_BASE_URL", "").rstrip("/")
 PS365_TOKEN = os.getenv("PS365_TOKEN", "")
 
 
+def _build_po_lines(po_lines):
+    """Build PS365 PO detail lines with full calculated fields and header totals."""
+    from decimal import Decimal, ROUND_HALF_UP
+    detail_lines = []
+    sum_sub = Decimal("0")
+    sum_discount = Decimal("0")
+    sum_vat = Decimal("0")
+    sum_grand = Decimal("0")
+    for idx, ln in enumerate(po_lines, start=1):
+        price = Decimal(str(ln.get("cost_price", 0) or 0))
+        qty = Decimal(str(ln["line_quantity"]))
+        vat_pct = Decimal(str(ln.get("vat_percent", 0) or 0))
+        subtotal = (price * qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        discount = Decimal("0")
+        vat_amount = ((subtotal - discount) * vat_pct / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        grand_total = (subtotal - discount + vat_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        sum_sub += subtotal
+        sum_discount += discount
+        sum_vat += vat_amount
+        sum_grand += grand_total
+        line_detail = {
+            "line_number": str(idx),
+            "item_code_365": ln["item_code_365"],
+            "line_quantity": ln["line_quantity"],
+            "line_price_excl_vat": str(price),
+            "line_total_sub": str(subtotal),
+            "line_total_discount": str(discount),
+            "line_total_discount_percentage": "0",
+            "line_total_vat_percentage": str(vat_pct),
+            "line_total_vat": str(vat_amount),
+            "line_total_grand": str(grand_total),
+        }
+        if "vat_code_365" in ln:
+            line_detail["line_vat_code_365"] = ln["vat_code_365"]
+        detail_lines.append(line_detail)
+    header_totals = {
+        "total_sub": str(sum_sub),
+        "total_discount": str(sum_discount),
+        "total_vat": str(sum_vat),
+        "total_grand": str(sum_grand),
+    }
+    return detail_lines, header_totals
+
+
 def _fetch_item_pricing_from_ps365(item_codes):
     """Fetch cost_price and vat_code from PS365 for given item codes.
     Uses the same list_items API format as datawarehouse_sync with items_selection filter.
@@ -389,6 +433,8 @@ def reserved_stock_777_send_po():
         deliver_by_utc = (now_utc + timedelta(days=7)).replace(microsecond=0)
         shopping_cart_code = f"WMDS-{now_utc.strftime('%Y%m%d-%H%M%S')}-{setting.supplier_code}"
         
+        detail_lines, h_totals = _build_po_lines(po_lines)
+        
         po_payload = {
             "api_credentials": {"token": PS365_TOKEN},
             "order": {
@@ -401,31 +447,12 @@ def reserved_stock_777_send_po():
                     "agent_code_365": "",
                     "user_code_365": current_user.username,
                     "comments": f"Auto PO from Cross Shipping Report - Season {season_code} - {len(po_lines)} items",
-                    "search_additional_barcodes": False
+                    "search_additional_barcodes": False,
+                    **h_totals,
                 },
-                "list_purchase_order_details": []
+                "list_purchase_order_details": detail_lines,
             }
         }
-        
-        for idx, ln in enumerate(po_lines, start=1):
-            price = ln.get("cost_price", 0) or 0
-            qty = float(ln["line_quantity"])
-            vat_pct = ln.get("vat_percent", 0) or 0
-            subtotal = round(price * qty, 2)
-            vat_amount = round(subtotal * vat_pct / 100, 2)
-            line_detail = {
-                "line_number": str(idx),
-                "item_code_365": ln["item_code_365"],
-                "line_quantity": ln["line_quantity"],
-                "line_price_excl_vat": str(price),
-                "line_total_sub": str(subtotal),
-                "line_total_discount": "0",
-                "line_total_vat_percentage": str(vat_pct),
-                "line_total_vat": str(vat_amount),
-            }
-            if "vat_code_365" in ln:
-                line_detail["line_vat_code_365"] = ln["vat_code_365"]
-            po_payload["order"]["list_purchase_order_details"].append(line_detail)
         
         url = f"{PS365_BASE_URL}/purchaseorder"
         resp = requests.post(url, json=po_payload, timeout=120)
@@ -681,6 +708,11 @@ def reserved_stock_777_create_po():
         deliver_by_utc = (now_utc + timedelta(days=7)).replace(microsecond=0)
         shopping_cart_code = f"WMDS-{now_utc.strftime('%Y%m%d-%H%M%S')}-{supplier_code}"
         
+        detail_lines2, h_totals2 = _build_po_lines(po_lines)
+        
+        import json as _json
+        logger.debug("PO payload lines: %s", _json.dumps(detail_lines2[:3], indent=2))
+        
         payload = {
             "api_credentials": {"token": PS365_TOKEN},
             "order": {
@@ -694,34 +726,12 @@ def reserved_stock_777_create_po():
                     "user_code_365": current_user.username,
                     "comments": f"Auto PO from Cross Shipping Report - {len(po_lines)} items",
                     "search_additional_barcodes": False,
-                    "status": "CONFIRMED"
+                    "status": "CONFIRMED",
+                    **h_totals2,
                 },
-                "list_purchase_order_details": []
+                "list_purchase_order_details": detail_lines2,
             }
         }
-        
-        for idx, ln in enumerate(po_lines, start=1):
-            price = ln.get("cost_price", 0) or 0
-            qty = float(ln["line_quantity"])
-            vat_pct = ln.get("vat_percent", 0) or 0
-            subtotal = round(price * qty, 2)
-            vat_amount = round(subtotal * vat_pct / 100, 2)
-            line_detail2 = {
-                "line_number": str(idx),
-                "item_code_365": ln["item_code_365"],
-                "line_quantity": ln["line_quantity"],
-                "line_price_excl_vat": str(price),
-                "line_total_sub": str(subtotal),
-                "line_total_discount": "0",
-                "line_total_vat_percentage": str(vat_pct),
-                "line_total_vat": str(vat_amount),
-            }
-            if "vat_code_365" in ln:
-                line_detail2["line_vat_code_365"] = ln["vat_code_365"]
-            payload["order"]["list_purchase_order_details"].append(line_detail2)
-        
-        import json as _json
-        logger.debug("PO payload lines: %s", _json.dumps(payload["order"]["list_purchase_order_details"][:3], indent=2))
         
         url = f"{PS365_BASE_URL}/purchaseorder"
         resp = requests.post(url, json=payload, timeout=120)
