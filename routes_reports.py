@@ -82,8 +82,15 @@ def _fetch_item_pricing_from_ps365(item_codes):
                 except (ValueError, TypeError):
                     pass
                 vat = item.get("vat_code_365") or None
-                pricing[code] = {"cost_price": sell, "vat_code_365": vat}
-                logger.info(f"  Item {code}: selling_price={sell}, vat_code={vat}")
+                vat_pct = None
+                try:
+                    raw_pct = item.get("vat_percent")
+                    if raw_pct is not None:
+                        vat_pct = float(raw_pct)
+                except (ValueError, TypeError):
+                    pass
+                pricing[code] = {"cost_price": sell, "vat_code_365": vat, "vat_percent": vat_pct}
+                logger.info(f"  Item {code}: selling_price={sell}, vat_code={vat}, vat_percent={vat_pct}")
             
             if len(items) < page_size:
                 break
@@ -105,6 +112,9 @@ def _fetch_item_pricing_from_ps365(item_codes):
                     if vals["vat_code_365"] and not dw.vat_code_365:
                         dw.vat_code_365 = vals["vat_code_365"]
                         logger.info(f"  Updated DwItem {code} vat_code_365 = {vals['vat_code_365']}")
+                    if vals.get("vat_percent") is not None and (dw.vat_percent is None or float(dw.vat_percent) == 0):
+                        dw.vat_percent = vals["vat_percent"]
+                        logger.info(f"  Updated DwItem {code} vat_percent = {vals['vat_percent']}")
             db.session.commit()
         except Exception as e:
             logger.warning(f"Failed to update DwItem with pricing: {e}")
@@ -361,10 +371,13 @@ def reserved_stock_777_send_po():
                 if ps_cost is not None and ps_cost > 0:
                     cost = ps_cost
             vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
+            vat_pct = (float(dw.vat_percent) if dw and dw.vat_percent is not None else None) or ps_price.get("vat_percent")
             if cost is not None:
                 line_data["cost_price"] = cost
             if vat:
                 line_data["vat_code_365"] = vat
+            if vat_pct is not None:
+                line_data["vat_percent"] = vat_pct
             po_lines.append(line_data)
     
     if not po_lines:
@@ -403,6 +416,8 @@ def reserved_stock_777_send_po():
                 line_detail["line_price_excl_vat"] = str(ln["cost_price"])
             if "vat_code_365" in ln:
                 line_detail["line_vat_code_365"] = ln["vat_code_365"]
+            if "vat_percent" in ln:
+                line_detail["line_total_vat_percentage"] = str(ln["vat_percent"])
             po_payload["order"]["list_purchase_order_details"].append(line_detail)
         
         url = f"{PS365_BASE_URL}/purchaseorder"
@@ -640,10 +655,13 @@ def reserved_stock_777_create_po():
                 if ps_cost is not None and ps_cost > 0:
                     cost = ps_cost
             vat = (dw.vat_code_365 if dw and dw.vat_code_365 else None) or ps_price.get("vat_code_365")
+            vat_pct = (float(dw.vat_percent) if dw and dw.vat_percent is not None else None) or ps_price.get("vat_percent")
             if cost is not None:
                 line_data["cost_price"] = cost
             if vat:
                 line_data["vat_code_365"] = vat
+            if vat_pct is not None:
+                line_data["vat_percent"] = vat_pct
             po_lines.append(line_data)
     
     if not po_lines:
@@ -684,6 +702,8 @@ def reserved_stock_777_create_po():
                 line_detail2["line_price_excl_vat"] = str(ln["cost_price"])
             if "vat_code_365" in ln:
                 line_detail2["line_vat_code_365"] = ln["vat_code_365"]
+            if "vat_percent" in ln:
+                line_detail2["line_total_vat_percentage"] = str(ln["vat_percent"])
             payload["order"]["list_purchase_order_details"].append(line_detail2)
         
         url = f"{PS365_BASE_URL}/purchaseorder"
