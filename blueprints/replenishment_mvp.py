@@ -547,50 +547,79 @@ def _send_po_email(run, order_lines, po_code, sent_at):
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
     RECIPIENT = "eplattforma@gmail.com"
 
-    if not all([SMTP_HOST, SMTP_EMAIL, SMTP_PASSWORD]):
-        logger.warning("SMTP not configured, skipping PO email notification")
-        return
-
     rows_html = ""
-    for line in sorted(order_lines, key=lambda l: l.item_code_365):
+    rows_text = ""
+    for idx, line in enumerate(sorted(order_lines, key=lambda l: l.item_code_365), start=1):
         case_qty = int(float(line.case_qty_units)) if float(line.case_qty_units) == int(float(line.case_qty_units)) else float(line.case_qty_units)
         final_cases = int(float(line.final_cases)) if float(line.final_cases) == int(float(line.final_cases)) else float(line.final_cases)
         rows_html += (
             f"<tr>"
-            f"<td style='padding:6px 12px;border:1px solid #ddd;'>{line.item_code_365}</td>"
-            f"<td style='padding:6px 12px;border:1px solid #ddd;'>{run.supplier_code}</td>"
-            f"<td style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>{case_qty}</td>"
-            f"<td style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>{final_cases}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>{line.item_code_365}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>{run.supplier_code}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{case_qty}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{final_cases}</td>"
             f"</tr>"
         )
+        rows_text += f"{idx}. {line.item_code_365} | {run.supplier_code} | {case_qty} | {final_cases}\n"
 
     html_body = f"""
-    <h3>Purchase Order Sent to PS365</h3>
-    <p><strong>PO Code:</strong> {po_code}</p>
-    <p><strong>Supplier:</strong> {run.supplier_name} ({run.supplier_code})</p>
-    <p><strong>Run:</strong> #{run.id} ({run.run_type}) &mdash; {run.run_date}</p>
-    <p><strong>Sent at:</strong> {sent_at.strftime('%Y-%m-%d %H:%M')} UTC</p>
-    <p><strong>Items:</strong> {len(order_lines)}</p>
-    <br>
-    <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
-        <thead>
-            <tr style='background:#f0f0f0;'>
-                <th style='padding:6px 12px;border:1px solid #ddd;text-align:left;'>Item Code</th>
-                <th style='padding:6px 12px;border:1px solid #ddd;text-align:left;'>Supplier Code</th>
-                <th style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>Case Qty</th>
-                <th style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>Cases Ordered</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows_html}
-        </tbody>
-    </table>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #4472C4; color: white; }}
+            tr:nth-child(even) {{ background-color: #f2f2f2; }}
+            .header {{ background-color: #f8f9fa; padding: 20px; border-bottom: 2px solid #4472C4; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h2>Purchase Order Created</h2>
+            <p><strong>PO Code:</strong> {po_code}</p>
+            <p><strong>Supplier:</strong> {run.supplier_name} ({run.supplier_code})</p>
+            <p><strong>Run ID:</strong> {run.id} ({run.run_type})</p>
+            <p><strong>Date:</strong> {sent_at.strftime('%Y-%m-%d %H:%M')} UTC</p>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Item Code</th>
+                    <th>Supplier Code</th>
+                    <th>Case Qty</th>
+                    <th>Cases Ordered</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+        <p style='margin-top:20px;'><strong>Total Items:</strong> {len(order_lines)}</p>
+        <hr>
+        <p style='color: #666; font-size: 12px;'>This is an automated email from the Warehouse Management System.</p>
+    </body>
+    </html>
     """
+
+    text_body = f"""Purchase Order Created
+
+PO Code: {po_code}
+Supplier: {run.supplier_name} ({run.supplier_code})
+Run ID: {run.id} ({run.run_type})
+Date: {sent_at.strftime('%Y-%m-%d %H:%M')} UTC
+
+Items:
+{rows_text}
+Total Items: {len(order_lines)}
+"""
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"PO {po_code} - {run.supplier_name} - {len(order_lines)} items"
     msg["From"] = SMTP_EMAIL
     msg["To"] = RECIPIENT
+    
+    msg.attach(MIMEText(text_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
     try:
@@ -598,8 +627,10 @@ def _send_po_email(run, order_lines, po_code, sent_at):
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
             server.sendmail(SMTP_EMAIL, RECIPIENT, msg.as_string())
         logger.info(f"PO email sent to {RECIPIENT} for PO {po_code}")
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP error sending PO email to {RECIPIENT}: {e}")
     except Exception as e:
-        logger.error(f"Failed to send PO email to {RECIPIENT}: {e}")
+        logger.error(f"Error sending PO email to {RECIPIENT}: {e}")
 
 
 @replenishment_bp.route('/run/<int:run_id>/email-order', methods=['POST'])
