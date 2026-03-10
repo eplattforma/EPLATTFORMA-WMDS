@@ -73,7 +73,8 @@ def _build_review_reasons(profile, result, supplier_map, dw_item, old_final, raw
         if distortion > 0.30:
             reasons.append(f"order rounding distortion {distortion:.0%}")
 
-    if not supplier_map:
+    has_supplier = (dw_item and dw_item.supplier_code_365) or supplier_map
+    if not has_supplier:
         reasons.append("missing supplier mapping")
 
     if dw_item:
