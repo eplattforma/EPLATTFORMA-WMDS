@@ -131,6 +131,183 @@ def run_detail(run_id):
     )
 
 
+@replenishment_bp.route('/run/<int:run_id>/refresh-stock', methods=['POST'])
+@admin_or_warehouse_required
+def refresh_stock(run_id):
+    import math
+    from services.replenishment_mvp.ps365_client import fetch_supplier_stock, REPLENISHMENT_WAREHOUSE_STORE
+    from services.replenishment_mvp.forecast import get_forecast_for_dates, resolve_forecast_sources
+    from services.replenishment_mvp.repositories import (
+        get_item_master_for_codes, get_item_settings_for_codes,
+        get_same_weekday_sales_averages, get_fallback_daily_averages,
+        get_expiry_summary,
+    )
+    from services.replenishment_mvp.calendar import (
+        get_receipt_date, get_pre_receipt_dates, get_cover_dates_after_receipt,
+    )
+    from services.replenishment_mvp.planner import _resolve_case_qty, _build_warnings
+
+    run = ReplenishmentRun.query.get_or_404(run_id)
+    if run.status == 'po_sent':
+        flash('Cannot refresh stock on a run that already has a PO sent.', 'warning')
+        return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+    try:
+        stock_snapshot = fetch_supplier_stock(run.supplier_code, REPLENISHMENT_WAREHOUSE_STORE)
+    except Exception as e:
+        logger.exception(f"Stock refresh failed for run #{run_id}")
+        flash(f'Error fetching stock from PS365: {str(e)}', 'error')
+        return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+    if not stock_snapshot:
+        flash('No stock data returned from PS365.', 'error')
+        return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+    receipt_date = get_receipt_date(run.run_date, run.run_type)
+    pre_receipt_dates = get_pre_receipt_dates(run.run_date, run.run_type, run.include_today_demand)
+    cover_dates = get_cover_dates_after_receipt(receipt_date, run.run_type)
+    all_needed_weekdays = list(set(d.weekday() for d in pre_receipt_dates + cover_dates))
+
+    item_codes = list(stock_snapshot.keys())
+    item_master = get_item_master_for_codes(item_codes)
+    item_settings = get_item_settings_for_codes(item_codes)
+    weekday_avgs = get_same_weekday_sales_averages(item_codes, all_needed_weekdays, reference_date=run.run_date)
+    fallback_avgs = get_fallback_daily_averages(item_codes, reference_date=run.run_date)
+    expiry_data = get_expiry_summary(item_codes, REPLENISHMENT_WAREHOUSE_STORE)
+
+    forecast_sources = resolve_forecast_sources(item_codes, weekday_avgs, fallback_avgs)
+    pre_forecast = get_forecast_for_dates(item_codes, pre_receipt_dates, weekday_avgs, fallback_avgs)
+    cover_forecast = get_forecast_for_dates(item_codes, cover_dates, weekday_avgs, fallback_avgs)
+
+    lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()
+    line_map = {l.item_code_365: l for l in lines}
+
+    updated = 0
+    stale_count = 0
+    for item_code in list(line_map.keys()):
+        line = line_map[item_code]
+        api_data = stock_snapshot.get(item_code)
+
+        if not api_data:
+            line.warning_code = "STOCK_NOT_IN_SNAPSHOT"
+            line.warning_text = "Item not returned by PS365 stock query during refresh"
+            stale_count += 1
+            continue
+
+        master = item_master.get(item_code, {})
+        settings = item_settings.get(item_code, {})
+        expiry = expiry_data.get(item_code, {})
+        fb_info = fallback_avgs.get(item_code, {})
+        fcst_source = forecast_sources.get(item_code, "none")
+
+        stock_now = api_data["stock_now_units"]
+        reserved_now = api_data["reserved_now_units"]
+        ordered_now = api_data["ordered_now_units"]
+        on_transfer_now = api_data["on_transfer_now_units"]
+
+        available_base = stock_now - reserved_now + ordered_now
+
+        pre_receipt_fcst = sum(pre_forecast.get(item_code, {}).get(d, 0) for d in pre_receipt_dates)
+        projected_at_receipt = available_base - pre_receipt_fcst
+
+        cover_fcst = sum(cover_forecast.get(item_code, {}).get(d, 0) for d in cover_dates)
+
+        case_qty, case_qty_source = _resolve_case_qty(master, settings)
+        min_order_cases = float(settings.get("min_order_cases") or 1)
+        safety_days = float(settings.get("safety_days_override") or 1.0)
+
+        num_cover_dates = len(cover_dates)
+        avg_daily_cover = cover_fcst / num_cover_dates if num_cover_dates > 0 else 0
+        safety_stock = avg_daily_cover * safety_days
+
+        raw_needed = max(0, cover_fcst + safety_stock - projected_at_receipt)
+
+        if case_qty and case_qty > 0 and raw_needed > 0:
+            suggested_cases = math.ceil(raw_needed / case_qty)
+            suggested_cases = max(suggested_cases, min_order_cases)
+            suggested_units = suggested_cases * case_qty
+        else:
+            suggested_cases = 0
+            suggested_units = 0
+
+        warnings = _build_warnings(
+            case_qty, projected_at_receipt, reserved_now, ordered_now,
+            expiry, suggested_cases, pre_receipt_fcst, cover_fcst,
+            available_base, fcst_source
+        )
+        warning_code = warnings[0][0] if warnings else None
+        warning_text = warnings[0][1] if warnings else None
+
+        line.case_qty_units = Decimal(str(case_qty or 0))
+        line.stock_now_units = Decimal(str(stock_now))
+        line.reserved_now_units = Decimal(str(reserved_now))
+        line.ordered_now_units = Decimal(str(ordered_now))
+        line.on_transfer_now_units = Decimal(str(on_transfer_now))
+        line.available_base_units = Decimal(str(available_base))
+        line.pre_receipt_forecast_units = Decimal(str(round(pre_receipt_fcst, 2)))
+        line.projected_units_at_receipt = Decimal(str(round(projected_at_receipt, 2)))
+        line.cover_forecast_units = Decimal(str(round(cover_fcst, 2)))
+        line.safety_stock_units = Decimal(str(round(safety_stock, 2)))
+        line.raw_needed_units = Decimal(str(round(raw_needed, 2)))
+        line.suggested_cases = Decimal(str(round(suggested_cases, 2)))
+        line.suggested_units = Decimal(str(round(suggested_units, 2)))
+        line.final_cases = Decimal(str(round(suggested_cases, 2)))
+        line.final_units = Decimal(str(round(suggested_units, 2)))
+        line.warning_code = warning_code
+        line.warning_text = warning_text
+
+        line.explanation_text = (
+            f"Available base = stock {stock_now:.0f} - reserved {reserved_now:.0f} "
+            f"+ ordered {ordered_now:.0f} = {available_base:.0f}. "
+            f"Pre-receipt forecast {pre_receipt_fcst:.1f} => "
+            f"projected at receipt {projected_at_receipt:.1f}. "
+            f"Cover forecast {cover_fcst:.1f} + safety {safety_stock:.1f} "
+            f"=> raw need {raw_needed:.1f}. "
+            f"Forecast source: {fcst_source}."
+        )
+
+        weekday_avgs_used = {}
+        for wd in all_needed_weekdays:
+            weekday_avgs_used[str(wd)] = weekday_avgs.get(item_code, {}).get(wd, 0)
+
+        line.calc_json = {
+            "pre_receipt_dates": [str(d) for d in pre_receipt_dates],
+            "cover_dates": [str(d) for d in cover_dates],
+            "weekday_averages": weekday_avgs_used,
+            "forecast_source": fcst_source,
+            "fallback_avg_30d": fb_info.get("avg_30d", 0),
+            "fallback_avg_90d": fb_info.get("avg_90d", 0),
+            "fallback_avg_180d": fb_info.get("avg_180d", 0),
+            "fallback_daily_avg": fb_info.get("daily_avg", 0),
+            "available_base_units": available_base,
+            "pre_receipt_forecast_units": pre_receipt_fcst,
+            "projected_units_at_receipt": projected_at_receipt,
+            "cover_forecast_units": cover_fcst,
+            "safety_days": safety_days,
+            "safety_stock_units": safety_stock,
+            "raw_needed_units": raw_needed,
+            "case_qty_units": case_qty or 0,
+            "case_qty_source": case_qty_source,
+            "min_order_cases": min_order_cases,
+            "sales_date_field": "invoice_date_utc0",
+        }
+
+        expiry_info = expiry_data.get(item_code, {})
+        line.earliest_expiry_date = expiry_info.get("earliest_expiry_date")
+        line.qty_at_earliest_expiry = Decimal(str(expiry_info.get("qty_at_earliest_expiry", 0)))
+        line.expiring_within_30_days_units = Decimal(str(expiry_info.get("expiring_within_30_days_units", 0)))
+
+        updated += 1
+
+    db.session.commit()
+    msg = f'Stock refreshed from PS365. {updated} items updated with recalculated suggestions.'
+    if stale_count > 0:
+        msg += f' {stale_count} items not found in PS365 snapshot.'
+    flash(msg, 'success')
+    logger.info(f"Stock refreshed for run #{run_id}: {updated} items updated, {stale_count} stale")
+    return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+
 @replenishment_bp.route('/run/<int:run_id>/save', methods=['POST'])
 @admin_or_warehouse_required
 def save_finals(run_id):
