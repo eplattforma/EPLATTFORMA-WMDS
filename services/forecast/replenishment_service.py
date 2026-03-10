@@ -36,18 +36,14 @@ def _enforce_moq(qty, moq):
     return max(qty, moq)
 
 
-def _get_stock_for_item(item_code):
-    try:
-        from services_ps365_stock import get_item_stock_position
-        stock = get_item_stock_position(item_code)
-        if stock:
-            return (
-                _to_float(stock.get("on_hand_qty", 0)),
-                _to_float(stock.get("incoming_qty", 0)),
-                _to_float(stock.get("reserved_qty", 0)),
-            )
-    except (ImportError, Exception) as e:
-        logger.debug(f"Stock service not available for {item_code}: {e}")
+def _get_stock_for_item(item_code, stock_cache=None):
+    if stock_cache and item_code in stock_cache:
+        stock = stock_cache[item_code]
+        return (
+            _to_float(stock.get("stock_now_units", 0)),
+            _to_float(stock.get("ordered_now_units", 0)),
+            _to_float(stock.get("reserved_now_units", 0)),
+        )
     return 0.0, 0.0, 0.0
 
 
@@ -108,6 +104,17 @@ def compute_replenishment(session: Session, run_id=None):
         supplier_map_cache[m.item_code_365] = m
 
     dw_item_cache = {}
+    
+    stock_cache_by_supplier = {}
+    def _get_stock_cache(supplier_code):
+        if supplier_code not in stock_cache_by_supplier:
+            try:
+                from services.replenishment_mvp.ps365_client import fetch_supplier_stock
+                stock_cache_by_supplier[supplier_code] = fetch_supplier_stock(supplier_code)
+            except Exception as e:
+                logger.warning(f"Failed to fetch stock for supplier {supplier_code}: {e}")
+                stock_cache_by_supplier[supplier_code] = {}
+        return stock_cache_by_supplier[supplier_code]
 
     for result in results:
         item_code = result.item_code_365
@@ -142,7 +149,9 @@ def compute_replenishment(session: Session, run_id=None):
         target_stock = final_daily * (cover_days + lead_time + review_cycle) + safety_stock
         result.target_stock_qty = Decimal(str(round(target_stock, 6)))
 
-        on_hand, incoming, reserved = _get_stock_for_item(item_code)
+        supplier_code = dw_item.supplier_code_365 if dw_item else None
+        stock_cache = _get_stock_cache(supplier_code) if supplier_code else {}
+        on_hand, incoming, reserved = _get_stock_for_item(item_code, stock_cache)
         result.on_hand_qty = Decimal(str(round(on_hand, 6)))
         result.incoming_qty = Decimal(str(round(incoming, 6)))
         result.reserved_qty = Decimal(str(round(reserved, 6)))
