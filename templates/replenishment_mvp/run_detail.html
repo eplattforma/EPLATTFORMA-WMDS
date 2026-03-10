@@ -28,15 +28,9 @@
                 </button>
             </form>
             {% endif %}
-            <form method="POST" action="{{ url_for('replenishment_mvp.email_order', run_id=run.id) }}"
-                  style="display:inline" onsubmit="return confirm('Email order details?')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="email" name="recipient_email" placeholder="eplattforma@gmail.com" 
-                       value="eplattforma@gmail.com" required style="width:180px;padding:4px 6px;font-size:12px;">
-                <button type="submit" class="btn btn-sm btn-secondary me-2">
-                    <i class="fas fa-envelope me-1"></i>Email Order
-                </button>
-            </form>
+            <button type="button" class="btn btn-sm btn-secondary me-2" data-bs-toggle="modal" data-bs-target="#emailPreviewModal" onclick="previewEmail({{ run.id }})">
+                <i class="fas fa-envelope me-1"></i>Email Order
+            </button>
             <a href="{{ url_for('replenishment_mvp.export_order_csv', run_id=run.id) }}"
                class="btn btn-sm btn-success me-2">
                 <i class="fas fa-truck me-1"></i>Export Order to Supplier
@@ -123,9 +117,53 @@
             </button>
         </div>
     </form>
+<div class="modal fade" id="emailPreviewModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Email Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="emailPreviewBody" style="max-height:500px;overflow-y:auto;font-family:monospace;white-space:pre-wrap;">
+                Loading...
+            </div>
+            <div class="modal-footer">
+                <input type="email" id="recipientEmail" placeholder="eplattforma@gmail.com" value="eplattforma@gmail.com" style="flex:1;padding:6px;">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="sendEmail({{ run.id }})">Send Email</button>
+            </div>
+        </div>
+    </div>
+</div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/replenishment_mvp.js') }}"></script>
+<script>
+function previewEmail(runId) {
+    fetch(`/replenishment-mvp/run/${runId}/email-preview`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('emailPreviewBody').textContent = 'Error: ' + data.error;
+                return;
+            }
+            document.getElementById('emailPreviewBody').textContent = data.text_body;
+        })
+        .catch(e => document.getElementById('emailPreviewBody').textContent = 'Error: ' + e.message);
+}
+function sendEmail(runId) {
+    const email = document.getElementById('recipientEmail').value;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/replenishment-mvp/run/${runId}/email-order`;
+    form.innerHTML = `
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="recipient_email" value="${email}">
+    `;
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
 {% endblock %}

@@ -535,20 +535,8 @@ def send_po_to_ps365(run_id):
     return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
 
-def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gmail.com"):
-    import os
-    import smtplib
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
-
-    SMTP_HOST = os.getenv("SMTP_HOST", "")
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
-    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-    RECIPIENT = recipient
-
-    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, RECIPIENT={RECIPIENT}, order_lines={len(order_lines)}")
-
+def _build_po_email_content(run, order_lines, po_code, sent_at):
+    """Build the email content (text and HTML bodies). Returns dict with text_body and html_body."""
     rows_html = ""
     rows_text = ""
     for idx, line in enumerate(sorted(order_lines, key=lambda l: l.item_code_365), start=1):
@@ -615,6 +603,26 @@ Items:
 {rows_text}
 Total Items: {len(order_lines)}
 """
+    return {"text_body": text_body, "html_body": html_body}
+
+
+def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gmail.com"):
+    import os
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    RECIPIENT = recipient
+
+    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, RECIPIENT={RECIPIENT}, order_lines={len(order_lines)}")
+
+    content = _build_po_email_content(run, order_lines, po_code, sent_at)
+    text_body = content["text_body"]
+    html_body = content["html_body"]
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"PO {po_code} - {run.supplier_name} - {len(order_lines)} items"
@@ -639,6 +647,37 @@ Total Items: {len(order_lines)}
         logger.error(f"SMTP error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}")
     except Exception as e:
         logger.error(f"Error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}", exc_info=True)
+
+
+@replenishment_bp.route('/run/<int:run_id>/email-preview', methods=['GET'])
+@admin_or_warehouse_required
+def email_preview(run_id):
+    from datetime import datetime, timezone
+
+    run = ReplenishmentRun.query.get_or_404(run_id)
+    lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()
+    order_lines = [l for l in lines if l.final_units and float(l.final_units) > 0]
+
+    if not order_lines:
+        return jsonify({"error": "No items with Final Units > 0"}), 400
+
+    po_code = ""
+    if run.notes:
+        import re
+        match = re.search(r'PO (\S+) sent', run.notes)
+        if match:
+            po_code = match.group(1)
+    if not po_code:
+        po_code = f"Run-{run.id}"
+
+    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+    content = _build_po_email_content(run, order_lines, po_code, now_utc)
+    
+    return jsonify({
+        "subject": f"PO {po_code} - {run.supplier_name} - {len(order_lines)} items",
+        "text_body": content["text_body"],
+        "html_body": content["html_body"]
+    })
 
 
 @replenishment_bp.route('/run/<int:run_id>/email-order', methods=['POST'])
