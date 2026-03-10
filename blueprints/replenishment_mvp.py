@@ -601,6 +601,7 @@ Run ID: {run.id} ({run.run_type})
 Date: {sent_at.strftime('%Y-%m-%d %H:%M')} UTC
 
 Items:
+Item Name | Supplier Code | Case Qty | Cases Ordered
 {rows_text}
 Total Items: {len(order_lines)}
 """
