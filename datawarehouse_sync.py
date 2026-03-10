@@ -1547,23 +1547,15 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
     try:
         _update_invoice_sync_status(session, "RUNNING", "Syncing invoice headers...")
         h_ins, h_upd = sync_invoice_headers_from_date(session, date_from, date_to)
-        session.commit()
-        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", f"Headers done ({h_ins} inserted). Syncing lines...")
         l_ins, l_upd = sync_invoice_lines_from_date(session, date_from, date_to)
-        session.commit()
-        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", f"Lines done ({l_ins} inserted). Syncing stores...")
         s_ins, s_upd = sync_invoice_stores(session)
-        session.commit()
-        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", "Syncing cashiers...")
         u_ins, u_upd = sync_invoice_cashiers(session)
-        session.commit()
-        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", "Refreshing materialized views...")
         try:
