@@ -63,8 +63,8 @@ def supplier_detail(supplier_code):
     if supplier_code == 'UNMAPPED':
         supplier_name = 'Unmapped Items'
     else:
-        mapping = ForecastItemSupplierMap.query.filter_by(supplier_code=supplier_code).first()
-        supplier_name = mapping.supplier_name if mapping else supplier_code
+        item_with_supplier = DwItem.query.filter_by(supplier_code_365=supplier_code).first()
+        supplier_name = item_with_supplier.supplier_name if item_with_supplier else supplier_code
     return render_template(
         'forecast_workbench/supplier_detail.html',
         supplier_code=supplier_code,
@@ -77,10 +77,13 @@ def supplier_detail(supplier_code):
 def api_suppliers():
     last_run = ForecastRun.query.order_by(ForecastRun.started_at.desc()).first()
 
-    mapped_q = (
+    supplier_code_col = func.coalesce(DwItem.supplier_code_365, 'UNMAPPED')
+    supplier_name_col = func.coalesce(DwItem.supplier_name, 'Unmapped Items')
+
+    rows = (
         db.session.query(
-            ForecastItemSupplierMap.supplier_code,
-            ForecastItemSupplierMap.supplier_name,
+            supplier_code_col.label('supplier_code'),
+            func.max(supplier_name_col).label('supplier_name'),
             func.count(SkuForecastProfile.item_code_365).label('active_skus'),
             func.sum(case((SkuForecastProfile.review_flag == True, 1), else_=0)).label('review_count'),
             func.sum(case((SkuForecastResult.rounded_order_qty > 0, 1), else_=0)).label('order_count'),
@@ -88,30 +91,14 @@ def api_suppliers():
             func.sum(case((SkuForecastProfile.demand_class == 'smooth', 1), else_=0)).label('smooth_count'),
             func.sum(case((SkuForecastProfile.demand_class.in_(['erratic', 'intermittent', 'lumpy']), 1), else_=0)).label('irregular_count'),
         )
-        .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == ForecastItemSupplierMap.item_code_365, isouter=True)
-        .join(SkuForecastResult, SkuForecastResult.item_code_365 == ForecastItemSupplierMap.item_code_365, isouter=True)
-        .filter(ForecastItemSupplierMap.is_active == True)
-        .group_by(ForecastItemSupplierMap.supplier_code, ForecastItemSupplierMap.supplier_name)
+        .join(DwItem, DwItem.item_code_365 == SkuForecastProfile.item_code_365)
+        .join(SkuForecastResult, SkuForecastResult.item_code_365 == SkuForecastProfile.item_code_365, isouter=True)
+        .group_by(supplier_code_col)
         .all()
     )
 
-    mapped_item_codes_subq = db.session.query(ForecastItemSupplierMap.item_code_365).subquery()
-    unmapped_q = (
-        db.session.query(
-            func.count(SkuForecastProfile.item_code_365).label('active_skus'),
-            func.sum(case((SkuForecastProfile.review_flag == True, 1), else_=0)).label('review_count'),
-            func.sum(case((SkuForecastResult.rounded_order_qty > 0, 1), else_=0)).label('order_count'),
-            func.coalesce(func.sum(SkuForecastResult.rounded_order_qty), 0).label('total_order_qty'),
-            func.sum(case((SkuForecastProfile.demand_class == 'smooth', 1), else_=0)).label('smooth_count'),
-            func.sum(case((SkuForecastProfile.demand_class.in_(['erratic', 'intermittent', 'lumpy']), 1), else_=0)).label('irregular_count'),
-        )
-        .join(SkuForecastResult, SkuForecastResult.item_code_365 == SkuForecastProfile.item_code_365, isouter=True)
-        .filter(~SkuForecastProfile.item_code_365.in_(mapped_item_codes_subq))
-        .first()
-    )
-
     suppliers_list = []
-    for row in mapped_q:
+    for row in rows:
         suppliers_list.append({
             'supplier_code': row.supplier_code,
             'supplier_name': row.supplier_name,
@@ -121,18 +108,6 @@ def api_suppliers():
             'total_order_qty': _float(row.total_order_qty),
             'smooth_count': int(row.smooth_count or 0),
             'irregular_count': int(row.irregular_count or 0),
-        })
-
-    if unmapped_q and (unmapped_q.active_skus or 0) > 0:
-        suppliers_list.append({
-            'supplier_code': 'UNMAPPED',
-            'supplier_name': 'Unmapped Items',
-            'active_skus': unmapped_q.active_skus or 0,
-            'review_count': int(unmapped_q.review_count or 0),
-            'order_count': int(unmapped_q.order_count or 0),
-            'total_order_qty': _float(unmapped_q.total_order_qty),
-            'smooth_count': int(unmapped_q.smooth_count or 0),
-            'irregular_count': int(unmapped_q.irregular_count or 0),
         })
 
     last_run_info = None
@@ -180,10 +155,9 @@ def api_items():
 
     if supplier:
         if supplier == 'UNMAPPED':
-            mapped_subq = db.session.query(ForecastItemSupplierMap.item_code_365).subquery()
-            q = q.filter(~DwItem.item_code_365.in_(mapped_subq))
+            q = q.filter(or_(DwItem.supplier_code_365.is_(None), DwItem.supplier_code_365 == ''))
         else:
-            q = q.filter(ForecastItemSupplierMap.supplier_code == supplier)
+            q = q.filter(DwItem.supplier_code_365 == supplier)
 
     if category:
         q = q.filter(DwItem.category_code_365 == category)
@@ -228,8 +202,8 @@ def api_items():
             'supplier_item_code': dw.supplier_item_code,
             'case_qty': dw.case_qty,
             'min_order_qty': dw.min_order_qty,
-            'supplier_code': smap.supplier_code if smap else None,
-            'supplier_name': smap.supplier_name if smap else None,
+            'supplier_code': dw.supplier_code_365 or (smap.supplier_code if smap else None),
+            'supplier_name': dw.supplier_name or (smap.supplier_name if smap else None),
             'demand_class': prof.demand_class if prof else None,
             'forecast_method': prof.forecast_method if prof else None,
             'trend_flag': prof.trend_flag if prof else None,
@@ -318,8 +292,8 @@ def api_item_detail(item_code):
         'case_qty': dw.case_qty,
         'min_order_qty': dw.min_order_qty,
         'supplier': {
-            'supplier_code': smap.supplier_code if smap else None,
-            'supplier_name': smap.supplier_name if smap else None,
+            'supplier_code': dw.supplier_code_365 or (smap.supplier_code if smap else None),
+            'supplier_name': dw.supplier_name or (smap.supplier_name if smap else None),
             'lead_time_days': _float(smap.lead_time_days) if smap else None,
             'review_cycle_days': _float(smap.review_cycle_days) if smap else None,
             'order_multiple': _float(smap.order_multiple) if smap else None,
@@ -424,24 +398,16 @@ def api_seasonality(item_code):
 @forecast_bp.route('/api/export/supplier/<supplier_code>')
 @admin_or_warehouse_required
 def api_export_supplier(supplier_code):
+    q = (
+        db.session.query(DwItem, SkuForecastProfile, SkuForecastResult)
+        .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365, isouter=True)
+        .join(SkuForecastResult, SkuForecastResult.item_code_365 == DwItem.item_code_365, isouter=True)
+    )
     if supplier_code == 'UNMAPPED':
-        mapped_subq = db.session.query(ForecastItemSupplierMap.item_code_365).subquery()
-        q = (
-            db.session.query(DwItem, SkuForecastProfile, SkuForecastResult)
-            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365, isouter=True)
-            .join(SkuForecastResult, SkuForecastResult.item_code_365 == DwItem.item_code_365, isouter=True)
-            .filter(~DwItem.item_code_365.in_(mapped_subq))
-            .order_by(DwItem.item_code_365)
-        )
+        q = q.filter(or_(DwItem.supplier_code_365.is_(None), DwItem.supplier_code_365 == ''))
     else:
-        q = (
-            db.session.query(DwItem, SkuForecastProfile, SkuForecastResult)
-            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365, isouter=True)
-            .join(SkuForecastResult, SkuForecastResult.item_code_365 == DwItem.item_code_365, isouter=True)
-            .join(ForecastItemSupplierMap, ForecastItemSupplierMap.item_code_365 == DwItem.item_code_365)
-            .filter(ForecastItemSupplierMap.supplier_code == supplier_code)
-            .order_by(DwItem.item_code_365)
-        )
+        q = q.filter(DwItem.supplier_code_365 == supplier_code)
+    q = q.order_by(DwItem.item_code_365)
 
     rows = q.all()
 
