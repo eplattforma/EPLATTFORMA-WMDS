@@ -93,6 +93,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Balance fetch scheduled: Daily at 2:30 AM")
 
+            scheduler.add_job(
+                func=_run_forecast,
+                trigger=CronTrigger(hour=5, minute=0),
+                id='forecast_run',
+                name='Nightly Forecast Run',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Forecast run scheduled: Daily at 5:00 AM")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
         
@@ -309,6 +320,27 @@ def add_custom_job(schedule_description, job_name, job_func, hour=None, minute=0
     except Exception as e:
         logger.error(f"Error adding job '{job_name}': {str(e)}")
         return False
+
+
+def _run_forecast():
+    try:
+        from app import app, db
+        from services.forecast.run_service import execute_forecast_run
+
+        with app.app_context():
+            logger.info("=" * 80)
+            logger.info("SCHEDULED FORECAST RUN STARTED")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+
+            result = execute_forecast_run(db.session, created_by='scheduler')
+
+            logger.info("=" * 80)
+            logger.info("SCHEDULED FORECAST RUN COMPLETED")
+            logger.info(f"Result: {result}")
+            logger.info("=" * 80)
+    except Exception as e:
+        logger.error(f"Error in scheduled forecast run: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():

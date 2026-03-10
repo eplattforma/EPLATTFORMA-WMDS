@@ -1,0 +1,859 @@
+{% extends "base.html" %}
+
+{% block title %}{{ supplier_name }} - Forecast Workbench{% endblock %}
+
+{% block head %}
+<style>
+    .kpi-card {
+        background: var(--bs-dark);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        text-align: center;
+        min-width: 90px;
+    }
+    .kpi-card .kpi-value {
+        font-size: 1.4rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .kpi-card .kpi-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        color: var(--bs-secondary);
+        letter-spacing: 0.03em;
+    }
+    .filter-section {
+        background: var(--bs-dark);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+    .filter-section label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--bs-secondary);
+        margin-bottom: 0.15rem;
+    }
+    .filter-section select, .filter-section input {
+        font-size: 0.8rem;
+        padding: 0.25rem 0.5rem;
+    }
+    .forecast-table {
+        font-size: 0.78rem;
+    }
+    .forecast-table th {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        color: var(--bs-secondary);
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        background: var(--bs-body-bg);
+        z-index: 2;
+        border-bottom: 2px solid var(--bs-border-color);
+        padding: 0.35rem 0.4rem;
+    }
+    .forecast-table td {
+        padding: 0.3rem 0.4rem;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+    .forecast-table tr:hover {
+        background: rgba(255,255,255,0.04);
+    }
+    .forecast-table .group-header td {
+        background: rgba(var(--bs-primary-rgb), 0.08);
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        padding: 0.4rem;
+        border-top: 2px solid var(--bs-border-color);
+    }
+    .table-scroll-container {
+        max-height: 70vh;
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.375rem;
+    }
+    .badge-demand {
+        font-size: 0.68rem;
+        padding: 0.2em 0.5em;
+        border-radius: 0.25rem;
+        font-weight: 600;
+    }
+    .badge-smooth { background: #198754; color: #fff; }
+    .badge-erratic { background: #ffc107; color: #000; }
+    .badge-intermittent { background: #0d6efd; color: #fff; }
+    .badge-lumpy { background: #fd7e14; color: #fff; }
+    .badge-new_sparse { background: #6c757d; color: #fff; }
+    .badge-no_demand { background: #495057; color: #adb5bd; }
+    .badge-trend-up { color: #198754; }
+    .badge-trend-down { color: #dc3545; }
+    .badge-trend-flat { color: #6c757d; }
+    .badge-seasonality-brand { background: #6f42c1; color: #fff; font-size: 0.65rem; }
+    .badge-seasonality-prefix { background: #20c997; color: #000; font-size: 0.65rem; }
+    .badge-seasonality-none { background: transparent; color: #6c757d; font-size: 0.65rem; }
+    .review-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ffc107;
+    }
+    .sparkline-container {
+        display: inline-block;
+        width: 100px;
+        height: 22px;
+        vertical-align: middle;
+    }
+    .sparkline-container svg {
+        width: 100%;
+        height: 100%;
+    }
+    .saved-views .nav-link {
+        font-size: 0.8rem;
+        padding: 0.35rem 0.75rem;
+    }
+    .item-row { cursor: pointer; }
+    .drawer-overlay {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 480px;
+        height: 100vh;
+        background: var(--bs-body-bg);
+        border-left: 2px solid var(--bs-border-color);
+        z-index: 1050;
+        transform: translateX(100%);
+        transition: transform 0.25s ease;
+        overflow-y: auto;
+        box-shadow: -4px 0 20px rgba(0,0,0,0.3);
+    }
+    .drawer-overlay.open {
+        transform: translateX(0);
+    }
+    .drawer-backdrop {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 1049;
+        display: none;
+    }
+    .drawer-backdrop.open { display: block; }
+    .drawer-header {
+        padding: 1rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .drawer-body {
+        padding: 1rem;
+    }
+    .num-col { text-align: right; font-variant-numeric: tabular-nums; }
+    .text-positive { color: #198754; }
+    .text-negative { color: #dc3545; }
+    @media (max-width: 768px) {
+        .drawer-overlay { width: 100%; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <a href="{{ url_for('forecast_workbench.suppliers') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <h4 class="mb-0">
+                <i class="fas fa-chart-line text-primary me-2"></i>{{ supplier_name }}
+                <small class="text-muted ms-2" style="font-size:0.7em">{{ supplier_code }}</small>
+            </h4>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('forecast_workbench.api_export_supplier', supplier_code=supplier_code) }}" class="btn btn-sm btn-outline-success">
+                <i class="fas fa-file-csv me-1"></i>Export CSV
+            </a>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-3" id="kpiCards">
+        <div class="kpi-card"><div class="kpi-value text-info" id="kpiTotal">-</div><div class="kpi-label">Total SKUs</div></div>
+        <div class="kpi-card"><div class="kpi-value text-success" id="kpiSmooth">-</div><div class="kpi-label">Smooth</div></div>
+        <div class="kpi-card"><div class="kpi-value text-warning" id="kpiErratic">-</div><div class="kpi-label">Erratic</div></div>
+        <div class="kpi-card"><div class="kpi-value" style="color:#0d6efd" id="kpiIntermittent">-</div><div class="kpi-label">Intermittent</div></div>
+        <div class="kpi-card"><div class="kpi-value" style="color:#fd7e14" id="kpiLumpy">-</div><div class="kpi-label">Lumpy</div></div>
+        <div class="kpi-card"><div class="kpi-value text-secondary" id="kpiNewSparse">-</div><div class="kpi-label">New/Sparse</div></div>
+        <div class="kpi-card"><div class="kpi-value text-muted" id="kpiNoDemand">-</div><div class="kpi-label">No Demand</div></div>
+        <div class="kpi-card"><div class="kpi-value text-success" id="kpiTrendUp">-</div><div class="kpi-label"><i class="fas fa-arrow-up"></i> Trend Up</div></div>
+        <div class="kpi-card"><div class="kpi-value text-danger" id="kpiTrendDown">-</div><div class="kpi-label"><i class="fas fa-arrow-down"></i> Trend Down</div></div>
+        <div class="kpi-card"><div class="kpi-value" style="color:#6f42c1" id="kpiSeasonal">-</div><div class="kpi-label">Seasonal</div></div>
+        <div class="kpi-card"><div class="kpi-value text-warning" id="kpiReview">-</div><div class="kpi-label">Review</div></div>
+        <div class="kpi-card"><div class="kpi-value text-primary" id="kpiWithOrder">-</div><div class="kpi-label">Order > 0</div></div>
+    </div>
+
+    <ul class="nav nav-tabs saved-views mb-2" id="savedViewTabs">
+        <li class="nav-item">
+            <a class="nav-link active" href="#" data-view="all">All Items</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" data-view="order_build">Order Build</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" data-view="forecast_review">Forecast Review</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" data-view="exceptions">Exceptions</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" data-view="seasonal_watch">Seasonal Watch</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" data-view="master_data">Master Data Issues</a>
+        </li>
+    </ul>
+
+    <div class="filter-section" id="filterBar">
+        <div class="row g-2">
+            <div class="col-auto">
+                <label>Demand Class</label>
+                <select class="form-select form-select-sm" id="filterDemandClass">
+                    <option value="">All</option>
+                    <option value="smooth">Smooth</option>
+                    <option value="erratic">Erratic</option>
+                    <option value="intermittent">Intermittent</option>
+                    <option value="lumpy">Lumpy</option>
+                    <option value="new_sparse">New/Sparse</option>
+                    <option value="no_demand">No Demand</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Trend</label>
+                <select class="form-select form-select-sm" id="filterTrend">
+                    <option value="">All</option>
+                    <option value="up">Up</option>
+                    <option value="flat">Flat</option>
+                    <option value="down">Down</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Seasonality</label>
+                <select class="form-select form-select-sm" id="filterSeasonality">
+                    <option value="">All</option>
+                    <option value="brand">Brand</option>
+                    <option value="prefix">Prefix</option>
+                    <option value="none">None</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Review</label>
+                <select class="form-select form-select-sm" id="filterReview">
+                    <option value="">All</option>
+                    <option value="1">Review Only</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Order</label>
+                <select class="form-select form-select-sm" id="filterOrder">
+                    <option value="">All</option>
+                    <option value="1">Order > 0</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Active</label>
+                <select class="form-select form-select-sm" id="filterActive">
+                    <option value="">All</option>
+                    <option value="1">Active</option>
+                    <option value="0">Inactive</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Category</label>
+                <select class="form-select form-select-sm" id="filterCategory">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Brand</label>
+                <select class="form-select form-select-sm" id="filterBrand">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Prefix</label>
+                <input type="text" class="form-control form-control-sm" id="filterPrefix" placeholder="e.g. SNA-" style="width:80px">
+            </div>
+            <div class="col-auto d-flex align-items-end">
+                <button class="btn btn-sm btn-outline-secondary" id="btnClearFilters">
+                    <i class="fas fa-times me-1"></i>Clear
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <small class="text-muted"><span id="itemCount">0</span> items</small>
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="groupByCategory" checked>
+            <label class="form-check-label small" for="groupByCategory">Group by Category/Brand</label>
+        </div>
+    </div>
+
+    <div class="table-scroll-container">
+        <table class="table table-sm table-hover forecast-table mb-0" id="forecastTable">
+            <thead>
+                <tr>
+                    <th style="width:20px"></th>
+                    <th>Item Code</th>
+                    <th>Description</th>
+                    <th>Prefix</th>
+                    <th>Cat</th>
+                    <th>Brand</th>
+                    <th>Act</th>
+                    <th>Demand</th>
+                    <th>Trend</th>
+                    <th>Season</th>
+                    <th>Method</th>
+                    <th>26w History</th>
+                    <th class="num-col">Base/Wk</th>
+                    <th class="num-col">Final/Wk</th>
+                    <th class="num-col">Chg%</th>
+                    <th class="num-col">On Hand</th>
+                    <th class="num-col">Net Avail</th>
+                    <th class="num-col">Cover</th>
+                    <th class="num-col">MOQ</th>
+                    <th class="num-col">Case</th>
+                    <th class="num-col">Raw Ord</th>
+                    <th class="num-col">Order</th>
+                </tr>
+            </thead>
+            <tbody id="forecastBody">
+                <tr><td colspan="22" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<div class="drawer-overlay" id="drawerPanel">
+    <div class="drawer-header">
+        <h6 class="mb-0" id="drawerTitle">Item Detail</h6>
+        <button class="btn btn-sm btn-outline-secondary" id="drawerClose"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="drawer-body">
+        <ul class="nav nav-tabs nav-fill mb-3" id="drawerTabs">
+            <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabSummary">Summary</a></li>
+            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabHistory">History</a></li>
+            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabDrivers">Drivers</a></li>
+            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabReplen">Replen</a></li>
+        </ul>
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="tabSummary">
+                <div id="drawerSummary"><p class="text-muted">Select an item</p></div>
+            </div>
+            <div class="tab-pane fade" id="tabHistory">
+                <canvas id="historyChart" height="200"></canvas>
+            </div>
+            <div class="tab-pane fade" id="tabDrivers">
+                <div id="drawerDrivers"></div>
+            </div>
+            <div class="tab-pane fade" id="tabReplen">
+                <div id="drawerReplen"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+    const supplierCode = {{ supplier_code | tojson }};
+    let allItems = [];
+    let historyChart = null;
+
+    function loadItems(params) {
+        params = params || {};
+        params.supplier = supplierCode;
+        const qs = new URLSearchParams(params).toString();
+        fetch(`{{ url_for('forecast_workbench.api_items') }}?${qs}`)
+            .then(r => r.json())
+            .then(data => {
+                allItems = data.items || [];
+                updateKPIs(allItems);
+                populateFilterDropdowns(allItems);
+                renderTable(allItems);
+                document.getElementById('itemCount').textContent = allItems.length;
+            })
+            .catch(e => {
+                document.getElementById('forecastBody').innerHTML =
+                    '<tr><td colspan="22" class="text-center text-danger py-4">Error loading data</td></tr>';
+            });
+    }
+
+    function updateKPIs(items) {
+        let counts = {smooth:0, erratic:0, intermittent:0, lumpy:0, new_sparse:0, no_demand:0,
+                      trend_up:0, trend_down:0, seasonal:0, review:0, with_order:0};
+        items.forEach(it => {
+            if (it.demand_class) counts[it.demand_class] = (counts[it.demand_class]||0) + 1;
+            if (it.trend_flag === 'up') counts.trend_up++;
+            if (it.trend_flag === 'down') counts.trend_down++;
+            if (it.seasonality_source && it.seasonality_source !== 'none') counts.seasonal++;
+            if (it.review_flag) counts.review++;
+            if (it.rounded_order_qty > 0) counts.with_order++;
+        });
+        document.getElementById('kpiTotal').textContent = items.length;
+        document.getElementById('kpiSmooth').textContent = counts.smooth;
+        document.getElementById('kpiErratic').textContent = counts.erratic;
+        document.getElementById('kpiIntermittent').textContent = counts.intermittent;
+        document.getElementById('kpiLumpy').textContent = counts.lumpy;
+        document.getElementById('kpiNewSparse').textContent = counts.new_sparse;
+        document.getElementById('kpiNoDemand').textContent = counts.no_demand;
+        document.getElementById('kpiTrendUp').textContent = counts.trend_up;
+        document.getElementById('kpiTrendDown').textContent = counts.trend_down;
+        document.getElementById('kpiSeasonal').textContent = counts.seasonal;
+        document.getElementById('kpiReview').textContent = counts.review;
+        document.getElementById('kpiWithOrder').textContent = counts.with_order;
+    }
+
+    function populateFilterDropdowns(items) {
+        const cats = new Set(), brands = new Set();
+        items.forEach(it => {
+            if (it.category_name) cats.add(it.category_code + '|' + it.category_name);
+            if (it.brand_name) brands.add(it.brand_code + '|' + it.brand_name);
+        });
+        fillSelect('filterCategory', cats);
+        fillSelect('filterBrand', brands);
+    }
+
+    function fillSelect(id, values) {
+        const el = document.getElementById(id);
+        const current = el.value;
+        const opts = Array.from(values).sort();
+        while (el.options.length > 1) el.remove(1);
+        opts.forEach(v => {
+            const [code, name] = v.split('|');
+            const opt = new Option(name || code, code);
+            el.add(opt);
+        });
+        el.value = current;
+    }
+
+    function getFilteredItems() {
+        const dc = document.getElementById('filterDemandClass').value;
+        const tf = document.getElementById('filterTrend').value;
+        const ss = document.getElementById('filterSeasonality').value;
+        const rv = document.getElementById('filterReview').value;
+        const oo = document.getElementById('filterOrder').value;
+        const ac = document.getElementById('filterActive').value;
+        const cat = document.getElementById('filterCategory').value;
+        const br = document.getElementById('filterBrand').value;
+        const pf = document.getElementById('filterPrefix').value.trim();
+
+        return allItems.filter(it => {
+            if (dc && it.demand_class !== dc) return false;
+            if (tf && it.trend_flag !== tf) return false;
+            if (ss && it.seasonality_source !== ss) return false;
+            if (rv === '1' && !it.review_flag) return false;
+            if (oo === '1' && !(it.rounded_order_qty > 0)) return false;
+            if (ac === '1' && !it.active) return false;
+            if (ac === '0' && it.active) return false;
+            if (cat && it.category_code !== cat) return false;
+            if (br && it.brand_code !== br) return false;
+            if (pf && !it.item_code.toLowerCase().startsWith(pf.toLowerCase())) return false;
+            return true;
+        });
+    }
+
+    function applyFilters() {
+        const filtered = getFilteredItems();
+        renderTable(filtered);
+        document.getElementById('itemCount').textContent = filtered.length;
+    }
+
+    function renderTable(items) {
+        const body = document.getElementById('forecastBody');
+        const grouped = document.getElementById('groupByCategory').checked;
+
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="22" class="text-center text-muted py-4">No items match filters</td></tr>';
+            return;
+        }
+
+        let html = '';
+        let lastGroup = '';
+
+        items.forEach(it => {
+            if (grouped) {
+                const group = (it.category_name || it.category_code || 'Uncategorized') + ' / ' + (it.brand_name || it.brand_code || 'No Brand');
+                if (group !== lastGroup) {
+                    lastGroup = group;
+                    html += `<tr class="group-header"><td colspan="22"><i class="fas fa-layer-group me-1"></i>${group}</td></tr>`;
+                }
+            }
+            html += buildRow(it);
+        });
+        body.innerHTML = html;
+
+        body.querySelectorAll('.item-row').forEach(row => {
+            row.addEventListener('click', () => openDrawer(row.dataset.itemCode));
+        });
+    }
+
+    function buildRow(it) {
+        const reviewDot = it.review_flag ? '<span class="review-dot" title="' + (it.review_reason || 'Review needed') + '"></span>' : '';
+        const demandBadge = it.demand_class
+            ? `<span class="badge-demand badge-${it.demand_class}">${formatDemandClass(it.demand_class)}</span>`
+            : '<span class="text-muted">-</span>';
+        const trendIcon = it.trend_flag === 'up' ? '<i class="fas fa-arrow-up badge-trend-up" title="Trend Up"></i>'
+            : it.trend_flag === 'down' ? '<i class="fas fa-arrow-down badge-trend-down" title="Trend Down"></i>'
+            : '<i class="fas fa-arrow-right badge-trend-flat" title="Flat"></i>';
+        const seasonBadge = it.seasonality_source === 'brand'
+            ? `<span class="badge badge-seasonality-brand">Brand</span>`
+            : it.seasonality_source === 'prefix'
+            ? `<span class="badge badge-seasonality-prefix">Prefix</span>`
+            : '<span class="badge badge-seasonality-none">-</span>';
+        const activeBadge = it.active ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-danger"></i>';
+        const chgPct = it.forecast_change_pct != null ? fmtPct(it.forecast_change_pct) : '-';
+        const sparkline = buildSparklinePlaceholder(it.item_code);
+
+        return `<tr class="item-row" data-item-code="${it.item_code}">
+            <td>${reviewDot}</td>
+            <td><code class="small">${it.item_code}</code></td>
+            <td class="text-truncate" style="max-width:200px" title="${it.item_name || ''}">${it.item_name || ''}</td>
+            <td><small class="text-muted">${it.prefix || ''}</small></td>
+            <td><small>${it.category_name || it.category_code || ''}</small></td>
+            <td><small>${it.brand_name || it.brand_code || ''}</small></td>
+            <td>${activeBadge}</td>
+            <td>${demandBadge}</td>
+            <td>${trendIcon}</td>
+            <td>${seasonBadge}</td>
+            <td><small>${it.forecast_method || '-'}</small></td>
+            <td>${sparkline}</td>
+            <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
+            <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
+            <td class="num-col ${chgClass(it.forecast_change_pct)}">${chgPct}</td>
+            <td class="num-col">${fmtNum(it.on_hand_qty)}</td>
+            <td class="num-col">${fmtNum(it.net_available_qty)}</td>
+            <td class="num-col">${fmtNum(it.cover_days, 0)}</td>
+            <td class="num-col">${it.min_order_qty || '-'}</td>
+            <td class="num-col">${it.case_qty || '-'}</td>
+            <td class="num-col">${fmtNum(it.raw_order_qty)}</td>
+            <td class="num-col fw-bold ${it.rounded_order_qty > 0 ? 'text-warning' : ''}">${fmtNum(it.rounded_order_qty)}</td>
+        </tr>`;
+    }
+
+    function buildSparklinePlaceholder(itemCode) {
+        return `<span class="sparkline-container" data-item="${itemCode}">
+            <svg viewBox="0 0 100 22" preserveAspectRatio="none">
+                <rect x="0" y="0" width="100" height="22" fill="none"/>
+            </svg>
+        </span>`;
+    }
+
+    function loadSparklines(items) {
+        items.forEach(it => {
+            const el = document.querySelector(`.sparkline-container[data-item="${it.item_code}"]`);
+            if (!el) return;
+            fetch(`{{ url_for('forecast_workbench.api_item_detail', item_code='__PLACEHOLDER__') }}`.replace('__PLACEHOLDER__', it.item_code))
+                .then(r => r.json())
+                .then(data => {
+                    if (data.weekly_history && data.weekly_history.length) {
+                        el.innerHTML = buildSparklineSVG(data.weekly_history.map(w => w.gross_qty));
+                    }
+                })
+                .catch(() => {});
+        });
+    }
+
+    function buildSparklineSVG(values) {
+        if (!values.length) return '';
+        const max = Math.max(...values, 1);
+        const w = 100, h = 22;
+        const step = w / (values.length - 1 || 1);
+        let polyline = '';
+        let bars = '';
+        const barW = Math.max(1, (w / values.length) - 1);
+        values.forEach((v, i) => {
+            const x = i * (w / values.length);
+            const barH = (v / max) * h;
+            bars += `<rect x="${x}" y="${h - barH}" width="${barW}" height="${barH}" fill="rgba(13,110,253,0.4)" rx="0.5"/>`;
+        });
+        return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${bars}</svg>`;
+    }
+
+    function formatDemandClass(dc) {
+        const map = {smooth:'Smooth', erratic:'Erratic', intermittent:'Intmit', lumpy:'Lumpy', new_sparse:'New', no_demand:'None'};
+        return map[dc] || dc;
+    }
+
+    function fmtNum(v, dec) {
+        if (v == null || v === '') return '-';
+        dec = dec !== undefined ? dec : 1;
+        return Number(v).toFixed(dec);
+    }
+
+    function fmtPct(v) {
+        if (v == null) return '-';
+        return (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+    }
+
+    function chgClass(v) {
+        if (v == null) return '';
+        return v > 0 ? 'text-positive' : v < 0 ? 'text-negative' : '';
+    }
+
+    function openDrawer(itemCode) {
+        const drawer = document.getElementById('drawerPanel');
+        const backdrop = document.getElementById('drawerBackdrop');
+        drawer.classList.add('open');
+        backdrop.classList.add('open');
+
+        document.getElementById('drawerTitle').textContent = itemCode;
+        document.getElementById('drawerSummary').innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</p>';
+        document.getElementById('drawerDrivers').innerHTML = '';
+        document.getElementById('drawerReplen').innerHTML = '';
+
+        const firstTab = document.querySelector('#drawerTabs .nav-link');
+        if (firstTab) {
+            document.querySelectorAll('#drawerTabs .nav-link').forEach(t => t.classList.remove('active'));
+            firstTab.classList.add('active');
+            document.querySelectorAll('.tab-content .tab-pane').forEach(p => { p.classList.remove('show','active'); });
+            document.getElementById('tabSummary').classList.add('show','active');
+        }
+
+        fetch(`{{ url_for('forecast_workbench.api_item_detail', item_code='__PLACEHOLDER__') }}`.replace('__PLACEHOLDER__', itemCode))
+            .then(r => r.json())
+            .then(data => renderDrawer(data))
+            .catch(e => {
+                document.getElementById('drawerSummary').innerHTML = '<p class="text-danger">Error loading item</p>';
+            });
+    }
+
+    function closeDrawer() {
+        document.getElementById('drawerPanel').classList.remove('open');
+        document.getElementById('drawerBackdrop').classList.remove('open');
+    }
+
+    function renderDrawer(data) {
+        const prof = data.profile || {};
+        const res = data.result || {};
+        const sup = data.supplier || {};
+
+        document.getElementById('drawerTitle').textContent = data.item_code + ' - ' + (data.item_name || '');
+
+        let summaryHtml = `
+        <table class="table table-sm table-borderless small mb-3">
+            <tr><td class="text-muted" style="width:40%">Item Code</td><td><code>${data.item_code}</code></td></tr>
+            <tr><td class="text-muted">Description</td><td>${data.item_name || '-'}</td></tr>
+            <tr><td class="text-muted">Supplier</td><td>${sup.supplier_name || 'Unmapped'} <small class="text-muted">${sup.supplier_code || ''}</small></td></tr>
+            <tr><td class="text-muted">Category / Brand</td><td>${data.category_name || '-'} / ${data.brand_name || '-'}</td></tr>
+            <tr><td class="text-muted">Prefix</td><td>${data.prefix || '-'}</td></tr>
+            <tr><td class="text-muted">Active</td><td>${data.active ? '<span class="text-success">Yes</span>' : '<span class="text-danger">No</span>'}</td></tr>
+            <tr><td class="text-muted">Season</td><td>${data.season_code || '-'}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><td class="text-muted">Demand Class</td><td>${prof.demand_class ? `<span class="badge-demand badge-${prof.demand_class}">${prof.demand_class}</span>` : '-'}</td></tr>
+            <tr><td class="text-muted">Forecast Method</td><td>${prof.forecast_method || '-'}</td></tr>
+            <tr><td class="text-muted">Review</td><td>${prof.review_flag ? '<span class="badge bg-warning text-dark">Yes</span> ' + (prof.review_reason || '') : 'No'}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><td class="text-muted">Final Forecast/Wk</td><td class="fw-bold">${fmtNum(res.final_forecast_weekly_qty)}</td></tr>
+            <tr><td class="text-muted">Rounded Order Qty</td><td class="fw-bold text-warning">${fmtNum(res.rounded_order_qty, 0)}</td></tr>
+        </table>`;
+        document.getElementById('drawerSummary').innerHTML = summaryHtml;
+
+        let driversHtml = `
+        <table class="table table-sm table-borderless small">
+            <tr><td class="text-muted">Weeks Non-Zero (26)</td><td>${prof.weeks_non_zero_26 || 0}</td></tr>
+            <tr><td class="text-muted">Sales Frequency</td><td>${fmtNum(prof.sales_frequency_26)}</td></tr>
+            <tr><td class="text-muted">ADI</td><td>${fmtNum(prof.adi_26, 2)}</td></tr>
+            <tr><td class="text-muted">CV&sup2;</td><td>${fmtNum(prof.cv2_26, 2)}</td></tr>
+            <tr><td class="text-muted">Avg Non-Zero</td><td>${fmtNum(prof.avg_non_zero_26, 2)}</td></tr>
+            <tr><td class="text-muted">Std Non-Zero</td><td>${fmtNum(prof.std_non_zero_26, 2)}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><td class="text-muted">Base Forecast/Wk</td><td>${fmtNum(res.base_forecast_weekly_qty)}</td></tr>
+            <tr><td class="text-muted">Trend Adjusted/Wk</td><td>${fmtNum(res.trend_adjusted_weekly_qty)}</td></tr>
+            <tr><td class="text-muted">Trend Flag</td><td>${prof.trend_flag || 'flat'} ${prof.trend_pct != null ? '(' + fmtPct(prof.trend_pct) + ')' : ''}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><td class="text-muted">Hist Embedded Index</td><td>${fmtNum(res.hist_embedded_seasonal_index, 3)}</td></tr>
+            <tr><td class="text-muted">Future Seasonal Index</td><td>${fmtNum(res.future_seasonal_index, 3)}</td></tr>
+            <tr><td class="text-muted">Seasonality Source</td><td>${prof.seasonality_source || 'none'} (${prof.seasonality_confidence || 'none'})</td></tr>
+            <tr><td class="text-muted">Level Code</td><td>${prof.seasonality_level_code || '-'}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><td class="text-muted">Final Forecast/Wk</td><td class="fw-bold">${fmtNum(res.final_forecast_weekly_qty)}</td></tr>
+            <tr><td class="text-muted">Final Forecast/Day</td><td>${fmtNum(res.final_forecast_daily_qty, 2)}</td></tr>
+            <tr><td class="text-muted">Forecast Change %</td><td class="${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</td></tr>
+        </table>
+        <div class="mt-2 p-2 bg-dark border rounded small">
+            <strong>Explanation:</strong>
+            ${explainDemand(prof)}
+        </div>`;
+        document.getElementById('drawerDrivers').innerHTML = driversHtml;
+
+        let replenHtml = `
+        <table class="table table-sm table-borderless small">
+            <tr><td class="text-muted">On Hand</td><td class="fw-bold">${fmtNum(res.on_hand_qty, 0)}</td></tr>
+            <tr><td class="text-muted">Incoming</td><td>${fmtNum(res.incoming_qty, 0)}</td></tr>
+            <tr><td class="text-muted">Reserved</td><td>${fmtNum(res.reserved_qty, 0)}</td></tr>
+            <tr><td class="text-muted">Net Available</td><td class="fw-bold">${fmtNum(res.net_available_qty, 0)}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><td class="text-muted">Cover Days</td><td>${fmtNum(res.cover_days, 0)}</td></tr>
+            <tr><td class="text-muted">Lead Time Days</td><td>${fmtNum(res.lead_time_days, 0)}</td></tr>
+            <tr><td class="text-muted">Review Cycle Days</td><td>${fmtNum(res.review_cycle_days, 0)}</td></tr>
+            <tr><td class="text-muted">Safety Stock</td><td>${fmtNum(res.safety_stock_qty, 0)}</td></tr>
+            <tr><td class="text-muted">Target Stock</td><td class="fw-bold">${fmtNum(res.target_stock_qty, 0)}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><td class="text-muted">Raw Order Qty</td><td>${fmtNum(res.raw_recommended_order_qty, 0)}</td></tr>
+            <tr><td class="text-muted">Case Qty</td><td>${data.case_qty || '-'}</td></tr>
+            <tr><td class="text-muted">MOQ</td><td>${data.min_order_qty || '-'}</td></tr>
+            <tr><td class="text-muted">Order Multiple</td><td>${sup.order_multiple || '-'}</td></tr>
+            <tr><td class="text-muted fw-bold">Rounded Order Qty</td><td class="fw-bold text-warning fs-5">${fmtNum(res.rounded_order_qty, 0)}</td></tr>
+        </table>`;
+        document.getElementById('drawerReplen').innerHTML = replenHtml;
+
+        renderHistoryChart(data.weekly_history || [], res);
+    }
+
+    function explainDemand(prof) {
+        if (!prof || !prof.demand_class) return 'No profile computed.';
+        const dc = prof.demand_class;
+        if (dc === 'smooth') return 'Regular demand pattern. ADI < 1.32, CV&sup2; < 0.49. Uses MA8 forecast with trend adjustment.';
+        if (dc === 'erratic') return 'Irregular volume. ADI < 1.32, CV&sup2; &ge; 0.49. Uses MA8 but flagged for review due to high variability.';
+        if (dc === 'intermittent') return 'Sporadic timing. ADI &ge; 1.32, CV&sup2; < 0.49. Uses Median6 to handle gaps.';
+        if (dc === 'lumpy') return 'Both sporadic and variable. ADI &ge; 1.32, CV&sup2; &ge; 0.49. Uses Median6, flagged for review.';
+        if (dc === 'new_sparse') return 'Fewer than 6 non-zero weeks in last 26. Too little data for reliable forecasting.';
+        if (dc === 'no_demand') return 'Zero sales in the last 26 weeks.';
+        return dc;
+    }
+
+    function renderHistoryChart(history, res) {
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        if (historyChart) historyChart.destroy();
+
+        const labels = history.map(h => h.week_start);
+        const grossData = history.map(h => h.gross_qty);
+        const finalFcst = res && res.final_forecast_weekly_qty ? res.final_forecast_weekly_qty : null;
+
+        const datasets = [
+            {
+                label: 'Gross Qty',
+                data: grossData,
+                backgroundColor: 'rgba(13,110,253,0.5)',
+                borderColor: 'rgba(13,110,253,0.8)',
+                borderWidth: 1,
+                type: 'bar',
+            }
+        ];
+
+        if (res && res.base_forecast_weekly_qty) {
+            datasets.push({
+                label: 'MA8 Base',
+                data: Array(labels.length).fill(res.base_forecast_weekly_qty),
+                borderColor: 'rgba(255,193,7,0.7)',
+                borderWidth: 2,
+                borderDash: [4, 4],
+                pointRadius: 0,
+                type: 'line',
+                fill: false,
+            });
+        }
+
+        if (finalFcst) {
+            datasets.push({
+                label: 'Final Forecast',
+                data: Array(labels.length).fill(finalFcst),
+                borderColor: 'rgba(25,135,84,0.9)',
+                borderWidth: 2,
+                pointRadius: 0,
+                type: 'line',
+                fill: false,
+            });
+        }
+
+        historyChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { font: { size: 10 }, color: '#adb5bd' } } },
+                scales: {
+                    x: {
+                        ticks: { font: { size: 8 }, color: '#6c757d', maxRotation: 45 },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { font: { size: 10 }, color: '#6c757d' },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    }
+                }
+            }
+        });
+    }
+
+    const savedViewPresets = {
+        all: {},
+        order_build: {order: '1'},
+        forecast_review: {review: '1'},
+        exceptions: {demand_class: '', review: '1'},
+        seasonal_watch: {seasonality: 'brand'},
+        master_data: {},
+    };
+
+    document.querySelectorAll('#savedViewTabs .nav-link').forEach(tab => {
+        tab.addEventListener('click', function(e) {
+            e.preventDefault();
+            document.querySelectorAll('#savedViewTabs .nav-link').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            const view = this.dataset.view;
+            clearFilterInputs();
+            const preset = savedViewPresets[view] || {};
+            if (preset.order) document.getElementById('filterOrder').value = preset.order;
+            if (preset.review) document.getElementById('filterReview').value = preset.review;
+            if (preset.demand_class) document.getElementById('filterDemandClass').value = preset.demand_class;
+            if (preset.seasonality) document.getElementById('filterSeasonality').value = preset.seasonality;
+            applyFilters();
+        });
+    });
+
+    function clearFilterInputs() {
+        document.getElementById('filterDemandClass').value = '';
+        document.getElementById('filterTrend').value = '';
+        document.getElementById('filterSeasonality').value = '';
+        document.getElementById('filterReview').value = '';
+        document.getElementById('filterOrder').value = '';
+        document.getElementById('filterActive').value = '';
+        document.getElementById('filterCategory').value = '';
+        document.getElementById('filterBrand').value = '';
+        document.getElementById('filterPrefix').value = '';
+    }
+
+    document.getElementById('btnClearFilters').addEventListener('click', function() {
+        clearFilterInputs();
+        document.querySelectorAll('#savedViewTabs .nav-link').forEach(t => t.classList.remove('active'));
+        document.querySelector('#savedViewTabs .nav-link[data-view="all"]').classList.add('active');
+        applyFilters();
+    });
+
+    document.querySelectorAll('#filterBar select, #filterBar input').forEach(el => {
+        el.addEventListener('change', applyFilters);
+        if (el.tagName === 'INPUT') el.addEventListener('input', applyFilters);
+    });
+
+    document.getElementById('groupByCategory').addEventListener('change', applyFilters);
+    document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+    document.getElementById('drawerBackdrop').addEventListener('click', closeDrawer);
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeDrawer();
+    });
+
+    loadItems();
+})();
+</script>
+{% endblock %}

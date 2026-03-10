@@ -155,6 +155,25 @@ with app.app_context():
                 timezone_setting.value = 'Europe/Athens'
                 db.session.add(timezone_setting)
                 
+            forecast_defaults = {
+                'forecast_default_cover_days': '7',
+                'forecast_review_cycle_days': '1',
+                'forecast_trend_uplift_trigger': '1.15',
+                'forecast_trend_down_trigger': '0.90',
+                'forecast_trend_uplift_cap': '1.25',
+                'forecast_trend_down_floor': '0.75',
+                'forecast_seasonal_cap_min': '0.85',
+                'forecast_seasonal_cap_max': '1.15',
+                'forecast_min_sample_brand': '6',
+                'forecast_min_sample_prefix': '4',
+            }
+            for fk, fv in forecast_defaults.items():
+                if not Setting.query.filter_by(key=fk).first():
+                    s = Setting()
+                    s.key = fk
+                    s.value = fv
+                    db.session.add(s)
+
             db.session.commit()
             logging.info("Settings initialized")
         

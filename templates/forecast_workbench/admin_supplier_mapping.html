@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+
+{% block title %}Supplier Mapping - Forecast Workbench{% endblock %}
+
+{% block head %}
+<style>
+    .mapping-table {
+        font-size: 0.82rem;
+    }
+    .mapping-table th {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        color: var(--bs-secondary);
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        background: var(--bs-body-bg);
+        z-index: 2;
+        border-bottom: 2px solid var(--bs-border-color);
+        padding: 0.4rem;
+    }
+    .mapping-table td {
+        padding: 0.3rem 0.4rem;
+        vertical-align: middle;
+    }
+    .mapping-table input, .mapping-table select {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.4rem;
+    }
+    .table-scroll-container {
+        max-height: 70vh;
+        overflow: auto;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.375rem;
+    }
+    .import-section {
+        background: var(--bs-dark);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    .status-bar {
+        font-size: 0.8rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <a href="{{ url_for('forecast_workbench.suppliers') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <h4 class="mb-0">
+                <i class="fas fa-link text-primary me-2"></i>Supplier Mapping
+            </h4>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-info" id="btnAddRow">
+                <i class="fas fa-plus me-1"></i>Add Row
+            </button>
+            <button class="btn btn-sm btn-success" id="btnSave">
+                <i class="fas fa-save me-1"></i>Save Changes
+            </button>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-lg-8">
+            <div class="d-flex align-items-center gap-3 status-bar">
+                <span class="text-muted">Total mappings: <strong id="mappingCount">0</strong></span>
+                <span class="text-muted">Modified: <strong id="modifiedCount" class="text-warning">0</strong></span>
+                <div id="saveStatus"></div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text" class="form-control" id="searchInput" placeholder="Search item code or supplier...">
+            </div>
+        </div>
+    </div>
+
+    <div class="table-scroll-container mb-3">
+        <table class="table table-sm table-hover mapping-table mb-0">
+            <thead>
+                <tr>
+                    <th>Item Code</th>
+                    <th>Item Name</th>
+                    <th>Supplier Code</th>
+                    <th>Supplier Name</th>
+                    <th style="width:80px">Lead Time</th>
+                    <th style="width:80px">Review Cycle</th>
+                    <th style="width:80px">Order Multiple</th>
+                    <th style="width:80px">MOQ Override</th>
+                    <th style="width:60px">Active</th>
+                    <th>Notes</th>
+                    <th style="width:40px"></th>
+                </tr>
+            </thead>
+            <tbody id="mappingBody">
+                <tr><td colspan="11" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="import-section">
+        <h6 class="mb-3"><i class="fas fa-file-csv me-2"></i>CSV Import</h6>
+        <p class="small text-muted mb-2">
+            Upload a CSV file with columns: <code>item_code_365</code>, <code>supplier_code</code>, <code>supplier_name</code>,
+            <code>lead_time_days</code>, <code>review_cycle_days</code>, <code>order_multiple</code>,
+            <code>min_order_qty_override</code>, <code>is_active</code>
+        </p>
+        <form method="POST" action="{{ url_for('forecast_workbench.admin_supplier_mapping_import') }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div>
+                <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
+            </div>
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-upload me-1"></i>Import
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    let mappings = [];
+    let modifiedSet = new Set();
+
+    function loadMappings() {
+        fetch('{{ url_for("forecast_workbench.api_items") }}')
+            .then(r => r.json())
+            .then(data => {
+                const items = data.items || [];
+                const seen = new Set();
+                mappings = [];
+                items.forEach(it => {
+                    if (seen.has(it.item_code)) return;
+                    seen.add(it.item_code);
+                    mappings.push({
+                        item_code_365: it.item_code,
+                        item_name: it.item_name || '',
+                        supplier_code: it.supplier_code || '',
+                        supplier_name: it.supplier_name || '',
+                        lead_time_days: it.lead_time_days || '',
+                        review_cycle_days: it.review_cycle_days || '',
+                        order_multiple: it.order_multiple || '',
+                        min_order_qty_override: it.min_order_qty_override || '',
+                        is_active: it.supplier_code ? true : true,
+                        notes: it.notes || '',
+                        _isNew: false,
+                    });
+                });
+                mappings.sort((a, b) => a.item_code_365.localeCompare(b.item_code_365));
+                renderTable();
+                document.getElementById('mappingCount').textContent = mappings.length;
+            })
+            .catch(() => {
+                document.getElementById('mappingBody').innerHTML =
+                    '<tr><td colspan="11" class="text-center text-danger py-4">Error loading data</td></tr>';
+            });
+    }
+
+    function renderTable() {
+        const body = document.getElementById('mappingBody');
+        const search = document.getElementById('searchInput').value.toLowerCase();
+        let filtered = mappings;
+        if (search) {
+            filtered = mappings.filter(m =>
+                m.item_code_365.toLowerCase().includes(search) ||
+                m.supplier_code.toLowerCase().includes(search) ||
+                m.supplier_name.toLowerCase().includes(search) ||
+                (m.item_name && m.item_name.toLowerCase().includes(search))
+            );
+        }
+
+        if (!filtered.length) {
+            body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">No mappings found</td></tr>';
+            return;
+        }
+
+        let html = '';
+        filtered.forEach((m, idx) => {
+            const rowIdx = mappings.indexOf(m);
+            const modified = modifiedSet.has(rowIdx) ? 'table-warning' : '';
+            html += `<tr class="${modified}" data-idx="${rowIdx}">
+                <td>${m._isNew ? '<input type="text" class="form-control form-control-sm" value="" data-field="item_code_365" data-idx="' + rowIdx + '" placeholder="Item code...">' : '<code class="small">' + esc(m.item_code_365) + '</code>'}</td>
+                <td><small class="text-muted">${esc(m.item_name || '')}</small></td>
+                <td><input type="text" class="form-control form-control-sm" value="${esc(m.supplier_code)}" data-field="supplier_code" data-idx="${rowIdx}"></td>
+                <td><input type="text" class="form-control form-control-sm" value="${esc(m.supplier_name)}" data-field="supplier_name" data-idx="${rowIdx}"></td>
+                <td><input type="number" class="form-control form-control-sm" value="${m.lead_time_days}" data-field="lead_time_days" data-idx="${rowIdx}" min="0" step="1"></td>
+                <td><input type="number" class="form-control form-control-sm" value="${m.review_cycle_days}" data-field="review_cycle_days" data-idx="${rowIdx}" min="0" step="1"></td>
+                <td><input type="number" class="form-control form-control-sm" value="${m.order_multiple}" data-field="order_multiple" data-idx="${rowIdx}" min="0" step="1"></td>
+                <td><input type="number" class="form-control form-control-sm" value="${m.min_order_qty_override}" data-field="min_order_qty_override" data-idx="${rowIdx}" min="0" step="1"></td>
+                <td><input type="checkbox" class="form-check-input" ${m.is_active ? 'checked' : ''} data-field="is_active" data-idx="${rowIdx}"></td>
+                <td><input type="text" class="form-control form-control-sm" value="${esc(m.notes || '')}" data-field="notes" data-idx="${rowIdx}"></td>
+                <td><button class="btn btn-sm btn-outline-danger btn-remove" data-idx="${rowIdx}" title="Remove"><i class="fas fa-times"></i></button></td>
+            </tr>`;
+        });
+        body.innerHTML = html;
+        attachRowEvents();
+    }
+
+    function attachRowEvents() {
+        document.querySelectorAll('#mappingBody input').forEach(inp => {
+            inp.addEventListener('change', function() {
+                const idx = parseInt(this.dataset.idx);
+                const field = this.dataset.field;
+                if (field === 'is_active') {
+                    mappings[idx][field] = this.checked;
+                } else {
+                    mappings[idx][field] = this.value;
+                }
+                modifiedSet.add(idx);
+                document.getElementById('modifiedCount').textContent = modifiedSet.size;
+                this.closest('tr').classList.add('table-warning');
+            });
+        });
+        document.querySelectorAll('.btn-remove').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const idx = parseInt(this.dataset.idx);
+                mappings.splice(idx, 1);
+                modifiedSet.clear();
+                renderTable();
+                document.getElementById('mappingCount').textContent = mappings.length;
+            });
+        });
+    }
+
+    function esc(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    document.getElementById('btnAddRow').addEventListener('click', function() {
+        mappings.unshift({
+            item_code_365: '',
+            item_name: '',
+            supplier_code: '',
+            supplier_name: '',
+            lead_time_days: '',
+            review_cycle_days: '1',
+            order_multiple: '',
+            min_order_qty_override: '',
+            is_active: true,
+            notes: '',
+            _isNew: true,
+        });
+        modifiedSet.add(0);
+        renderTable();
+        document.getElementById('mappingCount').textContent = mappings.length;
+        const firstInput = document.querySelector('#mappingBody tr:first-child input');
+        if (firstInput) firstInput.focus();
+    });
+
+    document.getElementById('btnSave').addEventListener('click', function() {
+        const toSave = [];
+        modifiedSet.forEach(idx => {
+            const m = mappings[idx];
+            if (m && m.item_code_365) {
+                toSave.push({
+                    item_code_365: m.item_code_365,
+                    supplier_code: m.supplier_code,
+                    supplier_name: m.supplier_name,
+                    lead_time_days: m.lead_time_days || null,
+                    review_cycle_days: m.review_cycle_days || 1,
+                    order_multiple: m.order_multiple || null,
+                    min_order_qty_override: m.min_order_qty_override || null,
+                    is_active: m.is_active,
+                    notes: m.notes || '',
+                });
+            }
+        });
+
+        if (!toSave.length) {
+            document.getElementById('saveStatus').innerHTML = '<span class="text-muted">No changes to save</span>';
+            return;
+        }
+
+        document.getElementById('saveStatus').innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+        fetch('{{ url_for("forecast_workbench.admin_supplier_mapping_save") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({ mappings: toSave }),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                document.getElementById('saveStatus').innerHTML =
+                    `<span class="text-success"><i class="fas fa-check me-1"></i>Saved ${data.count} mappings</span>`;
+                modifiedSet.clear();
+                document.getElementById('modifiedCount').textContent = '0';
+                document.querySelectorAll('#mappingBody tr.table-warning').forEach(tr => tr.classList.remove('table-warning'));
+            } else {
+                document.getElementById('saveStatus').innerHTML =
+                    `<span class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>${data.error || 'Save failed'}</span>`;
+            }
+        })
+        .catch(e => {
+            document.getElementById('saveStatus').innerHTML =
+                '<span class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Network error</span>';
+        });
+    });
+
+    document.getElementById('searchInput').addEventListener('input', renderTable);
+
+    loadMappings();
+})();
+</script>
+{% endblock %}

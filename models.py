@@ -2631,3 +2631,132 @@ class ReplenishmentRunLine(db.Model):
     explanation_text = db.Column(db.Text, nullable=True)
     calc_json = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+
+def extract_item_prefix(item_code):
+    if not item_code:
+        return None
+    idx = item_code.find('-')
+    if idx > 0:
+        return item_code[:idx + 1]
+    return item_code[:3] + '-' if len(item_code) >= 3 else item_code
+
+
+class ForecastItemSupplierMap(db.Model):
+    __tablename__ = "forecast_item_supplier_map"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_code_365 = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    supplier_code = db.Column(db.String(50), nullable=False, index=True)
+    supplier_name = db.Column(db.String(255), nullable=False)
+    lead_time_days = db.Column(db.Numeric(12, 4), nullable=True)
+    review_cycle_days = db.Column(db.Numeric(12, 4), nullable=True, default=1)
+    order_multiple = db.Column(db.Numeric(12, 4), nullable=True)
+    min_order_qty_override = db.Column(db.Numeric(12, 4), nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class FactSalesWeeklyItem(db.Model):
+    __tablename__ = "fact_sales_weekly_item"
+
+    week_start = db.Column(db.Date, primary_key=True, nullable=False)
+    item_code_365 = db.Column(db.String(64), primary_key=True, nullable=False, index=True)
+    gross_qty = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    return_qty = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    net_qty = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    invoice_count = db.Column(db.Integer, nullable=False, default=0)
+    customer_count = db.Column(db.Integer, nullable=False, default=0)
+    sales_ex_vat = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    discount_value = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        db.Index('ix_fact_sales_weekly_week', 'week_start'),
+    )
+
+
+class ForecastSeasonalityMonthly(db.Model):
+    __tablename__ = "forecast_seasonality_monthly"
+
+    id = db.Column(db.Integer, primary_key=True)
+    level_type = db.Column(db.String(20), nullable=False)
+    level_code = db.Column(db.String(64), nullable=False)
+    month_no = db.Column(db.Integer, nullable=False)
+    raw_index = db.Column(db.Numeric(12, 6), nullable=False)
+    smoothed_index = db.Column(db.Numeric(12, 6), nullable=False)
+    sample_months = db.Column(db.Integer, nullable=False, default=0)
+    sample_qty = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    confidence = db.Column(db.String(20), nullable=False, default='none')
+    is_reliable = db.Column(db.Boolean, nullable=False, default=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        db.UniqueConstraint('level_type', 'level_code', 'month_no', name='uq_seasonality_level_month'),
+    )
+
+
+class SkuForecastProfile(db.Model):
+    __tablename__ = "sku_forecast_profile"
+
+    item_code_365 = db.Column(db.String(64), primary_key=True)
+    weeks_total_26 = db.Column(db.Integer, nullable=False, default=26)
+    weeks_non_zero_26 = db.Column(db.Integer, nullable=False, default=0)
+    sales_frequency_26 = db.Column(db.Numeric(12, 6), nullable=False, default=0)
+    adi_26 = db.Column(db.Numeric(12, 6), nullable=True)
+    avg_non_zero_26 = db.Column(db.Numeric(18, 6), nullable=True)
+    std_non_zero_26 = db.Column(db.Numeric(18, 6), nullable=True)
+    cv2_26 = db.Column(db.Numeric(18, 6), nullable=True)
+    demand_class = db.Column(db.String(20), nullable=False, default='no_demand', index=True)
+    forecast_method = db.Column(db.String(20), nullable=False, default='ZERO')
+    trend_flag = db.Column(db.String(10), nullable=False, default='flat')
+    trend_pct = db.Column(db.Numeric(12, 6), nullable=True)
+    seasonality_source = db.Column(db.String(20), nullable=False, default='none')
+    seasonality_level_code = db.Column(db.String(64), nullable=True)
+    seasonality_confidence = db.Column(db.String(20), nullable=False, default='none')
+    review_flag = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    review_reason = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class SkuForecastResult(db.Model):
+    __tablename__ = "sku_forecast_result"
+
+    item_code_365 = db.Column(db.String(64), primary_key=True)
+    base_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    trend_adjusted_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    hist_embedded_seasonal_index = db.Column(db.Numeric(12, 6), nullable=False, default=1)
+    future_seasonal_index = db.Column(db.Numeric(12, 6), nullable=False, default=1)
+    final_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    final_forecast_daily_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    cover_days = db.Column(db.Numeric(12, 4), nullable=False, default=7)
+    lead_time_days = db.Column(db.Numeric(12, 4), nullable=False, default=0)
+    review_cycle_days = db.Column(db.Numeric(12, 4), nullable=False, default=1)
+    safety_stock_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    target_stock_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    on_hand_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    incoming_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    reserved_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    net_available_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    raw_recommended_order_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    rounded_order_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    forecast_change_pct = db.Column(db.Numeric(12, 6), nullable=True)
+    calculated_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    run_id = db.Column(db.BigInteger, nullable=True)
+
+
+class ForecastRun(db.Model):
+    __tablename__ = "forecast_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    started_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='running')
+    notes = db.Column(db.Text, nullable=True)
+    default_cover_days = db.Column(db.Numeric(12, 4), nullable=True)
+    horizon_days = db.Column(db.Integer, nullable=True)
+    sku_count = db.Column(db.Integer, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)

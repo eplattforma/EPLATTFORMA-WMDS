@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% block title %}Forecast Workbench - Suppliers{% endblock %}
+
+{% block head %}
+<style>
+    .supplier-card {
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .supplier-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        border-color: var(--bs-primary);
+    }
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .stat-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #999;
+    }
+    .run-banner {
+        border-left: 4px solid var(--bs-info);
+    }
+    .run-banner.run-failed {
+        border-left-color: var(--bs-danger);
+    }
+    .run-banner.run-running {
+        border-left-color: var(--bs-warning);
+    }
+    .badge-smooth { background-color: #198754; }
+    .badge-irregular { background-color: #fd7e14; }
+    .sort-btn.active {
+        background-color: var(--bs-primary);
+        color: #fff;
+    }
+    #supplierSearch {
+        max-width: 300px;
+    }
+    .unmapped-card {
+        border-style: dashed !important;
+        border-color: rgba(255,193,7,0.4) !important;
+    }
+    .loading-spinner {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 200px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">
+            <i class="fas fa-chart-line text-primary me-2"></i>Forecast Workbench
+        </h4>
+        <div class="d-flex align-items-center gap-2">
+            <button id="btnRunForecast" class="btn btn-primary btn-sm" onclick="runForecast()">
+                <i class="fas fa-play me-1"></i>Run Forecast
+            </button>
+        </div>
+    </div>
+
+    <div id="runBanner" class="alert run-banner bg-dark py-2 px-3 mb-3 d-none">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <i class="fas fa-clock text-info me-1"></i>
+                <span class="small">Last Run:</span>
+                <span id="runTimestamp" class="fw-bold small ms-1">—</span>
+                <span id="runStatus" class="badge ms-2">—</span>
+                <span id="runSkuCount" class="small text-muted ms-2"></span>
+            </div>
+            <div id="runNotes" class="small text-muted"></div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <input type="text" id="supplierSearch" class="form-control form-control-sm"
+                   placeholder="Search suppliers..." oninput="filterSuppliers()">
+        </div>
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary sort-btn active" data-sort="name" onclick="sortSuppliers('name', this)">
+                <i class="fas fa-font me-1"></i>Name
+            </button>
+            <button type="button" class="btn btn-outline-secondary sort-btn" data-sort="review" onclick="sortSuppliers('review', this)">
+                <i class="fas fa-exclamation-triangle me-1"></i>Review
+            </button>
+            <button type="button" class="btn btn-outline-secondary sort-btn" data-sort="order" onclick="sortSuppliers('order', this)">
+                <i class="fas fa-shopping-cart me-1"></i>Order Qty
+            </button>
+            <button type="button" class="btn btn-outline-secondary sort-btn" data-sort="skus" onclick="sortSuppliers('skus', this)">
+                <i class="fas fa-boxes me-1"></i>SKUs
+            </button>
+            <button type="button" class="btn btn-outline-secondary sort-btn" data-sort="irregular" onclick="sortSuppliers('irregular', this)">
+                <i class="fas fa-random me-1"></i>Irregular
+            </button>
+        </div>
+    </div>
+
+    <div id="loadingSpinner" class="loading-spinner">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <div id="supplierGrid" class="row g-3 d-none"></div>
+
+    <div id="noResults" class="text-center text-muted py-5 d-none">
+        <i class="fas fa-search fa-2x mb-2"></i>
+        <p>No suppliers match your search.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allSuppliers = [];
+let currentSort = 'name';
+let currentDirection = 'asc';
+
+document.addEventListener('DOMContentLoaded', loadSuppliers);
+
+function loadSuppliers() {
+    document.getElementById('loadingSpinner').classList.remove('d-none');
+    document.getElementById('supplierGrid').classList.add('d-none');
+
+    fetch('{{ url_for("forecast_workbench.api_suppliers") }}')
+        .then(r => r.json())
+        .then(data => {
+            allSuppliers = data.suppliers || [];
+            renderRunBanner(data.last_run);
+            sortSuppliers(currentSort);
+            document.getElementById('loadingSpinner').classList.add('d-none');
+            document.getElementById('supplierGrid').classList.remove('d-none');
+        })
+        .catch(err => {
+            document.getElementById('loadingSpinner').innerHTML =
+                '<div class="text-danger"><i class="fas fa-exclamation-circle me-2"></i>Failed to load suppliers: ' + err.message + '</div>';
+        });
+}
+
+function renderRunBanner(run) {
+    const banner = document.getElementById('runBanner');
+    if (!run) {
+        banner.classList.add('d-none');
+        return;
+    }
+    banner.classList.remove('d-none');
+    banner.classList.remove('run-failed', 'run-running');
+
+    if (run.status === 'failed') banner.classList.add('run-failed');
+    else if (run.status === 'running') banner.classList.add('run-running');
+
+    const ts = run.completed_at || run.started_at;
+    document.getElementById('runTimestamp').textContent = ts ? new Date(ts).toLocaleString() : '—';
+
+    const statusEl = document.getElementById('runStatus');
+    statusEl.textContent = (run.status || '').toUpperCase();
+    statusEl.className = 'badge ms-2 bg-' + (
+        run.status === 'completed' ? 'success' :
+        run.status === 'failed' ? 'danger' :
+        run.status === 'running' ? 'warning' : 'secondary'
+    );
+
+    document.getElementById('runSkuCount').textContent = run.sku_count ? run.sku_count + ' SKUs processed' : '';
+    document.getElementById('runNotes').textContent = run.notes || '';
+}
+
+function sortSuppliers(field, btnEl) {
+    if (btnEl) {
+        document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+        btnEl.classList.add('active');
+    }
+
+    if (currentSort === field) {
+        currentDirection = currentDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort = field;
+        currentDirection = field === 'name' ? 'asc' : 'desc';
+    }
+
+    const sorted = [...allSuppliers].sort((a, b) => {
+        let va, vb;
+        switch (field) {
+            case 'name':
+                va = (a.supplier_name || '').toLowerCase();
+                vb = (b.supplier_name || '').toLowerCase();
+                if (a.supplier_code === 'UNMAPPED') return 1;
+                if (b.supplier_code === 'UNMAPPED') return -1;
+                return currentDirection === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+            case 'review':
+                va = a.review_count || 0; vb = b.review_count || 0;
+                break;
+            case 'order':
+                va = a.total_order_qty || 0; vb = b.total_order_qty || 0;
+                break;
+            case 'skus':
+                va = a.active_skus || 0; vb = b.active_skus || 0;
+                break;
+            case 'irregular':
+                va = a.irregular_count || 0; vb = b.irregular_count || 0;
+                break;
+            default:
+                va = 0; vb = 0;
+        }
+        if (field !== 'name') {
+            return currentDirection === 'asc' ? va - vb : vb - va;
+        }
+        return 0;
+    });
+
+    renderSuppliers(sorted);
+}
+
+function filterSuppliers() {
+    const q = document.getElementById('supplierSearch').value.toLowerCase().trim();
+    const filtered = allSuppliers.filter(s =>
+        (s.supplier_name || '').toLowerCase().includes(q) ||
+        (s.supplier_code || '').toLowerCase().includes(q)
+    );
+    renderSuppliers(filtered);
+}
+
+function renderSuppliers(suppliers) {
+    const grid = document.getElementById('supplierGrid');
+    const noResults = document.getElementById('noResults');
+
+    if (!suppliers.length) {
+        grid.classList.add('d-none');
+        noResults.classList.remove('d-none');
+        return;
+    }
+
+    noResults.classList.add('d-none');
+    grid.classList.remove('d-none');
+
+    grid.innerHTML = suppliers.map(s => {
+        const isUnmapped = s.supplier_code === 'UNMAPPED';
+        const cardClass = isUnmapped ? 'unmapped-card' : '';
+
+        return `
+        <div class="col-xl-3 col-lg-4 col-md-6">
+            <div class="card bg-dark supplier-card ${cardClass}" onclick="window.location='{{ url_for("forecast_workbench.supplier_detail", supplier_code="__CODE__") }}'.replace('__CODE__', '${s.supplier_code}')">
+                <div class="card-body p-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <h6 class="card-title mb-0 ${isUnmapped ? 'text-warning' : ''}">
+                                ${isUnmapped ? '<i class="fas fa-question-circle me-1"></i>' : '<i class="fas fa-industry me-1 text-muted"></i>'}
+                                ${escapeHtml(s.supplier_name || s.supplier_code)}
+                            </h6>
+                            ${!isUnmapped ? '<small class="text-muted">' + escapeHtml(s.supplier_code) + '</small>' : ''}
+                        </div>
+                        ${s.review_count > 0 ? '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle me-1"></i>' + s.review_count + '</span>' : ''}
+                    </div>
+
+                    <div class="row g-2 mt-2">
+                        <div class="col-4 text-center">
+                            <div class="stat-value text-info">${s.active_skus || 0}</div>
+                            <div class="stat-label">SKUs</div>
+                        </div>
+                        <div class="col-4 text-center">
+                            <div class="stat-value text-success">${s.order_count || 0}</div>
+                            <div class="stat-label">To Order</div>
+                        </div>
+                        <div class="col-4 text-center">
+                            <div class="stat-value text-warning">${formatQty(s.total_order_qty)}</div>
+                            <div class="stat-label">Order Qty</div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between mt-3 pt-2 border-top border-secondary">
+                        <span class="badge badge-smooth" title="Smooth demand items">
+                            <i class="fas fa-check-circle me-1"></i>${s.smooth_count || 0} smooth
+                        </span>
+                        <span class="badge badge-irregular" title="Irregular demand items (erratic/intermittent/lumpy)">
+                            <i class="fas fa-random me-1"></i>${s.irregular_count || 0} irregular
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function formatQty(val) {
+    if (!val || val === 0) return '0';
+    if (val >= 1000) return (val / 1000).toFixed(1) + 'k';
+    return Math.round(val).toString();
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function runForecast() {
+    const btn = document.getElementById('btnRunForecast');
+    if (!confirm('Run the full forecast pipeline now? This may take a few minutes.')) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running...';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+    fetch('{{ url_for("forecast_workbench.api_run") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+        },
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+        if (data.status === 'ok') {
+            loadSuppliers();
+        } else {
+            alert('Forecast run failed: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+        alert('Error: ' + err.message);
+    });
+}
+</script>
+{% endblock %}
