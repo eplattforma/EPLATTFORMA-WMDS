@@ -8,7 +8,7 @@
                 <th class="text-end">Stock Now</th>
                 <th class="text-end">Reserved</th>
                 <th class="text-end">Ordered</th>
-                <th class="text-end">Transfer</th>
+
                 <th class="text-end">Available</th>
                 <th class="text-end">Pre-Rcpt Fcst</th>
                 <th class="text-end">Proj@Rcpt</th>
@@ -37,7 +37,7 @@
                 <td class="text-end {% if l.ordered_now_units > 0 %}text-info{% endif %}">
                     {{ l.ordered_now_units|float|int }}
                 </td>
-                <td class="text-end text-muted">{{ l.on_transfer_now_units|float|int }}</td>
+
                 <td class="text-end fw-bold">{{ l.available_base_units|float|int }}</td>
                 <td class="text-end">{{ "%.1f"|format(l.pre_receipt_forecast_units|float) }}</td>
                 <td class="text-end {% if l.projected_units_at_receipt < 0 %}text-danger fw-bold{% endif %}">

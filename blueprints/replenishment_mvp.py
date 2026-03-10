@@ -343,7 +343,7 @@ def export_csv(run_id):
     writer = csv.writer(output)
     writer.writerow([
         'Item Code', 'Item Name', 'Case Qty', 'Stock Now', 'Reserved Now',
-        'Ordered Now', 'On Transfer', 'Available Base', 'Pre-Receipt Forecast',
+        'Ordered Now', 'Available Base', 'Pre-Receipt Forecast',
         'Projected At Receipt', 'Cover Forecast', 'Safety Stock',
         'Suggested Cases', 'Suggested Units', 'Final Cases', 'Final Units',
         'Earliest Expiry', 'Expiry Qty', 'Warning', 'Explanation'
@@ -354,7 +354,7 @@ def export_csv(run_id):
             line.item_code_365, line.item_name,
             float(line.case_qty_units), float(line.stock_now_units),
             float(line.reserved_now_units), float(line.ordered_now_units),
-            float(line.on_transfer_now_units), float(line.available_base_units),
+            float(line.available_base_units),
             float(line.pre_receipt_forecast_units), float(line.projected_units_at_receipt),
             float(line.cover_forecast_units), float(line.safety_stock_units),
             float(line.suggested_cases), float(line.suggested_units),
