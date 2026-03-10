@@ -545,14 +545,13 @@ def _build_po_email_content(run, order_lines, po_code, sent_at):
         item_name = line.item_name or ""
         rows_html += (
             f"<tr>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{line.item_code_365}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;'>{item_name}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;'>{run.supplier_code}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{case_qty}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{final_cases}</td>"
             f"</tr>"
         )
-        rows_text += f"{idx}. {line.item_code_365} | {item_name} | {run.supplier_code} | {case_qty} | {final_cases}\n"
+        rows_text += f"{idx}. {item_name} | {run.supplier_code} | {case_qty} | {final_cases}\n"
 
     html_body = f"""
     <html>
@@ -577,7 +576,6 @@ def _build_po_email_content(run, order_lines, po_code, sent_at):
         <table>
             <thead>
                 <tr>
-                    <th>Item Code</th>
                     <th>Item Name</th>
                     <th>Supplier Code</th>
                     <th>Case Qty</th>
