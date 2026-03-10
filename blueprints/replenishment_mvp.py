@@ -524,6 +524,8 @@ def send_po_to_ps365(run_id):
             run.status = 'po_sent'
             run.notes = (run.notes or '') + f"\nPO {po_code} sent {now_utc.strftime('%Y-%m-%d %H:%M')}"
             db.session.commit()
+
+            _send_po_email(run, order_lines, po_code, now_utc)
         else:
             error_msg = api_response.get("response_msg", "Unknown error")
             logger.error(f"PS365 PO creation failed for replenishment run #{run.id}: {api_response}")
@@ -533,6 +535,73 @@ def send_po_to_ps365(run_id):
         flash(f"Error creating PO: {str(e)}", "error")
 
     return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+
+def _send_po_email(run, order_lines, po_code, sent_at):
+    import os
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+    SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    RECIPIENT = "eplattforma@gmail.com"
+
+    if not all([SMTP_HOST, SMTP_EMAIL, SMTP_PASSWORD]):
+        logger.warning("SMTP not configured, skipping PO email notification")
+        return
+
+    rows_html = ""
+    for line in sorted(order_lines, key=lambda l: l.item_code_365):
+        case_qty = int(float(line.case_qty_units)) if float(line.case_qty_units) == int(float(line.case_qty_units)) else float(line.case_qty_units)
+        final_cases = int(float(line.final_cases)) if float(line.final_cases) == int(float(line.final_cases)) else float(line.final_cases)
+        rows_html += (
+            f"<tr>"
+            f"<td style='padding:6px 12px;border:1px solid #ddd;'>{line.item_code_365}</td>"
+            f"<td style='padding:6px 12px;border:1px solid #ddd;'>{run.supplier_code}</td>"
+            f"<td style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>{case_qty}</td>"
+            f"<td style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>{final_cases}</td>"
+            f"</tr>"
+        )
+
+    html_body = f"""
+    <h3>Purchase Order Sent to PS365</h3>
+    <p><strong>PO Code:</strong> {po_code}</p>
+    <p><strong>Supplier:</strong> {run.supplier_name} ({run.supplier_code})</p>
+    <p><strong>Run:</strong> #{run.id} ({run.run_type}) &mdash; {run.run_date}</p>
+    <p><strong>Sent at:</strong> {sent_at.strftime('%Y-%m-%d %H:%M')} UTC</p>
+    <p><strong>Items:</strong> {len(order_lines)}</p>
+    <br>
+    <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;'>
+        <thead>
+            <tr style='background:#f0f0f0;'>
+                <th style='padding:6px 12px;border:1px solid #ddd;text-align:left;'>Item Code</th>
+                <th style='padding:6px 12px;border:1px solid #ddd;text-align:left;'>Supplier Code</th>
+                <th style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>Case Qty</th>
+                <th style='padding:6px 12px;border:1px solid #ddd;text-align:right;'>Cases Ordered</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html}
+        </tbody>
+    </table>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"PO {po_code} - {run.supplier_name} - {len(order_lines)} items"
+    msg["From"] = SMTP_EMAIL
+    msg["To"] = RECIPIENT
+    msg.attach(MIMEText(html_body, "html"))
+
+    try:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, RECIPIENT, msg.as_string())
+        logger.info(f"PO email sent to {RECIPIENT} for PO {po_code}")
+    except Exception as e:
+        logger.error(f"Failed to send PO email to {RECIPIENT}: {e}")
 
 
 @replenishment_bp.route('/api/run/<int:run_id>')
