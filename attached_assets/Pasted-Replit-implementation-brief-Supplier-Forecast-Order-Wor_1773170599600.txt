@@ -1,0 +1,1473 @@
+Replit implementation brief — Supplier Forecast & Order Workbench
+
+Build this in our existing Flask + SQLAlchemy + PostgreSQL app.
+
+The goal is to create a supplier-first forecasting and replenishment workbench that uses:
+
+dw_invoice_header
+
+dw_invoice_line
+
+ps_items_dw
+
+current stock / reserved / incoming sources already available in the app where possible
+
+The workbench must let us review forecast by supplier first, then drill into category / brand / SKU, and clearly show:
+
+whether an SKU is smooth / erratic / intermittent / lumpy / new-sparse / no-demand
+
+the forecast method used
+
+whether there is recent trend up/down
+
+whether there is a seasonality layer
+
+the recommended order quantity
+
+item master data relevant to ordering such as MOQ, case qty, active flag, supplier item code
+
+This is not only a reporting page. It must produce a usable ordering view by supplier.
+
+1. Architecture to implement
+
+Keep raw tables unchanged:
+
+dw_invoice_header
+
+dw_invoice_line
+
+ps_items_dw
+
+Add a forecasting/reporting layer on top.
+
+Implement these layers:
+
+A. Weekly sales fact
+
+A materialized table for weekly item demand.
+
+B. SKU forecast profile
+
+A table storing demand classification, method, trend, seasonality source, confidence.
+
+C. SKU forecast result
+
+A table storing the final weekly forecast and replenishment outputs.
+
+D. Supplier forecast view
+
+A supplier-first UI that reads from the forecast result/profile plus item master plus stock.
+
+2. Important business rules
+2.1 Supplier-first workflow
+
+The primary planning workflow is:
+
+Supplier → Category / Brand → SKU
+
+Do not make SKU list the main landing page.
+Landing page must be supplier-focused.
+
+2.2 Sales basis
+
+Use real invoice dates from dw_invoice_header joined to invoice lines by invoice_no_365.
+
+Do not use sync timestamp for forecasting.
+
+2.3 Time grain
+
+Forecasting must be based on weekly buckets, not daily raw lines.
+
+2.4 Demand source
+
+Use gross sold qty from invoice-type sales as base demand.
+
+Returns / credit notes must be stored separately and shown as diagnostics, not blindly mixed into demand signal.
+
+2.5 Classification
+
+Classify each SKU based on the last 26 weeks with zero-filled missing weeks.
+
+2.6 Forecast logic
+
+Default logic:
+
+Smooth → MA8
+
+Erratic → MA8 with stronger review flag, or blended logic later
+
+Intermittent / Lumpy → Median6
+
+New/Sparse → fallback seeded/simple logic
+
+No-demand → zero / manual review
+
+2.7 Trend logic
+
+For smooth/regular SKUs, allow short-term trend adjustment.
+
+Base idea:
+
+base forecast = MA8
+
+calculate AvgLast2
+
+if AvgLast2 materially above or below MA8, apply controlled capped uplift/downside adjustment
+
+2.8 Seasonality logic
+
+Use the ratio-based method we discussed.
+
+Do not multiply MA8 by just the current month factor.
+
+Use:
+
+Final Forecast = Base Forecast × (Future Seasonal Index / Historical Embedded Seasonal Index)
+
+Where:
+
+Historical Embedded Seasonal Index = weighted average seasonal factor of the last 8 weeks used by MA8
+
+Future Seasonal Index = weighted average seasonal factor of the forward cover horizon
+
+For now, seasonality should be primarily from:
+
+prefix/family level
+
+optionally brand level if enough volume
+
+SKU-level only if history is strong enough
+
+2.9 Item master vs statistical seasonality
+
+Keep these separate in the UI:
+
+season_code_365 from item master
+
+forecast seasonality signal from sales pattern
+
+They are not the same thing.
+
+3. New database objects
+
+Create the following tables.
+
+3.1 forecast_item_supplier_map
+
+This is required because item master currently does not appear to have a reliable supplier field.
+
+Purpose:
+map each item to a supplier for forecast review and ordering.
+
+Columns:
+
+id
+
+item_code_365 varchar not null unique
+
+supplier_code varchar not null
+
+supplier_name varchar not null
+
+lead_time_days numeric null
+
+review_cycle_days numeric null default 1
+
+order_multiple numeric null
+
+min_order_qty_override numeric null
+
+is_active boolean default true
+
+notes text null
+
+created_at
+
+updated_at
+
+Rules:
+
+unique on item_code_365
+
+if later PS365 gives true supplier mapping, this table can be auto-synced
+
+until then it can be maintained manually from admin UI or import
+
+3.2 fact_sales_weekly_item
+
+Weekly demand fact table.
+
+Columns:
+
+week_start date not null
+
+item_code_365 varchar not null
+
+gross_qty numeric(18,4) not null default 0
+
+return_qty numeric(18,4) not null default 0
+
+net_qty numeric(18,4) not null default 0
+
+invoice_count integer not null default 0
+
+customer_count integer not null default 0
+
+sales_ex_vat numeric(18,4) not null default 0
+
+discount_value numeric(18,4) not null default 0
+
+updated_at
+
+Keys / indexes:
+
+primary key (week_start, item_code_365)
+
+index on item_code_365
+
+index on week_start
+
+Business logic:
+
+sales invoices contribute to gross_qty
+
+returns / credits contribute to return_qty
+
+net_qty = gross_qty - return_qty
+
+forecasting will mainly use gross_qty, while return_qty is diagnostic
+
+3.3 forecast_seasonality_monthly
+
+Stores monthly seasonal indices.
+
+Columns:
+
+id
+
+level_type varchar not null
+allowed: sku, brand, prefix
+
+level_code varchar not null
+
+month_no integer not null
+
+raw_index numeric(12,6) not null
+
+smoothed_index numeric(12,6) not null
+
+sample_months integer not null default 0
+
+sample_qty numeric(18,4) not null default 0
+
+confidence varchar not null default none
+
+is_reliable boolean not null default false
+
+updated_at
+
+Unique key:
+
+(level_type, level_code, month_no)
+
+3.4 sku_forecast_profile
+
+Stores the demand profile and forecast method choice.
+
+Columns:
+
+item_code_365 varchar primary key
+
+weeks_total_26 integer not null
+
+weeks_non_zero_26 integer not null
+
+sales_frequency_26 numeric(12,6) not null
+
+adi_26 numeric(12,6) null
+
+avg_non_zero_26 numeric(18,6) null
+
+std_non_zero_26 numeric(18,6) null
+
+cv2_26 numeric(18,6) null
+
+demand_class varchar not null
+values: smooth, erratic, intermittent, lumpy, new_sparse, no_demand
+
+forecast_method varchar not null
+values initially: MA8, MEDIAN6, ZERO, SEEDED
+
+trend_flag varchar not null default flat
+values: up, down, flat
+
+trend_pct numeric(12,6) null
+
+seasonality_source varchar not null default none
+values: sku, brand, prefix, none
+
+seasonality_level_code varchar null
+
+seasonality_confidence varchar not null default none
+
+review_flag boolean not null default false
+
+review_reason text null
+
+updated_at
+
+3.5 sku_forecast_result
+
+Stores latest forecast and replenishment outputs.
+
+Columns:
+
+item_code_365 varchar primary key
+
+base_forecast_weekly_qty numeric(18,6) not null default 0
+
+trend_adjusted_weekly_qty numeric(18,6) not null default 0
+
+hist_embedded_seasonal_index numeric(12,6) not null default 1
+
+future_seasonal_index numeric(12,6) not null default 1
+
+final_forecast_weekly_qty numeric(18,6) not null default 0
+
+final_forecast_daily_qty numeric(18,6) not null default 0
+
+cover_days numeric(12,4) not null default 7
+
+lead_time_days numeric(12,4) not null default 0
+
+review_cycle_days numeric(12,4) not null default 1
+
+safety_stock_qty numeric(18,6) not null default 0
+
+target_stock_qty numeric(18,6) not null default 0
+
+on_hand_qty numeric(18,6) not null default 0
+
+incoming_qty numeric(18,6) not null default 0
+
+reserved_qty numeric(18,6) not null default 0
+
+net_available_qty numeric(18,6) not null default 0
+
+raw_recommended_order_qty numeric(18,6) not null default 0
+
+rounded_order_qty numeric(18,6) not null default 0
+
+forecast_change_pct numeric(12,6) null
+
+calculated_at timestamp not null
+
+run_id bigint null
+
+3.6 forecast_run
+
+Audit header for each calculation.
+
+Columns:
+
+id
+
+started_at
+
+completed_at
+
+status
+
+notes
+
+default_cover_days
+
+horizon_days
+
+sku_count
+
+created_by nullable
+
+created_at
+
+4. Data preparation logic
+4.1 Join header and lines
+
+Create a reusable query/view joining:
+
+dw_invoice_line.invoice_no_365
+to
+
+dw_invoice_header.invoice_no_365
+
+Extract:
+
+invoice date
+
+document type
+
+item code
+
+quantity
+
+amounts
+
+customer code if available in header
+
+any status needed
+
+Normalize invoice date to proper date/timestamp if currently stored as text.
+
+4.2 Zero-filled weekly calendar
+
+Build a weekly calendar series, then cross-join with active items / selling items so missing weeks are present with zero qty.
+
+This is mandatory for correct ADI / frequency / intermittent classification.
+
+4.3 Prefix extraction
+
+Add a helper function or persisted field that derives prefix/family from item code, e.g.:
+
+SNA-
+
+COF-
+
+BIS-
+
+Use prefix for seasonality fallback and UI filtering.
+
+5. Forecast calculations
+5.1 Classification metrics
+
+For each SKU over last 26 complete weeks:
+
+weeks_total_26 = 26
+
+weeks_non_zero_26
+
+sales_frequency_26 = weeks_non_zero_26 / 26
+
+ADI = 26 / weeks_non_zero_26 if non-zero weeks > 0
+
+compute average and std deviation on non-zero weekly quantities
+
+CV² = (std_non_zero / avg_non_zero)^2 where average > 0
+
+Classification rules:
+
+if weeks_non_zero_26 = 0 → no_demand
+
+if insufficient history / very sparse, e.g. < 6 non-zero weeks or very recent intro → new_sparse
+
+else:
+
+ADI < 1.32 and CV² < 0.49 → smooth
+
+ADI < 1.32 and CV² >= 0.49 → erratic
+
+ADI >= 1.32 and CV² < 0.49 → intermittent
+
+ADI >= 1.32 and CV² >= 0.49 → lumpy
+
+5.2 Base forecast methods
+Smooth
+
+MA8 = average of last 8 weekly gross quantities
+
+Erratic
+
+For phase 1, keep MA8 but always set review_flag = true unless confidence is high.
+Structure code so later we can swap to a blend without UI redesign.
+
+Intermittent / Lumpy
+
+Median6 = median of last 6 weekly gross quantities
+
+New/Sparse
+
+Use simple fallback:
+
+if last 4 weeks contain sales, use average of non-zero weeks in last 4 or 8
+
+else 0
+Mark as review
+
+No-demand
+
+0 and review if stock still exists or item is active
+
+5.3 Trend adjustment for smooth items
+
+For smooth items only:
+
+compute MA8
+
+compute AvgLast2
+
+Trend up rule:
+
+if AvgLast2 > MA8 * 1.15
+
+then trend_flag = up
+
+trend_adjusted = min(MA8 * 1.25, MA8 + 0.5 * max(0, AvgLast2 - MA8))
+
+Trend down rule:
+
+if both of the last 2 weeks are below MA8
+
+and AvgLast2 < MA8 * 0.90
+
+then trend_flag = down
+
+trend_adjusted = max(MA8 * 0.75, MA8 - 0.5 * (MA8 - AvgLast2))
+
+Else:
+
+trend_flag = flat
+
+trend_adjusted = MA8
+
+For non-smooth classes, keep trend_adjusted = base_forecast in phase 1.
+
+5.4 Seasonality calculation
+
+Build monthly indices from complete months only.
+
+For phase 1:
+
+calculate at prefix level for all items
+
+calculate at brand level where enough volume exists
+
+only use sku level if at least 2 yearly cycles later; for now keep disabled or very restrictive
+
+Monthly index calculation:
+
+for each level_code and month_no:
+
+month demand / average monthly demand
+
+smooth the raw index toward 1.00
+
+cap usable smoothed index between 0.85 and 1.15
+
+Confidence guidance:
+
+enough months and enough volume → medium
+
+low sample → low
+
+none → none
+
+Seasonality source choice hierarchy:
+
+brand if reliable
+
+prefix if reliable
+
+none
+
+Historical embedded seasonal index:
+
+take the 8 weeks used by MA8
+
+map each week to its month factor
+
+compute weighted average factor across those weeks
+
+Future seasonal index:
+
+use the forward planning horizon days
+
+weight by how many days of the future horizon fall into each month
+
+compute weighted average factor
+
+Then:
+final_forecast = trend_adjusted * (future_seasonal_index / hist_embedded_seasonal_index)
+
+If no reliable seasonality source:
+
+both indexes = 1
+
+5.5 Replenishment logic
+
+Use:
+
+target_stock_qty = final_forecast_daily_qty * (cover_days + lead_time_days + review_cycle_days) + safety_stock_qty
+
+net_available_qty = on_hand_qty + incoming_qty - reserved_qty
+
+raw_recommended_order_qty = max(0, target_stock_qty - net_available_qty)
+
+Rounding logic:
+
+respect override order multiple if present
+
+else use case qty where meaningful
+
+enforce MOQ from override or item master
+
+final rounded_order_qty
+
+If item is inactive and still selling:
+
+allow forecast but set review flag
+
+6. Stock integration
+
+Read stock from the current stock source already used in the app. Reuse existing stock service if available.
+
+Need these per item:
+
+on_hand_qty
+
+incoming_qty
+
+reserved_qty
+
+If incoming is not yet available, set to zero but keep the field and service abstraction ready.
+
+7. Flask modules / files to create
+
+Use these files.
+
+7.1 Forecast services
+
+Create:
+
+services/forecast/weekly_sales_builder.py
+
+services/forecast/classification_service.py
+
+services/forecast/seasonality_service.py
+
+services/forecast/base_forecast_service.py
+
+services/forecast/replenishment_service.py
+
+services/forecast/run_service.py
+
+Responsibilities:
+
+weekly_sales_builder.py
+
+join header + line
+
+build/update fact_sales_weekly_item
+
+ensure zero-fill logic is supported downstream
+
+classification_service.py
+
+compute ADI / CV² / demand_class
+
+write sku_forecast_profile
+
+seasonality_service.py
+
+compute monthly indices for brand/prefix
+
+choose seasonality source per SKU
+
+expose hist/future seasonal index helpers
+
+base_forecast_service.py
+
+MA8
+
+Median6
+
+trend adjustment
+
+final forecast before replenishment
+
+replenishment_service.py
+
+resolve cover days / lead time / review cycle
+
+join stock
+
+apply target stock + order qty + rounding
+
+run_service.py
+
+orchestrate full run
+
+create forecast_run record
+
+log counts and errors
+
+7.2 Models
+
+Add SQLAlchemy models:
+
+ForecastItemSupplierMap
+
+FactSalesWeeklyItem
+
+ForecastSeasonalityMonthly
+
+SkuForecastProfile
+
+SkuForecastResult
+
+ForecastRun
+
+7.3 Blueprint
+
+Create:
+
+blueprints/forecast_workbench.py
+
+Routes:
+
+/forecast
+
+/forecast/suppliers
+
+/forecast/supplier/<supplier_code>
+
+/forecast/api/suppliers
+
+/forecast/api/items
+
+/forecast/api/item/<item_code>
+
+/forecast/api/run
+
+/forecast/api/seasonality/<item_code>
+
+/forecast/api/export/supplier/<supplier_code>
+
+Protect with admin / purchasing / warehouse manager role as appropriate.
+
+8. UI to build
+
+Build a Supplier Forecast & Order Workbench.
+
+8.1 Landing page
+
+Landing page is supplier list, not SKU list.
+
+Left panel or main grid: suppliers
+
+Each supplier card/row shows:
+
+supplier name
+
+supplier code
+
+active SKUs count
+
+items needing review
+
+items with order qty > 0
+
+total rounded order qty
+
+total estimated order value if cost is available later
+
+count of smooth / irregular items
+
+Allow sorting by:
+
+supplier name
+
+review items count
+
+total recommended order qty
+
+number of seasonal items active
+
+number of inactive-but-selling items
+
+8.2 Supplier detail page
+
+Top area: supplier KPI cards
+
+Show:
+
+total SKUs
+
+smooth
+
+erratic
+
+intermittent
+
+lumpy
+
+new/sparse
+
+no-demand
+
+trend up
+
+trend down
+
+seasonal active
+
+MOQ constrained
+
+inactive but selling
+
+items with order > 0
+
+Filter bar
+
+Include:
+
+Forecast filters:
+
+demand class
+
+forecast method
+
+trend flag
+
+seasonality source
+
+seasonality confidence
+
+review required
+
+only items with order > 0
+
+Item master filters:
+
+active / inactive
+
+category
+
+brand
+
+prefix
+
+season code
+
+MOQ > 0
+
+case qty > 1
+
+supplier item code present / missing
+
+Operational filters:
+
+below target stock
+
+high cover risk
+
+new/sparse only
+
+inactive but selling
+
+order rounding distortion
+
+recent sales in last 4 weeks
+
+Saved views
+
+Add tabs or quick views:
+
+Order Build
+
+Forecast Review
+
+Exceptions
+
+Seasonal Watch
+
+Master Data Issues
+
+8.3 Main table columns
+
+Use a dense operational grid with expandable right drawer.
+
+Columns:
+
+review flag
+
+item code
+
+description
+
+prefix
+
+category
+
+brand
+
+active
+
+season code
+
+supplier item code
+
+demand class badge
+
+trend badge
+
+seasonality badge
+
+method
+
+26-week sparkline
+
+base fcst/wk
+
+final fcst/wk
+
+forecast change %
+
+on hand
+
+net available
+
+cover days
+
+MOQ
+
+case qty
+
+raw order qty
+
+rounded order qty
+
+Group rows by:
+
+category
+
+then brand
+
+This is important.
+
+8.4 Badges and meanings
+
+Demand class badges:
+
+Smooth = green
+
+Erratic = amber
+
+Intermittent = blue
+
+Lumpy = orange
+
+New/Sparse = gray
+
+No Demand = muted gray
+
+Trend badges:
+
+↑ Up
+
+→ Flat
+
+↓ Down
+
+Seasonality badges:
+
+Brand Seasonal
+
+Prefix Seasonal
+
+No Seasonal Layer
+
+Also show confidence in text:
+
+medium
+
+low
+
+none
+
+Do not mix season_code_365 with statistical seasonality badge.
+
+8.5 Right-side detail drawer
+
+When user clicks SKU, open drawer with tabs.
+
+Tab 1 — Summary
+
+Show:
+
+item code, description
+
+supplier
+
+category, brand, prefix
+
+active flag
+
+demand class and explanation
+
+forecast method
+
+review reason
+
+final forecast
+
+recommended order
+
+Tab 2 — History
+
+Show a 26-week bar chart:
+
+weekly gross sales bars
+
+MA8 line if applicable
+
+final forecast marker/line
+
+Tab 3 — Forecast drivers
+
+Show:
+
+weeks_non_zero_26
+
+ADI
+
+CV²
+
+base forecast
+
+AvgLast2
+
+trend flag and trend %
+
+hist embedded seasonal index
+
+future seasonal index
+
+seasonality source and confidence
+
+final forecast formula components
+
+Use plain explanation text like:
+“Smooth item. Sold in 22 of last 26 weeks. MA8 used. Recent 2 weeks were +18% above baseline, so capped uplift applied. Prefix seasonality applied for next horizon.”
+
+Tab 4 — Replenishment
+
+Show:
+
+on hand
+
+incoming
+
+reserved
+
+net available
+
+cover days
+
+lead time
+
+review cycle
+
+safety stock
+
+target stock
+
+raw order qty
+
+MOQ
+
+case rounding
+
+rounded order qty
+
+9. Review flags
+
+Set review_flag = true when any of these happen:
+
+demand class is erratic, lumpy, new_sparse
+
+inactive item had sales in last 26 weeks
+
+forecast method changed from last run
+
+trend flag is up or down and impact > threshold
+
+seasonality source changed
+
+seasonality confidence low but adjustment active
+
+forecast change exceeds threshold, e.g. 20%
+
+rounded order differs materially from raw order
+
+missing supplier mapping
+
+missing brand/category where needed
+
+no demand but still stock exists
+
+Persist a readable review_reason.
+
+10. Admin / maintenance screens
+10.1 Supplier mapping admin
+
+Simple CRUD or import for forecast_item_supplier_map
+
+Columns editable:
+
+item code
+
+supplier code
+
+supplier name
+
+lead time
+
+review cycle
+
+order multiple
+
+MOQ override
+
+active flag
+
+Need CSV/XLSX import option.
+
+10.2 Forecast settings
+
+Simple settings page with defaults:
+
+default cover days = 7
+
+default review cycle days = 1
+
+trend uplift trigger = 1.15
+
+trend down trigger = 0.90
+
+trend uplift cap = 1.25
+
+trend down floor = 0.75
+
+seasonal cap min = 0.85
+
+seasonal cap max = 1.15
+
+minimum sample for brand seasonality
+
+minimum sample for prefix seasonality
+
+Store in existing settings table if available.
+
+11. Scheduler / run flow
+
+Add a scheduled job, plus manual run.
+
+Run sequence
+
+build/update weekly sales fact
+
+refresh seasonality table
+
+refresh profile table
+
+refresh forecast result
+
+refresh supplier summary cache if you create one
+
+Schedule nightly.
+
+Also allow manual run from UI.
+
+Show last run timestamp and status on the workbench.
+
+12. API endpoints behavior
+/forecast/api/suppliers
+
+Return supplier summary with counts and totals.
+
+/forecast/api/items
+
+Support filters:
+
+supplier
+
+category
+
+brand
+
+demand_class
+
+seasonality_source
+
+trend_flag
+
+review_only
+
+order_only
+
+active
+
+prefix
+
+/forecast/api/item/<item_code>
+
+Return full detail for drawer.
+
+/forecast/api/run
+
+Trigger manual forecast run.
+
+/forecast/api/export/supplier/<supplier_code>
+
+Export current supplier order build view to Excel/CSV.
+
+The export should contain:
+
+item_code
+
+description
+
+supplier_code
+
+supplier_name
+
+supplier_item_code
+
+category
+
+brand
+
+demand_class
+
+forecast_method
+
+final_forecast_weekly_qty
+
+on_hand_qty
+
+net_available_qty
+
+MOQ
+
+case_qty
+
+rounded_order_qty
+
+review_flag
+
+review_reason
+
+13. Performance requirements
+
+Do not calculate everything live from raw invoice tables on every page load.
+
+Must precompute and store:
+
+fact_sales_weekly_item
+
+sku_forecast_profile
+
+sku_forecast_result
+
+UI must read mainly from these stored tables.
+
+Add indexes on:
+
+supplier_code
+
+category_code_365
+
+brand_code_365
+
+demand_class
+
+review_flag
+
+rounded_order_qty
+
+active
+
+If needed, create a denormalized SQL view for the UI, e.g. vw_supplier_forecast_workbench.
+
+14. What to do about missing or weak supplier data
+
+At the moment item master seems not to provide a strong true supplier field.
+
+So implement phase 1 with forecast_item_supplier_map.
+
+This is not optional, because the review and order process is supplier-first.
+
+If an item has no supplier mapping:
+
+show it under “Unmapped supplier”
+
+set review flag
+
+include it in Master Data Issues
+
+15. What to do about seasonality maturity
+
+We currently have limited history.
+
+So in phase 1:
+
+compute monthly indices only from complete months
+
+prefer prefix-level seasonality
+
+optionally brand-level when sample is enough
+
+keep confidence conservative
+
+do not overstate seasonality in UI
+
+Use wording:
+
+“Seasonality signal”
+
+“confidence low/medium”
+
+Do not present it as absolute truth.
+
+16. UX notes
+
+The page should feel operational, not academic.
+
+Important UI principles:
+
+supplier first
+
+dense table
+
+fast filters
+
+clear badges
+
+sparkline in row
+
+right drawer with “why”
+
+saved views for execution and exceptions
+
+The most important quick-view information in a row is:
+
+demand class
+
+trend
+
+seasonality source
+
+final forecast
+
+rounded order qty
+
+17. Delivery sequence for implementation
+
+Implement in this order.
+
+Phase 1
+
+tables and models
+
+supplier mapping table
+
+weekly sales fact builder
+
+demand classification
+
+MA8 / Median6
+
+trend adjustment
+
+supplier workbench basic UI
+
+order build view
+
+forecast review view
+
+Phase 2
+
+seasonality tables and logic
+
+future vs historical embedded seasonal ratio
+
+seasonal watch view
+
+detail drawer forecast drivers tab
+
+Phase 3
+
+exports
+
+manual overrides if needed later
+
+supplier import tools
+
+supplier summary caching
+
+better erratic/new-item forecast methods if needed
+
+18. Acceptance criteria
+
+The implementation is complete when:
+
+I can open a supplier and see all mapped SKUs grouped by category and brand.
+
+Each SKU clearly shows:
+
+demand class
+
+trend
+
+seasonality source/confidence
+
+method used
+
+final forecast
+
+recommended rounded order
+
+I can filter by category, brand, active, demand class, seasonality, review flag.
+
+I can use saved views:
+
+Order Build
+
+Forecast Review
+
+Exceptions
+
+Seasonal Watch
+
+Master Data Issues
+
+I can click an SKU and understand exactly why the forecast was produced.
+
+The UI loads from precomputed tables, not raw recalculation.
+
+I can run forecast manually and also see nightly run status.
+
+Unmapped supplier items and inactive-but-selling items are clearly flagged.
+
+Seasonality uses future/historical ratio logic, not a naive single month multiplier.
+
+Rounded order qty respects MOQ / case qty / order multiple.
+
+19. Final note to follow during implementation
+
+Keep all code modular and auditable.
+
+I want the system to be able to answer for each SKU:
+
+why is it marked smooth or irregular?
+
+why was this forecast method chosen?
+
+why is trend applied or not?
+
+why is seasonality applied or not?
+
+why is the order qty what it is?
+
+That explainability is essential.
+
+If you want, next I will turn this into a more compact developer task list with file-by-file coding steps.
