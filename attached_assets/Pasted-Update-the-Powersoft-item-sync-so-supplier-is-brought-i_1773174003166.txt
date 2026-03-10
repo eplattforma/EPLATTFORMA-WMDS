@@ -1,0 +1,61 @@
+Update the Powersoft item sync so supplier is brought into psitems.
+
+Use POST /list_items for the item sync, not just the basic GET list, and pass a display_fields list that explicitly includes supplier_code_365 and supplier_name. Powersoft’s docs show that POST /list_items supports display_fields, and the item field list includes both supplier_code_365 and supplier_name.
+
+What to change
+
+API request
+Keep the existing paging logic, but change the payload so the item sync requests supplier fields too.
+
+{
+  "api_credentials": {
+    "token": "YOUR_TOKEN"
+  },
+  "filter_define": {
+    "only_counted": "N",
+    "page_number": 1,
+    "page_size": 100,
+    "active_type": "all",
+    "ecommerce_type": "all",
+    "display_fields": "item_code_365,item_name,item_name_2,active,ecommerce,vat_code_365,supplier_code_365,supplier_name,brand_code_365,brand_name,season_code_365,season_name,category_code_365,category_name,dept_code_365,dept_name,um_code_365,um_name,item_cost,price_excl_1,price_incl_1,price_excl_2,price_incl_2,price_excl_3,price_incl_3,price_excl_4,price_incl_4,price_excl_5,price_incl_5,number_of_pieces,minimum_order_multiplier,last_purchase_date,last_purchase_qty,last_modified_date,creation_date,total_stock,total_stock_reserved,total_stock_ordered,list_item_barcodes"
+  }
+}
+
+If you want to keep payload size small, just add the two missing fields into the current display_fields string:
+
+supplier_code_365
+
+supplier_name
+
+Database schema
+Add these columns to the local items mirror table (psitems, or your actual equivalent table if the model is named differently):
+
+supplier_code_365 VARCHAR(50) NULL
+
+supplier_name VARCHAR(255) NULL
+
+If you want filtering/reporting by supplier later, index supplier_code_365. This is the supplier identifier returned by Powersoft for each item.
+
+Upsert mapping
+In the item sync mapper/upsert logic, map:
+
+supplier_code_365 = item.get("supplier_code_365")
+supplier_name = item.get("supplier_name")
+
+and persist them into the local item record alongside the other item master fields. The supplier fields are part of the item response, so there is no need for a separate supplier lookup just to populate item supplier on the item master.
+
+Backfill
+After deploying the schema + mapper change, run a full item resync so existing rows in psitems get supplier populated.
+
+Optional
+Add supplier filters in your UI/query layer later using:
+
+supplier_code_365
+
+supplier_name
+
+Also note that Powersoft supports supplier-based item filtering through items_supplier_selection in POST /list_items, which can be useful for supplier views or supplier-specific refresh jobs.
+
+Exact implementation note for Replit
+
+“Please update the Powersoft item import to use POST /list_items with display_fields, include supplier_code_365 and supplier_name, add both fields to the psitems table/model, update the upsert logic to persist them, and run a full resync so all existing items are backfilled with supplier.”
