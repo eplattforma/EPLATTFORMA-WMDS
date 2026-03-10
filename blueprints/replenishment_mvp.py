@@ -535,7 +535,7 @@ def send_po_to_ps365(run_id):
     return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
 
-def _send_po_email(run, order_lines, po_code, sent_at):
+def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gmail.com"):
     import os
     import smtplib
     from email.mime.text import MIMEText
@@ -545,9 +545,9 @@ def _send_po_email(run, order_lines, po_code, sent_at):
     SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
     SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-    RECIPIENT = "eplattforma@gmail.com"
+    RECIPIENT = recipient
 
-    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, order_lines={len(order_lines)}")
+    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, RECIPIENT={RECIPIENT}, order_lines={len(order_lines)}")
 
     rows_html = ""
     rows_text = ""
@@ -654,6 +654,11 @@ def email_order(run_id):
         flash("No items with Final Units > 0 to email.", "warning")
         return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
+    recipient_email = request.form.get("recipient_email", "eplattforma@gmail.com").strip()
+    if not recipient_email:
+        flash("Recipient email is required.", "warning")
+        return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
     po_code = ""
     if run.notes:
         import re
@@ -664,8 +669,8 @@ def email_order(run_id):
         po_code = f"Run-{run.id}"
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    _send_po_email(run, order_lines, po_code, now_utc)
-    flash(f"Order email sent to eplattforma@gmail.com ({len(order_lines)} items).", "success")
+    _send_po_email(run, order_lines, po_code, now_utc, recipient_email)
+    flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
     return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
 
