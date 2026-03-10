@@ -3,15 +3,23 @@ Replenishment MVP - PS365 Stock API Client
 
 Fetches current stock snapshot for a supplier's items from warehouse store 777.
 Uses the existing ps365_client.call_ps365 for HTTP calls.
+
+Ordered stock: The list_items_stock API's stock_ordered field is unreliable
+(does not reflect all open POs). We supplement it by querying
+list_purchase_orders directly and aggregating quantities from pending POs.
 """
 import logging
 import math
+from collections import defaultdict
+from datetime import date, timedelta
 
 from ps365_client import call_ps365
 
 logger = logging.getLogger(__name__)
 
 REPLENISHMENT_WAREHOUSE_STORE = "777"
+
+PO_PENDING_STATUSES = {"PROC", "PROCESSING", "PENDING", "ORDERED", "APPROVED", "OPEN"}
 
 
 def fetch_supplier_stock(supplier_code: str, warehouse_store_code: str = REPLENISHMENT_WAREHOUSE_STORE) -> dict:
@@ -57,8 +65,92 @@ def fetch_supplier_stock(supplier_code: str, warehouse_store_code: str = REPLENI
                 "on_transfer_now_units": store_data["stock_on_transfer"],
             }
 
+    po_ordered = _fetch_ordered_from_purchase_orders(supplier_code, warehouse_store_code)
+    if po_ordered:
+        for item_code, po_qty in po_ordered.items():
+            if item_code in items:
+                stock_api_ordered = items[item_code]["ordered_now_units"]
+                if po_qty > stock_api_ordered:
+                    logger.debug(
+                        f"{item_code}: PO ordered {po_qty} > stock API ordered {stock_api_ordered}, using PO value"
+                    )
+                    items[item_code]["ordered_now_units"] = po_qty
+            else:
+                logger.debug(f"{item_code}: found in POs but not in stock API, skipping")
+
+        po_items_with_data = sum(1 for ic in items if po_ordered.get(ic, 0) > 0)
+        logger.info(f"PO ordered quantities applied: {po_items_with_data} items updated from {len(po_ordered)} PO line items")
+
     logger.info(f"Loaded stock for {len(items)} items from PS365")
     return items
+
+
+def _fetch_ordered_from_purchase_orders(supplier_code: str, warehouse_store_code: str) -> dict:
+    try:
+        today = date.today()
+        from_date = (today - timedelta(days=180)).isoformat()
+        to_date = (today + timedelta(days=365)).isoformat()
+
+        resp = call_ps365("list_purchase_orders", method="POST", payload={
+            "filter_define": {
+                "page_number": 1,
+                "page_size": 100,
+                "only_counted": "N",
+                "orders_supplier_selection": supplier_code,
+                "order_status_selection": "",
+                "from_date": from_date,
+                "to_date": to_date,
+                "items_selection": "",
+                "stores_selection": "",
+                "orders_type": "all",
+                "shopping_cart_code_selection": "",
+            }
+        })
+
+        if not resp or resp.get("api_response", {}).get("response_code") != "1":
+            error_msg = resp.get("api_response", {}).get("response_msg", "Unknown") if resp else "No response"
+            logger.warning(f"Failed to fetch POs from PS365: {error_msg}")
+            return {}
+
+        pos = resp.get("list_purchase_orders") or []
+        logger.info(f"Found {len(pos)} purchase orders for supplier {supplier_code}")
+
+        ordered_by_item = defaultdict(float)
+
+        for po in pos:
+            header = po.get("purchase_order_header", {})
+            status_code = (header.get("order_status_code") or "").upper().strip()
+            is_pending = header.get("is_pending", False)
+            po_store = str(header.get("store_code_365", ""))
+            po_id = header.get("purchase_order_id", "?")
+
+            if po_store != str(warehouse_store_code):
+                logger.debug(f"PO {po_id} is for store {po_store}, skipping (need {warehouse_store_code})")
+                continue
+
+            if not is_pending and status_code not in PO_PENDING_STATUSES:
+                logger.debug(f"PO {po_id} status={status_code}, is_pending={is_pending}, skipping")
+                continue
+
+            items = po.get("list_purchase_order_details") or []
+            for item in items:
+                item_code = item.get("item_code_365", "")
+                qty = float(item.get("line_quantity", 0) or 0)
+                received = float(item.get("line_quantity_received", 0) or 0)
+                outstanding = qty - received
+                if item_code and outstanding > 0:
+                    ordered_by_item[item_code] += outstanding
+
+            logger.debug(
+                f"PO {po_id}: status={status_code}, pending={is_pending}, "
+                f"store={po_store}, items={len(items)}"
+            )
+
+        return dict(ordered_by_item)
+
+    except Exception as e:
+        logger.exception(f"Error fetching POs for ordered quantities: {e}")
+        return {}
 
 
 def _extract_store_stock(item: dict, store_code: str) -> dict:
