@@ -1524,6 +1524,9 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
     date_to: YYYY-MM-DD format (optional, defaults to today)
     """
     from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
+    from sqlalchemy import event, pool
+    import time
+    
     slog = start_sync_log(session, 'INVOICE_SYNC', sync_trigger)
 
     # Setup file-based logging
@@ -1538,18 +1541,29 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
     logger.info(f"Log file: {log_file}")
     logger.info(f"{'='*80}\n")
     
+    max_retries = 3
+    retry_count = 0
+    
     try:
         _update_invoice_sync_status(session, "RUNNING", "Syncing invoice headers...")
         h_ins, h_upd = sync_invoice_headers_from_date(session, date_from, date_to)
+        session.commit()
+        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", f"Headers done ({h_ins} inserted). Syncing lines...")
         l_ins, l_upd = sync_invoice_lines_from_date(session, date_from, date_to)
+        session.commit()
+        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", f"Lines done ({l_ins} inserted). Syncing stores...")
         s_ins, s_upd = sync_invoice_stores(session)
+        session.commit()
+        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", "Syncing cashiers...")
         u_ins, u_upd = sync_invoice_cashiers(session)
+        session.commit()
+        session.close()
         
         _update_invoice_sync_status(session, "RUNNING", "Refreshing materialized views...")
         try:
@@ -1597,15 +1611,27 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         raise
         
     except Exception as e:
+        import traceback
         error_msg = str(e)[:200]
-        _update_invoice_sync_status(session, "FAILED", error_msg)
-        fail_sync_log(session, slog, error_msg)
-        logger.error(f"\n{'='*80}")
-        logger.error(f"❌ INVOICE SYNC FAILED - ERROR")
-        logger.error(f"{'='*80}")
-        logger.error(f"Exception: {error_msg}")
-        logger.error(f"Full traceback:", exc_info=True)
-        logger.error(f"{'='*80}\n")
+        session.rollback()
+        session.close()
+        
+        # Log the full error details including SSL connection errors
+        if 'SSL' in str(e) or 'connection' in str(e).lower():
+            logger.error(f"⚠️  DATABASE CONNECTION ERROR - This is a recoverable connection issue")
+            logger.error(f"❌ INVOICE SYNC FAILED - CONNECTION ERROR")
+            logger.error(f"Error: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            fail_sync_log(session, slog, f"Connection error (recoverable): {error_msg}")
+        else:
+            _update_invoice_sync_status(session, "FAILED", error_msg)
+            fail_sync_log(session, slog, error_msg)
+            logger.error(f"\n{'='*80}")
+            logger.error(f"❌ INVOICE SYNC FAILED - ERROR")
+            logger.error(f"{'='*80}")
+            logger.error(f"Exception: {error_msg}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"{'='*80}\n")
         raise
 
 if __name__ == '__main__':

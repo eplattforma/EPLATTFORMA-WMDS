@@ -44,14 +44,16 @@ if is_production:
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         'pool_pre_ping': True,
         "pool_recycle": 300,
-        "pool_size": 10,         # Larger pool for concurrent requests
-        "max_overflow": 5,       # Allow burst capacity
+        "pool_size": 5,          # Smaller pool to reduce stale connections
+        "max_overflow": 10,      # More overflow for burst capacity
         "pool_timeout": 30,      # Fail fast if no connection available
-        "echo": False,
         "connect_args": {
             "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
             "options": "-c statement_timeout=120000 -c lock_timeout=30000"  # 120s statement (for large imports), 30s lock timeout
-        }
+        },
+        "echo": False,
     }
 else:
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
