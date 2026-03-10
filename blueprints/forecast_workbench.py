@@ -138,7 +138,7 @@ def api_items():
     seasonality_source = request.args.get('seasonality_source', '')
     review_only = request.args.get('review_only', '')
     order_only = request.args.get('order_only', '')
-    active = request.args.get('active', '')
+    active = request.args.get('active', '1')
     prefix = request.args.get('prefix', '')
 
     q = (

@@ -113,8 +113,13 @@ def compute_base_forecasts(session: Session, run_id=None):
     uplift_cap = float(Setting.get(session, TREND_UPLIFT_CAP_KEY, "1.25"))
     down_floor = float(Setting.get(session, TREND_DOWN_FLOOR_KEY, "0.75"))
 
-    profiles = session.query(SkuForecastProfile).all()
-    logger.info(f"Computing base forecasts for {len(profiles)} items")
+    profiles = (
+        session.query(SkuForecastProfile)
+        .join(DwItem, DwItem.item_code_365 == SkuForecastProfile.item_code_365)
+        .filter(DwItem.active == True)
+        .all()
+    )
+    logger.info(f"Computing base forecasts for {len(profiles)} active items")
 
     now = get_utc_now()
     count = 0

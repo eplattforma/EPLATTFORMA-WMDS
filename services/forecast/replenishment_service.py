@@ -93,8 +93,13 @@ def compute_replenishment(session: Session, run_id=None):
     default_cover = float(Setting.get(session, "forecast_default_cover_days", "7"))
     default_review_cycle = float(Setting.get(session, "forecast_review_cycle_days", "1"))
 
-    results = session.query(SkuForecastResult).all()
-    logger.info(f"Computing replenishment for {len(results)} items")
+    results = (
+        session.query(SkuForecastResult)
+        .join(DwItem, DwItem.item_code_365 == SkuForecastResult.item_code_365)
+        .filter(DwItem.active == True)
+        .all()
+    )
+    logger.info(f"Computing replenishment for {len(results)} active items")
 
     now = get_utc_now()
     count = 0
