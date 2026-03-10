@@ -245,6 +245,12 @@
                                     <i class="fas fa-boxes me-2"></i>Replenishment
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint and 'forecast_workbench' in request.endpoint %}active{% endif %}" 
+                                   href="{{ url_for('forecast_workbench.suppliers') }}">
+                                    <i class="fas fa-chart-line me-2"></i>Forecast Workbench
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     {% endif %}
