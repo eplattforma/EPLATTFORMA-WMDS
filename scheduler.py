@@ -26,7 +26,8 @@ def setup_scheduler(app):
         scheduler = BackgroundScheduler(daemon=True)
         
         # Only set up scheduled jobs in production or if explicitly enabled
-        if os.environ.get("ENABLE_BACKGROUND_JOBS") == "true" or os.environ.get("REPLIT_DEPLOYMENT") == "1":
+        is_production = os.environ.get("REPLIT_ENVIRONMENT") == "production" or os.environ.get("REPLIT_DEPLOYMENT") == "1"
+        if os.environ.get("ENABLE_BACKGROUND_JOBS") == "true" or is_production:
             from datawarehouse_sync import full_dw_update, incremental_dw_update
             from app import db
             
