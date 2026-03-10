@@ -189,6 +189,24 @@ async function submitSettlement() {
     }
 }
 
+async function doPrint(pngUrl, receiptId, count = 1) {
+    try {
+        const res = await fetch(pngUrl, { cache: "no-store" });
+        if (!res.ok) { window.open(pngUrl, "_blank"); return; }
+        const blob = await res.blob();
+        const file = new File([blob], `receipt-${receiptId}.png`, { type: "image/png" });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: "Receipt" });
+        } else {
+            window.open(pngUrl, "_blank");
+        }
+    } catch (e) {
+        console.log("Share failed", e);
+        window.open(pngUrl, "_blank");
+    }
+}
+
 document.querySelectorAll('.btn-print-thermal').forEach(btn => {
     btn.addEventListener('click', async function() {
         const pngUrl = this.dataset.pngUrl;
@@ -196,24 +214,38 @@ document.querySelectorAll('.btn-print-thermal').forEach(btn => {
         this.disabled = true;
         const origHTML = this.innerHTML;
         this.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        setTimeout(() => { this.disabled = false; this.innerHTML = origHTML; }, 3000);
-
-        try {
-            const res = await fetch(pngUrl, { cache: "no-store" });
-            if (!res.ok) { window.open(pngUrl, "_blank"); return; }
-            const blob = await res.blob();
-            const file = new File([blob], `receipt-${receiptId}.png`, { type: "image/png" });
-
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                await navigator.share({ files: [file], title: "Receipt" });
-            } else {
-                window.open(pngUrl, "_blank");
-            }
-        } catch (e) {
-            console.log("Share failed", e);
-            window.open(pngUrl, "_blank");
-        }
+        
+        await doPrint(pngUrl, receiptId, 1);
+        
+        setTimeout(() => {
+            this.disabled = false;
+            this.innerHTML = origHTML;
+            showPrintModal(pngUrl, receiptId);
+        }, 2000);
     });
 });
+
+function showPrintModal(pngUrl, receiptId) {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    modal.innerHTML = `
+        <div style="background:#fff;padding:40px;border-radius:12px;text-align:center;max-width:400px;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+            <h4 style="margin-bottom:20px;color:#333;">Print Copy 2</h4>
+            <p style="font-size:16px;color:#666;margin-bottom:30px;line-height:1.5;">
+                <strong>Tear off the receipt</strong><br>
+                Then click below to print the second copy
+            </p>
+            <button onclick="doPrint('${pngUrl}', ${receiptId}, 2); this.parentElement.parentElement.remove();" 
+                    style="background:#28a745;color:#fff;border:none;padding:12px 30px;font-size:16px;border-radius:6px;cursor:pointer;width:100%;margin-bottom:10px;">
+                📄 Print Copy 2
+            </button>
+            <button onclick="this.parentElement.parentElement.remove();" 
+                    style="background:#6c757d;color:#fff;border:none;padding:12px 30px;font-size:14px;border-radius:6px;cursor:pointer;width:100%;">
+                Done
+            </button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
 </script>
 {% endblock %}
