@@ -28,6 +28,13 @@
                 </button>
             </form>
             {% endif %}
+            <form method="POST" action="{{ url_for('replenishment_mvp.email_order', run_id=run.id) }}"
+                  style="display:inline" onsubmit="return confirm('Email order details to eplattforma@gmail.com?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-secondary me-2">
+                    <i class="fas fa-envelope me-1"></i>Email Order
+                </button>
+            </form>
             <a href="{{ url_for('replenishment_mvp.export_order_csv', run_id=run.id) }}"
                class="btn btn-sm btn-success me-2">
                 <i class="fas fa-truck me-1"></i>Export Order to Supplier

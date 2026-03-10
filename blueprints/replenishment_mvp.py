@@ -524,8 +524,6 @@ def send_po_to_ps365(run_id):
             run.status = 'po_sent'
             run.notes = (run.notes or '') + f"\nPO {po_code} sent {now_utc.strftime('%Y-%m-%d %H:%M')}"
             db.session.commit()
-
-            _send_po_email(run, order_lines, po_code, now_utc)
         else:
             error_msg = api_response.get("response_msg", "Unknown error")
             logger.error(f"PS365 PO creation failed for replenishment run #{run.id}: {api_response}")
@@ -602,6 +600,34 @@ def _send_po_email(run, order_lines, po_code, sent_at):
         logger.info(f"PO email sent to {RECIPIENT} for PO {po_code}")
     except Exception as e:
         logger.error(f"Failed to send PO email to {RECIPIENT}: {e}")
+
+
+@replenishment_bp.route('/run/<int:run_id>/email-order', methods=['POST'])
+@admin_or_warehouse_required
+def email_order(run_id):
+    from datetime import datetime, timezone
+
+    run = ReplenishmentRun.query.get_or_404(run_id)
+    lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()
+    order_lines = [l for l in lines if l.final_units and float(l.final_units) > 0]
+
+    if not order_lines:
+        flash("No items with Final Units > 0 to email.", "warning")
+        return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
+
+    po_code = ""
+    if run.notes:
+        import re
+        match = re.search(r'PO (\S+) sent', run.notes)
+        if match:
+            po_code = match.group(1)
+    if not po_code:
+        po_code = f"Run-{run.id}"
+
+    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+    _send_po_email(run, order_lines, po_code, now_utc)
+    flash(f"Order email sent to eplattforma@gmail.com ({len(order_lines)} items).", "success")
+    return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
 
 @replenishment_bp.route('/api/run/<int:run_id>')
