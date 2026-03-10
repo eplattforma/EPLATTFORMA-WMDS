@@ -364,6 +364,21 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating OI schema: {str(e)}")
     
+    # Add supplier columns to ps_items_dw
+    try:
+        from sqlalchemy import text as sa_text
+        from app import db as appdb
+        for col, ctype in [("supplier_code_365", "VARCHAR(50)"), ("supplier_name", "VARCHAR(255)")]:
+            try:
+                appdb.session.execute(sa_text(f"ALTER TABLE ps_items_dw ADD COLUMN IF NOT EXISTS {col} {ctype}"))
+            except Exception:
+                pass
+        appdb.session.execute(sa_text("CREATE INDEX IF NOT EXISTS ix_ps_items_dw_supplier_code ON ps_items_dw (supplier_code_365)"))
+        appdb.session.commit()
+        logging.info("Supplier columns schema update completed")
+    except Exception as e:
+        logging.error(f"Error updating supplier columns: {str(e)}")
+    
     # Update WmsPackingProfile schema for pack_mode fields
     try:
         from update_packing_profile_schema import update_packing_profile_schema

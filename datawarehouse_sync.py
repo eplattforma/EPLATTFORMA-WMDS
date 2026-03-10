@@ -196,6 +196,8 @@ def build_item_core(ps_item: dict) -> dict:
         "item_weight": to_float(ps_item.get("item_weight")),
         "number_of_pieces": to_int(ps_item.get("number_of_pieces")),
         "selling_qty": to_float(ps_item.get("number_field_1_value")),
+        "supplier_code_365": (ps_item.get("supplier_code_365") or "").strip() or None,
+        "supplier_name": (ps_item.get("supplier_name") or "").strip() or None,
         "supplier_item_code": ps_item.get("text_field_2_value") or None,
         "min_order_qty": to_int(ps_item.get("number_field_5_value")),
         "case_qty": to_int(ps_item.get("number_field_2_value")),
@@ -357,7 +359,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1",
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1,supplier_code_365,supplier_name",
             },
         })
         
@@ -394,6 +396,8 @@ def test_fetch_single_item(session: Session):
             "item_weight": float(item.get("item_weight", 0)) if item.get("item_weight") else None,
             "number_of_pieces": int(item.get("number_of_pieces", 0)) if item.get("number_of_pieces") else None,
             "selling_qty": float(item.get("number_field_1_value", 0)) if item.get("number_field_1_value") else None,
+            "supplier_code_365": (item.get("supplier_code_365") or "").strip() or None,
+            "supplier_name": (item.get("supplier_name") or "").strip() or None,
             "supplier_item_code": item.get("text_field_2_value") or None,
             "min_order_qty": int(float(item.get("number_field_5_value"))) if item.get("number_field_5_value") else None,
             "case_qty": int(float(item.get("number_field_2_value"))) if item.get("number_field_2_value") else None,
@@ -667,7 +671,7 @@ def full_dw_update(session: Session, force_update: bool = False, sync_trigger: s
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,number_field_5_value,text_field_2_value,list_item_barcodes",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,number_field_5_value,text_field_2_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1,supplier_code_365,supplier_name",
                 },
             })
 
@@ -916,7 +920,7 @@ def incremental_dw_update(session: Session, sync_trigger: str = 'manual'):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1",
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1,supplier_code_365,supplier_name",
                 },
             })
             
@@ -973,6 +977,10 @@ def incremental_dw_update(session: Session, sync_trigger: str = 'manual'):
                         changes.append(f"attribute5: {existing.attribute_5_code_365} → {core['attribute_5_code_365']}")
                     if existing.attribute_6_code_365 != core["attribute_6_code_365"]:
                         changes.append(f"attribute6: {existing.attribute_6_code_365} → {core['attribute_6_code_365']}")
+                    if existing.supplier_code_365 != core.get("supplier_code_365"):
+                        changes.append(f"supplier_code: {existing.supplier_code_365} → {core.get('supplier_code_365')}")
+                    if existing.supplier_name != core.get("supplier_name"):
+                        changes.append(f"supplier_name: {existing.supplier_name} → {core.get('supplier_name')}")
                     change_details = " | ".join(changes)
                 
                 if has_change:

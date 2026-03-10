@@ -1874,6 +1874,10 @@ class DwItem(db.Model):
     # Barcode from PS365 (preferring label barcode)
     barcode = db.Column(db.String(100), nullable=True)
     
+    # Supplier fields from PS365
+    supplier_code_365 = db.Column(db.String(50), nullable=True)
+    supplier_name = db.Column(db.String(255), nullable=True)
+    
     # Supplier Item Code from PS365 (text_field_2_value)
     supplier_item_code = db.Column(db.String(255), nullable=True)
     min_order_qty = db.Column(db.Integer, nullable=True)  # Items.number_field_5_value
