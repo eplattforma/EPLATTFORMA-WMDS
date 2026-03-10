@@ -547,6 +547,8 @@ def _send_po_email(run, order_lines, po_code, sent_at):
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
     RECIPIENT = "eplattforma@gmail.com"
 
+    logger.info(f"_send_po_email: SMTP_HOST={bool(SMTP_HOST)}, SMTP_EMAIL={SMTP_EMAIL}, order_lines={len(order_lines)}")
+
     rows_html = ""
     rows_text = ""
     for idx, line in enumerate(sorted(order_lines, key=lambda l: l.item_code_365), start=1):
@@ -623,14 +625,20 @@ Total Items: {len(order_lines)}
     msg.attach(MIMEText(html_body, "html"))
 
     try:
+        logger.info(f"Attempting to connect to SMTP {SMTP_HOST}:{SMTP_PORT}")
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+            logger.info(f"SMTP connection established, logging in as {SMTP_EMAIL}")
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            logger.info(f"SMTP login successful, sending to {RECIPIENT}")
             server.sendmail(SMTP_EMAIL, RECIPIENT, msg.as_string())
+            logger.info(f"SMTP sendmail completed for {RECIPIENT}")
         logger.info(f"PO email sent to {RECIPIENT} for PO {po_code}")
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP authentication failed: {e}")
     except smtplib.SMTPException as e:
-        logger.error(f"SMTP error sending PO email to {RECIPIENT}: {e}")
+        logger.error(f"SMTP error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}")
     except Exception as e:
-        logger.error(f"Error sending PO email to {RECIPIENT}: {e}")
+        logger.error(f"Error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}", exc_info=True)
 
 
 @replenishment_bp.route('/run/<int:run_id>/email-order', methods=['POST'])
