@@ -19,7 +19,7 @@ from models import (
     InvoicePostDeliveryCase, InvoiceRouteHistory, DwInvoiceLine, RouteReturnHandover,
     PSCustomer
 )
-from timezone_utils import utc_now_for_db, get_local_time
+from timezone_utils import utc_now_for_db, get_local_time, format_utc_datetime_to_local, get_utc_now
 import services_warehouse_intake
 from utils_pdf import generate_driver_receipt_pdf
 
@@ -1479,7 +1479,7 @@ def print_receipt_png_by_id(receipt_id):
         'is_amended': False,
         'is_reprint': is_reprint,
         'receipt_no': display_receipt_no,
-        'date_str': receipt.created_at.strftime('%Y-%m-%d %H:%M') if receipt.created_at else '',
+        'date_str': format_utc_datetime_to_local(receipt.created_at, '%Y-%m-%d %H:%M') if receipt.created_at else '',
         'route_no': route.id if route else '',
         'stop_no': str(stop.seq_no).zfill(3) if stop and stop.seq_no else '---',
         'driver_name': route.driver_name if route else '',
@@ -1565,7 +1565,7 @@ def print_exceptions_png(stop_id):
     } for exc in exceptions_raw]
 
     stop_no = str(stop.seq_no).zfill(3) if stop.seq_no else '---'
-    date_str = utc_now().strftime('%Y-%m-%d %H:%M')
+    date_str = format_utc_datetime_to_local(get_utc_now(), '%Y-%m-%d %H:%M')
 
     customer_email = ''
     if stop.customer_code:
@@ -1946,7 +1946,7 @@ def print_receipt_pdf(stop_id):
     cheque_number = None
     cheque_date = None
     receipt_no = f"PREVIEW-{stop_id}"
-    date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    date_str = format_utc_datetime_to_local(get_utc_now(), '%Y-%m-%d %H:%M')
     expected_total = invoice_total_sum
     doc_type_val = 'official'
 
@@ -1960,7 +1960,7 @@ def print_receipt_pdf(stop_id):
         cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
         ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
         receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
-        date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
+        date_str = format_utc_datetime_to_local(cod_receipt.created_at, '%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
         doc_type_val = (cod_receipt.doc_type or 'official').lower()
         is_preview = False
     else:
@@ -2186,7 +2186,7 @@ def print_receipt_png(stop_id):
     cheque_number = None
     cheque_date = None
     receipt_no = f"PREVIEW-{stop_id}"
-    date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    date_str = format_utc_datetime_to_local(get_utc_now(), '%Y-%m-%d %H:%M')
     expected_total = invoice_total_sum
     doc_type_val = 'official'
 
@@ -2200,7 +2200,7 @@ def print_receipt_png(stop_id):
         cheque_date = cod_receipt.cheque_date.strftime('%Y-%m-%d') if cod_receipt.cheque_date else None
         ps365_ref = (cod_receipt.ps365_reference_number or '').strip()
         receipt_no = ps365_ref if ps365_ref else str(cod_receipt.id)
-        date_str = cod_receipt.created_at.strftime('%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
+        date_str = format_utc_datetime_to_local(cod_receipt.created_at, '%Y-%m-%d %H:%M') if cod_receipt.created_at else date_str
         doc_type_val = (cod_receipt.doc_type or 'official').lower()
         is_preview = False
     else:
