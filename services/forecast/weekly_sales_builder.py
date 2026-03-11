@@ -124,6 +124,8 @@ def _aggregate_and_insert(session: Session, cutoff: date):
 
     inserted = 0
     now = get_utc_now()
+    batch_size = 100
+    
     for r in rows:
         ws = r.week_start
         if isinstance(ws, str):
@@ -148,6 +150,10 @@ def _aggregate_and_insert(session: Session, cutoff: date):
         )
         session.add(fact)
         inserted += 1
+        
+        if inserted % batch_size == 0:
+            session.flush()
+            logger.debug(f"Flushed {inserted} rows...")
 
     session.flush()
     logger.info(f"Inserted {inserted} weekly sales rows")
