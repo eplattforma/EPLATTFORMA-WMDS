@@ -90,8 +90,7 @@ def _build_review_reasons(profile, result, supplier_map, dw_item, old_final, raw
 
 
 def compute_replenishment(session: Session, run_id=None):
-    default_cover = float(Setting.get(session, "forecast_default_cover_days", "7"))
-    default_review_cycle = float(Setting.get(session, "forecast_review_cycle_days", "1"))
+    STOCK_DAYS = 7
 
     results = (
         session.query(SkuForecastResult)
@@ -99,7 +98,7 @@ def compute_replenishment(session: Session, run_id=None):
         .filter(DwItem.active == True)
         .all()
     )
-    logger.info(f"Computing replenishment for {len(results)} active items")
+    logger.info(f"Computing replenishment for {len(results)} active items (target: {STOCK_DAYS} days)")
 
     now = get_utc_now()
     count = 0
@@ -135,24 +134,15 @@ def compute_replenishment(session: Session, run_id=None):
             dw_item_cache[item_code] = session.query(DwItem).filter_by(item_code_365=item_code).first()
         dw_item = dw_item_cache[item_code]
 
-        if supplier_map:
-            cover_days = _to_float(supplier_map.lead_time_days) if supplier_map.lead_time_days else default_cover
-            lead_time = _to_float(supplier_map.lead_time_days) if supplier_map.lead_time_days else 0.0
-            review_cycle = _to_float(supplier_map.review_cycle_days) if supplier_map.review_cycle_days else default_review_cycle
-        else:
-            cover_days = default_cover
-            lead_time = 0.0
-            review_cycle = default_review_cycle
-
-        result.cover_days = Decimal(str(cover_days))
-        result.lead_time_days = Decimal(str(lead_time))
-        result.review_cycle_days = Decimal(str(review_cycle))
+        result.cover_days = Decimal(str(STOCK_DAYS))
+        result.lead_time_days = Decimal("0")
+        result.review_cycle_days = Decimal("0")
 
         final_daily = _to_float(result.final_forecast_daily_qty)
         safety_stock = 0.0
         result.safety_stock_qty = Decimal(str(safety_stock))
 
-        target_stock = final_daily * (cover_days + lead_time + review_cycle) + safety_stock
+        target_stock = final_daily * STOCK_DAYS
         result.target_stock_qty = Decimal(str(round(target_stock, 6)))
 
         supplier_code = dw_item.supplier_code_365 if dw_item else None
