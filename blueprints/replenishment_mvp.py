@@ -57,20 +57,12 @@ def index():
     ).limit(20).all()
 
     today = date.today()
-    wd = today.weekday()
-    if wd == 1:
-        default_type = 'tuesday'
-    elif wd == 4:
-        default_type = 'friday'
-    else:
-        default_type = 'tuesday'
 
     return render_template(
         'replenishment_mvp/index.html',
         suppliers=suppliers,
         recent_runs=recent_runs,
         today=today.isoformat(),
-        default_type=default_type,
     )
 
 
@@ -81,10 +73,8 @@ def generate():
 
     supplier_code = request.form.get('supplier_code', '').strip()
     run_date_str = request.form.get('run_date', '').strip()
-    run_type = request.form.get('run_type', '').strip()
-    include_today = request.form.get('include_today_demand') == 'on'
 
-    if not supplier_code or not run_date_str or run_type not in ('tuesday', 'friday'):
+    if not supplier_code or not run_date_str:
         flash('Please fill in all required fields.', 'error')
         return redirect(url_for('replenishment_mvp.index'))
 
@@ -105,8 +95,6 @@ def generate():
         run_id = generate_replenishment_run(
             supplier_code=supplier_code,
             run_date=run_date,
-            run_type=run_type,
-            include_today_demand=include_today,
             current_user=current_user,
         )
         flash(f'Replenishment run #{run_id} generated successfully.', 'success')
@@ -142,9 +130,7 @@ def refresh_stock(run_id):
         get_same_weekday_sales_averages, get_fallback_daily_averages,
         get_expiry_summary,
     )
-    from services.replenishment_mvp.calendar import (
-        get_receipt_date, get_pre_receipt_dates, get_cover_dates_after_receipt,
-    )
+    from services.replenishment_mvp.calendar import get_cover_dates, COVER_DAYS
     from services.replenishment_mvp.planner import _resolve_case_qty, _build_warnings
 
     run = ReplenishmentRun.query.get_or_404(run_id)
@@ -163,10 +149,8 @@ def refresh_stock(run_id):
         flash('No stock data returned from PS365.', 'error')
         return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
-    receipt_date = get_receipt_date(run.run_date, run.run_type)
-    pre_receipt_dates = get_pre_receipt_dates(run.run_date, run.run_type, run.include_today_demand)
-    cover_dates = get_cover_dates_after_receipt(receipt_date, run.run_type)
-    all_needed_weekdays = list(set(d.weekday() for d in pre_receipt_dates + cover_dates))
+    cover_dates = get_cover_dates(run.run_date)
+    all_needed_weekdays = list(set(d.weekday() for d in cover_dates))
 
     item_codes = list(stock_snapshot.keys())
     item_master = get_item_master_for_codes(item_codes)
@@ -176,7 +160,6 @@ def refresh_stock(run_id):
     expiry_data = get_expiry_summary(item_codes, REPLENISHMENT_WAREHOUSE_STORE)
 
     forecast_sources = resolve_forecast_sources(item_codes, weekday_avgs, fallback_avgs)
-    pre_forecast = get_forecast_for_dates(item_codes, pre_receipt_dates, weekday_avgs, fallback_avgs)
     cover_forecast = get_forecast_for_dates(item_codes, cover_dates, weekday_avgs, fallback_avgs)
 
     lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()
@@ -205,10 +188,7 @@ def refresh_stock(run_id):
         ordered_now = api_data["ordered_now_units"]
         on_transfer_now = api_data["on_transfer_now_units"]
 
-        available_base = stock_now - reserved_now + ordered_now
-
-        pre_receipt_fcst = sum(pre_forecast.get(item_code, {}).get(d, 0) for d in pre_receipt_dates)
-        projected_at_receipt = available_base - pre_receipt_fcst
+        net_available = stock_now - reserved_now + ordered_now
 
         cover_fcst = sum(cover_forecast.get(item_code, {}).get(d, 0) for d in cover_dates)
 
@@ -216,11 +196,11 @@ def refresh_stock(run_id):
         min_order_cases = float(settings.get("min_order_cases") or 1)
         safety_days = float(settings.get("safety_days_override") or 1.0)
 
-        num_cover_dates = len(cover_dates)
-        avg_daily_cover = cover_fcst / num_cover_dates if num_cover_dates > 0 else 0
+        avg_daily_cover = cover_fcst / COVER_DAYS if COVER_DAYS > 0 else 0
         safety_stock = avg_daily_cover * safety_days
 
-        raw_needed = max(0, cover_fcst + safety_stock - projected_at_receipt)
+        target_stock = cover_fcst + safety_stock
+        raw_needed = max(0, target_stock - net_available)
 
         if case_qty and case_qty > 0 and raw_needed > 0:
             suggested_cases = math.ceil(raw_needed / case_qty)
@@ -231,9 +211,9 @@ def refresh_stock(run_id):
             suggested_units = 0
 
         warnings = _build_warnings(
-            case_qty, projected_at_receipt, reserved_now, ordered_now,
-            expiry, suggested_cases, pre_receipt_fcst, cover_fcst,
-            available_base, fcst_source
+            case_qty, net_available - cover_fcst, reserved_now, ordered_now,
+            expiry, suggested_cases, 0, cover_fcst,
+            net_available, fcst_source
         )
         warning_code = warnings[0][0] if warnings else None
         warning_text = warnings[0][1] if warnings else None
@@ -243,9 +223,9 @@ def refresh_stock(run_id):
         line.reserved_now_units = Decimal(str(reserved_now))
         line.ordered_now_units = Decimal(str(ordered_now))
         line.on_transfer_now_units = Decimal(str(on_transfer_now))
-        line.available_base_units = Decimal(str(available_base))
-        line.pre_receipt_forecast_units = Decimal(str(round(pre_receipt_fcst, 2)))
-        line.projected_units_at_receipt = Decimal(str(round(projected_at_receipt, 2)))
+        line.available_base_units = Decimal(str(net_available))
+        line.pre_receipt_forecast_units = Decimal("0")
+        line.projected_units_at_receipt = Decimal(str(round(net_available, 2)))
         line.cover_forecast_units = Decimal(str(round(cover_fcst, 2)))
         line.safety_stock_units = Decimal(str(round(safety_stock, 2)))
         line.raw_needed_units = Decimal(str(round(raw_needed, 2)))
@@ -257,12 +237,11 @@ def refresh_stock(run_id):
         line.warning_text = warning_text
 
         line.explanation_text = (
-            f"Available base = stock {stock_now:.0f} - reserved {reserved_now:.0f} "
-            f"+ ordered {ordered_now:.0f} = {available_base:.0f}. "
-            f"Pre-receipt forecast {pre_receipt_fcst:.1f} => "
-            f"projected at receipt {projected_at_receipt:.1f}. "
-            f"Cover forecast {cover_fcst:.1f} + safety {safety_stock:.1f} "
-            f"=> raw need {raw_needed:.1f}. "
+            f"Net available = stock {stock_now:.0f} - reserved {reserved_now:.0f} "
+            f"+ ordered {ordered_now:.0f} = {net_available:.0f}. "
+            f"{COVER_DAYS}-day forecast {cover_fcst:.1f} + safety {safety_stock:.1f} "
+            f"= target {target_stock:.1f}. "
+            f"Raw need {raw_needed:.1f}. "
             f"Forecast source: {fcst_source}."
         )
 
@@ -271,7 +250,7 @@ def refresh_stock(run_id):
             weekday_avgs_used[str(wd)] = weekday_avgs.get(item_code, {}).get(wd, 0)
 
         line.calc_json = {
-            "pre_receipt_dates": [str(d) for d in pre_receipt_dates],
+            "cover_days": COVER_DAYS,
             "cover_dates": [str(d) for d in cover_dates],
             "weekday_averages": weekday_avgs_used,
             "forecast_source": fcst_source,
@@ -279,12 +258,11 @@ def refresh_stock(run_id):
             "fallback_avg_90d": fb_info.get("avg_90d", 0),
             "fallback_avg_180d": fb_info.get("avg_180d", 0),
             "fallback_daily_avg": fb_info.get("daily_avg", 0),
-            "available_base_units": available_base,
-            "pre_receipt_forecast_units": pre_receipt_fcst,
-            "projected_units_at_receipt": projected_at_receipt,
+            "net_available_units": net_available,
             "cover_forecast_units": cover_fcst,
             "safety_days": safety_days,
             "safety_stock_units": safety_stock,
+            "target_stock_units": target_stock,
             "raw_needed_units": raw_needed,
             "case_qty_units": case_qty or 0,
             "case_qty_source": case_qty_source,
@@ -363,7 +341,7 @@ def export_csv(run_id):
             line.warning_code or '', line.explanation_text or '',
         ])
 
-    filename = f"replenishment_{run.supplier_code}_{run.run_date}_{run.run_type}.csv"
+    filename = f"replenishment_{run.supplier_code}_{run.run_date}.csv"
     return Response(
         output.getvalue(),
         mimetype='text/csv',
@@ -409,7 +387,7 @@ def export_order_csv(run_id):
             int(units) if units == int(units) else units,
         ])
 
-    filename = f"order_{run.supplier_code}_{run.run_date}_{run.run_type}.csv"
+    filename = f"order_{run.supplier_code}_{run.run_date}.csv"
     return Response(
         output.getvalue(),
         mimetype='text/csv',
@@ -498,7 +476,7 @@ def send_po_to_ps365(run_id):
                     "supplier_code_365": run.supplier_code,
                     "agent_code_365": "",
                     "user_code_365": current_user.username,
-                    "comments": f"Replenishment Run #{run.id} - {run.run_type} - {len(po_lines)} items",
+                    "comments": f"Replenishment Run #{run.id} - 7-day cover - {len(po_lines)} items",
                     "search_additional_barcodes": False,
                     "order_status_code_365": "PROC",
                     "order_status_name": "PROCESSING",
@@ -570,7 +548,7 @@ def _build_po_email_content(run, order_lines, po_code, sent_at):
             <h2>Purchase Order Created</h2>
             <p><strong>PO Code:</strong> {po_code}</p>
             <p><strong>Supplier:</strong> {run.supplier_name} ({run.supplier_code})</p>
-            <p><strong>Run ID:</strong> {run.id} ({run.run_type})</p>
+            <p><strong>Run ID:</strong> {run.id} (7-day cover)</p>
             <p><strong>Date:</strong> {sent_at.strftime('%Y-%m-%d %H:%M')} UTC</p>
         </div>
         <table>
@@ -597,7 +575,7 @@ def _build_po_email_content(run, order_lines, po_code, sent_at):
 
 PO Code: {po_code}
 Supplier: {run.supplier_name} ({run.supplier_code})
-Run ID: {run.id} ({run.run_type})
+Run ID: {run.id} (7-day cover)
 Date: {sent_at.strftime('%Y-%m-%d %H:%M')} UTC
 
 Items:
@@ -726,8 +704,7 @@ def api_run_json(run_id):
             "supplier_code": run.supplier_code,
             "supplier_name": run.supplier_name,
             "run_date": str(run.run_date),
-            "run_type": run.run_type,
-            "receipt_date": str(run.receipt_date),
+            "cover_days": 7,
             "status": run.status,
             "created_by": run.created_by,
             "created_at": str(run.created_at),

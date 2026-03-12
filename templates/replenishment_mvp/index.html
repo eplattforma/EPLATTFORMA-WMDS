@@ -41,23 +41,10 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Run Type</label>
-                            <select name="run_type" class="form-select bg-dark text-white border-secondary" required>
-                                <option value="tuesday" {% if default_type == 'tuesday' %}selected{% endif %}>
-                                    Tuesday Run (receipt Thursday, covers Fri+Mon+Tue)
-                                </option>
-                                <option value="friday" {% if default_type == 'friday' %}selected{% endif %}>
-                                    Friday Run (receipt Tuesday, covers Wed+Thu)
-                                </option>
-                            </select>
-                        </div>
-
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" name="include_today_demand"
-                                   id="includeTodayDemand" checked>
-                            <label class="form-check-label" for="includeTodayDemand">
-                                Include today's demand in pre-receipt forecast
-                            </label>
+                            <div class="alert alert-info small mb-0 py-2">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Orders enough stock to cover <strong>7 days</strong> of forecasted demand.
+                            </div>
                         </div>
 
                         <button type="submit" class="btn btn-primary w-100" id="btnGenerate">
@@ -81,8 +68,6 @@
                                     <th>#</th>
                                     <th>Supplier</th>
                                     <th>Run Date</th>
-                                    <th>Type</th>
-                                    <th>Receipt</th>
                                     <th>Status</th>
                                     <th>Created</th>
                                     <th></th>
@@ -94,12 +79,6 @@
                                     <td>{{ r.id }}</td>
                                     <td>{{ r.supplier_name }}</td>
                                     <td>{{ r.run_date }}</td>
-                                    <td>
-                                        <span class="badge bg-{% if r.run_type == 'tuesday' %}info{% else %}warning{% endif %}">
-                                            {{ r.run_type|capitalize }}
-                                        </span>
-                                    </td>
-                                    <td>{{ r.receipt_date }}</td>
                                     <td>
                                         <span class="badge bg-{% if r.status == 'saved' %}success{% else %}secondary{% endif %}">
                                             {{ r.status }}
@@ -114,7 +93,7 @@
                                 {% endfor %}
                                 {% if not recent_runs %}
                                 <tr>
-                                    <td colspan="8" class="text-center text-muted py-3">No runs yet</td>
+                                    <td colspan="6" class="text-center text-muted py-3">No runs yet</td>
                                 </tr>
                                 {% endif %}
                             </tbody>

@@ -4,8 +4,7 @@ Replenishment MVP - Planner
 Main orchestration: generate_replenishment_run()
 Pulls all data sources together and produces a saved run with lines.
 
-V1.1: Three-tier forecast fallback (weekday avg → 20 working day → 60 day).
-MANUAL_REVIEW_REQUIRED warning for reserved stock with no forecast.
+Simple model: order enough to cover 7 days of stock.
 """
 import logging
 import math
@@ -15,9 +14,7 @@ from decimal import Decimal
 from app import db
 from models import ReplenishmentRun, ReplenishmentRunLine
 
-from services.replenishment_mvp.calendar import (
-    get_receipt_date, get_pre_receipt_dates, get_cover_dates_after_receipt
-)
+from services.replenishment_mvp.calendar import get_cover_dates, COVER_DAYS
 from services.replenishment_mvp.ps365_client import fetch_supplier_stock, REPLENISHMENT_WAREHOUSE_STORE
 from services.replenishment_mvp.repositories import (
     get_supplier_by_code, get_item_master_for_codes,
@@ -54,8 +51,6 @@ WARNING_TEXT_MAP = {
 def generate_replenishment_run(
     supplier_code: str,
     run_date: date,
-    run_type: str,
-    include_today_demand: bool,
     current_user=None,
 ) -> int:
     supplier = get_supplier_by_code(supplier_code)
@@ -64,15 +59,11 @@ def generate_replenishment_run(
     if not supplier.is_active:
         raise ValueError(f"Supplier is inactive: {supplier_code}")
 
-    receipt_date = get_receipt_date(run_date, run_type)
-    pre_receipt_dates = get_pre_receipt_dates(run_date, run_type, include_today_demand)
-    cover_dates = get_cover_dates_after_receipt(receipt_date, run_type)
+    cover_dates = get_cover_dates(run_date)
+    all_needed_weekdays = list(set(d.weekday() for d in cover_dates))
 
-    all_needed_weekdays = list(set(d.weekday() for d in pre_receipt_dates + cover_dates))
-
-    logger.info(f"Run {run_type} on {run_date}: receipt={receipt_date}, "
-                f"pre_receipt={[str(d) for d in pre_receipt_dates]}, "
-                f"cover={[str(d) for d in cover_dates]}")
+    logger.info(f"Run on {run_date}: cover {COVER_DAYS} days "
+                f"({[str(d) for d in cover_dates]})")
 
     stock_snapshot = fetch_supplier_stock(supplier_code, REPLENISHMENT_WAREHOUSE_STORE)
     if not stock_snapshot:
@@ -87,7 +78,6 @@ def generate_replenishment_run(
 
     forecast_sources = resolve_forecast_sources(item_codes, weekday_avgs, fallback_avgs)
 
-    pre_forecast = get_forecast_for_dates(item_codes, pre_receipt_dates, weekday_avgs, fallback_avgs)
     cover_forecast = get_forecast_for_dates(item_codes, cover_dates, weekday_avgs, fallback_avgs)
 
     items_weekday = sum(1 for ic in item_codes if forecast_sources.get(ic) == "weekday_average")
@@ -100,9 +90,9 @@ def generate_replenishment_run(
         supplier_code=supplier_code,
         supplier_name=supplier.supplier_name,
         run_date=run_date,
-        run_type=run_type,
-        receipt_date=receipt_date,
-        include_today_demand=include_today_demand,
+        run_type='weekly',
+        receipt_date=run_date,
+        include_today_demand=True,
         status='draft',
         created_by=current_user.username if current_user else None,
     )
@@ -123,10 +113,7 @@ def generate_replenishment_run(
         ordered_now = api_data["ordered_now_units"]
         on_transfer_now = api_data["on_transfer_now_units"]
 
-        available_base = stock_now - reserved_now + ordered_now
-
-        pre_receipt_fcst = sum(pre_forecast.get(item_code, {}).get(d, 0) for d in pre_receipt_dates)
-        projected_at_receipt = available_base - pre_receipt_fcst
+        net_available = stock_now - reserved_now + ordered_now
 
         cover_fcst = sum(cover_forecast.get(item_code, {}).get(d, 0) for d in cover_dates)
 
@@ -134,11 +121,11 @@ def generate_replenishment_run(
         min_order_cases = float(settings.get("min_order_cases") or 1)
         safety_days = float(settings.get("safety_days_override") or 1.0)
 
-        num_cover_dates = len(cover_dates)
-        avg_daily_cover = cover_fcst / num_cover_dates if num_cover_dates > 0 else 0
+        avg_daily_cover = cover_fcst / COVER_DAYS if COVER_DAYS > 0 else 0
         safety_stock = avg_daily_cover * safety_days
 
-        raw_needed = max(0, cover_fcst + safety_stock - projected_at_receipt)
+        target_stock = cover_fcst + safety_stock
+        raw_needed = max(0, target_stock - net_available)
 
         if case_qty and case_qty > 0 and raw_needed > 0:
             suggested_cases = math.ceil(raw_needed / case_qty)
@@ -149,20 +136,19 @@ def generate_replenishment_run(
             suggested_units = 0
 
         warnings = _build_warnings(
-            case_qty, projected_at_receipt, reserved_now, ordered_now,
-            expiry, suggested_cases, pre_receipt_fcst, cover_fcst,
-            available_base, fcst_source
+            case_qty, net_available - cover_fcst, reserved_now, ordered_now,
+            expiry, suggested_cases, 0, cover_fcst,
+            net_available, fcst_source
         )
         warning_code = warnings[0][0] if warnings else None
         warning_text = warnings[0][1] if warnings else None
 
         explanation = (
-            f"Available base = stock {stock_now:.0f} - reserved {reserved_now:.0f} "
-            f"+ ordered {ordered_now:.0f} = {available_base:.0f}. "
-            f"Pre-receipt forecast {pre_receipt_fcst:.1f} => "
-            f"projected at receipt {projected_at_receipt:.1f}. "
-            f"Cover forecast {cover_fcst:.1f} + safety {safety_stock:.1f} "
-            f"=> raw need {raw_needed:.1f}. "
+            f"Net available = stock {stock_now:.0f} - reserved {reserved_now:.0f} "
+            f"+ ordered {ordered_now:.0f} = {net_available:.0f}. "
+            f"{COVER_DAYS}-day forecast {cover_fcst:.1f} + safety {safety_stock:.1f} "
+            f"= target {target_stock:.1f}. "
+            f"Raw need {raw_needed:.1f}. "
             f"Forecast source: {fcst_source}."
         )
 
@@ -171,7 +157,7 @@ def generate_replenishment_run(
             weekday_avgs_used[str(wd)] = weekday_avgs.get(item_code, {}).get(wd, 0)
 
         calc_json = {
-            "pre_receipt_dates": [str(d) for d in pre_receipt_dates],
+            "cover_days": COVER_DAYS,
             "cover_dates": [str(d) for d in cover_dates],
             "weekday_averages": weekday_avgs_used,
             "forecast_source": fcst_source,
@@ -179,12 +165,11 @@ def generate_replenishment_run(
             "fallback_avg_90d": fb_info.get("avg_90d", 0),
             "fallback_avg_180d": fb_info.get("avg_180d", 0),
             "fallback_daily_avg": fb_info.get("daily_avg", 0),
-            "available_base_units": available_base,
-            "pre_receipt_forecast_units": pre_receipt_fcst,
-            "projected_units_at_receipt": projected_at_receipt,
+            "net_available_units": net_available,
             "cover_forecast_units": cover_fcst,
             "safety_days": safety_days,
             "safety_stock_units": safety_stock,
+            "target_stock_units": target_stock,
             "raw_needed_units": raw_needed,
             "case_qty_units": case_qty or 0,
             "case_qty_source": case_qty_source,
@@ -201,9 +186,9 @@ def generate_replenishment_run(
             reserved_now_units=Decimal(str(reserved_now)),
             ordered_now_units=Decimal(str(ordered_now)),
             on_transfer_now_units=Decimal(str(on_transfer_now)),
-            available_base_units=Decimal(str(available_base)),
-            pre_receipt_forecast_units=Decimal(str(round(pre_receipt_fcst, 2))),
-            projected_units_at_receipt=Decimal(str(round(projected_at_receipt, 2))),
+            available_base_units=Decimal(str(net_available)),
+            pre_receipt_forecast_units=Decimal("0"),
+            projected_units_at_receipt=Decimal(str(round(net_available, 2))),
             cover_forecast_units=Decimal(str(round(cover_fcst, 2))),
             safety_stock_units=Decimal(str(round(safety_stock, 2))),
             raw_needed_units=Decimal(str(round(raw_needed, 2))),

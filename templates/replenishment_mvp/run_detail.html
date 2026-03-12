@@ -65,20 +65,8 @@
         <div class="col-md-2">
             <div class="card bg-dark border-secondary">
                 <div class="card-body py-2 text-center">
-                    <div class="small text-muted">Run Type</div>
-                    <div class="fw-bold">
-                        <span class="badge bg-{% if run.run_type == 'tuesday' %}info{% else %}warning{% endif %}">
-                            {{ run.run_type|capitalize }}
-                        </span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card bg-dark border-secondary">
-                <div class="card-body py-2 text-center">
-                    <div class="small text-muted">Receipt Date</div>
-                    <div class="fw-bold text-success">{{ run.receipt_date }}</div>
+                    <div class="small text-muted">Cover</div>
+                    <div class="fw-bold text-success">7 days</div>
                 </div>
             </div>
         </div>
