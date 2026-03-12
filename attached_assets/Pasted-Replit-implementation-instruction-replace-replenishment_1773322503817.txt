@@ -1,0 +1,546 @@
+Replit implementation instruction — replace replenishment logic with date-independent 7-day stock cover
+
+We need to change the replenishment engine, not just the forecast display.
+
+Business rule
+
+Replenishment must ignore calendar date patterns and simply maintain approximately 7 days of stock forward.
+
+This means:
+
+do not forecast based on the weekdays of the next 7 dates
+
+do not use “same weekday averages” as the main replenishment driver
+
+do not depend on a run type if replenishment now follows one fixed policy
+
+1) Remove old weekday-based replenishment logic
+
+Please remove the current replenishment logic that:
+
+identifies the weekdays in the next 7-day horizon
+
+looks back to the last 4 same weekdays
+
+averages them
+
+sums those weekday averages to produce a 7-day forecast
+
+That logic is not aligned with the new business rule.
+
+Keep any historical code only if needed for audit, but it must not drive replenishment anymore.
+
+2) Replace it with weekly-demand-based replenishment
+
+Build replenishment from recent weekly demand history.
+
+Required basis
+
+use real invoice dates from invoice header
+
+aggregate demand into full weekly buckets per SKU
+
+fill missing weeks with zero
+
+use the last 26 weeks for classification
+
+use gross sales demand as the main demand signal
+
+keep returns/credits separate for diagnostics, not as the main forecast driver
+
+3) Demand classification by SKU
+
+For each SKU, classify using the last 26 full weeks.
+
+Store at least:
+
+weeks_total_26
+
+weeks_non_zero_26
+
+sales_frequency_26
+
+ADI
+
+avg_non_zero
+
+std_non_zero
+
+CV²
+
+demand_class
+
+Demand classes
+
+smooth
+
+erratic
+
+intermittent
+
+lumpy
+
+new_sparse
+
+no_demand
+
+Rules
+
+if no sales in last 26 weeks → no_demand
+
+if only very limited history / too few non-zero weeks → new_sparse
+
+otherwise use ADI and CV²:
+
+ADI < 1.32 and CV² < 0.49 → smooth
+
+ADI < 1.32 and CV² >= 0.49 → erratic
+
+ADI >= 1.32 and CV² < 0.49 → intermittent
+
+ADI >= 1.32 and CV² >= 0.49 → lumpy
+
+4) Base forecast method by demand class
+Smooth
+
+Use:
+
+MA8 = average of last 8 weekly quantities
+
+Intermittent / Lumpy
+
+Use:
+
+Median6 = median of last 6 weekly quantities
+
+Erratic
+
+For now, use:
+
+MA8
+but set review flag more aggressively
+
+No demand
+
+Use:
+
+weekly_forecast = 0
+and flag for review if stock exists or item is active
+
+New / sparse
+
+This is important.
+
+If an item has only 1 week sales or very little history, do not trust its own history alone.
+
+Classify it as:
+
+new_sparse
+
+low confidence
+
+review required
+
+Use this fallback logic:
+
+Preferred method
+
+If a good analogue exists:
+
+same supplier if available
+
+else same brand
+
+else same prefix/category
+
+Then use:
+
+seeded_weekly_forecast = 0.35 × first_week_sales + 0.65 × analogue_baseline
+
+If only weak analogue exists
+
+Use:
+
+seeded_weekly_forecast = 0.50 × first_week_sales + 0.50 × brand/prefix baseline
+
+If no analogue exists
+
+Use:
+
+seeded_weekly_forecast = first_week_sales × 0.50
+
+Do not use MA8 for items with only 1 week sales.
+
+Store:
+
+forecast_method = SEEDED
+
+forecast_confidence = low
+
+review_flag = true
+
+seed_source = supplier/brand/prefix/none
+
+5) Convert weekly forecast to daily forecast
+
+After selecting the weekly forecast:
+
+daily_forecast = weekly_forecast / 7
+
+This is the base for replenishment.
+
+6) Trend handling
+
+For smooth items only, add a controlled recent trend adjustment.
+
+Calculate:
+
+MA8
+
+AvgLast2 = average of last 2 weekly quantities
+
+Uptrend rule
+
+If:
+
+AvgLast2 > MA8 × 1.15
+
+Then:
+
+trend_flag = up
+
+trend_adjusted_weekly = min(MA8 × 1.25, MA8 + 0.5 × (AvgLast2 - MA8))
+
+Downtrend rule
+
+If:
+
+both of last 2 weeks are below MA8
+
+and AvgLast2 < MA8 × 0.90
+
+Then:
+
+trend_flag = down
+
+trend_adjusted_weekly = max(MA8 × 0.75, MA8 - 0.5 × (MA8 - AvgLast2))
+
+Else:
+
+trend_flag = flat
+
+trend_adjusted_weekly = MA8
+
+For non-smooth items in phase 1:
+
+trend_adjusted_weekly = base_weekly_forecast
+
+7) Replenishment formula
+Fixed replenishment policy
+
+The replenishment engine should now follow one policy:
+
+hold about 7 days of stock forward
+
+Use:
+
+target_stock_qty = daily_forecast × (cover_days + lead_time_days + review_cycle_days) + safety_or_buffer_qty
+
+Then:
+
+net_available_qty = on_hand_qty + incoming_qty - reserved_qty
+
+Then:
+
+raw_recommended_order_qty = max(0, target_stock_qty - net_available_qty)
+
+Then round:
+
+respect MOQ
+
+respect case qty
+
+respect order multiple if configured
+
+Return:
+
+rounded_order_qty
+
+Defaults
+
+cover_days = 7
+
+review_cycle_days = 1
+
+lead_time_days from supplier/item settings, else default 0 until configured
+
+8) Safety stock / buffer stock
+
+Please check the current calculation carefully.
+
+For SNA-0118, the previous screen showed:
+
+forecast for 7 days = 56.73
+
+safety stock = 8.1
+
+Since 56.73 / 7 ≈ 8.1, it looks like the current “safety stock” may just be 1 day of forecast, not true safety stock.
+
+Required action
+
+Please verify exactly how this field is calculated.
+
+If it is just one extra day of demand, then:
+
+either rename it to buffer_stock_qty
+
+or implement a true statistical safety stock formula later
+
+For now, honesty and clarity are more important than pretending it is statistical safety stock.
+
+My preference for phase 1:
+
+use buffer_stock_qty
+
+and make it configurable
+
+default it to either 0 or 1 day of demand, but label it correctly
+
+Do not call it statistical safety stock unless it is actually calculated as one.
+
+9) SNA-0118 debug validation
+
+Please produce an exact debug breakdown for SNA-0118 and show the intermediate values used by the code.
+
+Return:
+
+last 26 full weekly quantities
+
+demand class
+
+MA8
+
+Median6
+
+selected forecast method
+
+weekly forecast
+
+daily forecast
+
+trend flag
+
+trend-adjusted weekly forecast
+
+cover days
+
+lead time days
+
+review cycle days
+
+safety/buffer stock formula used
+
+target stock formula used
+
+on hand
+
+incoming
+
+reserved
+
+net available
+
+raw order qty
+
+rounded order qty
+
+Also check the old weekday explanation.
+
+If weekday averages were:
+
+Mon = 12
+
+Tue = 26
+
+Wed = 10
+
+Thu-Sun = 0
+
+then a 7-day one-of-each-weekday horizon totals 48, not 56.73.
+
+Please show the exact intermediate numbers the code actually used so we can determine whether:
+
+the code is wrong
+
+another adjustment was applied
+
+or the earlier explanation was incorrect
+
+10) UI changes for replenishment screen
+
+Please simplify the replenishment UI so it matches the new logic.
+
+Remove
+
+run type from replenishment if there is now only one replenishment policy
+
+If we still need separate admin actions for:
+
+sync
+
+rebuild weekly fact
+
+rerun forecast
+those can remain as admin actions, but not as replenishment run types.
+
+Per-SKU detail block
+
+Show a clear explainability block like this:
+
+Demand class
+
+Method used
+
+Last 8 weeks
+
+Weekly forecast
+
+Daily forecast
+
+Cover days
+
+Lead time
+
+Review cycle
+
+Buffer/Safety stock
+
+Target stock
+
+On hand
+
+Incoming
+
+Reserved
+
+Net available
+
+Recommended order
+
+Rounded order
+
+Example format:
+
+Demand class: Smooth
+
+Method: MA8
+
+Last 8 weeks: 5,6,5,4,6,6,5,4
+
+Weekly forecast: 5.13
+
+Daily forecast: 0.73
+
+Cover days: 7
+
+Lead time: 2
+
+Review cycle: 1
+
+Buffer stock: 1.5
+
+Target stock: 8.8
+
+Net available: 3.0
+
+Recommended order: 6
+
+Rounded order: 6
+
+This is much clearer than weekday averages for a date-independent replenishment system.
+
+11) Data to store
+
+Please store the calculated replenishment inputs and outputs so the UI does not recompute everything live.
+
+At minimum store per SKU:
+
+demand_class
+
+forecast_method
+
+forecast_confidence
+
+weeks_non_zero_26
+
+ADI
+
+CV²
+
+base_weekly_forecast
+
+trend_flag
+
+trend_adjusted_weekly_forecast
+
+daily_forecast
+
+cover_days
+
+lead_time_days
+
+review_cycle_days
+
+buffer_or_safety_stock_qty
+
+target_stock_qty
+
+on_hand_qty
+
+incoming_qty
+
+reserved_qty
+
+net_available_qty
+
+raw_recommended_order_qty
+
+rounded_order_qty
+
+review_flag
+
+review_reason
+
+For new items also store:
+
+seed_source
+
+analogue_item_code if used
+
+analogue_level (supplier, brand, prefix, none)
+
+12) Acceptance criteria
+
+This change is complete when:
+
+Replenishment no longer uses weekday-based next-date forecasting.
+
+Replenishment uses weekly demand history with zero-filled weeks.
+
+Smooth items use MA8.
+
+Intermittent/lumpy items use Median6.
+
+New items with only 1 week sales use SEEDED logic, not MA8.
+
+Daily forecast is derived from weekly forecast.
+
+Target stock is based on 7-day stock cover, not calendar weekday logic.
+
+MOQ/case/order multiple rounding works correctly.
+
+The field called safety stock is either proven correct or renamed to buffer stock.
+
+The UI clearly explains how each order quantity was produced.
+
+SNA-0118 can be debugged with a full intermediate-value breakdown.

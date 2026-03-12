@@ -1,0 +1,165 @@
+Replit change request — replenishment logic
+
+The current replenishment logic appears to forecast demand by summing same-weekday averages over the next 7 cover dates. That is not aligned with the current business rule.
+
+New business rule
+
+Replenishment must ignore calendar date patterns and simply maintain approximately 7 days of stock forward.
+
+Required changes
+
+Remove weekday-based cover-date forecasting from replenishment
+
+Do not forecast by looking at the weekdays of the next 7 dates.
+
+Do not use last 4 same-weekday averages as the main replenishment driver.
+
+Use recent weekly demand history instead
+
+Build complete weekly buckets per SKU.
+
+Fill missing weeks with zero.
+
+Use last 26 weeks for classification.
+
+Choose replenishment base forecast by demand class
+
+smooth → MA8
+
+intermittent / lumpy → Median6
+
+new_sparse → simple recent non-zero average + review flag
+
+no_demand → 0 + review if stock exists
+
+Convert weekly forecast to daily forecast
+
+daily_forecast = weekly_forecast / 7
+
+Target stock formula
+
+target_stock = daily_forecast × (cover_days + lead_time_days + review_cycle_days) + safety_stock
+
+Recommended order
+
+recommended_order = max(0, target_stock - net_available_qty)
+
+Rounding
+
+respect MOQ
+
+respect case qty / order multiple
+
+Safety stock
+
+check current calculation for SNA-0118
+
+if safety stock equals one day of forecast, do not label it as statistical safety stock
+
+either:
+
+rename it to buffer_stock_qty
+
+or implement a real safety stock formula
+
+UI cleanup
+
+remove run type from replenishment if only one replenishment policy now exists
+
+keep separate admin actions for sync / rebuild if needed, but not as replenishment run types
+
+Explainability
+
+for each SKU show:
+
+weekly demand history
+
+demand class
+
+method used
+
+weekly forecast
+
+daily forecast
+
+safety/buffer stock
+
+target stock
+
+recommended order
+
+What I would specifically ask Replit to verify for SNA-0118
+
+Tell them to produce an exact debug breakdown for this SKU:
+
+last 26 full weekly quantities
+
+demand class
+
+MA8
+
+Median6
+
+selected method
+
+daily forecast
+
+safety stock formula used
+
+target stock formula used
+
+on hand
+
+incoming
+
+reserved
+
+net available
+
+raw order qty
+
+rounded order qty
+
+Also tell them:
+
+The weekday explanation is inconsistent. If weekday averages are Mon=12, Tue=26, Wed=10, Thu-Sun=0, then a 7-day one-of-each-weekday horizon totals 48, not 56.73. Please show the exact intermediate numbers used by the code for SNA-0118.
+
+That should expose whether the logic is:
+
+wrong,
+
+mixed with another adjustment,
+
+or just explained incorrectly.
+
+My recommendation on the UI
+
+For the replenishment detail screen, show this block per SKU:
+
+Demand class: Smooth
+
+Method: MA8
+
+Last 8 weeks: 5,6,5,4,6,6,5,4
+
+Weekly forecast: 5.13
+
+Daily forecast: 0.73
+
+Cover days: 7
+
+Lead time: 2
+
+Review cycle: 1
+
+Buffer/Safety stock: 1.5
+
+Target stock: 8.8
+
+Net available: 3.0
+
+Recommended order: 6
+
+Rounded order: 6
+
+That is much clearer than weekday averages for a date-independent replenishment system.
