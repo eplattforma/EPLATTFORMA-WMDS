@@ -2,7 +2,7 @@ import logging
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, and_, case, distinct
+from sqlalchemy import func, and_, case, distinct, text
 from sqlalchemy.orm import Session
 
 from models import DwInvoiceHeader, DwInvoiceLine, FactSalesWeeklyItem
@@ -13,13 +13,6 @@ logger = logging.getLogger(__name__)
 RETURN_TYPES = ["RETURN", "CREDIT_NOTE", "SALES_RETURN", "CREDIT", "REFUND"]
 
 
-def _is_return_type(invoice_type: str) -> bool:
-    if not invoice_type:
-        return False
-    upper = invoice_type.upper().strip()
-    return any(rt in upper for rt in RETURN_TYPES)
-
-
 def _monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
@@ -27,13 +20,7 @@ def _monday_of(d: date) -> date:
 def build_weekly_sales(session: Session, weeks_back: int = 52):
     cutoff = _monday_of(date.today()) - timedelta(weeks=weeks_back)
     logger.info(f"Building weekly sales from {cutoff} (last {weeks_back} weeks)")
-
-    session.query(FactSalesWeeklyItem).filter(
-        FactSalesWeeklyItem.week_start >= cutoff
-    ).delete(synchronize_session=False)
-    session.flush()
-
-    _aggregate_and_insert(session, cutoff)
+    _aggregate_and_upsert(session, cutoff)
 
 
 def update_weekly_sales(session: Session, since_date: date = None):
@@ -43,16 +30,10 @@ def update_weekly_sales(session: Session, since_date: date = None):
         since_date = _monday_of(since_date)
 
     logger.info(f"Incremental weekly sales update from {since_date}")
-
-    session.query(FactSalesWeeklyItem).filter(
-        FactSalesWeeklyItem.week_start >= since_date
-    ).delete(synchronize_session=False)
-    session.flush()
-
-    _aggregate_and_insert(session, since_date)
+    _aggregate_and_upsert(session, since_date)
 
 
-def _aggregate_and_insert(session: Session, cutoff: date):
+def _aggregate_and_upsert(session: Session, cutoff: date):
     is_return = case(
         *[(DwInvoiceHeader.invoice_type.ilike(f"%{rt}%"), True) for rt in RETURN_TYPES],
         else_=False,
@@ -96,9 +77,7 @@ def _aggregate_and_insert(session: Session, cutoff: date):
     )
 
     invoice_count_expr = func.count(distinct(DwInvoiceLine.invoice_no_365))
-
     customer_count_expr = func.count(distinct(DwInvoiceHeader.customer_code_365))
-
     week_start_expr = func.date_trunc('week', DwInvoiceHeader.invoice_date_utc0)
 
     rows = (
@@ -122,39 +101,60 @@ def _aggregate_and_insert(session: Session, cutoff: date):
         .all()
     )
 
-    inserted = 0
+    logger.info(f"Aggregated {len(rows)} weekly-item rows, upserting in batches...")
+
+    upserted = 0
     now = get_utc_now()
-    batch_size = 100
-    
-    for r in rows:
-        ws = r.week_start
-        if isinstance(ws, str):
-            ws = date.fromisoformat(ws[:10])
-        elif hasattr(ws, 'date'):
-            ws = ws.date()
+    batch_size = 50
 
-        gross = Decimal(str(r.gross_qty or 0))
-        ret = Decimal(str(r.return_qty or 0))
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        for r in batch:
+            ws = r.week_start
+            if isinstance(ws, str):
+                ws = date.fromisoformat(ws[:10])
+            elif hasattr(ws, 'date'):
+                ws = ws.date()
 
-        fact = FactSalesWeeklyItem(
-            week_start=ws,
-            item_code_365=r.item_code_365,
-            gross_qty=gross,
-            return_qty=ret,
-            net_qty=gross - ret,
-            invoice_count=r.invoice_count or 0,
-            customer_count=r.customer_count or 0,
-            sales_ex_vat=Decimal(str(r.sales_ex_vat or 0)),
-            discount_value=Decimal(str(r.discount_value or 0)),
-            updated_at=now,
-        )
-        session.add(fact)
-        inserted += 1
-        
-        if inserted % batch_size == 0:
-            session.flush()
-            logger.debug(f"Flushed {inserted} rows...")
+            gross = Decimal(str(r.gross_qty or 0))
+            ret = Decimal(str(r.return_qty or 0))
 
-    session.flush()
-    logger.info(f"Inserted {inserted} weekly sales rows")
-    return inserted
+            session.execute(
+                text("""
+                    INSERT INTO fact_sales_weekly_item
+                        (week_start, item_code_365, gross_qty, return_qty, net_qty,
+                         invoice_count, customer_count, sales_ex_vat, discount_value, updated_at)
+                    VALUES
+                        (:ws, :item, :gross, :ret, :net, :inv_cnt, :cust_cnt, :sales, :disc, :upd)
+                    ON CONFLICT (week_start, item_code_365) DO UPDATE SET
+                        gross_qty = EXCLUDED.gross_qty,
+                        return_qty = EXCLUDED.return_qty,
+                        net_qty = EXCLUDED.net_qty,
+                        invoice_count = EXCLUDED.invoice_count,
+                        customer_count = EXCLUDED.customer_count,
+                        sales_ex_vat = EXCLUDED.sales_ex_vat,
+                        discount_value = EXCLUDED.discount_value,
+                        updated_at = EXCLUDED.updated_at
+                """),
+                {
+                    "ws": ws,
+                    "item": r.item_code_365,
+                    "gross": gross,
+                    "ret": ret,
+                    "net": gross - ret,
+                    "inv_cnt": r.invoice_count or 0,
+                    "cust_cnt": r.customer_count or 0,
+                    "sales": Decimal(str(r.sales_ex_vat or 0)),
+                    "disc": Decimal(str(r.discount_value or 0)),
+                    "upd": now,
+                },
+            )
+            upserted += 1
+
+        session.commit()
+        if upserted % 500 == 0:
+            logger.info(f"Upserted {upserted}/{len(rows)} rows...")
+
+    session.commit()
+    logger.info(f"Completed: upserted {upserted} weekly sales rows")
+    return upserted
