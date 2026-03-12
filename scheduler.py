@@ -106,9 +106,69 @@ def setup_scheduler(app):
 
         scheduler.start()
         logger.info("Background scheduler started successfully")
+
+        if is_production:
+            import threading
+            t = threading.Thread(target=_check_missed_syncs_on_startup, daemon=True)
+            t.start()
         
     except Exception as e:
         logger.error(f"Error setting up scheduler: {str(e)}", exc_info=True)
+
+
+def _check_missed_syncs_on_startup():
+    import time
+    time.sleep(30)
+    try:
+        from app import app, db
+        from models import PS365SyncLog
+        from datetime import timedelta
+        with app.app_context():
+            now = datetime.utcnow()
+            logger.info("Checking for missed scheduled syncs after startup...")
+
+            last_full = (
+                PS365SyncLog.query
+                .filter(PS365SyncLog.sync_type == 'FULL_DW_UPDATE')
+                .filter(PS365SyncLog.status.in_(['COMPLETED', 'COMPLETED_WITH_ERRORS']))
+                .order_by(PS365SyncLog.started_at.desc())
+                .first()
+            )
+            hours_since_full = None
+            if last_full and last_full.started_at:
+                hours_since_full = (now - last_full.started_at).total_seconds() / 3600
+                logger.info(f"Last successful full DW sync: {last_full.started_at} ({hours_since_full:.1f}h ago)")
+            else:
+                logger.info("No previous full DW sync found")
+
+            if hours_since_full is None or hours_since_full > 20:
+                logger.info("Full DW sync is overdue (>20h or never ran) — triggering now")
+                _run_full_sync()
+            else:
+                logger.info(f"Full DW sync is recent ({hours_since_full:.1f}h ago), skipping")
+
+            last_invoice = (
+                PS365SyncLog.query
+                .filter(PS365SyncLog.sync_type == 'INVOICE_SYNC')
+                .filter(PS365SyncLog.status.in_(['COMPLETED', 'COMPLETED_WITH_ERRORS']))
+                .order_by(PS365SyncLog.started_at.desc())
+                .first()
+            )
+            hours_since_inv = None
+            if last_invoice and last_invoice.started_at:
+                hours_since_inv = (now - last_invoice.started_at).total_seconds() / 3600
+                logger.info(f"Last successful invoice sync: {last_invoice.started_at} ({hours_since_inv:.1f}h ago)")
+            else:
+                logger.info("No previous invoice sync found")
+
+            if hours_since_inv is None or hours_since_inv > 20:
+                logger.info("Invoice sync is overdue (>20h or never ran) — triggering now")
+                _run_invoice_sync()
+            else:
+                logger.info(f"Invoice sync is recent ({hours_since_inv:.1f}h ago), skipping")
+
+    except Exception as e:
+        logger.error(f"Error checking missed syncs on startup: {str(e)}", exc_info=True)
 
 
 def stop_scheduler():
