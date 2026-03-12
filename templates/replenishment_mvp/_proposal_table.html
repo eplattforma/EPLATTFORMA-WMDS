@@ -4,24 +4,23 @@
             <tr>
                 <th>Item Code</th>
                 <th>Item Name</th>
+                <th class="text-center">Class</th>
+                <th class="text-center">Method</th>
                 <th class="text-end">Case Qty</th>
-                <th class="text-end">Stock Now</th>
-                <th class="text-end">Reserved</th>
-                <th class="text-end">Ordered</th>
-
-                <th class="text-end">Available</th>
-                <th class="text-end">Pre-Rcpt Fcst</th>
-                <th class="text-end">Proj@Rcpt</th>
-                <th class="text-end">Cover Fcst</th>
-                <th class="text-end">Safety</th>
+                <th class="text-end">Stock</th>
+                <th class="text-end">Rsvd</th>
+                <th class="text-end">Ord</th>
+                <th class="text-end">Net Avail</th>
+                <th class="text-end">Wkly Fcst</th>
+                <th class="text-end">Daily Fcst</th>
+                <th class="text-end">Buffer</th>
+                <th class="text-end">Target</th>
                 <th class="text-end text-info">Sugg Cases</th>
                 <th class="text-end text-info">Sugg Units</th>
-                <th class="text-end">Expiry</th>
-                <th class="text-end">Exp Qty</th>
                 <th class="text-center" style="min-width:90px;">Final Cases</th>
                 <th class="text-end">Final Units</th>
                 <th>Warning</th>
-                <th>Explanation</th>
+                <th style="width:40px;"></th>
             </tr>
         </thead>
         <tbody>
@@ -29,6 +28,12 @@
             <tr class="{% if l.warning_code == 'CASE_QTY_MISSING' %}table-danger{% elif l.warning_code == 'NEGATIVE_PROJECTED_STOCK' %}table-warning{% elif l.suggested_cases > 0 %}{% endif %}">
                 <td><span class="text-info small">{{ l.item_code_365 }}</span></td>
                 <td class="small">{{ l.item_name or '' }}</td>
+                <td class="text-center">
+                    {% set dc = l.calc_json.get('demand_class', '') if l.calc_json else '' %}
+                    <span class="badge bg-{% if dc == 'smooth' %}success{% elif dc == 'erratic' %}warning text-dark{% elif dc == 'intermittent' %}primary{% elif dc == 'lumpy' %}danger{% elif dc == 'new_sparse' %}secondary{% else %}dark{% endif %}"
+                          style="font-size:0.65rem;">{{ dc }}</span>
+                </td>
+                <td class="text-center small">{{ l.calc_json.get('forecast_method', '') if l.calc_json else '' }}</td>
                 <td class="text-end">{{ l.case_qty_units|float|int if l.case_qty_units else '-' }}</td>
                 <td class="text-end">{{ l.stock_now_units|float|int }}</td>
                 <td class="text-end {% if l.reserved_now_units > 0 %}text-warning{% endif %}">
@@ -37,18 +42,13 @@
                 <td class="text-end {% if l.ordered_now_units > 0 %}text-info{% endif %}">
                     {{ l.ordered_now_units|float|int }}
                 </td>
-
                 <td class="text-end fw-bold">{{ l.available_base_units|float|int }}</td>
-                <td class="text-end">{{ "%.1f"|format(l.pre_receipt_forecast_units|float) }}</td>
-                <td class="text-end {% if l.projected_units_at_receipt < 0 %}text-danger fw-bold{% endif %}">
-                    {{ "%.1f"|format(l.projected_units_at_receipt|float) }}
-                </td>
-                <td class="text-end">{{ "%.1f"|format(l.cover_forecast_units|float) }}</td>
+                <td class="text-end">{{ "%.2f"|format(l.calc_json.get('final_weekly_forecast', 0) if l.calc_json else 0) }}</td>
+                <td class="text-end">{{ "%.2f"|format(l.calc_json.get('final_daily_forecast', 0) if l.calc_json else 0) }}</td>
                 <td class="text-end text-muted">{{ "%.1f"|format(l.safety_stock_units|float) }}</td>
+                <td class="text-end">{{ "%.1f"|format(l.calc_json.get('target_stock_qty', 0) if l.calc_json else 0) }}</td>
                 <td class="text-end fw-bold text-info">{{ l.suggested_cases|float|int }}</td>
                 <td class="text-end text-info">{{ l.suggested_units|float|int }}</td>
-                <td class="text-end small text-muted">{{ l.earliest_expiry_date or '' }}</td>
-                <td class="text-end small">{{ l.qty_at_earliest_expiry|float|int if l.qty_at_earliest_expiry else '' }}</td>
                 <td class="text-center">
                     <input type="number" name="final_cases_{{ l.id }}" min="0" step="1"
                            class="form-control form-control-sm bg-dark text-white border-secondary text-center final-cases-input"
@@ -68,12 +68,98 @@
                     </span>
                     {% endif %}
                 </td>
-                <td class="small text-muted" style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
-                    title="{{ l.explanation_text or '' }}">
-                    {{ l.explanation_text or '' }}
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                            onclick="toggleDetail('detail-{{ l.id }}')" title="Show forecast detail">
+                        <i class="fas fa-chevron-down" id="icon-detail-{{ l.id }}"></i>
+                    </button>
+                </td>
+            </tr>
+            <tr id="detail-{{ l.id }}" style="display:none;" class="bg-dark">
+                <td colspan="19" class="p-3">
+                    {% if l.calc_json %}
+                    <div class="row small">
+                        <div class="col-md-3">
+                            <h6 class="text-info mb-2">Demand Classification</h6>
+                            <table class="table table-sm table-dark mb-0" style="font-size:0.8rem;">
+                                <tr><td class="text-muted">Demand class</td><td class="fw-bold">{{ l.calc_json.get('demand_class', '-') }}</td></tr>
+                                <tr><td class="text-muted">Method</td><td>{{ l.calc_json.get('forecast_method', '-') }}</td></tr>
+                                <tr><td class="text-muted">Confidence</td><td>{{ l.calc_json.get('forecast_confidence', '-') }}</td></tr>
+                                <tr><td class="text-muted">Trend</td><td>{{ l.calc_json.get('trend_flag', 'flat') }}</td></tr>
+                                {% if l.calc_json.get('weeks_non_zero_26') is not none %}
+                                <tr><td class="text-muted">Weeks w/ sales (26)</td><td>{{ l.calc_json.get('weeks_non_zero_26', 0) }}</td></tr>
+                                {% endif %}
+                                {% if l.calc_json.get('adi_26') %}
+                                <tr><td class="text-muted">ADI</td><td>{{ "%.2f"|format(l.calc_json.get('adi_26', 0)) }}</td></tr>
+                                {% endif %}
+                                {% if l.calc_json.get('cv2_26') %}
+                                <tr><td class="text-muted">CV²</td><td>{{ "%.4f"|format(l.calc_json.get('cv2_26', 0)) }}</td></tr>
+                                {% endif %}
+                                {% if l.calc_json.get('seed_source') %}
+                                <tr><td class="text-muted">Seed source</td><td>{{ l.calc_json.get('seed_source', '-') }}</td></tr>
+                                {% endif %}
+                            </table>
+                        </div>
+                        <div class="col-md-3">
+                            <h6 class="text-info mb-2">Forecast</h6>
+                            <table class="table table-sm table-dark mb-0" style="font-size:0.8rem;">
+                                <tr><td class="text-muted">Base weekly</td><td>{{ "%.2f"|format(l.calc_json.get('base_weekly_forecast', 0)) }}</td></tr>
+                                <tr><td class="text-muted">Trend-adjusted weekly</td><td>{{ "%.2f"|format(l.calc_json.get('trend_adjusted_weekly', 0)) }}</td></tr>
+                                <tr><td class="text-muted">Final weekly</td><td class="fw-bold">{{ "%.2f"|format(l.calc_json.get('final_weekly_forecast', 0)) }}</td></tr>
+                                <tr><td class="text-muted">Final daily</td><td class="fw-bold">{{ "%.2f"|format(l.calc_json.get('final_daily_forecast', 0)) }}</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-3">
+                            <h6 class="text-info mb-2">Replenishment</h6>
+                            <table class="table table-sm table-dark mb-0" style="font-size:0.8rem;">
+                                <tr><td class="text-muted">Cover days</td><td>{{ l.calc_json.get('cover_days', 7) }}</td></tr>
+                                <tr><td class="text-muted">Lead time</td><td>{{ l.calc_json.get('lead_time_days', 0) }}d</td></tr>
+                                <tr><td class="text-muted">Review cycle</td><td>{{ l.calc_json.get('review_cycle_days', 1) }}d</td></tr>
+                                <tr><td class="text-muted">Total cover</td><td class="fw-bold">{{ l.calc_json.get('total_cover_days', 8) }}d</td></tr>
+                                <tr><td class="text-muted">Buffer stock ({{ l.calc_json.get('buffer_days', 1) }}d)</td><td>{{ "%.1f"|format(l.calc_json.get('buffer_stock_qty', 0)) }}</td></tr>
+                                <tr><td class="text-muted">Target stock</td><td class="fw-bold text-success">{{ "%.1f"|format(l.calc_json.get('target_stock_qty', 0)) }}</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-3">
+                            <h6 class="text-info mb-2">Stock & Order</h6>
+                            <table class="table table-sm table-dark mb-0" style="font-size:0.8rem;">
+                                <tr><td class="text-muted">On hand</td><td>{{ l.calc_json.get('stock_now', 0)|int }}</td></tr>
+                                <tr><td class="text-muted">Reserved</td><td>{{ l.calc_json.get('reserved_now', 0)|int }}</td></tr>
+                                <tr><td class="text-muted">Ordered (incoming)</td><td>{{ l.calc_json.get('ordered_now', 0)|int }}</td></tr>
+                                <tr><td class="text-muted">Net available</td><td class="fw-bold">{{ l.calc_json.get('net_available', 0)|int }}</td></tr>
+                                <tr><td class="text-muted">Raw need</td><td>{{ "%.1f"|format(l.calc_json.get('raw_needed_units', 0)) }}</td></tr>
+                                <tr><td class="text-muted">Case qty</td><td>{{ l.calc_json.get('case_qty_units', 0)|int }} ({{ l.calc_json.get('case_qty_source', '-') }})</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    {% if l.calc_json.get('review_flag') %}
+                    <div class="mt-2">
+                        <span class="badge bg-warning text-dark">Review Required</span>
+                        <span class="small text-muted ms-2">{{ l.calc_json.get('review_reason', '') }}</span>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <span class="text-muted small">{{ l.explanation_text or 'No forecast data available' }}</span>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+<script>
+function toggleDetail(id) {
+    var row = document.getElementById(id);
+    var icon = document.getElementById('icon-' + id);
+    if (row.style.display === 'none') {
+        row.style.display = '';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        row.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+}
+</script>

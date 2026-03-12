@@ -150,7 +150,7 @@
                         review_cycle_days: it.review_cycle_days || '',
                         order_multiple: it.order_multiple || '',
                         min_order_qty_override: it.min_order_qty_override || '',
-                        is_active: it.supplier_code ? true : true,
+                        is_active: it.is_active !== false,
                         notes: it.notes || '',
                         _isNew: false,
                     });

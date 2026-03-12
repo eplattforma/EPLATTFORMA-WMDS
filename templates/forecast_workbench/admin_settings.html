@@ -32,6 +32,12 @@
                                value="{{ settings.get('forecast_review_cycle_days', '1') }}" min="1" step="1">
                         <div class="form-text">Default review cycle if not set per supplier.</div>
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Buffer Stock Days</label>
+                        <input type="number" name="forecast_buffer_stock_days" class="form-control"
+                               value="{{ settings.get('forecast_buffer_stock_days', '1') }}" min="0" step="0.5">
+                        <div class="form-text">Extra days of buffer stock added to target.</div>
+                    </div>
                 </div>
             </div>
         </div>

@@ -158,6 +158,7 @@ with app.app_context():
             forecast_defaults = {
                 'forecast_default_cover_days': '7',
                 'forecast_review_cycle_days': '1',
+                'forecast_buffer_stock_days': '1',
                 'forecast_trend_uplift_trigger': '1.15',
                 'forecast_trend_down_trigger': '0.90',
                 'forecast_trend_uplift_cap': '1.25',

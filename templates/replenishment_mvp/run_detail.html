@@ -92,8 +92,9 @@
 
     <div class="alert alert-secondary small py-2">
         <i class="fas fa-info-circle me-1"></i>
-        V1: current reserved/ordered stock + historical weekday sales averages.
-        Include today's demand: {{ 'Yes' if run.include_today_demand else 'No' }}.
+        Weekly-demand-based forecasting (MA8/Median6/SEEDED by demand class).
+        Target: daily forecast × (cover + lead time + review cycle) + buffer stock.
+        Click <i class="fas fa-chevron-down"></i> on any row for full breakdown.
     </div>
 
     <form method="POST" action="{{ url_for('replenishment_mvp.save_finals', run_id=run.id) }}">

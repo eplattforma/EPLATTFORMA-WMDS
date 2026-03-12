@@ -3,7 +3,7 @@ import math
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import and_, desc
+from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
 from models import (
@@ -75,6 +75,117 @@ def _compute_median6(weekly_qtys):
     return sorted_vals[mid]
 
 
+def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
+    non_zero = [q for q in weekly_qtys[:8] if q > 0]
+    if not non_zero:
+        return 0.0, "none", None, "none"
+
+    first_week_sales = non_zero[0]
+
+    dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
+    supplier_code = dw_item.supplier_code_365 if dw_item else None
+    brand_code = dw_item.brand_code_365 if dw_item else None
+    item_prefix = extract_item_prefix(item_code)
+
+    analogue_baseline = None
+    analogue_level = "none"
+    analogue_item = None
+
+    if supplier_code:
+        baseline = _get_group_baseline(session, "supplier", supplier_code, item_code)
+        if baseline is not None and baseline > 0:
+            analogue_baseline = baseline
+            analogue_level = "supplier"
+
+    if analogue_baseline is None and brand_code:
+        baseline = _get_group_baseline(session, "brand", brand_code, item_code)
+        if baseline is not None and baseline > 0:
+            analogue_baseline = baseline
+            analogue_level = "brand"
+
+    if analogue_baseline is None and item_prefix:
+        baseline = _get_group_baseline(session, "prefix", item_prefix, item_code)
+        if baseline is not None and baseline > 0:
+            analogue_baseline = baseline
+            analogue_level = "prefix"
+
+    if analogue_baseline is not None:
+        if analogue_level == "supplier":
+            forecast = 0.35 * first_week_sales + 0.65 * analogue_baseline
+        else:
+            forecast = 0.50 * first_week_sales + 0.50 * analogue_baseline
+    else:
+        forecast = first_week_sales * 0.50
+        analogue_level = "none"
+
+    return forecast, analogue_level, analogue_item, "low"
+
+
+def _get_group_baseline(session, group_type, group_code, exclude_item_code):
+    today = date.today()
+    current_monday = today - timedelta(days=today.weekday())
+    cutoff = current_monday - timedelta(weeks=8)
+
+    if group_type == "supplier":
+        item_codes_q = (
+            session.query(DwItem.item_code_365)
+            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365)
+            .filter(
+                DwItem.supplier_code_365 == group_code,
+                DwItem.active == True,
+                DwItem.item_code_365 != exclude_item_code,
+                SkuForecastProfile.demand_class.in_(["smooth", "erratic"]),
+                SkuForecastProfile.weeks_non_zero_26 >= 6,
+            )
+        )
+    elif group_type == "brand":
+        item_codes_q = (
+            session.query(DwItem.item_code_365)
+            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365)
+            .filter(
+                DwItem.brand_code_365 == group_code,
+                DwItem.active == True,
+                DwItem.item_code_365 != exclude_item_code,
+                SkuForecastProfile.demand_class.in_(["smooth", "erratic"]),
+                SkuForecastProfile.weeks_non_zero_26 >= 6,
+            )
+        )
+    elif group_type == "prefix":
+        item_codes_q = (
+            session.query(DwItem.item_code_365)
+            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365)
+            .filter(
+                DwItem.item_code_365.like(group_code + "%"),
+                DwItem.active == True,
+                DwItem.item_code_365 != exclude_item_code,
+                SkuForecastProfile.demand_class.in_(["smooth", "erratic"]),
+                SkuForecastProfile.weeks_non_zero_26 >= 6,
+            )
+        )
+    else:
+        return None
+
+    item_codes = [r[0] for r in item_codes_q.limit(50).all()]
+    if not item_codes:
+        return None
+
+    avg_row = (
+        session.query(
+            func.avg(FactSalesWeeklyItem.gross_qty).label("avg_weekly")
+        )
+        .filter(
+            FactSalesWeeklyItem.item_code_365.in_(item_codes),
+            FactSalesWeeklyItem.week_start >= cutoff,
+            FactSalesWeeklyItem.week_start < current_monday,
+        )
+        .first()
+    )
+
+    if avg_row and avg_row.avg_weekly:
+        return float(avg_row.avg_weekly)
+    return None
+
+
 def _get_seasonality_indexes(session, item_code, profile):
     try:
         from services.forecast.seasonality_service import (
@@ -107,11 +218,18 @@ def _get_seasonality_indexes(session, item_code, profile):
     return float(hist_index), float(future_index), source, level_code, confidence
 
 
+def _safe_float(session, key, default):
+    try:
+        return float(Setting.get(session, key, str(default)))
+    except (ValueError, TypeError):
+        return default
+
+
 def compute_base_forecasts(session: Session, run_id=None):
-    uplift_trigger = float(Setting.get(session, TREND_UPLIFT_TRIGGER_KEY, "1.15"))
-    down_trigger = float(Setting.get(session, TREND_DOWN_TRIGGER_KEY, "0.90"))
-    uplift_cap = float(Setting.get(session, TREND_UPLIFT_CAP_KEY, "1.25"))
-    down_floor = float(Setting.get(session, TREND_DOWN_FLOOR_KEY, "0.75"))
+    uplift_trigger = _safe_float(session, TREND_UPLIFT_TRIGGER_KEY, 1.15)
+    down_trigger = _safe_float(session, TREND_DOWN_TRIGGER_KEY, 0.90)
+    uplift_cap = _safe_float(session, TREND_UPLIFT_CAP_KEY, 1.25)
+    down_floor = _safe_float(session, TREND_DOWN_FLOOR_KEY, 0.75)
 
     profiles = (
         session.query(SkuForecastProfile)
@@ -133,13 +251,19 @@ def compute_base_forecasts(session: Session, run_id=None):
         forecast_method = "ZERO"
         trend_flag = "flat"
         trend_pct = None
+        forecast_confidence = "medium"
+        seed_source = None
+        analogue_item = None
+        analogue_level = None
 
         if demand_class == "smooth":
             base_forecast = _compute_ma8(weekly_qtys)
             forecast_method = "MA8"
+            forecast_confidence = "high"
         elif demand_class == "erratic":
             base_forecast = _compute_ma8(weekly_qtys)
             forecast_method = "MA8"
+            forecast_confidence = "medium"
             if not profile.review_flag:
                 profile.review_flag = True
                 reasons = (profile.review_reason or "").split("; ")
@@ -150,15 +274,13 @@ def compute_base_forecasts(session: Session, run_id=None):
         elif demand_class in ("intermittent", "lumpy"):
             base_forecast = _compute_median6(weekly_qtys)
             forecast_method = "MEDIAN6"
+            forecast_confidence = "medium"
         elif demand_class == "new_sparse":
-            last8 = weekly_qtys[:8]
-            non_zero = [q for q in last8 if q > 0]
-            if non_zero:
-                base_forecast = sum(non_zero) / len(non_zero)
-                forecast_method = "SEEDED"
-            else:
-                base_forecast = 0.0
-                forecast_method = "ZERO"
+            base_forecast, analogue_level, analogue_item, forecast_confidence = _compute_seeded_forecast(
+                session, item_code, weekly_qtys, profile
+            )
+            forecast_method = "SEEDED"
+            seed_source = analogue_level
             profile.review_flag = True
             reasons = (profile.review_reason or "").split("; ")
             reasons = [r for r in reasons if r]
@@ -168,6 +290,7 @@ def compute_base_forecasts(session: Session, run_id=None):
         elif demand_class == "no_demand":
             base_forecast = 0.0
             forecast_method = "ZERO"
+            forecast_confidence = "none"
             dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
             if dw_item and dw_item.active:
                 profile.review_flag = True
@@ -178,6 +301,11 @@ def compute_base_forecasts(session: Session, run_id=None):
                 profile.review_reason = "; ".join(reasons)
 
         profile.forecast_method = forecast_method
+        profile.forecast_confidence = forecast_confidence
+        profile.seed_source = seed_source
+        profile.analogue_item_code = analogue_item
+        profile.analogue_level = analogue_level
+
         trend_adjusted = base_forecast
 
         if demand_class == "smooth" and base_forecast > 0:
@@ -267,10 +395,10 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
         logger.warning(f"No profile for {item_code}, skipping forecast")
         return None
 
-    uplift_trigger = float(Setting.get(session, TREND_UPLIFT_TRIGGER_KEY, "1.15"))
-    down_trigger = float(Setting.get(session, TREND_DOWN_TRIGGER_KEY, "0.90"))
-    uplift_cap = float(Setting.get(session, TREND_UPLIFT_CAP_KEY, "1.25"))
-    down_floor = float(Setting.get(session, TREND_DOWN_FLOOR_KEY, "0.75"))
+    uplift_trigger = _safe_float(session, TREND_UPLIFT_TRIGGER_KEY, 1.15)
+    down_trigger = _safe_float(session, TREND_DOWN_TRIGGER_KEY, 0.90)
+    uplift_cap = _safe_float(session, TREND_UPLIFT_CAP_KEY, 1.25)
+    down_floor = _safe_float(session, TREND_DOWN_FLOOR_KEY, 0.75)
 
     weekly_qtys = _get_recent_weekly_qtys(session, item_code, 26)
     demand_class = profile.demand_class
@@ -290,11 +418,14 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
         base_forecast = _compute_median6(weekly_qtys)
         forecast_method = "MEDIAN6"
     elif demand_class == "new_sparse":
-        last8 = weekly_qtys[:8]
-        non_zero = [q for q in last8 if q > 0]
-        if non_zero:
-            base_forecast = sum(non_zero) / len(non_zero)
-            forecast_method = "SEEDED"
+        base_forecast, analogue_level, analogue_item, confidence = _compute_seeded_forecast(
+            session, item_code, weekly_qtys, profile
+        )
+        forecast_method = "SEEDED"
+        profile.seed_source = analogue_level
+        profile.analogue_item_code = analogue_item
+        profile.analogue_level = analogue_level
+        profile.forecast_confidence = confidence
     elif demand_class == "no_demand":
         base_forecast = 0.0
         forecast_method = "ZERO"

@@ -493,7 +493,7 @@
                 const group = (it.category_name || it.category_code || 'Uncategorized') + ' / ' + (it.brand_name || it.brand_code || 'No Brand');
                 if (group !== lastGroup) {
                     lastGroup = group;
-                    html += `<tr class="group-header"><td colspan="22"><i class="fas fa-layer-group me-1"></i>${group}</td></tr>`;
+                    html += `<tr class="group-header"><td colspan="22"><i class="fas fa-layer-group me-1"></i>${esc(group)}</td></tr>`;
                 }
             }
             html += buildRow(it);
@@ -506,9 +506,9 @@
     }
 
     function buildRow(it) {
-        const reviewDot = it.review_flag ? '<span class="review-dot" title="' + (it.review_reason || 'Review needed') + '"></span>' : '';
+        const reviewDot = it.review_flag ? '<span class="review-dot" title="' + esc(it.review_reason || 'Review needed') + '"></span>' : '';
         const demandBadge = it.demand_class
-            ? `<span class="badge-demand badge-${it.demand_class}">${formatDemandClass(it.demand_class)}</span>`
+            ? `<span class="badge-demand badge-${esc(it.demand_class)}">${formatDemandClass(it.demand_class)}</span>`
             : '<span class="text-muted">-</span>';
         const trendIcon = it.trend_flag === 'up' ? '<i class="fas fa-arrow-up badge-trend-up" title="Trend Up"></i>'
             : it.trend_flag === 'down' ? '<i class="fas fa-arrow-down badge-trend-down" title="Trend Down"></i>'
@@ -522,18 +522,18 @@
         const chgPct = it.forecast_change_pct != null ? fmtPct(it.forecast_change_pct) : '-';
         const sparkline = buildSparklinePlaceholder(it.item_code);
 
-        return `<tr class="item-row" data-item-code="${it.item_code}">
+        return `<tr class="item-row" data-item-code="${esc(it.item_code)}">
             <td>${reviewDot}</td>
-            <td><code class="small">${it.item_code}</code></td>
-            <td class="text-truncate" style="max-width:200px" title="${it.item_name || ''}">${it.item_name || ''}</td>
-            <td><small class="text-muted">${it.prefix || ''}</small></td>
-            <td><small>${it.category_name || it.category_code || ''}</small></td>
-            <td><small>${it.brand_name || it.brand_code || ''}</small></td>
+            <td><code class="small">${esc(it.item_code)}</code></td>
+            <td class="text-truncate" style="max-width:200px" title="${esc(it.item_name || '')}">${esc(it.item_name || '')}</td>
+            <td><small class="text-muted">${esc(it.prefix || '')}</small></td>
+            <td><small>${esc(it.category_name || it.category_code || '')}</small></td>
+            <td><small>${esc(it.brand_name || it.brand_code || '')}</small></td>
             <td>${activeBadge}</td>
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
             <td>${seasonBadge}</td>
-            <td><small>${it.forecast_method || '-'}</small></td>
+            <td><small>${esc(it.forecast_method || '-')}</small></td>
             <td>${sparkline}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
@@ -590,6 +590,13 @@
     function formatDemandClass(dc) {
         const map = {smooth:'Smooth', erratic:'Erratic', intermittent:'Intmit', lumpy:'Lumpy', new_sparse:'New', no_demand:'None'};
         return map[dc] || dc;
+    }
+
+    function esc(str) {
+        if (!str) return '';
+        const d = document.createElement('div');
+        d.textContent = String(str);
+        return d.innerHTML;
     }
 
     function fmtNum(v, dec) {
@@ -649,17 +656,17 @@
 
         let summaryHtml = `
         <table class="table table-sm table-borderless small mb-3">
-            <tr><td class="text-muted" style="width:40%">Item Code</td><td><code>${data.item_code}</code></td></tr>
-            <tr><td class="text-muted">Description</td><td>${data.item_name || '-'}</td></tr>
-            <tr><td class="text-muted">Supplier</td><td>${sup.supplier_name || 'Unmapped'} <small class="text-muted">${sup.supplier_code || ''}</small></td></tr>
-            <tr><td class="text-muted">Category / Brand</td><td>${data.category_name || '-'} / ${data.brand_name || '-'}</td></tr>
-            <tr><td class="text-muted">Prefix</td><td>${data.prefix || '-'}</td></tr>
+            <tr><td class="text-muted" style="width:40%">Item Code</td><td><code>${esc(data.item_code)}</code></td></tr>
+            <tr><td class="text-muted">Description</td><td>${esc(data.item_name || '-')}</td></tr>
+            <tr><td class="text-muted">Supplier</td><td>${esc(sup.supplier_name || 'Unmapped')} <small class="text-muted">${esc(sup.supplier_code || '')}</small></td></tr>
+            <tr><td class="text-muted">Category / Brand</td><td>${esc(data.category_name || '-')} / ${esc(data.brand_name || '-')}</td></tr>
+            <tr><td class="text-muted">Prefix</td><td>${esc(data.prefix || '-')}</td></tr>
             <tr><td class="text-muted">Active</td><td>${data.active ? '<span class="text-success">Yes</span>' : '<span class="text-danger">No</span>'}</td></tr>
-            <tr><td class="text-muted">Season</td><td>${data.season_code || '-'}</td></tr>
+            <tr><td class="text-muted">Season</td><td>${esc(data.season_code || '-')}</td></tr>
             <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Demand Class</td><td>${prof.demand_class ? `<span class="badge-demand badge-${prof.demand_class}">${prof.demand_class}</span>` : '-'}</td></tr>
-            <tr><td class="text-muted">Forecast Method</td><td>${prof.forecast_method || '-'}</td></tr>
-            <tr><td class="text-muted">Review</td><td>${prof.review_flag ? '<span class="badge bg-warning text-dark">Yes</span> ' + (prof.review_reason || '') : 'No'}</td></tr>
+            <tr><td class="text-muted">Demand Class</td><td>${prof.demand_class ? `<span class="badge-demand badge-${esc(prof.demand_class)}">${esc(prof.demand_class)}</span>` : '-'}</td></tr>
+            <tr><td class="text-muted">Forecast Method</td><td>${esc(prof.forecast_method || '-')}</td></tr>
+            <tr><td class="text-muted">Review</td><td>${prof.review_flag ? '<span class="badge bg-warning text-dark">Yes</span> ' + esc(prof.review_reason || '') : 'No'}</td></tr>
             <tr><td colspan="2"><hr class="my-1"></td></tr>
             <tr><td class="text-muted">Final Forecast/Wk</td><td class="fw-bold">${fmtNum(res.final_forecast_weekly_qty)}</td></tr>
             <tr><td class="text-muted">Rounded Order Qty</td><td class="fw-bold text-warning">${fmtNum(res.rounded_order_qty, 0)}</td></tr>

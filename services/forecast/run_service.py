@@ -66,7 +66,7 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
         logger.error(f"Forecast run {run_id} failed: {e}")
         logger.error(traceback.format_exc())
         session.rollback()
-        run2 = ForecastRun(
+        failed_run = ForecastRun(
             started_at=now,
             completed_at=get_utc_now(),
             status="failed",
@@ -76,10 +76,12 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
             created_by=created_by,
             created_at=now,
         )
-        session.add(run2)
+        session.add(failed_run)
+        session.flush()
+        failed_run_id = failed_run.id
         session.commit()
         return {
-            "run_id": run_id,
+            "run_id": failed_run_id,
             "status": "failed",
             "error": str(e),
         }

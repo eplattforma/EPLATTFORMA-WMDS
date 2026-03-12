@@ -225,7 +225,14 @@ def api_items():
             'raw_order_qty': _float(res.raw_recommended_order_qty) if res else 0,
             'rounded_order_qty': _float(res.rounded_order_qty) if res else 0,
             'target_stock_qty': _float(res.target_stock_qty) if res else 0,
+            'buffer_stock_qty': _float(res.buffer_stock_qty) if res and hasattr(res, 'buffer_stock_qty') else (_float(res.safety_stock_qty) if res else 0),
             'safety_stock_qty': _float(res.safety_stock_qty) if res else 0,
+            'lead_time_days': _float(res.lead_time_days) if res else 0,
+            'review_cycle_days': _float(res.review_cycle_days) if res else 0,
+            'incoming_qty': _float(res.incoming_qty) if res else 0,
+            'reserved_qty': _float(res.reserved_qty) if res else 0,
+            'forecast_confidence': prof.forecast_confidence if prof else None,
+            'seed_source': prof.seed_source if prof else None,
         })
 
     return jsonify({'items': items, 'count': len(items)})
@@ -326,6 +333,7 @@ def api_item_detail(item_code):
             'cover_days': _float(res.cover_days),
             'lead_time_days': _float(res.lead_time_days),
             'review_cycle_days': _float(res.review_cycle_days),
+            'buffer_stock_qty': _float(res.buffer_stock_qty) if hasattr(res, 'buffer_stock_qty') else _float(res.safety_stock_qty),
             'safety_stock_qty': _float(res.safety_stock_qty),
             'target_stock_qty': _float(res.target_stock_qty),
             'on_hand_qty': _float(res.on_hand_qty),
@@ -567,6 +575,7 @@ def admin_settings():
     setting_keys = [
         'forecast_default_cover_days',
         'forecast_review_cycle_days',
+        'forecast_buffer_stock_days',
         'forecast_trend_uplift_trigger',
         'forecast_trend_down_trigger',
         'forecast_trend_uplift_cap',
@@ -586,6 +595,7 @@ def admin_settings_save():
     setting_keys = [
         'forecast_default_cover_days',
         'forecast_review_cycle_days',
+        'forecast_buffer_stock_days',
         'forecast_trend_uplift_trigger',
         'forecast_trend_down_trigger',
         'forecast_trend_uplift_cap',
@@ -602,3 +612,123 @@ def admin_settings_save():
     db.session.commit()
     flash('Forecast settings saved.', 'success')
     return redirect(url_for('forecast_workbench.admin_settings'))
+
+
+@forecast_bp.route('/api/debug/<item_code>')
+@admin_or_warehouse_required
+def api_debug(item_code):
+    from datetime import timedelta
+    from services.forecast.classification_service import _get_weekly_gross_qtys, _compute_profile
+    from services.forecast.base_forecast_service import (
+        _get_recent_weekly_qtys, _compute_ma8, _compute_median6,
+        _compute_seeded_forecast, _get_seasonality_indexes,
+    )
+
+    dw = DwItem.query.get(item_code)
+    if not dw:
+        return jsonify({'error': 'Item not found'}), 404
+
+    prof = SkuForecastProfile.query.get(item_code)
+    res = SkuForecastResult.query.get(item_code)
+
+    weekly_qtys_26 = _get_weekly_gross_qtys(db.session, item_code, 26)
+    recent_26 = _get_recent_weekly_qtys(db.session, item_code, 26)
+    profile_data = _compute_profile(weekly_qtys_26)
+
+    ma8_val = _compute_ma8(recent_26)
+    median6_val = _compute_median6(recent_26)
+
+    last2 = recent_26[:2]
+    avg_last2 = sum(last2) / len(last2) if last2 else 0.0
+
+    today = date.today()
+    current_monday = today - timedelta(days=today.weekday())
+    week_labels = []
+    for i in range(26):
+        ws = current_monday - timedelta(weeks=(i + 1))
+        week_labels.append(ws.isoformat())
+
+    cover_days = int(Setting.get(db.session, 'forecast_default_cover_days', '7'))
+    buffer_days = float(Setting.get(db.session, 'forecast_buffer_stock_days', '1'))
+    review_cycle = float(Setting.get(db.session, 'forecast_review_cycle_days', '1'))
+
+    smap = ForecastItemSupplierMap.query.filter_by(item_code_365=item_code).first()
+    lead_time = float(smap.lead_time_days) if smap and smap.lead_time_days else 0.0
+    if smap and smap.review_cycle_days is not None:
+        review_cycle = float(smap.review_cycle_days)
+
+    debug = {
+        'item_code': item_code,
+        'item_name': dw.item_name,
+        'active': dw.active,
+        'supplier_code': dw.supplier_code_365,
+        'brand_code': dw.brand_code_365,
+        'category_code': dw.category_code_365,
+        'case_qty': dw.case_qty,
+        'min_order_qty': dw.min_order_qty,
+        'weekly_quantities_26': {
+            'labels': week_labels,
+            'values': recent_26,
+        },
+        'classification': profile_data,
+        'forecasts': {
+            'MA8': round(ma8_val, 4),
+            'MEDIAN6': round(median6_val, 4),
+            'last_2_weeks': last2,
+            'avg_last_2': round(avg_last2, 4),
+        },
+        'stored_profile': {
+            'demand_class': prof.demand_class if prof else None,
+            'forecast_method': prof.forecast_method if prof else None,
+            'forecast_confidence': prof.forecast_confidence if prof else None,
+            'trend_flag': prof.trend_flag if prof else None,
+            'trend_pct': _float(prof.trend_pct) if prof else None,
+            'seed_source': prof.seed_source if prof else None,
+            'analogue_level': prof.analogue_level if prof else None,
+            'review_flag': prof.review_flag if prof else None,
+            'review_reason': prof.review_reason if prof else None,
+            'weeks_non_zero_26': prof.weeks_non_zero_26 if prof else 0,
+            'adi_26': _float(prof.adi_26) if prof else None,
+            'cv2_26': _float(prof.cv2_26) if prof else None,
+            'seasonality_source': prof.seasonality_source if prof else None,
+            'seasonality_confidence': prof.seasonality_confidence if prof else None,
+        } if prof else None,
+        'stored_result': {
+            'base_forecast_weekly_qty': _float(res.base_forecast_weekly_qty),
+            'trend_adjusted_weekly_qty': _float(res.trend_adjusted_weekly_qty),
+            'final_forecast_weekly_qty': _float(res.final_forecast_weekly_qty),
+            'final_forecast_daily_qty': _float(res.final_forecast_daily_qty),
+            'hist_embedded_seasonal_index': _float(res.hist_embedded_seasonal_index),
+            'future_seasonal_index': _float(res.future_seasonal_index),
+            'cover_days': _float(res.cover_days),
+            'lead_time_days': _float(res.lead_time_days),
+            'review_cycle_days': _float(res.review_cycle_days),
+            'buffer_stock_qty': _float(res.buffer_stock_qty) if hasattr(res, 'buffer_stock_qty') else _float(res.safety_stock_qty),
+            'safety_stock_qty': _float(res.safety_stock_qty),
+            'target_stock_qty': _float(res.target_stock_qty),
+            'on_hand_qty': _float(res.on_hand_qty),
+            'incoming_qty': _float(res.incoming_qty),
+            'reserved_qty': _float(res.reserved_qty),
+            'net_available_qty': _float(res.net_available_qty),
+            'raw_recommended_order_qty': _float(res.raw_recommended_order_qty),
+            'rounded_order_qty': _float(res.rounded_order_qty),
+            'forecast_change_pct': _float(res.forecast_change_pct),
+        } if res else None,
+        'replenishment_params': {
+            'cover_days': cover_days,
+            'lead_time_days': lead_time,
+            'review_cycle_days': review_cycle,
+            'buffer_days': buffer_days,
+            'total_cover_days': cover_days + lead_time + review_cycle,
+        },
+        'formulas': {
+            'daily_forecast': 'final_forecast_weekly_qty / 7',
+            'buffer_stock': f'daily_forecast × {buffer_days} buffer days',
+            'target_stock': f'daily_forecast × (cover {cover_days} + LT {lead_time} + RC {review_cycle}) + buffer',
+            'net_available': 'on_hand + incoming - reserved',
+            'raw_order': 'max(0, target_stock - net_available)',
+            'rounded_order': 'ceil_to_case_qty, enforce MOQ',
+        },
+    }
+
+    return jsonify(debug)

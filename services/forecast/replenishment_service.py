@@ -15,6 +15,8 @@ from timezone_utils import get_utc_now
 
 logger = logging.getLogger(__name__)
 
+BUFFER_STOCK_DAYS_KEY = "forecast_buffer_stock_days"
+
 
 def _to_float(v):
     if v is None:
@@ -89,8 +91,17 @@ def _build_review_reasons(profile, result, supplier_map, dw_item, old_final, raw
     return reasons
 
 
+def _safe_num(session, key, default, cast=float):
+    try:
+        return cast(Setting.get(session, key, str(default)))
+    except (ValueError, TypeError):
+        return default
+
+
 def compute_replenishment(session: Session, run_id=None):
-    STOCK_DAYS = 7
+    cover_days = _safe_num(session, "forecast_default_cover_days", 7, int)
+    buffer_days = _safe_num(session, BUFFER_STOCK_DAYS_KEY, 1.0, float)
+    default_review_cycle = _safe_num(session, "forecast_review_cycle_days", 1.0, float)
 
     results = (
         session.query(SkuForecastResult)
@@ -98,7 +109,8 @@ def compute_replenishment(session: Session, run_id=None):
         .filter(DwItem.active == True)
         .all()
     )
-    logger.info(f"Computing replenishment for {len(results)} active items (target: {STOCK_DAYS} days)")
+    logger.info(f"Computing replenishment for {len(results)} active items "
+                f"(cover={cover_days}d, buffer={buffer_days}d, review_cycle={default_review_cycle}d)")
 
     now = get_utc_now()
     count = 0
@@ -109,7 +121,7 @@ def compute_replenishment(session: Session, run_id=None):
         supplier_map_cache[m.item_code_365] = m
 
     dw_item_cache = {}
-    
+
     stock_cache_by_supplier = {}
     def _get_stock_cache(supplier_code):
         if supplier_code not in stock_cache_by_supplier:
@@ -134,15 +146,26 @@ def compute_replenishment(session: Session, run_id=None):
             dw_item_cache[item_code] = session.query(DwItem).filter_by(item_code_365=item_code).first()
         dw_item = dw_item_cache[item_code]
 
-        result.cover_days = Decimal(str(STOCK_DAYS))
-        result.lead_time_days = Decimal("0")
-        result.review_cycle_days = Decimal("0")
+        lead_time = 0.0
+        review_cycle = default_review_cycle
+        if supplier_map:
+            if supplier_map.lead_time_days is not None:
+                lead_time = float(supplier_map.lead_time_days)
+            if supplier_map.review_cycle_days is not None:
+                review_cycle = float(supplier_map.review_cycle_days)
+
+        result.cover_days = Decimal(str(cover_days))
+        result.lead_time_days = Decimal(str(lead_time))
+        result.review_cycle_days = Decimal(str(review_cycle))
 
         final_daily = _to_float(result.final_forecast_daily_qty)
-        safety_stock = 0.0
-        result.safety_stock_qty = Decimal(str(safety_stock))
 
-        target_stock = final_daily * STOCK_DAYS
+        buffer_stock = final_daily * buffer_days
+        result.buffer_stock_qty = Decimal(str(round(buffer_stock, 6)))
+        result.safety_stock_qty = Decimal(str(round(buffer_stock, 6)))
+
+        total_cover = cover_days + lead_time + review_cycle
+        target_stock = final_daily * total_cover + buffer_stock
         result.target_stock_qty = Decimal(str(round(target_stock, 6)))
 
         supplier_code = dw_item.supplier_code_365 if dw_item else None

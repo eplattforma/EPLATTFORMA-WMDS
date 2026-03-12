@@ -124,14 +124,12 @@ def run_detail(run_id):
 def refresh_stock(run_id):
     import math
     from services.replenishment_mvp.ps365_client import fetch_supplier_stock, REPLENISHMENT_WAREHOUSE_STORE
-    from services.replenishment_mvp.forecast import get_forecast_for_dates, resolve_forecast_sources
     from services.replenishment_mvp.repositories import (
         get_item_master_for_codes, get_item_settings_for_codes,
-        get_same_weekday_sales_averages, get_fallback_daily_averages,
         get_expiry_summary,
     )
-    from services.replenishment_mvp.calendar import get_cover_dates, COVER_DAYS
     from services.replenishment_mvp.planner import _resolve_case_qty, _build_warnings
+    from models import SkuForecastResult, SkuForecastProfile, ForecastItemSupplierMap, Setting
 
     run = ReplenishmentRun.query.get_or_404(run_id)
     if run.status == 'po_sent':
@@ -149,18 +147,36 @@ def refresh_stock(run_id):
         flash('No stock data returned from PS365.', 'error')
         return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
-    cover_dates = get_cover_dates(run.run_date)
-    all_needed_weekdays = list(set(d.weekday() for d in cover_dates))
+    cover_days = int(Setting.get(db.session, "forecast_default_cover_days", "7"))
+    buffer_days = float(Setting.get(db.session, "forecast_buffer_stock_days", "1"))
+    default_review_cycle = float(Setting.get(db.session, "forecast_review_cycle_days", "1"))
 
     item_codes = list(stock_snapshot.keys())
     item_master = get_item_master_for_codes(item_codes)
     item_settings = get_item_settings_for_codes(item_codes)
-    weekday_avgs = get_same_weekday_sales_averages(item_codes, all_needed_weekdays, reference_date=run.run_date)
-    fallback_avgs = get_fallback_daily_averages(item_codes, reference_date=run.run_date)
     expiry_data = get_expiry_summary(item_codes, REPLENISHMENT_WAREHOUSE_STORE)
 
-    forecast_sources = resolve_forecast_sources(item_codes, weekday_avgs, fallback_avgs)
-    cover_forecast = get_forecast_for_dates(item_codes, cover_dates, weekday_avgs, fallback_avgs)
+    forecast_results = {}
+    fr_rows = db.session.query(SkuForecastResult).filter(
+        SkuForecastResult.item_code_365.in_(item_codes)
+    ).all()
+    for fr in fr_rows:
+        forecast_results[fr.item_code_365] = fr
+
+    forecast_profiles = {}
+    fp_rows = db.session.query(SkuForecastProfile).filter(
+        SkuForecastProfile.item_code_365.in_(item_codes)
+    ).all()
+    for fp in fp_rows:
+        forecast_profiles[fp.item_code_365] = fp
+
+    supplier_maps = {}
+    sm_rows = db.session.query(ForecastItemSupplierMap).filter(
+        ForecastItemSupplierMap.item_code_365.in_(item_codes),
+        ForecastItemSupplierMap.is_active == True,
+    ).all()
+    for sm in sm_rows:
+        supplier_maps[sm.item_code_365] = sm
 
     lines = ReplenishmentRunLine.query.filter_by(run_id=run_id).all()
     line_map = {l.item_code_365: l for l in lines}
@@ -179,9 +195,9 @@ def refresh_stock(run_id):
 
         master = item_master.get(item_code, {})
         settings = item_settings.get(item_code, {})
-        expiry = expiry_data.get(item_code, {})
-        fb_info = fallback_avgs.get(item_code, {})
-        fcst_source = forecast_sources.get(item_code, "none")
+        fcst_result = forecast_results.get(item_code)
+        fcst_profile = forecast_profiles.get(item_code)
+        smap = supplier_maps.get(item_code)
 
         stock_now = api_data["stock_now_units"]
         reserved_now = api_data["reserved_now_units"]
@@ -190,17 +206,39 @@ def refresh_stock(run_id):
 
         net_available = stock_now - reserved_now + ordered_now
 
-        cover_fcst = sum(cover_forecast.get(item_code, {}).get(d, 0) for d in cover_dates)
+        lead_time = 0.0
+        review_cycle = default_review_cycle
+        if smap:
+            if smap.lead_time_days is not None:
+                lead_time = float(smap.lead_time_days)
+            if smap.review_cycle_days is not None:
+                review_cycle = float(smap.review_cycle_days)
+
+        if fcst_result:
+            daily_forecast = float(fcst_result.final_forecast_daily_qty or 0)
+            weekly_forecast = float(fcst_result.final_forecast_weekly_qty or 0)
+            base_weekly = float(fcst_result.base_forecast_weekly_qty or 0)
+            trend_adjusted_weekly = float(fcst_result.trend_adjusted_weekly_qty or 0)
+        else:
+            daily_forecast = 0.0
+            weekly_forecast = 0.0
+            base_weekly = 0.0
+            trend_adjusted_weekly = 0.0
+
+        demand_class = fcst_profile.demand_class if fcst_profile else "no_data"
+        forecast_method = fcst_profile.forecast_method if fcst_profile else "NONE"
+        trend_flag = fcst_profile.trend_flag if fcst_profile else "flat"
+        forecast_confidence = fcst_profile.forecast_confidence if fcst_profile else "none"
+
+        buffer_stock = daily_forecast * buffer_days
+        total_cover = cover_days + lead_time + review_cycle
+        cover_fcst = daily_forecast * cover_days
+        target_stock = daily_forecast * total_cover + buffer_stock
+
+        raw_needed = max(0, target_stock - net_available)
 
         case_qty, case_qty_source = _resolve_case_qty(master, settings)
         min_order_cases = float(settings.get("min_order_cases") or 1)
-        safety_days = float(settings.get("safety_days_override") or 1.0)
-
-        avg_daily_cover = cover_fcst / COVER_DAYS if COVER_DAYS > 0 else 0
-        safety_stock = avg_daily_cover * safety_days
-
-        target_stock = cover_fcst + safety_stock
-        raw_needed = max(0, target_stock - net_available)
 
         if case_qty and case_qty > 0 and raw_needed > 0:
             suggested_cases = math.ceil(raw_needed / case_qty)
@@ -210,10 +248,11 @@ def refresh_stock(run_id):
             suggested_cases = 0
             suggested_units = 0
 
+        forecast_source = forecast_method if fcst_profile else "none"
         warnings = _build_warnings(
             case_qty, net_available - cover_fcst, reserved_now, ordered_now,
-            expiry, suggested_cases, 0, cover_fcst,
-            net_available, fcst_source
+            expiry_data.get(item_code, {}), suggested_cases, 0, cover_fcst,
+            net_available, forecast_source
         )
         warning_code = warnings[0][0] if warnings else None
         warning_text = warnings[0][1] if warnings else None
@@ -227,7 +266,7 @@ def refresh_stock(run_id):
         line.pre_receipt_forecast_units = Decimal("0")
         line.projected_units_at_receipt = Decimal(str(round(net_available, 2)))
         line.cover_forecast_units = Decimal(str(round(cover_fcst, 2)))
-        line.safety_stock_units = Decimal(str(round(safety_stock, 2)))
+        line.safety_stock_units = Decimal(str(round(buffer_stock, 2)))
         line.raw_needed_units = Decimal(str(round(raw_needed, 2)))
         line.suggested_cases = Decimal(str(round(suggested_cases, 2)))
         line.suggested_units = Decimal(str(round(suggested_units, 2)))
@@ -237,38 +276,50 @@ def refresh_stock(run_id):
         line.warning_text = warning_text
 
         line.explanation_text = (
+            f"Demand class: {demand_class}. Method: {forecast_method}. "
+            f"Weekly forecast: {weekly_forecast:.2f}. Daily forecast: {daily_forecast:.2f}. "
+            f"Cover {cover_days}d + LT {lead_time:.0f}d + RC {review_cycle:.0f}d = {total_cover:.0f}d. "
+            f"Buffer stock ({buffer_days:.0f}d): {buffer_stock:.2f}. "
+            f"Target: {target_stock:.1f}. "
             f"Net available = stock {stock_now:.0f} - reserved {reserved_now:.0f} "
             f"+ ordered {ordered_now:.0f} = {net_available:.0f}. "
-            f"{COVER_DAYS}-day forecast {cover_fcst:.1f} + safety {safety_stock:.1f} "
-            f"= target {target_stock:.1f}. "
-            f"Raw need {raw_needed:.1f}. "
-            f"Forecast source: {fcst_source}."
+            f"Raw need: {raw_needed:.1f}."
         )
 
-        weekday_avgs_used = {}
-        for wd in all_needed_weekdays:
-            weekday_avgs_used[str(wd)] = weekday_avgs.get(item_code, {}).get(wd, 0)
-
         line.calc_json = {
-            "cover_days": COVER_DAYS,
-            "cover_dates": [str(d) for d in cover_dates],
-            "weekday_averages": weekday_avgs_used,
-            "forecast_source": fcst_source,
-            "fallback_avg_30d": fb_info.get("avg_30d", 0),
-            "fallback_avg_90d": fb_info.get("avg_90d", 0),
-            "fallback_avg_180d": fb_info.get("avg_180d", 0),
-            "fallback_daily_avg": fb_info.get("daily_avg", 0),
-            "net_available_units": net_available,
-            "cover_forecast_units": cover_fcst,
-            "safety_days": safety_days,
-            "safety_stock_units": safety_stock,
-            "target_stock_units": target_stock,
-            "raw_needed_units": raw_needed,
+            "demand_class": demand_class,
+            "forecast_method": forecast_method,
+            "forecast_confidence": forecast_confidence,
+            "trend_flag": trend_flag,
+            "base_weekly_forecast": round(base_weekly, 4),
+            "trend_adjusted_weekly": round(trend_adjusted_weekly, 4),
+            "final_weekly_forecast": round(weekly_forecast, 4),
+            "final_daily_forecast": round(daily_forecast, 4),
+            "cover_days": cover_days,
+            "lead_time_days": lead_time,
+            "review_cycle_days": review_cycle,
+            "total_cover_days": total_cover,
+            "buffer_days": buffer_days,
+            "buffer_stock_qty": round(buffer_stock, 4),
+            "target_stock_qty": round(target_stock, 4),
+            "stock_now": stock_now,
+            "reserved_now": reserved_now,
+            "ordered_now": ordered_now,
+            "net_available": net_available,
+            "cover_forecast_units": round(cover_fcst, 4),
+            "raw_needed_units": round(raw_needed, 4),
             "case_qty_units": case_qty or 0,
             "case_qty_source": case_qty_source,
             "min_order_cases": min_order_cases,
-            "sales_date_field": "invoice_date_utc0",
         }
+
+        if fcst_profile:
+            line.calc_json["weeks_non_zero_26"] = fcst_profile.weeks_non_zero_26
+            line.calc_json["adi_26"] = float(fcst_profile.adi_26) if fcst_profile.adi_26 else None
+            line.calc_json["cv2_26"] = float(fcst_profile.cv2_26) if fcst_profile.cv2_26 else None
+            line.calc_json["seed_source"] = fcst_profile.seed_source
+            line.calc_json["review_flag"] = fcst_profile.review_flag
+            line.calc_json["review_reason"] = fcst_profile.review_reason
 
         expiry_info = expiry_data.get(item_code, {})
         line.earliest_expiry_date = expiry_info.get("earliest_expiry_date")

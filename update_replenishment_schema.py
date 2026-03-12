@@ -125,6 +125,27 @@ def update_replenishment_schema():
                 """))
                 logger.info("Seeded Corina Snacks Ltd into replenishment_suppliers")
 
+            forecast_profile_cols = [
+                ("forecast_confidence", "VARCHAR(20) NOT NULL DEFAULT 'medium'"),
+                ("seed_source", "VARCHAR(20)"),
+                ("analogue_item_code", "VARCHAR(64)"),
+                ("analogue_level", "VARCHAR(20)"),
+            ]
+            for col, col_type in forecast_profile_cols:
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE sku_forecast_profile ADD COLUMN IF NOT EXISTS {col} {col_type}"
+                    ))
+                except Exception:
+                    pass
+
+            try:
+                conn.execute(text(
+                    "ALTER TABLE sku_forecast_result ADD COLUMN IF NOT EXISTS buffer_stock_qty NUMERIC(18,6) NOT NULL DEFAULT 0"
+                ))
+            except Exception:
+                pass
+
             conn.commit()
             logger.info("Replenishment schema update completed successfully")
 

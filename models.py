@@ -2722,6 +2722,10 @@ class SkuForecastProfile(db.Model):
     seasonality_confidence = db.Column(db.String(20), nullable=False, default='none')
     review_flag = db.Column(db.Boolean, nullable=False, default=False, index=True)
     review_reason = db.Column(db.Text, nullable=True)
+    forecast_confidence = db.Column(db.String(20), nullable=False, default='medium')
+    seed_source = db.Column(db.String(20), nullable=True)
+    analogue_item_code = db.Column(db.String(64), nullable=True)
+    analogue_level = db.Column(db.String(20), nullable=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
@@ -2739,6 +2743,7 @@ class SkuForecastResult(db.Model):
     lead_time_days = db.Column(db.Numeric(12, 4), nullable=False, default=0)
     review_cycle_days = db.Column(db.Numeric(12, 4), nullable=False, default=1)
     safety_stock_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    buffer_stock_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
     target_stock_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
     on_hand_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
     incoming_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
