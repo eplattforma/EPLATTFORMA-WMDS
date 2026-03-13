@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <type name="Magento\Framework\View\Element\UiComponent\DataProvider\CollectionFactory">
+        <arguments>
+            <argument name="collections" xsi:type="array">
+                <item name="bsscustomer_login_logs_grid_data_source" xsi:type="string">Bss\CustomerLoginLogs\Model\ResourceModel\Logs\Grid\Collection</item>
+            </argument>
+        </arguments>
+    </type>
+    <virtualType name="Bss\CustomerLoginLogs\Model\ResourceModel\Logs\Grid\Collection" type="Magento\Framework\View\Element\UiComponent\DataProvider\SearchResult">
+        <arguments>
+            <argument name="mainTable" xsi:type="string">bss_customer_login_logs</argument>
+            <argument name="resourceModel" xsi:type="string">Bss\CustomerLoginLogs\Model\ResourceModel\Logs</argument>
+        </arguments>
+    </virtualType>
+    <preference for="Simi\Simiconnector\Model\Server" type="Bss\CustomerLoginLogs\Model\Server"/>
+</config>
