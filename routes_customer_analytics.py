@@ -469,3 +469,30 @@ def api_item_names():
     rows = db.session.execute(sql, {"codes": codes}).fetchall()
     names = {r._mapping["item_code_365"]: r._mapping["item_name"] or "" for r in rows}
     return jsonify({"names": names})
+
+
+@customer_analytics_bp.route("/api/<customer_code>/abandoned-cart")
+@login_required
+def api_abandoned_cart(customer_code):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+    from services.crm_abandoned_cart import get_abandoned_cart_state
+    state = get_abandoned_cart_state(customer_code)
+    return jsonify({"state": state})
+
+
+@customer_analytics_bp.route("/api/<customer_code>/refresh-abandoned-cart", methods=["POST"])
+@login_required
+def api_refresh_abandoned_cart(customer_code):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+    from services.crm_abandoned_cart import refresh_abandoned_cart_for_customer
+    import logging
+    try:
+        result = refresh_abandoned_cart_for_customer(customer_code)
+        return jsonify({"ok": True, "result": result})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
+    except Exception as e:
+        logging.getLogger(__name__).error("Abandoned cart refresh failed for %s: %s", customer_code, e, exc_info=True)
+        return jsonify({"ok": False, "error": "Failed to refresh abandoned cart data"}), 500

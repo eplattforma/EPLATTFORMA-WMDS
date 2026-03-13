@@ -1,7 +1,7 @@
 # Warehouse Picking Management System
 
 ## Overview
-This project is a comprehensive warehouse picking management system built with Flask and PostgreSQL. Its main purpose is to streamline order picking, batch processing, and time tracking within a warehouse environment. Key capabilities include real-time status updates, AI-powered insights for optimization, and robust delivery issue tracking. The system aims to enhance efficiency, reduce errors, and provide valuable analytics for warehouse operations.
+This project is a comprehensive warehouse picking management system built with Flask and PostgreSQL. Its primary goal is to optimize warehouse operations by streamlining order picking, batch processing, and time tracking. Key functionalities include real-time status updates, AI-powered insights, and robust delivery issue management. The system aims to significantly enhance efficiency, reduce operational errors, and provide actionable analytics for warehouse managers.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,54 +9,55 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### UI/UX Decisions
-- **Frontend**: Jinja2 templating with a Bootstrap-based responsive interface.
-- **Forms**: Server-side rendered forms with CSRF protection.
+- **Frontend**: Utilizes Jinja2 templating with a Bootstrap-based responsive design.
+- **Forms**: Server-side rendered forms are implemented with CSRF protection.
 
 ### Technical Implementations
-- **Backend**: Flask (Python).
-- **Database**: PostgreSQL (production), SQLite (development).
-- **ORM**: SQLAlchemy with Flask-SQLAlchemy.
-- **Authentication**: Flask-Login with role-based access control (`admin`, `picker`, `warehouse_manager`, `driver`).
-- **Deployment**: Gunicorn.
+- **Backend**: Developed using Flask (Python).
+- **Database**: PostgreSQL for production, SQLite for development.
+- **ORM**: SQLAlchemy, integrated via Flask-SQLAlchemy.
+- **Authentication**: Flask-Login provides role-based access control for `admin`, `picker`, `warehouse_manager`, and `driver` roles.
+- **Deployment**: Gunicorn is used for serving the application.
 - **Core Features**:
-    - **Picking System**: Supports individual and batch picking, skip/collect later, real-time updates, and exception handling. Displays normalized item codes and barcodes.
-    - **Time Tracking & Analytics**: Phase-based per-item time tracking for walking, picking, and confirmation. Supports shift management and KPI calculation.
-    - **Batch Processing**: Zone/corridor-based batch creation, item locking, sequential/optimized picking modes.
-    - **Delivery Issue Tracking**: Admin-only system for recording, validating, and resolving discrepancies with photo uploads and audit trails.
-    - **Delivery Route Management**: Route planning, driver assignment, stop sequencing, invoice assignment, progress tracking, and printable run sheets. Includes warehouse collection.
-    - **Driver App**: Mobile-optimized delivery execution with 4-step guided closeout wizard (Exceptions → Signature → Payment → Print & Close), sticky header with COLLECT amount and stepper progress, COD collection, thermal PNG receipt printing (BIXOLON SPP-R310 via Web Share API + mPrint), exceptions proof printing, Proof of Delivery (POD) capture, post-save UI locking, and discrepancy integration. Includes idempotent Driver API endpoints with canonical RSI mapping. Payment wizard uses PaymentEntry model with PS365 commit/retry logic and per-driver payment type codes (cash + cheque).
-    - **Route Reconciliation Report Pack**: Excel export system for comprehensive route reconciliation, including summary, invoice detail, stop summary, exceptions, and post-dated register.
-    - **Return Handover Workflow**: Two-step confirmation process for failed deliveries (driver and warehouse staff).
-    - **Discrepancy Verification Workflow**: Warehouse verification of delivery discrepancies to determine credit note requirements.
-    - **Customer Payment Terms Management**: Tracks credit terms, payment methods, and financial limits with version history and import/export.
-    - **PO Receiving**: Mobile-optimized receiving for purchase orders with PS365 integration, barcode scanning, dynamic PO modification, multi-lot support, and automated goods receipt submission.
-    - **OI Dynamic Rules Engine**: Rule-based classification system for setting WMS attributes based on item fields. Supports auto-refresh upon changes.
-    - **Palletization System**: Complete pallet management for delivery routes with visual 8-bit grid allocation, order-level hints, and packing profiles.
-    - **SKU-Level Packing Profiles**: Derived pack_mode classification (DIRECT_PALLET, CARTON_HEAVY, CARTON_SMALL, OFF_PALLET) with carton estimates and warnings.
-    - **Order Processing Flow**: Import (Excel) → Assignment → Picking → Completion → Shipping → Analytics.
-    - **Invoice Import (PS365)**: Optimized single-pass synchronization logic with data normalization, batch barcode lookups (via `find_barcodes_for_items_ps365`), pre-cached time estimation params, per-invoice progress logging, stale lock auto-clear (30min timeout), and automated invoice total recalculation.
-    - **Order Status Lifecycle**: `not_started` to `DELIVERED`/`RETURNED`/`DELIVERY_FAILED` with intermediate states for picking, packing, and dispatch.
-    - **Route Status Lifecycle**: Three-phase lifecycle: Operational (`Shipment.status`), Reconciliation (`Shipment.reconciliation_status`), and Archiving. Reconciliation gating on pending payments.
-    - **Receipt Document Types**: CODReceipt supports doc_type (official/pdc_ack/online_notice) with DRAFT→ISSUED→VOIDED lifecycle, lock-on-first-print, void/reissue workflow, and PS365 receipt auto-creation for official receipts. Online notice renders as "PAYMENT ADVICE (BANK TRANSFER)" with NOT A RECEIPT disclaimer, Pay by date, invoices subtotal, exceptions with deduction values, NET PAYABLE, bank details, and transfer reference — no Route/Stop/Driver/Rcpt fields.
-    - **Bank Statement Import & Matching**: CSV/Excel bank statement upload on the pending payments page. Auto-matches credit transactions to pending payments by amount (exact/close), invoice number in description, customer name/code patterns. Matches shown inline below each pending payment with confidence badges (HIGH/MEDIUM/LOW). Users can dismiss false matches. `BankTransaction` model with batch tracking. When clearing a bank-matched payment, the bank transaction reference is pre-populated into the PS365 receipt description.
-    - **Customer Balance (PS365 Statement)**: Live customer account balance from PS365 `/customer_statement_of_account` API shown as a "Balance" KPI pill on the route reconciliation page (next to Outstanding). Fetches on page load, force-refreshes after sending a payment to PS365. Cached in `customer_balance_cache` table (configurable TTL via `PS365_BALANCE_CACHE_MINUTES`). Service: `services/ps365_statement.py`. API: `/reconciliation/api/customer-balance?customer_code_365=X`. Shows €amount DR/CR with color coding (red for DR, green for CR). **Customer Balances Report** at `/reconciliation/customer-balances` shows all customers with outstanding balances (DR/CR), summary cards (total debtors, credits, net), search/filter by name/code/town/agent/DR-CR, sortable. "Fetch All from PS365" button batch-fetches balances for all customers with rate limiting.
-    - **Replenishment MVP**: Proposes case quantities to order per supplier based on current stock, weekday sales averages, and safety stock. First supplier: Corina Snacks Ltd (PS365 code `10000159`). Service modules in `services/replenishment_mvp/` (calendar, forecast, planner, ps365_client, repositories). Blueprint at `blueprints/replenishment_mvp.py` with URL prefix `/replenishment-mvp`. Models: `ReplenishmentSupplier`, `ReplenishmentItemSetting`, `ReplenishmentRun`, `ReplenishmentRunLine`. Schema migration: `update_replenishment_schema.py` (idempotent). Tuesday/Friday ordering cycles with receipt date calculations, pre-receipt demand deduction, cover period forecasting. **Forecast fallback tiers**: (A) same-weekday average from last 4 occurrences within 120 days, (B) avg daily sales over last 30 calendar days, (C) avg daily over last 90 days, (D) avg daily over last 180 days, (E) zero → MANUAL_REVIEW_REQUIRED if reserved>0. Case qty resolution: `min_order_qty` → `replenishment_item_settings.case_qty_units` override → CASE_QTY_MISSING. Sales date field: `dw_invoice_header.invoice_date_utc0`. Warning priority: CASE_QTY_MISSING > MANUAL_REVIEW_REQUIRED > NEGATIVE_PROJECTED_STOCK > NO_RECENT_SALES > EXPIRY_SOON > HAS_ORDERED_STOCK > HAS_CURRENT_RESERVED > ZERO_ORDER. `calc_json` stores `forecast_source`, `fallback_avg_30d/90d/180d`, `case_qty_source`, `sales_date_field`. **Refresh Stock** button on run detail page re-fetches live stock/reserved/ordered/on-transfer from PS365 and recalculates all dependent fields (available base, projections, suggestions, finals). Available for draft/saved runs only (not po_sent).
-    - **SMS Service**: Microsms API integration for sending SMS to customers. Template-based composition with Jinja2 placeholders (e.g. `{{customer_name}}`), Unicode support for Greek text, delivery report (DLR) webhook receiver. Database tables: `sms_template` (message templates with codes like DELIVERY_TODAY, PAYMENT_DUE) and `sms_log` (full send history with provider status/message ID/DLR tracking). Blueprint at `blueprints/sms.py`, accessible at `/admin/sms/`. Context resolver supports `customer` type via `ps_customers` table. Secrets: `MICROSMS_USER`, `MICROSMS_PASS`, `MICROSMS_SENDER`. Compose page features toggleable checkboxes for prepending customer first name and appending bank details (IBAN/BIC/Account No/Beneficiary from Settings).
-    - **PS365 Sync Log**: Unified sync logging via `ps365_sync_log` table (`PS365SyncLog` model). All PS365 sync operations (Full DW Update, Incremental Items, Invoice Sync, Customer Sync) record start/finish time, duration, items found/inserted/updated/skipped, error messages, and trigger type (manual/scheduled). Viewable at `/datawarehouse/sync-log` with type filtering and pagination. Instrumented in `datawarehouse_sync.py`, `services_powersoft.py`, and `scheduler.py`. Helper module: `services/sync_logger.py`.
+    - **Picking System**: Supports individual and batch picking, skip/collect later functionality, real-time updates, and exception handling, displaying normalized item codes and barcodes.
+    - **Time Tracking & Analytics**: Implements phase-based per-item time tracking (walking, picking, confirmation), shift management, and KPI calculation.
+    - **Batch Processing**: Enables zone/corridor-based batch creation, item locking, and offers sequential/optimized picking modes.
+    - **Delivery Issue Tracking**: An admin-only system for recording, validating, and resolving discrepancies, including photo uploads and audit trails.
+    - **Delivery Route Management**: Features route planning, driver assignment, stop sequencing, invoice assignment, progress tracking, and printable run sheets, including warehouse collection.
+    - **Driver App**: A mobile-optimized interface for delivery execution with a 4-step guided closeout wizard, sticky header for collected amounts, COD collection, thermal receipt printing, Proof of Delivery (POD) capture, and discrepancy integration.
+    - **Route Reconciliation Report Pack**: Generates comprehensive Excel exports for route reconciliation.
+    - **Return Handover Workflow**: A two-step confirmation process for failed deliveries.
+    - **Discrepancy Verification Workflow**: Facilitates warehouse verification of delivery discrepancies for credit note decisions.
+    - **Customer Payment Terms Management**: Tracks credit terms, payment methods, and financial limits with version history.
+    - **PO Receiving**: Mobile-optimized receiving for purchase orders with barcode scanning, dynamic PO modification, and automated goods receipt submission.
+    - **OI Dynamic Rules Engine**: A rule-based classification system for setting WMS attributes based on item fields.
+    - **Palletization System**: Manages pallets for delivery routes with visual allocation and packing profiles.
+    - **SKU-Level Packing Profiles**: Classifies pack modes and estimates carton requirements.
+    - **Order Processing Flow**: Standardized flow from import to analytics.
+    - **Invoice Import (PS365)**: Optimized synchronization logic for invoices, including data normalization, batch barcode lookups, and automated total recalculation.
+    - **Order Status Lifecycle**: Manages orders through various states from `not_started` to `DELIVERED`/`RETURNED`/`DELIVERY_FAILED`.
+    - **Route Status Lifecycle**: A three-phase lifecycle covering operational, reconciliation, and archiving stages.
+    - **Receipt Document Types**: Supports various COD receipt types with a DRAFT→ISSUED→VOIDED lifecycle and integration for online notices.
+    - **Bank Statement Import & Matching**: Allows CSV/Excel bank statement uploads for auto-matching credit transactions to pending payments.
+    - **Customer Balance (PS365 Statement)**: Displays live customer account balances from PS365 with caching and a comprehensive report page.
+    - **Replenishment MVP**: Proposes case quantities to order per supplier based on stock, sales averages, and safety stock, with a multi-tiered forecast fallback system.
+    - **SMS Service**: Integrates with Microsms API for sending template-based SMS messages, including DLR webhook receiver.
+    - **PS365 Sync Log**: Provides unified logging for all PS365 synchronization operations.
 
 ### System Design Choices
-- **UTC Timestamp Consistency**: All database timestamp writes use UTC; local timezone for display.
-- **Performance Optimizations**: Connection pooling, query optimization, database tuning, Gunicorn configuration, and bulk SQL operations.
-- **User Roles**: `admin`, `picker`, `warehouse_manager`, `driver` with specific access controls.
-- **Delivery Dashboard**: Overview of dispatched routes with on-demand AJAX loading.
-- **Data Integrity & Soft Delete System**: Soft deletes and status changes for critical entities to maintain data consistency and audit trails.
-- **Find Invoice/Route**: Advanced search with filters, detailed invoice view, payment records, POD, routing history, and discrepancy details.
-- **Customer Synchronization**: Dedicated screen for syncing customers from PS365 with bulk operations.
-- **Customer 360 Analytics**: Interactive dashboard with KPIs, top items, invoice history, and Item-RFM analysis.
-- **Net Value Calculation**: All net values calculated on-the-fly from line and header totals, not from stored columns.
-- **Customer Benchmark**: Comparison of customer performance against peer groups, including White Space, Lapsed Items, Category Mix, Price vs Peers, and Item Recency analysis. Includes AI-powered feedback via OpenAI API with response caching (12h TTL in `ai_feedback_cache` table).
-- **Pricing Analytics**: Customer-level pricing analysis with modules for Price Index vs Market, Price Dispersion, PVM, and Price Sensitivity signals.
-- **Power BI Integration**: Database views providing a star-schema data model for Power BI reporting.
+- **UTC Timestamp Consistency**: All database timestamps are stored in UTC.
+- **Performance Optimizations**: Implements connection pooling, query optimization, and Gunicorn tuning.
+- **User Roles**: Defines distinct access levels for `admin`, `picker`, `warehouse_manager`, and `driver`.
+- **Delivery Dashboard**: Offers an overview of dispatched routes with on-demand AJAX loading.
+- **Data Integrity & Soft Delete System**: Utilizes soft deletes and status changes for critical entities.
+- **Find Invoice/Route**: Provides advanced search capabilities with detailed views.
+- **Customer Synchronization**: Dedicated screen for syncing customer data from PS365.
+- **Customer 360 Analytics**: An interactive dashboard for KPIs, invoice history, Item-RFM analysis, and Magento abandoned cart status badge with live refresh.
+- **Abandoned Carts (Magento)**: Pulls live abandoned cart data from Magento via OAuth1 REST API. Standalone browse page at `/customers/abandoned-carts` and per-customer badge integrated into Customer 360. Links PSCustomer to Magento via `customer_code_secondary` (Magento customer ID). Model: `CrmAbandonedCartState`.
+- **Net Value Calculation**: Net values are calculated dynamically from line and header totals.
+- **Customer Benchmark**: Compares customer performance against peer groups with AI-powered feedback.
+- **Pricing Analytics**: Offers customer-level pricing analysis including Price Index, Dispersion, and Sensitivity signals.
+- **Power BI Integration**: Provides database views for Power BI reporting.
 
 ## External Dependencies
 
@@ -77,12 +78,10 @@ Preferred communication style: Simple, everyday language.
 - **PostgreSQL 16**: Production database.
 
 ### Integrations
-- **PS365**: Used for shelf location lookup, PO receiving, customer data synchronization, integrated receipt system, zone synchronization, and customer statement of account balance lookups via `/customer_statement_of_account` API (cached in `customer_balance_cache` table). **Note**: PS365 `list_items` API returns `maximum_purchase_price=0` for all items — cost prices must be manually set via the Cross Shipping Orders page (`/reports/reserved-stock-777`) inline editing. DW sync preserves manually-set cost prices. **Note**: PS365 `list_items_stock` API's `stock_ordered` field is unreliable (doesn't reflect all open POs). Replenishment `fetch_supplier_stock` supplements it by querying `list_purchase_orders` API and aggregating quantities from pending POs (is_pending=true or status in PROC/PROCESSING/PENDING/ORDERED/APPROVED/OPEN) for the target store, using the higher of stock API vs PO-aggregated values.
+- **PS365**: Used for shelf location, PO receiving, customer data sync, integrated receipts, zone sync, and customer statement of account balance lookups.
 - **SMTP Email**: Configured for sending supplier purchase orders.
-- **DwItem Supplier Fields**: `supplier_code_365` and `supplier_name` columns on `ps_items_dw`, populated via POST `/list_items` with `display_fields` including `supplier_code_365,supplier_name`. Indexed on `supplier_code_365`. Synced during both full and incremental DW item sync.
+- **Microsms API**: For SMS sending and delivery report handling.
+- **Power BI**: For business intelligence reporting.
 
 ### Forecast Workbench
-- **Supplier Forecast & Order Workbench**: Supplier-first forecasting and replenishment system. Blueprint at `blueprints/forecast_workbench.py` with URL prefix `/forecast`. Services in `services/forecast/` (weekly_sales_builder, classification_service, seasonality_service, base_forecast_service, replenishment_service, run_service). Models: `ForecastItemSupplierMap`, `FactSalesWeeklyItem`, `ForecastSeasonalityMonthly`, `SkuForecastProfile`, `SkuForecastResult`, `ForecastRun`. Templates in `templates/forecast_workbench/`. Menu link under Admin dropdown. Scheduled nightly at 5:00 AM UTC. Demand classification (smooth/erratic/intermittent/lumpy/new_sparse/no_demand) using ADI/CV² over 26 weeks. MA8 for smooth, Median6 for intermittent/lumpy, trend adjustment (capped uplift/downside), ratio-based seasonality (prefix/brand levels). Replenishment with target stock, MOQ, case rounding. Settings stored in `settings` table with `forecast_*` prefix keys.
-- **Supplier Grouping**: Items grouped by `DwItem.supplier_code_365` (pulled from PS365 `list_items` API). `ForecastItemSupplierMap` table acts as optional override layer for lead times, order multiples, and MOQ overrides. All 4,139 items have supplier data (0 unmapped). API endpoints (`/api/suppliers`, `/api/items`, `/api/export`) use supplier from `DwItem` first, falling back to mapping table.
-- **Stock Fetching**: Replenishment service batch-fetches stock per supplier via `fetch_supplier_stock()` from PS365 `list_items_stock` API. Maps API fields (`stock_now_units`, `ordered_now_units`, `reserved_now_units`) to forecast fields (`on_hand_qty`, `incoming_qty`, `reserved_qty`). Failures logged as warnings (graceful fallback to zero).
-- **Review Flags**: Items flagged for manual review only if they have NO supplier (neither from `DwItem.supplier_code_365` nor `ForecastItemSupplierMap`). Items with suppliers no longer get "missing supplier mapping" flag. Other review triggers: erratic/lumpy/new_sparse demand class, inactive with sales, trend >10%, forecast change >20%, rounding distortion >30%, missing brand/category.
+- **Supplier Forecast & Order Workbench**: A comprehensive forecasting and replenishment system integrating with `DwItem` supplier data, `ForecastItemSupplierMap`, and PS365 APIs for stock fetching. It includes demand classification, seasonality adjustments, and review flags.
