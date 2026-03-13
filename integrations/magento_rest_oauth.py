@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import urllib.parse
 from requests_oauthlib import OAuth1Session
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,15 @@ def _build_session():
     )
 
 
+def _build_query_string(params: dict) -> str:
+    if not params:
+        return ""
+    parts = []
+    for key, value in params.items():
+        parts.append(f"{key}={urllib.parse.quote(str(value), safe='')}")
+    return "&".join(parts)
+
+
 def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple[int, str]:
     base_url = os.getenv('MAGENTO_BASE_URL', '').rstrip('/')
     if base_url.endswith('/graphql'):
@@ -34,6 +44,9 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
         raise ValueError("MAGENTO_BASE_URL environment variable not set")
 
     url = f"{base_url}{path}"
+    if params:
+        url = f"{url}?{_build_query_string(params)}"
+
     headers = {"Accept": "application/json"}
 
     last_status = 0
@@ -41,8 +54,8 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
 
     for attempt in range(1, MAX_RETRIES + 1):
         oauth = _build_session()
-        logger.debug(f"Magento GET {url} (attempt {attempt})")
-        resp = oauth.get(url, params=params, headers=headers, timeout=timeout)
+        logger.debug(f"Magento GET {path} (attempt {attempt})")
+        resp = oauth.get(url, headers=headers, timeout=timeout)
         last_status = resp.status_code
         last_text = resp.text
 
