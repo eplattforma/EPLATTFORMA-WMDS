@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple[int, str]:
     base_url = os.getenv('MAGENTO_BASE_URL', '').rstrip('/')
+    if base_url.endswith('/graphql'):
+        base_url = base_url[:-len('/graphql')]
     if not base_url:
         raise ValueError("MAGENTO_BASE_URL environment variable not set")
 
@@ -27,7 +29,12 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
         resource_owner_secret=access_token_secret,
     )
 
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
     logger.debug(f"Magento GET {url} params={list((params or {}).keys())}")
-    resp = oauth.get(url, params=params, timeout=timeout)
+    resp = oauth.get(url, params=params, headers=headers, timeout=timeout)
     logger.debug(f"Magento response: {resp.status_code}")
     return resp.status_code, resp.text

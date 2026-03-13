@@ -61,50 +61,65 @@ def api_abandoned_carts():
             }), status_code
         
         data = json.loads(response_text)
-        items = data.get("items", [])
-        
-        # Apply client-side search filter
+        raw_items = data.get("items", [])
+
+        raw_items = [c for c in raw_items if c.get("items_count") or len(c.get("items", []))]
+
         if search_term:
-            search_term_lower = search_term.lower()
-            items = [
-                item for item in items
-                if search_term_lower in (item.get("customer_email", "") or "").lower()
-                or search_term_lower in (item.get("customer_firstname", "") or "").lower()
-                or search_term_lower in (item.get("customer_lastname", "") or "").lower()
-            ]
-        
-        # Format carts for response
+            s = search_term.lower()
+            def _match(c):
+                cust = c.get("customer", {}) or {}
+                email = (cust.get("email") or c.get("customer_email") or "").lower()
+                fname = (cust.get("firstname") or c.get("customer_firstname") or "").lower()
+                lname = (cust.get("lastname") or c.get("customer_lastname") or "").lower()
+                return s in email or s in fname or s in lname
+            raw_items = [c for c in raw_items if _match(c)]
+
         carts = []
         total_value = 0
-        
-        for cart in items:
+
+        for cart in raw_items:
+            cust = cart.get("customer", {}) or {}
             items_list = cart.get("items", [])
-            item_count = len(items_list)
-            grand_total = float(cart.get("grand_total", 0) or 0)
+            item_count = cart.get("items_count") or len(items_list)
+
+            subtotal = 0
+            for ci in items_list:
+                price = float(ci.get("price", 0) or 0)
+                qty = float(ci.get("qty", 0) or 0)
+                subtotal += price * qty
+            grand_total = float(cart.get("grand_total") or subtotal or 0)
             total_value += grand_total
-            
+
+            currency_info = cart.get("currency", {})
+            currency_code = "EUR"
+            if isinstance(currency_info, dict):
+                currency_code = currency_info.get("quote_currency_code") or currency_info.get("base_currency_code") or "EUR"
+            elif isinstance(currency_info, str):
+                currency_code = currency_info
+
             cart_data = {
-                "entity_id": cart.get("entity_id"),
-                "customer_id": cart.get("customer_id"),
-                "customer_email": cart.get("customer_email", ""),
-                "customer_firstname": cart.get("customer_firstname", ""),
-                "customer_lastname": cart.get("customer_lastname", ""),
-                "customer_group_id": cart.get("customer_group_id"),
+                "entity_id": cart.get("id") or cart.get("entity_id"),
+                "customer_id": cust.get("id") or cart.get("customer_id"),
+                "customer_email": cust.get("email") or cart.get("customer_email", ""),
+                "customer_firstname": cust.get("firstname") or cart.get("customer_firstname", ""),
+                "customer_lastname": cust.get("lastname") or cart.get("customer_lastname", ""),
+                "customer_group_id": cust.get("group_id") or cart.get("customer_group_id"),
                 "item_count": item_count,
                 "items": [
                     {
-                        "sku": item.get("sku", ""),
-                        "name": item.get("name", ""),
-                        "qty": item.get("qty", 0),
-                        "price": item.get("price", 0)
+                        "sku": ci.get("sku", ""),
+                        "name": ci.get("name", ""),
+                        "qty": ci.get("qty", 0),
+                        "price": ci.get("price", 0),
                     }
-                    for item in items_list
+                    for ci in items_list
                 ],
                 "grand_total": grand_total,
-                "currency": cart.get("currency", "EUR"),
+                "currency": currency_code,
                 "created_at": cart.get("created_at", ""),
                 "updated_at": cart.get("updated_at", ""),
-                "store_id": cart.get("store_id")
+                "store_id": cart.get("store_id"),
             }
             carts.append(cart_data)
         
