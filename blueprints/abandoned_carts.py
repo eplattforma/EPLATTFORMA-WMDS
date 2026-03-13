@@ -31,41 +31,27 @@ def api_abandoned_carts():
     search_term = request.args.get("search", "", type=str)
     
     try:
-        # Calculate cutoff date
         utc_now = datetime.utcnow()
         cutoff_date = utc_now - timedelta(days=days)
-        cutoff_iso = cutoff_date.isoformat() + "Z"
-        
-        # Build search criteria
-        search_criteria = {
-            "searchCriteria": {
-                "filterGroups": [
-                    {
-                        "filters": [
-                            {"field": "is_active", "value": "1", "conditionType": "eq"}
-                        ]
-                    },
-                    {
-                        "filters": [
-                            {"field": "updated_at", "value": cutoff_iso, "conditionType": "gteq"}
-                        ]
-                    },
-                    {
-                        "filters": [
-                            {"field": "customer_id", "value": "0", "conditionType": "gt"}
-                        ]
-                    }
-                ],
-                "pageSize": limit,
-                "currentPage": 1,
-                "sortOrders": [
-                    {"field": "updated_at", "direction": "DESC"}
-                ]
-            }
+        cutoff_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")
+
+        params = {
+            "searchCriteria[filterGroups][0][filters][0][field]": "is_active",
+            "searchCriteria[filterGroups][0][filters][0][value]": "1",
+            "searchCriteria[filterGroups][0][filters][0][conditionType]": "eq",
+            "searchCriteria[filterGroups][1][filters][0][field]": "updated_at",
+            "searchCriteria[filterGroups][1][filters][0][value]": cutoff_str,
+            "searchCriteria[filterGroups][1][filters][0][conditionType]": "gteq",
+            "searchCriteria[filterGroups][2][filters][0][field]": "customer_id",
+            "searchCriteria[filterGroups][2][filters][0][value]": "0",
+            "searchCriteria[filterGroups][2][filters][0][conditionType]": "gt",
+            "searchCriteria[pageSize]": str(limit),
+            "searchCriteria[currentPage]": "1",
+            "searchCriteria[sortOrders][0][field]": "updated_at",
+            "searchCriteria[sortOrders][0][direction]": "DESC",
         }
-        
-        path = "/rest/V1/carts/search?searchCriteria=" + json.dumps(search_criteria["searchCriteria"])
-        status_code, response_text = magento_rest_get(path)
+
+        status_code, response_text = magento_rest_get("/rest/V1/carts/search", params=params)
         
         if status_code != 200:
             return jsonify({
