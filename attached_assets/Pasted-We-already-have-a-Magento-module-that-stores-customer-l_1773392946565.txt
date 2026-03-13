@@ -1,0 +1,96 @@
+We already have a Magento module that stores customer login logs.
+
+Important facts from Magento:
+- Module: Bss_CustomerLoginLogs
+- Existing log table: bss_customer_login_logs
+- Existing API resource: activitylog
+- Existing API class: Bss\CustomerLoginLogs\Model\Api\Activitylog
+- Existing server router maps resource=activitylog to that class
+- Stored fields include:
+  customer_id
+  email
+  first_name
+  last_name
+  ps365_code
+  last_login_at
+  last_logout_at
+
+I do NOT want a new Magento module.
+I do NOT want a new GraphQL module.
+I want Replit to connect to the existing Magento endpoint and read the information.
+
+Please implement this in my Replit app:
+
+1. Create a Magento integration helper file, for example:
+   services/magento_login_logs.py
+
+2. Add a function that calls the existing Magento activitylog endpoint.
+   The code should support base URL and auth from environment variables:
+   MAGENTO_BASE_URL
+   MAGENTO_BEARER_TOKEN   (if required by the endpoint)
+
+3. First, detect the exact activitylog endpoint path already used by our Magento/Simi connector setup.
+   Search my existing codebase and any current working Magento API calls for the same routing pattern.
+   The endpoint likely uses the Simi connector route and resource=activitylog.
+   Do not guess blindly if a working route already exists elsewhere in the app.
+
+4. Build a function:
+   get_customer_last_login(customer_id=None, email=None, ps365_code=None)
+
+5. The function should:
+   - call the existing activitylog API
+   - parse the returned list of login log rows
+   - filter by whichever identifier is provided:
+     customer_id, email, or ps365_code
+   - sort by last_login_at descending
+   - return only the latest matching row
+
+6. Normalize the output to:
+   {
+     "customer_id": ...,
+     "email": ...,
+     "first_name": ...,
+     "last_name": ...,
+     "ps365_code": ...,
+     "last_login_at": ...,
+     "last_logout_at": ...
+   }
+
+7. Add a Replit backend endpoint:
+   GET /api/magento/customer-last-login
+
+   Supported query params:
+   - customer_id
+   - email
+   - ps365_code
+
+   It should require at least one of these parameters.
+   If none are provided, return HTTP 400.
+
+8. Add proper error handling:
+   - timeout to Magento
+   - non-200 responses
+   - malformed JSON
+   - no matching login row found
+
+9. Add small in-memory caching for 60-120 seconds to reduce repeated Magento calls.
+
+10. Add logging so we can see:
+   - endpoint called
+   - filters used
+   - record count returned from Magento
+   - whether a matching row was found
+
+11. If the existing activitylog API supports server-side filtering/paging, use it.
+   If not, fetch results and filter client-side in Replit.
+
+12. Show me:
+   - the exact helper file
+   - the exact Flask route
+   - the environment variables needed
+   - one test example by ps365_code
+   - one test example by customer_id
+
+13. If the activitylog endpoint is not reachable from Replit, then as fallback:
+   - inspect the existing Magento module routing and tell me the exact URL pattern needed
+   - do NOT create a new module unless absolutely necessary

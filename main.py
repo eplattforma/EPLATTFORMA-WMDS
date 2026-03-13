@@ -211,6 +211,9 @@ app.register_blueprint(forecast_bp)
 from blueprints.abandoned_carts import abandoned_bp
 app.register_blueprint(abandoned_bp)
 
+from blueprints.magento_api import magento_api_bp
+app.register_blueprint(magento_api_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal
