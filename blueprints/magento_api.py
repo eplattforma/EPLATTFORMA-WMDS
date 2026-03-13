@@ -26,7 +26,7 @@ def customer_last_login():
     logger.info("customer-last-login called: customer_id=%s email=%s ps365_code=%s",
                 customer_id, email, ps365_code)
 
-    from services.magento_login_logs import get_customer_last_login
+    from services.magento_login_logs_db import get_customer_last_login
     try:
         result = get_customer_last_login(
             customer_id=customer_id,
@@ -36,8 +36,11 @@ def customer_last_login():
         if result is None:
             return jsonify({"ok": True, "found": False, "login": None})
         return jsonify({"ok": True, "found": True, "login": result})
+    except ValueError as e:
+        logger.warning("customer-last-login validation error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 400
     except RuntimeError as e:
-        logger.error("Activitylog endpoint error: %s", e)
+        logger.error("customer-last-login runtime error: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 502
     except Exception as e:
         logger.error("customer-last-login error: %s", e, exc_info=True)
