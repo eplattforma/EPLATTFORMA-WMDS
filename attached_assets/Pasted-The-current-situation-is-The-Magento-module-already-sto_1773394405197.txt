@@ -1,0 +1,190 @@
+The current situation is:
+
+The Magento module already stores the login data in bss_customer_login_logs.
+
+The existing API class is Bss\CustomerLoginLogs\Model\Api\Activitylog.
+
+That class has index() and store(), not getList().
+
+Bss\CustomerLoginLogs\Model\Server maps resource=activitylog to that class.
+
+So the proposed standard REST file with method="getList" is wrong.
+
+setup:di:compile and cache:flush may be needed, but they will only help if the request is hitting the correct Simi route with the correct parameters.
+
+Paste this to Replit exactly:
+
+We already confirmed the Magento side has an existing custom login-log implementation.
+
+Facts:
+- Table: bss_customer_login_logs
+- API class: Bss\CustomerLoginLogs\Model\Api\Activitylog
+- Methods on that class: index() and store()
+- Custom server override: Bss\CustomerLoginLogs\Model\Server
+- Special handling exists for resource=activitylog
+
+Important:
+- Do NOT assume a standard Magento /rest/V1/... endpoint exists.
+- Do NOT use getList() because the Activitylog class does not have that method.
+- The current likely working path is through the Simi Simiconnector route, not standard REST.
+
+Your task:
+1. Search the Magento codebase and our existing Replit code for the Simi connector base route/frontName.
+   Look for:
+   - route.xml
+   - frontName
+   - Simiconnector
+   - existing working Simi API calls
+   - resource=activitylog
+
+2. After the Magento developer runs:
+   - bin/magento setup:di:compile
+   - bin/magento cache:flush
+   test the Simi endpoint again using the existing route/frontName.
+
+3. The request must be built for the Simi endpoint, not standard REST.
+   The key parameter is:
+   - resource=activitylog
+
+4. If the Simi endpoint works, create:
+   services/magento_login_logs.py
+
+   with:
+   - fetch_activity_logs()
+   - get_customer_last_login(customer_id=None, email=None, ps365_code=None)
+
+5. The helper should:
+   - call the existing Simi activitylog endpoint
+   - parse the response
+   - filter by customer_id, email, or ps365_code
+   - sort by last_login_at descending
+   - return only the latest row
+
+6. Add backend endpoint:
+   GET /api/magento/customer-last-login
+
+   Query params:
+   - customer_id
+   - email
+   - ps365_code
+
+7. Add logging for:
+   - final URL called
+   - query params sent
+   - response status
+   - response shape
+   - number of rows returned
+   - whether a matching row was found
+
+8. If the Simi endpoint still returns “Invalid method” after compile/flush, do not keep guessing URL paths.
+   In that case stop and report:
+   - the exact Simi frontName found
+   - the exact tested URL
+   - the exact response body
+
+9. Only if the Simi route still cannot be used, then propose a fallback for Magento developer:
+   add a small standard REST endpoint in the existing Bss module.
+   But do NOT suggest method getList().
+   If a REST route is added, it must call a real public method that exists or a new small API method created for this purpose.
+
+10. Important field mapping:
+   - query logs by ps365_code
+   - do NOT query by powersoft_code
+   because powersoft_code is only the source customer attribute used when writing the log
+
+And this is the cleaned Python helper you can give them:
+
+import os
+import requests
+from datetime import datetime
+from typing import Any, Optional
+
+
+MAGENTO_BASE_URL = os.getenv("MAGENTO_BASE_URL", "").rstrip("/")
+MAGENTO_BEARER_TOKEN = os.getenv("MAGENTO_BEARER_TOKEN", "")
+MAGENTO_ACTIVITYLOG_ENDPOINT = os.getenv("MAGENTO_ACTIVITYLOG_ENDPOINT", "").lstrip("/")
+
+
+def fetch_activity_logs() -> Any:
+    if not MAGENTO_BASE_URL:
+        raise ValueError("MAGENTO_BASE_URL is not configured")
+    if not MAGENTO_ACTIVITYLOG_ENDPOINT:
+        raise ValueError("MAGENTO_ACTIVITYLOG_ENDPOINT is not configured")
+
+    url = f"{MAGENTO_BASE_URL}/{MAGENTO_ACTIVITYLOG_ENDPOINT}"
+    headers = {}
+
+    if MAGENTO_BEARER_TOKEN:
+        headers["Authorization"] = f"Bearer {MAGENTO_BEARER_TOKEN}"
+
+    resp = requests.get(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _parse_rows(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+        for key in ("items", "data", "logs"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+
+    raise ValueError("Unexpected response format from activitylog API")
+
+
+def _to_dt(value: Any) -> datetime:
+    if not value:
+        return datetime.min
+
+    text = str(value).strip()
+
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        pass
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%b %d, %Y %I:%M:%S %p"):
+        try:
+            return datetime.strptime(text, fmt)
+        except Exception:
+            continue
+
+    return datetime.min
+
+
+def get_customer_last_login(
+    customer_id: Optional[int] = None,
+    email: Optional[str] = None,
+    ps365_code: Optional[str] = None,
+) -> Optional[dict]:
+    payload = fetch_activity_logs()
+    rows = _parse_rows(payload)
+
+    def match(row: dict) -> bool:
+        if customer_id is not None and str(row.get("customer_id")) != str(customer_id):
+            return False
+        if email is not None and (row.get("email") or "").strip().lower() != email.strip().lower():
+            return False
+        if ps365_code is not None and str(row.get("ps365_code") or "").strip() != str(ps365_code).strip():
+            return False
+        return True
+
+    filtered = [row for row in rows if match(row)]
+    filtered.sort(key=lambda row: _to_dt(row.get("last_login_at")), reverse=True)
+
+    if not filtered:
+        return None
+
+    row = filtered[0]
+    return {
+        "customer_id": row.get("customer_id"),
+        "email": row.get("email"),
+        "first_name": row.get("first_name"),
+        "last_name": row.get("last_name"),
+        "ps365_code": row.get("ps365_code"),
+        "last_login_at": row.get("last_login_at"),
+        "last_logout_at": row.get("last_logout_at"),
+    }
