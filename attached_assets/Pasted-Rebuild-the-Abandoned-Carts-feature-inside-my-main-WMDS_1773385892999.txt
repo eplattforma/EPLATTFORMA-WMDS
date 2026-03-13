@@ -1,0 +1,258 @@
+Rebuild the “Abandoned Carts” feature inside my main WMDS app from scratch, using the same functionality as the demo app, but integrated properly into WMDS architecture and UI.
+
+IMPORTANT
+- Do NOT create this as a standalone mini app.
+- Do NOT keep the raw demo HTML as a full standalone page.
+- Build it properly inside WMDS using our existing Flask app structure, existing base layout, existing auth/login protection, and existing menu system.
+- Place it under the Customers menu.
+- Treat this as a production integration, not a quick demo copy.
+
+GOAL
+Create a new Customers > Abandoned Carts page in WMDS that connects live to Magento via OAuth1 REST API and shows active customer carts that were not converted to orders.
+
+FEATURES REQUIRED
+1. A page route:
+   /abandoned-carts
+
+2. A JSON API route:
+   /api/abandoned-carts
+
+3. Page capabilities:
+   - filter by days: 7 / 30 / 60 / 90
+   - limit selector: 25 / 50 / 100
+   - search box filtering by customer name or email
+   - refresh button
+   - summary cards:
+     - total carts
+     - carts with items
+     - total value
+     - average value
+   - expandable cart rows to show items inside each cart
+
+4. Data to display per cart:
+   - cart id
+   - customer name
+   - customer email
+   - customer group id
+   - item count
+   - items list:
+     - sku
+     - name
+     - qty
+     - price
+   - grand total
+   - currency
+   - created_at
+   - updated_at
+   - store_id
+
+ARCHITECTURE REQUIREMENTS
+Build this cleanly inside WMDS as follows:
+
+1. Magento integration helper
+Create or update:
+   integrations/magento_rest_oauth.py
+
+This file should expose a reusable function:
+   magento_rest_get(path: str) -> tuple[int, str]
+
+It must:
+- read these secrets from environment:
+  - MAGENTO_BASE_URL
+  - M2_CONSUMER_KEY
+  - M2_CONSUMER_SECRET
+  - M2_ACCESS_TOKEN
+  - M2_ACCESS_TOKEN_SECRET
+- use requests + requests_oauthlib OAuth1
+- call Magento with timeout
+- return status code and text body
+- raise a clear error if MAGENTO_BASE_URL is missing
+- be reusable for future Magento REST endpoints also
+
+2. New blueprint / route module
+Create the abandoned carts feature as a proper WMDS module, preferably in the area where customer-related routes live.
+Use the existing WMDS structure and naming conventions.
+
+If customer routes are already grouped, place it with them.
+If not, create something like:
+   blueprints/customers/abandoned_carts.py
+or the equivalent structure already used in WMDS.
+
+This module must:
+- define a blueprint
+- expose:
+  - GET /abandoned-carts  -> render page
+  - GET /api/abandoned-carts -> return JSON data
+- use the existing WMDS login/auth decorators
+- reuse the same access control as other customer pages
+- not require any database migration because data is fetched live from Magento
+
+3. Template
+Create a template integrated into WMDS base layout, not a full raw HTML page.
+
+Preferred:
+   templates/customers/abandoned_carts.html
+or match current WMDS convention.
+
+IMPORTANT TEMPLATE RULES
+- extend the main WMDS base template
+- include page title and breadcrumbs if WMDS uses them
+- match the existing admin styling as closely as possible
+- do not include a totally separate standalone layout
+- keep the demo styling feel, but adapt it to WMDS theme
+
+MENU INTEGRATION
+Add a new menu item under Customers:
+   Abandoned Carts
+
+Requirements:
+- place it in the Customers section only
+- use a suitable icon
+- link to /abandoned-carts
+- keep menu visibility consistent with the same roles that can access other customer-related tools
+
+BLUEPRINT REGISTRATION
+Register the new blueprint in the same way WMDS registers its other blueprints.
+Do not use ad hoc registration if WMDS already has a pattern.
+Follow the existing app factory / blueprint registration structure exactly.
+
+API BEHAVIOR
+The JSON endpoint /api/abandoned-carts must work like this:
+
+Query params:
+- days: int, default 30
+- limit: int, default 50
+
+Logic:
+- calculate cutoff = utc now minus N days
+- call Magento REST:
+  /rest/V1/carts/search
+  with searchCriteria filters:
+    - is_active = 1
+    - updated_at >= cutoff
+    - customer_id > 0
+    - pageSize = limit
+    - currentPage = 1
+    - sort by updated_at desc
+
+On success:
+- parse returned items
+- build a clean summary list
+- compute grand_total from Magento field if present, otherwise derive from item price * qty
+- return JSON:
+  {
+    ok: true,
+    total_abandoned,
+    showing,
+    filter_days,
+    carts: [...]
+  }
+
+On Magento error:
+- return:
+  {
+    ok: false,
+    status,
+    error
+  }
+
+On exception:
+- return 500 with:
+  {
+    ok: false,
+    error: "<message>"
+  }
+
+FRONTEND BEHAVIOR
+On page load:
+- default to 30 days
+- default to limit 50
+- call /api/abandoned-carts
+- show loading spinner while fetching
+- show error alert if API fails
+- render summary cards
+- render cart list
+
+Cart list UI:
+- each cart in a card/row
+- show customer initials circle/avatar
+- customer name and email
+- item count badge
+- total badge
+- updated date
+- expand/collapse to show items
+- for each item show:
+  - item name
+  - sku
+  - qty
+  - line total
+
+Search:
+- client-side filtering by customer name or customer email
+
+REFINEMENTS REQUIRED
+This is important:
+- do not simply dump the demo page unchanged
+- improve it to fit WMDS conventions
+- ensure escaped output for customer fields
+- ensure empty/null values do not break rendering
+- ensure totals are formatted safely
+- ensure API and UI behave gracefully when no carts are returned
+
+DEPENDENCIES
+Ensure requirements include:
+- requests
+- requests-oauthlib
+
+Only add what is missing.
+
+SECRETS
+The code must rely on these existing secrets:
+- MAGENTO_BASE_URL
+- M2_CONSUMER_KEY
+- M2_CONSUMER_SECRET
+- M2_ACCESS_TOKEN
+- M2_ACCESS_TOKEN_SECRET
+
+Do not hardcode them anywhere.
+
+USE THIS DEMO LOGIC AS THE FUNCTIONAL REFERENCE
+The abandoned carts feature should match this behavior from the demo:
+- active quotes only
+- customer carts only, not guests
+- updated within selected days
+- expandable item list
+- summary cards
+- search/filter UI
+
+But adapt it structurally to WMDS properly.
+
+CLEAN IMPLEMENTATION REQUIREMENTS
+- keep code modular
+- keep route file focused
+- keep Magento helper reusable
+- use WMDS base template
+- use existing login/auth protection
+- use existing flash/error conventions where relevant
+- add concise comments only where useful
+- avoid unnecessary complexity
+- do not create DB tables for this feature
+
+ACCEPTANCE CHECKLIST
+I should be able to:
+1. open WMDS
+2. go to Customers > Abandoned Carts
+3. see the page load without template/layout issues
+4. fetch real abandoned carts from Magento
+5. change day filters and limit
+6. search by customer name/email
+7. expand carts and view items
+8. see clean error messages if Magento credentials are wrong or Magento fails
+
+DELIVERABLES
+When finished, provide:
+1. list of files created
+2. list of files updated
+3. short explanation of how it was integrated into the Customers menu
+4. any secrets/dependencies expected
+5. any notes about access control used

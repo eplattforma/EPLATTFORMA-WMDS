@@ -1,0 +1,399 @@
+{% extends "base.html" %}
+
+{% block title %}Abandoned Carts - EPLATTFORMA WMDS System{% endblock %}
+
+{% block head %}
+<style>
+.cart-card {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    transition: all 0.2s;
+}
+.cart-card:hover {
+    border-color: #555;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.cart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+.cart-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+    margin-right: 1rem;
+}
+.cart-info {
+    flex: 1;
+}
+.cart-customer {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+}
+.cart-email {
+    font-size: 0.85rem;
+    color: #aaa;
+}
+.cart-stats {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+.stat-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.8rem;
+    background: rgba(102, 126, 234, 0.2);
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+.stat-badge.value {
+    background: rgba(76, 175, 80, 0.2);
+}
+.collapse-icon {
+    font-size: 1.2rem;
+    color: #888;
+    transition: transform 0.2s;
+}
+.collapsed .collapse-icon {
+    transform: rotate(180deg);
+}
+.items-list {
+    display: none;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #333;
+}
+.items-list.show {
+    display: block;
+}
+.item-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 0.6fr 0.8fr;
+    gap: 1rem;
+    padding: 0.7rem 0;
+    font-size: 0.9rem;
+    border-bottom: 1px solid #2a2a2a;
+}
+.item-row:last-child {
+    border-bottom: none;
+}
+.item-row label {
+    color: #888;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.25rem;
+}
+.item-sku {
+    color: #aaa;
+}
+.item-price {
+    text-align: right;
+}
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+.summary-card {
+    background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+}
+.summary-card-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #667eea;
+    margin: 0.5rem 0;
+}
+.summary-card-label {
+    color: #aaa;
+    font-size: 0.9rem;
+}
+.controls {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.controls input,
+.controls select,
+.controls button {
+    padding: 0.6rem 1rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+.loading-spinner {
+    text-align: center;
+    padding: 2rem;
+}
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #888;
+}
+.empty-state i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+.alert-custom {
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex align-items-center gap-2 mb-4">
+        <h2 class="mb-0">
+            <i class="fas fa-shopping-cart me-2"></i>Abandoned Carts
+        </h2>
+        <small class="text-muted">(Magento Live Data)</small>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <div>
+            <label for="filterDays" class="me-2">Days:</label>
+            <select id="filterDays" class="form-select d-inline" style="width: auto;">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="60">Last 60 days</option>
+                <option value="90">Last 90 days</option>
+            </select>
+        </div>
+        <div>
+            <label for="filterLimit" class="me-2">Limit:</label>
+            <select id="filterLimit" class="form-select d-inline" style="width: auto;">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+            </select>
+        </div>
+        <div style="flex: 1; max-width: 300px;">
+            <input type="text" id="searchBox" class="form-control" placeholder="Search by name or email...">
+        </div>
+        <button id="refreshBtn" class="btn btn-primary">
+            <i class="fas fa-sync me-1"></i>Refresh
+        </button>
+    </div>
+
+    <!-- Error Alert -->
+    <div id="errorAlert" class="alert alert-danger alert-custom" style="display: none;"></div>
+
+    <!-- Summary Cards -->
+    <div class="summary-cards" id="summaryCards" style="display: none;">
+        <div class="summary-card">
+            <div class="summary-card-label">Total Abandoned Carts</div>
+            <div class="summary-card-value" id="totalCarts">0</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-card-label">Total Value</div>
+            <div class="summary-card-value" id="totalValue">€0.00</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-card-label">Average Value</div>
+            <div class="summary-card-value" id="avgValue">€0.00</div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="loading-spinner">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="text-muted mt-3">Fetching carts from Magento...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-state" style="display: none;">
+        <i class="fas fa-inbox"></i>
+        <p>No abandoned carts found for the selected period.</p>
+    </div>
+
+    <!-- Cart List -->
+    <div id="cartList"></div>
+</div>
+
+<script>
+(function() {
+    let allCarts = [];
+    let displayedCarts = [];
+    
+    async function loadCarts() {
+        const days = document.getElementById('filterDays').value;
+        const limit = document.getElementById('filterLimit').value;
+        
+        document.getElementById('loadingState').style.display = 'block';
+        document.getElementById('cartList').innerHTML = '';
+        document.getElementById('errorAlert').style.display = 'none';
+        document.getElementById('summaryCards').style.display = 'none';
+        document.getElementById('emptyState').style.display = 'none';
+        
+        try {
+            const response = await fetch(`{{ url_for('abandoned_carts.api_abandoned_carts') }}?days=${days}&limit=${limit}`);
+            const data = await response.json();
+            
+            document.getElementById('loadingState').style.display = 'none';
+            
+            if (!data.ok) {
+                showError(data.error || 'Failed to fetch carts');
+                return;
+            }
+            
+            allCarts = data.carts || [];
+            applySearch();
+            renderSummary(data);
+        } catch (error) {
+            document.getElementById('loadingState').style.display = 'none';
+            showError(`Error: ${error.message}`);
+        }
+    }
+    
+    function renderSummary(data) {
+        document.getElementById('totalCarts').textContent = data.total_abandoned;
+        document.getElementById('totalValue').textContent = '€' + data.total_value.toFixed(2);
+        document.getElementById('avgValue').textContent = '€' + data.average_value.toFixed(2);
+        document.getElementById('summaryCards').style.display = 'grid';
+    }
+    
+    function applySearch() {
+        const search = document.getElementById('searchBox').value.toLowerCase();
+        displayedCarts = allCarts.filter(cart => {
+            const name = `${cart.customer_firstname} ${cart.customer_lastname}`.toLowerCase();
+            const email = cart.customer_email.toLowerCase();
+            return name.includes(search) || email.includes(search);
+        });
+        renderCarts();
+    }
+    
+    function renderCarts() {
+        const container = document.getElementById('cartList');
+        
+        if (displayedCarts.length === 0) {
+            container.innerHTML = '';
+            document.getElementById('emptyState').style.display = 'block';
+            return;
+        }
+        
+        document.getElementById('emptyState').style.display = 'none';
+        container.innerHTML = displayedCarts.map(cart => `
+            <div class="cart-card">
+                <div class="cart-header" onclick="toggleCart(${cart.entity_id})">
+                    <div style="display: flex; align-items: center; flex: 1;">
+                        <div class="cart-avatar">${getInitials(cart.customer_firstname, cart.customer_lastname)}</div>
+                        <div class="cart-info">
+                            <div class="cart-customer">${escapeHtml(cart.customer_firstname + ' ' + cart.customer_lastname)}</div>
+                            <div class="cart-email">${escapeHtml(cart.customer_email)}</div>
+                        </div>
+                    </div>
+                    <div class="cart-stats">
+                        <span class="stat-badge">
+                            <i class="fas fa-box"></i>
+                            <strong>${cart.item_count}</strong> items
+                        </span>
+                        <span class="stat-badge value">
+                            <strong>€${cart.grand_total.toFixed(2)}</strong>
+                        </span>
+                        <small class="text-muted" style="min-width: 120px; text-align: right;">
+                            ${formatDate(cart.updated_at)}
+                        </small>
+                        <i class="fas fa-chevron-down collapse-icon"></i>
+                    </div>
+                </div>
+                <div class="items-list" id="items-${cart.entity_id}">
+                    <div style="margin-bottom: 1rem; font-weight: 600; color: #ccc;">Items in Cart</div>
+                    ${cart.items.map(item => `
+                        <div class="item-row">
+                            <div>
+                                <label>Product Name</label>
+                                ${escapeHtml(item.name)}
+                            </div>
+                            <div>
+                                <label>SKU</label>
+                                <span class="item-sku">${escapeHtml(item.sku)}</span>
+                            </div>
+                            <div>
+                                <label>Qty</label>
+                                ${item.qty}
+                            </div>
+                            <div>
+                                <label>Price</label>
+                                <span class="item-price">€${parseFloat(item.price).toFixed(2)}</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    function toggleCart(cartId) {
+        const itemsDiv = document.getElementById(`items-${cartId}`);
+        const cartCard = itemsDiv.parentElement;
+        const header = cartCard.querySelector('.cart-header');
+        
+        itemsDiv.classList.toggle('show');
+        header.classList.toggle('collapsed');
+    }
+    
+    function getInitials(first, last) {
+        return ((first || 'U')[0] + (last || '')[0]).toUpperCase();
+    }
+    
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    function formatDate(dateStr) {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    }
+    
+    function showError(message) {
+        const alert = document.getElementById('errorAlert');
+        alert.textContent = message;
+        alert.style.display = 'block';
+    }
+    
+    window.toggleCart = toggleCart;
+    
+    document.getElementById('refreshBtn').addEventListener('click', loadCarts);
+    document.getElementById('filterDays').addEventListener('change', loadCarts);
+    document.getElementById('filterLimit').addEventListener('change', loadCarts);
+    document.getElementById('searchBox').addEventListener('input', applySearch);
+    
+    loadCarts();
+})();
+</script>
+{% endblock %}
