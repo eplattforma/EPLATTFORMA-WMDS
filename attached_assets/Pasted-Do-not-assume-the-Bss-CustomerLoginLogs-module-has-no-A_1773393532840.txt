@@ -1,0 +1,74 @@
+Do not assume the Bss_CustomerLoginLogs module has no API just because there is no webapi.xml.
+
+The uploaded Magento files show this module is integrated through Simi Simiconnector, not standard Magento REST:
+
+1. Bss\CustomerLoginLogs\Model\Api\Activitylog exists and index() returns the logs collection.
+2. Bss\CustomerLoginLogs\Model\Server maps resource=activitylog to that API class.
+3. The underlying table is bss_customer_login_logs.
+
+Therefore:
+
+A. Stop trying only standard /rest/V1/... Magento REST endpoints.
+
+B. First locate the existing Simi connector route/frontName already used by this Magento installation.
+   Search the Magento codebase for:
+   - Simiconnector
+   - route.xml
+   - frontName
+   - resource=activitylog
+   - references to Bss\CustomerLoginLogs\Model\Server
+   - existing working API calls from our app that use the same Simi routing pattern
+
+C. Implement Replit integration in this order:
+
+   Priority 1:
+   Reuse the existing Simi connector endpoint for activitylog.
+   Once the base Simi endpoint is found, call it with resource=activitylog and parse the result.
+
+   Priority 2:
+   If the Simi endpoint exists but needs auth/session handling, replicate the same auth pattern already used by our other Magento Simi API calls.
+
+   Priority 3:
+   Only if the Simi endpoint cannot be located or is unusable, then propose one of:
+   - add a very small webapi.xml to the existing Bss module
+   - or read directly from the Magento database as a fallback
+
+D. Build a helper in Replit:
+   services/magento_login_logs.py
+
+   Main function:
+   get_customer_last_login(customer_id=None, email=None, ps365_code=None)
+
+   It should:
+   - call the existing Simi activitylog endpoint
+   - parse the returned rows
+   - filter by customer_id, email, or ps365_code
+   - sort by last_login_at descending
+   - return the latest match only
+
+E. Add a Flask endpoint:
+   GET /api/magento/customer-last-login
+
+   Query params:
+   - customer_id
+   - email
+   - ps365_code
+
+F. Use these returned fields:
+   - customer_id
+   - email
+   - first_name
+   - last_name
+   - ps365_code
+   - last_login_at
+   - last_logout_at
+
+G. Important:
+   In the logs table the field is ps365_code, not powersoft_code.
+   powersoft_code is only the source customer attribute used when writing the log.
+
+Before suggesting any Magento module changes, first show me:
+1. the exact Simi connector route/frontName found
+2. the exact URL pattern that should be called
+3. one working test request for activitylog
+4. the parsed response shape
