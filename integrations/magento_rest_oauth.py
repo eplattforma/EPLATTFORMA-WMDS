@@ -31,10 +31,10 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
 
     headers = {
         "Accept": "application/json",
-        "Content-Type": "application/json",
     }
 
-    logger.debug(f"Magento GET {url} params={list((params or {}).keys())}")
+    logger.debug(f"Magento GET {url}")
     resp = oauth.get(url, params=params, headers=headers, timeout=timeout)
-    logger.debug(f"Magento response: {resp.status_code}")
+    if resp.status_code != 200:
+        logger.warning(f"Magento {resp.status_code}: {resp.text[:500]}")
     return resp.status_code, resp.text
