@@ -175,23 +175,6 @@
 
     <!-- Controls -->
     <div class="controls">
-        <div>
-            <label for="filterDays" class="me-2">Days:</label>
-            <select id="filterDays" class="form-select d-inline" style="width: auto;">
-                <option value="7">Last 7 days</option>
-                <option value="30" selected>Last 30 days</option>
-                <option value="60">Last 60 days</option>
-                <option value="90">Last 90 days</option>
-            </select>
-        </div>
-        <div>
-            <label for="filterLimit" class="me-2">Limit:</label>
-            <select id="filterLimit" class="form-select d-inline" style="width: auto;">
-                <option value="25">25</option>
-                <option value="50" selected>50</option>
-                <option value="100">100</option>
-            </select>
-        </div>
         <div style="flex: 1; max-width: 300px;">
             <input type="text" id="searchBox" class="form-control" placeholder="Search by name or email...">
         </div>
@@ -243,9 +226,6 @@
     let displayedCarts = [];
     
     async function loadCarts() {
-        const days = document.getElementById('filterDays').value;
-        const limit = document.getElementById('filterLimit').value;
-        
         document.getElementById('loadingState').style.display = 'block';
         document.getElementById('cartList').innerHTML = '';
         document.getElementById('errorAlert').style.display = 'none';
@@ -253,7 +233,7 @@
         document.getElementById('emptyState').style.display = 'none';
         
         try {
-            const response = await fetch(`{{ url_for('abandoned_carts.api_abandoned_carts') }}?days=${days}&limit=${limit}`);
+            const response = await fetch(`{{ url_for('abandoned_carts.api_abandoned_carts') }}`);
             const data = await response.json();
             
             document.getElementById('loadingState').style.display = 'none';
@@ -377,8 +357,6 @@
     window.toggleCart = toggleCart;
     
     document.getElementById('refreshBtn').addEventListener('click', loadCarts);
-    document.getElementById('filterDays').addEventListener('change', loadCarts);
-    document.getElementById('filterLimit').addEventListener('change', loadCarts);
     document.getElementById('searchBox').addEventListener('input', applySearch);
     
     loadCarts();

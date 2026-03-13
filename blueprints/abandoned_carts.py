@@ -1,6 +1,5 @@
 import json
 import logging
-from datetime import datetime, timedelta
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from integrations.magento_rest_oauth import magento_rest_get
@@ -26,26 +25,18 @@ def api_abandoned_carts():
     if current_user.role not in ["admin", "warehouse_manager"]:
         return jsonify({"ok": False, "error": "Access denied"}), 403
     
-    days = request.args.get("days", 30, type=int)
-    limit = request.args.get("limit", 50, type=int)
+    page_size = request.args.get("limit", 200, type=int)
     search_term = request.args.get("search", "", type=str)
     
     try:
-        utc_now = datetime.utcnow()
-        cutoff_date = utc_now - timedelta(days=days)
-        cutoff_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")
-
         params = {
             "searchCriteria[filterGroups][0][filters][0][field]": "is_active",
             "searchCriteria[filterGroups][0][filters][0][value]": "1",
             "searchCriteria[filterGroups][0][filters][0][conditionType]": "eq",
-            "searchCriteria[filterGroups][1][filters][0][field]": "updated_at",
-            "searchCriteria[filterGroups][1][filters][0][value]": cutoff_str,
-            "searchCriteria[filterGroups][1][filters][0][conditionType]": "gteq",
-            "searchCriteria[filterGroups][2][filters][0][field]": "customer_id",
-            "searchCriteria[filterGroups][2][filters][0][value]": "0",
-            "searchCriteria[filterGroups][2][filters][0][conditionType]": "gt",
-            "searchCriteria[pageSize]": str(limit),
+            "searchCriteria[filterGroups][1][filters][0][field]": "customer_id",
+            "searchCriteria[filterGroups][1][filters][0][value]": "0",
+            "searchCriteria[filterGroups][1][filters][0][conditionType]": "gt",
+            "searchCriteria[pageSize]": str(min(page_size, 500)),
             "searchCriteria[currentPage]": "1",
             "searchCriteria[sortOrders][0][field]": "updated_at",
             "searchCriteria[sortOrders][0][direction]": "DESC",
@@ -123,11 +114,13 @@ def api_abandoned_carts():
             }
             carts.append(cart_data)
         
+        magento_total = data.get("total_count", len(carts))
+
         return jsonify({
             "ok": True,
             "total_abandoned": len(carts),
+            "magento_total": magento_total,
             "showing": len(carts),
-            "filter_days": days,
             "carts": carts,
             "total_value": round(total_value, 2),
             "average_value": round(total_value / len(carts), 2) if carts else 0
