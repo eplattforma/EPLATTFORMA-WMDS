@@ -2769,3 +2769,16 @@ class ForecastRun(db.Model):
     sku_count = db.Column(db.Integer, nullable=True)
     created_by = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+
+class CrmAbandonedCartState(db.Model):
+    __tablename__ = "crm_abandoned_cart_state"
+
+    customer_code_365 = db.Column(db.String(50), db.ForeignKey("ps_customers.customer_code_365"), primary_key=True)
+    magento_customer_id = db.Column(db.Integer, nullable=True, index=True)
+    has_abandoned_cart = db.Column(db.Boolean, default=False)
+    abandoned_cart_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    abandoned_cart_items = db.Column(db.Integer, nullable=True)
+    last_synced_at = db.Column(UTCDateTime(), nullable=True)
+    sync_status = db.Column(db.String(20), default="OK")
+    last_error = db.Column(db.Text, nullable=True)
