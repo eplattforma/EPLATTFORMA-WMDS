@@ -1,0 +1,169 @@
+Build a live Magento customer-specific price lookup on the CRM customer info screen.
+
+Goal:
+For Magento customer ID 2, fetch the live effective Magento GraphQL price and display it inside the customer info page in CRM.
+
+Important constraints:
+- Do NOT modify Magento
+- Do NOT use DB access
+- Do NOT require password for the customer
+- Use GraphQL only
+- The customer has allow_remote_shopping_assistance enabled
+- Use admin-assisted customer token flow
+
+Implementation plan:
+
+1. Reuse our existing Magento GraphQL integration and existing admin/integration bearer token handling.
+   Do not invent a new auth mechanism if one already exists in the app.
+
+2. Create a helper file:
+   services/magento_customer_live_pricing.py
+
+3. In that helper, implement:
+
+   A. get_magento_customer_email_by_id(magento_customer_id)
+   - First try to resolve Magento customer ID 2 to email from our existing CRM/customer data already synced in the app.
+   - If our app already stores Magento customer id + email mapping, use that.
+   - Do not ask for a password.
+   - If email cannot be resolved from existing app data, stop and clearly report that customer id 2 needs an email mapping in our CRM data before this feature can work.
+
+   B. generate_customer_token_as_admin(customer_email)
+   - Call Magento GraphQL mutation generateCustomerTokenAsAdmin
+   - Input:
+     {
+       customer_email: <resolved email>
+     }
+   - Use admin/integration bearer auth for this request
+   - Parse and return customer_token
+
+   C. get_customer_product_price(customer_token, sku)
+   - Call Magento GraphQL products query for the sku
+   - Send Authorization: Bearer <customer_token>
+   - Return:
+     {
+       "sku": ...,
+       "name": ...,
+       "regular_price": ...,
+       "final_price": ...,
+       "currency": ...,
+       "price_tiers": ...
+     }
+
+   D. get_guest_product_price(sku)
+   - Same products query with no customer token
+   - Return same normalized shape
+
+   E. get_customer_live_price_comparison(magento_customer_id, sku)
+   - Resolve email from customer id
+   - Generate customer token as admin
+   - Fetch guest price
+   - Fetch customer price
+   - Return:
+     {
+       "magento_customer_id": 2,
+       "customer_email": ...,
+       "sku": ...,
+       "guest_regular_price": ...,
+       "guest_final_price": ...,
+       "customer_regular_price": ...,
+       "customer_final_price": ...,
+       "currency": ...,
+       "price_difference": ...,
+       "discount_percent_vs_guest": ...,
+       "is_customer_specific_price_detected": true/false,
+       "checked_at": ...
+     }
+
+4. Use this exact initial validation SKU:
+   GCB-0011
+
+5. Add a backend endpoint:
+   GET /api/crm/customers/<int:magento_customer_id>/live-price-check
+
+   Query params:
+   - sku
+
+   Example:
+   /api/crm/customers/2/live-price-check?sku=GCB-0011
+
+6. Add this to the CRM customer info page for customer id 2:
+   - section title: Magento Live Price Check
+   - show:
+     - SKU
+     - guest final price
+     - customer final price
+     - difference
+     - detected yes/no
+     - checked at
+   - add a button:
+     Refresh Live Magento Price
+
+7. Cache results for 2 to 5 minutes per customer_id + sku to avoid unnecessary GraphQL calls.
+
+8. Add safe logging:
+   - Magento customer id used
+   - email resolved
+   - whether token generation succeeded
+   - sku checked
+   - guest price
+   - customer price
+   - whether a pricing difference was detected
+   - any GraphQL errors
+
+9. Error handling:
+   - if customer id 2 has no email mapping in our app, return a clear message
+   - if generateCustomerTokenAsAdmin fails, surface the Magento error message
+   - if products query returns no sku, show “SKU not found”
+   - if guest and customer price are identical, still display the result clearly
+
+10. Use these GraphQL operations:
+
+   Mutation to generate token as admin:
+   mutation GetCustomerTokenAsAdmin($email: String!) {
+     generateCustomerTokenAsAdmin(input: { customer_email: $email }) {
+       customer_token
+     }
+   }
+
+   Query to get product price:
+   query GetProductPrice($sku: String!) {
+     products(filter: { sku: { eq: $sku } }) {
+       items {
+         sku
+         name
+         price_range {
+           minimum_price {
+             regular_price {
+               value
+               currency
+             }
+             final_price {
+               value
+               currency
+             }
+           }
+         }
+         ... on SimpleProduct {
+           price_tiers {
+             quantity
+             final_price {
+               value
+               currency
+             }
+             discount {
+               amount_off
+               percent_off
+             }
+           }
+         }
+       }
+     }
+   }
+
+11. Deliverables I want from you:
+   - exact helper file
+   - exact backend route
+   - exact UI change on customer info page
+   - exact environment variables used
+   - one test result for customer id 2 and sku GCB-0011
+   - clear statement whether Magento GraphQL is actually reflecting customer-specific BSS pricing or not

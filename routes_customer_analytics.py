@@ -114,7 +114,8 @@ def api_customer_header(customer_code):
             town AS city,
             agent_name,
             category_1_name,
-            credit_limit_amount
+            credit_limit_amount,
+            customer_code_secondary AS magento_customer_id
         FROM ps_customers
         WHERE customer_code_365 = :code
         LIMIT 1
@@ -469,6 +470,31 @@ def api_item_names():
     rows = db.session.execute(sql, {"codes": codes}).fetchall()
     names = {r._mapping["item_code_365"]: r._mapping["item_name"] or "" for r in rows}
     return jsonify({"names": names})
+
+
+@customer_analytics_bp.route("/api/crm/customers/<int:magento_customer_id>/live-price-check")
+@login_required
+def api_live_price_check(magento_customer_id):
+    if not _role_ok():
+        return jsonify({"error": "forbidden"}), 403
+    sku = request.args.get("sku", "").strip()
+    if not sku:
+        return jsonify({"ok": False, "error": "sku query param is required"}), 400
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        from services.magento_customer_live_pricing import get_customer_live_price_comparison
+        result = get_customer_live_price_comparison(magento_customer_id, sku)
+        return jsonify({"ok": True, "result": result})
+    except ValueError as e:
+        log.warning("Live price check validation error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 404
+    except RuntimeError as e:
+        log.error("Live price check runtime error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 502
+    except Exception as e:
+        log.error("Live price check error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": "Failed to check live price"}), 500
 
 
 @customer_analytics_bp.route("/api/<customer_code>/abandoned-cart")

@@ -107,6 +107,38 @@
     .ca-cart-refresh:hover { background: rgba(255,255,255,0.08); color: #fff; }
     .ca-cart-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
     .ca-cart-synced { font-size: 10px; color: rgba(226,232,240,0.35); }
+
+    .ca-price-section {
+        margin-top: 12px; padding: 12px 16px;
+        background: rgba(30,41,59,0.5); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+    }
+    .ca-price-title {
+        font-size: 13px; font-weight: 700; color: rgba(226,232,240,0.85);
+        margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .ca-price-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 8px; font-size: 12px;
+    }
+    .ca-price-cell {
+        background: rgba(15,23,42,0.4); padding: 8px 10px; border-radius: 8px;
+    }
+    .ca-price-cell .label { color: rgba(226,232,240,0.45); font-size: 10px; text-transform: uppercase; margin-bottom: 2px; }
+    .ca-price-cell .value { font-weight: 700; font-size: 14px; color: #e2e8f0; }
+    .ca-price-cell .value.discount { color: #22c55e; }
+    .ca-price-cell .value.no-diff { color: rgba(226,232,240,0.5); }
+    .ca-price-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;
+    }
+    .ca-price-badge.detected { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .ca-price-badge.same { background: rgba(226,232,240,0.08); color: rgba(226,232,240,0.45); }
+    .ca-price-sku-input {
+        background: rgba(15,23,42,0.5); border: 1px solid rgba(255,255,255,0.12);
+        color: #e2e8f0; padding: 4px 8px; border-radius: 6px; font-size: 12px; width: 120px;
+    }
+    .ca-price-sku-input::placeholder { color: rgba(226,232,240,0.3); }
 </style>
 {% endblock %}
 
@@ -180,6 +212,7 @@
 let selectedCode = null;
 let activeTab = 'topItems';
 let trendChart = null;
+let currentMagentoId = null;
 
 const BASE = '/analytics/customers';
 
@@ -292,8 +325,11 @@ async function loadHeader() {
                     <i class="fas fa-spinner fa-spin"></i> Loading…
                 </span>
             </div>
+            ${c.magento_customer_id ? '<div id="livePriceSection"></div>' : ''}
         </div>`;
+    currentMagentoId = c.magento_customer_id || null;
     loadAbandonedCart();
+    renderLivePriceSection();
 }
 
 async function loadSummary() {
@@ -672,6 +708,73 @@ document.getElementById('preset').addEventListener('change', function() {
 });
 document.getElementById('fromDate').disabled = true;
 document.getElementById('toDate').disabled = true;
+
+function renderLivePriceSection() {
+    const sec = document.getElementById('livePriceSection');
+    if (!sec || !currentMagentoId) return;
+    sec.innerHTML = `
+        <div class="ca-price-section">
+            <div class="ca-price-title">
+                <i class="fas fa-tags"></i> Magento Live Price Check
+                <input id="priceSkuInput" class="ca-price-sku-input" placeholder="Enter SKU…" value="GCB-0011" />
+                <button class="ca-cart-refresh" onclick="checkLivePrice()" title="Check price"><i class="fas fa-search"></i> Check</button>
+            </div>
+            <div id="livePriceResult" style="font-size:12px; color: rgba(226,232,240,0.45);">
+                Enter a SKU and click Check to compare guest vs. customer pricing.
+            </div>
+        </div>`;
+}
+
+async function checkLivePrice() {
+    const sec = document.getElementById('livePriceResult');
+    if (!sec || !currentMagentoId) return;
+    const skuInput = document.getElementById('priceSkuInput');
+    const sku = (skuInput ? skuInput.value : '').trim();
+    if (!sku) { sec.innerHTML = '<span style="color:#f59e0b;">Please enter a SKU.</span>'; return; }
+    sec.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+    try {
+        const res = await fetch(`${BASE}/api/crm/customers/${encodeURIComponent(currentMagentoId)}/live-price-check?sku=${encodeURIComponent(sku)}`);
+        let data;
+        try { data = await res.json(); } catch (_) { throw new Error(`Server returned non-JSON response (HTTP ${res.status})`); }
+        if (!data.ok) {
+            sec.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> ${escHtml(data.error || 'Unknown error')}</span>`;
+            return;
+        }
+        const r = data.result;
+        const cur = r.currency || 'EUR';
+        const sym = cur === 'EUR' ? '€' : cur;
+        const hasToken = r.admin_token_available !== false;
+        const custPriceText = r.customer_final_price != null ? `${sym}${Number(r.customer_final_price).toFixed(2)}` : 'N/A';
+        const diffClass = r.is_customer_specific_price_detected ? 'discount' : 'no-diff';
+        let badgeClass, badgeText, diffText;
+        if (!hasToken) {
+            badgeClass = 'same';
+            badgeText = 'Token Not Available';
+            diffText = 'Cannot compare';
+        } else if (r.is_customer_specific_price_detected) {
+            badgeClass = 'detected';
+            badgeText = 'Custom Price Detected';
+            diffText = r.price_difference > 0 ? `-${sym}${r.price_difference.toFixed(2)} (${r.discount_percent_vs_guest.toFixed(1)}% off)` : 'No difference';
+        } else {
+            badgeClass = 'same';
+            badgeText = 'Same as Guest';
+            diffText = 'No difference';
+        }
+        sec.innerHTML = `
+            <div class="ca-price-grid">
+                <div class="ca-price-cell"><div class="label">SKU</div><div class="value" style="font-size:12px;">${escHtml(r.sku)}</div></div>
+                <div class="ca-price-cell"><div class="label">Product</div><div class="value" style="font-size:12px;">${escHtml(r.product_name || '—')}</div></div>
+                <div class="ca-price-cell"><div class="label">Guest Price</div><div class="value">${sym}${Number(r.guest_final_price||0).toFixed(2)}</div></div>
+                <div class="ca-price-cell"><div class="label">Customer Price</div><div class="value ${hasToken ? diffClass : 'no-diff'}">${custPriceText}</div></div>
+                <div class="ca-price-cell"><div class="label">Difference</div><div class="value ${diffClass}">${diffText}</div></div>
+                <div class="ca-price-cell"><div class="label">Status</div><div class="value"><span class="ca-price-badge ${badgeClass}"><i class="fas fa-${r.is_customer_specific_price_detected ? 'check-circle' : 'minus-circle'}"></i> ${badgeText}</span></div></div>
+            </div>
+            ${r.note ? '<div style="margin-top:6px; font-size:11px; color:#f59e0b; background:rgba(245,158,11,0.08); padding:6px 10px; border-radius:6px;"><i class="fas fa-info-circle me-1"></i>' + escHtml(r.note) + '</div>' : ''}
+            <div style="margin-top:6px; font-size:10px; color:rgba(226,232,240,0.3);">Checked: ${escHtml(r.checked_at || '—')} · Customer: ${escHtml(r.customer_email || '—')}</div>`;
+    } catch (e) {
+        sec.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> ${escHtml(e.message)}</span>`;
+    }
+}
 
 (function() {
     const params = new URLSearchParams(window.location.search);
