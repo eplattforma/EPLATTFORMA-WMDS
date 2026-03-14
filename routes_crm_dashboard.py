@@ -111,6 +111,7 @@ def customer_slot_dashboard():
             PSCustomer.company_name,
             PSCustomer.postal_code,
             PSCustomer.town,
+            PSCustomer.category_2_name,
 
             CrmCustomerProfile.classification,
             resolved_district,
@@ -227,6 +228,7 @@ def customer_slot_dashboard():
             "customer_name": r.company_name or r.customer_code_365,
             "postal_code": r.postal_code or "",
             "town": r.town or "",
+            "category_2_name": r.category_2_name or "",
             "classification": r.classification or "",
             "district": r.resolved_district or "",
             "area": r.area or "",
