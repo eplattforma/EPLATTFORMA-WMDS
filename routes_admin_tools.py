@@ -206,6 +206,48 @@ def run_reconciliation_migration():
         }), 500
 
 
+@bp.route('/magento-login-import')
+@login_required
+def magento_login_import_page():
+    if not is_admin():
+        return "Forbidden", 403
+    return render_template('admin_tools/magento_login_import.html')
+
+
+@bp.route('/import-magento-login-log-upload', methods=['POST'])
+@login_required
+def import_magento_login_log_upload():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    uploaded = request.files.get('file')
+    if not uploaded or not uploaded.filename:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+    import tempfile
+    suffix = os.path.splitext(uploaded.filename)[1] or '.csv'
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            uploaded.save(tmp.name)
+            tmp_path = tmp.name
+        from services.import_magento_login_log import import_magento_login_log_csv
+        res = import_magento_login_log_csv(tmp_path)
+        res['file'] = uploaded.filename
+        return jsonify({"ok": True, "result": res})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.error("Magento login log upload error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": "Import failed"}), 500
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+
 @bp.route('/import-magento-login-log', methods=['POST'])
 @login_required
 def import_magento_login_log_endpoint():

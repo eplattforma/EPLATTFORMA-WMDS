@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}Magento Login Log Import{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-9 offset-md-1">
+
+            <div class="d-flex align-items-center mb-3 gap-3">
+                <h4 class="mb-0"><i class="fas fa-sign-in-alt me-2 text-primary"></i>Magento Login Log Import</h4>
+                <a href="/admin/tools/magento-last-login-data" class="btn btn-sm btn-outline-secondary ms-auto">
+                    <i class="fas fa-table me-1"></i> View Current Data
+                </a>
+            </div>
+
+            <div class="alert alert-info py-2">
+                <i class="fas fa-info-circle me-1"></i>
+                Expected CSV columns: <code>Log ID, Customer ID, First Name, Last Name, Email, PS365 Code, Last Login, Last Logout</code>.
+                Times are interpreted as <strong>Europe/Athens local time</strong> and stored as UTC.
+            </div>
+
+            <!-- Upload Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-upload me-2"></i>Upload CSV File</h5>
+                </div>
+                <div class="card-body">
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Select CSV File</label>
+                            <input type="file" class="form-control" id="csvFile" name="file" accept=".csv,.txt">
+                            <div class="form-text">Upload a CSV file from your computer directly.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="btnUpload">
+                            <i class="fas fa-upload me-2"></i>Upload &amp; Import
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Server Path Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="fas fa-folder-open me-2"></i>Import from Server Path</h5>
+                </div>
+                <div class="card-body">
+                    <form id="pathForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">File Path on Server</label>
+                            <input type="text" class="form-control font-monospace" id="serverPath" name="filepath"
+                                   placeholder="/mnt/data/export.csv" value="">
+                            <div class="form-text">Full path to the CSV already on the server filesystem.</div>
+                        </div>
+                        <button type="submit" class="btn btn-secondary" id="btnPath">
+                            <i class="fas fa-play me-2"></i>Import from Path
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Result -->
+            <div id="resultBox" class="d-none mb-4"></div>
+
+            <!-- Recent Import Summary -->
+            <div class="card">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span><i class="fas fa-history me-2"></i>Most Recent Logins (current table)</span>
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadSample()">
+                        <i class="fas fa-sync me-1"></i> Refresh
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div id="sampleTable">
+                        <div class="text-center text-muted py-4">
+                            <i class="fas fa-spinner fa-spin me-2"></i> Loading…
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+function showResult(ok, data) {
+    const box = document.getElementById('resultBox');
+    box.classList.remove('d-none', 'alert-success', 'alert-danger');
+    if (ok) {
+        const r = data.result;
+        box.className = 'alert alert-success mb-4';
+        box.innerHTML = `
+            <h6 class="mb-2"><i class="fas fa-check-circle me-1"></i> Import Complete — <strong>${r.file}</strong></h6>
+            <div class="d-flex gap-4 flex-wrap">
+                <span><i class="fas fa-check text-success me-1"></i><strong>${r.updated}</strong> rows imported</span>
+                <span><i class="fas fa-forward text-warning me-1"></i><strong>${r.skipped}</strong> skipped</span>
+                <span><i class="fas fa-times text-danger me-1"></i><strong>${r.errors}</strong> errors</span>
+            </div>`;
+        loadSample();
+    } else {
+        box.className = 'alert alert-danger mb-4';
+        box.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i> <strong>Error:</strong> ${data.error || 'Unknown error'}`;
+    }
+}
+
+document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const file = document.getElementById('csvFile').files[0];
+    if (!file) { alert('Please select a file first.'); return; }
+    const btn = document.getElementById('btnUpload');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Importing…';
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const res = await fetch('/admin/tools/import-magento-login-log-upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        showResult(data.ok, data);
+    } catch(err) {
+        showResult(false, { error: err.message });
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-upload me-2"></i>Upload &amp; Import';
+    }
+});
+
+document.getElementById('pathForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const path = document.getElementById('serverPath').value.trim();
+    if (!path) { alert('Please enter a file path.'); return; }
+    const btn = document.getElementById('btnPath');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Importing…';
+    try {
+        const res = await fetch('/admin/tools/import-magento-login-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'filepath=' + encodeURIComponent(path)
+        });
+        const data = await res.json();
+        showResult(data.ok, data);
+    } catch(err) {
+        showResult(false, { error: err.message });
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play me-2"></i>Import from Path';
+    }
+});
+
+async function loadSample() {
+    const el = document.getElementById('sampleTable');
+    el.innerHTML = '<div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin me-2"></i> Loading…</div>';
+    try {
+        const res = await fetch('/admin/tools/magento-last-login-sample');
+        const rows = await res.json();
+        if (!Array.isArray(rows) || rows.length === 0) {
+            el.innerHTML = '<p class="text-muted text-center py-4 mb-0">No data yet. Import a CSV to get started.</p>';
+            return;
+        }
+        let html = `<table class="table table-sm table-hover mb-0">
+            <thead class="table-light"><tr>
+                <th>PS365 Code</th><th>Magento ID</th><th>Email</th>
+                <th>Last Login (UTC)</th><th>Source</th>
+            </tr></thead><tbody>`;
+        for (const r of rows) {
+            const dt = r.last_login_at_utc ? r.last_login_at_utc.replace('T', ' ').slice(0,19) : '—';
+            html += `<tr>
+                <td><code>${r.customer_code_365 || '—'}</code></td>
+                <td>${r.magento_customer_id || '—'}</td>
+                <td>${r.email || '—'}</td>
+                <td>${dt}</td>
+                <td><small class="text-muted">${r.source || '—'}</small></td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    } catch(err) {
+        el.innerHTML = `<p class="text-danger text-center py-3">Failed to load: ${err.message}</p>`;
+    }
+}
+
+loadSample();
+</script>
+{% endblock %}
