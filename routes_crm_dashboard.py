@@ -10,6 +10,7 @@ from models import (
     PSCustomer, CrmCustomerProfile, Setting,
     MagentoCustomerLastLoginCurrent, DwInvoiceHeader,
     CrmAbandonedCartState, CrmTask, CrmInteractionLog,
+    CustomerDeliverySlot,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,6 @@ def customer_slot_dashboard():
     action_only = request.args.get("action_only") == "1"
     has_cart_only = request.args.get("has_cart_only") == "1"
     logged_in_days = request.args.get("logged_in_days")
-    delivery_days_status = request.args.get("delivery_days_status")
     search_q = request.args.get("q", "").strip()
 
     today = date.today()
@@ -149,8 +149,15 @@ def customer_slot_dashboard():
             q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at >= datetime.now(timezone.utc) - timedelta(days=days))
         except Exception:
             pass
-    if delivery_days_status:
-        q = q.filter(PSCustomer.delivery_days_status == delivery_days_status)
+    if slot:
+        dow, week = slot.split("-")
+        q = q.filter(
+            PSCustomer.customer_code_365.in_(
+                db.session.query(CustomerDeliverySlot.customer_code_365)
+                .filter(CustomerDeliverySlot.dow == dow)
+                .filter(CustomerDeliverySlot.week_code == week)
+            )
+        )
 
     rows = q.all()
 
@@ -159,6 +166,12 @@ def customer_slot_dashboard():
 
     all_districts = sorted({r.district for r in rows if r.district})
     all_areas = sorted({r.area for r in rows if r.area})
+    
+    # Get all unique delivery slots from DB
+    all_slots = sorted({
+        f"{s.dow}-{s.week_code}"
+        for s in db.session.query(CustomerDeliverySlot.dow, CustomerDeliverySlot.week_code).distinct().all()
+    })
 
     dashboard_rows = []
     for r in rows:
@@ -216,6 +229,7 @@ def customer_slot_dashboard():
         allowed_classifications=allowed_classifications,
         all_districts=all_districts,
         all_areas=all_areas,
+        all_slots=all_slots,
         filters={
             "slot": slot or "",
             "classification": classification or "",
@@ -224,7 +238,6 @@ def customer_slot_dashboard():
             "action_only": action_only,
             "has_cart_only": has_cart_only,
             "logged_in_days": logged_in_days or "",
-            "delivery_days_status": delivery_days_status or "",
             "q": search_q,
         },
     )

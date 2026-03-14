@@ -76,12 +76,17 @@
                        placeholder="e.g. 7" value="{{ filters.logged_in_days }}" style="width:80px;">
             </div>
             <div class="col-auto">
-                <label class="form-label mb-0 small">Delivery Days</label>
-                <select class="form-select form-select-sm" name="delivery_days_status">
+                <label class="form-label mb-0 small">Delivery Slot</label>
+                <select class="form-select form-select-sm" name="slot">
                     <option value="">All</option>
-                    <option value="OK" {% if filters.delivery_days_status == 'OK' %}selected{% endif %}>Valid (OK)</option>
-                    <option value="INVALID" {% if filters.delivery_days_status == 'INVALID' %}selected{% endif %}>Invalid</option>
-                    <option value="EMPTY" {% if filters.delivery_days_status == 'EMPTY' %}selected{% endif %}>Not set</option>
+                    {% set day_names = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'} %}
+                    {% for slot in all_slots %}
+                        {% set dow, week = slot.split('-') %}
+                        {% set day_name = day_names.get(dow | int, dow) %}
+                        <option value="{{ slot }}" {% if filters.slot == slot %}selected{% endif %}>
+                            {{ day_name }} Week {{ week }}
+                        </option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="col-auto pt-3">
