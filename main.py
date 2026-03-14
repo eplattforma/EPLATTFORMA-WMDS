@@ -466,6 +466,20 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating replenishment schema: {str(e)}")
 
+    try:
+        from update_magento_login_log_schema import update_magento_login_log_schema
+        update_magento_login_log_schema()
+        logging.info("Magento login log schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating Magento login log schema: {e}")
+
+    try:
+        from update_magento_last_login_current_schema import update_magento_last_login_current_schema
+        update_magento_last_login_current_schema()
+        logging.info("Magento last login current schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating Magento last login current schema: {e}")
+
     # Initialize remaining tables
     from app import db
     db.create_all()

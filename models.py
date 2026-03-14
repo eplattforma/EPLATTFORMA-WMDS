@@ -2782,3 +2782,32 @@ class CrmAbandonedCartState(db.Model):
     last_synced_at = db.Column(UTCDateTime(), nullable=True)
     sync_status = db.Column(db.String(20), default="OK")
     last_error = db.Column(db.Text, nullable=True)
+
+
+class MagentoCustomerLoginLog(db.Model):
+    __tablename__ = "magento_customer_login_log"
+
+    log_id = db.Column(db.Integer, primary_key=True)
+    magento_customer_id = db.Column(db.Integer, index=True, nullable=False)
+    customer_code_365 = db.Column(db.String(50), index=True, nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name = db.Column(db.String(100), nullable=True)
+    last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_logout_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+    source_filename = db.Column(db.String(255), nullable=True)
+
+
+class MagentoCustomerLastLoginCurrent(db.Model):
+    __tablename__ = "magento_customer_last_login_current"
+
+    customer_code_365 = db.Column(db.String(50), primary_key=True)
+    magento_customer_id = db.Column(db.Integer, index=True, nullable=True)
+    last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_logout_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name = db.Column(db.String(100), nullable=True)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+    source_filename = db.Column(db.String(255), nullable=True)

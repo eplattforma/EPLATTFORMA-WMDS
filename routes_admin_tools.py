@@ -206,3 +206,48 @@ def run_reconciliation_migration():
         }), 500
 
 
+@bp.route('/import-magento-login-log', methods=['POST'])
+@login_required
+def import_magento_login_log_endpoint():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    filepath = ""
+    if request.is_json:
+        filepath = (request.json or {}).get("filepath", "")
+    else:
+        filepath = request.form.get("filepath", "")
+    if not filepath:
+        return jsonify({"ok": False, "error": "filepath is required"}), 400
+
+    try:
+        from services.import_magento_login_log import import_magento_login_log_csv
+        res = import_magento_login_log_csv(filepath)
+        return jsonify({"ok": True, "result": res})
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": f"File not found: {filepath}"}), 404
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.error("Magento login log import error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": "Import failed"}), 500
+
+
+@bp.route('/magento-last-login-sample')
+@login_required
+def magento_last_login_sample():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    from models import MagentoCustomerLastLoginCurrent
+    rows = (MagentoCustomerLastLoginCurrent.query
+            .order_by(MagentoCustomerLastLoginCurrent.last_login_at.desc().nullslast())
+            .limit(10).all())
+
+    return jsonify([{
+        "customer_code_365": r.customer_code_365,
+        "magento_customer_id": r.magento_customer_id,
+        "last_login_at_utc": r.last_login_at.isoformat() if r.last_login_at else None,
+        "email": r.email,
+        "source": r.source_filename
+    } for r in rows])

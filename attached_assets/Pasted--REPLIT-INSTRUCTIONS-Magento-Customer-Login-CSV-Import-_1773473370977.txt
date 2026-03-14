@@ -1,0 +1,350 @@
+"""
+REPLIT INSTRUCTIONS — Magento Customer Login CSV Import (Local Athens Time) + Fast "Current Last Login" Table
+
+Goal
+- Import Magento login CSV with headers:
+  Log ID, Customer ID, First Name, Last Name, Email, PS365 Code, Last Login, Last Logout
+- Store full log rows (traceability)
+- Maintain a fast "current" table for dashboard joins:
+  customer_code_365 -> last_login_at (UTC) (+logout, names, email)
+- Times in CSV are LOCAL (Europe/Athens). Store in UTC in DB.
+
+Assumptions
+- PSCustomer model/table exists and contains:
+  - customer_code_365
+  - magento_customer_id
+- You already have Admin Tools blueprint (routes_admin_tools) registered.
+
+--------------------------------------------------------------------------------
+1) MODELS (add to models.py)
+--------------------------------------------------------------------------------
+"""
+
+from app import db
+from datetime import datetime
+
+class MagentoCustomerLoginLog(db.Model):
+    __tablename__ = "magento_customer_login_log"
+
+    log_id = db.Column(db.Integer, primary_key=True)  # CSV: "Log ID"
+    magento_customer_id = db.Column(db.Integer, index=True, nullable=False)  # CSV: "Customer ID"
+    customer_code_365 = db.Column(db.String(50), index=True, nullable=True)  # CSV: "PS365 Code" or mapped via PSCustomer
+    email = db.Column(db.String(255), nullable=True)
+
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name = db.Column(db.String(100), nullable=True)
+
+    last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)   # stored UTC
+    last_logout_at = db.Column(db.DateTime(timezone=True), nullable=True)  # stored UTC
+
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+    source_filename = db.Column(db.String(255), nullable=True)
+
+
+class MagentoCustomerLastLoginCurrent(db.Model):
+    __tablename__ = "magento_customer_last_login_current"
+
+    customer_code_365 = db.Column(db.String(50), primary_key=True)  # best join key for dashboard
+    magento_customer_id = db.Column(db.Integer, index=True, nullable=True)
+
+    last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)   # stored UTC
+    last_logout_at = db.Column(db.DateTime(timezone=True), nullable=True)  # stored UTC
+
+    email = db.Column(db.String(255), nullable=True)
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name = db.Column(db.String(100), nullable=True)
+
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+    source_filename = db.Column(db.String(255), nullable=True)
+
+
+"""
+--------------------------------------------------------------------------------
+2) SCHEMA UPDATE FILES (add 2 new update_*.py files, call them at startup like your other schema updates)
+--------------------------------------------------------------------------------
+Create: update_magento_login_log_schema.py
+"""
+
+import logging
+from sqlalchemy import text
+from app import db
+
+logger = logging.getLogger(__name__)
+
+def update_magento_login_log_schema():
+    with db.engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS magento_customer_login_log (
+                log_id INTEGER PRIMARY KEY,
+                magento_customer_id INTEGER NOT NULL,
+                customer_code_365 VARCHAR(50) NULL,
+                email VARCHAR(255) NULL,
+                first_name VARCHAR(100) NULL,
+                last_name VARCHAR(100) NULL,
+                last_login_at TIMESTAMPTZ NULL,
+                last_logout_at TIMESTAMPTZ NULL,
+                imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                source_filename VARCHAR(255) NULL
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_mcll_customer_code_365 ON magento_customer_login_log(customer_code_365)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_mcll_magento_customer_id ON magento_customer_login_log(magento_customer_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_mcll_last_login_at ON magento_customer_login_log(last_login_at)"))
+        conn.commit()
+        logger.info("Magento login log schema ensured")
+
+
+"""
+Create: update_magento_last_login_current_schema.py
+"""
+
+def update_magento_last_login_current_schema():
+    with db.engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS magento_customer_last_login_current (
+                customer_code_365 VARCHAR(50) PRIMARY KEY,
+                magento_customer_id INTEGER NULL,
+                last_login_at TIMESTAMPTZ NULL,
+                last_logout_at TIMESTAMPTZ NULL,
+                email VARCHAR(255) NULL,
+                first_name VARCHAR(100) NULL,
+                last_name VARCHAR(100) NULL,
+                imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                source_filename VARCHAR(255) NULL
+            )
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_mcllc_magento_customer_id
+            ON magento_customer_last_login_current(magento_customer_id)
+        """))
+        conn.commit()
+        logger.info("Magento last login CURRENT schema ensured")
+
+
+"""
+Add to your startup schema update block (where you run update_* functions):
+"""
+
+# try:
+#     from update_magento_login_log_schema import update_magento_login_log_schema
+#     update_magento_login_log_schema()
+# except Exception as e:
+#     logging.error(f"Error updating Magento login log schema: {e}")
+#
+# try:
+#     from update_magento_last_login_current_schema import update_magento_last_login_current_schema
+#     update_magento_last_login_current_schema()
+# except Exception as e:
+#     logging.error(f"Error updating Magento last login current schema: {e}")
+
+
+"""
+--------------------------------------------------------------------------------
+3) IMPORT SERVICE (CSV -> log table + current table)
+--------------------------------------------------------------------------------
+Create: services/import_magento_login_log.py
+"""
+
+import csv
+import os
+from datetime import datetime, timezone
+import pytz
+from app import db
+from models import MagentoCustomerLoginLog, MagentoCustomerLastLoginCurrent, PSCustomer
+
+ATHENS_TZ = pytz.timezone("Europe/Athens")
+
+def parse_dt_local_athens_to_utc(value: str):
+    """
+    CSV times are LOCAL (Europe/Athens). Store in UTC.
+    """
+    if not value:
+        return None
+    v = value.strip()
+
+    formats = (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%y %H:%M:%S",
+        "%d/%m/%y %H:%M",
+        "%Y-%m-%dT%H:%M:%S%z",  # already tz-aware
+    )
+
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(v, fmt)
+            if dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc)
+            local_dt = ATHENS_TZ.localize(dt)
+            return local_dt.astimezone(timezone.utc)
+        except Exception:
+            pass
+
+    try:
+        dt = datetime.fromisoformat(v)
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc)
+        local_dt = ATHENS_TZ.localize(dt)
+        return local_dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+def import_magento_login_log_csv(filepath: str) -> dict:
+    """
+    Deterministic import for CSV headers:
+      Log ID, Customer ID, First Name, Last Name, Email, PS365 Code, Last Login, Last Logout
+    Upserts:
+      - MagentoCustomerLoginLog by log_id
+      - MagentoCustomerLastLoginCurrent by customer_code_365 (keeps newest last_login)
+    """
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(filepath)
+
+    # Map magento_customer_id -> customer_code_365 (fallback if PS365 Code blank)
+    mapping = {}
+    rows = PSCustomer.query.with_entities(PSCustomer.customer_code_365, PSCustomer.magento_customer_id).all()
+    for code, mid in rows:
+        if mid:
+            mapping[int(mid)] = code
+
+    updated, skipped, errors = 0, 0, 0
+    fname = os.path.basename(filepath)
+
+    with open(filepath, "r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        H_LOG_ID = "Log ID"
+        H_CUSTOMER_ID = "Customer ID"
+        H_FIRST = "First Name"
+        H_LAST = "Last Name"
+        H_EMAIL = "Email"
+        H_PS365 = "PS365 Code"
+        H_LOGIN = "Last Login"
+        H_LOGOUT = "Last Logout"
+
+        for req in (H_LOG_ID, H_CUSTOMER_ID, H_LOGIN):
+            if req not in (reader.fieldnames or []):
+                raise ValueError(f"Missing required column '{req}'. Found: {reader.fieldnames}")
+
+        for r in reader:
+            try:
+                raw_log_id = (r.get(H_LOG_ID) or "").strip()
+                raw_customer_id = (r.get(H_CUSTOMER_ID) or "").strip()
+                if not raw_log_id.isdigit() or not raw_customer_id.isdigit():
+                    skipped += 1
+                    continue
+
+                log_id = int(raw_log_id)
+                magento_customer_id = int(raw_customer_id)
+
+                csv_code = (r.get(H_PS365) or "").strip()
+                customer_code_365 = csv_code or mapping.get(magento_customer_id)
+
+                obj = MagentoCustomerLoginLog.query.get(log_id)
+                if not obj:
+                    obj = MagentoCustomerLoginLog(log_id=log_id)
+                    db.session.add(obj)
+
+                obj.magento_customer_id = magento_customer_id
+                obj.customer_code_365 = customer_code_365
+                obj.email = (r.get(H_EMAIL) or "").strip() or None
+                obj.first_name = (r.get(H_FIRST) or "").strip() or None
+                obj.last_name = (r.get(H_LAST) or "").strip() or None
+                obj.last_login_at = parse_dt_local_athens_to_utc(r.get(H_LOGIN))
+                obj.last_logout_at = parse_dt_local_athens_to_utc(r.get(H_LOGOUT))
+                obj.imported_at = datetime.now(timezone.utc)
+                obj.source_filename = fname
+
+                # Upsert CURRENT table for dashboard
+                if customer_code_365:
+                    cur = MagentoCustomerLastLoginCurrent.query.get(customer_code_365)
+                    if not cur:
+                        cur = MagentoCustomerLastLoginCurrent(customer_code_365=customer_code_365)
+                        db.session.add(cur)
+
+                    incoming_login = obj.last_login_at
+                    existing_login = cur.last_login_at
+
+                    if (existing_login is None) or (incoming_login and incoming_login >= existing_login):
+                        cur.magento_customer_id = magento_customer_id
+                        cur.last_login_at = obj.last_login_at
+                        cur.last_logout_at = obj.last_logout_at
+                        cur.email = obj.email
+                        cur.first_name = obj.first_name
+                        cur.last_name = obj.last_name
+                        cur.imported_at = obj.imported_at
+                        cur.source_filename = obj.source_filename
+
+                updated += 1
+            except Exception:
+                errors += 1
+
+    db.session.commit()
+    return {"updated": updated, "skipped": skipped, "errors": errors, "file": fname}
+
+
+"""
+--------------------------------------------------------------------------------
+4) ADMIN ENDPOINT TO RUN IMPORT "WHEN NEEDED"
+--------------------------------------------------------------------------------
+Add to routes_admin_tools.py (or your Admin Tools blueprint file)
+"""
+
+from flask import request, jsonify
+from flask_login import login_required, current_user
+from services.import_magento_login_log import import_magento_login_log_csv
+
+@admin_tools_bp.post("/import-magento-login-log")
+@login_required
+def import_magento_login_log_endpoint():
+    if getattr(current_user, "role", None) != "admin":
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    # allow passing filepath; default for quick tests
+    filepath = request.form.get("filepath") or "/mnt/data/export.csv"
+    res = import_magento_login_log_csv(filepath)
+    return jsonify({"ok": True, "result": res})
+
+
+@admin_tools_bp.get("/magento-last-login-sample")
+@login_required
+def magento_last_login_sample():
+    if getattr(current_user, "role", None) != "admin":
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    from models import MagentoCustomerLastLoginCurrent
+    rows = (MagentoCustomerLastLoginCurrent.query
+            .order_by(MagentoCustomerLastLoginCurrent.last_login_at.desc().nullslast())
+            .limit(10).all())
+
+    return jsonify([{
+        "customer_code_365": r.customer_code_365,
+        "magento_customer_id": r.magento_customer_id,
+        "last_login_at_utc": r.last_login_at.isoformat() if r.last_login_at else None,
+        "email": r.email,
+        "source": r.source_filename
+    } for r in rows])
+
+
+"""
+--------------------------------------------------------------------------------
+5) HOW TO RUN IT
+--------------------------------------------------------------------------------
+1) Put CSV on the server/replit filesystem (example path /mnt/data/export.csv)
+2) Call import endpoint (POST):
+   /admin/tools/import-magento-login-log
+   with form field: filepath=/mnt/data/export.csv
+
+Example curl (replace YOUR_APP_DOMAIN):
+curl -X POST https://YOUR_APP_DOMAIN/admin/tools/import-magento-login-log \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "filepath=/mnt/data/export.csv"
+
+3) Verify:
+   /admin/tools/magento-last-login-sample
+
+Notes
+- CSV timestamps are interpreted as Europe/Athens local time and stored UTC.
+- Dashboard should join PSCustomer.customer_code_365 -> MagentoCustomerLastLoginCurrent.customer_code_365.
+"""
