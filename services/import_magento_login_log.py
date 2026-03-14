@@ -42,7 +42,8 @@ def parse_dt_local_athens_to_utc(value: str):
         # With dash separator
         "%m-%d-%Y %I:%M %p",
         "%m-%d-%y %I:%M %p",
-        # "Mar 13, 2026 9:15 AM"
+        # "Mar 14, 2026 09:13:06 AM" — Magento admin export format
+        "%b %d, %Y %I:%M:%S %p",
         "%b %d, %Y %I:%M %p",
         "%b %d, %Y %H:%M:%S",
         "%b %d, %Y %H:%M",
