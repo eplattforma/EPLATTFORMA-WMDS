@@ -104,6 +104,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Forecast run scheduled: Daily at 5:00 AM")
 
+            scheduler.add_job(
+                func=_run_pending_orders_sync,
+                trigger=CronTrigger(minute="0,30"),
+                id='pending_orders_sync',
+                name='PS365 Pending Orders Sync',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=600
+            )
+            logger.info("✓ Pending orders sync scheduled: Every 30 minutes")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
 
@@ -401,6 +412,37 @@ def _run_forecast():
             logger.info("=" * 80)
     except Exception as e:
         logger.error(f"Error in scheduled forecast run: {str(e)}", exc_info=True)
+
+
+def _run_pending_orders_sync():
+    try:
+        from app import app, db
+        from services.ps365_pending_orders_service import (
+            sync_pending_order_totals_from_ps365, acquire_sync_lock, release_sync_lock, JOB_NAME
+        )
+
+        with app.app_context():
+            locked = acquire_sync_lock(JOB_NAME, "scheduler")
+            if not locked:
+                logger.warning("Pending orders sync already running, skipping scheduled run")
+                return
+
+            try:
+                logger.info("=" * 80)
+                logger.info("SCHEDULED PENDING ORDERS SYNC STARTED")
+                logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+                logger.info("=" * 80)
+
+                result = sync_pending_order_totals_from_ps365(triggered_by="scheduler")
+
+                logger.info("=" * 80)
+                logger.info(f"SCHEDULED PENDING ORDERS SYNC {'COMPLETED' if result.get('success') else 'FAILED'}")
+                logger.info(f"Result: {result}")
+                logger.info("=" * 80)
+            finally:
+                release_sync_lock(JOB_NAME)
+    except Exception as e:
+        logger.error(f"Error in scheduled pending orders sync: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():

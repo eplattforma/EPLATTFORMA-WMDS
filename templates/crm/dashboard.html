@@ -17,6 +17,7 @@
     .days-ago { font-size: 0.72rem; color: #6c757d; }
     .timeline-modal .modal-body { max-height: 400px; overflow-y: auto; }
     .kpi-card { border-left: 4px solid; }
+    .kpi-card.orders { border-color: #6f42c1; }
     .kpi-card.total { border-color: #0d6efd; }
     .kpi-card.action { border-color: #dc3545; }
     .kpi-card.done { border-color: #198754; }
@@ -187,6 +188,28 @@ function toggleDetail(tr) {
                 <div class="fw-bold fs-5" style="color:#fd7e14;">{{ cart_count }}</div>
             </div>
         </div>
+        {% set total_open_orders = rows | sum(attribute='open_order_count') %}
+        {% set total_open_amount = rows | sum(attribute='open_order_amount') %}
+        <div class="col-auto">
+            <div class="card kpi-card orders px-3 py-2">
+                <div class="small text-muted">Open Orders</div>
+                <div class="fw-bold fs-5" style="color:#6f42c1;">{{ total_open_orders }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card orders px-3 py-2">
+                <div class="small text-muted">On Orders (€)</div>
+                <div class="fw-bold fs-5" style="color:#6f42c1;">€{{ "%.0f"|format(total_open_amount) }}</div>
+            </div>
+        </div>
+        <div class="col-auto d-flex align-items-center">
+            <button id="btn-refresh-open-orders" class="btn btn-sm btn-outline-secondary" onclick="refreshOpenOrders()" title="Refresh from PS365">
+                <i class="fas fa-sync-alt me-1"></i>Refresh Orders
+            </button>
+            {% if open_orders_status and open_orders_status.last_sync_at %}
+            <span class="text-muted ms-2" style="font-size:0.7rem;">Last: {{ open_orders_status.last_sync_at[:16] }}</span>
+            {% endif %}
+        </div>
     </div>
 
     <div class="table-responsive">
@@ -203,6 +226,7 @@ function toggleDetail(tr) {
                     <th class="value-col">Value 4w</th>
                     <th>Last Invoice</th>
                     <th class="value-col">Inv 90d</th>
+                    <th class="value-col">Orders</th>
                     <th>Action</th>
                     <th>Quick Actions</th>
                 </tr>
@@ -272,6 +296,14 @@ function toggleDetail(tr) {
                         {% endif %}
                     </td>
                     <td class="value-col">{{ r.inv_cnt_90d }}</td>
+                    <td class="value-col">
+                        {% if r.open_order_count > 0 %}
+                        <span class="badge" style="background:#6f42c1;">{{ r.open_order_count }}</span>
+                        <div style="font-size:0.72rem; color:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</div>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if r.next_action == 'CART_NUDGE' %}
                         <span class="badge bg-warning text-dark badge-action">CART NUDGE</span>
@@ -309,7 +341,7 @@ function toggleDetail(tr) {
                     </td>
                 </tr>
                 <tr class="detail-row">
-                    <td colspan="12">
+                    <td colspan="13">
                         <div class="detail-content">
                             {% if r.district %}
                             <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon text-primary"></i> <span class="chip-value">{{ r.district }}</span></span>
@@ -333,7 +365,7 @@ function toggleDetail(tr) {
                 {% endfor %}
                 {% if not rows %}
                 <tr>
-                    <td colspan="12" class="text-center text-muted py-4">No customers match the current filters.</td>
+                    <td colspan="13" class="text-center text-muted py-4">No customers match the current filters.</td>
                 </tr>
                 {% endif %}
             </tbody>
@@ -487,6 +519,41 @@ async function showTimeline(code, name) {
         body.innerHTML = html;
     } catch(e) {
         body.innerHTML = `<p class="text-danger text-center py-3">Failed to load timeline: ${e.message}</p>`;
+    }
+}
+
+function showToast(message, type) {
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type === 'success' ? 'success' : 'danger'} position-fixed bottom-0 end-0 m-3`;
+    toast.style.zIndex = '9999';
+    const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    toast.innerHTML = `<i class="fas ${icon} me-1"></i> ${message}`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+}
+
+async function refreshOpenOrders() {
+    const btn = document.getElementById('btn-refresh-open-orders');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Refreshing...';
+
+    try {
+        const response = await fetch('/crm/open-orders/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Refresh failed');
+        }
+        showToast('Open orders refreshed successfully', 'success');
+        window.location.reload();
+    } catch (err) {
+        showToast(err.message || 'Refresh failed. Existing values were not changed.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
     }
 }
 </script>

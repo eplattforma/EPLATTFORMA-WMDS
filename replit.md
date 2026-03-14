@@ -43,6 +43,8 @@ Preferred communication style: Simple, everyday language.
     - **Replenishment MVP**: Proposes case quantities to order per supplier based on stock, sales averages, and safety stock, with a multi-tiered forecast fallback system.
     - **SMS Service**: Integrates with Microsms API for sending template-based SMS messages, including DLR webhook receiver.
     - **PS365 Sync Log**: Provides unified logging for all PS365 synchronization operations.
+    - **PS365 Pending Orders Import**: Full snapshot sync of pending orders from PS365 `list_pending_orders_header` API. Stores raw orders in `ps_pending_orders_header`, aggregates per-customer totals in `crm_customer_open_orders`. Scheduled every 30 minutes + manual refresh button on CRM dashboard. Uses DB-based locking (`sync_job_lock`) and audit logging (`sync_job_log`). Dashboard shows Open Orders count and On Orders (€) KPI cards plus per-row order badges.
+    - **CRM Dashboard**: Branded "EP SmartGrowth AI" at `/crm/dashboard`. Features customer activity monitoring, classification management with images, delivery slot filtering, district-based filtering via postal code lookup, accordion-style expandable detail rows with color-coded chips, task/interaction logging, timeline modal, and open orders integration.
 
 ### System Design Choices
 - **UTC Timestamp Consistency**: All database timestamps are stored in UTC.

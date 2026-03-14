@@ -2852,6 +2852,68 @@ class CrmInteractionLog(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
 
 
+class PSPendingOrderHeader(db.Model):
+    __tablename__ = "ps_pending_orders_header"
+
+    shopping_cart_code = db.Column(db.String(100), primary_key=True)
+    customer_code_365 = db.Column(db.String(50), nullable=False, index=True)
+    customer_email = db.Column(db.String(255))
+    customer_name = db.Column(db.String(255))
+    order_date_local = db.Column(db.DateTime)
+    order_date_utc0 = db.Column(db.DateTime)
+    order_date_deliverby_utc0 = db.Column(db.Date)
+    total_sub = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    total_discount = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    total_vat = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    total_grand = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    comments = db.Column(db.Text)
+    delivery_address_line_1 = db.Column(db.String(255))
+    delivery_address_line_2 = db.Column(db.String(255))
+    delivery_address_line_3 = db.Column(db.String(255))
+    delivery_postal_code = db.Column(db.String(50))
+    delivery_town = db.Column(db.String(100))
+    delivery_country_code_iso2 = db.Column(db.String(10))
+    delivery_country_name = db.Column(db.String(100))
+    payment_term_code_365 = db.Column(db.String(50))
+    delivery_term_code_365 = db.Column(db.String(50))
+    order_status_code_365 = db.Column(db.String(50))
+    order_status_name = db.Column(db.String(100))
+    synced_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow())
+
+
+class CRMCustomerOpenOrders(db.Model):
+    __tablename__ = "crm_customer_open_orders"
+
+    customer_code_365 = db.Column(db.String(50), primary_key=True)
+    open_order_amount = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    open_order_count = db.Column(db.Integer, nullable=False, default=0)
+    last_synced_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow())
+
+
+class SyncJobLog(db.Model):
+    __tablename__ = "sync_job_log"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    job_name = db.Column(db.String(100), nullable=False)
+    started_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow())
+    finished_at = db.Column(db.DateTime)
+    status = db.Column(db.String(30), nullable=False, default="running")
+    triggered_by = db.Column(db.String(100))
+    rows_processed = db.Column(db.Integer, nullable=False, default=0)
+    customers_updated = db.Column(db.Integer, nullable=False, default=0)
+    message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow())
+
+
+class SyncJobLock(db.Model):
+    __tablename__ = "sync_job_lock"
+
+    job_name = db.Column(db.String(100), primary_key=True)
+    locked_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.utcnow())
+    locked_by = db.Column(db.String(100))
+
+
 class PostalCodeLookup(db.Model):
     __tablename__ = "postal_code_lookup"
     id = db.Column(db.Integer, primary_key=True)

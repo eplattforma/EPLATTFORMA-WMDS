@@ -11,6 +11,7 @@ from models import (
     MagentoCustomerLastLoginCurrent, DwInvoiceHeader,
     CrmAbandonedCartState, CrmTask, CrmInteractionLog,
     CustomerDeliverySlot, PostalCodeLookup,
+    CRMCustomerOpenOrders, PSPendingOrderHeader,
 )
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,9 @@ def customer_slot_dashboard():
             last_invoice_sq.c.inv_cnt_90d,
 
             done_sq.c.inv_in_cycle,
+
+            CRMCustomerOpenOrders.open_order_amount,
+            CRMCustomerOpenOrders.open_order_count,
         )
         .filter(PSCustomer.active == True)
         .filter(PSCustomer.deleted_at.is_(None))
@@ -134,6 +138,7 @@ def customer_slot_dashboard():
         .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
         .outerjoin(CrmAbandonedCartState, CrmAbandonedCartState.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(CRMCustomerOpenOrders, CRMCustomerOpenOrders.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(sales_6m_sq, sales_6m_sq.c.cc == PSCustomer.customer_code_365)
         .outerjoin(sales_4w_sq, sales_4w_sq.c.cc == PSCustomer.customer_code_365)
         .outerjoin(last_invoice_sq, last_invoice_sq.c.cc == PSCustomer.customer_code_365)
@@ -238,7 +243,16 @@ def customer_slot_dashboard():
             "r_invoice_days": r_invoice_days,
             "inv_cnt_90d": int(r.inv_cnt_90d or 0),
             "next_action": next_action,
+            "open_order_amount": float(r.open_order_amount) if r.open_order_amount else 0,
+            "open_order_count": int(r.open_order_count) if r.open_order_count else 0,
         })
+
+    open_orders_status = None
+    try:
+        from services.ps365_pending_orders_service import get_open_orders_status
+        open_orders_status = get_open_orders_status()
+    except Exception:
+        pass
 
     return render_template(
         "crm/dashboard.html",
@@ -248,6 +262,7 @@ def customer_slot_dashboard():
         all_districts=all_districts,
         all_areas=all_areas,
         all_slots=all_slots,
+        open_orders_status=open_orders_status,
         filters={
             "slot": slot or "",
             "classification": classification or "",
@@ -326,6 +341,53 @@ def create_task(customer_code_365):
     db.session.add(task)
     db.session.commit()
     return jsonify({"ok": True, "id": task.id})
+
+
+@crm_dashboard_bp.post("/open-orders/refresh")
+@login_required
+def refresh_open_orders():
+    from services.ps365_pending_orders_service import (
+        sync_pending_order_totals_from_ps365, acquire_sync_lock, release_sync_lock, JOB_NAME
+    )
+    username = getattr(current_user, "username", "unknown")
+    locked = acquire_sync_lock(JOB_NAME, username)
+    if not locked:
+        return jsonify({"success": False, "message": "Refresh already in progress"}), 409
+
+    try:
+        result = sync_pending_order_totals_from_ps365(triggered_by=username)
+        status_code = 200 if result.get("success") else 500
+        return jsonify(result), status_code
+    finally:
+        release_sync_lock(JOB_NAME)
+
+
+@crm_dashboard_bp.get("/open-orders/status")
+@login_required
+def open_orders_status_api():
+    from services.ps365_pending_orders_service import get_open_orders_status
+    return jsonify(get_open_orders_status())
+
+
+@crm_dashboard_bp.get("/open-orders/customer/<customer_code_365>")
+@login_required
+def open_orders_customer_detail(customer_code_365):
+    orders = (
+        PSPendingOrderHeader.query
+        .filter_by(customer_code_365=customer_code_365)
+        .order_by(PSPendingOrderHeader.order_date_utc0.desc())
+        .all()
+    )
+    return jsonify([{
+        "shopping_cart_code": o.shopping_cart_code,
+        "customer_name": o.customer_name,
+        "order_date": o.order_date_utc0.isoformat() if o.order_date_utc0 else None,
+        "deliver_by": o.order_date_deliverby_utc0.isoformat() if o.order_date_deliverby_utc0 else None,
+        "total_grand": float(o.total_grand) if o.total_grand else 0,
+        "status": o.order_status_name,
+        "delivery_town": o.delivery_town,
+        "comments": o.comments,
+    } for o in orders])
 
 
 @crm_dashboard_bp.get("/customer/<customer_code_365>/timeline")
