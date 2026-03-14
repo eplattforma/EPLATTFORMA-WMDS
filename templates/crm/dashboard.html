@@ -52,6 +52,7 @@
                     {% endfor %}
                 </select>
             </div>
+            {% if all_districts %}
             <div class="col-auto">
                 <label class="form-label mb-0 small">District</label>
                 <select class="form-select form-select-sm" name="district">
@@ -61,6 +62,8 @@
                     {% endfor %}
                 </select>
             </div>
+            {% endif %}
+            {% if all_areas %}
             <div class="col-auto">
                 <label class="form-label mb-0 small">Area</label>
                 <select class="form-select form-select-sm" name="area">
@@ -70,6 +73,7 @@
                     {% endfor %}
                 </select>
             </div>
+            {% endif %}
             <div class="col-auto">
                 <label class="form-label mb-0 small">Login ≤ days</label>
                 <input type="number" class="form-control form-control-sm" name="logged_in_days"
