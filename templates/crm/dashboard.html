@@ -54,6 +54,64 @@ function toggleDetail(tr) {
         tr.classList.add('expanded');
     }
 }
+
+function refreshOpenOrders() {
+    var btn = document.getElementById('btn-refresh-open-orders');
+    if (btn) btn.disabled = true;
+    if (btn && btn.querySelector('i')) {
+        btn.querySelector('i').classList.add('fa-spin');
+    }
+    fetch('/crm/open-orders/refresh', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (btn) btn.disabled = false;
+            if (btn && btn.querySelector('i')) {
+                btn.querySelector('i').classList.remove('fa-spin');
+            }
+            if (data.success) {
+                alert(data.message + ' (' + data.orders_processed + ' orders, ' + data.customers_updated + ' customers)');
+                location.reload();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(e => {
+            if (btn) btn.disabled = false;
+            if (btn && btn.querySelector('i')) {
+                btn.querySelector('i').classList.remove('fa-spin');
+            }
+            alert('Refresh failed: ' + e.message);
+        });
+}
+
+function refreshAbandonedCarts() {
+    var btn = document.getElementById('btn-refresh-abandoned-carts');
+    if (btn) btn.disabled = true;
+    if (btn && btn.querySelector('i')) {
+        btn.querySelector('i').classList.add('fa-spin');
+    }
+    fetch('/crm/abandoned-carts/refresh', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (btn) btn.disabled = false;
+            if (btn && btn.querySelector('i')) {
+                btn.querySelector('i').classList.remove('fa-spin');
+            }
+            if (data.success) {
+                alert(data.message + ' (' + data.customers_updated + ' customers updated)');
+                location.reload();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(e => {
+            if (btn) btn.disabled = false;
+            if (btn && btn.querySelector('i')) {
+                btn.querySelector('i').classList.remove('fa-spin');
+            }
+            alert('Refresh failed: ' + e.message);
+        });
+}
 </script>
 {% endblock %}
 
@@ -195,9 +253,12 @@ function toggleDetail(tr) {
                 <div class="fw-bold fs-5" style="color:#6f42c1;">€{{ "{:,.0f}".format(total_open_amount) }}</div>
             </div>
         </div>
-        <div class="col-auto d-flex align-items-center">
+        <div class="col-auto d-flex align-items-center gap-2">
             <button id="btn-refresh-open-orders" class="btn btn-sm btn-outline-secondary" onclick="refreshOpenOrders()" title="Refresh from PS365">
                 <i class="fas fa-sync-alt me-1"></i>Refresh Orders
+            </button>
+            <button id="btn-refresh-abandoned-carts" class="btn btn-sm btn-outline-secondary" onclick="refreshAbandonedCarts()" title="Refresh abandoned carts from Magento">
+                <i class="fas fa-sync-alt me-1"></i>Refresh Carts
             </button>
             {% if open_orders_status and open_orders_status.last_sync_at %}
             <span class="text-muted ms-2" style="font-size:0.7rem;">Last: {{ open_orders_status.last_sync_at[:16] }}</span>

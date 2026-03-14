@@ -362,6 +362,39 @@ def refresh_open_orders():
         release_sync_lock(JOB_NAME)
 
 
+@crm_dashboard_bp.post("/abandoned-carts/refresh")
+@login_required
+def refresh_abandoned_carts():
+    from services.crm_abandoned_cart import refresh_abandoned_cart_for_customer
+    from app import db
+    
+    username = getattr(current_user, "username", "unknown")
+    
+    try:
+        customers = db.session.query(PSCustomer.customer_code_365).all()
+        updated_count = 0
+        errors = 0
+        
+        for (customer_code,) in customers:
+            try:
+                refresh_abandoned_cart_for_customer(customer_code)
+                updated_count += 1
+            except Exception as e:
+                logger.error(f"Failed to refresh abandoned cart for {customer_code}: {str(e)}")
+                errors += 1
+        
+        return jsonify({
+            "success": True,
+            "message": "Abandoned carts refreshed successfully",
+            "customers_updated": updated_count,
+            "errors": errors,
+            "triggered_by": username,
+        })
+    except Exception as e:
+        logger.error(f"Abandoned carts refresh failed: {str(e)}")
+        return jsonify({"success": False, "message": f"Refresh failed: {str(e)}"}), 500
+
+
 @crm_dashboard_bp.get("/open-orders/status")
 @login_required
 def open_orders_status_api():
