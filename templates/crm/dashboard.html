@@ -103,12 +103,27 @@
                     <label class="form-check-label small" for="cartOnly">Has cart only</label>
                 </div>
             </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter me-1"></i>Filter</button>
-                <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm ms-1">Clear</a>
+            <div class="col-auto pt-3">
+                <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-redo me-1"></i>Reset
+                </a>
             </div>
         </div>
     </form>
+
+    <script>
+    // Auto-submit form when any filter changes
+    const filterForm = document.querySelector('form[method="GET"]');
+    if (filterForm) {
+        filterForm.addEventListener('change', () => {
+            filterForm.submit();
+        });
+        filterForm.querySelector('input[name="q"]')?.addEventListener('keyup', () => {
+            clearTimeout(window.searchTimeout);
+            window.searchTimeout = setTimeout(() => filterForm.submit(), 500);
+        });
+    }
+    </script>
 
     {% set action_count = rows | selectattr('next_action', 'ne', 'NO_ACTION') | list | length %}
     {% set done_count = rows | selectattr('done_for_cycle') | list | length %}
