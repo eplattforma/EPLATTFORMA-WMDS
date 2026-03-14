@@ -175,6 +175,10 @@ def import_postal_codes():
     if not is_admin():
         return jsonify({"error": "Access denied"}), 403
     
+    imported = 0
+    duplicates = 0
+    errors = []
+    
     try:
         if 'file' not in request.files:
             return jsonify({"error": "No file provided"}), 400
@@ -190,28 +194,18 @@ def import_postal_codes():
         wb = openpyxl.load_workbook(file)
         ws = wb.active
         
-        imported = 0
-        duplicates = 0
-        errors = []
-        
         # Skip header row
         for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row[0]:  # Skip empty rows
+                continue
+            
             try:
-                if not row[0]:  # Skip empty rows
-                    continue
-                
                 postcode = str(row[0]).strip()
                 municipality = str(row[1]).strip() if row[1] else ""
                 district = str(row[2]).strip() if row[2] else ""
                 urban_rural = str(row[3]).strip() if row[3] else None
                 
-                # Check if exists
-                existing = PostalCodeLookup.query.filter_by(postcode=postcode).first()
-                if existing:
-                    duplicates += 1
-                    continue
-                
-                # Create new record
+                # Try to add; if duplicate, mark it and continue
                 lookup = PostalCodeLookup(
                     postcode=postcode,
                     municipality=municipality,
@@ -223,22 +217,75 @@ def import_postal_codes():
                 
             except Exception as e:
                 errors.append(f"Row {row_idx}: {str(e)}")
+                # Clear pending adds for this row in case of error
+                db.session.expunge(lookup) if 'lookup' in locals() else None
         
-        db.session.commit()
+        # Attempt commit with proper error handling
+        try:
+            db.session.commit()
+        except Exception as commit_err:
+            db.session.rollback()
+            # Check for duplicates and retry with skip-duplicates approach
+            if "duplicate" in str(commit_err).lower() or "unique" in str(commit_err).lower():
+                logger.info("Duplicate keys detected, retrying with skip-duplicates")
+                db.session.expire_all()
+                
+                # Reload and check each postcode again
+                wb = openpyxl.load_workbook(file)
+                ws = wb.active
+                imported = 0
+                duplicates = 0
+                
+                for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                    if not row[0]:
+                        continue
+                    
+                    postcode = str(row[0]).strip()
+                    # Check existence in DB before adding
+                    if PostalCodeLookup.query.filter_by(postcode=postcode).first():
+                        duplicates += 1
+                        continue
+                    
+                    try:
+                        municipality = str(row[1]).strip() if row[1] else ""
+                        district = str(row[2]).strip() if row[2] else ""
+                        urban_rural = str(row[3]).strip() if row[3] else None
+                        
+                        lookup = PostalCodeLookup(
+                            postcode=postcode,
+                            municipality=municipality,
+                            district=district,
+                            urban_rural=urban_rural
+                        )
+                        db.session.add(lookup)
+                        imported += 1
+                        
+                        # Commit every 50 records to avoid lock timeouts
+                        if imported % 50 == 0:
+                            db.session.commit()
+                    except Exception as e:
+                        errors.append(f"Row {row_idx}: {str(e)}")
+                
+                db.session.commit()
+            else:
+                raise
         
         msg = f"Imported {imported} postal codes"
         if duplicates:
             msg += f", {duplicates} duplicates skipped"
+        if errors:
+            msg += f", {len(errors)} errors"
         
         return jsonify({
             "ok": True,
             "imported": imported,
             "duplicates": duplicates,
-            "errors": errors,
+            "errors": errors[:10],  # Limit error messages
             "message": msg
         })
         
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Error importing postal codes: {e}")
         return jsonify({"error": str(e)}), 500
 

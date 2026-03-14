@@ -1,0 +1,156 @@
+2026-03-14 18:24:53.23
+08a148b9
+User
+INFO:scheduler:Scheduler shut down successfully
+2026-03-14 18:24:53.23
+08a148b9
+User
+INFO:apscheduler.scheduler:Scheduler has been shut down
+2026-03-14 18:24:54.09
+08a148b9
+User
+✓ Delete guards registered for: User, Invoice, Shipment, RouteStop, BatchPickingSession, PSCustomer, PurchaseOrder
+2026-03-14 18:24:54.09
+08a148b9
+User
+✅ pieces_per_unit_snapshot column already exists
+2026-03-14 18:24:54.09
+08a148b9
+User
+✅ expected_pick_pieces column already exists
+2026-03-14 18:24:54.09
+08a148b9
+User
+✅ Invoice items schema update completed successfully!
+2026-03-14 18:24:54.09
+08a148b9
+User
+Production config: 1 worker, 4 threads, 300s timeout, preload enabled
+2026-03-14 18:24:54.09
+08a148b9
+User
+DEBUG:apscheduler.scheduler:Looking for jobs to run
+2026-03-14 18:24:54.09
+08a148b9
+User
+DEBUG:apscheduler.scheduler:No jobs; waiting until a job is added
+2026-03-14 18:24:54.09
+08a148b9
+User
+INFO:apscheduler.scheduler:Scheduler has been shut down
+2026-03-14 18:24:54.09
+08a148b9
+User
+INFO:scheduler:Scheduler shut down successfully
+2026-03-14 18:24:54.97
+08a148b9
+System
+command finished successfully with exit code 0
+2026-03-14 18:24:54.97
+08a148b9
+System
+main done, exiting
+2026-03-14 18:24:59.90
+6292bcb9
+User
+ERROR:routes_admin_tools:Error importing postal codes: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+2026-03-14 18:24:59.90
+6292bcb9
+User
+(psycopg2.errors.LockNotAvailable) canceling statement due to lock timeout
+2026-03-14 18:24:59.90
+6292bcb9
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2026-03-14 18:24:59.90
+6292bcb9
+User
+CONTEXT: while inserting index tuple (14,1) in relation "postal_code_lookup_postcode_key"
+2026-03-14 18:24:59.90
+6292bcb9
+User
+[SQL: INSERT INTO postal_code_lookup (postcode, municipality, district, urban_rural, created_at, updated_at) VALUES (%(postcode)s, %(municipality)s, %(district)s, %(urban_rural)s, %(created_at)s, %(updated_at)s) RETURNING postal_code_lookup.id]
+2026-03-14 18:25:00.13
+6292bcb9
+User
+(psycopg2.errors.LockNotAvailable) canceling statement due to lock timeout
+2026-03-14 18:25:00.13
+6292bcb9
+User
+CONTEXT: while inserting index tuple (9,2) in relation "postal_code_lookup_postcode_key"
+2026-03-14 18:25:00.13
+6292bcb9
+User
+[parameters: {'postcode': '4713', 'municipality': 'Zanakia', 'district': 'LEMESOS', 'urban_rural': 'Rural', 'created_at': datetime.datetime(2026, 3, 14, 16, 24, 29, 557519, tzinfo=datetime.timezone.utc), 'updated_at': datetime.datetime(2026, 3, 14, 16, 24, 29, 557527, tzinfo=datetime.timezone.utc)}]
+2026-03-14 18:25:00.13
+6292bcb9
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2026-03-14 18:25:00.13
+6292bcb9
+User
+[SQL: INSERT INTO postal_code_lookup (postcode, municipality, district, urban_rural, created_at, updated_at) VALUES (%(postcode)s, %(municipality)s, %(district)s, %(urban_rural)s, %(created_at)s, %(updated_at)s) RETURNING postal_code_lookup.id]
+2026-03-14 18:25:00.16
+6292bcb9
+User
+34.73.86.124 - - [14/Mar/2026:16:25:00 +0000] "POST /admin/tools/postal-codes/import HTTP/1.1" 500 1178 "https://ep-picking-bro.replit.app/admin/tools/postal-codes" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-14 18:25:00.16
+6292bcb9
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2026-03-14 18:25:00.16
+6292bcb9
+User
+ERROR:routes_admin_tools:Error importing postal codes: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+2026-03-14 18:25:00.16
+6292bcb9
+User
+[SQL: INSERT INTO postal_code_lookup (postcode, municipality, district, urban_rural, created_at, updated_at) VALUES (%(postcode)s, %(municipality)s, %(district)s, %(urban_rural)s, %(created_at)s, %(updated_at)s) RETURNING postal_code_lookup.id]
+2026-03-14 18:25:00.16
+6292bcb9
+User
+(psycopg2.errors.LockNotAvailable) canceling statement due to lock timeout
+2026-03-14 18:25:00.16
+6292bcb9
+User
+CONTEXT: while inserting index tuple (13,6) in relation "postal_code_lookup_postcode_key"
+2026-03-14 18:25:00.16
+6292bcb9
+User
+[parameters: {'postcode': '4730', 'municipality': 'Trimiklini', 'district': 'LEMESOS', 'urban_rural': 'Rural', 'created_at': datetime.datetime(2026, 3, 14, 16, 24, 29, 644266, tzinfo=datetime.timezone.utc), 'updated_at': datetime.datetime(2026, 3, 14, 16, 24, 29, 644274, tzinfo=datetime.timezone.utc)}]
+2026-03-14 18:25:00.17
+6292bcb9
+User
+34.23.74.32 - - [14/Mar/2026:16:25:00 +0000] "POST /admin/tools/postal-codes/import HTTP/1.1" 500 1182 "https://ep-picking-bro.replit.app/admin/tools/postal-codes" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-14 18:25:17.85
+6292bcb9
+User
+34.23.116.255 - - [14/Mar/2026:16:25:17 +0000] "POST /admin/tools/postal-codes/import HTTP/1.1" 200 116 "https://ep-picking-bro.replit.app/admin/tools/postal-codes" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-14 18:25:18.05
+6292bcb9
+User
+[SQL: INSERT INTO postal_code_lookup (postcode, municipality, district, urban_rural, created_at, updated_at) VALUES (%(postcode)s, %(municipality)s, %(district)s, %(urban_rural)s, %(created_at)s, %(updated_at)s) RETURNING postal_code_lookup.id]
+2026-03-14 18:25:18.05
+6292bcb9
+User
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2026-03-14 18:25:18.05
+6292bcb9
+User
+DETAIL: Key (postcode)=(4730) already exists.
+2026-03-14 18:25:18.05
+6292bcb9
+User
+ERROR:routes_admin_tools:Error importing postal codes: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+2026-03-14 18:25:18.05
+6292bcb9
+User
+[parameters: {'postcode': '4730', 'municipality': 'Trimiklini', 'district': 'LEMESOS', 'urban_rural': 'Rural', 'created_at': datetime.datetime(2026, 3, 14, 16, 25, 0, 543853, tzinfo=datetime.timezone.utc), 'updated_at': datetime.datetime(2026, 3, 14, 16, 25, 0, 543861, tzinfo=datetime.timezone.utc)}]
+2026-03-14 18:25:18.05
+6292bcb9
+User
+34.73.86.124 - - [14/Mar/2026:16:25:18 +0000] "POST /admin/tools/postal-codes/import HTTP/1.1" 500 1176 "https://ep-picking-bro.replit.app/admin/tools/postal-codes" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-14 18:25:18.05
+6292bcb9
+User
+(psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint "postal_code_lookup_postcode_key"
