@@ -358,3 +358,61 @@ def crm_classifications_settings():
         return jsonify({"ok": True, "items": items})
 
     return render_template('admin_tools/crm_classifications.html', items=items)
+
+
+@bp.route('/crm-bulk-classify', methods=['GET', 'POST'])
+@login_required
+def crm_bulk_classify():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    from models import CrmCustomerProfile
+    import csv
+    import io
+
+    if request.method == 'POST':
+        data = request.form.get('data', '').strip()
+        if not data:
+            return jsonify({"ok": False, "error": "No data provided"}), 400
+
+        try:
+            lines = data.split('\n')
+            updated = 0
+            errors = []
+
+            for line_no, line in enumerate(lines, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                parts = [p.strip() for p in line.split('\t') if p.strip()]
+                if len(parts) < 2:
+                    parts = [p.strip() for p in line.split(',') if p.strip()]
+
+                if len(parts) < 2:
+                    errors.append(f"Line {line_no}: Expected 2 columns, got {len(parts)}")
+                    continue
+
+                customer_code = parts[0]
+                classification = parts[1]
+
+                prof = CrmCustomerProfile.query.get(customer_code)
+                if not prof:
+                    prof = CrmCustomerProfile(customer_code_365=customer_code)
+                    db.session.add(prof)
+
+                prof.classification = classification if classification else None
+                prof.updated_by = getattr(current_user, "username", None)
+                prof.updated_at = datetime.now(timezone.utc)
+                updated += 1
+
+            db.session.commit()
+            msg = f"Updated {updated} customers"
+            if errors:
+                msg += f" ({len(errors)} errors)"
+            return jsonify({"ok": True, "updated": updated, "errors": errors, "msg": msg})
+        except Exception as e:
+            logger.error("Error bulk classifying: %s", e)
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    return render_template('admin_tools/crm_bulk_classify.html')
