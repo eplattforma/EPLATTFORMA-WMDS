@@ -323,3 +323,37 @@ def magento_last_login_sample():
         "email": r.email,
         "source": r.source_filename
     } for r in rows])
+
+
+@bp.route('/crm-classifications', methods=['GET', 'POST'])
+@login_required
+def crm_classifications_settings():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    from models import Setting
+    import json
+
+    if request.method == 'POST':
+        items = request.form.get('items', '').strip().split('\n')
+        items = [i.strip() for i in items if i.strip()]
+        try:
+            Setting.set(app.db.session, "crm_customer_classifications", json.dumps(items))
+            app.db.session.commit()
+            return jsonify({"ok": True, "items": items, "msg": f"Updated {len(items)} classifications"})
+        except Exception as e:
+            logger.error("Error saving classifications: %s", e)
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    current = Setting.query.filter_by(key="crm_customer_classifications").first()
+    items = []
+    if current:
+        try:
+            items = json.loads(current.value)
+        except Exception:
+            items = []
+
+    if request.is_json:
+        return jsonify({"ok": True, "items": items})
+
+    return render_template('admin_tools/crm_classifications.html', items=items)
