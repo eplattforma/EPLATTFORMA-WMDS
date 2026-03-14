@@ -21,7 +21,7 @@ def get_pending_orders_total_count():
     return int(data.get("total_count_list_pending_orders") or 0)
 
 
-def get_pending_orders_page(page_number: int, page_size: int = 500):
+def get_pending_orders_page(page_number: int, page_size: int = 100):
     params = {
         "page_number": page_number,
         "page_size": page_size,
