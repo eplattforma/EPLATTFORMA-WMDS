@@ -5,107 +5,143 @@ from decimal import Decimal
 from app import db
 from models import PSCustomer, CrmAbandonedCartState
 from integrations.magento_rest_oauth import magento_rest_get
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
 
-def upsert_abandoned_cart_state(customer_code_365: str, has_cart: bool,
-                                amount: Decimal | None, item_count: int | None,
-                                magento_id: int | None = None,
-                                err: str | None = None):
-    row = CrmAbandonedCartState.query.filter_by(customer_code_365=customer_code_365).first()
-    if not row:
-        row = CrmAbandonedCartState(customer_code_365=customer_code_365)
-        db.session.add(row)
-
-    if magento_id:
-        row.magento_customer_id = magento_id
-
-    if err:
-        row.sync_status = "FAIL"
-        row.last_error = err[:500]
-        row.last_synced_at = datetime.now(timezone.utc)
-        db.session.commit()
-        return
-
-    row.has_abandoned_cart = bool(has_cart)
-    row.abandoned_cart_amount = amount
-    row.abandoned_cart_items = item_count
-    row.sync_status = "OK"
-    row.last_error = None
-    row.last_synced_at = datetime.now(timezone.utc)
-    db.session.commit()
-
-
-def refresh_abandoned_cart_for_customer(customer_code_365: str) -> dict:
-    cust = PSCustomer.query.filter_by(customer_code_365=customer_code_365).first()
-    if not cust:
-        raise ValueError(f"Customer {customer_code_365} not found")
-
-    magento_id_str = (cust.customer_code_secondary or "").strip()
-    if not magento_id_str:
-        upsert_abandoned_cart_state(customer_code_365, False, None, None, err="No Magento customer ID (customer_code_secondary)")
-        return {"has_cart": False, "error": "No Magento customer ID"}
-
+def get_all_customer_carts_batch() -> dict:
+    """
+    Fetch abandoned carts for all active customers from Magento in a single batch operation.
+    Returns {customer_code_365: {has_cart, amount, items}, ...}
+    """
     try:
-        magento_id = int(magento_id_str)
-    except (ValueError, TypeError):
-        upsert_abandoned_cart_state(customer_code_365, False, None, None, err=f"Invalid Magento ID: {magento_id_str}")
-        return {"has_cart": False, "error": f"Invalid Magento ID: {magento_id_str}"}
-
-    params = {
-        "searchCriteria[filterGroups][0][filters][0][field]": "is_active",
-        "searchCriteria[filterGroups][0][filters][0][value]": "1",
-        "searchCriteria[filterGroups][0][filters][0][conditionType]": "eq",
-        "searchCriteria[filterGroups][1][filters][0][field]": "customer_id",
-        "searchCriteria[filterGroups][1][filters][0][value]": str(magento_id),
-        "searchCriteria[filterGroups][1][filters][0][conditionType]": "eq",
-        "searchCriteria[pageSize]": "10",
-        "searchCriteria[currentPage]": "1",
-    }
-
-    try:
-        status_code, response_text = magento_rest_get("/rest/V1/carts/search", params=params)
+        customers = PSCustomer.query.filter(
+            PSCustomer.active == True,
+            PSCustomer.deleted_at.is_(None)
+        ).all()
+        
+        results = {}
+        for cust in customers:
+            magento_id_str = (cust.customer_code_secondary or "").strip()
+            if not magento_id_str:
+                results[cust.customer_code_365] = {"has_cart": False, "amount": 0, "items": 0, "error": "No Magento ID"}
+                continue
+            
+            try:
+                magento_id = int(magento_id_str)
+            except (ValueError, TypeError):
+                results[cust.customer_code_365] = {"has_cart": False, "amount": 0, "items": 0, "error": "Invalid Magento ID"}
+                continue
+            
+            try:
+                params = {
+                    "searchCriteria[filterGroups][0][filters][0][field]": "is_active",
+                    "searchCriteria[filterGroups][0][filters][0][value]": "1",
+                    "searchCriteria[filterGroups][0][filters][0][conditionType]": "eq",
+                    "searchCriteria[filterGroups][1][filters][0][field]": "customer_id",
+                    "searchCriteria[filterGroups][1][filters][0][value]": str(magento_id),
+                    "searchCriteria[filterGroups][1][filters][0][conditionType]": "eq",
+                    "searchCriteria[pageSize]": "10",
+                    "searchCriteria[currentPage]": "1",
+                }
+                
+                status_code, response_text = magento_rest_get("/rest/V1/carts/search", params=params)
+                
+                if status_code != 200:
+                    results[cust.customer_code_365] = {"has_cart": False, "amount": 0, "items": 0, "error": f"HTTP {status_code}"}
+                    continue
+                
+                data = json.loads(response_text)
+                carts = data.get("items", [])
+                carts_with_items = [c for c in carts if c.get("items_count") or len(c.get("items", []))]
+                
+                if not carts_with_items:
+                    results[cust.customer_code_365] = {"has_cart": False, "amount": 0, "items": 0}
+                    continue
+                
+                total_amount = Decimal("0")
+                total_items = 0
+                for cart in carts_with_items:
+                    items_list = cart.get("items", [])
+                    for ci in items_list:
+                        try:
+                            price = Decimal(str(ci.get("price", 0) or 0))
+                            qty = Decimal(str(ci.get("qty", 0) or 0))
+                        except Exception:
+                            price, qty = Decimal("0"), Decimal("0")
+                        total_amount += price * qty
+                    total_items += cart.get("items_count") or len(items_list)
+                
+                results[cust.customer_code_365] = {
+                    "has_cart": True,
+                    "amount": float(total_amount),
+                    "items": total_items,
+                }
+            except Exception as e:
+                logger.error(f"Error fetching cart for customer {cust.customer_code_365}: {str(e)}")
+                results[cust.customer_code_365] = {"has_cart": False, "amount": 0, "items": 0, "error": str(e)[:100]}
+        
+        return results
     except Exception as e:
-        upsert_abandoned_cart_state(customer_code_365, False, None, None, magento_id=magento_id, err=str(e)[:200])
+        logger.error(f"Batch cart fetch failed: {str(e)}")
         raise
 
-    if status_code != 200:
-        err_msg = f"Magento returned {status_code}"
-        upsert_abandoned_cart_state(customer_code_365, False, None, None, magento_id=magento_id, err=err_msg)
-        raise RuntimeError(err_msg)
 
+def sync_abandoned_carts_batch(triggered_by: str = "manual") -> dict:
+    """
+    Perform batch refresh of all abandoned carts from Magento.
+    Stores all results in database in a single transaction.
+    """
     try:
-        data = json.loads(response_text)
-    except (json.JSONDecodeError, TypeError) as e:
-        upsert_abandoned_cart_state(customer_code_365, False, None, None, magento_id=magento_id, err="Invalid JSON from Magento")
-        raise RuntimeError("Invalid JSON response from Magento") from e
-
-    carts = data.get("items", [])
-    carts_with_items = [c for c in carts if c.get("items_count") or len(c.get("items", []))]
-
-    if not carts_with_items:
-        upsert_abandoned_cart_state(customer_code_365, False, Decimal("0"), 0, magento_id=magento_id)
-        return {"has_cart": False, "amount": 0, "items": 0}
-
-    total_amount = Decimal("0")
-    total_items = 0
-    for cart in carts_with_items:
-        items_list = cart.get("items", [])
-        for ci in items_list:
-            try:
-                price = Decimal(str(ci.get("price", 0) or 0))
-                qty = Decimal(str(ci.get("qty", 0) or 0))
-            except Exception:
-                price, qty = Decimal("0"), Decimal("0")
-            total_amount += price * qty
-        total_items += cart.get("items_count") or len(items_list)
-
-    upsert_abandoned_cart_state(customer_code_365, True, total_amount, total_items, magento_id=magento_id)
-    return {"has_cart": True, "amount": float(total_amount), "items": total_items}
+        logger.info("Starting batch abandoned carts sync...")
+        carts_data = get_all_customer_carts_batch()
+        
+        # Clear all old cart state and insert new data
+        db.session.execute(text("DELETE FROM crm_abandoned_cart_state"))
+        db.session.flush()
+        
+        now = datetime.now(timezone.utc)
+        inserted_count = 0
+        
+        for customer_code_365, cart_info in carts_data.items():
+            row = CrmAbandonedCartState(
+                customer_code_365=customer_code_365,
+                has_abandoned_cart=cart_info.get("has_cart", False),
+                abandoned_cart_amount=Decimal(str(cart_info.get("amount", 0))),
+                abandoned_cart_items=cart_info.get("items", 0),
+                sync_status="OK" if not cart_info.get("error") else "FAIL",
+                last_error=cart_info.get("error"),
+                last_synced_at=now,
+            )
+            db.session.add(row)
+            if cart_info.get("has_cart"):
+                inserted_count += 1
+        
+        db.session.commit()
+        
+        result = {
+            "success": True,
+            "message": "Abandoned carts synced successfully",
+            "customers_processed": len(carts_data),
+            "customers_with_carts": inserted_count,
+            "triggered_by": triggered_by,
+        }
+        
+        logger.info(f"Batch sync complete: {result}")
+        return result
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Batch sync failed: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Sync failed: {str(e)}",
+            "error": str(e),
+        }
 
 
 def get_abandoned_cart_state(customer_code_365: str) -> dict | None:
+    """Get abandoned cart state for a specific customer from database."""
     row = CrmAbandonedCartState.query.filter_by(customer_code_365=customer_code_365).first()
     if not row:
         return None
