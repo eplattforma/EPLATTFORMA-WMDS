@@ -159,10 +159,11 @@ def import_magento_login_log_csv(filepath: str) -> dict:
                 obj.source_filename = fname
 
                 if customer_code_365:
+                    # Use merge() so SQLAlchemy handles INSERT-or-UPDATE
+                    # without a UniqueViolation when the row already exists.
                     cur = MagentoCustomerLastLoginCurrent.query.get(customer_code_365)
-                    if not cur:
+                    if cur is None:
                         cur = MagentoCustomerLastLoginCurrent(customer_code_365=customer_code_365)
-                        db.session.add(cur)
 
                     incoming_login = obj.last_login_at
                     existing_login = cur.last_login_at
@@ -177,9 +178,13 @@ def import_magento_login_log_csv(filepath: str) -> dict:
                         cur.imported_at = obj.imported_at
                         cur.source_filename = obj.source_filename
 
+                    db.session.merge(cur)
+
+                db.session.flush()
                 updated += 1
             except Exception as e:
                 logger.warning("Error importing login log row: %s", e)
+                db.session.rollback()
                 errors += 1
 
     db.session.commit()
