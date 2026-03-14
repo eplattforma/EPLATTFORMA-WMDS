@@ -231,6 +231,12 @@
                                 </a>
                             </li>
                             <li>
+                                <a class="dropdown-item {% if request.endpoint == 'admin_tools_custom.crm_classifications_settings' %}active{% endif %}" 
+                                   href="{{ url_for('admin_tools_custom.crm_classifications_settings') }}">
+                                    <i class="fas fa-tags me-2"></i>CRM Classifications
+                                </a>
+                            </li>
+                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'datawarehouse.dw_menu' %}active{% endif %}" 
                                    href="{{ url_for('datawarehouse.dw_menu') }}">
                                     <i class="fas fa-database me-2"></i>Sync PS365
@@ -254,18 +260,6 @@
                                 <a class="dropdown-item {% if request.endpoint == 'admin_tools_custom.magento_login_import_page' %}active{% endif %}" 
                                    href="{{ url_for('admin_tools_custom.magento_login_import_page') }}">
                                     <i class="fas fa-sign-in-alt me-2"></i>Magento Login Import
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint == 'admin_tools_custom.crm_classifications_settings' %}active{% endif %}" 
-                                   href="{{ url_for('admin_tools_custom.crm_classifications_settings') }}">
-                                    <i class="fas fa-list me-2"></i>CRM Classifications
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint == 'admin_tools_custom.crm_bulk_classify' %}active{% endif %}" 
-                                   href="{{ url_for('admin_tools_custom.crm_bulk_classify') }}">
-                                    <i class="fas fa-upload me-2"></i>Bulk Classify Customers
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
