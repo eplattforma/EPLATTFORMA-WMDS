@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}CRM Dashboard{% endblock %}
+{% block title %}EP SmartGrowth AI{% endblock %}
 
 {% block head %}
 <style>
@@ -27,8 +27,13 @@
 {% block content %}
 <div class="container-fluid mt-3 px-4">
 
-    <div class="d-flex align-items-center mb-3">
-        <h4 class="mb-0"><i class="fas fa-headset me-2 text-primary"></i>CRM Customer Dashboard</h4>
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0 fw-bold" style="letter-spacing: -0.5px;">
+                <i class="fas fa-bolt me-2" style="color: #0d6efd;"></i>EP SmartGrowth AI
+            </h4>
+            <small class="text-muted ms-4 ps-2" style="font-size: 0.8rem;">Turn data into growth</small>
+        </div>
     </div>
 
     <form method="GET" action="/crm/dashboard" class="filter-bar mb-3">
