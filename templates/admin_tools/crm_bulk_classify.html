@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Bulk Classify Customers{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+            <div class="d-flex align-items-center mb-3">
+                <h4 class="mb-0"><i class="fas fa-upload me-2 text-primary"></i>Bulk Customer Classification Import</h4>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <p class="text-muted">Paste tab-separated or comma-separated data with customer code and classification (one per line).</p>
+                    <p class="small text-secondary">Format: <code>CustomerCode[TAB]Classification</code> or <code>CustomerCode,Classification</code></p>
+                    
+                    <form id="classifyForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Customer Classifications Data</label>
+                            <textarea class="form-control font-monospace" id="data" name="data" rows="15" placeholder="77700001	CLOSED&#10;77700002	INTERNAL&#10;77700003	CUSTOMER"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-check-circle me-1"></i>Import & Update
+                        </button>
+                        <button type="reset" class="btn btn-outline-secondary ms-2">
+                            <i class="fas fa-undo me-1"></i>Clear
+                        </button>
+                    </form>
+
+                    <div id="resultBox" class="mt-4 d-none"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('classifyForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = e.submitter;
+    const text = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing…';
+
+    const data = document.getElementById('data').value;
+    if (!data.trim()) {
+        alert('Please paste data');
+        btn.disabled = false;
+        btn.innerHTML = text;
+        return;
+    }
+
+    const fd = new FormData();
+    fd.append('data', data);
+
+    try {
+        const res = await fetch(window.location.href, { method: 'POST', body: fd });
+        const result = await res.json();
+        const box = document.getElementById('resultBox');
+        
+        if (result.ok) {
+            box.className = 'mt-4 alert alert-success';
+            let html = `<h6 class="mb-2"><i class="fas fa-check-circle me-1"></i> Success!</h6>
+                        <p class="mb-2"><strong>${result.updated}</strong> customers updated</p>
+                        <p class="mb-0 text-muted">${result.msg}</p>`;
+            if (result.errors && result.errors.length) {
+                html += `<hr><h6 class="mb-2">Errors (${result.errors.length}):</h6>
+                        <ul class="mb-0 small">`;
+                result.errors.slice(0, 10).forEach(err => {
+                    html += `<li class="text-danger">${err}</li>`;
+                });
+                if (result.errors.length > 10) {
+                    html += `<li class="text-muted">… and ${result.errors.length - 10} more</li>`;
+                }
+                html += '</ul>';
+            }
+            box.innerHTML = html;
+        } else {
+            box.className = 'mt-4 alert alert-danger';
+            box.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i> Error: ${result.error}`;
+        }
+    } catch(err) {
+        const box = document.getElementById('resultBox');
+        box.className = 'mt-4 alert alert-danger';
+        box.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i> ${err.message}`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = text;
+    }
+});
+</script>
+{% endblock %}
