@@ -39,26 +39,6 @@
                 </div>
             </div>
 
-            <!-- Server Path Card -->
-            <div class="card mb-4">
-                <div class="card-header bg-secondary text-white">
-                    <h5 class="mb-0"><i class="fas fa-folder-open me-2"></i>Import from Server Path</h5>
-                </div>
-                <div class="card-body">
-                    <form id="pathForm">
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">File Path on Server</label>
-                            <input type="text" class="form-control font-monospace" id="serverPath" name="filepath"
-                                   placeholder="/mnt/data/export.csv" value="">
-                            <div class="form-text">Full path to the CSV already on the server filesystem.</div>
-                        </div>
-                        <button type="submit" class="btn btn-secondary" id="btnPath">
-                            <i class="fas fa-play me-2"></i>Import from Path
-                        </button>
-                    </form>
-                </div>
-            </div>
-
             <!-- Result -->
             <div id="resultBox" class="d-none mb-4"></div>
 
@@ -177,29 +157,6 @@ document.getElementById('uploadForm').addEventListener('submit', async function(
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-upload me-2"></i>Upload &amp; Import';
-    }
-});
-
-document.getElementById('pathForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const path = document.getElementById('serverPath').value.trim();
-    if (!path) { alert('Please enter a file path.'); return; }
-    const btn = document.getElementById('btnPath');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Importing…';
-    try {
-        const res = await fetch('/admin/tools/import-magento-login-log', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'filepath=' + encodeURIComponent(path)
-        });
-        const data = await res.json();
-        showResult(data.ok, data);
-    } catch(err) {
-        showResult(false, { error: err.message });
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play me-2"></i>Import from Path';
     }
 });
 
