@@ -32,6 +32,14 @@
     .detail-content .detail-label { font-size: 0.72rem; color: #6c757d; text-transform: uppercase; font-weight: 600; }
     .detail-content .detail-value { font-size: 0.82rem; font-weight: 500; }
 </style>
+<script>
+function toggleDetail(tr) {
+    var detailRow = tr.nextElementSibling;
+    if (!detailRow || !detailRow.classList.contains('detail-row')) return;
+    detailRow.classList.toggle('show');
+    tr.classList.toggle('expanded');
+}
+</script>
 {% endblock %}
 
 {% block content %}
@@ -376,14 +384,6 @@
 </div>
 
 <script>
-function toggleDetail(tr) {
-    var detailRow = tr.nextElementSibling;
-    if (!detailRow || !detailRow.classList.contains('detail-row')) return;
-    var isOpen = detailRow.classList.contains('show');
-    detailRow.classList.toggle('show');
-    tr.classList.toggle('expanded');
-}
-
 const allowed_classifications = {{ allowed_classifications | tojson }};
 
 async function setClassification(el) {
