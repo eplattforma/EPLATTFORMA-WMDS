@@ -17,13 +17,38 @@ def parse_dt_local_athens_to_utc(value: str):
     v = value.strip()
 
     formats = (
+        # ISO / DB style
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%z",
+        # European day-first
         "%d/%m/%Y %H:%M:%S",
         "%d/%m/%Y %H:%M",
         "%d/%m/%y %H:%M:%S",
         "%d/%m/%y %H:%M",
-        "%Y-%m-%dT%H:%M:%S%z",
+        "%d-%m-%Y %H:%M:%S",
+        "%d-%m-%Y %H:%M",
+        # US month-first (Magento admin CSV exports)
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%y %H:%M:%S",
+        "%m/%d/%y %H:%M",
+        # Magento admin: "3/13/26, 9:15 AM"
+        "%m/%d/%y, %I:%M %p",
+        "%m/%d/%Y, %I:%M %p",
+        "%m/%d/%y, %I:%M:%S %p",
+        "%m/%d/%Y, %I:%M:%S %p",
+        # With dash separator
+        "%m-%d-%Y %I:%M %p",
+        "%m-%d-%y %I:%M %p",
+        # "Mar 13, 2026 9:15 AM"
+        "%b %d, %Y %I:%M %p",
+        "%b %d, %Y %H:%M:%S",
+        "%b %d, %Y %H:%M",
+        # "13 Mar 2026 09:15:00"
+        "%d %b %Y %H:%M:%S",
+        "%d %b %Y %H:%M",
     )
 
     for fmt in formats:
@@ -43,7 +68,32 @@ def parse_dt_local_athens_to_utc(value: str):
         local_dt = ATHENS_TZ.localize(dt)
         return local_dt.astimezone(timezone.utc)
     except Exception:
-        return None
+        pass
+
+    logger.warning("Could not parse date value: %r", v)
+    return None
+
+
+def preview_csv(filepath: str, max_rows: int = 5) -> dict:
+    """Return headers and raw sample rows without importing — for diagnosing format issues."""
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(filepath)
+    with open(filepath, "r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        sample = []
+        for i, row in enumerate(reader):
+            if i >= max_rows:
+                break
+            sample.append(dict(row))
+    # Also test date parsing on the first row
+    parse_test = {}
+    if sample:
+        for col in ("Last Login", "Last Logout"):
+            val = sample[0].get(col, "")
+            parsed = parse_dt_local_athens_to_utc(val)
+            parse_test[col] = {"raw": val, "parsed_utc": parsed.isoformat() if parsed else None}
+    return {"headers": headers, "sample_rows": sample, "parse_test": parse_test}
 
 
 def import_magento_login_log_csv(filepath: str) -> dict:
