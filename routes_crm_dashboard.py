@@ -37,6 +37,7 @@ def customer_slot_dashboard():
     action_only = request.args.get("action_only") == "1"
     has_cart_only = request.args.get("has_cart_only") == "1"
     logged_in_days = request.args.get("logged_in_days")
+    delivery_days_status = request.args.get("delivery_days_status")
     search_q = request.args.get("q", "").strip()
 
     today = date.today()
@@ -99,6 +100,7 @@ def customer_slot_dashboard():
             CrmCustomerProfile.classification,
             CrmCustomerProfile.district,
             CrmCustomerProfile.area,
+            PSCustomer.delivery_days_status,
 
             CrmAbandonedCartState.has_abandoned_cart,
             CrmAbandonedCartState.abandoned_cart_amount,
@@ -147,6 +149,8 @@ def customer_slot_dashboard():
             q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at >= datetime.now(timezone.utc) - timedelta(days=days))
         except Exception:
             pass
+    if delivery_days_status:
+        q = q.filter(PSCustomer.delivery_days_status == delivery_days_status)
 
     rows = q.all()
 
@@ -220,6 +224,7 @@ def customer_slot_dashboard():
             "action_only": action_only,
             "has_cart_only": has_cart_only,
             "logged_in_days": logged_in_days or "",
+            "delivery_days_status": delivery_days_status or "",
             "q": search_q,
         },
     )

@@ -75,6 +75,15 @@
                 <input type="number" class="form-control form-control-sm" name="logged_in_days"
                        placeholder="e.g. 7" value="{{ filters.logged_in_days }}" style="width:80px;">
             </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Delivery Days</label>
+                <select class="form-select form-select-sm" name="delivery_days_status">
+                    <option value="">All</option>
+                    <option value="OK" {% if filters.delivery_days_status == 'OK' %}selected{% endif %}>Valid (OK)</option>
+                    <option value="INVALID" {% if filters.delivery_days_status == 'INVALID' %}selected{% endif %}>Invalid</option>
+                    <option value="EMPTY" {% if filters.delivery_days_status == 'EMPTY' %}selected{% endif %}>Not set</option>
+                </select>
+            </div>
             <div class="col-auto pt-3">
                 <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" name="action_only" value="1"
