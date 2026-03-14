@@ -188,18 +188,11 @@ function toggleDetail(tr) {
                 <div class="fw-bold fs-5" style="color:#fd7e14;">{{ cart_count }}</div>
             </div>
         </div>
-        {% set total_open_orders = rows | sum(attribute='open_order_count') %}
         {% set total_open_amount = rows | sum(attribute='open_order_amount') %}
         <div class="col-auto">
             <div class="card kpi-card orders px-3 py-2">
-                <div class="small text-muted">Open Orders</div>
-                <div class="fw-bold fs-5" style="color:#6f42c1;">{{ total_open_orders }}</div>
-            </div>
-        </div>
-        <div class="col-auto">
-            <div class="card kpi-card orders px-3 py-2">
                 <div class="small text-muted">On Orders (€)</div>
-                <div class="fw-bold fs-5" style="color:#6f42c1;">€{{ "%.0f"|format(total_open_amount) }}</div>
+                <div class="fw-bold fs-5" style="color:#6f42c1;">€{{ "{:,.0f}".format(total_open_amount) }}</div>
             </div>
         </div>
         <div class="col-auto d-flex align-items-center">
@@ -297,9 +290,8 @@ function toggleDetail(tr) {
                     </td>
                     <td class="value-col">{{ r.inv_cnt_90d }}</td>
                     <td class="value-col">
-                        {% if r.open_order_count > 0 %}
-                        <span class="badge" style="background:#6f42c1;">{{ r.open_order_count }}</span>
-                        <div style="font-size:0.72rem; color:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</div>
+                        {% if r.open_order_amount > 0 %}
+                        <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
                         {% else %}
                         <span class="text-muted">—</span>
                         {% endif %}
