@@ -407,13 +407,9 @@ function refreshAbandonedCarts() {
                             {% if r.area %}
                             <span class="detail-chip area"><i class="fas fa-map chip-icon" style="color:#6f42c1"></i> <span class="chip-value">{{ r.area }}</span></span>
                             {% endif %}
-                            {% if r.town %}
-                            <span class="detail-chip town"><i class="fas fa-city chip-icon" style="color:#fd7e14"></i> <span class="chip-value">{{ r.town }}</span></span>
-                            {% endif %}
                             {% if r.category_2_name %}
                             <span class="detail-chip"><i class="fas fa-tag chip-icon" style="color:#6f42c1"></i> <span class="chip-value">{{ r.category_2_name }}</span></span>
                             {% endif %}
-                            <span class="detail-chip code"><i class="fas fa-hashtag chip-icon" style="color:#6c757d"></i> <span class="chip-value font-monospace">{{ r.customer_code_365 }}</span></span>
                             {% if r.last_login_at %}
                             <span class="detail-chip login"><i class="fas fa-sign-in-alt chip-icon" style="color:#17a2b8"></i> <span class="chip-value">Login: {{ r.last_login_at.strftime('%d/%m/%Y') }}</span></span>
                             {% endif %}
