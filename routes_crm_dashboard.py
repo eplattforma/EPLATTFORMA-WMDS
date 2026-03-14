@@ -21,11 +21,17 @@ crm_dashboard_bp = Blueprint("crm_dashboard", __name__, url_prefix="/crm")
 def _get_allowed_classifications():
     s = Setting.query.filter_by(key="crm_customer_classifications").first()
     if not s or not s.value:
-        return ["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]
+        defaults = ["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]
+        return {c: None for c in defaults}
     try:
-        return json.loads(s.value)
+        data = json.loads(s.value)
+        if isinstance(data, dict):
+            return data
+        else:
+            return {c: None for c in data}
     except Exception:
-        return ["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]
+        defaults = ["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]
+        return {c: None for c in defaults}
 
 
 @crm_dashboard_bp.get("/dashboard")

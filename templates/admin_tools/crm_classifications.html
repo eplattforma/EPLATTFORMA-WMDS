@@ -5,23 +5,63 @@
 {% block content %}
 <div class="container mt-4">
     <div class="row">
-        <div class="col-md-8 offset-md-2">
+        <div class="col-md-10 offset-md-1">
             <div class="d-flex align-items-center mb-3">
-                <h4 class="mb-0"><i class="fas fa-list me-2 text-primary"></i>CRM Customer Classifications</h4>
+                <h4 class="mb-0"><i class="fas fa-tags me-2 text-primary"></i>CRM Customer Classifications</h4>
             </div>
 
             <div class="card">
                 <div class="card-body">
-                    <p class="text-muted">Enter one classification per line. These values will appear in the CRM Dashboard dropdown.</p>
+                    <p class="text-muted">Manage classification labels and icons. Add or upload a JPG image for each classification.</p>
                     
                     <form id="classifyForm">
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Classifications (one per line)</label>
-                            <textarea class="form-control font-monospace" id="items" name="items" rows="10">{% for item in items %}{{ item }}
-{% endfor %}</textarea>
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 30%;">Classification Name</th>
+                                        <th style="width: 20%;">Current Icon</th>
+                                        <th style="width: 50%;">Upload New Icon (JPG)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="classificationsList">
+                                    {% for item in items %}
+                                    <tr class="classification-row">
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm classification-name" 
+                                                   value="{{ item.name }}" placeholder="e.g., CUSTOMER">
+                                        </td>
+                                        <td>
+                                            {% if item.icon %}
+                                            <img src="/static/crm-classification-images/{{ item.icon }}" 
+                                                 style="max-width: 50px; max-height: 50px;" alt="{{ item.name }}">
+                                            {% else %}
+                                            <span class="text-muted">No icon</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="input-group input-group-sm">
+                                                <input type="file" class="form-control classification-file" accept="image/jpeg">
+                                                <button type="button" class="btn btn-outline-danger delete-row" title="Remove">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                            <small class="text-muted">Current: {{ item.icon or 'none' }}</small>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
+
+                        <div class="mt-3">
+                            <button type="button" class="btn btn-sm btn-outline-secondary mb-3" id="addRow">
+                                <i class="fas fa-plus me-1"></i>Add Classification
+                            </button>
+                        </div>
+
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save me-1"></i>Save Classifications
+                            <i class="fas fa-save me-1"></i>Save All
                         </button>
                         <button type="reset" class="btn btn-outline-secondary ms-2">
                             <i class="fas fa-undo me-1"></i>Reset
@@ -36,6 +76,34 @@
 </div>
 
 <script>
+document.getElementById('addRow').addEventListener('click', function() {
+    const tbody = document.getElementById('classificationsList');
+    const tr = document.createElement('tr');
+    tr.className = 'classification-row';
+    tr.innerHTML = `
+        <td>
+            <input type="text" class="form-control form-control-sm classification-name" placeholder="e.g., CUSTOMER">
+        </td>
+        <td><span class="text-muted">No icon</span></td>
+        <td>
+            <div class="input-group input-group-sm">
+                <input type="file" class="form-control classification-file" accept="image/jpeg">
+                <button type="button" class="btn btn-outline-danger delete-row" title="Remove">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </td>
+    `;
+    tr.querySelector('.delete-row').addEventListener('click', function() { tr.remove(); });
+    tbody.appendChild(tr);
+});
+
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.delete-row')) {
+        e.target.closest('tr').remove();
+    }
+});
+
 document.getElementById('classifyForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const btn = e.submitter;
@@ -43,20 +111,39 @@ document.getElementById('classifyForm').addEventListener('submit', async functio
     const text = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving…';
 
-    const items = document.getElementById('items').value;
-    const fd = new FormData();
-    fd.append('items', items);
+    const formData = new FormData();
+    const rows = [];
+
+    document.querySelectorAll('.classification-row').forEach(row => {
+        const name = row.querySelector('.classification-name').value.trim();
+        const file = row.querySelector('.classification-file').files[0];
+        if (name) {
+            rows.push({ name, file });
+        }
+    });
+
+    formData.append('data', JSON.stringify(rows.map(r => r.name)));
+    
+    // Append files separately
+    rows.forEach((r, i) => {
+        if (r.file) {
+            formData.append(`file_${i}`, r.file);
+            formData.append(`name_${i}`, r.name);
+        }
+    });
 
     try {
-        const res = await fetch(window.location.href, { method: 'POST', body: fd });
-        const data = await res.json();
+        const res = await fetch(window.location.href, { method: 'POST', body: formData });
+        const result = await res.json();
         const box = document.getElementById('resultBox');
-        if (data.ok) {
+        
+        if (result.ok) {
             box.className = 'mt-3 alert alert-success';
-            box.innerHTML = `<i class="fas fa-check-circle me-1"></i> ${data.msg}`;
+            box.innerHTML = `<i class="fas fa-check-circle me-1"></i> ${result.msg}`;
+            setTimeout(() => location.reload(), 1500);
         } else {
             box.className = 'mt-3 alert alert-danger';
-            box.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i> Error: ${data.error}`;
+            box.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i> Error: ${result.error}`;
         }
     } catch(err) {
         const box = document.getElementById('resultBox');

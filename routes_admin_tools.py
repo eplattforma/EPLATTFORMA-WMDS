@@ -335,14 +335,40 @@ def crm_classifications_settings():
 
     from models import Setting
     import json
+    from werkzeug.utils import secure_filename
+    import os
 
     if request.method == 'POST':
-        items = request.form.get('items', '').strip().split('\n')
-        items = [i.strip() for i in items if i.strip()]
+        data = request.form.get('data', '[]')
         try:
-            Setting.set(db.session, "crm_customer_classifications", json.dumps(items))
+            items_list = json.loads(data)
+        except:
+            items_list = []
+        
+        classifications = {}
+        for name in items_list:
+            if name:
+                classifications[name] = None
+        
+        # Handle file uploads
+        for key in request.files:
+            if key.startswith('file_'):
+                file = request.files[key]
+                name_key = key.replace('file_', 'name_')
+                classification_name = request.form.get(name_key, '')
+                
+                if file and file.filename and classification_name:
+                    filename = secure_filename(f"{classification_name.upper()}_{os.urandom(8).hex()}.jpg")
+                    try:
+                        file.save(os.path.join('static/crm-classification-images', filename))
+                        classifications[classification_name] = filename
+                    except Exception as e:
+                        logger.error(f"Error saving file: {e}")
+        
+        try:
+            Setting.set(db.session, "crm_customer_classifications", json.dumps(classifications))
             db.session.commit()
-            return jsonify({"ok": True, "items": items, "msg": f"Updated {len(items)} classifications"})
+            return jsonify({"ok": True, "msg": f"Updated {len(classifications)} classifications"})
         except Exception as e:
             logger.error("Error saving classifications: %s", e)
             return jsonify({"ok": False, "error": str(e)}), 500
@@ -351,7 +377,11 @@ def crm_classifications_settings():
     items = []
     if current:
         try:
-            items = json.loads(current.value)
+            data = json.loads(current.value)
+            if isinstance(data, dict):
+                items = [{"name": k, "icon": v} for k, v in data.items()]
+            else:
+                items = [{"name": i, "icon": None} for i in data]
         except Exception:
             items = []
 

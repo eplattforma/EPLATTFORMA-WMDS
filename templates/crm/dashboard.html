@@ -47,7 +47,7 @@
                 <label class="form-label mb-0 small">Classification</label>
                 <select class="form-select form-select-sm" name="classification">
                     <option value="">All</option>
-                    {% for c in allowed_classifications %}
+                    {% for c in allowed_classifications.keys() %}
                     <option value="{{ c }}" {% if filters.classification == c %}selected{% endif %}>{{ c }}</option>
                     {% endfor %}
                 </select>
@@ -166,14 +166,21 @@
                         <div class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}</div>
                     </td>
                     <td>
-                        <select class="form-select form-select-sm classification-select"
-                                data-customer="{{ r.customer_code_365 }}"
-                                onchange="setClassification(this)">
-                            <option value="">—</option>
-                            {% for c in allowed_classifications %}
-                            <option value="{{ c }}" {% if r.classification == c %}selected{% endif %}>{{ c }}</option>
-                            {% endfor %}
-                        </select>
+                        <div style="display: flex; gap: 6px; align-items: center;">
+                            {% if r.classification and allowed_classifications.get(r.classification) %}
+                            <img src="/static/crm-classification-images/{{ allowed_classifications[r.classification] }}"
+                                 style="width: 24px; height: 24px; border-radius: 3px;" alt="{{ r.classification }}"
+                                 title="{{ r.classification }}">
+                            {% endif %}
+                            <select class="form-select form-select-sm classification-select"
+                                    data-customer="{{ r.customer_code_365 }}"
+                                    onchange="setClassification(this)" style="flex: 1; min-width: 90px;">
+                                <option value="">—</option>
+                                {% for c in allowed_classifications.keys() %}
+                                <option value="{{ c }}" {% if r.classification == c %}selected{% endif %}>{{ c }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </td>
                     <td>
                         {% if r.done_for_cycle %}
