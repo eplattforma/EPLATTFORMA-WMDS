@@ -2,7 +2,7 @@ import json
 import logging
 from flask import Blueprint, request, render_template, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, case
 from datetime import date, datetime, timedelta, timezone
 
 from app import db
@@ -33,13 +33,6 @@ def _get_allowed_classifications():
         defaults = ["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]
         return {c: None for c in defaults}
 
-
-def _get_district_from_postal_code(postal_code):
-    """Look up district from postal code"""
-    if not postal_code:
-        return None
-    lookup = PostalCodeLookup.query.filter_by(postcode=str(postal_code)).first()
-    return lookup.district if lookup else None
 
 
 @crm_dashboard_bp.get("/dashboard")
@@ -106,14 +99,18 @@ def customer_slot_dashboard():
         .subquery()
     )
 
+    resolved_district = func.coalesce(
+        CrmCustomerProfile.district,
+        PostalCodeLookup.district,
+    ).label("resolved_district")
+
     q = (
         db.session.query(
             PSCustomer.customer_code_365,
             PSCustomer.company_name,
-            PSCustomer.postal_code,
 
             CrmCustomerProfile.classification,
-            CrmCustomerProfile.district,
+            resolved_district,
             CrmCustomerProfile.area,
             PSCustomer.delivery_days_status,
 
@@ -132,6 +129,7 @@ def customer_slot_dashboard():
         .filter(PSCustomer.active == True)
         .filter(PSCustomer.deleted_at.is_(None))
         .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
         .outerjoin(CrmAbandonedCartState, CrmAbandonedCartState.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(sales_6m_sq, sales_6m_sq.c.cc == PSCustomer.customer_code_365)
@@ -152,7 +150,7 @@ def customer_slot_dashboard():
     if classification:
         q = q.filter(CrmCustomerProfile.classification == classification)
     if district:
-        q = q.filter(CrmCustomerProfile.district == district)
+        q = q.filter(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district) == district)
     if area:
         q = q.filter(CrmCustomerProfile.area == area)
     if has_cart_only:
@@ -179,19 +177,8 @@ def customer_slot_dashboard():
     now_utc = datetime.now(timezone.utc)
     allowed_classifications = _get_allowed_classifications()
 
-    # Get districts from rows (from profile or postal code lookup)
-    districts_set = set()
-    for r in rows:
-        # r = (customer_code_365, company_name, postal_code, classification, district, area, ...)
-        if r[4]:  # district from profile
-            districts_set.add(r[4])
-        elif r[2]:  # postal_code
-            district = _get_district_from_postal_code(r[2])
-            if district:
-                districts_set.add(district)
-
-    all_districts = sorted(districts_set)
-    all_areas = sorted({r[5] for r in rows if r[5]})
+    all_districts = sorted({r.resolved_district for r in rows if r.resolved_district})
+    all_areas = sorted({r.area for r in rows if r.area})
     
     # Get all unique delivery slots from DB
     all_slots = sorted({
@@ -201,24 +188,19 @@ def customer_slot_dashboard():
 
     dashboard_rows = []
     for r in rows:
-        # r = (customer_code_365, company_name, postal_code, classification, district, area, delivery_days_status, has_abandoned_cart, abandoned_cart_amount, last_login_at, value_6m, value_4w, last_invoice_date, inv_cnt_90d, inv_in_cycle)
-        
-        # Lookup district from postal code if not set
-        district = r[4] if r[4] else _get_district_from_postal_code(r[2])
-        
-        inv_in_cycle = r[14] or 0
+        inv_in_cycle = r.inv_in_cycle or 0
         done_for_cycle = inv_in_cycle > 0
         done_source = "INVOICE" if done_for_cycle else "NONE"
 
-        has_cart = bool(r[7]) if r[7] is not None else False
-        cart_amount = r[8]
+        has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
+        cart_amount = r.abandoned_cart_amount
 
-        last_login_at = r[9]
+        last_login_at = r.last_login_at
         r_login_days = None
         if last_login_at:
             r_login_days = (now_utc.date() - last_login_at.date()).days
 
-        last_invoice_date = r[12]
+        last_invoice_date = r.last_invoice_date
         r_invoice_days = None
         if last_invoice_date:
             r_invoice_days = (now_utc.date() - last_invoice_date).days
@@ -234,22 +216,22 @@ def customer_slot_dashboard():
             continue
 
         dashboard_rows.append({
-            "customer_code_365": r[0],
-            "customer_name": r[1] or r[0],
-            "classification": r[3] or "",
-            "district": district or "",
-            "area": r[5] or "",
+            "customer_code_365": r.customer_code_365,
+            "customer_name": r.company_name or r.customer_code_365,
+            "classification": r.classification or "",
+            "district": r.resolved_district or "",
+            "area": r.area or "",
             "done_for_cycle": done_for_cycle,
             "done_source": done_source,
             "has_cart": has_cart,
             "cart_amount": float(cart_amount) if cart_amount is not None else None,
             "last_login_at": last_login_at,
             "r_login_days": r_login_days,
-            "value_6m": float(r[10] or 0),
-            "value_4w": float(r[11] or 0),
+            "value_6m": float(r.value_6m or 0),
+            "value_4w": float(r.value_4w or 0),
             "last_invoice_date": last_invoice_date,
             "r_invoice_days": r_invoice_days,
-            "inv_cnt_90d": int(r[13] or 0),
+            "inv_cnt_90d": int(r.inv_cnt_90d or 0),
             "next_action": next_action,
         })
 
