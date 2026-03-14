@@ -34,7 +34,7 @@ def get_pending_orders_page(page_number: int, page_size: int = 500):
     return data.get("list_pending_orders") or []
 
 
-def fetch_all_pending_orders(page_size: int = 500):
+def fetch_all_pending_orders(page_size: int = 100):
     total_count = get_pending_orders_total_count()
     logger.info(f"PS365 pending orders: total_count={total_count}")
     if total_count == 0:
@@ -99,7 +99,7 @@ def sync_pending_order_totals_from_ps365(triggered_by="system"):
     db.session.flush()
 
     try:
-        rows = fetch_all_pending_orders(page_size=500)
+        rows = fetch_all_pending_orders(page_size=100)
         aggregated = aggregate_pending_orders(rows)
         now = datetime.utcnow()
 
