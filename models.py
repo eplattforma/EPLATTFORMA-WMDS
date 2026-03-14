@@ -2811,3 +2811,42 @@ class MagentoCustomerLastLoginCurrent(db.Model):
     last_name = db.Column(db.String(100), nullable=True)
     imported_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
     source_filename = db.Column(db.String(255), nullable=True)
+
+
+class CrmCustomerProfile(db.Model):
+    __tablename__ = "crm_customer_profile"
+
+    customer_code_365 = db.Column(db.String(64), primary_key=True)
+    classification = db.Column(db.String(50), nullable=True)
+    district = db.Column(db.String(100), nullable=True)
+    area = db.Column(db.String(100), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+    updated_by = db.Column(db.String(100), nullable=True)
+
+
+class CrmTask(db.Model):
+    __tablename__ = "crm_task"
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_code_365 = db.Column(db.String(64), index=True, nullable=False)
+    task_type = db.Column(db.String(30), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="OPEN")
+    due_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    priority = db.Column(db.String(10), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    assigned_to = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+
+
+class CrmInteractionLog(db.Model):
+    __tablename__ = "crm_interaction_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_code_365 = db.Column(db.String(64), index=True, nullable=False)
+    channel = db.Column(db.String(20), nullable=False)
+    outcome = db.Column(db.String(50), nullable=True)
+    message_text = db.Column(db.Text, nullable=True)
+    meta_json = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())

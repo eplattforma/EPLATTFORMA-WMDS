@@ -1,0 +1,510 @@
+Below is a complete, copy-paste “Instructions to Replit” package to build the Customer Slot Dashboard exactly per your comments, using your real tables:
+
+Sales truth: dw_invoice_header (invoice_date_utc0, customer_code_365, total_grand, total_net)
+
+Last login (current): magento_customer_last_login_current
+
+Abandoned cart (current): your existing crm_magento_abandoned_cart_state (or equivalent current-state table)
+
+No crm_cycle_status / no open order summary yet → dashboard will use invoice-in-cycle window as “DONE”; open orders can be added later.
+
+Also included: Activity monitoring (SMS / Push / Visit / Telephone / Offers) with tables + logging endpoints.
+
+A) Customer Slot Dashboard (Blueprint + DB + UI)
+A1) Add CRM “Customer Profile” table for editable classification + region/district
+
+You said classification must be maintained in CRM and editable from the main screen, with allowed statuses in settings.
+
+1) Settings table (you already have Setting model)
+
+We will store allowed classification values in:
+
+Setting.key = 'crm_customer_classifications'
+
+JSON list value: ["Customer","EKO","Petrolina","SHELL","Monitor","At Risk","Frozen"]
+
+2) Create table: crm_customer_profile
+
+Reason: don’t mutate PSCustomer schema; keep CRM overrides separate.
+
+Model (add to models.py)
+
+from app import db
+from datetime import datetime
+
+class CrmCustomerProfile(db.Model):
+    __tablename__ = "crm_customer_profile"
+
+    customer_code_365 = db.Column(db.String(64), primary_key=True)
+    classification = db.Column(db.String(50), nullable=True)     # editable from dashboard
+    district = db.Column(db.String(100), nullable=True)
+    area = db.Column(db.String(100), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+    updated_by = db.Column(db.String(100), nullable=True)
+
+Schema update file: update_crm_customer_profile_schema.py
+
+import logging
+from sqlalchemy import text
+from app import db
+
+logger = logging.getLogger(__name__)
+
+def update_crm_customer_profile_schema():
+    with db.engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS crm_customer_profile (
+                customer_code_365 VARCHAR(64) PRIMARY KEY,
+                classification VARCHAR(50) NULL,
+                district VARCHAR(100) NULL,
+                area VARCHAR(100) NULL,
+                notes TEXT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_by VARCHAR(100) NULL
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_crm_customer_profile_classification ON crm_customer_profile(classification)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_crm_customer_profile_district ON crm_customer_profile(district)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_crm_customer_profile_area ON crm_customer_profile(area)"))
+        conn.commit()
+        logger.info("crm_customer_profile schema ensured")
+
+Call it in your startup schema update block (same style as your other updates).
+
+3) Seed default classifications setting (one-time)
+
+In your settings init block:
+
+from models import Setting
+import json
+
+if not Setting.query.filter_by(key="crm_customer_classifications").first():
+    Setting.set(db.session, "crm_customer_classifications",
+                json.dumps(["Customer","EKO","Petrolina","SHELL","Monitor","At Risk","Frozen"]))
+    db.session.commit()
+A2) Create CRM Dashboard blueprint
+
+Create: routes_crm_dashboard.py
+
+Register blueprint
+
+In your main registration area:
+
+from routes_crm_dashboard import crm_dashboard_bp
+app.register_blueprint(crm_dashboard_bp)
+Blueprint code (dashboard + inline classification update)
+from flask import Blueprint, request, render_template, jsonify
+from flask_login import login_required, current_user
+from sqlalchemy import func, and_
+from datetime import date, timedelta
+
+from app import db
+from models import PSCustomer, CrmCustomerProfile, Setting
+from models import MagentoCustomerLastLoginCurrent  # your table
+from models import DwInvoiceHeader                 # map to dw_invoice_header
+# abandoned cart current state model:
+from models import CrmAbandonedCartState           # rename to your actual model
+
+crm_dashboard_bp = Blueprint("crm_dashboard", __name__, url_prefix="/crm")
+
+
+def _get_allowed_classifications():
+    s = Setting.query.filter_by(key="crm_customer_classifications").first()
+    if not s or not s.value:
+        return ["Customer","EKO","Petrolina","SHELL","Monitor","At Risk","Frozen"]
+    try:
+        import json
+        return json.loads(s.value)
+    except Exception:
+        return ["Customer","EKO","Petrolina","SHELL","Monitor","At Risk","Frozen"]
+
+
+@crm_dashboard_bp.get("/dashboard")
+@login_required
+def customer_slot_dashboard():
+    """
+    Dashboard shows ALL customers; filters apply.
+    DONE logic (for now): invoice exists in the cycle window.
+    Later: add open orders + crm_cycle_status.
+    """
+    slot = request.args.get("slot")  # e.g. WED2
+    classification = request.args.get("classification")
+    district = request.args.get("district")
+    area = request.args.get("area")
+    action_only = request.args.get("action_only") == "1"
+    has_cart_only = request.args.get("has_cart_only") == "1"
+    logged_in_days = request.args.get("logged_in_days")  # e.g. 7
+
+    # Cycle window: for now use a simple weekly window (can be replaced by your slot engine)
+    # You will later replace this with your delivery slot cutoff logic.
+    today = date.today()
+    cycle_end = today
+    cycle_start = today - timedelta(days=7)
+
+    # Sales aggregates
+    d6m = today - timedelta(days=183)
+    d4w = today - timedelta(days=28)
+    d90 = today - timedelta(days=90)
+
+    sales_6m_sq = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365.label("cc"),
+            func.coalesce(func.sum(DwInvoiceHeader.total_grand), 0).label("value_6m"),
+        )
+        .filter(DwInvoiceHeader.invoice_date_utc0 >= d6m)
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .subquery()
+    )
+
+    sales_4w_sq = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365.label("cc"),
+            func.coalesce(func.sum(DwInvoiceHeader.total_grand), 0).label("value_4w"),
+        )
+        .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .subquery()
+    )
+
+    last_invoice_sq = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365.label("cc"),
+            func.max(DwInvoiceHeader.invoice_date_utc0).label("last_invoice_date"),
+            func.count(DwInvoiceHeader.invoice_no_365).label("inv_cnt_90d"),
+        )
+        .filter(DwInvoiceHeader.invoice_date_utc0 >= d90)
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .subquery()
+    )
+
+    # DONE for cycle = any invoice in [cycle_start, cycle_end]
+    done_sq = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365.label("cc"),
+            func.count(DwInvoiceHeader.invoice_no_365).label("inv_in_cycle"),
+        )
+        .filter(and_(
+            DwInvoiceHeader.invoice_date_utc0 >= cycle_start,
+            DwInvoiceHeader.invoice_date_utc0 <= cycle_end
+        ))
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .subquery()
+    )
+
+    q = (
+        db.session.query(
+            PSCustomer.customer_code_365,
+            PSCustomer.customer_name if hasattr(PSCustomer, "customer_name") else PSCustomer.customer_code_365,
+            PSCustomer.magento_customer_id,
+
+            CrmCustomerProfile.classification,
+            CrmCustomerProfile.district,
+            CrmCustomerProfile.area,
+
+            CrmAbandonedCartState.has_abandoned_cart,
+            CrmAbandonedCartState.abandoned_cart_amount,
+
+            MagentoCustomerLastLoginCurrent.last_login_at.label("last_login_at"),
+
+            sales_6m_sq.c.value_6m,
+            sales_4w_sq.c.value_4w,
+            last_invoice_sq.c.last_invoice_date,
+            last_invoice_sq.c.inv_cnt_90d,
+
+            done_sq.c.inv_in_cycle,
+        )
+        .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(CrmAbandonedCartState, CrmAbandonedCartState.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(sales_6m_sq, sales_6m_sq.c.cc == PSCustomer.customer_code_365)
+        .outerjoin(sales_4w_sq, sales_4w_sq.c.cc == PSCustomer.customer_code_365)
+        .outerjoin(last_invoice_sq, last_invoice_sq.c.cc == PSCustomer.customer_code_365)
+        .outerjoin(done_sq, done_sq.c.cc == PSCustomer.customer_code_365)
+    )
+
+    # Slot filter (hook into your existing delivery-slot logic)
+    if slot:
+        # Replace this line with your real slot filter function (already implemented)
+        # Example: q = q.filter(PSCustomer.delivery_slot == slot)
+        pass
+
+    if classification:
+        q = q.filter(CrmCustomerProfile.classification == classification)
+    if district:
+        q = q.filter(CrmCustomerProfile.district == district)
+    if area:
+        q = q.filter(CrmCustomerProfile.area == area)
+
+    if has_cart_only:
+        q = q.filter(CrmAbandonedCartState.has_abandoned_cart.is_(True))
+
+    if logged_in_days:
+        try:
+            days = int(logged_in_days)
+            cutoff = date.today() - timedelta(days=days)
+            # last_login_at is timestamp; compare date part
+            q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at.isnot(None))
+            # simple filter: >= now - days
+            from datetime import datetime, timezone
+            q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at >= datetime.now(timezone.utc) - timedelta(days=days))
+        except Exception:
+            pass
+
+    rows = q.all()
+
+    # Compute flags + recommended action in Python
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+
+    allowed_classifications = _get_allowed_classifications()
+
+    dashboard_rows = []
+    for r in rows:
+        inv_in_cycle = (r.inv_in_cycle or 0)
+        done_for_cycle = inv_in_cycle > 0
+        done_source = "INVOICE" if done_for_cycle else "NONE"
+
+        has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
+        cart_amount = r.abandoned_cart_amount
+
+        last_login_at = r.last_login_at
+        r_login_days = None
+        if last_login_at:
+            r_login_days = (now_utc.date() - last_login_at.date()).days
+
+        last_invoice_date = r.last_invoice_date
+        r_invoice_days = None
+        if last_invoice_date:
+            r_invoice_days = (now_utc.date() - last_invoice_date).days
+
+        # Action logic (v1 per your spec)
+        # NOTE: "slot cutoff near" needs your slot engine. For now we use a simple heuristic:
+        cutoff_near = False  # TODO: replace with your real cutoff calculation
+
+        if has_cart:
+            next_action = "CART_NUDGE"
+        elif not done_for_cycle:
+            next_action = "CALL" if cutoff_near else "ORDER_REMINDER"
+        else:
+            next_action = "NO_ACTION"
+
+        if action_only and next_action == "NO_ACTION":
+            continue
+
+        dashboard_rows.append({
+            "customer_code_365": r.customer_code_365,
+            "customer_name": r[1],
+            "classification": r.classification or "",
+            "district": r.district or "",
+            "area": r.area or "",
+
+            "done_for_cycle": done_for_cycle,
+            "done_source": done_source,
+
+            "has_cart": has_cart,
+            "cart_amount": float(cart_amount) if cart_amount is not None else None,
+
+            "last_login_at": last_login_at,
+            "r_login_days": r_login_days,
+
+            "value_6m": float(r.value_6m or 0),
+            "value_4w": float(r.value_4w or 0),
+            "last_invoice_date": last_invoice_date,
+            "r_invoice_days": r_invoice_days,
+            "inv_cnt_90d": int(r.inv_cnt_90d or 0),
+
+            "next_action": next_action,
+        })
+
+    return render_template(
+        "crm/dashboard.html",
+        rows=dashboard_rows,
+        allowed_classifications=allowed_classifications,
+        filters={
+            "slot": slot or "",
+            "classification": classification or "",
+            "district": district or "",
+            "area": area or "",
+            "action_only": action_only,
+            "has_cart_only": has_cart_only,
+            "logged_in_days": logged_in_days or "",
+        }
+    )
+
+
+@crm_dashboard_bp.post("/customer/<customer_code_365>/set-classification")
+@login_required
+def set_customer_classification(customer_code_365):
+    """
+    Inline update classification from the dashboard.
+    """
+    new_value = (request.form.get("classification") or "").strip()
+    allowed = _get_allowed_classifications()
+    if new_value and new_value not in allowed:
+        return jsonify({"ok": False, "error": "Invalid classification"}), 400
+
+    prof = CrmCustomerProfile.query.get(customer_code_365)
+    if not prof:
+        prof = CrmCustomerProfile(customer_code_365=customer_code_365)
+        db.session.add(prof)
+
+    prof.classification = new_value or None
+    prof.updated_at = func.now()
+    prof.updated_by = getattr(current_user, "username", None)
+    db.session.commit()
+    return jsonify({"ok": True, "customer_code_365": customer_code_365, "classification": new_value})
+A3) Create the Dashboard template
+
+Create: templates/crm/dashboard.html
+
+Keep it simple: badges + dropdown for classification + action buttons.
+
+Key UX features you requested:
+
+filterable screen with major filters
+
+classification editable on the main screen
+
+show: DONE, cart, last login, sales windows, and next action
+
+(Your Replit agent can implement HTML similarly to your other dashboards; no special design required yet.)
+
+Minimum required per row:
+
+customer code/name
+
+classification dropdown (AJAX POST to /crm/customer/<code>/set-classification)
+
+DONE badge
+
+Cart badge + €
+
+Last login + R days
+
+Value 6m / Value 4w
+
+last invoice date + R days
+
+Next action
+
+buttons: SMS / Push / Call task / Visit task / View
+
+B) Sales truth model mapping
+
+You already have the tables; ensure you have a SQLAlchemy model:
+
+DwInvoiceHeader model (if not already)
+class DwInvoiceHeader(db.Model):
+    __tablename__ = "dw_invoice_header"
+
+    invoice_no_365 = db.Column(db.String(64), primary_key=True)
+    invoice_type = db.Column(db.String(64), nullable=False)
+    invoice_date_utc0 = db.Column(db.Date, nullable=False)
+    customer_code_365 = db.Column(db.String(64), index=True)
+    total_grand = db.Column(db.Numeric(18,4))
+    total_net = db.Column(db.Numeric(18,4))
+C) Abandoned cart current state model mapping
+
+Use your existing current state table (you said it works and shows data). Ensure you have a model like:
+
+class CrmAbandonedCartState(db.Model):
+    __tablename__ = "crm_magento_abandoned_cart_state"
+    customer_code_365 = db.Column(db.String(64), primary_key=True)
+    has_abandoned_cart = db.Column(db.Boolean, nullable=False, default=False)
+    abandoned_cart_amount = db.Column(db.Numeric(12,2))
+    last_synced_at = db.Column(db.DateTime(timezone=True))
+
+If your table name differs, rename model accordingly.
+
+D) Last login models
+
+You already created:
+
+magento_customer_last_login_current
+
+magento_customer_login_log
+
+Dashboard uses ONLY magento_customer_last_login_current.
+
+E) Activity monitoring (Engagements + Offers)
+
+You asked: “How should we monitor activities? SMS, push, visit, telephone, offers”
+
+E1) Add two tables: tasks + interactions
+
+These give you full monitoring without overcomplication.
+
+1) crm_task (work items)
+
+CALL / VISIT / FOLLOW_UP / OFFER_FOLLOWUP
+
+assigned_to, due_date, status
+
+2) crm_interaction_log
+
+records every SMS/PUSH/CALL/VISIT/OFFER event
+
+Models to add
+
+class CrmTask(db.Model):
+    __tablename__ = "crm_task"
+    id = db.Column(db.Integer, primary_key=True)
+    customer_code_365 = db.Column(db.String(64), index=True, nullable=False)
+    task_type = db.Column(db.String(30), nullable=False)    # CALL/VISIT/OFFER/etc
+    status = db.Column(db.String(20), nullable=False, default="OPEN")
+    due_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    priority = db.Column(db.String(10), nullable=True)      # LOW/MED/HIGH
+    notes = db.Column(db.Text, nullable=True)
+    assigned_to = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+
+
+class CrmInteractionLog(db.Model):
+    __tablename__ = "crm_interaction_log"
+    id = db.Column(db.Integer, primary_key=True)
+    customer_code_365 = db.Column(db.String(64), index=True, nullable=False)
+    channel = db.Column(db.String(20), nullable=False)      # SMS/PUSH/CALL/VISIT/OFFER
+    outcome = db.Column(db.String(50), nullable=True)       # SENT/FAILED/COMPLETED/DECLINED/etc
+    message_text = db.Column(db.Text, nullable=True)
+    meta_json = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+E2) Hook dashboard buttons to create logs/tasks
+
+“Send SMS” button → call your existing SMS blueprint endpoint, then insert CrmInteractionLog(channel="SMS", outcome="SENT", …)
+
+“Send Push” button → same pattern
+
+“Create Call Task” → insert CrmTask(task_type="CALL")
+
+“Schedule Visit” → insert CrmTask(task_type="VISIT")
+
+“Offer” → store as interaction channel="OFFER" plus meta_json describing offer
+
+This way you can later build:
+
+“Customer Timeline”
+
+“Rep activity report”
+
+“Offer effectiveness”
+
+F) What is NOT implemented yet (by your instruction)
+
+crm_cycle_status and open orders summary — you said NO
+
+So DONE is invoice-based for now; PS365 open orders will be added later.
+
+G) Immediate next steps for Replit agent
+
+Implement crm_customer_profile + classification settings
+
+Implement /crm/dashboard using the query pattern above (joins to invoice, cart state, last login current)
+
+Create templates/crm/dashboard.html with filters + row actions
+
+Add interaction/task logging tables (monitoring)
+
+Wire buttons to create tasks/log entries (even if SMS/push sending is already in another module)

@@ -99,6 +99,12 @@ with app.app_context():
             logging.warning(f"Could not run invoice items schema update: {str(e)}")
 
         try:
+            from update_crm_dashboard_schema import update_crm_dashboard_schema
+            update_crm_dashboard_schema()
+        except Exception as e:
+            logging.warning(f"Could not run CRM dashboard schema update: {str(e)}")
+
+        try:
             from sqlalchemy import text as _text
             with db.engine.connect() as conn:
                 result = conn.execute(_text(
@@ -178,8 +184,16 @@ with app.app_context():
             db.session.commit()
             logging.info("Settings initialized")
         
-        # Seed OI time params (runs in both dev and production)
+        # Seed CRM classifications (runs in both dev and production)
         from models import Setting
+        import json as _json
+        if not Setting.query.filter_by(key="crm_customer_classifications").first():
+            Setting.set(db.session, "crm_customer_classifications",
+                        _json.dumps(["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]))
+            db.session.commit()
+            logging.info("Seeded crm_customer_classifications")
+
+        # Seed OI time params (runs in both dev and production)
         from services_oi_time_estimator import DEFAULT_PARAMS
         
         if not Setting.query.filter_by(key="oi_time_params_v1").first():

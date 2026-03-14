@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block title %}CRM Dashboard{% endblock %}
+
+{% block head %}
+<style>
+    .crm-table th { white-space: nowrap; font-size: 0.78rem; }
+    .crm-table td { font-size: 0.82rem; vertical-align: middle; }
+    .badge-done { background-color: #198754; }
+    .badge-pending { background-color: #6c757d; }
+    .badge-cart { background-color: #fd7e14; }
+    .badge-action { font-size: 0.72rem; }
+    .action-btn { padding: 2px 6px; font-size: 0.7rem; }
+    .classification-select { font-size: 0.78rem; padding: 2px 4px; min-width: 110px; }
+    .filter-bar select, .filter-bar input { font-size: 0.82rem; }
+    .value-col { text-align: right; white-space: nowrap; }
+    .days-ago { font-size: 0.72rem; color: #6c757d; }
+    .timeline-modal .modal-body { max-height: 400px; overflow-y: auto; }
+    .kpi-card { border-left: 4px solid; }
+    .kpi-card.total { border-color: #0d6efd; }
+    .kpi-card.action { border-color: #dc3545; }
+    .kpi-card.done { border-color: #198754; }
+    .kpi-card.cart { border-color: #fd7e14; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3 px-4">
+
+    <div class="d-flex align-items-center mb-3">
+        <h4 class="mb-0"><i class="fas fa-headset me-2 text-primary"></i>CRM Customer Dashboard</h4>
+    </div>
+
+    <form method="GET" action="/crm/dashboard" class="filter-bar mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Search</label>
+                <input type="text" class="form-control form-control-sm" name="q" placeholder="Code or name…"
+                       value="{{ filters.q }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Classification</label>
+                <select class="form-select form-select-sm" name="classification">
+                    <option value="">All</option>
+                    {% for c in allowed_classifications %}
+                    <option value="{{ c }}" {% if filters.classification == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">District</label>
+                <select class="form-select form-select-sm" name="district">
+                    <option value="">All</option>
+                    {% for d in all_districts %}
+                    <option value="{{ d }}" {% if filters.district == d %}selected{% endif %}>{{ d }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Area</label>
+                <select class="form-select form-select-sm" name="area">
+                    <option value="">All</option>
+                    {% for a in all_areas %}
+                    <option value="{{ a }}" {% if filters.area == a %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Login ≤ days</label>
+                <input type="number" class="form-control form-control-sm" name="logged_in_days"
+                       placeholder="e.g. 7" value="{{ filters.logged_in_days }}" style="width:80px;">
+            </div>
+            <div class="col-auto pt-3">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="action_only" value="1"
+                           id="actionOnly" {% if filters.action_only %}checked{% endif %}>
+                    <label class="form-check-label small" for="actionOnly">Action needed only</label>
+                </div>
+            </div>
+            <div class="col-auto pt-3">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="has_cart_only" value="1"
+                           id="cartOnly" {% if filters.has_cart_only %}checked{% endif %}>
+                    <label class="form-check-label small" for="cartOnly">Has cart only</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter me-1"></i>Filter</button>
+                <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm ms-1">Clear</a>
+            </div>
+        </div>
+    </form>
+
+    {% set action_count = rows | selectattr('next_action', 'ne', 'NO_ACTION') | list | length %}
+    {% set done_count = rows | selectattr('done_for_cycle') | list | length %}
+    {% set cart_count = rows | selectattr('has_cart') | list | length %}
+
+    <div class="row g-2 mb-3">
+        <div class="col-auto">
+            <div class="card kpi-card total px-3 py-2">
+                <div class="small text-muted">Total</div>
+                <div class="fw-bold fs-5">{{ rows | length }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card action px-3 py-2">
+                <div class="small text-muted">Need Action</div>
+                <div class="fw-bold fs-5 text-danger">{{ action_count }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card done px-3 py-2">
+                <div class="small text-muted">Done (cycle)</div>
+                <div class="fw-bold fs-5 text-success">{{ done_count }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card cart px-3 py-2">
+                <div class="small text-muted">Has Cart</div>
+                <div class="fw-bold fs-5" style="color:#fd7e14;">{{ cart_count }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover crm-table mb-0">
+            <thead class="table-dark">
+                <tr>
+                    <th>Customer</th>
+                    <th>Classification</th>
+                    <th>Cycle</th>
+                    <th>Cart</th>
+                    <th>Last Login</th>
+                    <th class="value-col">Value 6m</th>
+                    <th class="value-col">Value 4w</th>
+                    <th>Last Invoice</th>
+                    <th class="value-col">Inv 90d</th>
+                    <th>Action</th>
+                    <th>Quick Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td>
+                        <div class="fw-semibold">{{ r.customer_name }}</div>
+                        <div class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}</div>
+                    </td>
+                    <td>
+                        <select class="form-select form-select-sm classification-select"
+                                data-customer="{{ r.customer_code_365 }}"
+                                onchange="setClassification(this)">
+                            <option value="">—</option>
+                            {% for c in allowed_classifications %}
+                            <option value="{{ c }}" {% if r.classification == c %}selected{% endif %}>{{ c }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td>
+                        {% if r.done_for_cycle %}
+                        <span class="badge badge-done">DONE</span>
+                        {% else %}
+                        <span class="badge badge-pending">PENDING</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.has_cart %}
+                        <span class="badge badge-cart">
+                            <i class="fas fa-shopping-cart me-1"></i>
+                            {% if r.cart_amount is not none %}€{{ "%.0f"|format(r.cart_amount) }}{% endif %}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.last_login_at %}
+                        {{ r.last_login_at.strftime('%d/%m/%y') }}
+                        <div class="days-ago">{{ r.r_login_days }}d ago</div>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="value-col">
+                        {% if r.value_6m %}€{{ "{:,.0f}".format(r.value_6m) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="value-col">
+                        {% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}
+                    </td>
+                    <td>
+                        {% if r.last_invoice_date %}
+                        {{ r.last_invoice_date.strftime('%d/%m/%y') }}
+                        <div class="days-ago">{{ r.r_invoice_days }}d ago</div>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="value-col">{{ r.inv_cnt_90d }}</td>
+                    <td>
+                        {% if r.next_action == 'CART_NUDGE' %}
+                        <span class="badge bg-warning text-dark badge-action">CART NUDGE</span>
+                        {% elif r.next_action == 'ORDER_REMINDER' %}
+                        <span class="badge bg-info text-dark badge-action">ORDER REMINDER</span>
+                        {% elif r.next_action == 'CALL' %}
+                        <span class="badge bg-danger badge-action">CALL</span>
+                        {% else %}
+                        <span class="badge bg-light text-dark badge-action">OK</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="btn-group">
+                            <button class="btn btn-outline-primary action-btn" title="Log SMS"
+                                    onclick="logInteraction('{{ r.customer_code_365 }}', 'SMS')">
+                                <i class="fas fa-sms"></i>
+                            </button>
+                            <button class="btn btn-outline-info action-btn" title="Log Push"
+                                    onclick="logInteraction('{{ r.customer_code_365 }}', 'PUSH')">
+                                <i class="fas fa-bell"></i>
+                            </button>
+                            <button class="btn btn-outline-warning action-btn" title="Create Call Task"
+                                    onclick="createTask('{{ r.customer_code_365 }}', 'CALL')">
+                                <i class="fas fa-phone"></i>
+                            </button>
+                            <button class="btn btn-outline-success action-btn" title="Schedule Visit"
+                                    onclick="createTask('{{ r.customer_code_365 }}', 'VISIT')">
+                                <i class="fas fa-car"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary action-btn" title="Timeline"
+                                    onclick="showTimeline('{{ r.customer_code_365 }}', '{{ r.customer_name }}')">
+                                <i class="fas fa-history"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not rows %}
+                <tr>
+                    <td colspan="11" class="text-center text-muted py-4">No customers match the current filters.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal fade" id="timelineModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-history me-2"></i>Customer Timeline</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body timeline-modal" id="timelineBody">
+                <div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+async function setClassification(el) {
+    const code = el.dataset.customer;
+    const val = el.value;
+    try {
+        const fd = new FormData();
+        fd.append('classification', val);
+        const res = await fetch(`/crm/customer/${encodeURIComponent(code)}/set-classification`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!data.ok) { alert(data.error || 'Error'); el.value = ''; }
+    } catch(e) { alert('Network error'); }
+}
+
+async function logInteraction(code, channel) {
+    if (!confirm(`Log ${channel} interaction for ${code}?`)) return;
+    try {
+        const fd = new FormData();
+        fd.append('channel', channel);
+        fd.append('outcome', 'COMPLETED');
+        const res = await fetch(`/crm/customer/${encodeURIComponent(code)}/log-interaction`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            const toast = document.createElement('div');
+            toast.className = 'alert alert-success position-fixed bottom-0 end-0 m-3';
+            toast.style.zIndex = '9999';
+            toast.innerHTML = `<i class="fas fa-check me-1"></i> ${channel} logged for ${code}`;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2500);
+        } else {
+            alert(data.error || 'Error');
+        }
+    } catch(e) { alert('Network error'); }
+}
+
+async function createTask(code, taskType) {
+    if (!confirm(`Create ${taskType} task for ${code}?`)) return;
+    try {
+        const fd = new FormData();
+        fd.append('task_type', taskType);
+        fd.append('priority', 'MED');
+        const res = await fetch(`/crm/customer/${encodeURIComponent(code)}/create-task`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            const toast = document.createElement('div');
+            toast.className = 'alert alert-success position-fixed bottom-0 end-0 m-3';
+            toast.style.zIndex = '9999';
+            toast.innerHTML = `<i class="fas fa-check me-1"></i> ${taskType} task created for ${code}`;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2500);
+        } else {
+            alert(data.error || 'Error');
+        }
+    } catch(e) { alert('Network error'); }
+}
+
+async function showTimeline(code, name) {
+    const modal = new bootstrap.Modal(document.getElementById('timelineModal'));
+    document.querySelector('#timelineModal .modal-title').innerHTML =
+        `<i class="fas fa-history me-2"></i>${name} <small class="text-muted">(${code})</small>`;
+    const body = document.getElementById('timelineBody');
+    body.innerHTML = '<div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading…</div>';
+    modal.show();
+
+    try {
+        const res = await fetch(`/crm/customer/${encodeURIComponent(code)}/timeline`);
+        const items = await res.json();
+        if (!items.length) {
+            body.innerHTML = '<p class="text-muted text-center py-4">No interactions or tasks recorded yet.</p>';
+            return;
+        }
+        let html = '<div class="list-group list-group-flush">';
+        for (const item of items) {
+            const dt = item.created_at ? new Date(item.created_at).toLocaleString() : '—';
+            if (item.type === 'interaction') {
+                const channelIcons = { SMS: 'fas fa-sms', PUSH: 'fas fa-bell', CALL: 'fas fa-phone', VISIT: 'fas fa-car', OFFER: 'fas fa-tag' };
+                const icon = channelIcons[item.channel] || 'fas fa-comment';
+                html += `<div class="list-group-item py-2">
+                    <div class="d-flex justify-content-between">
+                        <span><i class="${icon} me-2 text-primary"></i><strong>${item.channel}</strong>
+                        <span class="badge bg-secondary ms-1">${item.outcome || ''}</span></span>
+                        <small class="text-muted">${dt}</small>
+                    </div>
+                    ${item.notes ? `<div class="text-muted small mt-1">${item.notes}</div>` : ''}
+                    <div class="text-muted small">by ${item.created_by || '—'}</div>
+                </div>`;
+            } else {
+                const statusColors = { OPEN: 'warning', DONE: 'success', CANCELLED: 'secondary' };
+                const sc = statusColors[item.status] || 'secondary';
+                html += `<div class="list-group-item py-2">
+                    <div class="d-flex justify-content-between">
+                        <span><i class="fas fa-tasks me-2 text-info"></i><strong>${item.task_type}</strong>
+                        <span class="badge bg-${sc} ms-1">${item.status}</span>
+                        <span class="badge bg-light text-dark ms-1">${item.priority || ''}</span></span>
+                        <small class="text-muted">${dt}</small>
+                    </div>
+                    ${item.notes ? `<div class="text-muted small mt-1">${item.notes}</div>` : ''}
+                    <div class="text-muted small">assigned: ${item.assigned_to || '—'}</div>
+                </div>`;
+            }
+        }
+        html += '</div>';
+        body.innerHTML = html;
+    } catch(e) {
+        body.innerHTML = `<p class="text-danger text-center py-3">Failed to load timeline: ${e.message}</p>`;
+    }
+}
+</script>
+{% endblock %}
