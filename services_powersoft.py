@@ -493,34 +493,36 @@ def sync_active_customers(sync_trigger='manual'):
             total_pages += 1
             logging.info(f"Page {page}: Found {len(customers)} customers to sync")
             
-            # Batch collect codes for payment customer lookup
+            # Extract all customer codes from this page first
+            page_data = []
             customer_codes = []
-            payment_customer_lookup = {}
-            
             for cust_data in customers:
                 customer = cust_data if not cust_data.get("customer") else cust_data.get("customer", {})
                 code = customer.get("customer_code_365")
                 if code:
+                    page_data.append((code, customer))
                     customer_codes.append(code)
             
-            # Bulk lookup payment customers at once (instead of per customer)
+            # ONE query to load all existing PSCustomers for this page
+            existing_map = {}
+            if customer_codes:
+                for row in PSCustomer.query.filter(PSCustomer.customer_code_365.in_(customer_codes)).all():
+                    existing_map[row.customer_code_365] = row
+            
+            # ONE query for payment customer lookup
+            existing_payments = set()
             if customer_codes:
                 existing_payments = {pc.code for pc in PaymentCustomer.query.filter(PaymentCustomer.code.in_(customer_codes)).all()}
-                payment_customer_lookup = existing_payments
             
-            # Batch collect codes needing slot refresh (only for active customers)
-            active_customer_codes = []
             slots_to_delete = []
             slots_to_add = []
+            now = datetime.utcnow()
             
-            for cust_data in customers:
-                customer = cust_data if not cust_data.get("customer") else cust_data.get("customer", {})
-                code = customer.get("customer_code_365")
-                if not code:
-                    continue
-                
-                # Use merge() for upsert without per-customer query
-                existing = db.session.merge(PSCustomer(customer_code_365=code))
+            for code, customer in page_data:
+                existing = existing_map.get(code)
+                if not existing:
+                    existing = PSCustomer(customer_code_365=code)
+                    db.session.add(existing)
                 
                 existing.company_name = customer.get("company_name") or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
                 existing.customer_code_secondary = customer.get("customer_code_secondary")
@@ -563,43 +565,36 @@ def sync_active_customers(sync_trigger='manual'):
                 
                 existing.delivery_days = customer.get("text_field_4_value")
                 
-                # Only parse delivery days for active customers (skip for inactive)
                 if customer.get("active", True):
-                    active_customer_codes.append(code)
                     parsed = parse_delivery_days_strict(existing.delivery_days)
                     existing.delivery_days_status = parsed["status"]
                     existing.delivery_days_invalid_tokens = json.dumps(parsed["invalid"]) if parsed["invalid"] else None
-                    existing.delivery_days_parsed_at = datetime.utcnow()
+                    existing.delivery_days_parsed_at = now
                     
-                    # Collect slot changes (batch delete, then add)
                     slots_to_delete.append(code)
                     if parsed["status"] == "OK":
                         for dow, wk in parsed["slots"]:
                             slots_to_add.append((code, dow, wk))
 
-                existing.last_synced_at = datetime.utcnow()
+                existing.last_synced_at = now
                 total_synced += 1
                 
-                # Queue payment customer creation if needed
-                if code not in payment_customer_lookup:
-                    new_payment = PaymentCustomer(
-                        code=code,
-                        name=existing.company_name or code
-                    )
-                    db.session.add(new_payment)
-                    payment_customer_lookup[code] = True
+                if code not in existing_payments:
+                    db.session.add(PaymentCustomer(code=code, name=existing.company_name or code))
+                    existing_payments.add(code)
                     payment_terms_created += 1
             
-            # Batch delete slots for all active customers in this page
+            # Batch slot operations
             if slots_to_delete:
                 CustomerDeliverySlot.query.filter(CustomerDeliverySlot.customer_code_365.in_(slots_to_delete)).delete(synchronize_session=False)
-            
-            # Batch add new slots
             if slots_to_add:
                 db.session.bulk_insert_mappings(CustomerDeliverySlot, 
-                    [{"customer_code_365": code, "dow": dow, "week_code": wk} for code, dow, wk in slots_to_add])
+                    [{"customer_code_365": c, "dow": d, "week_code": w} for c, d, w in slots_to_add])
             
             db.session.commit()
+            
+            # Clear session to prevent memory buildup across pages
+            db.session.expire_all()
             
             if len(customers) < PAGE_SIZE:
                 break
