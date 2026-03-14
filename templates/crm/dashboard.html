@@ -410,9 +410,6 @@ function refreshAbandonedCarts() {
                             {% if r.town %}
                             <span class="detail-chip town"><i class="fas fa-city chip-icon" style="color:#fd7e14"></i> <span class="chip-value">{{ r.town }}</span></span>
                             {% endif %}
-                            {% if r.postal_code %}
-                            <span class="detail-chip postal"><i class="fas fa-envelope chip-icon" style="color:#20c997"></i> <span class="chip-value">{{ r.postal_code }}</span></span>
-                            {% endif %}
                             {% if r.delivery_days_status %}
                             <span class="detail-chip delivery"><i class="fas fa-truck chip-icon" style="color:#dc3545"></i> <span class="chip-value">{{ r.delivery_days_status }}</span></span>
                             {% endif %}
