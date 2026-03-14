@@ -413,9 +413,6 @@ function refreshAbandonedCarts() {
                             {% if r.category_2_name %}
                             <span class="detail-chip"><i class="fas fa-tag chip-icon" style="color:#6f42c1"></i> <span class="chip-value">{{ r.category_2_name }}</span></span>
                             {% endif %}
-                            {% if r.delivery_days_status %}
-                            <span class="detail-chip delivery"><i class="fas fa-truck chip-icon" style="color:#dc3545"></i> <span class="chip-value">{{ r.delivery_days_status }}</span></span>
-                            {% endif %}
                             <span class="detail-chip code"><i class="fas fa-hashtag chip-icon" style="color:#6c757d"></i> <span class="chip-value font-monospace">{{ r.customer_code_365 }}</span></span>
                             {% if r.last_login_at %}
                             <span class="detail-chip login"><i class="fas fa-sign-in-alt chip-icon" style="color:#17a2b8"></i> <span class="chip-value">Login: {{ r.last_login_at.strftime('%d/%m/%Y') }}</span></span>
