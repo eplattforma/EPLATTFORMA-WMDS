@@ -25,12 +25,21 @@
     .crm-table .row-toggle:hover { background-color: rgba(0,0,0,0.04); }
     .crm-table .row-toggle .toggle-icon { transition: transform 0.2s; font-size: 0.7rem; color: #6c757d; }
     .crm-table .row-toggle.expanded .toggle-icon { transform: rotate(90deg); }
+    .crm-table .row-toggle.expanded { background-color: #eef3ff; }
     .detail-row { display: none; }
     .detail-row.show { display: table-row; }
-    .detail-row td { background: #f8f9fa; border-top: none; padding-top: 0 !important; }
-    .detail-content { padding: 8px 12px; }
-    .detail-content .detail-label { font-size: 0.72rem; color: #6c757d; text-transform: uppercase; font-weight: 600; }
-    .detail-content .detail-value { font-size: 0.82rem; font-weight: 500; }
+    .detail-row td { background: linear-gradient(180deg, #e8eef8 0%, #f4f6fb 100%); border-top: none !important; padding-top: 0 !important; padding-bottom: 6px !important; border-bottom: 2px solid #c5d1e8 !important; }
+    .detail-content { padding: 6px 14px 4px 30px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    .detail-chip { display: inline-flex; align-items: center; gap: 5px; background: #fff; border: 1px solid #d0d7e3; border-radius: 6px; padding: 3px 10px; font-size: 0.76rem; color: #333; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .detail-chip .chip-label { font-size: 0.65rem; color: #7b8a9e; text-transform: uppercase; font-weight: 700; letter-spacing: 0.3px; }
+    .detail-chip .chip-value { font-weight: 600; }
+    .detail-chip .chip-icon { font-size: 0.72rem; }
+    .detail-chip.district { border-left: 3px solid #0d6efd; }
+    .detail-chip.area { border-left: 3px solid #6f42c1; }
+    .detail-chip.postal { border-left: 3px solid #20c997; }
+    .detail-chip.town { border-left: 3px solid #fd7e14; }
+    .detail-chip.delivery { border-left: 3px solid #dc3545; }
+    .detail-chip.code { border-left: 3px solid #6c757d; }
 </style>
 <script>
 function toggleDetail(tr) {
@@ -297,64 +306,22 @@ function toggleDetail(tr) {
                 <tr class="detail-row">
                     <td colspan="12">
                         <div class="detail-content">
-                            <div class="row g-3">
-                                <div class="col-auto">
-                                    <div class="detail-label">District</div>
-                                    <div class="detail-value">
-                                        {% if r.district %}
-                                        <i class="fas fa-map-marker-alt text-primary me-1"></i>{{ r.district }}
-                                        {% else %}
-                                        <span class="text-muted">—</span>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                <div class="col-auto">
-                                    <div class="detail-label">Area</div>
-                                    <div class="detail-value">
-                                        {% if r.area %}
-                                        <i class="fas fa-map me-1 text-secondary"></i>{{ r.area }}
-                                        {% else %}
-                                        <span class="text-muted">—</span>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                <div class="col-auto">
-                                    <div class="detail-label">Postal Code</div>
-                                    <div class="detail-value">
-                                        {% if r.postal_code %}
-                                        {{ r.postal_code }}
-                                        {% else %}
-                                        <span class="text-muted">—</span>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                <div class="col-auto">
-                                    <div class="detail-label">Town</div>
-                                    <div class="detail-value">
-                                        {% if r.town %}
-                                        {{ r.town }}
-                                        {% else %}
-                                        <span class="text-muted">—</span>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                <div class="col-auto">
-                                    <div class="detail-label">Delivery Days</div>
-                                    <div class="detail-value">
-                                        {% if r.delivery_days_status %}
-                                        {{ r.delivery_days_status }}
-                                        {% else %}
-                                        <span class="text-muted">—</span>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                <div class="col-auto">
-                                    <div class="detail-label">Customer Code</div>
-                                    <div class="detail-value">
-                                        <span class="font-monospace">{{ r.customer_code_365 }}</span>
-                                    </div>
-                                </div>
-                            </div>
+                            {% if r.district %}
+                            <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon text-primary"></i> <span class="chip-value">{{ r.district }}</span></span>
+                            {% endif %}
+                            {% if r.area %}
+                            <span class="detail-chip area"><i class="fas fa-map chip-icon" style="color:#6f42c1"></i> <span class="chip-value">{{ r.area }}</span></span>
+                            {% endif %}
+                            {% if r.town %}
+                            <span class="detail-chip town"><i class="fas fa-city chip-icon" style="color:#fd7e14"></i> <span class="chip-value">{{ r.town }}</span></span>
+                            {% endif %}
+                            {% if r.postal_code %}
+                            <span class="detail-chip postal"><i class="fas fa-envelope chip-icon" style="color:#20c997"></i> <span class="chip-value">{{ r.postal_code }}</span></span>
+                            {% endif %}
+                            {% if r.delivery_days_status %}
+                            <span class="detail-chip delivery"><i class="fas fa-truck chip-icon" style="color:#dc3545"></i> <span class="chip-value">{{ r.delivery_days_status }}</span></span>
+                            {% endif %}
+                            <span class="detail-chip code"><i class="fas fa-hashtag chip-icon" style="color:#6c757d"></i> <span class="chip-value font-monospace">{{ r.customer_code_365 }}</span></span>
                         </div>
                     </td>
                 </tr>
