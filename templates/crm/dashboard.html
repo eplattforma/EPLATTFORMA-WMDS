@@ -41,6 +41,13 @@
     .detail-chip.town { border-left: 3px solid #fd7e14; }
     .detail-chip.delivery { border-left: 3px solid #dc3545; }
     .detail-chip.code { border-left: 3px solid #6c757d; }
+    .detail-chip.login { border-left: 3px solid #17a2b8; }
+    .detail-chip.invoice { border-left: 3px solid #ffc107; }
+    .days-pill { font-weight: 700; font-size: 0.78rem; padding: 2px 7px; border-radius: 4px; display: inline-block; }
+    .days-green { background: #d4edda; color: #155724; }
+    .days-yellow { background: #fff3cd; color: #856404; }
+    .days-orange { background: #ffe0b2; color: #e65100; }
+    .days-red { background: #f8d7da; color: #721c24; }
 </style>
 <script>
 function toggleDetail(tr) {
@@ -327,10 +334,9 @@ function refreshAbandonedCarts() {
                         <span class="text-muted">—</span>
                         {% endif %}
                     </td>
-                    <td>
-                        {% if r.last_login_at %}
-                        {{ r.last_login_at.strftime('%d/%m/%y') }}
-                        <div class="days-ago">{{ r.r_login_days }}d ago</div>
+                    <td class="text-center">
+                        {% if r.r_login_days is not none %}
+                        <span class="days-pill {% if r.r_login_days <= 7 %}days-green{% elif r.r_login_days <= 14 %}days-yellow{% elif r.r_login_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_login_days }}d</span>
                         {% else %}
                         <span class="text-muted">—</span>
                         {% endif %}
@@ -341,10 +347,9 @@ function refreshAbandonedCarts() {
                     <td class="value-col">
                         {% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}
                     </td>
-                    <td>
-                        {% if r.last_invoice_date %}
-                        {{ r.last_invoice_date.strftime('%d/%m/%y') }}
-                        <div class="days-ago">{{ r.r_invoice_days }}d ago</div>
+                    <td class="text-center">
+                        {% if r.r_invoice_days is not none %}
+                        <span class="days-pill {% if r.r_invoice_days <= 7 %}days-green{% elif r.r_invoice_days <= 14 %}days-yellow{% elif r.r_invoice_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_invoice_days }}d</span>
                         {% else %}
                         <span class="text-muted">—</span>
                         {% endif %}
@@ -412,6 +417,12 @@ function refreshAbandonedCarts() {
                             <span class="detail-chip delivery"><i class="fas fa-truck chip-icon" style="color:#dc3545"></i> <span class="chip-value">{{ r.delivery_days_status }}</span></span>
                             {% endif %}
                             <span class="detail-chip code"><i class="fas fa-hashtag chip-icon" style="color:#6c757d"></i> <span class="chip-value font-monospace">{{ r.customer_code_365 }}</span></span>
+                            {% if r.last_login_at %}
+                            <span class="detail-chip login"><i class="fas fa-sign-in-alt chip-icon" style="color:#17a2b8"></i> <span class="chip-value">Login: {{ r.last_login_at.strftime('%d/%m/%Y') }}</span></span>
+                            {% endif %}
+                            {% if r.last_invoice_date %}
+                            <span class="detail-chip invoice"><i class="fas fa-file-invoice chip-icon" style="color:#ffc107"></i> <span class="chip-value">Invoice: {{ r.last_invoice_date.strftime('%d/%m/%Y') }}</span></span>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
