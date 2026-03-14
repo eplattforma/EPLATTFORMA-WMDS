@@ -1,0 +1,613 @@
+Paste this to Replit:
+
+Implement the full PS365 Pending Orders import + CRM dashboard integration for Amount on Orders and Pending Order Count.
+
+Use GET /list_pending_orders_header from PS365. The docs specify two uses of the same endpoint: first call it without paging params to get total_count_list_pending_orders, then call it again with page_number and page_size to get the paged list_pending_orders rows. The returned rows include shopping_cart_code, customer_code_365, customer_name, order_date_local, order_date_deliverby_utc0, total_sub, total_discount, total_vat, total_grand, order_status_code_365, and order_status_name. Use display_all=true.
+
+This must be implemented as a local cached import, not a live dashboard call to PS365 on every page refresh. The dashboard should read local DB values only. Manual refresh and scheduled refresh should both run the same backend sync job.
+
+1) Business goal
+
+For each customer in CRM, calculate and store:
+
+open_order_amount = sum of total_grand for all current pending orders
+
+open_order_count = count of current pending orders
+
+open_order_last_sync_at
+
+This is a current-state metric, so every successful refresh must fully rebuild and overwrite the current local values.
+
+2) Required implementation behavior
+Refresh strategy
+
+Store pending orders locally
+
+Dashboard reads local values only
+
+Add:
+
+scheduled refresh every 30–60 minutes
+
+manual Refresh Open Orders button
+
+A successful refresh must:
+
+fetch all pending orders from PS365
+
+replace the raw pending order table contents
+
+recompute per-customer totals
+
+overwrite all customer totals
+
+set customers with no pending orders to zero
+
+Safety rule
+
+Do not partially overwrite live totals while pages are still downloading.
+
+Use either:
+
+staging tables + transaction swap, or
+
+full in-memory aggregation + single transaction commit
+
+If the import fails halfway, keep previous live values unchanged.
+
+3) Files to create
+
+Use Flask + SQLAlchemy structure.
+
+Create or update these files:
+
+models/pending_orders.py
+services/ps365_pending_orders_service.py
+blueprints/crm_open_orders.py
+templates/crm/dashboard.html
+static/js/crm_open_orders.js
+migrations/20260314_add_ps365_pending_orders.sql
+
+If your project uses a single models.py or different blueprint structure, adapt accordingly, but keep the same concepts.
+
+4) Database schema
+
+Create a raw table for the imported PS365 order headers and a summary table for customer totals.
+
+Migration SQL
+-- Raw PS365 pending order headers (current snapshot only)
+CREATE TABLE IF NOT EXISTS ps_pending_orders_header (
+    shopping_cart_code VARCHAR(100) PRIMARY KEY,
+    customer_code_365 VARCHAR(50) NOT NULL,
+    customer_email VARCHAR(255),
+    customer_name VARCHAR(255),
+    order_date_local TIMESTAMP NULL,
+    order_date_utc0 TIMESTAMP NULL,
+    order_date_deliverby_utc0 DATE NULL,
+    total_sub NUMERIC(14,2) NOT NULL DEFAULT 0,
+    total_discount NUMERIC(14,2) NOT NULL DEFAULT 0,
+    total_vat NUMERIC(14,2) NOT NULL DEFAULT 0,
+    total_grand NUMERIC(14,2) NOT NULL DEFAULT 0,
+    comments TEXT,
+    delivery_address_line_1 VARCHAR(255),
+    delivery_address_line_2 VARCHAR(255),
+    delivery_address_line_3 VARCHAR(255),
+    delivery_postal_code VARCHAR(50),
+    delivery_town VARCHAR(100),
+    delivery_country_code_iso2 VARCHAR(10),
+    delivery_country_name VARCHAR(100),
+    payment_term_code_365 VARCHAR(50),
+    delivery_term_code_365 VARCHAR(50),
+    order_status_code_365 VARCHAR(50),
+    order_status_name VARCHAR(100),
+    synced_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ps_pending_orders_customer
+ON ps_pending_orders_header (customer_code_365);
+
+CREATE INDEX IF NOT EXISTS idx_ps_pending_orders_deliverby
+ON ps_pending_orders_header (order_date_deliverby_utc0);
+
+-- Summary table used by CRM
+CREATE TABLE IF NOT EXISTS crm_customer_open_orders (
+    customer_code_365 VARCHAR(50) PRIMARY KEY,
+    open_order_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+    open_order_count INTEGER NOT NULL DEFAULT 0,
+    last_synced_at TIMESTAMP NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Optional sync audit log
+CREATE TABLE IF NOT EXISTS sync_job_log (
+    id BIGSERIAL PRIMARY KEY,
+    job_name VARCHAR(100) NOT NULL,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMP NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'running',
+    triggered_by VARCHAR(100),
+    rows_processed INTEGER NOT NULL DEFAULT 0,
+    customers_updated INTEGER NOT NULL DEFAULT 0,
+    message TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Optional lightweight lock table
+CREATE TABLE IF NOT EXISTS sync_job_lock (
+    job_name VARCHAR(100) PRIMARY KEY,
+    locked_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    locked_by VARCHAR(100)
+);
+
+If you already have a CRM summary table, you can place:
+
+open_order_amount
+
+open_order_count
+
+open_order_last_sync_at
+
+there instead of creating crm_customer_open_orders.
+But I prefer a separate table because this is a clean imported metric.
+
+5) SQLAlchemy models
+
+Create models for:
+
+PSPendingOrderHeader
+
+CRMCustomerOpenOrders
+
+SyncJobLog
+
+optionally SyncJobLock
+
+Example:
+
+# models/pending_orders.py
+from app import db
+from datetime import datetime
+
+class PSPendingOrderHeader(db.Model):
+    __tablename__ = "ps_pending_orders_header"
+
+    shopping_cart_code = db.Column(db.String(100), primary_key=True)
+    customer_code_365 = db.Column(db.String(50), nullable=False, index=True)
+    customer_email = db.Column(db.String(255))
+    customer_name = db.Column(db.String(255))
+    order_date_local = db.Column(db.DateTime)
+    order_date_utc0 = db.Column(db.DateTime)
+    order_date_deliverby_utc0 = db.Column(db.Date)
+    total_sub = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    total_discount = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    total_vat = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    total_grand = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    comments = db.Column(db.Text)
+    delivery_address_line_1 = db.Column(db.String(255))
+    delivery_address_line_2 = db.Column(db.String(255))
+    delivery_address_line_3 = db.Column(db.String(255))
+    delivery_postal_code = db.Column(db.String(50))
+    delivery_town = db.Column(db.String(100))
+    delivery_country_code_iso2 = db.Column(db.String(10))
+    delivery_country_name = db.Column(db.String(100))
+    payment_term_code_365 = db.Column(db.String(50))
+    delivery_term_code_365 = db.Column(db.String(50))
+    order_status_code_365 = db.Column(db.String(50))
+    order_status_name = db.Column(db.String(100))
+    synced_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+class CRMCustomerOpenOrders(db.Model):
+    __tablename__ = "crm_customer_open_orders"
+
+    customer_code_365 = db.Column(db.String(50), primary_key=True)
+    open_order_amount = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    open_order_count = db.Column(db.Integer, nullable=False, default=0)
+    last_synced_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SyncJobLog(db.Model):
+    __tablename__ = "sync_job_log"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    job_name = db.Column(db.String(100), nullable=False)
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = db.Column(db.DateTime)
+    status = db.Column(db.String(30), nullable=False, default="running")
+    triggered_by = db.Column(db.String(100))
+    rows_processed = db.Column(db.Integer, nullable=False, default=0)
+    customers_updated = db.Column(db.Integer, nullable=False, default=0)
+    message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+6) PS365 service implementation
+
+Create services/ps365_pending_orders_service.py.
+
+This service should do everything end to end.
+
+Required functions
+get_pending_orders_total_count()
+get_pending_orders_page(page_number: int, page_size: int = 500)
+fetch_all_pending_orders(page_size: int = 500)
+aggregate_pending_orders(rows: list[dict])
+replace_raw_pending_orders(rows: list[dict])
+replace_customer_open_order_summary(aggregated: dict)
+sync_pending_order_totals_from_ps365(triggered_by: str = "system")
+Implementation rules
+
+use display_all=true
+
+first call count endpoint
+
+then fetch all pages
+
+aggregate by customer_code_365
+
+use Decimal for money
+
+only commit changes after full fetch succeeds
+
+on success, replace raw rows and summary rows
+
+on failure, rollback everything
+
+7) Exact sync logic
+
+The docs show this flow for list_pending_orders_header: first call for total_count_list_pending_orders, then call paginated requests that return list_pending_orders.
+
+Implement this exact algorithm:
+
+import math
+import requests
+from decimal import Decimal
+from datetime import datetime
+from sqlalchemy import text
+from app import db
+from models.pending_orders import PSPendingOrderHeader, CRMCustomerOpenOrders, SyncJobLog
+
+PS365_BASE_URL = "https://your-powersoft-endpoint"
+PS365_TOKEN = "from env"
+JOB_NAME = "ps365_pending_orders_sync"
+
+def get_pending_orders_total_count():
+    url = f"{PS365_BASE_URL}/list_pending_orders_header"
+    params = {
+        "token": PS365_TOKEN,
+        "display_all": "true",
+    }
+    r = requests.get(url, params=params, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+
+    api_response = data.get("api_response") or {}
+    if str(api_response.get("response_code")) != "1":
+        raise RuntimeError(f"PS365 count call failed: {api_response}")
+
+    return int(data.get("total_count_list_pending_orders") or 0)
+
+def get_pending_orders_page(page_number: int, page_size: int = 500):
+    url = f"{PS365_BASE_URL}/list_pending_orders_header"
+    params = {
+        "token": PS365_TOKEN,
+        "page_number": page_number,
+        "page_size": page_size,
+        "display_all": "true",
+    }
+    r = requests.get(url, params=params, timeout=90)
+    r.raise_for_status()
+    data = r.json()
+
+    api_response = data.get("api_response") or {}
+    if str(api_response.get("response_code")) != "1":
+        raise RuntimeError(f"PS365 page call failed on page {page_number}: {api_response}")
+
+    return data.get("list_pending_orders") or []
+
+def fetch_all_pending_orders(page_size: int = 500):
+    total_count = get_pending_orders_total_count()
+    if total_count == 0:
+        return []
+
+    total_pages = math.ceil(total_count / page_size)
+    rows = []
+
+    for page_number in range(1, total_pages + 1):
+        page_rows = get_pending_orders_page(page_number, page_size)
+        rows.extend(page_rows)
+
+    return rows
+
+def aggregate_pending_orders(rows):
+    aggregated = {}
+
+    for row in rows:
+        customer_code = (row.get("customer_code_365") or "").strip()
+        if not customer_code:
+            continue
+
+        total_grand = Decimal(str(row.get("total_grand") or 0))
+
+        if customer_code not in aggregated:
+            aggregated[customer_code] = {
+                "open_order_amount": Decimal("0.00"),
+                "open_order_count": 0,
+            }
+
+        aggregated[customer_code]["open_order_amount"] += total_grand
+        aggregated[customer_code]["open_order_count"] += 1
+
+    return aggregated
+8) Full replace strategy
+
+This import is not incremental. It is a full refresh snapshot.
+
+Raw table strategy
+
+For ps_pending_orders_header:
+
+truncate or delete all current rows
+
+insert the newly fetched current rows
+
+Summary table strategy
+
+For crm_customer_open_orders:
+
+overwrite all customer totals from the new aggregation
+
+set absent customers to zero
+
+Use transaction safety:
+
+def sync_pending_order_totals_from_ps365(triggered_by="system"):
+    log = SyncJobLog(job_name=JOB_NAME, triggered_by=triggered_by, status="running")
+    db.session.add(log)
+    db.session.flush()
+
+    try:
+        rows = fetch_all_pending_orders(page_size=500)
+        aggregated = aggregate_pending_orders(rows)
+        now = datetime.utcnow()
+
+        # Raw table full replace
+        db.session.execute(text("DELETE FROM ps_pending_orders_header"))
+
+        for row in rows:
+            db.session.add(PSPendingOrderHeader(
+                shopping_cart_code=row.get("shopping_cart_code"),
+                customer_code_365=(row.get("customer_code_365") or "").strip(),
+                customer_email=row.get("customer_email"),
+                customer_name=row.get("customer_name"),
+                # parse dates safely
+                total_sub=Decimal(str(row.get("total_sub") or 0)),
+                total_discount=Decimal(str(row.get("total_discount") or 0)),
+                total_vat=Decimal(str(row.get("total_vat") or 0)),
+                total_grand=Decimal(str(row.get("total_grand") or 0)),
+                comments=row.get("comments"),
+                delivery_address_line_1=row.get("delivery_address_line_1"),
+                delivery_address_line_2=row.get("delivery_address_line_2"),
+                delivery_address_line_3=row.get("delivery_address_line_3"),
+                delivery_postal_code=row.get("delivery_postal_code"),
+                delivery_town=row.get("delivery_town"),
+                delivery_country_code_iso2=row.get("delivery_country_code_iso2"),
+                delivery_country_name=row.get("delivery_country_name"),
+                payment_term_code_365=row.get("payment_term_code_365"),
+                delivery_term_code_365=row.get("delivery_term_code_365"),
+                order_status_code_365=row.get("order_status_code_365"),
+                order_status_name=row.get("order_status_name"),
+                synced_at=now,
+            ))
+
+        # Reset all summary values first
+        db.session.execute(text("""
+            UPDATE crm_customer_open_orders
+            SET open_order_amount = 0,
+                open_order_count = 0,
+                last_synced_at = :now,
+                updated_at = :now
+        """), {"now": now})
+
+        # Upsert aggregated values
+        for customer_code, payload in aggregated.items():
+            existing = db.session.get(CRMCustomerOpenOrders, customer_code)
+            if existing:
+                existing.open_order_amount = payload["open_order_amount"]
+                existing.open_order_count = payload["open_order_count"]
+                existing.last_synced_at = now
+            else:
+                db.session.add(CRMCustomerOpenOrders(
+                    customer_code_365=customer_code,
+                    open_order_amount=payload["open_order_amount"],
+                    open_order_count=payload["open_order_count"],
+                    last_synced_at=now,
+                ))
+
+        log.status = "success"
+        log.finished_at = now
+        log.rows_processed = len(rows)
+        log.customers_updated = len(aggregated)
+        log.message = "Pending orders sync completed successfully"
+
+        db.session.commit()
+
+        return {
+            "success": True,
+            "message": "Open orders refreshed successfully",
+            "orders_processed": len(rows),
+            "customers_updated": len(aggregated),
+            "last_sync_at": now.isoformat(),
+        }
+
+    except Exception as e:
+        db.session.rollback()
+        try:
+            log.status = "failed"
+            log.finished_at = datetime.utcnow()
+            log.message = str(e)
+            db.session.add(log)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        return {
+            "success": False,
+            "message": f"Refresh failed: {str(e)}",
+        }
+9) Concurrency lock
+
+Prevent duplicate runs.
+
+Add a lock before sync starts. Use DB-based lock or application lock.
+
+Simple DB approach:
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
+
+def acquire_sync_lock(job_name, locked_by):
+    try:
+        db.session.execute(text("""
+            INSERT INTO sync_job_lock (job_name, locked_at, locked_by)
+            VALUES (:job_name, NOW(), :locked_by)
+        """), {"job_name": job_name, "locked_by": locked_by})
+        db.session.commit()
+        return True
+    except IntegrityError:
+        db.session.rollback()
+        return False
+
+def release_sync_lock(job_name):
+    db.session.execute(text("DELETE FROM sync_job_lock WHERE job_name = :job_name"), {"job_name": job_name})
+    db.session.commit()
+
+Wrap sync in try/finally so lock is always released.
+
+If lock exists, return HTTP 409.
+
+10) Backend endpoints
+
+Create blueprints/crm_open_orders.py.
+
+Required routes
+GET  /admin/crm/open-orders/status
+POST /admin/crm/open-orders/refresh
+GET  /admin/crm/open-orders/customer/<customer_code_365>
+Expected behavior
+GET /admin/crm/open-orders/status
+
+Return:
+
+last successful sync time
+
+whether refresh currently running
+
+maybe last result message
+
+POST /admin/crm/open-orders/refresh
+
+admin only
+
+acquire lock
+
+run sync_pending_order_totals_from_ps365(triggered_by=current_user.username)
+
+return JSON success/failure
+
+GET /admin/crm/open-orders/customer/<customer_code_365>
+
+Return raw pending orders from ps_pending_orders_header for drill-down.
+
+Example route
+from flask import Blueprint, jsonify
+from flask_login import login_required, current_user
+from services.ps365_pending_orders_service import sync_pending_order_totals_from_ps365, acquire_sync_lock, release_sync_lock
+
+crm_open_orders_bp = Blueprint("crm_open_orders", __name__)
+
+@crm_open_orders_bp.route("/admin/crm/open-orders/refresh", methods=["POST"])
+@login_required
+@admin_required
+def refresh_open_orders():
+    locked = acquire_sync_lock("ps365_pending_orders_sync", current_user.username)
+    if not locked:
+        return jsonify({
+            "success": False,
+            "message": "Refresh already in progress"
+        }), 409
+
+    try:
+        result = sync_pending_order_totals_from_ps365(triggered_by=current_user.username)
+        status_code = 200 if result.get("success") else 500
+        return jsonify(result), status_code
+    finally:
+        release_sync_lock("ps365_pending_orders_sync")
+11) CRM dashboard integration
+
+Add to the CRM customer dashboard:
+
+card/metric: On Orders (€)
+
+card/metric: Pending Orders
+
+text: Last refresh
+
+button: Refresh Open Orders
+
+For each customer row in customer list / slot dashboard / customer detail:
+
+show open_order_amount
+
+show open_order_count
+
+badge if open_order_count > 0
+
+UI behavior
+
+When user clicks Refresh Open Orders:
+
+disable button
+
+show spinner
+
+text becomes Refreshing...
+
+if success:
+
+show toast Open orders refreshed successfully
+
+refresh dashboard metrics
+
+if failure:
+
+show toast Refresh failed. Existing values were not changed.
+
+12) Frontend JS
+async function refreshOpenOrders() {
+  const btn = document.getElementById("btn-refresh-open-orders");
+  const originalText = btn.innerHTML;
+
+  btn.disabled = true;
+  btn.innerHTML = 'Refreshing...';
+
+  try {
+    const response = await fetch('/admin/crm/open-orders/refresh', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || 'Refresh failed');
+    }
+
+    showToast('Open orders refreshed successfully', 'success');
+    window.location.reload();
+  } catch (err) {
+    showToast(err.message || 'Refresh failed. Existing values were not changed.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
+}
