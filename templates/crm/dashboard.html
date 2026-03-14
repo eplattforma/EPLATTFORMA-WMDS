@@ -45,8 +45,13 @@
 function toggleDetail(tr) {
     var detailRow = tr.nextElementSibling;
     if (!detailRow || !detailRow.classList.contains('detail-row')) return;
-    detailRow.classList.toggle('show');
-    tr.classList.toggle('expanded');
+    var isOpen = detailRow.classList.contains('show');
+    document.querySelectorAll('.detail-row.show').forEach(function(r) { r.classList.remove('show'); });
+    document.querySelectorAll('.row-toggle.expanded').forEach(function(r) { r.classList.remove('expanded'); });
+    if (!isOpen) {
+        detailRow.classList.add('show');
+        tr.classList.add('expanded');
+    }
 }
 </script>
 {% endblock %}
