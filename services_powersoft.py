@@ -453,10 +453,12 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
 
 def sync_active_customers(sync_trigger='manual'):
     """Sync all customers (active and inactive) from PS365 API with pagination"""
-    from models import PSCustomer, PaymentCustomer, db
+    from models import PSCustomer, PaymentCustomer, db, CustomerDeliverySlot
     from ps365_client import call_ps365
     from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
+    from services.delivery_days import parse_delivery_days_strict
     import logging
+    import json
     
     slog = start_sync_log(db.session, 'CUSTOMER_SYNC', sync_trigger)
     try:
@@ -491,16 +493,34 @@ def sync_active_customers(sync_trigger='manual'):
             total_pages += 1
             logging.info(f"Page {page}: Found {len(customers)} customers to sync")
             
+            # Batch collect codes for payment customer lookup
+            customer_codes = []
+            payment_customer_lookup = {}
+            
+            for cust_data in customers:
+                customer = cust_data if not cust_data.get("customer") else cust_data.get("customer", {})
+                code = customer.get("customer_code_365")
+                if code:
+                    customer_codes.append(code)
+            
+            # Bulk lookup payment customers at once (instead of per customer)
+            if customer_codes:
+                existing_payments = {pc.code for pc in PaymentCustomer.query.filter(PaymentCustomer.code.in_(customer_codes)).all()}
+                payment_customer_lookup = existing_payments
+            
+            # Batch collect codes needing slot refresh (only for active customers)
+            active_customer_codes = []
+            slots_to_delete = []
+            slots_to_add = []
+            
             for cust_data in customers:
                 customer = cust_data if not cust_data.get("customer") else cust_data.get("customer", {})
                 code = customer.get("customer_code_365")
                 if not code:
                     continue
-                    
-                existing = PSCustomer.query.filter_by(customer_code_365=code).first()
-                if not existing:
-                    existing = PSCustomer(customer_code_365=code)
-                    db.session.add(existing)
+                
+                # Use merge() for upsert without per-customer query
+                existing = db.session.merge(PSCustomer(customer_code_365=code))
                 
                 existing.company_name = customer.get("company_name") or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
                 existing.customer_code_secondary = customer.get("customer_code_secondary")
@@ -529,6 +549,7 @@ def sync_active_customers(sync_trigger='manual'):
                 existing.agent_code_365 = customer.get("agent_code_365")
                 existing.agent_name = customer.get("agent_name")
                 existing.email = customer.get("email") or customer.get("e_mail")
+                
                 if customer.get("text_field_1_value"):
                     try:
                         existing.latitude = float(customer.get("text_field_1_value"))
@@ -542,38 +563,41 @@ def sync_active_customers(sync_trigger='manual'):
                 
                 existing.delivery_days = customer.get("text_field_4_value")
                 
-                # Normalize delivery days
-                from services.delivery_days import parse_delivery_days_strict
-                from models import CustomerDeliverySlot
-                import json
-                
-                parsed = parse_delivery_days_strict(existing.delivery_days)
-                existing.delivery_days_status = parsed["status"]
-                existing.delivery_days_invalid_tokens = json.dumps(parsed["invalid"]) if parsed["invalid"] else None
-                existing.delivery_days_parsed_at = datetime.utcnow()
-                
-                # Clear and refresh slots
-                CustomerDeliverySlot.query.filter_by(customer_code_365=existing.customer_code_365).delete()
-                if parsed["status"] == "OK":
-                    for dow, wk in parsed["slots"]:
-                        db.session.add(CustomerDeliverySlot(
-                            customer_code_365=existing.customer_code_365,
-                            dow=dow,
-                            week_code=wk
-                        ))
+                # Only parse delivery days for active customers (skip for inactive)
+                if customer.get("active", True):
+                    active_customer_codes.append(code)
+                    parsed = parse_delivery_days_strict(existing.delivery_days)
+                    existing.delivery_days_status = parsed["status"]
+                    existing.delivery_days_invalid_tokens = json.dumps(parsed["invalid"]) if parsed["invalid"] else None
+                    existing.delivery_days_parsed_at = datetime.utcnow()
+                    
+                    # Collect slot changes (batch delete, then add)
+                    slots_to_delete.append(code)
+                    if parsed["status"] == "OK":
+                        for dow, wk in parsed["slots"]:
+                            slots_to_add.append((code, dow, wk))
 
                 existing.last_synced_at = datetime.utcnow()
                 total_synced += 1
                 
-                # Auto-create PaymentCustomer if not exists
-                existing_payment = PaymentCustomer.query.filter_by(code=code).first()
-                if not existing_payment:
+                # Queue payment customer creation if needed
+                if code not in payment_customer_lookup:
                     new_payment = PaymentCustomer(
                         code=code,
                         name=existing.company_name or code
                     )
                     db.session.add(new_payment)
+                    payment_customer_lookup[code] = True
                     payment_terms_created += 1
+            
+            # Batch delete slots for all active customers in this page
+            if slots_to_delete:
+                CustomerDeliverySlot.query.filter(CustomerDeliverySlot.customer_code_365.in_(slots_to_delete)).delete(synchronize_session=False)
+            
+            # Batch add new slots
+            if slots_to_add:
+                db.session.bulk_insert_mappings(CustomerDeliverySlot, 
+                    [{"customer_code_365": code, "dow": dow, "week_code": wk} for code, dow, wk in slots_to_add])
             
             db.session.commit()
             
