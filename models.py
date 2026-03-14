@@ -2850,3 +2850,14 @@ class CrmInteractionLog(db.Model):
     meta_json = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+
+
+class PostalCodeLookup(db.Model):
+    __tablename__ = "postal_code_lookup"
+    id = db.Column(db.Integer, primary_key=True)
+    postcode = db.Column(db.String(20), nullable=False, unique=True)
+    municipality = db.Column(db.String(255), nullable=False)
+    district = db.Column(db.String(100), nullable=False)
+    urban_rural = db.Column(db.String(20), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: get_utc_now())
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: get_utc_now(), onupdate=lambda: get_utc_now())

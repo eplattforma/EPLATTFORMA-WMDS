@@ -237,6 +237,12 @@
                                 </a>
                             </li>
                             <li>
+                                <a class="dropdown-item {% if request.endpoint == 'admin_tools_custom.postal_codes_page' %}active{% endif %}" 
+                                   href="{{ url_for('admin_tools_custom.postal_codes_page') }}">
+                                    <i class="fas fa-map-pin me-2"></i>Postal Code Lookup
+                                </a>
+                            </li>
+                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'datawarehouse.dw_menu' %}active{% endif %}" 
                                    href="{{ url_for('datawarehouse.dw_menu') }}">
                                     <i class="fas fa-database me-2"></i>Sync PS365

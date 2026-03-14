@@ -9,6 +9,9 @@ from flask_login import login_required, current_user
 from flask import current_app as app
 from app import db
 import os
+import openpyxl
+from werkzeug.utils import secure_filename
+from models import PostalCodeLookup
 
 bp = Blueprint('admin_tools_custom', __name__, url_prefix='/admin/tools')
 logger = logging.getLogger(__name__)
@@ -49,396 +52,342 @@ def execute_database_clone():
         if not request.get_json().get('confirmed'):
             return jsonify({"error": "Clone not confirmed"}), 400
         
-        logger.info(f"Starting database clone by {current_user.username}")
+        # Extract connection strings
+        def parse_db_url(url):
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            return {
+                'user': parsed.username,
+                'password': parsed.password,
+                'host': parsed.hostname,
+                'port': parsed.port or 5432,
+                'database': parsed.path.lstrip('/')
+            }
         
-        # Build the clone command - use nix-shell with PostgreSQL 16
-        clone_script = f"""
-set -e
-export PATH="/nix/store/$(ls /nix/store | grep postgresql-16 | head -1)/bin:$PATH"
-
-echo "Checking PostgreSQL version..."
-pg_dump --version
-
-echo "Dumping production database..."
-pg_dump "{database_url_prod}" \\
-  --format=custom \\
-  --no-owner \\
-  --no-acl \\
-  -f /tmp/prod_db.dump
-
-echo "Restoring to development database..."
-pg_restore \\
-  --clean \\
-  --if-exists \\
-  --no-owner \\
-  -d "{database_url_dev}" \\
-  /tmp/prod_db.dump
-
-echo "Verifying clone..."
-psql "{database_url_dev}" -c "SELECT COUNT(*) as ps_items_count FROM ps_items_dw;"
-"""
+        prod_config = parse_db_url(database_url_prod)
+        dev_config = parse_db_url(database_url_dev)
         
-        # Execute via nix-shell with PostgreSQL 16
-        result = subprocess.run(
-            ['nix-shell', '-p', 'postgresql_16', '--run', clone_script],
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
+        # Run pg_dump and psql
+        dump_cmd = [
+            'pg_dump',
+            '-h', prod_config['host'],
+            '-p', str(prod_config['port']),
+            '-U', prod_config['user'],
+            '-F', 'custom',
+            prod_config['database']
+        ]
         
-        if result.returncode != 0:
-            logger.error(f"Clone failed: {result.stderr}")
-            return jsonify({
-                "success": False,
-                "error": f"Clone failed: {result.stderr}"
-            }), 500
+        restore_cmd = [
+            'pg_restore',
+            '-h', dev_config['host'],
+            '-p', str(dev_config['port']),
+            '-U', dev_config['user'],
+            '-d', dev_config['database'],
+            '--no-owner',
+            '--no-acl',
+            '-j', '4'
+        ]
         
-        logger.info(f"Database clone completed by {current_user.username}")
+        # Set password env vars
+        env_vars = os.environ.copy()
+        env_vars['PGPASSWORD'] = prod_config['password']
         
-        return jsonify({
-            "success": True,
-            "output": result.stdout,
-            "message": "Database clone completed successfully!"
-        })
+        logger.info("Starting database clone...")
         
-    except subprocess.TimeoutExpired:
-        return jsonify({
-            "error": "Clone operation timed out (exceeded 5 minutes)"
-        }), 500
+        # Dump from prod
+        dump_process = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env_vars)
+        dump_output, dump_error = dump_process.communicate()
+        
+        if dump_process.returncode != 0:
+            return jsonify({"error": f"Dump failed: {dump_error.decode()}"}), 500
+        
+        # Restore to dev
+        env_vars['PGPASSWORD'] = dev_config['password']
+        restore_process = subprocess.Popen(restore_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env_vars)
+        restore_output, restore_error = restore_process.communicate(input=dump_output)
+        
+        if restore_process.returncode != 0:
+            return jsonify({"error": f"Restore failed: {restore_error.decode()}"}), 500
+        
+        logger.info("Database clone completed successfully")
+        return jsonify({"ok": True, "message": "Database cloned successfully"})
+        
     except Exception as e:
-        logger.error(f"Error in database clone: {str(e)}", exc_info=True)
-        return jsonify({
-            "error": f"Error: {str(e)}"
-        }), 500
+        logger.error(f"Error cloning database: {e}")
+        return jsonify({"error": str(e)}), 500
 
-
-# =============================================================================
-# ROUTE MAPPING DRIFT DETECTION
-# =============================================================================
 
 @bp.route('/route-mapping-drift')
 @login_required
-def route_mapping_drift_page():
-    """Show route mapping drift detection page"""
+def route_mapping_drift():
+    """Show route mapping drift report"""
     if not is_admin():
         return "Access denied", 403
     
-    from services_route_lifecycle import check_route_mapping_drift
-    
-    drift_list = check_route_mapping_drift()
-    
-    return render_template('admin_tools/route_mapping_drift.html', drift_list=drift_list)
-
-
-@bp.route('/route-mapping-drift/check', methods=['GET'])
-@login_required
-def check_drift():
-    """API endpoint to check route mapping drift"""
-    if not is_admin():
-        return jsonify({"error": "Access denied"}), 403
-    
-    from services_route_lifecycle import check_route_mapping_drift
-    
-    route_id = request.args.get('route_id', type=int)
-    drift_list = check_route_mapping_drift(route_id)
-    
-    return jsonify({
-        "drift_count": len(drift_list),
-        "drift_list": drift_list
-    })
-
-
-@bp.route('/route-mapping-drift/fix', methods=['POST'])
-@login_required
-def fix_drift():
-    """Fix route mapping drift by syncing invoice cache columns"""
-    if not is_admin():
-        return jsonify({"error": "Access denied"}), 403
-    
-    from services_route_lifecycle import fix_route_mapping_drift
-    
-    data = request.get_json() or {}
-    route_id = data.get('route_id')
-    
     try:
-        fixed_count = fix_route_mapping_drift(route_id)
-        logger.info(f"Fixed {fixed_count} route mapping drifts by {current_user.username}")
+        # Use Flask's internal URL map to get all defined routes
+        url_map = app.url_map
+        routes = {}
         
-        return jsonify({
-            "success": True,
-            "fixed_count": fixed_count,
-            "message": f"Fixed {fixed_count} invoice(s) with route mapping drift"
-        })
+        for rule in url_map.iter_rules():
+            if rule.endpoint == 'static':
+                continue
+            endpoint = rule.endpoint
+            methods = ','.join(rule.methods - {'HEAD', 'OPTIONS'})
+            route_str = str(rule)
+            
+            if endpoint not in routes:
+                routes[endpoint] = {'paths': set(), 'methods': set()}
+            routes[endpoint]['paths'].add(route_str)
+            routes[endpoint]['methods'].add(methods)
+        
+        drift_list = []
+        for endpoint, data in sorted(routes.items()):
+            if len(data['paths']) > 1:
+                drift_list.append({
+                    'endpoint': endpoint,
+                    'paths': sorted(data['paths']),
+                    'methods': sorted(data['methods'])
+                })
+        
+        return render_template('admin_tools/route_mapping_drift.html', drift_list=drift_list)
+        
     except Exception as e:
-        logger.error(f"Error fixing route mapping drift: {str(e)}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        logger.error(f"Error analyzing route drift: {e}")
+        return render_template('admin_tools/route_mapping_drift.html', drift_list=[], error=str(e))
 
 
-@bp.route('/run-reconciliation-migration', methods=['POST'])
+@bp.route('/postal-codes')
 @login_required
-def run_reconciliation_migration():
-    """Run the route reconciliation database migration"""
+def postal_codes_page():
+    """Show postal code import page"""
+    if not is_admin():
+        return "Access denied", 403
+    
+    count = PostalCodeLookup.query.count()
+    return render_template('admin_tools/postal_codes.html', current_count=count)
+
+
+@bp.route('/postal-codes/import', methods=['POST'])
+@login_required
+def import_postal_codes():
+    """Import postal codes from Excel file"""
     if not is_admin():
         return jsonify({"error": "Access denied"}), 403
     
     try:
-        from migrations.route_reconciliation_migration import run_migration, check_migration_status
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
         
-        if check_migration_status():
-            return jsonify({
-                "success": True,
-                "message": "Migration already applied"
-            })
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
         
-        run_migration()
-        logger.info(f"Route reconciliation migration run by {current_user.username}")
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({"error": "Only Excel files (.xlsx, .xls) are supported"}), 400
         
-        return jsonify({
-            "success": True,
-            "message": "Route reconciliation migration completed successfully"
-        })
-    except Exception as e:
-        logger.error(f"Error running migration: {str(e)}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-
-@bp.route('/magento-login-import')
-@login_required
-def magento_login_import_page():
-    if not is_admin():
-        return "Forbidden", 403
-    return render_template('admin_tools/magento_login_import.html')
-
-
-@bp.route('/preview-magento-login-csv', methods=['POST'])
-@login_required
-def preview_magento_login_csv():
-    if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    uploaded = request.files.get('file')
-    if not uploaded or not uploaded.filename:
-        return jsonify({"ok": False, "error": "No file uploaded"}), 400
-
-    import tempfile
-    tmp_path = None
-    try:
-        suffix = os.path.splitext(uploaded.filename)[1] or '.csv'
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            uploaded.save(tmp.name)
-            tmp_path = tmp.name
-        from services.import_magento_login_log import preview_csv
-        result = preview_csv(tmp_path)
-        return jsonify({"ok": True, "result": result})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-    finally:
-        if tmp_path:
+        # Load workbook
+        wb = openpyxl.load_workbook(file)
+        ws = wb.active
+        
+        imported = 0
+        duplicates = 0
+        errors = []
+        
+        # Skip header row
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-
-@bp.route('/import-magento-login-log-upload', methods=['POST'])
-@login_required
-def import_magento_login_log_upload():
-    if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    uploaded = request.files.get('file')
-    if not uploaded or not uploaded.filename:
-        return jsonify({"ok": False, "error": "No file uploaded"}), 400
-
-    import tempfile
-    suffix = os.path.splitext(uploaded.filename)[1] or '.csv'
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            uploaded.save(tmp.name)
-            tmp_path = tmp.name
-        from services.import_magento_login_log import import_magento_login_log_csv
-        res = import_magento_login_log_csv(tmp_path)
-        res['file'] = uploaded.filename
-        return jsonify({"ok": True, "result": res})
-    except ValueError as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
+                if not row[0]:  # Skip empty rows
+                    continue
+                
+                postcode = str(row[0]).strip()
+                municipality = str(row[1]).strip() if row[1] else ""
+                district = str(row[2]).strip() if row[2] else ""
+                urban_rural = str(row[3]).strip() if row[3] else None
+                
+                # Check if exists
+                existing = PostalCodeLookup.query.filter_by(postcode=postcode).first()
+                if existing:
+                    duplicates += 1
+                    continue
+                
+                # Create new record
+                lookup = PostalCodeLookup(
+                    postcode=postcode,
+                    municipality=municipality,
+                    district=district,
+                    urban_rural=urban_rural
+                )
+                db.session.add(lookup)
+                imported += 1
+                
+            except Exception as e:
+                errors.append(f"Row {row_idx}: {str(e)}")
+        
+        db.session.commit()
+        
+        msg = f"Imported {imported} postal codes"
+        if duplicates:
+            msg += f", {duplicates} duplicates skipped"
+        
+        return jsonify({
+            "ok": True,
+            "imported": imported,
+            "duplicates": duplicates,
+            "errors": errors,
+            "message": msg
+        })
+        
     except Exception as e:
-        logger.error("Magento login log upload error: %s", e, exc_info=True)
-        return jsonify({"ok": False, "error": "Import failed"}), 500
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+        logger.error(f"Error importing postal codes: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-@bp.route('/import-magento-login-log', methods=['POST'])
+@bp.route('/postal-codes/clear', methods=['POST'])
 @login_required
-def import_magento_login_log_endpoint():
+def clear_postal_codes():
+    """Clear all postal code data"""
     if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    filepath = ""
-    if request.is_json:
-        filepath = (request.json or {}).get("filepath", "")
-    else:
-        filepath = request.form.get("filepath", "")
-    if not filepath:
-        return jsonify({"ok": False, "error": "filepath is required"}), 400
-
+        return jsonify({"error": "Access denied"}), 403
+    
     try:
-        from services.import_magento_login_log import import_magento_login_log_csv
-        res = import_magento_login_log_csv(filepath)
-        return jsonify({"ok": True, "result": res})
-    except FileNotFoundError:
-        return jsonify({"ok": False, "error": f"File not found: {filepath}"}), 404
-    except ValueError as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
+        count = PostalCodeLookup.query.count()
+        PostalCodeLookup.query.delete()
+        db.session.commit()
+        return jsonify({"ok": True, "cleared": count})
     except Exception as e:
-        logger.error("Magento login log import error: %s", e, exc_info=True)
-        return jsonify({"ok": False, "error": "Import failed"}), 500
+        logger.error(f"Error clearing postal codes: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-@bp.route('/magento-last-login-sample')
-@login_required
-def magento_last_login_sample():
-    if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    from models import MagentoCustomerLastLoginCurrent
-    rows = (MagentoCustomerLastLoginCurrent.query
-            .order_by(MagentoCustomerLastLoginCurrent.last_login_at.desc().nullslast())
-            .limit(10).all())
-
-    return jsonify([{
-        "customer_code_365": r.customer_code_365,
-        "magento_customer_id": r.magento_customer_id,
-        "last_login_at_utc": r.last_login_at.isoformat() if r.last_login_at else None,
-        "email": r.email,
-        "source": r.source_filename
-    } for r in rows])
-
-
-@bp.route('/crm-classifications', methods=['GET', 'POST'])
+@bp.route('/crm-classifications')
 @login_required
 def crm_classifications_settings():
     if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
+        return "Access denied", 403
+    
     from models import Setting
-    import json
-    from werkzeug.utils import secure_filename
-    import os
-
-    if request.method == 'POST':
-        data = request.form.get('data', '[]')
-        try:
-            items_list = json.loads(data)
-        except:
-            items_list = []
-        
-        classifications = {}
-        for name in items_list:
-            if name:
-                classifications[name] = None
-        
-        # Handle file uploads
-        for key in request.files:
-            if key.startswith('file_'):
-                file = request.files[key]
-                name_key = key.replace('file_', 'name_')
-                classification_name = request.form.get(name_key, '')
-                
-                if file and file.filename and classification_name:
-                    filename = secure_filename(f"{classification_name.upper()}_{os.urandom(8).hex()}.jpg")
-                    try:
-                        file.save(os.path.join('static/crm-classification-images', filename))
-                        classifications[classification_name] = filename
-                    except Exception as e:
-                        logger.error(f"Error saving file: {e}")
-        
-        try:
-            Setting.set(db.session, "crm_customer_classifications", json.dumps(classifications))
-            db.session.commit()
-            return jsonify({"ok": True, "msg": f"Updated {len(classifications)} classifications"})
-        except Exception as e:
-            logger.error("Error saving classifications: %s", e)
-            return jsonify({"ok": False, "error": str(e)}), 500
-
-    current = Setting.query.filter_by(key="crm_customer_classifications").first()
     items = []
-    if current:
-        try:
-            data = json.loads(current.value)
-            if isinstance(data, dict):
-                items = [{"name": k, "icon": v} for k, v in data.items()]
-            else:
-                items = [{"name": i, "icon": None} for i in data]
-        except Exception:
-            items = []
-
-    if request.is_json:
-        return jsonify({"ok": True, "items": items})
-
+    allowed = Setting.get(db.session, "crm_classifications", {})
+    for name, filename in allowed.items():
+        items.append({"name": name, "icon": filename})
+    
     return render_template('admin_tools/crm_classifications.html', items=items)
+
+
+@bp.post('/crm-classifications/save')
+@login_required
+def save_crm_classifications():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Access denied"}), 403
+    
+    try:
+        from models import Setting
+        import json
+        
+        items = request.json.get('items', [])
+        data_dict = {}
+        
+        for item in items:
+            name = (item.get('name') or '').strip()
+            icon = (item.get('icon') or '').strip()
+            if name:
+                data_dict[name] = icon if icon else None
+        
+        if not data_dict:
+            return jsonify({"ok": False, "error": "At least one classification is required"}), 400
+        
+        Setting.set(db.session, "crm_classifications", data_dict)
+        db.session.commit()
+        
+        return jsonify({"ok": True, "count": len(data_dict)})
+        
+    except Exception as e:
+        logger.error("Error saving classifications: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route('/crm-classifications/upload-icon', methods=['POST'])
+@login_required
+def upload_classification_icon():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Access denied"}), 403
+    
+    try:
+        if 'file' not in request.files:
+            return jsonify({"ok": False, "error": "No file"}), 400
+        
+        file = request.files['file']
+        name = request.form.get('name', '').strip()
+        
+        if not file or not name:
+            return jsonify({"ok": False, "error": "Missing file or name"}), 400
+        
+        if not file.filename.lower().endswith(('.jpg', '.jpeg')):
+            return jsonify({"ok": False, "error": "Only JPG files allowed"}), 400
+        
+        # Save file
+        os.makedirs('static/crm-classification-images', exist_ok=True)
+        filename = f"{name}_{datetime.now(timezone.utc).timestamp()}.jpg"
+        filepath = os.path.join('static/crm-classification-images', filename)
+        file.save(filepath)
+        
+        return jsonify({"ok": True, "filename": filename})
+        
+    except Exception as e:
+        logger.error("Error uploading icon: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route('/crm-bulk-classify', methods=['GET', 'POST'])
 @login_required
 def crm_bulk_classify():
+    """Bulk classify customers via CSV upload"""
     if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    from models import CrmCustomerProfile
-    import csv
-    import io
-
+        return "Access denied", 403
+    
     if request.method == 'POST':
-        data = request.form.get('data', '').strip()
-        if not data:
-            return jsonify({"ok": False, "error": "No data provided"}), 400
-
         try:
-            lines = data.split('\n')
+            from models import CrmCustomerProfile
+            import io
+            import csv
+            
+            if 'file' not in request.files:
+                return jsonify({"ok": False, "error": "No file uploaded"}), 400
+            
+            file = request.files['file']
+            if not file or not file.filename.endswith('.csv'):
+                return jsonify({"ok": False, "error": "CSV file required"}), 400
+            
+            stream = io.TextIOWrapper(file.stream, encoding='utf-8')
+            reader = csv.DictReader(stream)
+            
             updated = 0
             errors = []
-
-            for line_no, line in enumerate(lines, 1):
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-
-                parts = [p.strip() for p in line.split('\t') if p.strip()]
-                if len(parts) < 2:
-                    parts = [p.strip() for p in line.split(',') if p.strip()]
-
-                if len(parts) < 2:
-                    errors.append(f"Line {line_no}: Expected 2 columns, got {len(parts)}")
-                    continue
-
-                customer_code = parts[0]
-                classification = parts[1]
-
-                prof = CrmCustomerProfile.query.get(customer_code)
-                if not prof:
-                    prof = CrmCustomerProfile(customer_code_365=customer_code)
-                    db.session.add(prof)
-
-                prof.classification = classification if classification else None
-                prof.updated_by = getattr(current_user, "username", None)
-                prof.updated_at = datetime.now(timezone.utc)
-                updated += 1
-
+            
+            for row_idx, row in enumerate(reader, start=2):
+                try:
+                    code = (row.get('customer_code_365') or row.get('code') or '').strip()
+                    classif = (row.get('classification') or '').strip()
+                    
+                    if not code:
+                        continue
+                    
+                    prof = CrmCustomerProfile.query.get(code)
+                    if not prof:
+                        prof = CrmCustomerProfile(customer_code_365=code)
+                        db.session.add(prof)
+                    
+                    prof.classification = classif or None
+                    prof.updated_at = datetime.now(timezone.utc)
+                    prof.updated_by = getattr(current_user, "username", None)
+                    updated += 1
+                    
+                except Exception as e:
+                    errors.append(f"Row {row_idx}: {str(e)}")
+            
             db.session.commit()
-            msg = f"Updated {updated} customers"
+            msg = f"Classified {updated} customers"
             if errors:
                 msg += f" ({len(errors)} errors)"
             return jsonify({"ok": True, "updated": updated, "errors": errors, "msg": msg})
