@@ -284,6 +284,8 @@
 </div>
 
 <script>
+const allowed_classifications = {{ allowed_classifications | tojson }};
+
 async function setClassification(el) {
     const code = el.dataset.customer;
     const val = el.value;
@@ -292,7 +294,33 @@ async function setClassification(el) {
         fd.append('classification', val);
         const res = await fetch(`/crm/customer/${encodeURIComponent(code)}/set-classification`, { method: 'POST', body: fd });
         const data = await res.json();
-        if (!data.ok) { alert(data.error || 'Error'); el.value = ''; }
+        if (!data.ok) { 
+            alert(data.error || 'Error'); 
+            el.value = ''; 
+        } else {
+            // Update the image if the classification changed
+            const container = el.closest('div');
+            const img = container.querySelector('img');
+            if (val && allowed_classifications && allowed_classifications[val]) {
+                const imagePath = `/static/crm-classification-images/${allowed_classifications[val]}`;
+                if (img) {
+                    img.src = imagePath;
+                    img.alt = val;
+                    img.title = val;
+                } else {
+                    // Create image if it doesn't exist
+                    const newImg = document.createElement('img');
+                    newImg.src = imagePath;
+                    newImg.alt = val;
+                    newImg.title = val;
+                    newImg.style.cssText = 'width: 24px; height: 24px; border-radius: 3px;';
+                    container.insertBefore(newImg, el);
+                }
+            } else if (img) {
+                // Remove image if classification is empty
+                img.remove();
+            }
+        }
     } catch(e) { alert('Network error'); }
 }
 
