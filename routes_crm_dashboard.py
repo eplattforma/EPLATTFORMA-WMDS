@@ -113,6 +113,7 @@ def customer_slot_dashboard():
             done_sq.c.inv_in_cycle,
         )
         .filter(PSCustomer.active == True)
+        .filter(PSCustomer.deleted_at.is_(None))
         .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(CrmAbandonedCartState, CrmAbandonedCartState.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
