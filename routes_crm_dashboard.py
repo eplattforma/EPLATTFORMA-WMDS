@@ -108,6 +108,8 @@ def customer_slot_dashboard():
         db.session.query(
             PSCustomer.customer_code_365,
             PSCustomer.company_name,
+            PSCustomer.postal_code,
+            PSCustomer.town,
 
             CrmCustomerProfile.classification,
             resolved_district,
@@ -218,9 +220,12 @@ def customer_slot_dashboard():
         dashboard_rows.append({
             "customer_code_365": r.customer_code_365,
             "customer_name": r.company_name or r.customer_code_365,
+            "postal_code": r.postal_code or "",
+            "town": r.town or "",
             "classification": r.classification or "",
             "district": r.resolved_district or "",
             "area": r.area or "",
+            "delivery_days_status": r.delivery_days_status or "",
             "done_for_cycle": done_for_cycle,
             "done_source": done_source,
             "has_cart": has_cart,

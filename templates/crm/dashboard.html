@@ -21,6 +21,16 @@
     .kpi-card.action { border-color: #dc3545; }
     .kpi-card.done { border-color: #198754; }
     .kpi-card.cart { border-color: #fd7e14; }
+    .crm-table .row-toggle { cursor: pointer; }
+    .crm-table .row-toggle:hover { background-color: rgba(0,0,0,0.04); }
+    .crm-table .row-toggle .toggle-icon { transition: transform 0.2s; font-size: 0.7rem; color: #6c757d; }
+    .crm-table .row-toggle.expanded .toggle-icon { transform: rotate(90deg); }
+    .detail-row { display: none; }
+    .detail-row.show { display: table-row; }
+    .detail-row td { background: #f8f9fa; border-top: none; padding-top: 0 !important; }
+    .detail-content { padding: 8px 12px; }
+    .detail-content .detail-label { font-size: 0.72rem; color: #6c757d; text-transform: uppercase; font-weight: 600; }
+    .detail-content .detail-value { font-size: 0.82rem; font-weight: 500; }
 </style>
 {% endblock %}
 
@@ -158,9 +168,10 @@
     </div>
 
     <div class="table-responsive">
-        <table class="table table-sm table-hover crm-table mb-0">
+        <table class="table table-sm crm-table mb-0">
             <thead class="table-dark">
                 <tr>
+                    <th style="width:18px;"></th>
                     <th>Customer</th>
                     <th>Classification</th>
                     <th>Cycle</th>
@@ -176,7 +187,8 @@
             </thead>
             <tbody>
                 {% for r in rows %}
-                <tr>
+                <tr class="row-toggle" onclick="toggleDetail(this)">
+                    <td class="text-center pe-0"><i class="fas fa-caret-right toggle-icon"></i></td>
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
                         <div class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}</div>
@@ -190,7 +202,7 @@
                             {% endif %}
                             <select class="form-select form-select-sm classification-select"
                                     data-customer="{{ r.customer_code_365 }}"
-                                    onchange="setClassification(this)" style="flex: 1; min-width: 90px;">
+                                    onchange="event.stopPropagation(); setClassification(this)" style="flex: 1; min-width: 90px;">
                                 <option value="">—</option>
                                 {% for c in allowed_classifications.keys() %}
                                 <option value="{{ c }}" {% if r.classification == c %}selected{% endif %}>{{ c }}</option>
@@ -250,7 +262,7 @@
                         {% endif %}
                     </td>
                     <td>
-                        <div class="btn-group">
+                        <div class="btn-group" onclick="event.stopPropagation()">
                             <button class="btn btn-outline-primary action-btn" title="Log SMS"
                                     onclick="logInteraction('{{ r.customer_code_365 }}', 'SMS')">
                                 <i class="fas fa-sms"></i>
@@ -274,10 +286,74 @@
                         </div>
                     </td>
                 </tr>
+                <tr class="detail-row">
+                    <td colspan="12">
+                        <div class="detail-content">
+                            <div class="row g-3">
+                                <div class="col-auto">
+                                    <div class="detail-label">District</div>
+                                    <div class="detail-value">
+                                        {% if r.district %}
+                                        <i class="fas fa-map-marker-alt text-primary me-1"></i>{{ r.district }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <div class="detail-label">Area</div>
+                                    <div class="detail-value">
+                                        {% if r.area %}
+                                        <i class="fas fa-map me-1 text-secondary"></i>{{ r.area }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <div class="detail-label">Postal Code</div>
+                                    <div class="detail-value">
+                                        {% if r.postal_code %}
+                                        {{ r.postal_code }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <div class="detail-label">Town</div>
+                                    <div class="detail-value">
+                                        {% if r.town %}
+                                        {{ r.town }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <div class="detail-label">Delivery Days</div>
+                                    <div class="detail-value">
+                                        {% if r.delivery_days_status %}
+                                        {{ r.delivery_days_status }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="col-auto">
+                                    <div class="detail-label">Customer Code</div>
+                                    <div class="detail-value">
+                                        <span class="font-monospace">{{ r.customer_code_365 }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
                 {% endfor %}
                 {% if not rows %}
                 <tr>
-                    <td colspan="11" class="text-center text-muted py-4">No customers match the current filters.</td>
+                    <td colspan="12" class="text-center text-muted py-4">No customers match the current filters.</td>
                 </tr>
                 {% endif %}
             </tbody>
@@ -300,6 +376,14 @@
 </div>
 
 <script>
+function toggleDetail(tr) {
+    var detailRow = tr.nextElementSibling;
+    if (!detailRow || !detailRow.classList.contains('detail-row')) return;
+    var isOpen = detailRow.classList.contains('show');
+    detailRow.classList.toggle('show');
+    tr.classList.toggle('expanded');
+}
+
 const allowed_classifications = {{ allowed_classifications | tojson }};
 
 async function setClassification(el) {
