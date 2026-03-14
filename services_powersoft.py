@@ -452,7 +452,7 @@ def sync_invoices_from_ps365(invoice_no_365: str = None, import_date: str = None
         return {"success": False, "error": str(e)}
 
 def sync_active_customers(sync_trigger='manual'):
-    """Sync active customers from PS365 API with pagination"""
+    """Sync all customers (active and inactive) from PS365 API with pagination"""
     from models import PSCustomer, PaymentCustomer, db
     from ps365_client import call_ps365
     from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
@@ -471,7 +471,7 @@ def sync_active_customers(sync_trigger='manual'):
             payload = {
                 "filter_define": {
                     "only_counted": "N",
-                    "active_type": "active",
+                    "active_type": "all",
                     "page_number": page,
                     "page_size": PAGE_SIZE
                 }
