@@ -396,3 +396,121 @@ def crm_bulk_classify():
             return jsonify({"ok": False, "error": str(e)}), 500
 
     return render_template('admin_tools/crm_bulk_classify.html')
+
+
+@bp.route('/magento-login-import')
+@login_required
+def magento_login_import_page():
+    if not is_admin():
+        return "Forbidden", 403
+    return render_template('admin_tools/magento_login_import.html')
+
+
+@bp.route('/preview-magento-login-csv', methods=['POST'])
+@login_required
+def preview_magento_login_csv():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    uploaded = request.files.get('file')
+    if not uploaded or not uploaded.filename:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+    import tempfile
+    tmp_path = None
+    try:
+        suffix = os.path.splitext(uploaded.filename)[1] or '.csv'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            uploaded.save(tmp.name)
+            tmp_path = tmp.name
+        from services.import_magento_login_log import preview_csv
+        result = preview_csv(tmp_path)
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+
+@bp.route('/import-magento-login-log-upload', methods=['POST'])
+@login_required
+def import_magento_login_log_upload():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    uploaded = request.files.get('file')
+    if not uploaded or not uploaded.filename:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+    import tempfile
+    suffix = os.path.splitext(uploaded.filename)[1] or '.csv'
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            uploaded.save(tmp.name)
+            tmp_path = tmp.name
+        from services.import_magento_login_log import import_magento_login_log_csv
+        res = import_magento_login_log_csv(tmp_path)
+        res['file'] = uploaded.filename
+        return jsonify({"ok": True, "result": res})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.error("Magento login log upload error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": "Import failed"}), 500
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+
+@bp.route('/import-magento-login-log', methods=['POST'])
+@login_required
+def import_magento_login_log_endpoint():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    filepath = ""
+    if request.is_json:
+        filepath = (request.json or {}).get("filepath", "")
+    else:
+        filepath = request.form.get("filepath", "")
+    if not filepath:
+        return jsonify({"ok": False, "error": "filepath is required"}), 400
+
+    try:
+        from services.import_magento_login_log import import_magento_login_log_csv
+        res = import_magento_login_log_csv(filepath)
+        return jsonify({"ok": True, "result": res})
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": f"File not found: {filepath}"}), 404
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.error("Magento login log import error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": "Import failed"}), 500
+
+
+@bp.route('/magento-last-login-sample')
+@login_required
+def magento_last_login_sample():
+    if not is_admin():
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    from models import MagentoCustomerLastLoginCurrent
+    rows = (MagentoCustomerLastLoginCurrent.query
+            .order_by(MagentoCustomerLastLoginCurrent.last_login_at.desc().nullslast())
+            .limit(10).all())
+
+    return jsonify([{
+        "customer_code_365": r.customer_code_365,
+        "magento_customer_id": r.magento_customer_id,
+        "last_login_at_utc": r.last_login_at.isoformat() if r.last_login_at else None,
+        "email": r.email,
+    } for r in rows])
