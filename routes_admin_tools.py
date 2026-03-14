@@ -6,6 +6,7 @@ import logging
 from flask import Blueprint, render_template, jsonify, request
 from flask_login import login_required, current_user
 from flask import current_app as app
+from app import db
 import os
 
 bp = Blueprint('admin_tools_custom', __name__, url_prefix='/admin/tools')
@@ -338,8 +339,8 @@ def crm_classifications_settings():
         items = request.form.get('items', '').strip().split('\n')
         items = [i.strip() for i in items if i.strip()]
         try:
-            Setting.set(app.db.session, "crm_customer_classifications", json.dumps(items))
-            app.db.session.commit()
+            Setting.set(db.session, "crm_customer_classifications", json.dumps(items))
+            db.session.commit()
             return jsonify({"ok": True, "items": items, "msg": f"Updated {len(items)} classifications"})
         except Exception as e:
             logger.error("Error saving classifications: %s", e)
