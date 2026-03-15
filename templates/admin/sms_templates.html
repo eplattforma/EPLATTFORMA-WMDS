@@ -62,7 +62,13 @@
         </div>
         <div class="card-footer d-flex gap-2">
           <button class="btn btn-outline-primary btn-sm edit-tpl-btn"
-                  data-tpl="{{ t|tojson|e }}">
+                  data-id="{{ t.id }}"
+                  data-code="{{ t.code|e }}"
+                  data-title="{{ t.title|e }}"
+                  data-sender="{{ (t.sender_title or '')|e }}"
+                  data-body="{{ t.body|e }}"
+                  data-enabled="{{ t.is_enabled|tojson }}"
+                  data-unicode="{{ t.force_unicode|tojson }}">
             <i class="fas fa-edit me-1"></i>Edit
           </button>
           <form method="post" action="{{ url_for('sms.sms_template_delete', tpl_id=t.id) }}"
@@ -180,12 +186,16 @@ document.getElementById('tplBody').addEventListener('input', updateTplCounts);
 document.addEventListener('click', function(e) {
   var btn = e.target.closest('.edit-tpl-btn');
   if (!btn) return;
-  try {
-    var t = JSON.parse(btn.getAttribute('data-tpl'));
-    editTemplate(t);
-  } catch(err) {
-    console.error('Failed to parse template data', err);
-  }
+  var t = {
+    id: btn.getAttribute('data-id'),
+    code: btn.getAttribute('data-code'),
+    title: btn.getAttribute('data-title'),
+    sender_title: btn.getAttribute('data-sender'),
+    body: btn.getAttribute('data-body'),
+    is_enabled: btn.getAttribute('data-enabled') === 'true',
+    force_unicode: btn.getAttribute('data-unicode') === 'true'
+  };
+  editTemplate(t);
 });
 </script>
 {% endblock %}
