@@ -155,6 +155,11 @@ document.getElementById('classifyForm').addEventListener('submit', async functio
     const formData = new FormData();
     const rows = [];
 
+    formData.append('window_hours', document.getElementById('windowHours').value);
+    formData.append('anchor_time', document.getElementById('anchorTime').value);
+    formData.append('close_hours', document.getElementById('closeHours').value);
+    formData.append('close_anchor_time', document.getElementById('closeAnchorTime').value);
+
     document.querySelectorAll('.classification-row').forEach(row => {
         const name = row.querySelector('.classification-name').value.trim();
         const file = row.querySelector('.classification-file').files[0];
@@ -166,7 +171,6 @@ document.getElementById('classifyForm').addEventListener('submit', async functio
 
     formData.append('data', JSON.stringify(rows.map(r => ({ name: r.name, is_default: r.is_default }))));
     
-    // Append files separately
     rows.forEach((r, i) => {
         if (r.file) {
             formData.append(`file_${i}`, r.file);
