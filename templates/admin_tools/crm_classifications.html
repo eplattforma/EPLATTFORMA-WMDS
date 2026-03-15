@@ -16,13 +16,23 @@
                         <h6 class="mb-3" style="color: #000;"><i class="fas fa-cog me-2"></i>Ordering Window Settings</h6>
                         <div class="row">
                             <div class="col-md-6">
-                                <label class="form-label" for="windowHours" style="color: #000;">Order Window (working hours before delivery)</label>
+                                <label class="form-label" for="windowHours" style="color: #000;">Order Window Opens (working hours before delivery)</label>
                                 <input type="number" class="form-control" id="windowHours" name="window_hours" value="{{ window_hours }}" min="1" max="168" placeholder="48">
                                 <small class="text-muted">Default: 48 hours</small>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="anchorTime" style="color: #000;">Delivery Anchor Time (HH:MM)</label>
+                                <label class="form-label" for="anchorTime" style="color: #000;">Opening Anchor Time (HH:MM)</label>
                                 <input type="text" class="form-control" id="anchorTime" name="anchor_time" value="{{ anchor_time }}" placeholder="00:01" pattern="([01][0-9]|2[0-3]):[0-5][0-9]">
+                                <small class="text-muted">Default: 00:01</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="closeHours" style="color: #000;">Order Window Closes (working hours before delivery)</label>
+                                <input type="number" class="form-control" id="closeHours" name="close_hours" value="{{ close_hours }}" min="0" max="168" placeholder="0">
+                                <small class="text-muted">Default: 0 (closes at opening anchor time)</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="closeAnchorTime" style="color: #000;">Closing Anchor Time (HH:MM)</label>
+                                <input type="text" class="form-control" id="closeAnchorTime" name="close_anchor_time" value="{{ close_anchor_time }}" placeholder="00:01" pattern="([01][0-9]|2[0-3]):[0-5][0-9]">
                                 <small class="text-muted">Default: 00:01</small>
                             </div>
                         </div>

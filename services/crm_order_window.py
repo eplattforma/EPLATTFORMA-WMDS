@@ -49,12 +49,23 @@ def order_window_open_at(delivery_date: date, window_hours: int, anchor_time_str
     return open_local
 
 
+def order_window_close_at(delivery_date: date, close_hours: int, close_anchor_time_str: str = "00:01") -> datetime:
+    hh, mm = close_anchor_time_str.split(":")
+    close_anchor_local = ATHENS_TZ.localize(
+        datetime.combine(delivery_date, time(int(hh), int(mm)))
+    )
+    close_local = subtract_working_minutes(close_anchor_local, close_hours * 60)
+    return close_local
+
+
 def get_customer_window_status(
     slots: list,
     last_invoice_date: date | None,
     open_order_count: int,
     window_hours: int,
     anchor_time_str: str,
+    close_hours: int = 0,
+    close_anchor_time_str: str = "00:01",
     now_local: datetime | None = None,
 ) -> dict:
     if now_local is None:
@@ -77,18 +88,21 @@ def get_customer_window_status(
     for s in slots:
         delivery = next_delivery_date_for_slot(s["dow"], s["week_code"], from_date=now_local.date())
         open_at = order_window_open_at(delivery, window_hours, anchor_time_str)
+        
+        if close_hours > 0:
+            close_at = order_window_close_at(delivery, close_hours, close_anchor_time_str)
+        else:
+            hh, mm = anchor_time_str.split(":")
+            close_at = ATHENS_TZ.localize(
+                datetime.combine(delivery, time(int(hh), int(mm)))
+            )
 
-        hh, mm = anchor_time_str.split(":")
-        anchor = ATHENS_TZ.localize(
-            datetime.combine(delivery, time(int(hh), int(mm)))
-        )
-
-        is_open = open_at <= now_local < anchor
+        is_open = open_at <= now_local < close_at
 
         if best_delivery is None or delivery < best_delivery:
             best_delivery = delivery
             best_open = open_at
-            best_anchor = anchor
+            best_anchor = close_at
             best_window_open = is_open
 
     done_for_window = False

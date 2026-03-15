@@ -338,18 +338,22 @@ def crm_classifications_settings():
         items.append({"name": name, "icon": filename, "is_default": name in defaults})
     
     window_hours = Setting.get(db.session, "crm_order_window_hours", "48")
-    if isinstance(window_hours, str):
-        window_hours = window_hours
-    else:
+    if not isinstance(window_hours, str):
         window_hours = str(window_hours)
     
     anchor_time = Setting.get(db.session, "crm_delivery_anchor_time", "00:01")
-    if isinstance(anchor_time, str):
-        anchor_time = anchor_time
-    else:
+    if not isinstance(anchor_time, str):
         anchor_time = str(anchor_time)
     
-    return render_template('admin_tools/crm_classifications.html', items=items, window_hours=window_hours, anchor_time=anchor_time)
+    close_hours = Setting.get(db.session, "crm_order_window_close_hours", "0")
+    if not isinstance(close_hours, str):
+        close_hours = str(close_hours)
+    
+    close_anchor_time = Setting.get(db.session, "crm_delivery_close_anchor_time", "00:01")
+    if not isinstance(close_anchor_time, str):
+        close_anchor_time = str(close_anchor_time)
+    
+    return render_template('admin_tools/crm_classifications.html', items=items, window_hours=window_hours, anchor_time=anchor_time, close_hours=close_hours, close_anchor_time=close_anchor_time)
 
 
 @bp.post('/crm-classifications/save')
@@ -361,21 +365,29 @@ def save_crm_classifications():
     try:
         from models import Setting
         import json
+        import re
         
         window_hours = (request.form.get('window_hours') or '48').strip()
         anchor_time = (request.form.get('anchor_time') or '00:01').strip()
+        close_hours = (request.form.get('close_hours') or '0').strip()
+        close_anchor_time = (request.form.get('close_anchor_time') or '00:01').strip()
         
         try:
             int(window_hours)
+            int(close_hours)
         except ValueError:
-            return jsonify({"ok": False, "error": "Order window must be a number"}), 400
+            return jsonify({"ok": False, "error": "Window hours must be numbers"}), 400
         
-        import re
         if not re.match(r'^([01][0-9]|2[0-3]):[0-5][0-9]$', anchor_time):
-            return jsonify({"ok": False, "error": "Delivery anchor time must be HH:MM format"}), 400
+            return jsonify({"ok": False, "error": "Opening anchor time must be HH:MM format"}), 400
+        
+        if not re.match(r'^([01][0-9]|2[0-3]):[0-5][0-9]$', close_anchor_time):
+            return jsonify({"ok": False, "error": "Closing anchor time must be HH:MM format"}), 400
         
         Setting.set(db.session, "crm_order_window_hours", window_hours)
         Setting.set(db.session, "crm_delivery_anchor_time", anchor_time)
+        Setting.set(db.session, "crm_order_window_close_hours", close_hours)
+        Setting.set(db.session, "crm_delivery_close_anchor_time", close_anchor_time)
         
         existing_raw = Setting.get(db.session, "crm_customer_classifications", "{}")
         if isinstance(existing_raw, str):

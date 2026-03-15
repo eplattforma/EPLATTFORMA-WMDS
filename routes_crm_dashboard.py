@@ -204,6 +204,10 @@ def customer_slot_dashboard():
     window_hours = int(window_hours_setting.value) if window_hours_setting and window_hours_setting.value else 48
     anchor_setting = Setting.query.filter_by(key="crm_delivery_anchor_time").first()
     anchor_time = anchor_setting.value if anchor_setting and anchor_setting.value else "00:01"
+    close_hours_setting = Setting.query.filter_by(key="crm_order_window_close_hours").first()
+    close_hours = int(close_hours_setting.value) if close_hours_setting and close_hours_setting.value else 0
+    close_anchor_setting = Setting.query.filter_by(key="crm_delivery_close_anchor_time").first()
+    close_anchor_time = close_anchor_setting.value if close_anchor_setting and close_anchor_setting.value else "00:01"
 
     page_customer_codes = [r.customer_code_365 for r in rows]
     slots_rows = (
@@ -258,6 +262,8 @@ def customer_slot_dashboard():
             open_order_count=open_order_count,
             window_hours=window_hours,
             anchor_time_str=anchor_time,
+            close_hours=close_hours,
+            close_anchor_time_str=close_anchor_time,
             now_local=now_local,
         )
 
