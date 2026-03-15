@@ -128,6 +128,13 @@
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="customersDropdown">
                             <li>
+                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('crm_dashboard.') %}active{% endif %}" 
+                                   href="{{ url_for('crm_dashboard.customer_slot_dashboard') }}">
+                                    <i class="fas fa-bolt me-2"></i>EP SmartGrowth AI
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
                                 <a class="dropdown-item {% if request.endpoint == 'payment_terms.index' %}active{% endif %}" 
                                    href="{{ url_for('payment_terms.index') }}">
                                     <i class="fas fa-credit-card me-2"></i>Customer Terms
@@ -155,13 +162,6 @@
                                 <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('abandoned_carts.') %}active{% endif %}" 
                                    href="{{ url_for('abandoned_carts.index') }}">
                                     <i class="fas fa-shopping-cart me-2"></i>Abandoned Carts
-                                </a>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('crm_dashboard.') %}active{% endif %}" 
-                                   href="{{ url_for('crm_dashboard.customer_slot_dashboard') }}">
-                                    <i class="fas fa-bolt me-2"></i>EP SmartGrowth AI
                                 </a>
                             </li>
                             <li>
