@@ -22,9 +22,9 @@ capture_output = True       # Capture print statements
 enable_stdio_inheritance = True
 
 # Performance optimizations
-preload_app = True          # Load app once then fork - saves memory
+preload_app = False         # Disabled: app loads inside worker AFTER port bind (required for Cloud Run health checks)
 worker_tmp_dir = "/dev/shm"
 sendfile = True             # Use sendfile for static files
 tcp_nodelay = True          # Disable Nagle's algorithm for faster responses
 
-print("Production config: 1 worker, 4 threads, 300s timeout, preload enabled")
+print("Production config: 1 worker, 4 threads, 300s timeout, preload disabled (fast port bind)")

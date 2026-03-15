@@ -120,7 +120,11 @@ def setup_scheduler(app):
 
         if is_production:
             import threading
-            t = threading.Thread(target=_check_missed_syncs_on_startup, daemon=True)
+            def _deferred_missed_sync_check():
+                import time
+                time.sleep(60)
+                _check_missed_syncs_on_startup()
+            t = threading.Thread(target=_deferred_missed_sync_check, daemon=True)
             t.start()
         
     except Exception as e:
@@ -128,8 +132,6 @@ def setup_scheduler(app):
 
 
 def _check_missed_syncs_on_startup():
-    import time
-    time.sleep(30)
     try:
         from app import app, db
         from models import PS365SyncLog
