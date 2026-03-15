@@ -62,62 +62,40 @@ function toggleDetail(tr) {
     }
 }
 
-function refreshOpenOrders() {
-    var btn = document.getElementById('btn-refresh-open-orders');
+function refreshAllData() {
+    var btn = document.getElementById('btn-refresh-all');
+    var spinner = btn.querySelector('.spinner-icon');
+    var text = btn.querySelector('.refresh-text');
+    
     if (btn) btn.disabled = true;
-    if (btn && btn.querySelector('i')) {
-        btn.querySelector('i').classList.add('fa-spin');
-    }
-    fetch('/crm/open-orders/refresh', {method: 'POST'})
-        .then(r => r.json())
-        .then(data => {
-            if (btn) btn.disabled = false;
-            if (btn && btn.querySelector('i')) {
-                btn.querySelector('i').classList.remove('fa-spin');
-            }
-            if (data.success) {
-                alert(data.message + ' (' + data.orders_processed + ' orders, ' + data.customers_updated + ' customers)');
-                location.reload();
-            } else {
-                alert('Error: ' + data.message);
-            }
-        })
-        .catch(e => {
-            if (btn) btn.disabled = false;
-            if (btn && btn.querySelector('i')) {
-                btn.querySelector('i').classList.remove('fa-spin');
-            }
-            alert('Refresh failed: ' + e.message);
-        });
-}
-
-function refreshAbandonedCarts() {
-    var btn = document.getElementById('btn-refresh-abandoned-carts');
-    if (btn) btn.disabled = true;
-    if (btn && btn.querySelector('i')) {
-        btn.querySelector('i').classList.add('fa-spin');
-    }
-    fetch('/crm/abandoned-carts/refresh', {method: 'POST'})
-        .then(r => r.json())
-        .then(data => {
-            if (btn) btn.disabled = false;
-            if (btn && btn.querySelector('i')) {
-                btn.querySelector('i').classList.remove('fa-spin');
-            }
-            if (data.success) {
-                alert(data.message + ' (' + data.customers_updated + ' customers updated)');
-                location.reload();
-            } else {
-                alert('Error: ' + data.message);
-            }
-        })
-        .catch(e => {
-            if (btn) btn.disabled = false;
-            if (btn && btn.querySelector('i')) {
-                btn.querySelector('i').classList.remove('fa-spin');
-            }
-            alert('Refresh failed: ' + e.message);
-        });
+    if (spinner) spinner.classList.add('fa-spin');
+    
+    Promise.all([
+        fetch('/crm/open-orders/refresh', {method: 'POST'}).then(r => r.json()),
+        fetch('/crm/abandoned-carts/refresh', {method: 'POST'}).then(r => r.json())
+    ])
+    .then(([ordersData, cartsData]) => {
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.classList.remove('fa-spin');
+        
+        let message = '';
+        if (ordersData.success && cartsData.success) {
+            message = `Orders: ${ordersData.orders_processed} orders, ${ordersData.customers_updated} customers\n`;
+            message += `Carts: ${cartsData.customers_updated} customers updated`;
+            alert('Data refreshed successfully!\n\n' + message);
+            location.reload();
+        } else {
+            let error = '';
+            if (!ordersData.success) error += 'Orders: ' + ordersData.message + '\n';
+            if (!cartsData.success) error += 'Carts: ' + cartsData.message;
+            alert('Some errors occurred:\n' + error);
+        }
+    })
+    .catch(e => {
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.classList.remove('fa-spin');
+        alert('Refresh failed: ' + e.message);
+    });
 }
 </script>
 {% endblock %}
@@ -256,11 +234,8 @@ function refreshAbandonedCarts() {
             </div>
         </div>
         <div class="col-auto d-flex align-items-center gap-2">
-            <button id="btn-refresh-open-orders" class="btn btn-sm btn-outline-secondary" onclick="refreshOpenOrders()" title="Refresh from PS365">
-                <i class="fas fa-sync-alt me-1"></i>Refresh Orders
-            </button>
-            <button id="btn-refresh-abandoned-carts" class="btn btn-sm btn-outline-secondary" onclick="refreshAbandonedCarts()" title="Refresh abandoned carts from Magento">
-                <i class="fas fa-sync-alt me-1"></i>Refresh Carts
+            <button id="btn-refresh-all" class="btn btn-lg btn-primary" onclick="refreshAllData()" title="Refresh Orders & Abandoned Carts" style="padding: 8px 18px; border-radius: 8px; font-weight: 600; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); border: none; box-shadow: 0 2px 8px rgba(13, 110, 253, 0.3);">
+                <i class="fas fa-bolt spinner-icon me-2" style="font-size: 1.1rem;"></i><span class="refresh-text">Sync Data</span>
             </button>
             {% if open_orders_status and open_orders_status.last_sync_at %}
             <span class="text-muted ms-2" style="font-size:0.7rem;">Last: {{ open_orders_status.last_sync_at[:16] }}</span>
