@@ -327,12 +327,17 @@ def customer_slot_dashboard():
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
     def cycle_sort_key(row):
-        if row["window_open"] and not row["done_for_cycle"]:
-            return (0, row.get("customer_name", ""))
-        elif row["done_for_cycle"]:
-            return (1, row.get("customer_name", ""))
+        window_open = row["window_open"]
+        done = row["done_for_cycle"]
+        last_invoice = row.get("last_invoice_date") or date(9999, 12, 31)
+        
+        # Order: 1=Open+Pending, 2=Done, 3=Closed; then by last_invoice_date ascending
+        if window_open and not done:
+            return (1, last_invoice)
+        elif done:
+            return (2, last_invoice)
         else:
-            return (2, row.get("customer_name", ""))
+            return (3, last_invoice)
 
     dashboard_rows.sort(key=cycle_sort_key)
 
