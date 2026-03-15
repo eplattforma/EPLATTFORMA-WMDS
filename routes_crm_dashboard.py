@@ -41,7 +41,7 @@ def _get_allowed_classifications():
 def customer_slot_dashboard():
     slot = request.args.get("slot")
     classification = request.args.getlist("classification")
-    district = request.args.get("district")
+    district = request.args.getlist("district")
     area = request.args.get("area")
     action_only = request.args.get("action_only") == "1"
     has_cart_only = request.args.get("has_cart_only") == "1"
@@ -158,7 +158,7 @@ def customer_slot_dashboard():
     if classification:
         q = q.filter(CrmCustomerProfile.classification.in_(classification))
     if district:
-        q = q.filter(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district) == district)
+        q = q.filter(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district).in_(district))
     if area:
         q = q.filter(CrmCustomerProfile.area == area)
     if has_cart_only:
@@ -268,7 +268,7 @@ def customer_slot_dashboard():
         filters={
             "slot": slot or "",
             "classification": classification or [],
-            "district": district or "",
+            "district": district or [],
             "area": area or "",
             "action_only": action_only,
             "has_cart_only": has_cart_only,

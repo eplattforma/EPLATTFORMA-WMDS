@@ -44,9 +44,9 @@
     .detail-chip.code { border-left: 3px solid #868e96; }
     .detail-chip.login { border-left: 3px solid #66d9e8; }
     .detail-chip.invoice { border-left: 3px solid #ffd43b; }
-    .classification-dropdown-btn { font-size: 0.82rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .classification-dropdown-menu .dropdown-item:hover { background: rgba(255,255,255,0.1); }
-    .classification-dropdown-menu .dropdown-item:active { background: rgba(255,255,255,0.15); }
+    .classification-dropdown-btn, .district-dropdown-btn { font-size: 0.82rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .classification-dropdown-menu .dropdown-item:hover, .district-dropdown-menu .dropdown-item:hover { background: rgba(255,255,255,0.1); }
+    .classification-dropdown-menu .dropdown-item:active, .district-dropdown-menu .dropdown-item:active { background: rgba(255,255,255,0.15); }
     .days-pill { font-weight: 700; font-size: 0.78rem; padding: 2px 7px; border-radius: 4px; display: inline-block; }
     .days-green { background: #d4edda; color: #155724; }
     .days-yellow { background: #fff3cd; color: #856404; }
@@ -139,14 +139,28 @@ function refreshAllData() {
                 </div>
             </div>
             {% if all_districts %}
-            <div class="col-auto">
+            <div class="col-auto position-relative">
                 <label class="form-label mb-0 small">District</label>
-                <select class="form-select form-select-sm" name="district">
-                    <option value="">All</option>
-                    {% for d in all_districts %}
-                    <option value="{{ d }}" {% if filters.district == d %}selected{% endif %}>{{ d }}</option>
-                    {% endfor %}
-                </select>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle district-dropdown-btn" type="button" id="districtDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                        {% if filters.district %}{{ filters.district | join(', ') }}{% else %}All{% endif %}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark district-dropdown-menu" aria-labelledby="districtDropdown" style="min-width: 180px; padding: 6px;">
+                        {% for d in all_districts %}
+                        <li>
+                            <label class="dropdown-item d-flex align-items-center gap-2" style="cursor:pointer; font-size: 0.82rem; padding: 4px 10px;">
+                                <input type="checkbox" name="district" value="{{ d }}" {% if d in filters.district %}checked{% endif %} class="form-check-input mt-0" style="width: 16px; height: 16px;">
+                                {{ d }}
+                            </label>
+                        </li>
+                        {% endfor %}
+                        <li><hr class="dropdown-divider my-1"></li>
+                        <li class="d-flex gap-2 px-2">
+                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="document.querySelectorAll('.district-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = true);">All</button>
+                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="document.querySelectorAll('.district-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);">None</button>
+                        </li>
+                    </ul>
+                </div>
             </div>
             {% endif %}
             {% if all_areas %}
@@ -611,6 +625,14 @@ document.addEventListener('DOMContentLoaded', function() {
         logoImg.src = '/static/ep-smartgrowth-logo-dark.png';
         logoImg.style.height = '135px';
     }
+    ['classDropdown', 'districtDropdown'].forEach(function(dropdownId) {
+        var dropdownEl = document.getElementById(dropdownId);
+        if (dropdownEl) {
+            dropdownEl.addEventListener('hide.bs.dropdown', function() {
+                document.querySelector('form.filter-bar').submit();
+            });
+        }
+    });
 });
 </script>
 {% endblock %}
