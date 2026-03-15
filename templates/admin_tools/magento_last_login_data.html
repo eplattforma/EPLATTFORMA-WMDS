@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Magento Last Login Data{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+
+            <div class="d-flex align-items-center mb-3 gap-3">
+                <h4 class="mb-0"><i class="fas fa-table me-2 text-primary"></i>Magento Last Login Data</h4>
+                <a href="/admin/tools/magento-login-import" class="btn btn-sm btn-outline-secondary ms-auto">
+                    <i class="fas fa-upload me-1"></i> Import Page
+                </a>
+            </div>
+
+            <form method="get" class="mb-3">
+                <div class="input-group input-group-sm" style="max-width:400px;">
+                    <input type="text" name="q" class="form-control" placeholder="Search code, email, name…" value="{{ q }}">
+                    <button class="btn btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
+                    {% if q %}
+                    <a href="/admin/tools/magento-last-login-data" class="btn btn-outline-secondary"><i class="fas fa-times"></i></a>
+                    {% endif %}
+                </div>
+            </form>
+
+            <p class="text-muted small mb-2">{{ total }} record{{ 's' if total != 1 }} found</p>
+
+            <div class="table-responsive">
+                <table class="table table-sm table-hover table-striped mb-3" style="font-size:13px;">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>PS365 Code</th>
+                            <th>Magento ID</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Last Login (UTC)</th>
+                            <th>Last Logout (UTC)</th>
+                            <th>Source</th>
+                            <th>Imported</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in rows %}
+                        <tr>
+                            <td><code>{{ r.customer_code_365 }}</code></td>
+                            <td>{{ r.magento_customer_id or '—' }}</td>
+                            <td>{{ r.first_name or '' }} {{ r.last_name or '' }}</td>
+                            <td>{{ r.email or '—' }}</td>
+                            <td>{{ r.last_login_at.strftime('%Y-%m-%d %H:%M') if r.last_login_at else '—' }}</td>
+                            <td>{{ r.last_logout_at.strftime('%Y-%m-%d %H:%M') if r.last_logout_at else '—' }}</td>
+                            <td><small class="text-muted">{{ r.source_filename or '—' }}</small></td>
+                            <td><small class="text-muted">{{ r.imported_at.strftime('%Y-%m-%d %H:%M') if r.imported_at else '—' }}</small></td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted py-4">No data yet. Import a CSV to get started.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if total_pages > 1 %}
+            <nav>
+                <ul class="pagination pagination-sm justify-content-center">
+                    <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                        <a class="page-link" href="?page={{ page - 1 }}&q={{ q }}">Previous</a>
+                    </li>
+                    {% for p in range(1, total_pages + 1) %}
+                        {% if p == page %}
+                        <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                        {% elif p <= 3 or p > total_pages - 2 or (p >= page - 2 and p <= page + 2) %}
+                        <li class="page-item"><a class="page-link" href="?page={{ p }}&q={{ q }}">{{ p }}</a></li>
+                        {% elif p == 4 or p == total_pages - 2 %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                        {% endif %}
+                    {% endfor %}
+                    <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+                        <a class="page-link" href="?page={{ page + 1 }}&q={{ q }}">Next</a>
+                    </li>
+                </ul>
+            </nav>
+            {% endif %}
+
+        </div>
+    </div>
+</div>
+{% endblock %}

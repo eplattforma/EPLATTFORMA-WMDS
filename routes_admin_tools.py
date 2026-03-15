@@ -642,6 +642,42 @@ def import_magento_login_log_endpoint():
         return jsonify({"ok": False, "error": "Import failed"}), 500
 
 
+@bp.route('/magento-last-login-data')
+@login_required
+def magento_last_login_data_page():
+    if not is_admin():
+        return "Forbidden", 403
+
+    from models import MagentoCustomerLastLoginCurrent
+    page = request.args.get('page', 1, type=int)
+    per_page = 50
+    q = request.args.get('q', '').strip()
+
+    query = MagentoCustomerLastLoginCurrent.query
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                MagentoCustomerLastLoginCurrent.customer_code_365.ilike(like),
+                MagentoCustomerLastLoginCurrent.email.ilike(like),
+                MagentoCustomerLastLoginCurrent.first_name.ilike(like),
+                MagentoCustomerLastLoginCurrent.last_name.ilike(like),
+            )
+        )
+
+    total = query.count()
+    rows = (query
+            .order_by(MagentoCustomerLastLoginCurrent.last_login_at.desc().nullslast())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all())
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
+    return render_template('admin_tools/magento_last_login_data.html',
+                           rows=rows, page=page, total_pages=total_pages,
+                           total=total, q=q)
+
+
 @bp.route('/magento-last-login-sample')
 @login_required
 def magento_last_login_sample():
@@ -658,4 +694,5 @@ def magento_last_login_sample():
         "magento_customer_id": r.magento_customer_id,
         "last_login_at_utc": r.last_login_at.isoformat() if r.last_login_at else None,
         "email": r.email,
+        "source": r.source_filename,
     } for r in rows])
