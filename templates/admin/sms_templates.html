@@ -61,11 +61,12 @@
           <pre class="mb-0 p-2 rounded" style="background: rgba(0,0,0,0.15); white-space: pre-wrap; font-size: 0.82rem; max-height: 120px; overflow-y: auto;">{{ t.body }}</pre>
         </div>
         <div class="card-footer d-flex gap-2">
-          <button class="btn btn-outline-primary btn-sm" onclick="editTemplate({{ t|tojson }})">
+          <button class="btn btn-outline-primary btn-sm edit-tpl-btn"
+                  data-tpl="{{ t|tojson|e }}">
             <i class="fas fa-edit me-1"></i>Edit
           </button>
           <form method="post" action="{{ url_for('sms.sms_template_delete', tpl_id=t.id) }}"
-                onsubmit="return confirm('Delete template \'{{ t.title }}\'?');" class="ms-auto">
+                onsubmit="return confirm('Delete this template?');" class="ms-auto">
             <button class="btn btn-outline-danger btn-sm" type="submit">
               <i class="fas fa-trash me-1"></i>Delete
             </button>
@@ -176,5 +177,15 @@ function updateTplCounts() {
   document.getElementById('tplPartCount').textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
 }
 document.getElementById('tplBody').addEventListener('input', updateTplCounts);
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.edit-tpl-btn');
+  if (!btn) return;
+  try {
+    var t = JSON.parse(btn.getAttribute('data-tpl'));
+    editTemplate(t);
+  } catch(err) {
+    console.error('Failed to parse template data', err);
+  }
+});
 </script>
 {% endblock %}
