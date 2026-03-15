@@ -324,8 +324,18 @@ def crm_classifications_settings():
             allowed = {}
     if not isinstance(allowed, dict):
         allowed = {}
+    
+    defaults = Setting.get(db.session, "crm_customer_classifications_defaults", [])
+    if isinstance(defaults, str):
+        try:
+            defaults = json.loads(defaults)
+        except Exception:
+            defaults = []
+    if not isinstance(defaults, list):
+        defaults = []
+    
     for name, filename in allowed.items():
-        items.append({"name": name, "icon": filename})
+        items.append({"name": name, "icon": filename, "is_default": name in defaults})
     
     return render_template('admin_tools/crm_classifications.html', items=items)
 
@@ -340,22 +350,27 @@ def save_crm_classifications():
         from models import Setting
         import json
         
-        items = request.json.get('items', [])
+        data = request.form.get('data', '[]')
+        items = json.loads(data) if data else []
         data_dict = {}
+        defaults = []
         
         for item in items:
             name = (item.get('name') or '').strip()
-            icon = (item.get('icon') or '').strip()
+            is_default = item.get('is_default', False)
             if name:
-                data_dict[name] = icon if icon else None
+                data_dict[name] = None
+                if is_default:
+                    defaults.append(name)
         
         if not data_dict:
             return jsonify({"ok": False, "error": "At least one classification is required"}), 400
         
         Setting.set(db.session, "crm_customer_classifications", data_dict)
+        Setting.set(db.session, "crm_customer_classifications_defaults", defaults)
         db.session.commit()
         
-        return jsonify({"ok": True, "count": len(data_dict)})
+        return jsonify({"ok": True, "msg": f"Saved {len(data_dict)} classifications ({len(defaults)} as default)"})
         
     except Exception as e:
         logger.error("Error saving classifications: %s", e)

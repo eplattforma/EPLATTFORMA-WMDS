@@ -42,6 +42,19 @@ def customer_slot_dashboard():
     slot = request.args.get("slot")
     classification = request.args.getlist("classification")
     district = request.args.getlist("district")
+    
+    if not classification:
+        try:
+            default_classifications = Setting.query.filter_by(key="crm_customer_classifications_defaults").first()
+            if default_classifications and default_classifications.value:
+                import json
+                val = default_classifications.value
+                if isinstance(val, str):
+                    classification = json.loads(val)
+                else:
+                    classification = val
+        except Exception:
+            pass
     area = request.args.get("area")
     action_only = request.args.get("action_only") == "1"
     has_cart_only = request.args.get("has_cart_only") == "1"
