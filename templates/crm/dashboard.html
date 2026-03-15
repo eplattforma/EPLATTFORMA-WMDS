@@ -220,7 +220,8 @@ function refreshAllData() {
     // Auto-submit form when any filter changes
     const filterForm = document.querySelector('form[method="GET"]');
     if (filterForm) {
-        filterForm.addEventListener('change', () => {
+        filterForm.addEventListener('change', (e) => {
+            if (e.target.closest('.classification-dropdown-menu') || e.target.closest('.district-dropdown-menu')) return;
             filterForm.submit();
         });
         filterForm.querySelector('input[name="q"]')?.addEventListener('keyup', () => {
