@@ -1,0 +1,178 @@
+Fixes to send to Replit (do these in this order)
+Fix 1 — Replace 4 invoice subqueries with one aggregate subquery
+
+Use CASE aggregates (portable and fast). Replace sales_6m_sq, sales_4w_sq, last_invoice_sq, done_sq with one sales_sq.
+
+from sqlalchemy import or_
+
+sales_sq = (
+    db.session.query(
+        DwInvoiceHeader.customer_code_365.label("cc"),
+
+        func.coalesce(func.sum(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d6m, DwInvoiceHeader.total_grand), else_=0)
+        ), 0).label("value_6m"),
+
+        func.coalesce(func.sum(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+        ), 0).label("value_4w"),
+
+        func.max(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
+        ).label("last_invoice_date"),
+
+        func.coalesce(func.sum(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d90, 1), else_=0)
+        ), 0).label("inv_cnt_90d"),
+
+        func.coalesce(func.sum(
+            case((and_(DwInvoiceHeader.invoice_date_utc0 >= cycle_start,
+                       DwInvoiceHeader.invoice_date_utc0 <= cycle_end), 1), else_=0)
+        ), 0).label("inv_in_cycle"),
+    )
+    .group_by(DwInvoiceHeader.customer_code_365)
+    .subquery()
+)
+
+Then in your main query:
+
+remove .outerjoin(sales_6m_sq ...), .outerjoin(sales_4w_sq...), .outerjoin(last_invoice_sq...), .outerjoin(done_sq...)
+
+replace with:
+
+.outerjoin(sales_sq, sales_sq.c.cc == PSCustomer.customer_code_365)
+
+and select fields from sales_sq.c.value_6m, sales_sq.c.value_4w, sales_sq.c.last_invoice_date, sales_sq.c.inv_cnt_90d, sales_sq.c.inv_in_cycle.
+
+✅ This change alone typically cuts dashboard time massively.
+
+Fix 2 — Compute next_action in SQL and apply action_only in SQL
+
+Add:
+
+next_action_expr = case(
+    (CrmAbandonedCartState.has_abandoned_cart.is_(True), "CART_NUDGE"),
+    (func.coalesce(sales_sq.c.inv_in_cycle, 0) <= 0, "ORDER_REMINDER"),
+    else_="NO_ACTION"
+).label("next_action")
+
+Include next_action_expr in the query select list.
+
+Then:
+
+if action_only:
+    q = q.filter(next_action_expr != "NO_ACTION")
+
+Now you avoid pulling rows you won’t display.
+
+Also: stop computing next_action in Python — just use r.next_action.
+
+Fix 3 — Replace slot IN (subquery) with an indexed JOIN
+
+Replace:
+
+q = q.filter(PSCustomer.customer_code_365.in_(...))
+
+with:
+
+if slot:
+    dow, week = slot.split("-")
+    q = q.join(
+        CustomerDeliverySlot,
+        and_(
+            CustomerDeliverySlot.customer_code_365 == PSCustomer.customer_code_365,
+            CustomerDeliverySlot.dow == dow,
+            CustomerDeliverySlot.week_code == week
+        )
+    )
+
+Also ensure there is an index:
+
+customer_delivery_slot(dow, week_code, customer_code_365) (or at least (customer_code_365, dow, week_code))
+
+Fix 4 — Rewrite district filter to avoid coalesce(...) IN (...)
+
+Replace:
+
+q = q.filter(coalesce(profile.district, postal.district).in_(district))
+
+with:
+
+if district:
+    q = q.filter(or_(
+        CrmCustomerProfile.district.in_(district),
+        and_(CrmCustomerProfile.district.is_(None),
+             PostalCodeLookup.district.in_(district))
+    ))
+
+This is much more index-friendly.
+
+Fix 5 — Don’t derive all_districts / all_areas from rows
+
+Instead, build them with separate DISTINCT queries (fast) so you don’t need to load all customers first.
+
+Example:
+
+all_districts = [x[0] for x in (
+    db.session.query(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
+    .select_from(PSCustomer)
+    .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+    .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
+    .filter(PSCustomer.active.is_(True), PSCustomer.deleted_at.is_(None))
+    .distinct()
+    .order_by(1)
+    .all()
+) if x[0]]
+
+Same for areas:
+
+all_areas = [x[0] for x in (
+    db.session.query(CrmCustomerProfile.area)
+    .filter(CrmCustomerProfile.area.isnot(None))
+    .distinct().order_by(CrmCustomerProfile.area)
+    .all()
+)]
+Fix 6 — Add pagination (must-have for “all customers”)
+
+Right now the dashboard will inevitably get slow as customer count grows.
+
+Add:
+
+page = max(int(request.args.get("page", 1)), 1)
+page_size = min(max(int(request.args.get("page_size", 100)), 25), 500)
+
+rows = (q.order_by(PSCustomer.company_name)
+          .limit(page_size)
+          .offset((page-1)*page_size)
+          .all())
+
+Then render pager links.
+
+Multi-select filters (backend already correct)
+
+Your backend supports multi-select:
+
+classification = request.args.getlist("classification")
+district = request.args.getlist("district")
+
+So the only requirement is your HTML must be:
+
+<select name="classification" multiple>
+<select name="district" multiple>
+
+…and you must preserve selections in the template using if value in filters['classification'].
+
+One small bug
+
+In your earlier version you had returnjsonify(...). In the current one it’s fixed (return jsonify(timeline)), good.
+
+If you want to confirm the real bottleneck (quick)
+
+Tell Replit to temporarily log query time:
+
+import time
+t0 = time.time()
+rows = q.limit(50).all()
+logger.info(f"CRM dashboard query (sample 50) took {time.time()-t0:.3f}s")
+
+If sample 50 is already slow, it’s the SQL plan; if sample 50 is fast but full is slow, it’s pagination and post-processing.

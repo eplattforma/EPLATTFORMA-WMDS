@@ -2,7 +2,7 @@ import json
 import logging
 from flask import Blueprint, request, render_template, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy import func, and_, case
+from sqlalchemy import func, and_, or_, case
 from datetime import date, datetime, timedelta, timezone
 
 from app import db
@@ -48,6 +48,15 @@ def customer_slot_dashboard():
     logged_in_days = request.args.get("logged_in_days")
     search_q = request.args.get("q", "").strip()
 
+    try:
+        page = max(int(request.args.get("page", 1)), 1)
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        page_size = min(max(int(request.args.get("page_size", 100)), 25), 500)
+    except (ValueError, TypeError):
+        page_size = 100
+
     today = date.today()
     cycle_end = today
     cycle_start = today - timedelta(days=7)
@@ -56,46 +65,27 @@ def customer_slot_dashboard():
     d4w = today - timedelta(days=28)
     d90 = today - timedelta(days=90)
 
-    sales_6m_sq = (
+    sales_sq = (
         db.session.query(
             DwInvoiceHeader.customer_code_365.label("cc"),
-            func.coalesce(func.sum(DwInvoiceHeader.total_grand), 0).label("value_6m"),
+            func.coalesce(func.sum(
+                case((DwInvoiceHeader.invoice_date_utc0 >= d6m, DwInvoiceHeader.total_grand), else_=0)
+            ), 0).label("value_6m"),
+            func.coalesce(func.sum(
+                case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+            ), 0).label("value_4w"),
+            func.max(
+                case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
+            ).label("last_invoice_date"),
+            func.coalesce(func.sum(
+                case((DwInvoiceHeader.invoice_date_utc0 >= d90, 1), else_=0)
+            ), 0).label("inv_cnt_90d"),
+            func.coalesce(func.sum(
+                case((and_(DwInvoiceHeader.invoice_date_utc0 >= cycle_start,
+                           DwInvoiceHeader.invoice_date_utc0 <= cycle_end), 1), else_=0)
+            ), 0).label("inv_in_cycle"),
         )
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d6m)
-        .group_by(DwInvoiceHeader.customer_code_365)
-        .subquery()
-    )
-
-    sales_4w_sq = (
-        db.session.query(
-            DwInvoiceHeader.customer_code_365.label("cc"),
-            func.coalesce(func.sum(DwInvoiceHeader.total_grand), 0).label("value_4w"),
-        )
-        .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
-        .group_by(DwInvoiceHeader.customer_code_365)
-        .subquery()
-    )
-
-    last_invoice_sq = (
-        db.session.query(
-            DwInvoiceHeader.customer_code_365.label("cc"),
-            func.max(DwInvoiceHeader.invoice_date_utc0).label("last_invoice_date"),
-            func.count(DwInvoiceHeader.invoice_no_365).label("inv_cnt_90d"),
-        )
-        .filter(DwInvoiceHeader.invoice_date_utc0 >= d90)
-        .group_by(DwInvoiceHeader.customer_code_365)
-        .subquery()
-    )
-
-    done_sq = (
-        db.session.query(
-            DwInvoiceHeader.customer_code_365.label("cc"),
-            func.count(DwInvoiceHeader.invoice_no_365).label("inv_in_cycle"),
-        )
-        .filter(and_(
-            DwInvoiceHeader.invoice_date_utc0 >= cycle_start,
-            DwInvoiceHeader.invoice_date_utc0 <= cycle_end,
-        ))
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
@@ -104,6 +94,12 @@ def customer_slot_dashboard():
         CrmCustomerProfile.district,
         PostalCodeLookup.district,
     ).label("resolved_district")
+
+    next_action_expr = case(
+        (CrmAbandonedCartState.has_abandoned_cart.is_(True), "CART_NUDGE"),
+        (func.coalesce(sales_sq.c.inv_in_cycle, 0) <= 0, "ORDER_REMINDER"),
+        else_="NO_ACTION"
+    ).label("next_action")
 
     q = (
         db.session.query(
@@ -123,15 +119,16 @@ def customer_slot_dashboard():
 
             MagentoCustomerLastLoginCurrent.last_login_at.label("last_login_at"),
 
-            sales_6m_sq.c.value_6m,
-            sales_4w_sq.c.value_4w,
-            last_invoice_sq.c.last_invoice_date,
-            last_invoice_sq.c.inv_cnt_90d,
-
-            done_sq.c.inv_in_cycle,
+            sales_sq.c.value_6m,
+            sales_sq.c.value_4w,
+            sales_sq.c.last_invoice_date,
+            sales_sq.c.inv_cnt_90d,
+            sales_sq.c.inv_in_cycle,
 
             CRMCustomerOpenOrders.open_order_amount,
             CRMCustomerOpenOrders.open_order_count,
+
+            next_action_expr,
         )
         .filter(PSCustomer.active == True)
         .filter(PSCustomer.deleted_at.is_(None))
@@ -140,10 +137,7 @@ def customer_slot_dashboard():
         .outerjoin(CrmAbandonedCartState, CrmAbandonedCartState.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(CRMCustomerOpenOrders, CRMCustomerOpenOrders.customer_code_365 == PSCustomer.customer_code_365)
-        .outerjoin(sales_6m_sq, sales_6m_sq.c.cc == PSCustomer.customer_code_365)
-        .outerjoin(sales_4w_sq, sales_4w_sq.c.cc == PSCustomer.customer_code_365)
-        .outerjoin(last_invoice_sq, last_invoice_sq.c.cc == PSCustomer.customer_code_365)
-        .outerjoin(done_sq, done_sq.c.cc == PSCustomer.customer_code_365)
+        .outerjoin(sales_sq, sales_sq.c.cc == PSCustomer.customer_code_365)
     )
 
     if search_q:
@@ -158,7 +152,11 @@ def customer_slot_dashboard():
     if classification:
         q = q.filter(CrmCustomerProfile.classification.in_(classification))
     if district:
-        q = q.filter(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district).in_(district))
+        q = q.filter(or_(
+            CrmCustomerProfile.district.in_(district),
+            and_(CrmCustomerProfile.district.is_(None),
+                 PostalCodeLookup.district.in_(district))
+        ))
     if area:
         q = q.filter(CrmCustomerProfile.area == area)
     if has_cart_only:
@@ -172,23 +170,55 @@ def customer_slot_dashboard():
             pass
     if slot:
         dow, week = slot.split("-")
-        q = q.filter(
-            PSCustomer.customer_code_365.in_(
-                db.session.query(CustomerDeliverySlot.customer_code_365)
-                .filter(CustomerDeliverySlot.dow == dow)
-                .filter(CustomerDeliverySlot.week_code == week)
+        q = q.join(
+            CustomerDeliverySlot,
+            and_(
+                CustomerDeliverySlot.customer_code_365 == PSCustomer.customer_code_365,
+                CustomerDeliverySlot.dow == dow,
+                CustomerDeliverySlot.week_code == week,
             )
         )
+    if action_only:
+        q = q.filter(next_action_expr != "NO_ACTION")
 
-    rows = q.all()
+    total_count = q.count()
+    total_pages = max(1, (total_count + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+
+    kpi_row = q.with_entities(
+        func.sum(case((next_action_expr != "NO_ACTION", 1), else_=0)).label("action_count"),
+        func.sum(case((func.coalesce(sales_sq.c.inv_in_cycle, 0) > 0, 1), else_=0)).label("done_count"),
+        func.sum(case((CrmAbandonedCartState.has_abandoned_cart.is_(True), 1), else_=0)).label("cart_count"),
+        func.coalesce(func.sum(CRMCustomerOpenOrders.open_order_amount), 0).label("total_open_amount"),
+    ).one()
+
+    rows = (q.order_by(PSCustomer.company_name)
+              .limit(page_size)
+              .offset((page - 1) * page_size)
+              .all())
 
     now_utc = datetime.now(timezone.utc)
     allowed_classifications = _get_allowed_classifications()
 
-    all_districts = sorted({r.resolved_district for r in rows if r.resolved_district})
-    all_areas = sorted({r.area for r in rows if r.area})
-    
-    # Get all unique delivery slots from DB
+    all_districts = [x[0] for x in (
+        db.session.query(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
+        .select_from(PSCustomer)
+        .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
+        .filter(PSCustomer.active.is_(True), PSCustomer.deleted_at.is_(None))
+        .distinct()
+        .order_by(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
+        .all()
+    ) if x[0]]
+
+    all_areas = [x[0] for x in (
+        db.session.query(CrmCustomerProfile.area)
+        .filter(CrmCustomerProfile.area.isnot(None))
+        .distinct().order_by(CrmCustomerProfile.area)
+        .all()
+    )]
+
     all_slots = sorted({
         f"{s.dow}-{s.week_code}"
         for s in db.session.query(CustomerDeliverySlot.dow, CustomerDeliverySlot.week_code).distinct().all()
@@ -213,16 +243,6 @@ def customer_slot_dashboard():
         if last_invoice_date:
             r_invoice_days = (now_utc.date() - last_invoice_date).days
 
-        if has_cart:
-            next_action = "CART_NUDGE"
-        elif not done_for_cycle:
-            next_action = "ORDER_REMINDER"
-        else:
-            next_action = "NO_ACTION"
-
-        if action_only and next_action == "NO_ACTION":
-            continue
-
         dashboard_rows.append({
             "customer_code_365": r.customer_code_365,
             "customer_name": r.company_name or r.customer_code_365,
@@ -244,7 +264,7 @@ def customer_slot_dashboard():
             "last_invoice_date": last_invoice_date,
             "r_invoice_days": r_invoice_days,
             "inv_cnt_90d": int(r.inv_cnt_90d or 0),
-            "next_action": next_action,
+            "next_action": r.next_action,
             "open_order_amount": float(r.open_order_amount) if r.open_order_amount else 0,
             "open_order_count": int(r.open_order_count) if r.open_order_count else 0,
         })
@@ -259,12 +279,19 @@ def customer_slot_dashboard():
     return render_template(
         "crm/dashboard.html",
         rows=dashboard_rows,
-        total_count=len(rows),
+        total_count=total_count,
         allowed_classifications=allowed_classifications,
         all_districts=all_districts,
         all_areas=all_areas,
         all_slots=all_slots,
         open_orders_status=open_orders_status,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        kpi_action_count=int(kpi_row.action_count or 0),
+        kpi_done_count=int(kpi_row.done_count or 0),
+        kpi_cart_count=int(kpi_row.cart_count or 0),
+        kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
         filters={
             "slot": slot or "",
             "classification": classification or [],
