@@ -62,6 +62,38 @@
 </style>
 <script>
 var _smsMobile = '';
+var _smsCustomerName = '';
+var _smsTemplatesLoaded = false;
+var _smsTemplatesCache = [];
+
+function _loadSmsTemplates() {
+    if (_smsTemplatesLoaded) return;
+    fetch('/admin/sms/templates/list-json')
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            _smsTemplatesCache = data;
+            _smsTemplatesLoaded = true;
+            var sel = document.getElementById('smsTemplateSelect');
+            sel.innerHTML = '<option value="">— No template (write custom) —</option>';
+            data.forEach(function(t){
+                var opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.title;
+                opt.dataset.body = t.body;
+                sel.appendChild(opt);
+            });
+        });
+}
+
+function _renderTemplateBody(body, customerName) {
+    var first = (customerName || '').split(' ')[0] || '';
+    return body
+        .replace(/\{\{\s*customer_name\s*\}\}/g, customerName || '')
+        .replace(/\{\{\s*first_name\s*\}\}/g, first)
+        .replace(/\{\{\s*customer_code\s*\}\}/g, '')
+        .replace(/\{\{\s*mobile_number\s*\}\}/g, '');
+}
+
 document.addEventListener('click', function(e) {
     var link = e.target.closest('.sms-phone-link');
     if (!link) return;
@@ -69,12 +101,15 @@ document.addEventListener('click', function(e) {
     e.stopPropagation();
     _smsMobile = (link.dataset.mobile || '').replace(/[^\d+]/g, '');
     if (!_smsMobile) return;
-    document.getElementById('smsCustomerName').textContent = link.dataset.customer || '';
+    _smsCustomerName = link.dataset.customer || '';
+    document.getElementById('smsCustomerName').textContent = _smsCustomerName;
     document.getElementById('smsCustomerCode').textContent = '(' + (link.dataset.code || '') + ')';
     document.getElementById('smsMobileDisplay').textContent = link.dataset.mobile || '';
     document.getElementById('smsComposeText').value = '';
+    document.getElementById('smsTemplateSelect').value = '';
     document.getElementById('smsCharCount').textContent = '0 / 600 characters';
     document.getElementById('smsPartCount').textContent = '1 SMS part';
+    _loadSmsTemplates();
     var modal = new bootstrap.Modal(document.getElementById('smsComposeModal'));
     modal.show();
     setTimeout(function(){ document.getElementById('smsComposeText').focus(); }, 400);
@@ -669,9 +704,15 @@ function refreshAllData() {
                     </div>
                 </div>
                 <div class="mb-3">
+                    <label class="form-label fw-bold">Template</label>
+                    <select class="form-select form-select-sm" id="smsTemplateSelect">
+                        <option value="">— No template (write custom) —</option>
+                    </select>
+                </div>
+                <div class="mb-3">
                     <label class="form-label fw-bold">Message</label>
                     <textarea class="form-control" id="smsComposeText" rows="5" maxlength="600"
-                              placeholder="Type your message…"></textarea>
+                              placeholder="Type your message or select a template above…"></textarea>
                     <div class="d-flex justify-content-between mt-1">
                         <small class="text-muted" id="smsCharCount">0 / 600 characters</small>
                         <small class="text-muted" id="smsPartCount">1 SMS part</small>
@@ -914,6 +955,22 @@ document.getElementById('smsComposeText').addEventListener('input', function(){
     document.getElementById('smsCharCount').textContent = len + ' / 600 characters';
     var parts = Math.ceil(len / 160) || 1;
     document.getElementById('smsPartCount').textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
+});
+document.getElementById('smsTemplateSelect').addEventListener('change', function(){
+    var sel = this;
+    var opt = sel.options[sel.selectedIndex];
+    var body = opt.dataset.body || '';
+    if (body) {
+        document.getElementById('smsComposeText').value = _renderTemplateBody(body, _smsCustomerName);
+    } else {
+        document.getElementById('smsComposeText').value = '';
+    }
+    var ta = document.getElementById('smsComposeText');
+    var len = ta.value.length;
+    document.getElementById('smsCharCount').textContent = len + ' / 600 characters';
+    var parts = Math.ceil(len / 160) || 1;
+    document.getElementById('smsPartCount').textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
+    ta.focus();
 });
 document.getElementById('smsSendViaPhone').addEventListener('click', function(){
     var msg = document.getElementById('smsComposeText').value.trim();

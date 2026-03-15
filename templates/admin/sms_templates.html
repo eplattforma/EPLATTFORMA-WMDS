@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}SMS Templates — EPLATTFORMA{% endblock %}
+{% block content %}
+<div class="container-fluid mt-4" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center">
+      <a href="{{ url_for('sms.sms_home') }}" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="fas fa-arrow-left"></i>
+      </a>
+      <h4 class="mb-0"><i class="fas fa-file-alt me-2"></i>SMS Templates</h4>
+    </div>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#tplModal" onclick="resetForm()">
+      <i class="fas fa-plus me-1"></i>New Template
+    </button>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  {% for category, message in messages %}
+  <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+  {% endif %}
+  {% endwith %}
+
+  <div class="card mb-3">
+    <div class="card-header">
+      <i class="fas fa-info-circle me-1"></i>Template Placeholders
+    </div>
+    <div class="card-body py-2">
+      <small class="text-muted">
+        Use Jinja2 placeholders in the body: 
+        <code>{{ '{{' }} customer_name {{ '}}' }}</code>,
+        <code>{{ '{{' }} first_name {{ '}}' }}</code>,
+        <code>{{ '{{' }} customer_code {{ '}}' }}</code>,
+        <code>{{ '{{' }} mobile_number {{ '}}' }}</code>
+      </small>
+    </div>
+  </div>
+
+  {% if templates %}
+  <div class="row g-3">
+    {% for t in templates %}
+    <div class="col-md-6">
+      <div class="card h-100 {% if not t.is_enabled %}border-secondary opacity-75{% endif %}">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <div>
+            <strong>{{ t.title }}</strong>
+            <span class="badge {% if t.is_enabled %}bg-success{% else %}bg-secondary{% endif %} ms-2">
+              {{ 'Active' if t.is_enabled else 'Disabled' }}
+            </span>
+          </div>
+          <span class="badge bg-dark">{{ t.code }}</span>
+        </div>
+        <div class="card-body">
+          {% if t.sender_title %}
+          <small class="text-muted d-block mb-1">Sender: <strong>{{ t.sender_title }}</strong></small>
+          {% endif %}
+          <pre class="mb-0 p-2 rounded" style="background: rgba(0,0,0,0.15); white-space: pre-wrap; font-size: 0.82rem; max-height: 120px; overflow-y: auto;">{{ t.body }}</pre>
+        </div>
+        <div class="card-footer d-flex gap-2">
+          <button class="btn btn-outline-primary btn-sm" onclick="editTemplate({{ t|tojson }})">
+            <i class="fas fa-edit me-1"></i>Edit
+          </button>
+          <form method="post" action="{{ url_for('sms.sms_template_delete', tpl_id=t.id) }}"
+                onsubmit="return confirm('Delete template \'{{ t.title }}\'?');" class="ms-auto">
+            <button class="btn btn-outline-danger btn-sm" type="submit">
+              <i class="fas fa-trash me-1"></i>Delete
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="fas fa-file-alt fa-3x mb-3 d-block"></i>
+    No templates yet. Click <strong>New Template</strong> to create one.
+  </div>
+  {% endif %}
+</div>
+
+<div class="modal fade" id="tplModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('sms.sms_template_save') }}">
+        <input type="hidden" name="id" id="tplId">
+        <div class="modal-header">
+          <h5 class="modal-title" id="tplModalTitle"><i class="fas fa-plus me-2"></i>New Template</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label fw-bold">Code</label>
+              <input class="form-control" name="code" id="tplCode" required
+                     placeholder="e.g. DELIVERY_TODAY" maxlength="50"
+                     style="text-transform: uppercase;">
+              <small class="text-muted">Unique identifier (uppercase, underscores)</small>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold">Title</label>
+              <input class="form-control" name="title" id="tplTitle" required
+                     placeholder="e.g. Delivery Today" maxlength="100">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold">Sender Title</label>
+              <input class="form-control" name="sender_title" id="tplSender"
+                     placeholder="e.g. EPLATTFORMA" maxlength="20">
+              <small class="text-muted">Leave blank for default</small>
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label fw-bold">Message Body</label>
+            <textarea class="form-control" name="body" id="tplBody" rows="5" required
+                      placeholder="Type your template message…" maxlength="600"></textarea>
+            <div class="d-flex justify-content-between mt-1">
+              <small class="text-muted" id="tplCharCount">0 / 600 characters</small>
+              <small class="text-muted" id="tplPartCount">1 SMS part</small>
+            </div>
+          </div>
+          <div class="mt-3 d-flex gap-4">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="is_enabled" id="tplEnabled" checked>
+              <label class="form-check-label" for="tplEnabled">Enabled</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="force_unicode" id="tplUnicode">
+              <label class="form-check-label" for="tplUnicode">Force Unicode</label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save me-1"></i>Save Template
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function resetForm() {
+  document.getElementById('tplId').value = '';
+  document.getElementById('tplCode').value = '';
+  document.getElementById('tplTitle').value = '';
+  document.getElementById('tplSender').value = '';
+  document.getElementById('tplBody').value = '';
+  document.getElementById('tplEnabled').checked = true;
+  document.getElementById('tplUnicode').checked = false;
+  document.getElementById('tplModalTitle').innerHTML = '<i class="fas fa-plus me-2"></i>New Template';
+  updateTplCounts();
+}
+function editTemplate(t) {
+  document.getElementById('tplId').value = t.id;
+  document.getElementById('tplCode').value = t.code;
+  document.getElementById('tplTitle').value = t.title;
+  document.getElementById('tplSender').value = t.sender_title || '';
+  document.getElementById('tplBody').value = t.body;
+  document.getElementById('tplEnabled').checked = t.is_enabled;
+  document.getElementById('tplUnicode').checked = t.force_unicode;
+  document.getElementById('tplModalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Template';
+  updateTplCounts();
+  var modal = new bootstrap.Modal(document.getElementById('tplModal'));
+  modal.show();
+}
+function updateTplCounts() {
+  var len = document.getElementById('tplBody').value.length;
+  document.getElementById('tplCharCount').textContent = len + ' / 600 characters';
+  var parts = Math.ceil(len / 160) || 1;
+  document.getElementById('tplPartCount').textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
+}
+document.getElementById('tplBody').addEventListener('input', updateTplCounts);
+</script>
+{% endblock %}

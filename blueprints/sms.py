@@ -327,6 +327,116 @@ def sms_search_customer():
     return Response(json.dumps(results), mimetype="application/json")
 
 
+@sms_bp.route("/templates", methods=["GET"])
+@login_required
+def sms_templates():
+    if not _role_ok():
+        flash("Not authorized.", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    rows = db.session.execute(db.text("""
+        SELECT id, code, title, sender_title, body, force_unicode, is_enabled, created_at, updated_at
+        FROM sms_template
+        ORDER BY title
+    """)).mappings().all()
+
+    templates = []
+    for r in rows:
+        templates.append({
+            "id": r.id,
+            "code": r.code,
+            "title": r.title,
+            "sender_title": r.sender_title or "",
+            "body": r.body,
+            "force_unicode": bool(r.force_unicode),
+            "is_enabled": bool(r.is_enabled),
+        })
+
+    return render_template("admin/sms_templates.html", templates=templates)
+
+
+@sms_bp.route("/templates/save", methods=["POST"])
+@login_required
+def sms_template_save():
+    if not _role_ok():
+        flash("Not authorized.", "danger")
+        return redirect(url_for("sms.sms_templates"))
+
+    tpl_id = request.form.get("id", "").strip()
+    code = request.form.get("code", "").strip().upper()
+    title = request.form.get("title", "").strip()
+    sender_title = request.form.get("sender_title", "").strip() or None
+    body = request.form.get("body", "").strip()
+    force_unicode = request.form.get("force_unicode") == "on"
+    is_enabled = request.form.get("is_enabled") == "on"
+
+    if not code or not title or not body:
+        flash("Code, title and body are required.", "danger")
+        return redirect(url_for("sms.sms_templates"))
+
+    code = re.sub(r'[^A-Z0-9_]', '_', code)
+
+    try:
+        if tpl_id:
+            db.session.execute(db.text("""
+                UPDATE sms_template
+                SET code = :code, title = :title, sender_title = :sender,
+                    body = :body, force_unicode = :fu, is_enabled = :en,
+                    updated_at = NOW()
+                WHERE id = :id
+            """), {"id": int(tpl_id), "code": code, "title": title, "sender": sender_title,
+                   "body": body, "fu": force_unicode, "en": is_enabled})
+            flash(f"Template '{title}' updated.", "success")
+        else:
+            db.session.execute(db.text("""
+                INSERT INTO sms_template (code, title, sender_title, body, force_unicode, is_enabled)
+                VALUES (:code, :title, :sender, :body, :fu, :en)
+            """), {"code": code, "title": title, "sender": sender_title,
+                   "body": body, "fu": force_unicode, "en": is_enabled})
+            flash(f"Template '{title}' created.", "success")
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error saving template: {e}", "danger")
+
+    return redirect(url_for("sms.sms_templates"))
+
+
+@sms_bp.route("/templates/delete/<int:tpl_id>", methods=["POST"])
+@login_required
+def sms_template_delete(tpl_id):
+    if not _role_ok():
+        flash("Not authorized.", "danger")
+        return redirect(url_for("sms.sms_templates"))
+
+    try:
+        db.session.execute(db.text("DELETE FROM sms_template WHERE id = :id"), {"id": tpl_id})
+        db.session.commit()
+        flash("Template deleted.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error deleting template: {e}", "danger")
+
+    return redirect(url_for("sms.sms_templates"))
+
+
+@sms_bp.route("/templates/list-json", methods=["GET"])
+@login_required
+def sms_templates_json():
+    if not _role_ok():
+        return Response("[]", mimetype="application/json", status=403)
+
+    import json
+    rows = db.session.execute(db.text("""
+        SELECT id, code, title, body, sender_title
+        FROM sms_template
+        WHERE is_enabled = true
+        ORDER BY title
+    """)).mappings().all()
+
+    return Response(json.dumps([dict(r) for r in rows]), mimetype="application/json")
+
+
 @sms_bp.route("/balance", methods=["GET"])
 @login_required
 def sms_balance():
