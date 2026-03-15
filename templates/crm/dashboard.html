@@ -119,13 +119,13 @@ function refreshAllData() {
             <div class="col-auto position-relative">
                 <label class="form-label mb-0 small">Classification</label>
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle classification-dropdown-btn" type="button" id="classDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle classification-dropdown-btn" type="button" id="classDropdown" aria-expanded="false">
                         {% if filters.classification %}{{ filters.classification | join(', ') }}{% else %}All{% endif %}
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-dark classification-dropdown-menu" aria-labelledby="classDropdown" style="min-width: 180px; padding: 6px;">
+                    <ul class="dropdown-menu dropdown-menu-dark classification-dropdown-menu" style="min-width: 180px; padding: 6px; display:none; position:absolute; z-index:1050;">
                         {% for c in allowed_classifications.keys() %}
                         <li>
-                            <label class="dropdown-item d-flex align-items-center gap-2" style="cursor:pointer; font-size: 0.82rem; padding: 4px 10px;">
+                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size: 0.82rem; border-radius: 4px;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
                                 <input type="checkbox" name="classification" value="{{ c }}" {% if c in filters.classification %}checked{% endif %} class="form-check-input mt-0" style="width: 16px; height: 16px;">
                                 {{ c }}
                             </label>
@@ -133,8 +133,8 @@ function refreshAllData() {
                         {% endfor %}
                         <li><hr class="dropdown-divider my-1"></li>
                         <li class="d-flex gap-2 px-2">
-                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="document.querySelectorAll('.classification-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = true);">All</button>
-                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="document.querySelectorAll('.classification-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);">None</button>
+                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="event.stopPropagation(); document.querySelectorAll('.classification-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = true);">All</button>
+                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="event.stopPropagation(); document.querySelectorAll('.classification-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);">None</button>
                         </li>
                     </ul>
                 </div>
@@ -143,13 +143,13 @@ function refreshAllData() {
             <div class="col-auto position-relative">
                 <label class="form-label mb-0 small">District</label>
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle district-dropdown-btn" type="button" id="districtDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle district-dropdown-btn" type="button" id="districtDropdown" aria-expanded="false">
                         {% if filters.district %}{{ filters.district | join(', ') }}{% else %}All{% endif %}
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-dark district-dropdown-menu" aria-labelledby="districtDropdown" style="min-width: 180px; padding: 6px;">
+                    <ul class="dropdown-menu dropdown-menu-dark district-dropdown-menu" style="min-width: 180px; padding: 6px; display:none; position:absolute; z-index:1050;">
                         {% for d in all_districts %}
                         <li>
-                            <label class="dropdown-item d-flex align-items-center gap-2" style="cursor:pointer; font-size: 0.82rem; padding: 4px 10px;">
+                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size: 0.82rem; border-radius: 4px;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
                                 <input type="checkbox" name="district" value="{{ d }}" {% if d in filters.district %}checked{% endif %} class="form-check-input mt-0" style="width: 16px; height: 16px;">
                                 {{ d }}
                             </label>
@@ -157,8 +157,8 @@ function refreshAllData() {
                         {% endfor %}
                         <li><hr class="dropdown-divider my-1"></li>
                         <li class="d-flex gap-2 px-2">
-                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="document.querySelectorAll('.district-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = true);">All</button>
-                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="document.querySelectorAll('.district-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);">None</button>
+                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="event.stopPropagation(); document.querySelectorAll('.district-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = true);">All</button>
+                            <button type="button" class="btn btn-xs btn-outline-light flex-fill" style="font-size:0.72rem;" onclick="event.stopPropagation(); document.querySelectorAll('.district-dropdown-menu input[type=checkbox]').forEach(cb => cb.checked = false);">None</button>
                         </li>
                     </ul>
                 </div>
@@ -626,20 +626,39 @@ document.addEventListener('DOMContentLoaded', function() {
         logoImg.src = '/static/ep-smartgrowth-logo-dark.png';
         logoImg.style.height = '135px';
     }
-    ['classDropdown', 'districtDropdown'].forEach(function(dropdownId) {
-        var dropdownEl = document.getElementById(dropdownId);
-        if (dropdownEl) {
-            dropdownEl.addEventListener('hide.bs.dropdown', function(e) {
-                if (e.clickEvent) {
-                    var menu = dropdownEl.nextElementSibling || dropdownEl.parentElement.querySelector('.dropdown-menu');
-                    if (menu && menu.contains(e.clickEvent.target)) {
-                        e.preventDefault();
-                        return;
-                    }
-                }
-                document.querySelector('form.filter-bar').submit();
-            });
+    var openMenu = null;
+    function closeAndSubmit() {
+        if (openMenu) {
+            openMenu.style.display = 'none';
+            openMenu = null;
+            document.querySelector('form.filter-bar').submit();
         }
+    }
+    ['classDropdown', 'districtDropdown'].forEach(function(dropdownId) {
+        var btn = document.getElementById(dropdownId);
+        if (!btn) return;
+        var menu = btn.parentElement.querySelector('.dropdown-menu');
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (openMenu === menu) {
+                closeAndSubmit();
+                return;
+            }
+            if (openMenu) {
+                openMenu.style.display = 'none';
+                openMenu = null;
+                document.querySelector('form.filter-bar').submit();
+                return;
+            }
+            menu.style.display = 'block';
+            openMenu = menu;
+        });
+        menu.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    });
+    document.addEventListener('click', function() {
+        if (openMenu) closeAndSubmit();
     });
 });
 </script>
