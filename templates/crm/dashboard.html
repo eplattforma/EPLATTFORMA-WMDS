@@ -61,6 +61,17 @@
     .days-red { background: #f8d7da; color: #721c24; }
 </style>
 <script>
+document.addEventListener('click', function(e) {
+    var link = e.target.closest('.sms-phone-link');
+    if (!link) return;
+    e.preventDefault();
+    var mobile = (link.dataset.mobile || '').replace(/[^\d+]/g, '');
+    if (!mobile) return;
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    var sep = isIOS ? '&' : '?';
+    window.location.href = 'sms:' + encodeURIComponent(mobile) + sep + 'body=';
+});
+
 function toggleDetail(tr) {
     var detailRow = tr.nextElementSibling;
     if (!detailRow || !detailRow.classList.contains('detail-row')) return;
@@ -566,6 +577,16 @@ function refreshAllData() {
                             {% endif %}
                             {% if r.last_invoice_date %}
                             <span class="detail-chip invoice"><i class="fas fa-file-invoice chip-icon" style="color:#ffd43b"></i> <span class="chip-value">Invoice: {{ r.last_invoice_date.strftime('%d/%m/%Y') }}</span></span>
+                            {% endif %}
+
+                            {% if r.mobile_number %}
+                            <a href="#" class="detail-chip text-decoration-none sms-phone-link"
+                               style="border-left: 3px solid #20c997; cursor: pointer;"
+                               data-mobile="{{ r.mobile_number }}"
+                               title="Send SMS via your phone">
+                                <i class="fas fa-sms chip-icon" style="color:#20c997"></i>
+                                <span class="chip-value">SMS: {{ r.mobile_number }}</span>
+                            </a>
                             {% endif %}
                         </div>
                     </td>

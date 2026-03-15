@@ -299,6 +299,34 @@ def sms_send():
     return redirect(url_for("sms.sms_home"))
 
 
+@sms_bp.route("/search-customer", methods=["GET"])
+@login_required
+def sms_search_customer():
+    if not _role_ok():
+        return Response("[]", mimetype="application/json", status=403)
+
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return Response("[]", mimetype="application/json")
+
+    import json
+    like = f"%{q}%"
+    rows = db.session.execute(db.text("""
+        SELECT customer_code_365,
+               COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
+               COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile_number
+        FROM ps_customers
+        WHERE active = true AND deleted_at IS NULL
+          AND (company_name ILIKE :q OR customer_code_365 ILIKE :q
+               OR mobile ILIKE :q OR sms ILIKE :q)
+        ORDER BY company_name
+        LIMIT 15
+    """), {"q": like}).mappings().all()
+
+    results = [dict(r) for r in rows]
+    return Response(json.dumps(results), mimetype="application/json")
+
+
 @sms_bp.route("/balance", methods=["GET"])
 @login_required
 def sms_balance():

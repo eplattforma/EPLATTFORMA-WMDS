@@ -82,14 +82,21 @@
           </div>
         </div>
 
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
           <button class="btn btn-primary" type="submit">
-            <i class="fas fa-paper-plane me-1"></i>Send SMS
+            <i class="fas fa-paper-plane me-1"></i>Send via MicroSMS
+          </button>
+          <button class="btn btn-success" type="button" id="btnSendViaPhone">
+            <i class="fas fa-mobile-alt me-1"></i>Send via Phone
           </button>
           <a class="btn btn-outline-secondary" href="{{ request.referrer or url_for('sms.sms_home') }}">
             Cancel
           </a>
         </div>
+        <small class="text-muted mt-2 d-block">
+          <i class="fas fa-info-circle me-1"></i><strong>Send via MicroSMS</strong> sends through the online provider.
+          <strong>Send via Phone</strong> opens your phone's SMS app with the message pre-filled.
+        </small>
       </div>
     </div>
   </form>
@@ -146,6 +153,17 @@
 
   ta.addEventListener('input', updateCounts);
   updateCounts();
+
+  document.getElementById('btnSendViaPhone').addEventListener('click', function(){
+    var msg = ta.value.trim();
+    if (!msg) { alert('Please type a message first.'); return; }
+    var mobile = {{ mobile_number|tojson }}.replace(/[^\d+]/g, '');
+    if (!mobile) { alert('No valid mobile number.'); return; }
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    var sep = isIOS ? '&' : '?';
+    var smsUrl = 'sms:' + encodeURIComponent(mobile) + sep + 'body=' + encodeURIComponent(msg);
+    window.location.href = smsUrl;
+  });
 })();
 </script>
 {% endblock %}

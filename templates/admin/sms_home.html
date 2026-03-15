@@ -21,13 +21,33 @@
   {% endwith %}
 
   <div class="card mb-4">
-    <div class="card-header">
-      <i class="fas fa-info-circle me-1"></i>How to use
+    <div class="card-header bg-primary text-white">
+      <i class="fas fa-pen me-1"></i>Compose New SMS
     </div>
     <div class="card-body">
-      <p class="mb-1">Action buttons in other pages open the composer via:</p>
-      <code>/admin/sms/compose?ctx=customer&amp;id=CUST_CODE&amp;tpl=DELIVERY_TODAY</code>
-      <p class="mt-2 mb-0 text-muted">Default sender: <strong>{{ default_sender }}</strong></p>
+      <div class="row g-2 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label fw-bold mb-1">Search Customer</label>
+          <input type="text" class="form-control" id="customerSearch"
+                 placeholder="Type customer name or code…" autocomplete="off">
+          <div id="customerResults" class="list-group mt-1 position-absolute shadow"
+               style="z-index: 1050; max-height: 250px; overflow-y: auto; display: none;"></div>
+        </div>
+        <div class="col-md-4">
+          <button class="btn btn-primary w-100" id="btnCompose" disabled>
+            <i class="fas fa-pen me-1"></i>Compose
+          </button>
+        </div>
+      </div>
+      <div id="selectedCustomer" class="mt-2 d-none">
+        <span class="badge bg-success fs-6 px-3 py-2">
+          <i class="fas fa-user me-1"></i>
+          <span id="selName"></span>
+          <small class="opacity-75 ms-1" id="selCode"></small>
+          <span class="ms-2" id="selMobile"></span>
+        </span>
+      </div>
+      <p class="mt-2 mb-0 text-muted small">Default sender: <strong>{{ default_sender }}</strong></p>
     </div>
   </div>
 
@@ -121,4 +141,63 @@
     </div>
   </div>
 </div>
+
+<script>
+(function(){
+  var input = document.getElementById('customerSearch');
+  var results = document.getElementById('customerResults');
+  var btn = document.getElementById('btnCompose');
+  var selDiv = document.getElementById('selectedCustomer');
+  var selName = document.getElementById('selName');
+  var selCode = document.getElementById('selCode');
+  var selMobile = document.getElementById('selMobile');
+  var selectedCode = '';
+  var timer = null;
+
+  input.addEventListener('input', function(){
+    clearTimeout(timer);
+    var q = input.value.trim();
+    if (q.length < 2) { results.style.display = 'none'; return; }
+    timer = setTimeout(function(){
+      fetch('/admin/sms/search-customer?q=' + encodeURIComponent(q))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          results.innerHTML = '';
+          if (!data.length) {
+            results.innerHTML = '<div class="list-group-item text-muted small">No customers found</div>';
+            results.style.display = 'block';
+            return;
+          }
+          data.forEach(function(c){
+            var a = document.createElement('a');
+            a.href = '#';
+            a.className = 'list-group-item list-group-item-action py-1 small';
+            a.textContent = c.customer_name + ' (' + c.customer_code_365 + ')' + (c.mobile_number ? ' - ' + c.mobile_number : '');
+            a.addEventListener('click', function(e){
+              e.preventDefault();
+              selectedCode = c.customer_code_365;
+              selName.textContent = c.customer_name;
+              selCode.textContent = '(' + c.customer_code_365 + ')';
+              selMobile.textContent = c.mobile_number || 'No mobile';
+              selDiv.classList.remove('d-none');
+              btn.disabled = false;
+              input.value = c.customer_name;
+              results.style.display = 'none';
+            });
+            results.appendChild(a);
+          });
+          results.style.display = 'block';
+        });
+    }, 300);
+  });
+
+  document.addEventListener('click', function(e){
+    if (!results.contains(e.target) && e.target !== input) results.style.display = 'none';
+  });
+
+  btn.addEventListener('click', function(){
+    if (selectedCode) window.location.href = '/admin/sms/compose?ctx=customer&id=' + encodeURIComponent(selectedCode);
+  });
+})();
+</script>
 {% endblock %}

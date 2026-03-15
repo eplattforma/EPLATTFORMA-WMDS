@@ -122,6 +122,8 @@ def customer_slot_dashboard():
             resolved_district,
             CrmCustomerProfile.area,
             PSCustomer.delivery_days_status,
+            PSCustomer.mobile,
+            PSCustomer.sms.label("sms_number"),
 
             CrmAbandonedCartState.has_abandoned_cart,
             CrmAbandonedCartState.abandoned_cart_amount,
@@ -351,6 +353,7 @@ def customer_slot_dashboard():
             "window_open": window_open,
             "next_delivery": window_status["next_delivery"].strftime('%a %d-%b') if window_status["next_delivery"] else None,
             "next_delivery_date": window_status["next_delivery"] if window_status["next_delivery"] else None,
+            "mobile_number": r.mobile or r.sms_number or "",
         })
 
     if action_only:
