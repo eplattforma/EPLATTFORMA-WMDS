@@ -322,6 +322,8 @@ def crm_classifications_settings():
             allowed = json.loads(allowed)
         except Exception:
             allowed = {}
+    if isinstance(allowed, list):
+        allowed = {name: "" for name in allowed}
     if not isinstance(allowed, dict):
         allowed = {}
     
@@ -399,6 +401,8 @@ def save_crm_classifications():
             existing = existing_raw
         else:
             existing = {}
+        if isinstance(existing, list):
+            existing = {name: "" for name in existing}
         
         data = request.form.get('data', '[]')
         items = json.loads(data) if data else []

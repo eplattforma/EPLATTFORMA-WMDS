@@ -727,9 +727,9 @@ def full_dw_update(session: Session, force_update: bool = False, sync_trigger: s
                             total_inserted += 1
                             continue
 
-                    # INSERT: New record
                     obj = DwItem(**core, attr_hash=attr_hash, last_sync_at=now)
-                    session.add(obj)
+                    session.merge(obj)
+                    existing_items_map[code] = obj
                     page_inserted += 1
                     total_inserted += 1
                     

@@ -1,0 +1,142 @@
+2026-03-15 18:50:02.97
+fafa146a
+User
+INFO:datawarehouse_sync:Page 7: API returned 100/100 items with list_item_barcodes
+2026-03-15 18:50:03.47
+154da5b4
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('ACM-0078',), None) conflicts with persistent instance
+2026-03-15 18:50:03.47
+154da5b4
+User
+session.commit()
+2026-03-15 18:50:03.77
+154da5b4
+User
+session.commit()
+2026-03-15 18:50:03.77
+154da5b4
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('ACM-0102',), None) conflicts with persistent instance
+2026-03-15 18:50:03.77
+154da5b4
+User
+session.commit()
+2026-03-15 18:50:03.77
+154da5b4
+User
+session.commit()
+2026-03-15 18:50:03.77
+154da5b4
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('CHA-0001',), None) conflicts with persistent instance
+2026-03-15 18:50:03.77
+154da5b4
+User
+session.commit()
+2026-03-15 18:50:03.77
+154da5b4
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('ACM-0079',), None) conflicts with persistent instance
+2026-03-15 18:50:03.77
+154da5b4
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('HEA-0001',), None) conflicts with persistent instance
+2026-03-15 18:50:03.77
+154da5b4
+User
+session.commit()
+2026-03-15 18:50:03.77
+154da5b4
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('ACM-0069',), None) conflicts with persistent instance
+2026-03-15 18:50:04.77
+154da5b4
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('SNA-0091',), None) conflicts with persistent instance
+2026-03-15 18:50:04.77
+154da5b4
+User
+session.commit()
+2026-03-15 18:50:04.97
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:04.97
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('KCO-0036',), None) conflicts with persistent instance
+2026-03-15 18:50:04.97
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('KCO-0013',), None) conflicts with persistent instance
+2026-03-15 18:50:04.97
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('KCO-0055',), None) conflicts with persistent instance
+2026-03-15 18:50:04.97
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:04.97
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:05.06
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('SOD-0001',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('SOD-0002',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('SOD-0007',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('SOD-0004',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('KCO-0014',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('SOD-0003',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('SOD-0012',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:05.06
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:05.06
+fafa146a
+User
+/home/runner/workspace/datawarehouse_sync.py:744: SAWarning: New instance with identity key (, ('WIC-0003',), None) conflicts with persistent instance
+2026-03-15 18:50:05.06
+fafa146a
+User
+session.commit()
+2026-03-15 18:50:05.06
+fafa146a
+User
+session.commit()
+Wrap
+Colors
