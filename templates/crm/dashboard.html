@@ -73,56 +73,33 @@ function toggleDetail(tr) {
     }
 }
 
-var currentSortCol = null;
-var currentSortDir = 'asc';
-
 function sortTable(th) {
     var col = th.dataset.sort;
-    var type = th.dataset.type;
+    var url = new URL(window.location.href);
+    var currentSort = url.searchParams.get('sort');
+    var currentDir = url.searchParams.get('sort_dir') || 'asc';
 
-    if (currentSortCol === col) {
-        currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+    if (currentSort === col) {
+        url.searchParams.set('sort_dir', currentDir === 'asc' ? 'desc' : 'asc');
     } else {
-        currentSortCol = col;
-        currentSortDir = 'asc';
+        url.searchParams.set('sort', col);
+        url.searchParams.set('sort_dir', 'asc');
     }
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
+}
 
-    document.querySelectorAll('.sort-icon').forEach(function(ic) {
-        ic.classList.remove('active');
-        ic.className = ic.className.replace(/fa-sort-up|fa-sort-down/, 'fa-sort');
-    });
-    var icon = th.querySelector('.sort-icon');
-    icon.classList.add('active');
-    icon.classList.remove('fa-sort');
-    icon.classList.add(currentSortDir === 'asc' ? 'fa-sort-up' : 'fa-sort-down');
-
-    var tbody = document.querySelector('.crm-table tbody');
-    var dataRows = Array.from(tbody.querySelectorAll('tr.row-toggle'));
-
-    var pairs = dataRows.map(function(tr) {
-        var detail = tr.nextElementSibling;
-        var hasDetail = detail && detail.classList.contains('detail-row');
-        return { toggle: tr, detail: hasDetail ? detail : null };
-    });
-
-    pairs.sort(function(a, b) {
-        var va = a.toggle.dataset[col] || '';
-        var vb = b.toggle.dataset[col] || '';
-        var cmp;
-        if (type === 'num') {
-            cmp = parseFloat(va) - parseFloat(vb);
-        } else {
-            cmp = va.localeCompare(vb, undefined, { sensitivity: 'base' });
-        }
-        return currentSortDir === 'asc' ? cmp : -cmp;
-    });
-
-    tbody.querySelectorAll('.cycle-group-header').forEach(function(h) { h.style.display = 'none'; });
-
-    pairs.forEach(function(p) {
-        tbody.appendChild(p.toggle);
-        if (p.detail) tbody.appendChild(p.detail);
-    });
+function applySort(val) {
+    var url = new URL(window.location.href);
+    if (val === '') {
+        url.searchParams.delete('sort');
+        url.searchParams.delete('sort_dir');
+    } else {
+        url.searchParams.set('sort', val);
+        url.searchParams.set('sort_dir', 'asc');
+    }
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
 }
 
 function refreshAllData() {
@@ -326,6 +303,23 @@ function refreshAllData() {
             </div>
         </div>
         <div class="col-auto d-flex align-items-center gap-2">
+            <div class="d-flex align-items-center" style="background: rgba(255,255,255,0.08); border-radius: 6px; padding: 2px 8px; border: 1px solid rgba(255,255,255,0.12);">
+                <i class="fas fa-sort-amount-down me-1" style="font-size: 0.75rem; color: rgba(255,255,255,0.5);"></i>
+                <select id="sort-select" onchange="applySort(this.value)" style="background: transparent; border: none; color: #e0e0e0; font-size: 0.8rem; font-weight: 600; cursor: pointer; padding: 3px 2px; outline: none; -webkit-appearance: none; -moz-appearance: none; appearance: none; padding-right: 14px; background-image: url('data:image/svg+xml;utf8,<svg fill=&quot;%23aaa&quot; viewBox=&quot;0 0 24 24&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot;><path d=&quot;M7 10l5 5 5-5z&quot;/></svg>'); background-repeat: no-repeat; background-position: right 0 center; background-size: 14px;">
+                    <option value="" {% if not filters.sort %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Ordering</option>
+                    <option value="customer" {% if filters.sort == 'customer' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Customer</option>
+                    <option value="classification" {% if filters.sort == 'classification' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Classification</option>
+                    <option value="cycle" {% if filters.sort == 'cycle' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Cycle</option>
+                    <option value="cart" {% if filters.sort == 'cart' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Cart</option>
+                    <option value="login" {% if filters.sort == 'login' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Last Login</option>
+                    <option value="value6m" {% if filters.sort == 'value6m' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Value 6m</option>
+                    <option value="value4w" {% if filters.sort == 'value4w' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Value 4w</option>
+                    <option value="invoice" {% if filters.sort == 'invoice' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Last Invoice</option>
+                    <option value="inv90d" {% if filters.sort == 'inv90d' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Inv 90d</option>
+                    <option value="orders" {% if filters.sort == 'orders' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Orders</option>
+                    <option value="action" {% if filters.sort == 'action' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Action</option>
+                </select>
+            </div>
             <button id="btn-refresh-all" class="btn btn-sm btn-primary" onclick="refreshAllData()" title="Refresh Orders & Abandoned Carts" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); border: none; box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3); display: flex; flex-direction: column; align-items: center;">
                 <div style="display: flex; align-items: center;">
                     <i class="fas fa-bolt spinner-icon me-1" style="font-size: 0.95rem;"></i><span class="refresh-text">Sync</span>
@@ -342,24 +336,35 @@ function refreshAllData() {
             <thead class="table-dark">
                 <tr>
                     <th style="width:18px;"></th>
-                    <th class="sortable-header" data-sort="customer" data-type="text" onclick="sortTable(this)">Customer <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="sortable-header" data-sort="classification" data-type="text" onclick="sortTable(this)">Classification <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="sortable-header" data-sort="cycle" data-type="text" onclick="sortTable(this)">Cycle <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="sortable-header" data-sort="cart" data-type="num" onclick="sortTable(this)">Cart <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="sortable-header" data-sort="login" data-type="num" onclick="sortTable(this)">Last Login <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="value-col sortable-header" data-sort="value6m" data-type="num" onclick="sortTable(this)">Value 6m <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="value-col sortable-header" data-sort="value4w" data-type="num" onclick="sortTable(this)">Value 4w <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="sortable-header" data-sort="invoice" data-type="num" onclick="sortTable(this)">Last Invoice <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="value-col sortable-header" data-sort="inv90d" data-type="num" onclick="sortTable(this)">Inv 90d <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="value-col sortable-header" data-sort="orders" data-type="num" onclick="sortTable(this)">Orders <i class="fas fa-sort sort-icon"></i></th>
-                    <th class="sortable-header" data-sort="action" data-type="text" onclick="sortTable(this)">Action <i class="fas fa-sort sort-icon"></i></th>
+                    {% for col_key, col_label, col_class in [
+                        ('customer', 'Customer', ''),
+                        ('classification', 'Classification', ''),
+                        ('cycle', 'Cycle', ''),
+                        ('cart', 'Cart', ''),
+                        ('login', 'Last Login', ''),
+                        ('value6m', 'Value 6m', 'value-col'),
+                        ('value4w', 'Value 4w', 'value-col'),
+                        ('invoice', 'Last Invoice', ''),
+                        ('inv90d', 'Inv 90d', 'value-col'),
+                        ('orders', 'Orders', 'value-col'),
+                        ('action', 'Action', ''),
+                    ] %}
+                    <th class="{{ col_class }} sortable-header" data-sort="{{ col_key }}" onclick="sortTable(this)">
+                        {{ col_label }}
+                        {% if filters.sort == col_key %}
+                        <i class="fas {{ 'fa-sort-up' if filters.sort_dir == 'asc' else 'fa-sort-down' }} sort-icon active"></i>
+                        {% else %}
+                        <i class="fas fa-sort sort-icon"></i>
+                        {% endif %}
+                    </th>
+                    {% endfor %}
                     <th>Quick Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% set ns = namespace(current_group='') %}
                 {% for r in rows %}
-                {% if r.cycle_group != ns.current_group %}
+                {% if (not filters.sort or filters.sort == 'cycle') and r.cycle_group != ns.current_group %}
                 {% set ns.current_group = r.cycle_group %}
                 <tr class="cycle-group-header">
                     <td colspan="13" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; border-bottom: 2px solid rgba(255,255,255,0.15);">
@@ -373,18 +378,7 @@ function refreshAllData() {
                     </td>
                 </tr>
                 {% endif %}
-                <tr class="row-toggle" onclick="toggleDetail(this)"
-                    data-customer="{{ r.customer_name }}"
-                    data-classification="{{ r.classification or '' }}"
-                    data-cycle="{{ r.cycle_group }}"
-                    data-cart="{{ r.cart_amount if r.cart_amount else 0 }}"
-                    data-login="{{ r.r_login_days if r.r_login_days is not none else 9999 }}"
-                    data-value6m="{{ r.value_6m or 0 }}"
-                    data-value4w="{{ r.value_4w or 0 }}"
-                    data-invoice="{{ r.r_invoice_days if r.r_invoice_days is not none else 9999 }}"
-                    data-inv90d="{{ r.inv_cnt_90d or 0 }}"
-                    data-orders="{{ r.open_order_amount or 0 }}"
-                    data-action="{{ r.next_action or '' }}">
+                <tr class="row-toggle" onclick="toggleDetail(this)">
                     <td class="text-center pe-0"><i class="fas fa-caret-right toggle-icon"></i></td>
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>

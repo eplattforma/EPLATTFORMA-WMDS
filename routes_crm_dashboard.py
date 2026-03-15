@@ -63,6 +63,11 @@ def customer_slot_dashboard():
     has_cart_only = request.args.get("has_cart_only") == "1"
     logged_in_days = request.args.get("logged_in_days")
     search_q = request.args.get("q", "").strip()
+    sort_col = request.args.get("sort", "")
+    sort_dir = request.args.get("sort_dir", "asc")
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "asc"
+    python_side_sort = sort_col in ("cycle", "action", "")
 
     try:
         page = max(int(request.args.get("page", 1)), 1)
@@ -191,10 +196,34 @@ def customer_slot_dashboard():
         func.sum(case((func.coalesce(CRMCustomerOpenOrders.open_order_count, 0) > 0, 1), else_=0)).label("done_count"),
     ).one()
 
-    rows = (q.order_by(PSCustomer.company_name)
-              .limit(page_size)
-              .offset((page - 1) * page_size)
-              .all())
+    sort_col_map = {
+        "customer": PSCustomer.company_name,
+        "classification": CrmCustomerProfile.classification,
+        "cart": CrmAbandonedCartState.abandoned_cart_amount,
+        "login": MagentoCustomerLastLoginCurrent.last_login_at,
+        "value6m": sales_sq.c.value_6m,
+        "value4w": sales_sq.c.value_4w,
+        "invoice": sales_sq.c.last_invoice_date,
+        "inv90d": sales_sq.c.inv_cnt_90d,
+        "orders": CRMCustomerOpenOrders.open_order_amount,
+    }
+
+    if python_side_sort:
+        rows = q.order_by(PSCustomer.company_name).all()
+    elif sort_col in sort_col_map:
+        sql_col = sort_col_map[sort_col]
+        if sort_dir == "desc":
+            q = q.order_by(sql_col.desc().nulls_last())
+        else:
+            q = q.order_by(sql_col.asc().nulls_last())
+        rows = (q.limit(page_size)
+                  .offset((page - 1) * page_size)
+                  .all())
+    else:
+        q = q.order_by(PSCustomer.company_name)
+        rows = (q.limit(page_size)
+                  .offset((page - 1) * page_size)
+                  .all())
 
     now_utc = datetime.now(timezone.utc)
     now_local = now_utc.astimezone(ATHENS_TZ)
@@ -326,20 +355,40 @@ def customer_slot_dashboard():
     if action_only:
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
-    def cycle_sort_key(row):
-        window_open = row["window_open"]
-        done = row["done_for_cycle"]
-        last_invoice = row.get("last_invoice_date") or date(9999, 12, 31)
-        
-        # Order: 1=Open+Pending, 2=Done, 3=Closed; then by last_invoice_date ascending
-        if window_open and not done:
-            return (1, last_invoice)
-        elif done:
-            return (2, last_invoice)
-        else:
-            return (3, last_invoice)
+    if not sort_col or sort_col not in ("customer", "classification", "cart", "login", "value6m", "value4w", "invoice", "inv90d", "orders", "cycle", "action"):
+        def cycle_sort_key(row):
+            window_open = row["window_open"]
+            done = row["done_for_cycle"]
+            last_invoice = row.get("last_invoice_date") or date(9999, 12, 31)
+            if window_open and not done:
+                return (1, last_invoice)
+            elif done:
+                return (2, last_invoice)
+            else:
+                return (3, last_invoice)
+        dashboard_rows.sort(key=cycle_sort_key)
+    elif sort_col == "cycle":
+        cycle_order = {"OPEN": 1, "DONE": 2, "CLOSED": 3}
+        for row in dashboard_rows:
+            if row["window_open"] and not row["done_for_cycle"]:
+                row["_cg"] = "OPEN"
+            elif row["done_for_cycle"]:
+                row["_cg"] = "DONE"
+            else:
+                row["_cg"] = "CLOSED"
+        rev = sort_dir == "desc"
+        dashboard_rows.sort(key=lambda r: cycle_order.get(r.get("_cg", "CLOSED"), 3), reverse=rev)
+    elif sort_col == "action":
+        action_order = {"CART_NUDGE": 1, "ORDER_REMINDER": 2, "CALL": 3, "NO_ACTION": 4}
+        rev = sort_dir == "desc"
+        dashboard_rows.sort(key=lambda r: action_order.get(r.get("next_action", "NO_ACTION"), 4), reverse=rev)
 
-    dashboard_rows.sort(key=cycle_sort_key)
+    if python_side_sort:
+        total_count = len(dashboard_rows)
+        total_pages = max(1, (total_count + page_size - 1) // page_size)
+        if page > total_pages:
+            page = total_pages
+        dashboard_rows = dashboard_rows[(page - 1) * page_size : page * page_size]
 
     for row in dashboard_rows:
         if row["window_open"] and not row["done_for_cycle"]:
@@ -381,6 +430,8 @@ def customer_slot_dashboard():
             "has_cart_only": has_cart_only,
             "logged_in_days": logged_in_days or "",
             "q": search_q,
+            "sort": sort_col,
+            "sort_dir": sort_dir,
         },
     )
 
