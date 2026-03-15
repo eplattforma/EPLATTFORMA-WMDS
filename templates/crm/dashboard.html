@@ -308,9 +308,13 @@ function refreshAllData() {
                         <div style="font-size:0.72rem; display: flex; gap: 8px; align-items: center;">
                             <span class="text-muted">{{ r.customer_code_365 }}</span>
                             {% if r.next_delivery %}
-                            <span class="badge" style="background-color: {% if r.window_open %}#22c55e{% else %}#9ca3af{% endif %}; color: white; font-size: 0.7rem; white-space: nowrap;">
+                            {% if r.window_open %}
+                            <span class="badge" style="background-color: #22c55e; color: white; font-size: 0.7rem; white-space: nowrap;">
                                 ⚬ {{ r.next_delivery }}
                             </span>
+                            {% else %}
+                            <span class="text-muted" style="font-size: 0.7rem; white-space: nowrap;">{{ r.next_delivery }}</span>
+                            {% endif %}
                             {% endif %}
                         </div>
                     </td>
