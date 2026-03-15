@@ -50,6 +50,7 @@
     .classification-dropdown-menu .dropdown-item:hover, .district-dropdown-menu .dropdown-item:hover { background: rgba(255,255,255,0.1); }
     .classification-dropdown-menu .dropdown-item:active, .district-dropdown-menu .dropdown-item:active { background: rgba(255,255,255,0.15); }
     .days-pill { font-weight: 700; font-size: 0.78rem; padding: 2px 7px; border-radius: 4px; display: inline-block; }
+    .cycle-group-header td { background: rgba(255,255,255,0.03) !important; }
     .days-green { background: #d4edda; color: #155724; }
     .days-yellow { background: #fff3cd; color: #856404; }
     .days-orange { background: #ffe0b2; color: #e65100; }
@@ -300,7 +301,22 @@ function refreshAllData() {
                 </tr>
             </thead>
             <tbody>
+                {% set ns = namespace(current_group='') %}
                 {% for r in rows %}
+                {% if r.cycle_group != ns.current_group %}
+                {% set ns.current_group = r.cycle_group %}
+                <tr class="cycle-group-header">
+                    <td colspan="13" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; border-bottom: 2px solid rgba(255,255,255,0.15);">
+                        {% if r.cycle_group == 'OPEN' %}
+                        <span style="color: #22c55e;"><i class="fas fa-clock me-1"></i>ORDERING WINDOW OPEN</span>
+                        {% elif r.cycle_group == 'DONE' %}
+                        <span style="color: #198754;"><i class="fas fa-check-circle me-1"></i>DONE</span>
+                        {% else %}
+                        <span style="color: #9ca3af;"><i class="fas fa-lock me-1"></i>WINDOW CLOSED</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
                 <tr class="row-toggle" onclick="toggleDetail(this)">
                     <td class="text-center pe-0"><i class="fas fa-caret-right toggle-icon"></i></td>
                     <td>

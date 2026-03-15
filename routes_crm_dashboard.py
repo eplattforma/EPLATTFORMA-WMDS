@@ -326,6 +326,24 @@ def customer_slot_dashboard():
     if action_only:
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
+    def cycle_sort_key(row):
+        if row["window_open"] and not row["done_for_cycle"]:
+            return (0, row.get("customer_name", ""))
+        elif row["done_for_cycle"]:
+            return (1, row.get("customer_name", ""))
+        else:
+            return (2, row.get("customer_name", ""))
+
+    dashboard_rows.sort(key=cycle_sort_key)
+
+    for row in dashboard_rows:
+        if row["window_open"] and not row["done_for_cycle"]:
+            row["cycle_group"] = "OPEN"
+        elif row["done_for_cycle"]:
+            row["cycle_group"] = "DONE"
+        else:
+            row["cycle_group"] = "CLOSED"
+
     open_orders_status = None
     try:
         from services.ps365_pending_orders_service import get_open_orders_status
