@@ -350,18 +350,50 @@ def save_crm_classifications():
         from models import Setting
         import json
         
+        existing_raw = Setting.get(db.session, "crm_customer_classifications", "{}")
+        if isinstance(existing_raw, str):
+            try:
+                existing = json.loads(existing_raw)
+            except Exception:
+                existing = {}
+        elif isinstance(existing_raw, dict):
+            existing = existing_raw
+        else:
+            existing = {}
+        
         data = request.form.get('data', '[]')
         items = json.loads(data) if data else []
         data_dict = {}
         defaults = []
         
-        for item in items:
+        name_to_index = {}
+        for idx, item in enumerate(items):
             name = (item.get('name') or '').strip()
             is_default = item.get('is_default', False)
             if name:
-                data_dict[name] = None
+                data_dict[name] = existing.get(name)
+                name_to_index[name] = idx
                 if is_default:
                     defaults.append(name)
+        
+        os.makedirs('static/crm-classification-images', exist_ok=True)
+        for key in request.files:
+            if key.startswith('file_'):
+                idx = key.split('_', 1)[1]
+                name_key = f'name_{idx}'
+                cls_name = request.form.get(name_key, '').strip()
+                if not cls_name or cls_name not in data_dict:
+                    continue
+                f = request.files[key]
+                if f and f.filename:
+                    import hashlib
+                    h = hashlib.md5(f.read()).hexdigest()[:16]
+                    f.seek(0)
+                    safe_name = cls_name.replace(' ', '_')
+                    filename = f"{safe_name}_{h}.jpg"
+                    filepath = os.path.join('static/crm-classification-images', filename)
+                    f.save(filepath)
+                    data_dict[cls_name] = filename
         
         if not data_dict:
             return jsonify({"ok": False, "error": "At least one classification is required"}), 400
