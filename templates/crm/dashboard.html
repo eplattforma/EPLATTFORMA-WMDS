@@ -516,7 +516,7 @@ function refreshAllData() {
                     <td>
                         <div style="display: flex; gap: 6px; align-items: center;">
                             {% if r.classification and allowed_classifications.get(r.classification) %}
-                            <img src="/static/crm-classification-images/{{ allowed_classifications[r.classification] }}"
+                            <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification] }}"
                                  style="width: 24px; height: 24px; border-radius: 3px;" alt="{{ r.classification }}"
                                  title="{{ r.classification }}">
                             {% endif %}
@@ -769,7 +769,7 @@ async function setClassification(el) {
             const container = el.closest('div');
             const img = container.querySelector('img');
             if (val && allowed_classifications && allowed_classifications[val]) {
-                const imagePath = `/static/crm-classification-images/${allowed_classifications[val]}`;
+                const imagePath = `/admin/tools/crm-classification-image/${allowed_classifications[val]}`;
                 if (img) {
                     img.src = imagePath;
                     img.alt = val;

@@ -4,7 +4,7 @@ Admin Tools routes for database operations and maintenance
 import subprocess
 import logging
 from datetime import datetime, timezone
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, Response, send_file
 from flask_login import login_required, current_user
 from flask import current_app as app
 from app import db
@@ -419,6 +419,13 @@ def save_crm_classifications():
                 if is_default:
                     defaults.append(name)
         
+        import base64, hashlib as _hashlib
+        existing_b64 = Setting.get(db.session, 'crm_classification_images_b64', '{}')
+        try:
+            images_b64 = json.loads(existing_b64)
+        except Exception:
+            images_b64 = {}
+
         os.makedirs('static/crm-classification-images', exist_ok=True)
         for key in request.files:
             if key.startswith('file_'):
@@ -429,14 +436,17 @@ def save_crm_classifications():
                     continue
                 f = request.files[key]
                 if f and f.filename:
-                    import hashlib
-                    h = hashlib.md5(f.read()).hexdigest()[:16]
-                    f.seek(0)
+                    raw = f.read()
+                    h = _hashlib.md5(raw).hexdigest()[:16]
                     safe_name = cls_name.replace(' ', '_')
                     filename = f"{safe_name}_{h}.jpg"
                     filepath = os.path.join('static/crm-classification-images', filename)
-                    f.save(filepath)
+                    with open(filepath, 'wb') as fout:
+                        fout.write(raw)
+                    images_b64[filename] = base64.b64encode(raw).decode('ascii')
                     data_dict[cls_name] = filename
+
+        Setting.set(db.session, 'crm_classification_images_b64', json.dumps(images_b64))
         
         if not data_dict:
             return jsonify({"ok": False, "error": "At least one classification is required"}), 400
@@ -468,20 +478,62 @@ def upload_classification_icon():
         if not file or not name:
             return jsonify({"ok": False, "error": "Missing file or name"}), 400
         
-        if not file.filename.lower().endswith(('.jpg', '.jpeg')):
-            return jsonify({"ok": False, "error": "Only JPG files allowed"}), 400
+        if not file.filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            return jsonify({"ok": False, "error": "Only JPG/PNG/WebP files allowed"}), 400
         
-        # Save file
+        import base64, json, hashlib
+        raw = file.read()
+        h = hashlib.md5(raw).hexdigest()[:16]
+        safe_name = name.replace(' ', '_')
+        filename = f"{safe_name}_{h}.jpg"
+        b64 = base64.b64encode(raw).decode('ascii')
+
+        from models import Setting
+        existing_b64 = Setting.get(db.session, 'crm_classification_images_b64', '{}')
+        try:
+            images_dict = json.loads(existing_b64)
+        except Exception:
+            images_dict = {}
+        images_dict[filename] = b64
+        Setting.set(db.session, 'crm_classification_images_b64', json.dumps(images_dict))
+        db.session.commit()
+
         os.makedirs('static/crm-classification-images', exist_ok=True)
-        filename = f"{name}_{datetime.now(timezone.utc).timestamp()}.jpg"
+        file.seek(0)
         filepath = os.path.join('static/crm-classification-images', filename)
-        file.save(filepath)
+        with open(filepath, 'wb') as fout:
+            fout.write(raw)
         
         return jsonify({"ok": True, "filename": filename})
         
     except Exception as e:
+        db.session.rollback()
         logger.error("Error uploading icon: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route('/crm-classification-image/<path:filename>')
+@login_required
+def serve_classification_image(filename):
+    import json, base64
+    from io import BytesIO
+    local_path = os.path.join('static/crm-classification-images', filename)
+    if os.path.exists(local_path):
+        return send_file(local_path, mimetype='image/jpeg')
+    from models import Setting
+    raw_b64 = Setting.get(db.session, 'crm_classification_images_b64', '{}')
+    try:
+        images_dict = json.loads(raw_b64)
+    except Exception:
+        images_dict = {}
+    b64_data = images_dict.get(filename)
+    if b64_data:
+        os.makedirs('static/crm-classification-images', exist_ok=True)
+        img_bytes = base64.b64decode(b64_data)
+        with open(local_path, 'wb') as f:
+            f.write(img_bytes)
+        return send_file(BytesIO(img_bytes), mimetype='image/jpeg')
+    return Response('Not found', status=404)
 
 
 @bp.route('/crm-bulk-classify', methods=['GET', 'POST'])
