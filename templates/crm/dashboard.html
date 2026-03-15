@@ -4,7 +4,6 @@
 
 {% block head %}
 <style>
-    .navbar-brand img { content: url('/static/ep-smartgrowth-logo-dark.png'); height: 135px !important; }
     .crm-table th { white-space: nowrap; font-size: 0.78rem; }
     .crm-table td { font-size: 0.82rem; vertical-align: middle; }
     .badge-done { background-color: #198754; }
@@ -614,5 +613,14 @@ async function refreshOpenOrders() {
         btn.innerHTML = originalText;
     }
 }
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var logoImg = document.querySelector('.navbar-brand img');
+    if (logoImg) {
+        logoImg.src = '/static/ep-smartgrowth-logo-dark.png';
+        logoImg.style.height = '135px';
+    }
+});
 </script>
 {% endblock %}
