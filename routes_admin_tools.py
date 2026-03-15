@@ -345,11 +345,11 @@ def crm_classifications_settings():
     if not isinstance(anchor_time, str):
         anchor_time = str(anchor_time)
     
-    close_hours = Setting.get(db.session, "crm_order_window_close_hours", "0")
+    close_hours = Setting.get(db.session, "crm_order_window_close_hours", "48")
     if not isinstance(close_hours, str):
         close_hours = str(close_hours)
     
-    close_anchor_time = Setting.get(db.session, "crm_delivery_close_anchor_time", "00:01")
+    close_anchor_time = Setting.get(db.session, "crm_delivery_close_anchor_time", "12:00")
     if not isinstance(close_anchor_time, str):
         close_anchor_time = str(close_anchor_time)
     

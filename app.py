@@ -201,6 +201,14 @@ with app.app_context():
             Setting.set(db.session, "crm_delivery_anchor_time", "00:01")
             db.session.commit()
             logging.info("Seeded crm_delivery_anchor_time=00:01")
+        if not Setting.query.filter_by(key="crm_order_window_close_hours").first():
+            Setting.set(db.session, "crm_order_window_close_hours", "48")
+            db.session.commit()
+            logging.info("Seeded crm_order_window_close_hours=48")
+        if not Setting.query.filter_by(key="crm_delivery_close_anchor_time").first():
+            Setting.set(db.session, "crm_delivery_close_anchor_time", "12:00")
+            db.session.commit()
+            logging.info("Seeded crm_delivery_close_anchor_time=12:00")
 
         # Seed OI time params (runs in both dev and production)
         from services_oi_time_estimator import DEFAULT_PARAMS
