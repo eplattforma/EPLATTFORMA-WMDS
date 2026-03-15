@@ -117,6 +117,7 @@ def sync_abandoned_carts_batch(triggered_by: str = "manual") -> dict:
             "message": "Abandoned carts synced successfully",
             "customers_processed": len(customers),
             "customers_with_carts": customers_with_carts,
+            "customers_updated": customers_with_carts,
             "triggered_by": triggered_by,
         }
         logger.info(f"Batch sync complete: {result}")

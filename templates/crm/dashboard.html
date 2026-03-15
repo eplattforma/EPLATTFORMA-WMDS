@@ -85,8 +85,8 @@ function refreshAllData() {
         
         let message = '';
         if (ordersData.success && cartsData.success) {
-            message = `Orders: ${ordersData.orders_processed} orders, ${ordersData.customers_updated} customers\n`;
-            message += `Carts: ${cartsData.customers_updated} customers updated`;
+            message = `Orders: ${ordersData.orders_processed || 0} orders, ${ordersData.customers_updated || 0} customers\n`;
+            message += `Carts: ${cartsData.customers_with_carts || 0} customers with abandoned carts`;
             alert('Data refreshed successfully!\n\n' + message);
             location.reload();
         } else {
