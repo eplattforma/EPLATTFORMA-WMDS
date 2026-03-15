@@ -234,12 +234,14 @@ function refreshAllData() {
             </div>
         </div>
         <div class="col-auto d-flex align-items-center gap-2">
-            <button id="btn-refresh-all" class="btn btn-lg btn-primary" onclick="refreshAllData()" title="Refresh Orders & Abandoned Carts" style="padding: 8px 18px; border-radius: 8px; font-weight: 600; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); border: none; box-shadow: 0 2px 8px rgba(13, 110, 253, 0.3);">
-                <i class="fas fa-bolt spinner-icon me-2" style="font-size: 1.1rem;"></i><span class="refresh-text">Sync Data</span>
+            <button id="btn-refresh-all" class="btn btn-sm btn-primary" onclick="refreshAllData()" title="Refresh Orders & Abandoned Carts" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); border: none; box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3); display: flex; flex-direction: column; align-items: center;">
+                <div style="display: flex; align-items: center;">
+                    <i class="fas fa-bolt spinner-icon me-1" style="font-size: 0.95rem;"></i><span class="refresh-text">Sync</span>
+                </div>
+                {% if open_orders_status and open_orders_status.last_sync_at %}
+                <span style="font-size: 0.65rem; color: rgba(255,255,255,0.8); margin-top: 1px;">{{ open_orders_status.last_sync_at[:16] }}</span>
+                {% endif %}
             </button>
-            {% if open_orders_status and open_orders_status.last_sync_at %}
-            <span class="text-muted ms-2" style="font-size:0.7rem;">Last: {{ open_orders_status.last_sync_at[:16] }}</span>
-            {% endif %}
         </div>
     </div>
 
