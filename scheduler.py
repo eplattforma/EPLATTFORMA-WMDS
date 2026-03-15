@@ -160,6 +160,10 @@ def _check_missed_syncs_on_startup():
             else:
                 logger.info(f"Full DW sync is recent ({hours_since_full:.1f}h ago), skipping")
 
+            db.session.remove()
+            db.engine.dispose()
+
+            now = datetime.utcnow()
             last_invoice = (
                 PS365SyncLog.query
                 .filter(PS365SyncLog.sync_type == 'INVOICE_SYNC')
