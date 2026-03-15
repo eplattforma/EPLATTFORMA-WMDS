@@ -1,0 +1,296 @@
+1) Why 77701274 is marked as DONE today
+
+Because you currently do:
+
+cycle_start = today - 7 days
+
+done_sq = invoices between cycle_start and today
+
+done_for_cycle = inv_in_cycle > 0
+
+So any invoice in last 7 days marks DONE, even if the customer’s actual ordering window for the next delivery hasn’t opened yet.
+
+✅ Fix: DONE should be based on current ordering window:
+
+only consider “ordered” if they have open orders or invoice date >= window_open_date (not last 7 days)
+
+2) Add CRM settings
+
+Create two settings keys (in your Settings initialization):
+
+crm_order_window_hours = "48"
+
+crm_delivery_anchor_time = "00:01" (optional but matches your example)
+
+Instructions to Replit
+
+Add/seed settings if missing.
+
+3) Create utility functions: next delivery + ordering window open (week parity + weekends excluded)
+
+Create file: services/crm_order_window.py
+
+import pytz
+from datetime import date, datetime, time, timedelta
+
+ATHENS_TZ = pytz.timezone("Europe/Athens")
+
+DOW_MAP = {
+    "MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6
+}
+
+def iso_week_parity(d: date) -> int:
+    # returns 1 for odd ISO week, 2 for even ISO week
+    wk = d.isocalendar().week
+    return 2 if (wk % 2 == 0) else 1
+
+def next_delivery_date_for_slot(dow: str, week_code: str, from_date: date | None = None) -> date:
+    """
+    Find the next date >= from_date with weekday == dow and ISO week parity == week_code (1/2).
+    """
+    if not from_date:
+        from_date = date.today()
+
+    target_wd = DOW_MAP[dow.upper()]
+    target_parity = int(week_code)
+
+    # Start checking from today forward (up to 28 days is enough)
+    for i in range(0, 28):
+        d = from_date + timedelta(days=i)
+        if d.weekday() == target_wd and iso_week_parity(d) == target_parity:
+            return d
+
+    # Fallback (should never hit)
+    return from_date + timedelta(days=14)
+
+def subtract_working_minutes(dt_local: datetime, minutes: int) -> datetime:
+    """
+    Subtract N minutes from dt_local counting only Mon-Fri minutes (exclude Sat/Sun completely).
+    """
+    remaining = minutes
+    cur = dt_local
+    step = timedelta(minutes=1)
+
+    while remaining > 0:
+        cur = cur - step
+        if cur.weekday() in (5, 6):  # Sat=5, Sun=6
+            continue
+        remaining -= 1
+
+    return cur
+
+def order_window_open_at(delivery_date: date, window_hours: int, anchor_time_str: str = "00:01") -> datetime:
+    """
+    delivery_date is local date.
+    anchor_time_str default 00:01 local.
+    Window open time = delivery_anchor_dt_local - window_hours (excluding weekends).
+    """
+    hh, mm = anchor_time_str.split(":")
+    delivery_anchor_local = ATHENS_TZ.localize(datetime.combine(delivery_date, time(int(hh), int(mm))))
+    open_local = subtract_working_minutes(delivery_anchor_local, window_hours * 60)
+    return open_local
+
+def is_window_open(now_local: datetime, open_local: datetime, delivery_anchor_local: datetime) -> bool:
+    return open_local <= now_local < delivery_anchor_local
+4) Update the dashboard: compute per-customer next delivery + window open and use it for DONE / next_action
+4.1 Stop using cycle_start=today-7 and done_sq for DONE.
+
+You already have CRMCustomerOpenOrders and sales aggregates. We will replace “DONE” logic with:
+
+DONE_FOR_WINDOW =
+
+open_order_count > 0 OR
+
+last_invoice_date >= window_open_date (invoice_date is DATE so compare dates)
+
+IMPORTANT:
+
+Because your invoices are stored as DATE (invoice_date_utc0), we use date comparisons only:
+
+if the latest invoice date is on/after the window open date → they have ordered in-window.
+
+4.2 Make invoices faster: one sales subquery (remove 4 subqueries)
+
+Replace the 4 invoice subqueries (sales_6m_sq, sales_4w_sq, last_invoice_sq, done_sq) with ONE:
+
+sales_sq = (
+    db.session.query(
+        DwInvoiceHeader.customer_code_365.label("cc"),
+        func.coalesce(func.sum(case((DwInvoiceHeader.invoice_date_utc0 >= d6m, DwInvoiceHeader.total_grand), else_=0)), 0).label("value_6m"),
+        func.coalesce(func.sum(case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)), 0).label("value_4w"),
+        func.max(DwInvoiceHeader.invoice_date_utc0).label("last_invoice_date"),
+        func.coalesce(func.sum(case((DwInvoiceHeader.invoice_date_utc0 >= d90, 1), else_=0)), 0).label("inv_cnt_90d"),
+    )
+    .group_by(DwInvoiceHeader.customer_code_365)
+    .subquery()
+)
+
+Then join it once:
+
+.outerjoin(sales_sq, sales_sq.c.cc == PSCustomer.customer_code_365)
+
+and select:
+
+sales_sq.c.value_6m,
+sales_sq.c.value_4w,
+sales_sq.c.last_invoice_date,
+sales_sq.c.inv_cnt_90d,
+
+✅ This is a major speedup.
+
+5) Pagination (mandatory)
+
+Add:
+
+page = max(int(request.args.get("page", 1)), 1)
+page_size = min(max(int(request.args.get("page_size", 100)), 25), 500)
+
+Then:
+
+don’t do rows = q.all()
+
+do:
+
+total_count = q.with_entities(func.count()).scalar()
+rows = (q.order_by(PSCustomer.company_name)
+          .limit(page_size)
+          .offset((page-1)*page_size)
+          .all())
+6) Multi-select filters (your backend is OK)
+
+You already use getlist() and .in_().
+
+Replit must ensure the HTML selects have:
+
+multiple
+
+and name is exactly classification and district
+
+Example:
+
+<select name="classification" multiple>
+<select name="district" multiple>
+7) Replace all_districts/all_areas derived from rows
+
+Deriving them from rows forces full dataset load.
+
+Replace with distinct queries (fast):
+
+all_districts = [x[0] for x in (
+    db.session.query(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
+    .select_from(PSCustomer)
+    .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+    .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
+    .filter(PSCustomer.active.is_(True), PSCustomer.deleted_at.is_(None))
+    .distinct().order_by(1).all()
+) if x[0]]
+
+all_areas = [x[0] for x in (
+    db.session.query(CrmCustomerProfile.area)
+    .filter(CrmCustomerProfile.area.isnot(None))
+    .distinct().order_by(CrmCustomerProfile.area).all()
+)]
+8) Implement ordering window in the dashboard rows
+
+After you fetch paged rows, compute:
+
+next_delivery_date from CustomerDeliverySlot (you already filter by slot; but dashboard may show all)
+
+window_open_at_local
+
+window_open_date_local
+
+window_is_open (now between open and delivery anchor)
+
+DONE_FOR_WINDOW based on open orders or invoice date >= open_date
+
+Instructions to Replit: within your loop
+from services.crm_order_window import next_delivery_date_for_slot, order_window_open_at, ATHENS_TZ, DOW_MAP
+from models import Setting
+
+window_hours = int((Setting.query.filter_by(key="crm_order_window_hours").first().value) or "48")
+anchor_time = (Setting.query.filter_by(key="crm_delivery_anchor_time").first().value) if Setting.query.filter_by(key="crm_delivery_anchor_time").first() else "00:01"
+
+now_local = datetime.now(timezone.utc).astimezone(ATHENS_TZ)
+
+# You need each customer’s slot (dow/week_code). If dashboard shows ALL customers,
+# join CustomerDeliverySlot (or pick primary slot) to get dow/week_code per customer.
+
+delivery_date = next_delivery_date_for_slot(dow, week_code, from_date=now_local.date())
+open_local = order_window_open_at(delivery_date, window_hours, anchor_time)
+
+# delivery anchor local (same anchor time)
+hh, mm = anchor_time.split(":")
+delivery_anchor_local = ATHENS_TZ.localize(datetime.combine(delivery_date, datetime.min.time())).replace(hour=int(hh), minute=int(mm))
+
+window_open = open_local <= now_local < delivery_anchor_local
+
+last_invoice_date = r.last_invoice_date  # DATE
+has_open_order = (r.open_order_count or 0) > 0
+
+done_for_window = False
+done_source = "NONE"
+
+if has_open_order:
+    done_for_window = True
+    done_source = "OPEN_ORDER"
+elif last_invoice_date and last_invoice_date >= open_local.date():
+    # invoice date is enough to prove they ordered in the window
+    done_for_window = True
+    done_source = "INVOICE"
+Next action logic should be:
+
+If window not open → next_action = "WAIT" (or NO_ACTION)
+
+If window open:
+
+if has_cart → CART_NUDGE
+
+elif not done_for_window → ORDER_REMINDER (or CALL if cutoff near)
+
+else NO_ACTION
+
+This prevents customers like 77701274 being “DONE” just because they had an invoice last week.
+
+9) Restore classification icons
+
+Right now _get_allowed_classifications() returns dict values as None, so your template has no icon metadata.
+
+Update your setting to be a dict like:
+
+{
+  "Customer": {"icon":"fa-solid fa-user", "color":"#0ea5e9"},
+  "EKO": {"icon":"fa-solid fa-gas-pump", "color":"#22c55e"},
+  "Petrolina": {"icon":"fa-solid fa-gas-pump", "color":"#f59e0b"},
+  "SHELL": {"icon":"fa-solid fa-gas-pump", "color":"#ef4444"},
+  "Monitor": {"icon":"fa-solid fa-eye", "color":"#a855f7"},
+  "At Risk": {"icon":"fa-solid fa-triangle-exclamation", "color":"#f97316"},
+  "Frozen": {"icon":"fa-solid fa-snowflake", "color":"#64748b"}
+}
+
+Then in template:
+
+show icon next to classification using allowed_classifications[classification].icon
+
+10) One bug fix
+
+You already fixed return jsonify(timeline) — good.
+Also remove duplicated code (you pasted file twice). Keep only one version.
+
+Summary for Replit (what to change immediately)
+
+Replace 4 invoice subqueries with one sales_sq
+
+Add pagination (stop using q.all())
+
+Add ordering window calculation:
+
+next delivery date by slot week parity
+
+window open datetime subtracting working hours excluding weekends
+
+DONE and next_action must be based on ordering window, not last 7 days
+
+Replace “district/area lists from rows” with DISTINCT queries
+
+Update classification settings to include icon metadata so icons render again

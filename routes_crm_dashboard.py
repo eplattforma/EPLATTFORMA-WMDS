@@ -13,6 +13,9 @@ from models import (
     CustomerDeliverySlot, PostalCodeLookup,
     CRMCustomerOpenOrders, PSPendingOrderHeader,
 )
+from services.crm_order_window import (
+    get_customer_window_status, ATHENS_TZ,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +74,6 @@ def customer_slot_dashboard():
         page_size = 100
 
     today = date.today()
-    cycle_end = today
-    cycle_start = today - timedelta(days=7)
 
     d6m = today - timedelta(days=183)
     d4w = today - timedelta(days=28)
@@ -93,10 +94,6 @@ def customer_slot_dashboard():
             func.coalesce(func.sum(
                 case((DwInvoiceHeader.invoice_date_utc0 >= d90, 1), else_=0)
             ), 0).label("inv_cnt_90d"),
-            func.coalesce(func.sum(
-                case((and_(DwInvoiceHeader.invoice_date_utc0 >= cycle_start,
-                           DwInvoiceHeader.invoice_date_utc0 <= cycle_end), 1), else_=0)
-            ), 0).label("inv_in_cycle"),
         )
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d6m)
         .group_by(DwInvoiceHeader.customer_code_365)
@@ -107,12 +104,6 @@ def customer_slot_dashboard():
         CrmCustomerProfile.district,
         PostalCodeLookup.district,
     ).label("resolved_district")
-
-    next_action_expr = case(
-        (CrmAbandonedCartState.has_abandoned_cart.is_(True), "CART_NUDGE"),
-        (func.coalesce(sales_sq.c.inv_in_cycle, 0) <= 0, "ORDER_REMINDER"),
-        else_="NO_ACTION"
-    ).label("next_action")
 
     q = (
         db.session.query(
@@ -136,12 +127,9 @@ def customer_slot_dashboard():
             sales_sq.c.value_4w,
             sales_sq.c.last_invoice_date,
             sales_sq.c.inv_cnt_90d,
-            sales_sq.c.inv_in_cycle,
 
             CRMCustomerOpenOrders.open_order_amount,
             CRMCustomerOpenOrders.open_order_count,
-
-            next_action_expr,
         )
         .filter(PSCustomer.active == True)
         .filter(PSCustomer.deleted_at.is_(None))
@@ -191,8 +179,6 @@ def customer_slot_dashboard():
                 CustomerDeliverySlot.week_code == week,
             )
         )
-    if action_only:
-        q = q.filter(next_action_expr != "NO_ACTION")
 
     total_count = q.count()
     total_pages = max(1, (total_count + page_size - 1) // page_size)
@@ -200,10 +186,9 @@ def customer_slot_dashboard():
         page = total_pages
 
     kpi_row = q.with_entities(
-        func.sum(case((next_action_expr != "NO_ACTION", 1), else_=0)).label("action_count"),
-        func.sum(case((func.coalesce(sales_sq.c.inv_in_cycle, 0) > 0, 1), else_=0)).label("done_count"),
         func.sum(case((CrmAbandonedCartState.has_abandoned_cart.is_(True), 1), else_=0)).label("cart_count"),
         func.coalesce(func.sum(CRMCustomerOpenOrders.open_order_amount), 0).label("total_open_amount"),
+        func.sum(case((func.coalesce(CRMCustomerOpenOrders.open_order_count, 0) > 0, 1), else_=0)).label("done_count"),
     ).one()
 
     rows = (q.order_by(PSCustomer.company_name)
@@ -212,7 +197,26 @@ def customer_slot_dashboard():
               .all())
 
     now_utc = datetime.now(timezone.utc)
+    now_local = now_utc.astimezone(ATHENS_TZ)
     allowed_classifications = _get_allowed_classifications()
+
+    window_hours_setting = Setting.query.filter_by(key="crm_order_window_hours").first()
+    window_hours = int(window_hours_setting.value) if window_hours_setting and window_hours_setting.value else 48
+    anchor_setting = Setting.query.filter_by(key="crm_delivery_anchor_time").first()
+    anchor_time = anchor_setting.value if anchor_setting and anchor_setting.value else "00:01"
+
+    page_customer_codes = [r.customer_code_365 for r in rows]
+    slots_rows = (
+        CustomerDeliverySlot.query
+        .filter(CustomerDeliverySlot.customer_code_365.in_(page_customer_codes))
+        .all()
+    ) if page_customer_codes else []
+
+    customer_slots = {}
+    for s in slots_rows:
+        customer_slots.setdefault(s.customer_code_365, []).append(
+            {"dow": s.dow, "week_code": s.week_code}
+        )
 
     all_districts = [x[0] for x in (
         db.session.query(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
@@ -238,20 +242,49 @@ def customer_slot_dashboard():
     })
 
     dashboard_rows = []
-    for r in rows:
-        inv_in_cycle = r.inv_in_cycle or 0
-        done_for_cycle = inv_in_cycle > 0
-        done_source = "INVOICE" if done_for_cycle else "NONE"
+    action_count = 0
+    done_count_page = 0
 
+    for r in rows:
         has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
         cart_amount = r.abandoned_cart_amount
+        last_invoice_date = r.last_invoice_date
+        open_order_count = int(r.open_order_count) if r.open_order_count else 0
+
+        slots_for_cust = customer_slots.get(r.customer_code_365, [])
+        window_status = get_customer_window_status(
+            slots=slots_for_cust,
+            last_invoice_date=last_invoice_date,
+            open_order_count=open_order_count,
+            window_hours=window_hours,
+            anchor_time_str=anchor_time,
+            now_local=now_local,
+        )
+
+        done_for_cycle = window_status["done_for_window"]
+        done_source = window_status["done_source"]
+        window_open = window_status["window_open"]
+
+        if window_open:
+            if has_cart:
+                next_action = "CART_NUDGE"
+            elif not done_for_cycle:
+                next_action = "ORDER_REMINDER"
+            else:
+                next_action = "NO_ACTION"
+        else:
+            next_action = "NO_ACTION"
+
+        if next_action != "NO_ACTION":
+            action_count += 1
+        if done_for_cycle:
+            done_count_page += 1
 
         last_login_at = r.last_login_at
         r_login_days = None
         if last_login_at:
             r_login_days = (now_utc.date() - last_login_at.date()).days
 
-        last_invoice_date = r.last_invoice_date
         r_invoice_days = None
         if last_invoice_date:
             r_invoice_days = (now_utc.date() - last_invoice_date).days
@@ -277,10 +310,15 @@ def customer_slot_dashboard():
             "last_invoice_date": last_invoice_date,
             "r_invoice_days": r_invoice_days,
             "inv_cnt_90d": int(r.inv_cnt_90d or 0),
-            "next_action": r.next_action,
+            "next_action": next_action,
             "open_order_amount": float(r.open_order_amount) if r.open_order_amount else 0,
-            "open_order_count": int(r.open_order_count) if r.open_order_count else 0,
+            "open_order_count": open_order_count,
+            "window_open": window_open,
+            "next_delivery": window_status["next_delivery"].isoformat() if window_status["next_delivery"] else None,
         })
+
+    if action_only:
+        dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
     open_orders_status = None
     try:
@@ -301,7 +339,7 @@ def customer_slot_dashboard():
         page=page,
         page_size=page_size,
         total_pages=total_pages,
-        kpi_action_count=int(kpi_row.action_count or 0),
+        kpi_action_count=action_count,
         kpi_done_count=int(kpi_row.done_count or 0),
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),

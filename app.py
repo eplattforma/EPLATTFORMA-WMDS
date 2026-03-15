@@ -193,6 +193,15 @@ with app.app_context():
             db.session.commit()
             logging.info("Seeded crm_customer_classifications")
 
+        if not Setting.query.filter_by(key="crm_order_window_hours").first():
+            Setting.set(db.session, "crm_order_window_hours", "48")
+            db.session.commit()
+            logging.info("Seeded crm_order_window_hours=48")
+        if not Setting.query.filter_by(key="crm_delivery_anchor_time").first():
+            Setting.set(db.session, "crm_delivery_anchor_time", "00:01")
+            db.session.commit()
+            logging.info("Seeded crm_delivery_anchor_time=00:01")
+
         # Seed OI time params (runs in both dev and production)
         from services_oi_time_estimator import DEFAULT_PARAMS
         
