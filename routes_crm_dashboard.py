@@ -350,6 +350,7 @@ def customer_slot_dashboard():
             "open_order_count": open_order_count,
             "window_open": window_open,
             "next_delivery": window_status["next_delivery"].strftime('%a %d-%b') if window_status["next_delivery"] else None,
+            "next_delivery_date": window_status["next_delivery"] if window_status["next_delivery"] else None,
         })
 
     if action_only:
@@ -361,7 +362,7 @@ def customer_slot_dashboard():
         def cycle_sort_key(row):
             window_open = row["window_open"]
             done = row["done_for_cycle"]
-            next_del = row.get("next_delivery") or date(9999, 12, 31)
+            next_del = row.get("next_delivery_date") or date(9999, 12, 31)
             cart_amt = -(row.get("cart_amount") or 0)
             login_days = row.get("r_login_days") or 9999
             class_val = classification_order.get(row.get("classification"), 6)
