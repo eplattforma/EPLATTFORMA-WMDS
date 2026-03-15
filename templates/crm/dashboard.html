@@ -731,7 +731,13 @@ function refreshAllData() {
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" id="smsSendViaPhone">
-                    <i class="fas fa-mobile-alt me-1"></i>Send via Phone
+                    <i class="fas fa-mobile-alt me-1"></i>Send via SMS
+                </button>
+                <button type="button" class="btn text-white" id="smsSendViaViber" style="background:#7360f2;">
+                    <i class="fab fa-viber me-1"></i>Send via Viber
+                </button>
+                <button type="button" class="btn text-white" id="smsSendViaWhatsApp" style="background:#25D366;">
+                    <i class="fab fa-whatsapp me-1"></i>Send via WhatsApp
                 </button>
             </div>
         </div>
@@ -987,6 +993,20 @@ document.getElementById('smsSendViaPhone').addEventListener('click', function(){
     var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     var sep = isIOS ? '&' : '?';
     window.location.href = 'sms:' + encodeURIComponent(_smsMobile) + sep + 'body=' + encodeURIComponent(msg);
+});
+document.getElementById('smsSendViaViber').addEventListener('click', function(){
+    var msg = document.getElementById('smsComposeText').value.trim();
+    if (!msg) { alert('Please type a message first.'); return; }
+    var num = _smsMobile.replace(/[^\d]/g, '');
+    if (num && !_smsMobile.startsWith('+')) num = num;
+    else num = _smsMobile.replace(/[^\d+]/g, '');
+    window.open('https://viber.click/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
+});
+document.getElementById('smsSendViaWhatsApp').addEventListener('click', function(){
+    var msg = document.getElementById('smsComposeText').value.trim();
+    if (!msg) { alert('Please type a message first.'); return; }
+    var num = _smsMobile.replace(/^\+/, '');
+    window.open('https://wa.me/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
 });
 </script>
 {% endblock %}

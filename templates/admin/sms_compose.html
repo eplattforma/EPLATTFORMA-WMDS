@@ -87,7 +87,13 @@
             <i class="fas fa-paper-plane me-1"></i>Send via MicroSMS
           </button>
           <button class="btn btn-success" type="button" id="btnSendViaPhone">
-            <i class="fas fa-mobile-alt me-1"></i>Send via Phone
+            <i class="fas fa-mobile-alt me-1"></i>Send via SMS
+          </button>
+          <button class="btn text-white" type="button" id="btnSendViaViber" style="background:#7360f2;">
+            <i class="fab fa-viber me-1"></i>Send via Viber
+          </button>
+          <button class="btn text-white" type="button" id="btnSendViaWhatsApp" style="background:#25D366;">
+            <i class="fab fa-whatsapp me-1"></i>Send via WhatsApp
           </button>
           <a class="btn btn-outline-secondary" href="{{ request.referrer or url_for('sms.sms_home') }}">
             Cancel
@@ -95,7 +101,8 @@
         </div>
         <small class="text-muted mt-2 d-block">
           <i class="fas fa-info-circle me-1"></i><strong>Send via MicroSMS</strong> sends through the online provider.
-          <strong>Send via Phone</strong> opens your phone's SMS app with the message pre-filled.
+          <strong>Send via SMS</strong> opens your phone's SMS app.
+          <strong>Send via Viber</strong> / <strong>WhatsApp</strong> opens the respective app with the message pre-filled.
         </small>
       </div>
     </div>
@@ -154,15 +161,29 @@
   ta.addEventListener('input', updateCounts);
   updateCounts();
 
+  var _mobile = {{ mobile_number|tojson }}.replace(/[^\d+]/g, '');
   document.getElementById('btnSendViaPhone').addEventListener('click', function(){
     var msg = ta.value.trim();
     if (!msg) { alert('Please type a message first.'); return; }
-    var mobile = {{ mobile_number|tojson }}.replace(/[^\d+]/g, '');
-    if (!mobile) { alert('No valid mobile number.'); return; }
+    if (!_mobile) { alert('No valid mobile number.'); return; }
     var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     var sep = isIOS ? '&' : '?';
-    var smsUrl = 'sms:' + encodeURIComponent(mobile) + sep + 'body=' + encodeURIComponent(msg);
-    window.location.href = smsUrl;
+    window.location.href = 'sms:' + encodeURIComponent(_mobile) + sep + 'body=' + encodeURIComponent(msg);
+  });
+  document.getElementById('btnSendViaViber').addEventListener('click', function(){
+    var msg = ta.value.trim();
+    if (!msg) { alert('Please type a message first.'); return; }
+    if (!_mobile) { alert('No valid mobile number.'); return; }
+    var num = _mobile.replace(/[^\d]/g, '');
+    if (_mobile.startsWith('+')) num = _mobile.replace(/[^\d+]/g, '');
+    window.open('https://viber.click/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
+  });
+  document.getElementById('btnSendViaWhatsApp').addEventListener('click', function(){
+    var msg = ta.value.trim();
+    if (!msg) { alert('Please type a message first.'); return; }
+    if (!_mobile) { alert('No valid mobile number.'); return; }
+    var num = _mobile.replace(/^\+/, '');
+    window.open('https://wa.me/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
   });
 })();
 </script>
