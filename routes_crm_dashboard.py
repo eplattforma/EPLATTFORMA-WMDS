@@ -320,7 +320,7 @@ def customer_slot_dashboard():
             "open_order_amount": float(r.open_order_amount) if r.open_order_amount else 0,
             "open_order_count": open_order_count,
             "window_open": window_open,
-            "next_delivery": window_status["next_delivery"].strftime('%d-%b') if window_status["next_delivery"] else None,
+            "next_delivery": window_status["next_delivery"].strftime('%a %d-%b') if window_status["next_delivery"] else None,
         })
 
     if action_only:
