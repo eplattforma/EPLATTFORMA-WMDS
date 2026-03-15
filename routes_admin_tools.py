@@ -314,8 +314,16 @@ def crm_classifications_settings():
         return "Access denied", 403
     
     from models import Setting
+    import json
     items = []
     allowed = Setting.get(db.session, "crm_customer_classifications", {})
+    if isinstance(allowed, str):
+        try:
+            allowed = json.loads(allowed)
+        except Exception:
+            allowed = {}
+    if not isinstance(allowed, dict):
+        allowed = {}
     for name, filename in allowed.items():
         items.append({"name": name, "icon": filename})
     
