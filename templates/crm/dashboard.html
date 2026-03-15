@@ -999,7 +999,17 @@ document.getElementById('smsSendViaViber').addEventListener('click', function(){
     if (!msg) { alert('Please type a message first.'); return; }
     var num = _smsMobile.replace(/[^\d+]/g, '');
     if (!num.startsWith('+')) num = '+357' + num;
-    window.location.href = 'viber://contact?number=' + encodeURIComponent(num);
+    navigator.clipboard.writeText(msg).then(function(){
+        var toast = document.createElement('div');
+        toast.className = 'position-fixed bottom-0 start-50 translate-middle-x mb-3 px-4 py-2 rounded shadow text-white';
+        toast.style.cssText = 'background:#7360f2;z-index:9999;font-size:0.9rem;';
+        toast.innerHTML = '<i class="fas fa-clipboard-check me-2"></i>Message copied — paste it in Viber';
+        document.body.appendChild(toast);
+        setTimeout(function(){ toast.remove(); }, 4000);
+    }).catch(function(){});
+    setTimeout(function(){
+        window.location.href = 'viber://contact?number=' + encodeURIComponent(num);
+    }, 300);
 });
 document.getElementById('smsSendViaWhatsApp').addEventListener('click', function(){
     var msg = document.getElementById('smsComposeText').value.trim();
