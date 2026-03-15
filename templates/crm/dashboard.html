@@ -26,10 +26,11 @@
     .crm-table .row-toggle:hover { background-color: rgba(255,255,255,0.04); }
     .crm-table .row-toggle .toggle-icon { transition: transform 0.2s; font-size: 0.7rem; color: #8a9bb5; }
     .crm-table .row-toggle.expanded .toggle-icon { transform: rotate(90deg); color: #6ea8fe; }
-    .crm-table .row-toggle.expanded { background-color: rgba(13, 110, 253, 0.08); }
+    .crm-table .row-toggle.expanded { background-color: rgba(13, 110, 253, 0.08); border-left: 3px solid #ffc107; }
+    .crm-table .row-toggle.expanded td { border-bottom: none !important; }
     .detail-row { display: none; }
     .detail-row.show { display: table-row; }
-    .detail-row td { background: rgba(0, 0, 0, 0.15); border-top: none !important; padding-top: 0 !important; padding-bottom: 8px !important; border-bottom: 1px solid rgba(255,255,255,0.08) !important; border-left: 3px solid #ffc107; }
+    .detail-row td { background: rgba(0, 0, 0, 0.15); border-top: none !important; padding-top: 0 !important; padding-bottom: 8px !important; border-bottom: 2px solid rgba(255,193,7,0.35) !important; border-left: 3px solid #ffc107; }
     .detail-content { padding: 8px 14px 4px 30px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .detail-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 4px 11px; font-size: 0.76rem; color: #d0d6e0; box-shadow: 0 1px 3px rgba(0,0,0,0.15); transition: background 0.15s; }
     .detail-chip:hover { background: rgba(255,255,255,0.12); }
@@ -121,7 +122,7 @@ function refreshAllData() {
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle classification-dropdown-btn" type="button" id="classDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                         {% if filters.classification %}{{ filters.classification | join(', ') }}{% else %}All{% endif %}
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-dark classification-dropdown-menu" aria-labelledby="classDropdown" style="min-width: 180px; padding: 6px;">
+                    <ul class="dropdown-menu dropdown-menu-dark classification-dropdown-menu" aria-labelledby="classDropdown" style="min-width: 180px; padding: 6px;" onclick="event.stopPropagation()">
                         {% for c in allowed_classifications.keys() %}
                         <li>
                             <label class="dropdown-item d-flex align-items-center gap-2" style="cursor:pointer; font-size: 0.82rem; padding: 4px 10px;">
@@ -145,7 +146,7 @@ function refreshAllData() {
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle district-dropdown-btn" type="button" id="districtDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                         {% if filters.district %}{{ filters.district | join(', ') }}{% else %}All{% endif %}
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-dark district-dropdown-menu" aria-labelledby="districtDropdown" style="min-width: 180px; padding: 6px;">
+                    <ul class="dropdown-menu dropdown-menu-dark district-dropdown-menu" aria-labelledby="districtDropdown" style="min-width: 180px; padding: 6px;" onclick="event.stopPropagation()">
                         {% for d in all_districts %}
                         <li>
                             <label class="dropdown-item d-flex align-items-center gap-2" style="cursor:pointer; font-size: 0.82rem; padding: 4px 10px;">
