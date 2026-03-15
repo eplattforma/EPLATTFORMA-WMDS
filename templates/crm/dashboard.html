@@ -51,6 +51,10 @@
     .classification-dropdown-menu .dropdown-item:active, .district-dropdown-menu .dropdown-item:active { background: rgba(255,255,255,0.15); }
     .days-pill { font-weight: 700; font-size: 0.78rem; padding: 2px 7px; border-radius: 4px; display: inline-block; }
     .cycle-group-header td { background: rgba(255,255,255,0.03) !important; }
+    .sortable-header { cursor: pointer; user-select: none; }
+    .sortable-header:hover { background: rgba(255,255,255,0.1); }
+    .sort-icon { font-size: 0.6rem; margin-left: 4px; opacity: 0.4; }
+    .sort-icon.active { opacity: 1; color: #ffc107; }
     .days-green { background: #d4edda; color: #155724; }
     .days-yellow { background: #fff3cd; color: #856404; }
     .days-orange { background: #ffe0b2; color: #e65100; }
@@ -67,6 +71,58 @@ function toggleDetail(tr) {
         detailRow.classList.add('show');
         tr.classList.add('expanded');
     }
+}
+
+var currentSortCol = null;
+var currentSortDir = 'asc';
+
+function sortTable(th) {
+    var col = th.dataset.sort;
+    var type = th.dataset.type;
+
+    if (currentSortCol === col) {
+        currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortCol = col;
+        currentSortDir = 'asc';
+    }
+
+    document.querySelectorAll('.sort-icon').forEach(function(ic) {
+        ic.classList.remove('active');
+        ic.className = ic.className.replace(/fa-sort-up|fa-sort-down/, 'fa-sort');
+    });
+    var icon = th.querySelector('.sort-icon');
+    icon.classList.add('active');
+    icon.classList.remove('fa-sort');
+    icon.classList.add(currentSortDir === 'asc' ? 'fa-sort-up' : 'fa-sort-down');
+
+    var tbody = document.querySelector('.crm-table tbody');
+    var dataRows = Array.from(tbody.querySelectorAll('tr.row-toggle'));
+
+    var pairs = dataRows.map(function(tr) {
+        var detail = tr.nextElementSibling;
+        var hasDetail = detail && detail.classList.contains('detail-row');
+        return { toggle: tr, detail: hasDetail ? detail : null };
+    });
+
+    pairs.sort(function(a, b) {
+        var va = a.toggle.dataset[col] || '';
+        var vb = b.toggle.dataset[col] || '';
+        var cmp;
+        if (type === 'num') {
+            cmp = parseFloat(va) - parseFloat(vb);
+        } else {
+            cmp = va.localeCompare(vb, undefined, { sensitivity: 'base' });
+        }
+        return currentSortDir === 'asc' ? cmp : -cmp;
+    });
+
+    tbody.querySelectorAll('.cycle-group-header').forEach(function(h) { h.style.display = 'none'; });
+
+    pairs.forEach(function(p) {
+        tbody.appendChild(p.toggle);
+        if (p.detail) tbody.appendChild(p.detail);
+    });
 }
 
 function refreshAllData() {
@@ -286,17 +342,17 @@ function refreshAllData() {
             <thead class="table-dark">
                 <tr>
                     <th style="width:18px;"></th>
-                    <th>Customer</th>
-                    <th>Classification</th>
-                    <th>Cycle</th>
-                    <th>Cart</th>
-                    <th>Last Login</th>
-                    <th class="value-col">Value 6m</th>
-                    <th class="value-col">Value 4w</th>
-                    <th>Last Invoice</th>
-                    <th class="value-col">Inv 90d</th>
-                    <th class="value-col">Orders</th>
-                    <th>Action</th>
+                    <th class="sortable-header" data-sort="customer" data-type="text" onclick="sortTable(this)">Customer <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="sortable-header" data-sort="classification" data-type="text" onclick="sortTable(this)">Classification <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="sortable-header" data-sort="cycle" data-type="text" onclick="sortTable(this)">Cycle <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="sortable-header" data-sort="cart" data-type="num" onclick="sortTable(this)">Cart <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="sortable-header" data-sort="login" data-type="num" onclick="sortTable(this)">Last Login <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="value-col sortable-header" data-sort="value6m" data-type="num" onclick="sortTable(this)">Value 6m <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="value-col sortable-header" data-sort="value4w" data-type="num" onclick="sortTable(this)">Value 4w <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="sortable-header" data-sort="invoice" data-type="num" onclick="sortTable(this)">Last Invoice <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="value-col sortable-header" data-sort="inv90d" data-type="num" onclick="sortTable(this)">Inv 90d <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="value-col sortable-header" data-sort="orders" data-type="num" onclick="sortTable(this)">Orders <i class="fas fa-sort sort-icon"></i></th>
+                    <th class="sortable-header" data-sort="action" data-type="text" onclick="sortTable(this)">Action <i class="fas fa-sort sort-icon"></i></th>
                     <th>Quick Actions</th>
                 </tr>
             </thead>
@@ -317,7 +373,18 @@ function refreshAllData() {
                     </td>
                 </tr>
                 {% endif %}
-                <tr class="row-toggle" onclick="toggleDetail(this)">
+                <tr class="row-toggle" onclick="toggleDetail(this)"
+                    data-customer="{{ r.customer_name }}"
+                    data-classification="{{ r.classification or '' }}"
+                    data-cycle="{{ r.cycle_group }}"
+                    data-cart="{{ r.cart_amount if r.cart_amount else 0 }}"
+                    data-login="{{ r.r_login_days if r.r_login_days is not none else 9999 }}"
+                    data-value6m="{{ r.value_6m or 0 }}"
+                    data-value4w="{{ r.value_4w or 0 }}"
+                    data-invoice="{{ r.r_invoice_days if r.r_invoice_days is not none else 9999 }}"
+                    data-inv90d="{{ r.inv_cnt_90d or 0 }}"
+                    data-orders="{{ r.open_order_amount or 0 }}"
+                    data-action="{{ r.next_action or '' }}">
                     <td class="text-center pe-0"><i class="fas fa-caret-right toggle-icon"></i></td>
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
