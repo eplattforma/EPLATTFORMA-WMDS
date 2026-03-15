@@ -366,8 +366,8 @@ def save_crm_classifications():
         if not data_dict:
             return jsonify({"ok": False, "error": "At least one classification is required"}), 400
         
-        Setting.set(db.session, "crm_customer_classifications", data_dict)
-        Setting.set(db.session, "crm_customer_classifications_defaults", defaults)
+        Setting.set(db.session, "crm_customer_classifications", json.dumps(data_dict))
+        Setting.set(db.session, "crm_customer_classifications_defaults", json.dumps(defaults))
         db.session.commit()
         
         return jsonify({"ok": True, "msg": f"Saved {len(data_dict)} classifications ({len(defaults)} as default)"})
