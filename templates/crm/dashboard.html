@@ -102,6 +102,60 @@ function applySort(val) {
     window.location.href = url.toString();
 }
 
+function getCollapsedGroups() {
+    try {
+        return JSON.parse(localStorage.getItem('crm_collapsed_groups') || '[]');
+    } catch(e) { return []; }
+}
+
+function saveCollapsedGroups(groups) {
+    localStorage.setItem('crm_collapsed_groups', JSON.stringify(groups));
+}
+
+function toggleGroup(group) {
+    var collapsed = getCollapsedGroups();
+    var idx = collapsed.indexOf(group);
+    if (idx >= 0) {
+        collapsed.splice(idx, 1);
+    } else {
+        collapsed.push(group);
+    }
+    saveCollapsedGroups(collapsed);
+    applyGroupVisibility();
+}
+
+function applyGroupVisibility() {
+    var collapsed = getCollapsedGroups();
+    var groupCounts = {};
+
+    document.querySelectorAll('tr[data-cycle-group]').forEach(function(tr) {
+        if (tr.classList.contains('cycle-group-header')) return;
+        var g = tr.getAttribute('data-cycle-group');
+        if (!groupCounts[g]) groupCounts[g] = 0;
+        if (tr.classList.contains('row-toggle')) groupCounts[g]++;
+        var isCollapsed = collapsed.indexOf(g) >= 0;
+        tr.style.display = isCollapsed ? 'none' : '';
+        if (isCollapsed && tr.classList.contains('detail-row')) {
+            tr.classList.remove('show');
+        }
+    });
+
+    document.querySelectorAll('.cycle-group-header').forEach(function(hdr) {
+        var g = hdr.getAttribute('data-group');
+        var icon = document.getElementById('group-icon-' + g);
+        var countEl = document.getElementById('group-count-' + g);
+        var isCollapsed = collapsed.indexOf(g) >= 0;
+        if (icon) {
+            icon.style.transform = isCollapsed ? 'rotate(-90deg)' : '';
+        }
+        if (countEl) {
+            countEl.textContent = isCollapsed ? '(' + (groupCounts[g] || 0) + ')' : '';
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', applyGroupVisibility);
+
 function refreshAllData() {
     var btn = document.getElementById('btn-refresh-all');
     var spinner = btn.querySelector('.spinner-icon');
@@ -340,13 +394,13 @@ function refreshAllData() {
                         ('customer', 'Customer', ''),
                         ('classification', 'Classification', ''),
                         ('cycle', 'Cycle', ''),
+                        ('orders', 'Orders', 'value-col'),
                         ('cart', 'Cart', ''),
                         ('login', 'Last Login', ''),
                         ('value6m', 'Value 6m', 'value-col'),
                         ('value4w', 'Value 4w', 'value-col'),
                         ('invoice', 'Last Invoice', ''),
                         ('inv90d', 'Inv 90d', 'value-col'),
-                        ('orders', 'Orders', 'value-col'),
                         ('action', 'Action', ''),
                     ] %}
                     <th class="{{ col_class }} sortable-header" data-sort="{{ col_key }}" onclick="sortTable(this)">
@@ -366,8 +420,9 @@ function refreshAllData() {
                 {% for r in rows %}
                 {% if (not filters.sort or filters.sort == 'cycle') and r.cycle_group != ns.current_group %}
                 {% set ns.current_group = r.cycle_group %}
-                <tr class="cycle-group-header">
+                <tr class="cycle-group-header" data-group="{{ r.cycle_group }}" onclick="toggleGroup('{{ r.cycle_group }}')" style="cursor: pointer;">
                     <td colspan="13" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; border-bottom: 2px solid rgba(255,255,255,0.15);">
+                        <i class="fas fa-caret-down group-toggle-icon me-1" id="group-icon-{{ r.cycle_group }}" style="transition: transform 0.2s;"></i>
                         {% if r.cycle_group == 'OPEN' %}
                         <span style="color: #22c55e;"><i class="fas fa-clock me-1"></i>ORDERING WINDOW OPEN</span>
                         {% elif r.cycle_group == 'DONE' %}
@@ -375,10 +430,11 @@ function refreshAllData() {
                         {% else %}
                         <span style="color: #9ca3af;"><i class="fas fa-lock me-1"></i>WINDOW CLOSED</span>
                         {% endif %}
+                        <span class="group-count ms-2" id="group-count-{{ r.cycle_group }}" style="font-size: 0.7rem; color: rgba(255,255,255,0.4);"></span>
                     </td>
                 </tr>
                 {% endif %}
-                <tr class="row-toggle" onclick="toggleDetail(this)">
+                <tr class="row-toggle" data-cycle-group="{{ r.cycle_group }}" onclick="toggleDetail(this)">
                     <td class="text-center pe-0"><i class="fas fa-caret-right toggle-icon"></i></td>
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
@@ -419,6 +475,13 @@ function refreshAllData() {
                         <span class="badge badge-pending">PENDING</span>
                         {% endif %}
                     </td>
+                    <td class="value-col">
+                        {% if r.open_order_amount > 0 %}
+                        <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if r.has_cart %}
                         <span class="badge badge-cart">
@@ -450,13 +513,6 @@ function refreshAllData() {
                         {% endif %}
                     </td>
                     <td class="value-col">{{ r.inv_cnt_90d }}</td>
-                    <td class="value-col">
-                        {% if r.open_order_amount > 0 %}
-                        <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
                     <td>
                         {% if r.next_action == 'CART_NUDGE' %}
                         <span class="badge bg-warning text-dark badge-action">CART NUDGE</span>
@@ -493,7 +549,7 @@ function refreshAllData() {
                         </div>
                     </td>
                 </tr>
-                <tr class="detail-row">
+                <tr class="detail-row" data-cycle-group="{{ r.cycle_group }}">
                     <td colspan="13">
                         <div class="detail-content">
                             {% if r.district %}
