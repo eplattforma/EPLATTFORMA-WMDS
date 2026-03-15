@@ -1,0 +1,100 @@
+026-03-15 19:09:59.79
+05099ad4
+User
+INFO:datawarehouse_sync:Items inserted in this sync: 4139
+2026-03-15 19:10:00.00
+05099ad4
+User
+INFO:scheduler:Timestamp: 2026-03-15T17:10:00.008705
+2026-03-15 19:10:00.00
+05099ad4
+User
+INFO:scheduler:================================================================================
+2026-03-15 19:15:26.19
+05099ad4
+User
+34.23.116.255 - - [15/Mar/2026:17:15:26 +0000] "GET /admin/tools/magento-login-import HTTP/1.1" 200 25536 "https://ep-picking-bro.replit.app/crm/dashboard?page=1&q=&classification=CUSTOMER&classification=EKO&classification=PETROLINA&classification=ENGAGE&classification=POTENTIAL&logged_in_days=&slot=2-2" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-15 19:15:26.63
+05099ad4
+User
+34.23.116.255 - - [15/Mar/2026:17:15:26 +0000] "GET /static/ep-wmds-logo.png HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/admin/tools/magento-login-import" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-15 19:15:26.64
+05099ad4
+User
+34.23.116.255 - - [15/Mar/2026:17:15:26 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/admin/tools/magento-login-import" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-15 19:15:26.98
+05099ad4
+User
+34.26.219.196 - - [15/Mar/2026:17:15:26 +0000] "GET /admin/tools/magento-last-login-sample HTTP/1.1" 200 3 "https://ep-picking-bro.replit.app/admin/tools/magento-login-import" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+2026-03-15 19:24:00.48
+05099ad4
+User
+[SQL: INSERT INTO magento_customer_login_log (log_id, magento_customer_id, customer_code_365, email, first_name, last_name, last_login_at, last_logout_at, imported_at, source_filename) VALUES (%(log_id)s, %(magento_customer_id)s, %(customer_code_365)s, %(email)s, %(first_name)s, %(last_name)s, %(last_login_at)s, %(last_logout_at)s, %(imported_at)s, %(source_filename)s)]
+2026-03-15 19:24:00.48
+05099ad4
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-15 19:24:00.48
+05099ad4
+User
+[parameters: {'log_id': 112597, 'magento_customer_id': 452, 'customer_code_365': '77700447', 'email': 'Chailiskyriakos9@gmail.com', 'first_name': 'Κυριακος', 'last_name': 'Χαιλής', 'last_login_at': datetime.datetime(2026, 3, 15, 16, 53, 40, tzinfo=datetime.timezone.utc), 'last_logout_at': None, 'imported_at': datetime.datetime(2026, 3, 15, 17, 23, 30, 437672, tzinfo=datetime.timezone.utc), 'source_filename': 'tmpa1irw_g0.csv'}]
+2026-03-15 19:24:00.48
+05099ad4
+User
+WARNING:services.import_magento_login_log:Error importing login log row: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+2026-03-15 19:24:00.48
+05099ad4
+User
+(psycopg2.errors.LockNotAvailable) canceling statement due to lock timeout
+2026-03-15 19:24:00.48
+05099ad4
+User
+CONTEXT: while inserting index tuple (89,55) in relation "magento_customer_login_log_pkey"
+2026-03-15 19:24:30.70
+05099ad4
+User
+(psycopg2.errors.LockNotAvailable) canceling statement due to lock timeout
+2026-03-15 19:24:30.70
+05099ad4
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-15 19:24:30.70
+05099ad4
+User
+CONTEXT: while inserting index tuple (97,47) in relation "magento_customer_login_log_pkey"
+2026-03-15 19:24:30.70
+05099ad4
+User
+[SQL: INSERT INTO magento_customer_login_log (log_id, magento_customer_id, customer_code_365, email, first_name, last_name, last_login_at, last_logout_at, imported_at, source_filename) VALUES (%(log_id)s, %(magento_customer_id)s, %(customer_code_365)s, %(email)s, %(first_name)s, %(last_name)s, %(last_login_at)s, %(last_logout_at)s, %(imported_at)s, %(source_filename)s)]
+2026-03-15 19:24:30.70
+05099ad4
+User
+[parameters: {'log_id': 112596, 'magento_customer_id': 77, 'customer_code_365': '77700075', 'email': 'n.slavka@yahoo.com', 'first_name': 'Nikolova', 'last_name': 'Nikolova', 'last_login_at': datetime.datetime(2026, 3, 15, 16, 46, 6, tzinfo=datetime.timezone.utc), 'last_logout_at': None, 'imported_at': datetime.datetime(2026, 3, 15, 17, 24, 0, 657784, tzinfo=datetime.timezone.utc), 'source_filename': 'tmpa1irw_g0.csv'}]
+2026-03-15 19:24:30.70
+05099ad4
+User
+WARNING:services.import_magento_login_log:Error importing login log row: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+2026-03-15 19:25:00.95
+05099ad4
+User
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-03-15 19:25:00.95
+05099ad4
+User
+WARNING:services.import_magento_login_log:Error importing login log row: (raised as a result of Query-invoked autoflush; consider using a session.no_autoflush block if this flush is occurring prematurely)
+2026-03-15 19:25:00.95
+05099ad4
+User
+(psycopg2.errors.LockNotAvailable) canceling statement due to lock timeout
+2026-03-15 19:25:00.95
+05099ad4
+User
+[parameters: {'log_id': 112595, 'magento_customer_id': 454, 'customer_code_365': '77700449', 'email': 'tonislouka@yahoo.com', 'first_name': 'ANTONIS', 'last_name': 'LOUKA', 'last_login_at': datetime.datetime(2026, 3, 15, 16, 44, 36, tzinfo=datetime.timezone.utc), 'last_logout_at': None, 'imported_at': datetime.datetime(2026, 3, 15, 17, 24, 30, 908456, tzinfo=datetime.timezone.utc), 'source_filename': 'tmpa1irw_g0.csv'}]
+2026-03-15 19:25:00.95
+05099ad4
+User
+CONTEXT: while inserting index tuple (105,36) in relation "magento_customer_login_log_pkey"
+2026-03-15 19:25:00.95
+05099ad4
+User
+[SQL: INSERT INTO magento_customer_login_log (log_id, magento_customer_id, customer_code_365, email, first_name, last_name, last_login_at, last_logout_at, imported_at, source_filename) VALUES (%(log_id)s, %(magento_customer_id)s, %(customer_code_365)s, %(email)s, %(first_name)s, %(last_name)s, %(last_login_at)s, %(last_logout_at)s, %(imported_at)s, %
