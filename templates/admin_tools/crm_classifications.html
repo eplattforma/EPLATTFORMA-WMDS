@@ -148,7 +148,7 @@ document.getElementById('classifyForm').addEventListener('submit', async functio
     });
 
     try {
-        const res = await fetch(window.location.href, { method: 'POST', body: formData });
+        const res = await fetch('/admin/tools/crm-classifications/save', { method: 'POST', body: formData });
         const result = await res.json();
         const box = document.getElementById('resultBox');
         
