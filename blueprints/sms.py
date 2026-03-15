@@ -108,7 +108,15 @@ def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
         """), {"cid": ctx_id}).mappings().first()
         if not row:
             raise ValueError("Customer not found.")
-        return dict(row)
+        ctx = dict(row)
+        try:
+            from services.crm_order_window import get_order_window_status
+            ws = get_order_window_status(ctx_id)
+            nd = ws.get("next_delivery")
+            ctx["delivery_date"] = nd.strftime('%a %d-%b') if nd else ""
+        except Exception:
+            ctx["delivery_date"] = ""
+        return ctx
 
     raise ValueError(f"Unsupported context type: {ctx_type}")
 
