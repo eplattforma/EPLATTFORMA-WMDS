@@ -356,16 +356,22 @@ def customer_slot_dashboard():
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
     if not sort_col or sort_col not in ("customer", "classification", "cart", "login", "value6m", "value4w", "invoice", "inv90d", "orders", "cycle", "action"):
+        classification_order = {"CUSTOMER": 1, "ENGAGE": 2, "EKO": 3, "PETROLINA": 4, "POTENTIAL": 5}
+        
         def cycle_sort_key(row):
             window_open = row["window_open"]
             done = row["done_for_cycle"]
-            last_invoice = row.get("last_invoice_date") or date(9999, 12, 31)
+            next_del = row.get("next_delivery") or date(9999, 12, 31)
+            cart_amt = -(row.get("cart_amount") or 0)
+            login_days = row.get("r_login_days") or 9999
+            class_val = classification_order.get(row.get("classification"), 6)
+            
             if window_open and not done:
-                return (1, last_invoice)
+                return (1, next_del, cart_amt, login_days, class_val)
             elif done:
-                return (2, last_invoice)
+                return (2, next_del, cart_amt, login_days, class_val)
             else:
-                return (3, last_invoice)
+                return (3, next_del, cart_amt, login_days, class_val)
         dashboard_rows.sort(key=cycle_sort_key)
     elif sort_col == "cycle":
         cycle_order = {"OPEN": 1, "DONE": 2, "CLOSED": 3}
