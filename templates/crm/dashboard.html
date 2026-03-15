@@ -69,8 +69,12 @@ var _smsTemplatesCache = [];
 function _loadSmsTemplates() {
     if (_smsTemplatesLoaded) return;
     fetch('/admin/sms/templates/list-json')
-        .then(function(r){ return r.json(); })
+        .then(function(r){
+            if (!r.ok) return [];
+            return r.json().catch(function(){ return []; });
+        })
         .then(function(data){
+            if (!data || !data.length) return;
             _smsTemplatesCache = data;
             _smsTemplatesLoaded = true;
             var sel = document.getElementById('smsTemplateSelect');
@@ -82,7 +86,8 @@ function _loadSmsTemplates() {
                 opt.dataset.body = t.body;
                 sel.appendChild(opt);
             });
-        });
+        })
+        .catch(function(){});
 }
 
 function _renderTemplateBody(body, customerName) {

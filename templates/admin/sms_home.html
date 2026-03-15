@@ -163,7 +163,7 @@
     if (q.length < 2) { results.style.display = 'none'; return; }
     timer = setTimeout(function(){
       fetch('/admin/sms/search-customer?q=' + encodeURIComponent(q))
-        .then(function(r){ return r.json(); })
+        .then(function(r){ if (!r.ok) return []; return r.json().catch(function(){ return []; }); })
         .then(function(data){
           results.innerHTML = '';
           if (!data.length) {
