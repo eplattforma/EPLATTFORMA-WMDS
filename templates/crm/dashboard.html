@@ -22,27 +22,28 @@
     .kpi-card.action { border-color: #dc3545; }
     .kpi-card.done { border-color: #198754; }
     .kpi-card.cart { border-color: #fd7e14; }
-    .crm-table .row-toggle { cursor: pointer; }
-    .crm-table .row-toggle:hover { background-color: rgba(0,0,0,0.04); }
-    .crm-table .row-toggle .toggle-icon { transition: transform 0.2s; font-size: 0.7rem; color: #6c757d; }
-    .crm-table .row-toggle.expanded .toggle-icon { transform: rotate(90deg); }
-    .crm-table .row-toggle.expanded { background-color: #eef3ff; }
+    .crm-table .row-toggle { cursor: pointer; transition: background-color 0.15s; }
+    .crm-table .row-toggle:hover { background-color: rgba(255,255,255,0.04); }
+    .crm-table .row-toggle .toggle-icon { transition: transform 0.2s; font-size: 0.7rem; color: #8a9bb5; }
+    .crm-table .row-toggle.expanded .toggle-icon { transform: rotate(90deg); color: #6ea8fe; }
+    .crm-table .row-toggle.expanded { background-color: rgba(13, 110, 253, 0.08); }
     .detail-row { display: none; }
     .detail-row.show { display: table-row; }
-    .detail-row td { background: linear-gradient(180deg, #e8eef8 0%, #f4f6fb 100%); border-top: none !important; padding-top: 0 !important; padding-bottom: 6px !important; border-bottom: 2px solid #c5d1e8 !important; }
-    .detail-content { padding: 6px 14px 4px 30px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
-    .detail-chip { display: inline-flex; align-items: center; gap: 5px; background: #fff; border: 1px solid #d0d7e3; border-radius: 6px; padding: 3px 10px; font-size: 0.76rem; color: #333; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .detail-row td { background: rgba(0, 0, 0, 0.15); border-top: none !important; padding-top: 0 !important; padding-bottom: 8px !important; border-bottom: 1px solid rgba(255,255,255,0.08) !important; border-left: 3px solid #ffc107; }
+    .detail-content { padding: 8px 14px 4px 30px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .detail-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 4px 11px; font-size: 0.76rem; color: #d0d6e0; box-shadow: 0 1px 3px rgba(0,0,0,0.15); transition: background 0.15s; }
+    .detail-chip:hover { background: rgba(255,255,255,0.12); }
     .detail-chip .chip-label { font-size: 0.65rem; color: #7b8a9e; text-transform: uppercase; font-weight: 700; letter-spacing: 0.3px; }
-    .detail-chip .chip-value { font-weight: 600; }
-    .detail-chip .chip-icon { font-size: 0.72rem; }
-    .detail-chip.district { border-left: 3px solid #0d6efd; }
-    .detail-chip.area { border-left: 3px solid #6f42c1; }
-    .detail-chip.postal { border-left: 3px solid #20c997; }
-    .detail-chip.town { border-left: 3px solid #fd7e14; }
-    .detail-chip.delivery { border-left: 3px solid #dc3545; }
-    .detail-chip.code { border-left: 3px solid #6c757d; }
-    .detail-chip.login { border-left: 3px solid #17a2b8; }
-    .detail-chip.invoice { border-left: 3px solid #ffc107; }
+    .detail-chip .chip-value { font-weight: 600; color: #e8ecf1; }
+    .detail-chip .chip-icon { font-size: 0.72rem; opacity: 0.9; }
+    .detail-chip.district { border-left: 3px solid #6ea8fe; }
+    .detail-chip.area { border-left: 3px solid #b197fc; }
+    .detail-chip.postal { border-left: 3px solid #63e6be; }
+    .detail-chip.town { border-left: 3px solid #ffa94d; }
+    .detail-chip.delivery { border-left: 3px solid #ff6b6b; }
+    .detail-chip.code { border-left: 3px solid #868e96; }
+    .detail-chip.login { border-left: 3px solid #66d9e8; }
+    .detail-chip.invoice { border-left: 3px solid #ffd43b; }
     .days-pill { font-weight: 700; font-size: 0.78rem; padding: 2px 7px; border-radius: 4px; display: inline-block; }
     .days-green { background: #d4edda; color: #155724; }
     .days-yellow { background: #fff3cd; color: #856404; }
@@ -374,19 +375,19 @@ function refreshAllData() {
                     <td colspan="13">
                         <div class="detail-content">
                             {% if r.district %}
-                            <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon text-primary"></i> <span class="chip-value">{{ r.district }}</span></span>
+                            <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon" style="color:#6ea8fe"></i> <span class="chip-value">{{ r.district }}</span></span>
                             {% endif %}
                             {% if r.area %}
-                            <span class="detail-chip area"><i class="fas fa-map chip-icon" style="color:#6f42c1"></i> <span class="chip-value">{{ r.area }}</span></span>
+                            <span class="detail-chip area"><i class="fas fa-map chip-icon" style="color:#b197fc"></i> <span class="chip-value">{{ r.area }}</span></span>
                             {% endif %}
                             {% if r.category_2_name %}
-                            <span class="detail-chip"><i class="fas fa-tag chip-icon" style="color:#6f42c1"></i> <span class="chip-value">{{ r.category_2_name }}</span></span>
+                            <span class="detail-chip area"><i class="fas fa-tag chip-icon" style="color:#b197fc"></i> <span class="chip-value">{{ r.category_2_name }}</span></span>
                             {% endif %}
                             {% if r.last_login_at %}
-                            <span class="detail-chip login"><i class="fas fa-sign-in-alt chip-icon" style="color:#17a2b8"></i> <span class="chip-value">Login: {{ r.last_login_at.strftime('%d/%m/%Y') }}</span></span>
+                            <span class="detail-chip login"><i class="fas fa-sign-in-alt chip-icon" style="color:#66d9e8"></i> <span class="chip-value">Login: {{ r.last_login_at.strftime('%d/%m/%Y') }}</span></span>
                             {% endif %}
                             {% if r.last_invoice_date %}
-                            <span class="detail-chip invoice"><i class="fas fa-file-invoice chip-icon" style="color:#ffc107"></i> <span class="chip-value">Invoice: {{ r.last_invoice_date.strftime('%d/%m/%Y') }}</span></span>
+                            <span class="detail-chip invoice"><i class="fas fa-file-invoice chip-icon" style="color:#ffd43b"></i> <span class="chip-value">Invoice: {{ r.last_invoice_date.strftime('%d/%m/%Y') }}</span></span>
                             {% endif %}
                         </div>
                     </td>
