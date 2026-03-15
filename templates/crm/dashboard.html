@@ -997,15 +997,15 @@ document.getElementById('smsSendViaPhone').addEventListener('click', function(){
 document.getElementById('smsSendViaViber').addEventListener('click', function(){
     var msg = document.getElementById('smsComposeText').value.trim();
     if (!msg) { alert('Please type a message first.'); return; }
-    var num = _smsMobile.replace(/[^\d]/g, '');
-    if (num && !_smsMobile.startsWith('+')) num = num;
-    else num = _smsMobile.replace(/[^\d+]/g, '');
-    window.open('https://viber.click/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
+    var num = _smsMobile.replace(/[^\d+]/g, '');
+    if (!num.startsWith('+')) num = '+357' + num;
+    window.location.href = 'viber://contact?number=' + encodeURIComponent(num);
 });
 document.getElementById('smsSendViaWhatsApp').addEventListener('click', function(){
     var msg = document.getElementById('smsComposeText').value.trim();
     if (!msg) { alert('Please type a message first.'); return; }
-    var num = _smsMobile.replace(/^\+/, '');
+    var num = _smsMobile.replace(/[^\d]/g, '');
+    if (!_smsMobile.startsWith('+')) num = '357' + num;
     window.open('https://wa.me/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
 });
 </script>

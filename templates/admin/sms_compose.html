@@ -174,15 +174,16 @@
     var msg = ta.value.trim();
     if (!msg) { alert('Please type a message first.'); return; }
     if (!_mobile) { alert('No valid mobile number.'); return; }
-    var num = _mobile.replace(/[^\d]/g, '');
-    if (_mobile.startsWith('+')) num = _mobile.replace(/[^\d+]/g, '');
-    window.open('https://viber.click/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
+    var num = _mobile.replace(/[^\d+]/g, '');
+    if (!num.startsWith('+')) num = '+357' + num;
+    window.location.href = 'viber://contact?number=' + encodeURIComponent(num);
   });
   document.getElementById('btnSendViaWhatsApp').addEventListener('click', function(){
     var msg = ta.value.trim();
     if (!msg) { alert('Please type a message first.'); return; }
     if (!_mobile) { alert('No valid mobile number.'); return; }
-    var num = _mobile.replace(/^\+/, '');
+    var num = _mobile.replace(/[^\d]/g, '');
+    if (!_mobile.startsWith('+')) num = '357' + num;
     window.open('https://wa.me/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
   });
 })();
