@@ -315,7 +315,7 @@ def crm_classifications_settings():
     
     from models import Setting
     items = []
-    allowed = Setting.get(db.session, "crm_classifications", {})
+    allowed = Setting.get(db.session, "crm_customer_classifications", {})
     for name, filename in allowed.items():
         items.append({"name": name, "icon": filename})
     
@@ -344,7 +344,7 @@ def save_crm_classifications():
         if not data_dict:
             return jsonify({"ok": False, "error": "At least one classification is required"}), 400
         
-        Setting.set(db.session, "crm_classifications", data_dict)
+        Setting.set(db.session, "crm_customer_classifications", data_dict)
         db.session.commit()
         
         return jsonify({"ok": True, "count": len(data_dict)})
