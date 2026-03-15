@@ -304,7 +304,14 @@ function refreshAllData() {
                     <td class="text-center pe-0"><i class="fas fa-caret-right toggle-icon"></i></td>
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
-                        <div class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}</div>
+                        <div style="font-size:0.72rem; display: flex; gap: 8px; align-items: center;">
+                            <span class="text-muted">{{ r.customer_code_365 }}</span>
+                            {% if r.next_delivery %}
+                            <span class="badge" style="background-color: {% if r.window_open %}#22c55e{% else %}#9ca3af{% endif %}; color: white; font-size: 0.7rem; white-space: nowrap;">
+                                ⚬ {{ r.next_delivery }}
+                            </span>
+                            {% endif %}
+                        </div>
                     </td>
                     <td>
                         <div style="display: flex; gap: 6px; align-items: center;">
