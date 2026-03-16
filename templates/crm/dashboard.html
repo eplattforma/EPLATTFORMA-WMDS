@@ -272,9 +272,16 @@ function refreshAllData() {
                 <label class="form-label mb-0 small">Classification</label>
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle classification-dropdown-btn" type="button" id="classDropdown" aria-expanded="false">
-                        {% if filters.classification %}{{ filters.classification | join(', ') }}{% else %}All{% endif %}
+                        {% if filters.classification %}{{ filters.classification | reject('equalto', '__NULL__') | list | join(', ') }}{% if '__NULL__' in filters.classification %}{% if filters.classification | reject('equalto', '__NULL__') | list %}, {% endif %}Null{% endif %}{% else %}All{% endif %}
                     </button>
                     <ul class="dropdown-menu dropdown-menu-dark classification-dropdown-menu" style="min-width: 180px; padding: 6px; display:none; position:absolute; z-index:1050;">
+                        <li>
+                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size: 0.82rem; border-radius: 4px;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
+                                <input type="checkbox" name="classification" value="__NULL__" {% if '__NULL__' in filters.classification %}checked{% endif %} class="form-check-input mt-0" style="width: 16px; height: 16px;">
+                                <em style="color: #9ca3af;">Not Classified</em>
+                            </label>
+                        </li>
+                        <li><hr class="dropdown-divider my-1"></li>
                         {% for c in allowed_classifications.keys() %}
                         <li>
                             <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size: 0.82rem; border-radius: 4px;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='transparent'">
