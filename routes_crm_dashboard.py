@@ -103,7 +103,7 @@ def customer_slot_dashboard():
     sort_dir = request.args.get("sort_dir", "asc")
     if sort_dir not in ("asc", "desc"):
         sort_dir = "asc"
-    python_side_sort = sort_col in ("cycle", "action")
+    python_side_sort = sort_col in ("cycle", "action", "")
     needs_python_eval = action_only or python_side_sort
 
     try:
@@ -416,9 +416,9 @@ def customer_slot_dashboard():
     if action_only:
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
-    if sort_col == "cycle":
+    if not sort_col or sort_col == "cycle":
         cycle_order = {"OPEN": 1, "DONE": 2, "CLOSED": 3}
-        rev = sort_dir == "desc"
+        rev = sort_dir == "desc" if sort_col == "cycle" else False
         for row in dashboard_rows:
             if row["window_open"] and not row["done_for_cycle"]:
                 row["_cg"] = "OPEN"
@@ -426,7 +426,7 @@ def customer_slot_dashboard():
                 row["_cg"] = "DONE"
             else:
                 row["_cg"] = "CLOSED"
-        dashboard_rows.sort(key=lambda r: cycle_order.get(r.get("_cg", "CLOSED"), 3), reverse=rev)
+        dashboard_rows.sort(key=lambda r: (cycle_order.get(r.get("_cg", "CLOSED"), 3), r.get("customer_name", "")), reverse=rev)
     elif sort_col == "action":
         action_order = {"CART_NUDGE": 1, "ORDER_REMINDER": 2, "CALL": 3, "NO_ACTION": 4}
         rev = sort_dir == "desc"

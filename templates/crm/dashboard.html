@@ -478,7 +478,7 @@ function refreshAllData() {
             <tbody>
                 {% set ns = namespace(current_group='') %}
                 {% for r in rows %}
-                {% if filters.sort == 'cycle' and r.cycle_group != ns.current_group %}
+                {% if (not filters.sort or filters.sort == 'cycle') and r.cycle_group != ns.current_group %}
                 {% set ns.current_group = r.cycle_group %}
                 <tr class="cycle-group-header" data-group="{{ r.cycle_group }}" onclick="toggleGroup('{{ r.cycle_group }}')" style="cursor: pointer;">
                     <td colspan="12" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; border-bottom: 2px solid rgba(255,255,255,0.15);">
