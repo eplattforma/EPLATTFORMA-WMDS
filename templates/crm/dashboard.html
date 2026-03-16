@@ -462,7 +462,6 @@ function refreshAllData() {
                         ('invoice', 'Last Invoice', ''),
                         ('value6m', 'Value 6m', 'value-col'),
                         ('value4w', 'Value 4w', 'value-col'),
-                        ('inv90d', 'Inv 90d', 'value-col'),
                         ('action', 'Action', ''),
                     ] %}
                     <th class="{{ col_class }} sortable-header" data-sort="{{ col_key }}" onclick="sortTable(this)">
@@ -483,7 +482,7 @@ function refreshAllData() {
                 {% if (not filters.sort or filters.sort == 'cycle') and r.cycle_group != ns.current_group %}
                 {% set ns.current_group = r.cycle_group %}
                 <tr class="cycle-group-header" data-group="{{ r.cycle_group }}" onclick="toggleGroup('{{ r.cycle_group }}')" style="cursor: pointer;">
-                    <td colspan="13" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; border-bottom: 2px solid rgba(255,255,255,0.15);">
+                    <td colspan="12" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; border-bottom: 2px solid rgba(255,255,255,0.15);">
                         <i class="fas fa-caret-down group-toggle-icon me-1" id="group-icon-{{ r.cycle_group }}" style="transition: transform 0.2s;"></i>
                         {% if r.cycle_group == 'OPEN' %}
                         <span style="color: #22c55e;"><i class="fas fa-clock me-1"></i>ORDERING WINDOW OPEN</span>
@@ -574,7 +573,6 @@ function refreshAllData() {
                     <td class="value-col">
                         {% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}
                     </td>
-                    <td class="value-col">{{ r.inv_cnt_90d }}</td>
                     <td>
                         {% if r.next_action == 'CART_NUDGE' %}
                         <span class="badge bg-warning text-dark badge-action">CART NUDGE</span>
@@ -612,7 +610,7 @@ function refreshAllData() {
                     </td>
                 </tr>
                 <tr class="detail-row" data-cycle-group="{{ r.cycle_group }}">
-                    <td colspan="13">
+                    <td colspan="12">
                         <div class="detail-content">
                             {% if r.district %}
                             <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon" style="color:#6ea8fe"></i> <span class="chip-value">{{ r.district }}</span></span>
@@ -648,7 +646,7 @@ function refreshAllData() {
                 {% endfor %}
                 {% if not rows %}
                 <tr>
-                    <td colspan="13" class="text-center text-muted py-4">No customers match the current filters.</td>
+                    <td colspan="12" class="text-center text-muted py-4">No customers match the current filters.</td>
                 </tr>
                 {% endif %}
             </tbody>
