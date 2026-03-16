@@ -522,16 +522,20 @@ def upload_classification_icon():
 @bp.route('/crm-classification-image/<path:filename>')
 @login_required
 def serve_classification_image(filename):
-    import json, base64, mimetypes
+    import json, base64, mimetypes, glob as globmod
     from io import BytesIO
     from werkzeug.utils import secure_filename as _secure_filename
     safe_name = _secure_filename(filename)
     if not safe_name or safe_name != filename:
         return Response('Invalid filename', status=400)
-    local_path = os.path.join('static/crm-classification-images', safe_name)
+
+    img_dir = 'static/crm-classification-images'
+
+    local_path = os.path.join(img_dir, safe_name)
     if os.path.exists(local_path):
         mime = mimetypes.guess_type(local_path)[0] or 'application/octet-stream'
         return send_file(local_path, mimetype=mime)
+
     from models import Setting
     raw_b64 = Setting.get(db.session, 'crm_classification_images_b64', '{}')
     try:
@@ -540,12 +544,30 @@ def serve_classification_image(filename):
         images_dict = {}
     b64_data = images_dict.get(filename)
     if b64_data:
-        os.makedirs('static/crm-classification-images', exist_ok=True)
+        os.makedirs(img_dir, exist_ok=True)
         img_bytes = base64.b64decode(b64_data)
         with open(local_path, 'wb') as f:
             f.write(img_bytes)
         mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
         return send_file(BytesIO(img_bytes), mimetype=mime)
+
+    prefix = safe_name.rsplit('_', 1)[0] + '_' if '_' in safe_name else None
+    if prefix:
+        matches = globmod.glob(os.path.join(img_dir, prefix + '*'))
+        if matches:
+            fallback = matches[0]
+            mime = mimetypes.guess_type(fallback)[0] or 'application/octet-stream'
+            return send_file(fallback, mimetype=mime)
+        for key in images_dict:
+            if key.startswith(prefix):
+                os.makedirs(img_dir, exist_ok=True)
+                img_bytes = base64.b64decode(images_dict[key])
+                fb_path = os.path.join(img_dir, key)
+                with open(fb_path, 'wb') as f:
+                    f.write(img_bytes)
+                mime = mimetypes.guess_type(key)[0] or 'application/octet-stream'
+                return send_file(BytesIO(img_bytes), mimetype=mime)
+
     return Response('Not found', status=404)
 
 

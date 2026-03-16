@@ -72,6 +72,61 @@ db.init_app(app)
 # Create the upload folder if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+def _sync_classification_images_to_db():
+    import json, base64, glob as globmod
+    from models import Setting
+    img_dir = 'static/crm-classification-images'
+    if not os.path.isdir(img_dir):
+        return
+    local_files = globmod.glob(os.path.join(img_dir, '*'))
+    if not local_files:
+        return
+    raw_b64 = Setting.get(db.session, 'crm_classification_images_b64', '{}')
+    try:
+        images_dict = json.loads(raw_b64)
+    except Exception:
+        images_dict = {}
+    changed = False
+    for fpath in local_files:
+        fname = os.path.basename(fpath)
+        if fname not in images_dict:
+            try:
+                with open(fpath, 'rb') as f:
+                    images_dict[fname] = base64.b64encode(f.read()).decode('ascii')
+                changed = True
+                logging.info("Synced classification image to DB: %s", fname)
+            except Exception as e:
+                logging.warning("Failed to sync image %s: %s", fname, e)
+    if changed:
+        Setting.set(db.session, 'crm_classification_images_b64', json.dumps(images_dict))
+        db.session.commit()
+        logging.info("Classification images synced to DB (%d total)", len(images_dict))
+
+    cls_raw = Setting.get(db.session, 'crm_customer_classifications', None)
+    if cls_raw:
+        try:
+            cls_data = json.loads(cls_raw) if isinstance(cls_raw, str) else cls_raw
+        except Exception:
+            cls_data = None
+        if isinstance(cls_data, dict):
+            cls_changed = False
+            for cls_name, icon_ref in cls_data.items():
+                if isinstance(icon_ref, dict):
+                    icon_ref = icon_ref.get('icon')
+                if icon_ref and icon_ref not in images_dict:
+                    prefix = cls_name.replace(' ', '_').upper() + '_'
+                    for key in images_dict:
+                        if key.startswith(prefix):
+                            cls_data[cls_name] = key
+                            cls_changed = True
+                            logging.info("Remapped classification %s: %s -> %s", cls_name, icon_ref, key)
+                            break
+            if cls_changed:
+                Setting.set(db.session, 'crm_customer_classifications', json.dumps(cls_data))
+                db.session.commit()
+                logging.info("Updated classification image references")
+
+
 # Database initialization for both development and production
 with app.app_context():
     try:
@@ -119,6 +174,11 @@ with app.app_context():
                     logging.info("Added cheque_payment_type_code_365 column to users table")
         except Exception as e:
             logging.warning(f"Could not add cheque_payment_type_code_365 column: {str(e)}")
+
+        try:
+            _sync_classification_images_to_db()
+        except Exception as e:
+            logging.warning(f"Could not sync classification images: {str(e)}")
 
         # Only initialize default users and settings in development
         if not is_production:
