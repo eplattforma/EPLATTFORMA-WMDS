@@ -195,7 +195,10 @@ def customer_slot_dashboard():
         )
 
     if classification:
-        q = q.filter(CrmCustomerProfile.classification.in_(classification))
+        q = q.filter(or_(
+            CrmCustomerProfile.classification.in_(classification),
+            CrmCustomerProfile.classification.is_(None),
+        ))
     if district:
         q = q.filter(or_(
             CrmCustomerProfile.district.in_(district),
