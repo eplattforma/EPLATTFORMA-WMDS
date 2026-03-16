@@ -336,8 +336,12 @@ def crm_classifications_settings():
     if not isinstance(defaults, list):
         defaults = []
     
-    for name, filename in allowed.items():
-        items.append({"name": name, "icon": filename, "is_default": name in defaults})
+    for name, meta in allowed.items():
+        if isinstance(meta, dict):
+            icon = meta.get("icon")
+        else:
+            icon = meta or None
+        items.append({"name": name, "icon": icon, "is_default": name in defaults})
     
     window_hours = Setting.get(db.session, "crm_order_window_hours", "48")
     if not isinstance(window_hours, str):
@@ -347,11 +351,11 @@ def crm_classifications_settings():
     if not isinstance(anchor_time, str):
         anchor_time = str(anchor_time)
     
-    close_hours = Setting.get(db.session, "crm_order_window_close_hours", "48")
+    close_hours = Setting.get(db.session, "crm_order_window_close_hours", "0")
     if not isinstance(close_hours, str):
         close_hours = str(close_hours)
     
-    close_anchor_time = Setting.get(db.session, "crm_delivery_close_anchor_time", "12:00")
+    close_anchor_time = Setting.get(db.session, "crm_delivery_close_anchor_time", "00:01")
     if not isinstance(close_anchor_time, str):
         close_anchor_time = str(close_anchor_time)
     
@@ -391,33 +395,28 @@ def save_crm_classifications():
         Setting.set(db.session, "crm_order_window_close_hours", close_hours)
         Setting.set(db.session, "crm_delivery_close_anchor_time", close_anchor_time)
         
+        from routes_crm_dashboard import _normalize_classifications
         existing_raw = Setting.get(db.session, "crm_customer_classifications", "{}")
-        if isinstance(existing_raw, str):
-            try:
-                existing = json.loads(existing_raw)
-            except Exception:
-                existing = {}
-        elif isinstance(existing_raw, dict):
-            existing = existing_raw
-        else:
-            existing = {}
-        if isinstance(existing, list):
-            existing = {name: "" for name in existing}
+        existing = _normalize_classifications(existing_raw)
         
         data = request.form.get('data', '[]')
         items = json.loads(data) if data else []
         data_dict = {}
         defaults = []
         
-        name_to_index = {}
-        for idx, item in enumerate(items):
+        for item in items:
             name = (item.get('name') or '').strip()
             is_default = item.get('is_default', False)
-            if name:
-                data_dict[name] = existing.get(name)
-                name_to_index[name] = idx
-                if is_default:
-                    defaults.append(name)
+            if not name:
+                continue
+            prev = existing.get(name, {"icon": None})
+            data_dict[name] = {
+                "icon": prev.get("icon"),
+                "color": prev.get("color"),
+                "sort_order": prev.get("sort_order"),
+            }
+            if is_default:
+                defaults.append(name)
         
         import base64, hashlib as _hashlib
         existing_b64 = Setting.get(db.session, 'crm_classification_images_b64', '{}')
@@ -427,6 +426,7 @@ def save_crm_classifications():
             images_b64 = {}
 
         os.makedirs('static/crm-classification-images', exist_ok=True)
+        from werkzeug.utils import secure_filename as _secure_filename
         for key in request.files:
             if key.startswith('file_'):
                 idx = key.split('_', 1)[1]
@@ -436,15 +436,18 @@ def save_crm_classifications():
                     continue
                 f = request.files[key]
                 if f and f.filename:
+                    ext = os.path.splitext(_secure_filename(f.filename))[1].lower()
+                    if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
+                        continue
                     raw = f.read()
                     h = _hashlib.md5(raw).hexdigest()[:16]
                     safe_name = cls_name.replace(' ', '_')
-                    filename = f"{safe_name}_{h}.jpg"
+                    filename = f"{safe_name}_{h}{ext}"
                     filepath = os.path.join('static/crm-classification-images', filename)
                     with open(filepath, 'wb') as fout:
                         fout.write(raw)
                     images_b64[filename] = base64.b64encode(raw).decode('ascii')
-                    data_dict[cls_name] = filename
+                    data_dict[cls_name]["icon"] = filename
 
         Setting.set(db.session, 'crm_classification_images_b64', json.dumps(images_b64))
         
@@ -482,10 +485,14 @@ def upload_classification_icon():
             return jsonify({"ok": False, "error": "Only JPG/PNG/WebP files allowed"}), 400
         
         import base64, json, hashlib
+        from werkzeug.utils import secure_filename as _secure_filename
         raw = file.read()
         h = hashlib.md5(raw).hexdigest()[:16]
         safe_name = name.replace(' ', '_')
-        filename = f"{safe_name}_{h}.jpg"
+        ext = os.path.splitext(_secure_filename(file.filename))[1].lower()
+        if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
+            ext = '.png'
+        filename = f"{safe_name}_{h}{ext}"
         b64 = base64.b64encode(raw).decode('ascii')
 
         from models import Setting
@@ -515,11 +522,16 @@ def upload_classification_icon():
 @bp.route('/crm-classification-image/<path:filename>')
 @login_required
 def serve_classification_image(filename):
-    import json, base64
+    import json, base64, mimetypes
     from io import BytesIO
-    local_path = os.path.join('static/crm-classification-images', filename)
+    from werkzeug.utils import secure_filename as _secure_filename
+    safe_name = _secure_filename(filename)
+    if not safe_name or safe_name != filename:
+        return Response('Invalid filename', status=400)
+    local_path = os.path.join('static/crm-classification-images', safe_name)
     if os.path.exists(local_path):
-        return send_file(local_path, mimetype='image/jpeg')
+        mime = mimetypes.guess_type(local_path)[0] or 'application/octet-stream'
+        return send_file(local_path, mimetype=mime)
     from models import Setting
     raw_b64 = Setting.get(db.session, 'crm_classification_images_b64', '{}')
     try:
@@ -532,7 +544,8 @@ def serve_classification_image(filename):
         img_bytes = base64.b64decode(b64_data)
         with open(local_path, 'wb') as f:
             f.write(img_bytes)
-        return send_file(BytesIO(img_bytes), mimetype='image/jpeg')
+        mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        return send_file(BytesIO(img_bytes), mimetype=mime)
     return Response('Not found', status=404)
 
 

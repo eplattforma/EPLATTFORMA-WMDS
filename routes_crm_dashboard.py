@@ -21,21 +21,58 @@ logger = logging.getLogger(__name__)
 
 crm_dashboard_bp = Blueprint("crm_dashboard", __name__, url_prefix="/crm")
 
+DEFAULT_CLASSIFICATIONS = [
+    "Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"
+]
+
+
+def _normalize_classifications(raw):
+    default_map = {name: {"icon": None} for name in DEFAULT_CLASSIFICATIONS}
+
+    if not raw:
+        return default_map
+
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return default_map
+
+    if isinstance(raw, list):
+        out = {}
+        for name in raw:
+            name = (str(name) or "").strip()
+            if name:
+                out[name] = {"icon": None}
+        return out or default_map
+
+    if isinstance(raw, dict):
+        out = {}
+        for name, meta in raw.items():
+            name = (str(name) or "").strip()
+            if not name:
+                continue
+            if isinstance(meta, dict):
+                out[name] = {
+                    "icon": meta.get("icon"),
+                    "color": meta.get("color"),
+                    "sort_order": meta.get("sort_order"),
+                }
+            else:
+                out[name] = {"icon": meta or None}
+        return out or default_map
+
+    return default_map
+
 
 def _get_allowed_classifications():
     s = Setting.query.filter_by(key="crm_customer_classifications").first()
-    if not s or not s.value:
-        defaults = ["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]
-        return {c: None for c in defaults}
-    try:
-        data = json.loads(s.value)
-        if isinstance(data, dict):
-            return data
-        else:
-            return {c: None for c in data}
-    except Exception:
-        defaults = ["Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"]
-        return {c: None for c in defaults}
+    raw = s.value if s and s.value else None
+    return _normalize_classifications(raw)
+
+
+def _get_allowed_classification_names():
+    return list(_get_allowed_classifications().keys())
 
 
 
@@ -50,7 +87,6 @@ def customer_slot_dashboard():
         try:
             default_classifications = Setting.query.filter_by(key="crm_customer_classifications_defaults").first()
             if default_classifications and default_classifications.value:
-                import json
                 val = default_classifications.value
                 if isinstance(val, str):
                     classification = json.loads(val)
@@ -67,7 +103,8 @@ def customer_slot_dashboard():
     sort_dir = request.args.get("sort_dir", "asc")
     if sort_dir not in ("asc", "desc"):
         sort_dir = "asc"
-    python_side_sort = sort_col in ("cycle", "action", "")
+    python_side_sort = sort_col in ("cycle", "action")
+    needs_python_eval = action_only or python_side_sort
 
     try:
         page = max(int(request.args.get("page", 1)), 1)
@@ -187,16 +224,40 @@ def customer_slot_dashboard():
             )
         )
 
-    total_count = q.count()
+    total_count = (
+        q.order_by(None)
+         .with_entities(func.count(func.distinct(PSCustomer.customer_code_365)))
+         .scalar()
+    ) or 0
     total_pages = max(1, (total_count + page_size - 1) // page_size)
     if page > total_pages:
         page = total_pages
 
-    kpi_row = q.with_entities(
-        func.sum(case((CrmAbandonedCartState.has_abandoned_cart.is_(True), 1), else_=0)).label("cart_count"),
-        func.coalesce(func.sum(CRMCustomerOpenOrders.open_order_amount), 0).label("total_open_amount"),
-        func.sum(case((func.coalesce(CRMCustomerOpenOrders.open_order_count, 0) > 0, 1), else_=0)).label("done_count"),
-    ).one()
+    filtered_codes_sq = (
+        q.order_by(None)
+         .with_entities(PSCustomer.customer_code_365.label("customer_code_365"))
+         .distinct()
+         .subquery()
+    )
+
+    kpi_row = (
+        db.session.query(
+            func.count(
+                case((CrmAbandonedCartState.has_abandoned_cart.is_(True), 1), else_=None)
+            ).label("cart_count"),
+            func.coalesce(func.sum(CRMCustomerOpenOrders.open_order_amount), 0).label("total_open_amount"),
+        )
+        .select_from(filtered_codes_sq)
+        .outerjoin(
+            CrmAbandonedCartState,
+            CrmAbandonedCartState.customer_code_365 == filtered_codes_sq.c.customer_code_365
+        )
+        .outerjoin(
+            CRMCustomerOpenOrders,
+            CRMCustomerOpenOrders.customer_code_365 == filtered_codes_sq.c.customer_code_365
+        )
+        .one()
+    )
 
     sort_col_map = {
         "customer": PSCustomer.company_name,
@@ -206,23 +267,22 @@ def customer_slot_dashboard():
         "value6m": sales_sq.c.value_6m,
         "value4w": sales_sq.c.value_4w,
         "invoice": sales_sq.c.last_invoice_date,
-        "inv90d": sales_sq.c.inv_cnt_90d,
         "orders": CRMCustomerOpenOrders.open_order_amount,
     }
 
-    if python_side_sort:
+    if needs_python_eval:
         rows = q.order_by(PSCustomer.company_name).all()
     elif sort_col in sort_col_map:
         sql_col = sort_col_map[sort_col]
         if sort_dir == "desc":
-            q = q.order_by(sql_col.desc().nulls_last())
+            q = q.order_by(sql_col.desc().nulls_last(), PSCustomer.company_name.asc())
         else:
-            q = q.order_by(sql_col.asc().nulls_last())
+            q = q.order_by(sql_col.asc().nulls_last(), PSCustomer.company_name.asc())
         rows = (q.limit(page_size)
                   .offset((page - 1) * page_size)
                   .all())
     else:
-        q = q.order_by(PSCustomer.company_name)
+        q = q.order_by(PSCustomer.company_name.asc())
         rows = (q.limit(page_size)
                   .offset((page - 1) * page_size)
                   .all())
@@ -277,8 +337,6 @@ def customer_slot_dashboard():
     })
 
     dashboard_rows = []
-    action_count = 0
-    done_count_page = 0
 
     for r in rows:
         has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
@@ -312,11 +370,6 @@ def customer_slot_dashboard():
         else:
             next_action = "NO_ACTION"
 
-        if next_action != "NO_ACTION":
-            action_count += 1
-        if done_for_cycle:
-            done_count_page += 1
-
         last_login_at = r.last_login_at
         r_login_days = None
         if last_login_at:
@@ -324,7 +377,11 @@ def customer_slot_dashboard():
 
         r_invoice_days = None
         if last_invoice_date:
-            r_invoice_days = (now_utc.date() - last_invoice_date).days
+            if isinstance(last_invoice_date, datetime):
+                invoice_date_only = last_invoice_date.date()
+            else:
+                invoice_date_only = last_invoice_date
+            r_invoice_days = (now_utc.date() - invoice_date_only).days
 
         dashboard_rows.append({
             "customer_code_365": r.customer_code_365,
@@ -359,26 +416,9 @@ def customer_slot_dashboard():
     if action_only:
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
 
-    if not sort_col or sort_col not in ("customer", "classification", "cart", "login", "value6m", "value4w", "invoice", "inv90d", "orders", "cycle", "action"):
-        classification_order = {"CUSTOMER": 1, "ENGAGE": 2, "EKO": 3, "PETROLINA": 4, "POTENTIAL": 5}
-        
-        def cycle_sort_key(row):
-            window_open = row["window_open"]
-            done = row["done_for_cycle"]
-            next_del = row.get("next_delivery_date") or date(9999, 12, 31)
-            cart_amt = -(row.get("cart_amount") or 0)
-            login_days = row.get("r_login_days") or 9999
-            class_val = classification_order.get(row.get("classification"), 6)
-            
-            if window_open and not done:
-                return (1, next_del, cart_amt, login_days, class_val)
-            elif done:
-                return (2, next_del, cart_amt, login_days, class_val)
-            else:
-                return (3, next_del, cart_amt, login_days, class_val)
-        dashboard_rows.sort(key=cycle_sort_key)
-    elif sort_col == "cycle":
+    if sort_col == "cycle":
         cycle_order = {"OPEN": 1, "DONE": 2, "CLOSED": 3}
+        rev = sort_dir == "desc"
         for row in dashboard_rows:
             if row["window_open"] and not row["done_for_cycle"]:
                 row["_cg"] = "OPEN"
@@ -386,14 +426,13 @@ def customer_slot_dashboard():
                 row["_cg"] = "DONE"
             else:
                 row["_cg"] = "CLOSED"
-        rev = sort_dir == "desc"
         dashboard_rows.sort(key=lambda r: cycle_order.get(r.get("_cg", "CLOSED"), 3), reverse=rev)
     elif sort_col == "action":
         action_order = {"CART_NUDGE": 1, "ORDER_REMINDER": 2, "CALL": 3, "NO_ACTION": 4}
         rev = sort_dir == "desc"
         dashboard_rows.sort(key=lambda r: action_order.get(r.get("next_action", "NO_ACTION"), 4), reverse=rev)
 
-    if python_side_sort:
+    if needs_python_eval:
         total_count = len(dashboard_rows)
         total_pages = max(1, (total_count + page_size - 1) // page_size)
         if page > total_pages:
@@ -427,8 +466,8 @@ def customer_slot_dashboard():
         page=page,
         page_size=page_size,
         total_pages=total_pages,
-        kpi_action_count=action_count,
-        kpi_done_count=int(kpi_row.done_count or 0),
+        kpi_action_count=sum(1 for row in dashboard_rows if row["next_action"] != "NO_ACTION"),
+        kpi_done_count=sum(1 for row in dashboard_rows if row["done_for_cycle"]),
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
         filters={
@@ -450,7 +489,7 @@ def customer_slot_dashboard():
 @login_required
 def set_customer_classification(customer_code_365):
     new_value = (request.form.get("classification") or "").strip()
-    allowed = _get_allowed_classifications()
+    allowed = _get_allowed_classification_names()
     if new_value and new_value not in allowed:
         return jsonify({"ok": False, "error": "Invalid classification"}), 400
 

@@ -1,0 +1,357 @@
+1) Fix imports and normalize classification settings properly
+
+At the top of the CRM dashboard file, add:
+
+import json
+
+Then replace your classification helper with this:
+
+DEFAULT_CLASSIFICATIONS = [
+    "Customer", "EKO", "Petrolina", "SHELL", "Monitor", "At Risk", "Frozen"
+]
+
+def _normalize_classifications(raw):
+    default_map = {name: {"icon": None} for name in DEFAULT_CLASSIFICATIONS}
+
+    if not raw:
+        return default_map
+
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return default_map
+
+    if isinstance(raw, list):
+        out = {}
+        for name in raw:
+            name = (str(name) or "").strip()
+            if name:
+                out[name] = {"icon": None}
+        return out or default_map
+
+    if isinstance(raw, dict):
+        out = {}
+        for name, meta in raw.items():
+            name = (str(name) or "").strip()
+            if not name:
+                continue
+
+            if isinstance(meta, dict):
+                out[name] = {
+                    "icon": meta.get("icon"),
+                    "color": meta.get("color"),
+                    "sort_order": meta.get("sort_order"),
+                }
+            else:
+                # legacy format: {"Customer": "customer.jpg"} or {"Customer": None}
+                out[name] = {"icon": meta or None}
+
+        return out or default_map
+
+    return default_map
+
+
+def _get_allowed_classifications():
+    s = Setting.query.filter_by(key="crm_customer_classifications").first()
+    raw = s.value if s and s.value else None
+    return _normalize_classifications(raw)
+
+
+def _get_allowed_classification_names():
+    return list(_get_allowed_classifications().keys())
+
+Then change validation in set_customer_classification():
+
+allowed = _get_allowed_classification_names()
+if new_value and new_value not in allowed:
+    return jsonify({"ok": False, "error": "Invalid classification"}), 400
+2) Stop defaulting to Python-side sort
+
+Change this:
+
+python_side_sort = sort_col in ("cycle", "action", "")
+
+to this:
+
+python_side_sort = sort_col in ("cycle", "action")
+needs_python_eval = action_only or python_side_sort
+
+That alone removes the biggest default performance problem.
+
+3) Use distinct count for pagination
+
+Replace:
+
+total_count = q.count()
+
+with:
+
+total_count = (
+    q.order_by(None)
+     .with_entities(func.count(func.distinct(PSCustomer.customer_code_365)))
+     .scalar()
+) or 0
+
+That is much safer for joined queries.
+
+4) Avoid the heavy KPI query on the full joined dataset
+
+Your current KPI block is both expensive and logically mixed.
+
+Replace it with a lighter KPI query built from distinct customer codes:
+
+filtered_codes_sq = (
+    q.order_by(None)
+     .with_entities(PSCustomer.customer_code_365.label("customer_code_365"))
+     .distinct()
+     .subquery()
+)
+
+kpi_row = (
+    db.session.query(
+        func.count(
+            case((CrmAbandonedCartState.has_abandoned_cart.is_(True), 1), else_=None)
+        ).label("cart_count"),
+        func.coalesce(func.sum(CRMCustomerOpenOrders.open_order_amount), 0).label("total_open_amount"),
+    )
+    .select_from(filtered_codes_sq)
+    .outerjoin(
+        CrmAbandonedCartState,
+        CrmAbandonedCartState.customer_code_365 == filtered_codes_sq.c.customer_code_365
+    )
+    .outerjoin(
+        CRMCustomerOpenOrders,
+        CRMCustomerOpenOrders.customer_code_365 == filtered_codes_sq.c.customer_code_365
+    )
+    .one()
+)
+
+For now I would make kpi_done_count and kpi_action_count page-based, because true global values require evaluating the ordering window per customer anyway.
+
+5) Make action_only consistent with pagination
+
+This is the cleanest rule:
+
+If action_only=0 and sort is SQL-sortable, do SQL pagination
+
+If action_only=1 or sort is cycle/action, do Python evaluation intentionally, then paginate after computing rows
+
+So replace your row fetch block with:
+
+if needs_python_eval:
+    rows = q.order_by(PSCustomer.company_name).all()
+elif sort_col in sort_col_map:
+    sql_col = sort_col_map[sort_col]
+    if sort_dir == "desc":
+        q = q.order_by(sql_col.desc().nulls_last(), PSCustomer.company_name.asc())
+    else:
+        q = q.order_by(sql_col.asc().nulls_last(), PSCustomer.company_name.asc())
+
+    rows = (
+        q.limit(page_size)
+         .offset((page - 1) * page_size)
+         .all()
+    )
+else:
+    q = q.order_by(PSCustomer.company_name.asc())
+    rows = (
+        q.limit(page_size)
+         .offset((page - 1) * page_size)
+         .all()
+    )
+
+Then keep your dashboard row build logic.
+
+After dashboard_rows is built, keep this behavior only for the Python-eval path:
+
+if action_only:
+    dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
+
+And then:
+
+if needs_python_eval:
+    total_count = len(dashboard_rows)
+    total_pages = max(1, (total_count + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+    dashboard_rows = dashboard_rows[(page - 1) * page_size : page * page_size]
+
+That fixes the main inconsistency.
+
+6) Fix the default fallback sort
+
+Right now your “no sort” path still ends up doing Python sorting later because of this block:
+
+if not sort_col or sort_col not in (...)
+
+That block should only run for actual Python-only sorts, not for the default case.
+
+Change it to:
+
+if sort_col == "cycle":
+    cycle_order = {"OPEN": 1, "DONE": 2, "CLOSED": 3}
+    rev = sort_dir == "desc"
+    for row in dashboard_rows:
+        if row["window_open"] and not row["done_for_cycle"]:
+            row["_cg"] = "OPEN"
+        elif row["done_for_cycle"]:
+            row["_cg"] = "DONE"
+        else:
+            row["_cg"] = "CLOSED"
+    dashboard_rows.sort(key=lambda r: cycle_order.get(r.get("_cg", "CLOSED"), 3), reverse=rev)
+
+elif sort_col == "action":
+    action_order = {"CART_NUDGE": 1, "ORDER_REMINDER": 2, "CALL": 3, "NO_ACTION": 4}
+    rev = sort_dir == "desc"
+    dashboard_rows.sort(key=lambda r: action_order.get(r.get("next_action", "NO_ACTION"), 4), reverse=rev)
+
+And remove the current if not sort_col ... Python sort branch entirely.
+
+If you want your special “cycle-aware default ordering”, it should only happen when you explicitly ask for it, not as the default dashboard load.
+
+7) Make KPI counts page-based for now
+
+After pagination is finalized, compute:
+
+page_action_count = sum(1 for row in dashboard_rows if row["next_action"] != "NO_ACTION")
+page_done_count = sum(1 for row in dashboard_rows if row["done_for_cycle"])
+
+Then in render_template() pass:
+
+kpi_action_count=page_action_count,
+kpi_done_count=page_done_count,
+kpi_cart_count=int(kpi_row.cart_count or 0),
+kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
+
+This is much more honest than mixing full-query and page-only semantics.
+
+Classification icons: how I would store them now
+
+Your admin settings route should now save:
+
+{
+  "Customer": {"icon": "customer_abcd1234.png"},
+  "EKO": {"icon": "eko_efgh5678.png"},
+  "Petrolina": {"icon": "petrolina_xyz9999.webp"}
+}
+Update save route
+
+In save_crm_classifications(), replace the list/dict rebuild logic with:
+
+existing_raw = Setting.get(db.session, "crm_customer_classifications", "{}")
+existing = _normalize_classifications(existing_raw)
+
+data = request.form.get('data', '[]')
+items = json.loads(data) if data else []
+
+data_dict = {}
+defaults = []
+
+for item in items:
+    name = (item.get('name') or '').strip()
+    is_default = item.get('is_default', False)
+    if not name:
+        continue
+
+    prev = existing.get(name, {"icon": None})
+    data_dict[name] = {
+        "icon": prev.get("icon"),
+        "color": prev.get("color"),
+        "sort_order": prev.get("sort_order"),
+    }
+
+    if is_default:
+        defaults.append(name)
+
+Then when processing uploads:
+
+import hashlib
+
+os.makedirs('static/crm-classification-images', exist_ok=True)
+
+for key in request.files:
+    if not key.startswith('file_'):
+        continue
+
+    idx = key.split('_', 1)[1]
+    cls_name = (request.form.get(f'name_{idx}') or '').strip()
+    if not cls_name or cls_name not in data_dict:
+        continue
+
+    f = request.files[key]
+    if not f or not f.filename:
+        continue
+
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
+        continue
+
+    raw = f.read()
+    h = hashlib.md5(raw).hexdigest()[:16]
+    safe_name = cls_name.replace(' ', '_')
+    filename = f"{safe_name}_{h}{ext}"
+    filepath = os.path.join('static/crm-classification-images', filename)
+
+    with open(filepath, 'wb') as fout:
+        fout.write(raw)
+
+    data_dict[cls_name]["icon"] = filename
+
+Then save:
+
+Setting.set(db.session, "crm_customer_classifications", json.dumps(data_dict))
+Setting.set(db.session, "crm_customer_classifications_defaults", json.dumps(defaults))
+Fix admin page defaults so they match dashboard defaults
+
+In crm_classifications_settings() change:
+
+close_hours = Setting.get(db.session, "crm_order_window_close_hours", "48")
+close_anchor_time = Setting.get(db.session, "crm_delivery_close_anchor_time", "12:00")
+
+to:
+
+close_hours = Setting.get(db.session, "crm_order_window_close_hours", "0")
+close_anchor_time = Setting.get(db.session, "crm_delivery_close_anchor_time", "00:01")
+
+That should match the dashboard fallback.
+
+Fix icon upload/serve MIME handling
+
+At the moment you save raw png/webp bytes as .jpg. That is wrong.
+
+Upload route
+
+Use the original extension:
+
+ext = os.path.splitext(secure_filename(file.filename))[1].lower()
+filename = f"{safe_name}_{h}{ext}"
+Serve route
+
+Use mimetypes:
+
+import mimetypes
+
+Then:
+
+mime = mimetypes.guess_type(local_path)[0] or 'application/octet-stream'
+return send_file(local_path, mimetype=mime)
+
+And for the fallback bytes path:
+
+mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+return send_file(BytesIO(img_bytes), mimetype=mime)
+One more thing I noticed
+
+This line may become a type issue depending on the actual column type:
+
+r_invoice_days = (now_utc.date() - last_invoice_date).days
+
+If last_invoice_date is a datetime, make it safe:
+
+if last_invoice_date:
+    if isinstance(last_invoice_date, datetime):
+        invoice_date_only = last_invoice_date.date()
+    else:
+        invoice_date_only = last_invoice_date
+    r_invoice_days = (now_utc.date() - invoice_date_only).days

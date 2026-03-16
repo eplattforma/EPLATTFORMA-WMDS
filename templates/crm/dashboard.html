@@ -431,7 +431,6 @@ function refreshAllData() {
                     <option value="value6m" {% if filters.sort == 'value6m' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Value 6m</option>
                     <option value="value4w" {% if filters.sort == 'value4w' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Value 4w</option>
                     <option value="invoice" {% if filters.sort == 'invoice' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Last Invoice</option>
-                    <option value="inv90d" {% if filters.sort == 'inv90d' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Inv 90d</option>
                     <option value="orders" {% if filters.sort == 'orders' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Orders</option>
                     <option value="action" {% if filters.sort == 'action' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Action</option>
                 </select>
@@ -479,7 +478,7 @@ function refreshAllData() {
             <tbody>
                 {% set ns = namespace(current_group='') %}
                 {% for r in rows %}
-                {% if (not filters.sort or filters.sort == 'cycle') and r.cycle_group != ns.current_group %}
+                {% if filters.sort == 'cycle' and r.cycle_group != ns.current_group %}
                 {% set ns.current_group = r.cycle_group %}
                 <tr class="cycle-group-header" data-group="{{ r.cycle_group }}" onclick="toggleGroup('{{ r.cycle_group }}')" style="cursor: pointer;">
                     <td colspan="12" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; border-bottom: 2px solid rgba(255,255,255,0.15);">
@@ -514,8 +513,8 @@ function refreshAllData() {
                     </td>
                     <td>
                         <div style="display: flex; gap: 6px; align-items: center;">
-                            {% if r.classification and allowed_classifications.get(r.classification) %}
-                            <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification] }}"
+                            {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
+                            <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}"
                                  style="width: 24px; height: 24px; border-radius: 3px;" alt="{{ r.classification }}"
                                  title="{{ r.classification }}">
                             {% endif %}
@@ -766,8 +765,8 @@ async function setClassification(el) {
             // Update the image if the classification changed
             const container = el.closest('div');
             const img = container.querySelector('img');
-            if (val && allowed_classifications && allowed_classifications[val]) {
-                const imagePath = `/admin/tools/crm-classification-image/${allowed_classifications[val]}`;
+            if (val && allowed_classifications && allowed_classifications[val] && allowed_classifications[val].icon) {
+                const imagePath = `/admin/tools/crm-classification-image/${allowed_classifications[val].icon}`;
                 if (img) {
                     img.src = imagePath;
                     img.alt = val;
