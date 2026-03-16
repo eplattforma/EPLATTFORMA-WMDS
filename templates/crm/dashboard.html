@@ -561,18 +561,18 @@ function refreshAllData() {
                         <span class="text-muted">—</span>
                         {% endif %}
                     </td>
-                    <td class="value-col">
-                        {% if r.value_6m %}€{{ "{:,.0f}".format(r.value_6m) }}{% else %}—{% endif %}
-                    </td>
-                    <td class="value-col">
-                        {% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}
-                    </td>
                     <td class="text-center">
                         {% if r.r_invoice_days is not none %}
                         <span class="days-pill {% if r.r_invoice_days <= 7 %}days-green{% elif r.r_invoice_days <= 14 %}days-yellow{% elif r.r_invoice_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_invoice_days }}d</span>
                         {% else %}
                         <span class="text-muted">—</span>
                         {% endif %}
+                    </td>
+                    <td class="value-col">
+                        {% if r.value_6m %}€{{ "{:,.0f}".format(r.value_6m) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="value-col">
+                        {% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}
                     </td>
                     <td class="value-col">{{ r.inv_cnt_90d }}</td>
                     <td>
