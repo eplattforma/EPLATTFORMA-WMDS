@@ -175,7 +175,7 @@ def customer_slot_dashboard():
             CRMCustomerOpenOrders.open_order_amount,
             CRMCustomerOpenOrders.open_order_count,
         )
-        .filter(PSCustomer.active == True)
+        .filter(PSCustomer.active.is_(True))
         .filter(PSCustomer.deleted_at.is_(None))
         .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
@@ -222,15 +222,18 @@ def customer_slot_dashboard():
         except Exception:
             pass
     if slot:
-        dow, week = slot.split("-")
-        q = q.join(
-            CustomerDeliverySlot,
-            and_(
-                CustomerDeliverySlot.customer_code_365 == PSCustomer.customer_code_365,
-                CustomerDeliverySlot.dow == dow,
-                CustomerDeliverySlot.week_code == week,
+        try:
+            dow, week = slot.split("-", 1)
+            q = q.join(
+                CustomerDeliverySlot,
+                and_(
+                    CustomerDeliverySlot.customer_code_365 == PSCustomer.customer_code_365,
+                    CustomerDeliverySlot.dow == dow,
+                    CustomerDeliverySlot.week_code == week,
+                )
             )
-        )
+        except ValueError:
+            pass
 
     total_count = (
         q.order_by(None)
@@ -275,6 +278,7 @@ def customer_slot_dashboard():
         "value6m": sales_sq.c.value_6m,
         "value4w": sales_sq.c.value_4w,
         "invoice": sales_sq.c.last_invoice_date,
+        "inv90d": sales_sq.c.inv_cnt_90d,
         "orders": CRMCustomerOpenOrders.open_order_amount,
     }
 

@@ -1,0 +1,222 @@
+What is now good
+
+These parts are now in a good direction:
+
+json import is fixed
+
+classification normalization is much cleaner
+
+distinct count for pagination is better
+
+action_only now recalculates totals after Python filtering
+
+last_invoice_date datetime/date handling is safer
+
+classification validation now matches the normalized structure
+
+Critical issue 1: default load still does Python-side full fetch
+
+You still have:
+
+python_side_sort = sort_col in ("cycle", "action", "")
+needs_python_eval = action_only or python_side_sort
+
+Because of "", the default dashboard load still does:
+
+rows = q.order_by(PSCustomer.company_name).all()
+
+So the biggest performance issue is still there.
+
+Fix
+
+Change to:
+
+python_side_sort = sort_col in ("cycle", "action")
+needs_python_eval = action_only or python_side_sort
+Critical issue 2: default sort still forces Python cycle sorting
+
+You also still have:
+
+if not sort_col or sort_col == "cycle":
+
+That means even when no sort is selected, you are still applying Python cycle grouping logic.
+
+If your requirement is:
+
+avoid Python-side sorting by default
+
+default load should paginate efficiently
+
+then this must change.
+
+Fix
+
+Replace this block:
+
+if not sort_col or sort_col == "cycle":
+    cycle_order = {"OPEN": 1, "DONE": 2, "CLOSED": 3}
+    rev = sort_dir == "desc" if sort_col == "cycle" else False
+    for row in dashboard_rows:
+        if row["window_open"] and not row["done_for_cycle"]:
+            row["_cg"] = "OPEN"
+        elif row["done_for_cycle"]:
+            row["_cg"] = "DONE"
+        else:
+            row["_cg"] = "CLOSED"
+    dashboard_rows.sort(key=lambda r: (cycle_order.get(r.get("_cg", "CLOSED"), 3), r.get("customer_name", "")), reverse=rev)
+elif sort_col == "action":
+
+with:
+
+if sort_col == "cycle":
+    cycle_order = {"OPEN": 1, "DONE": 2, "CLOSED": 3}
+    rev = sort_dir == "desc"
+    for row in dashboard_rows:
+        if row["window_open"] and not row["done_for_cycle"]:
+            row["_cg"] = "OPEN"
+        elif row["done_for_cycle"]:
+            row["_cg"] = "DONE"
+        else:
+            row["_cg"] = "CLOSED"
+    dashboard_rows.sort(
+        key=lambda r: (cycle_order.get(r.get("_cg", "CLOSED"), 3), r.get("customer_name", "")),
+        reverse=rev
+    )
+elif sort_col == "action":
+    action_order = {"CART_NUDGE": 1, "ORDER_REMINDER": 2, "CALL": 3, "NO_ACTION": 4}
+    rev = sort_dir == "desc"
+    dashboard_rows.sort(
+        key=lambda r: action_order.get(r.get("next_action", "NO_ACTION"), 4),
+        reverse=rev
+    )
+
+Then your default load stays SQL-paginated.
+
+Critical issue 3: inv90d sort disappeared
+
+Previously you had support for inv90d. In this version it is missing from sort_col_map, but you still build inv_cnt_90d into rows.
+
+Fix
+
+Add back:
+
+"inv90d": sales_sq.c.inv_cnt_90d,
+
+So:
+
+sort_col_map = {
+    "customer": PSCustomer.company_name,
+    "classification": CrmCustomerProfile.classification,
+    "cart": CrmAbandonedCartState.abandoned_cart_amount,
+    "login": MagentoCustomerLastLoginCurrent.last_login_at,
+    "value6m": sales_sq.c.value_6m,
+    "value4w": sales_sq.c.value_4w,
+    "invoice": sales_sq.c.last_invoice_date,
+    "inv90d": sales_sq.c.inv_cnt_90d,
+    "orders": CRMCustomerOpenOrders.open_order_amount,
+}
+Important semantic note: KPI cards are now page-level for action/done
+
+You now pass:
+
+kpi_action_count=sum(1 for row in dashboard_rows if row["next_action"] != "NO_ACTION"),
+kpi_done_count=sum(1 for row in dashboard_rows if row["done_for_cycle"]),
+
+That means these are counts for the current page only, not for the full filtered dataset.
+
+That is acceptable if that is what you want. But the UI label should reflect it, otherwise it can be misleading.
+
+Decide one of these:
+
+keep as page KPIs and label them clearly
+
+or compute true filtered totals separately
+
+For now, page-level is the safer implementation.
+
+Smaller things to fix
+1) Safer slot parsing
+
+This can crash if querystring is malformed:
+
+dow, week = slot.split("-")
+
+Use:
+
+if slot:
+    try:
+        dow, week = slot.split("-", 1)
+        q = q.join(
+            CustomerDeliverySlot,
+            and_(
+                CustomerDeliverySlot.customer_code_365 == PSCustomer.customer_code_365,
+                CustomerDeliverySlot.dow == dow,
+                CustomerDeliverySlot.week_code == week,
+            )
+        )
+    except ValueError:
+        pass
+2) Use .is_(True) instead of == True
+
+This is cleaner SQLAlchemy:
+
+.filter(PSCustomer.active.is_(True))
+
+instead of:
+
+.filter(PSCustomer.active == True)
+3) Template compatibility with classification metadata
+
+allowed_classifications is now:
+
+{
+  "Customer": {"icon": "...", "color": ..., "sort_order": ...},
+  ...
+}
+
+So your template must not assume values are plain filenames anymore.
+
+It should iterate roughly like:
+
+{% for name, meta in allowed_classifications.items() %}
+
+and use:
+
+meta.icon
+
+If your template still assumes:
+
+for name, icon in allowed_classifications.items()
+
+it will break or render wrongly.
+
+Exact minimum patch I recommend
+
+Apply these 4 edits:
+
+1
+python_side_sort = sort_col in ("cycle", "action")
+needs_python_eval = action_only or python_side_sort
+2
+
+Add back:
+
+"inv90d": sales_sq.c.inv_cnt_90d,
+3
+
+Change:
+
+if not sort_col or sort_col == "cycle":
+
+to:
+
+if sort_col == "cycle":
+4
+
+Change:
+
+.filter(PSCustomer.active == True)
+
+to:
+
+.filter(PSCustomer.active.is_(True))
