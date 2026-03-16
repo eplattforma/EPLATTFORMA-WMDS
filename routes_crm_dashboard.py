@@ -497,6 +497,167 @@ def customer_slot_dashboard():
     )
 
 
+@crm_dashboard_bp.get("/review-ordering")
+@login_required
+def review_ordering():
+    today = date.today()
+    d6m = today - timedelta(days=183)
+    d4w = today - timedelta(days=28)
+    d90 = today - timedelta(days=90)
+
+    sales_sq = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365.label("cc"),
+            func.coalesce(func.sum(
+                case((DwInvoiceHeader.invoice_date_utc0 >= d6m, DwInvoiceHeader.total_grand), else_=0)
+            ), 0).label("value_6m"),
+            func.coalesce(func.sum(
+                case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+            ), 0).label("value_4w"),
+            func.max(
+                case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
+            ).label("last_invoice_date"),
+        )
+        .filter(DwInvoiceHeader.invoice_date_utc0 >= d6m)
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .subquery()
+    )
+
+    q = (
+        db.session.query(
+            PSCustomer.customer_code_365,
+            PSCustomer.company_name,
+            PSCustomer.postal_code,
+            PSCustomer.mobile,
+            PSCustomer.sms.label("sms_number"),
+            CrmCustomerProfile.classification,
+            CrmAbandonedCartState.has_abandoned_cart,
+            CrmAbandonedCartState.abandoned_cart_amount,
+            MagentoCustomerLastLoginCurrent.last_login_at,
+            sales_sq.c.value_6m,
+            sales_sq.c.value_4w,
+            sales_sq.c.last_invoice_date,
+            CRMCustomerOpenOrders.open_order_amount,
+            CRMCustomerOpenOrders.open_order_count,
+        )
+        .filter(PSCustomer.active.is_(True))
+        .filter(PSCustomer.deleted_at.is_(None))
+        .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(CrmAbandonedCartState, CrmAbandonedCartState.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(sales_sq, sales_sq.c.cc == PSCustomer.customer_code_365)
+        .outerjoin(CRMCustomerOpenOrders, CRMCustomerOpenOrders.customer_code_365 == PSCustomer.customer_code_365)
+    )
+
+    rows = q.order_by(PSCustomer.company_name).all()
+
+    now_utc = datetime.now(timezone.utc)
+    now_local = now_utc.astimezone(ATHENS_TZ)
+    allowed_classifications = _get_allowed_classifications()
+
+    window_hours_setting = Setting.query.filter_by(key="crm_order_window_hours").first()
+    window_hours = int(window_hours_setting.value) if window_hours_setting and window_hours_setting.value else 48
+    anchor_setting = Setting.query.filter_by(key="crm_delivery_anchor_time").first()
+    anchor_time = anchor_setting.value if anchor_setting and anchor_setting.value else "00:01"
+    close_hours_setting = Setting.query.filter_by(key="crm_order_window_close_hours").first()
+    close_hours = int(close_hours_setting.value) if close_hours_setting and close_hours_setting.value else 0
+    close_anchor_setting = Setting.query.filter_by(key="crm_delivery_close_anchor_time").first()
+    close_anchor_time = close_anchor_setting.value if close_anchor_setting and close_anchor_setting.value else "00:01"
+
+    all_codes = [r.customer_code_365 for r in rows]
+    slots_rows = (
+        CustomerDeliverySlot.query
+        .filter(CustomerDeliverySlot.customer_code_365.in_(all_codes))
+        .all()
+    ) if all_codes else []
+    customer_slots = {}
+    for s in slots_rows:
+        customer_slots.setdefault(s.customer_code_365, []).append(
+            {"dow": s.dow, "week_code": s.week_code}
+        )
+
+    open_window_rows = []
+    for r in rows:
+        slots_for_cust = customer_slots.get(r.customer_code_365, [])
+        if not slots_for_cust:
+            continue
+
+        last_invoice_date = r.last_invoice_date
+        open_order_count = int(r.open_order_count) if r.open_order_count else 0
+
+        window_status = get_customer_window_status(
+            slots=slots_for_cust,
+            last_invoice_date=last_invoice_date,
+            open_order_count=open_order_count,
+            window_hours=window_hours,
+            anchor_time_str=anchor_time,
+            close_hours=close_hours,
+            close_anchor_time_str=close_anchor_time,
+            now_local=now_local,
+        )
+
+        if not window_status["window_open"]:
+            continue
+
+        done_for_cycle = window_status["done_for_window"]
+        has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
+        cart_amount = float(r.abandoned_cart_amount) if r.abandoned_cart_amount is not None else 0
+
+        last_login_at = r.last_login_at
+        r_login_days = None
+        if last_login_at:
+            r_login_days = (now_utc.date() - last_login_at.date()).days
+
+        r_invoice_days = None
+        if last_invoice_date:
+            if isinstance(last_invoice_date, datetime):
+                invoice_date_only = last_invoice_date.date()
+            else:
+                invoice_date_only = last_invoice_date
+            r_invoice_days = (now_utc.date() - invoice_date_only).days
+
+        next_del = window_status["next_delivery"]
+        open_window_rows.append({
+            "customer_code_365": r.customer_code_365,
+            "customer_name": r.company_name or r.customer_code_365,
+            "classification": r.classification or "",
+            "done_for_cycle": done_for_cycle,
+            "has_cart": has_cart,
+            "cart_amount": cart_amount,
+            "last_login_at": last_login_at,
+            "r_login_days": r_login_days,
+            "last_invoice_date": last_invoice_date,
+            "r_invoice_days": r_invoice_days,
+            "value_6m": float(r.value_6m or 0),
+            "value_4w": float(r.value_4w or 0),
+            "open_order_amount": float(r.open_order_amount) if r.open_order_amount else 0,
+            "open_order_count": open_order_count,
+            "next_delivery": next_del.strftime('%a %d-%b') if next_del else None,
+            "next_delivery_date": next_del,
+            "mobile_number": r.mobile or r.sms_number or "",
+        })
+
+    far_future = date(2099, 12, 31)
+    open_window_rows.sort(key=lambda r: (
+        0 if not r["done_for_cycle"] else 1,
+        r["next_delivery_date"] or far_future,
+        -(r["cart_amount"] or 0),
+        r["r_login_days"] if r["r_login_days"] is not None else 9999,
+        r["r_invoice_days"] if r["r_invoice_days"] is not None else 9999,
+    ))
+
+    pending_rows = [r for r in open_window_rows if not r["done_for_cycle"]]
+    done_rows = [r for r in open_window_rows if r["done_for_cycle"]]
+
+    return render_template(
+        "crm/review_ordering.html",
+        pending_rows=pending_rows,
+        done_rows=done_rows,
+        total_open=len(open_window_rows),
+        allowed_classifications=allowed_classifications,
+    )
+
+
 @crm_dashboard_bp.post("/customer/<customer_code_365>/set-classification")
 @login_required
 def set_customer_classification(customer_code_365):

@@ -442,6 +442,9 @@ function refreshAllData() {
                     <option value="action" {% if filters.sort == 'action' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Action</option>
                 </select>
             </div>
+            <a href="/crm/review-ordering" class="btn btn-sm" title="Review Ordering Window" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border: none; box-shadow: 0 2px 6px rgba(34, 197, 94, 0.3); color: white; text-decoration: none; display: flex; align-items: center; gap: 4px;">
+                <i class="fas fa-clipboard-check" style="font-size: 0.9rem;"></i><span>Review</span>
+            </a>
             <button id="btn-refresh-all" class="btn btn-sm btn-primary" onclick="refreshAllData()" title="Refresh Orders & Abandoned Carts" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); border: none; box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3); display: flex; flex-direction: column; align-items: center;">
                 <div style="display: flex; align-items: center;">
                     <i class="fas fa-bolt spinner-icon me-1" style="font-size: 0.95rem;"></i><span class="refresh-text">Sync</span>

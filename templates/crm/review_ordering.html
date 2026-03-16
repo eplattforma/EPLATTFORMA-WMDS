@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}Review Ordering Window{% endblock %}
+
+{% block head %}
+<style>
+    .review-table thead { position: sticky; top: 0; z-index: 10; }
+    .review-table th { white-space: nowrap; font-size: 0.78rem; position: sticky; top: 0; z-index: 10; }
+    .review-table td { font-size: 0.82rem; vertical-align: middle; }
+    .badge-done { background-color: #198754; }
+    .badge-pending { background-color: #dc3545; }
+    .badge-cart { background-color: #fd7e14; }
+    .value-col { text-align: right; white-space: nowrap; }
+    .days-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+    .days-green { background: rgba(25,135,84,0.2); color: #22c55e; }
+    .days-yellow { background: rgba(255,193,7,0.2); color: #ffc107; }
+    .days-orange { background: rgba(253,126,20,0.2); color: #fd7e14; }
+    .days-red { background: rgba(220,53,69,0.2); color: #ef4444; }
+    .group-header-row td {
+        padding: 8px 12px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid rgba(255,255,255,0.15);
+        cursor: pointer;
+    }
+    .group-header-row:hover td { background: rgba(255,255,255,0.03); }
+    .kpi-summary {
+        display: flex; gap: 16px; align-items: center;
+        padding: 8px 16px; background: rgba(255,255,255,0.05);
+        border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+    }
+    .kpi-summary .kpi-item { text-align: center; }
+    .kpi-summary .kpi-label { font-size: 0.68rem; text-transform: uppercase; color: rgba(255,255,255,0.5); font-weight: 700; }
+    .kpi-summary .kpi-val { font-size: 1.1rem; font-weight: 700; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="mb-0"><i class="fas fa-clipboard-check me-2" style="color: #22c55e;"></i>Review Ordering Window</h4>
+            <small class="text-muted">Customers with ordering window currently open</small>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <div class="kpi-summary">
+                <div class="kpi-item">
+                    <div class="kpi-label">Total Open</div>
+                    <div class="kpi-val" style="color: #22c55e;">{{ total_open }}</div>
+                </div>
+                <div class="kpi-item">
+                    <div class="kpi-label">Pending</div>
+                    <div class="kpi-val text-danger">{{ pending_rows | length }}</div>
+                </div>
+                <div class="kpi-item">
+                    <div class="kpi-label">Done</div>
+                    <div class="kpi-val text-success">{{ done_rows | length }}</div>
+                </div>
+            </div>
+            <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <div class="table-responsive" style="max-height: calc(100vh - 140px); overflow-y: auto;">
+        <table class="table table-sm review-table mb-0">
+            <thead class="table-dark">
+                <tr>
+                    <th>Customer</th>
+                    <th>Classification</th>
+                    <th>Status</th>
+                    <th>Delivery</th>
+                    <th>Orders</th>
+                    <th>Cart</th>
+                    <th>Last Login</th>
+                    <th>Last Invoice</th>
+                    <th class="value-col">Value 6m</th>
+                    <th class="value-col">Value 4w</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if pending_rows %}
+                <tr class="group-header-row" onclick="toggleReviewGroup('pending')" style="cursor:pointer;">
+                    <td colspan="10" style="background: rgba(220,53,69,0.08);">
+                        <i class="fas fa-caret-down me-1" id="group-icon-pending" style="transition: transform 0.2s;"></i>
+                        <span style="color: #ef4444;"><i class="fas fa-exclamation-circle me-1"></i>PENDING</span>
+                        <span class="ms-2" style="font-size: 0.72rem; color: rgba(255,255,255,0.4);">{{ pending_rows | length }} customers</span>
+                    </td>
+                </tr>
+                {% for r in pending_rows %}
+                <tr class="review-row" data-group="pending">
+                    <td>
+                        <div class="fw-semibold">{{ r.customer_name }}</div>
+                        <span class="text-muted" style="font-size: 0.72rem;">{{ r.customer_code_365 }}</span>
+                    </td>
+                    <td>
+                        {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
+                        <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}"
+                             style="width: 22px; height: 22px; border-radius: 3px;" alt="{{ r.classification }}"
+                             title="{{ r.classification }}">
+                        {% elif r.classification %}
+                        <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ r.classification }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td><span class="badge badge-pending">PENDING</span></td>
+                    <td>
+                        {% if r.next_delivery %}
+                        <span class="badge" style="background-color: #22c55e; color: white; font-size: 0.72rem;">{{ r.next_delivery }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="value-col">
+                        {% if r.open_order_amount > 0 %}
+                        <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.has_cart %}
+                        <span class="badge badge-cart">
+                            <i class="fas fa-shopping-cart me-1"></i>
+                            {% if r.cart_amount %}€{{ "%.0f"|format(r.cart_amount) }}{% endif %}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.r_login_days is not none %}
+                        <span class="days-pill {% if r.r_login_days <= 7 %}days-green{% elif r.r_login_days <= 14 %}days-yellow{% elif r.r_login_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_login_days }}d</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.r_invoice_days is not none %}
+                        <span class="days-pill {% if r.r_invoice_days <= 7 %}days-green{% elif r.r_invoice_days <= 14 %}days-yellow{% elif r.r_invoice_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_invoice_days }}d</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="value-col">{% if r.value_6m %}€{{ "{:,.0f}".format(r.value_6m) }}{% else %}—{% endif %}</td>
+                    <td class="value-col">{% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+                {% endif %}
+
+                {% if done_rows %}
+                <tr class="group-header-row" onclick="toggleReviewGroup('done')" style="cursor:pointer;">
+                    <td colspan="10" style="background: rgba(25,135,84,0.08);">
+                        <i class="fas fa-caret-down me-1" id="group-icon-done" style="transition: transform 0.2s;"></i>
+                        <span style="color: #198754;"><i class="fas fa-check-circle me-1"></i>DONE</span>
+                        <span class="ms-2" style="font-size: 0.72rem; color: rgba(255,255,255,0.4);">{{ done_rows | length }} customers</span>
+                    </td>
+                </tr>
+                {% for r in done_rows %}
+                <tr class="review-row" data-group="done">
+                    <td>
+                        <div class="fw-semibold">{{ r.customer_name }}</div>
+                        <span class="text-muted" style="font-size: 0.72rem;">{{ r.customer_code_365 }}</span>
+                    </td>
+                    <td>
+                        {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
+                        <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}"
+                             style="width: 22px; height: 22px; border-radius: 3px;" alt="{{ r.classification }}"
+                             title="{{ r.classification }}">
+                        {% elif r.classification %}
+                        <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ r.classification }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td><span class="badge badge-done">DONE</span></td>
+                    <td>
+                        {% if r.next_delivery %}
+                        <span class="badge" style="background-color: #22c55e; color: white; font-size: 0.72rem;">{{ r.next_delivery }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="value-col">
+                        {% if r.open_order_amount > 0 %}
+                        <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.has_cart %}
+                        <span class="badge badge-cart">
+                            <i class="fas fa-shopping-cart me-1"></i>
+                            {% if r.cart_amount %}€{{ "%.0f"|format(r.cart_amount) }}{% endif %}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.r_login_days is not none %}
+                        <span class="days-pill {% if r.r_login_days <= 7 %}days-green{% elif r.r_login_days <= 14 %}days-yellow{% elif r.r_login_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_login_days }}d</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.r_invoice_days is not none %}
+                        <span class="days-pill {% if r.r_invoice_days <= 7 %}days-green{% elif r.r_invoice_days <= 14 %}days-yellow{% elif r.r_invoice_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_invoice_days }}d</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="value-col">{% if r.value_6m %}€{{ "{:,.0f}".format(r.value_6m) }}{% else %}—{% endif %}</td>
+                    <td class="value-col">{% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+                {% endif %}
+
+                {% if not pending_rows and not done_rows %}
+                <tr>
+                    <td colspan="10" class="text-center text-muted py-4">
+                        <i class="fas fa-check-circle fa-2x mb-2 d-block" style="color: #198754;"></i>
+                        No ordering windows are currently open
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function toggleReviewGroup(group) {
+    const rows = document.querySelectorAll(`.review-row[data-group="${group}"]`);
+    const icon = document.getElementById(`group-icon-${group}`);
+    const isHidden = rows.length > 0 && rows[0].style.display === 'none';
+    rows.forEach(r => r.style.display = isHidden ? '' : 'none');
+    if (icon) icon.style.transform = isHidden ? '' : 'rotate(-90deg)';
+}
+</script>
+{% endblock %}
