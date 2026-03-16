@@ -86,14 +86,14 @@
           <button class="btn btn-primary" type="submit">
             <i class="fas fa-paper-plane me-1"></i>Send via MicroSMS
           </button>
-          <button class="btn btn-success" type="button" id="btnSendViaPhone">
-            <i class="fas fa-mobile-alt me-1"></i>Send via SMS
+          <button class="btn btn-success" type="button" id="btnSendViaPhone" title="Send via SMS" style="width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;">
+            <i class="fas fa-mobile-alt fa-lg"></i>
           </button>
-          <button class="btn text-white" type="button" id="btnSendViaViber" style="background:#7360f2;">
-            <i class="fab fa-viber me-1"></i>Send via Viber
+          <button class="btn text-white" type="button" id="btnSendViaViber" title="Send via Viber" style="background:#7360f2;width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;">
+            <i class="fab fa-viber fa-lg"></i>
           </button>
-          <button class="btn text-white" type="button" id="btnSendViaWhatsApp" style="background:#25D366;">
-            <i class="fab fa-whatsapp me-1"></i>Send via WhatsApp
+          <button class="btn text-white" type="button" id="btnSendViaWhatsApp" title="Send via WhatsApp" style="background:#25D366;width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;">
+            <i class="fab fa-whatsapp fa-lg"></i>
           </button>
           <a class="btn btn-outline-secondary" href="{{ request.referrer or url_for('sms.sms_home') }}">
             Cancel
