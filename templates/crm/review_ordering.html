@@ -475,6 +475,18 @@ async function saveAssisted(el) {
         var data = await res.json();
         if (data.ok) {
             r.assisted_ordering = el.checked;
+            
+            // Update table row to show/hide assisted ordering icon
+            var rowEl = document.querySelector('.row-item[data-idx="' + _currentIdx + '"]');
+            if (rowEl) {
+                var codeSpan = rowEl.querySelector('[style*="font-size:0.72rem"]');
+                if (codeSpan) {
+                    var iconHTML = el.checked ? ' <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>' : '';
+                    var codeText = r.customer_code_365;
+                    codeSpan.innerHTML = codeText + iconHTML;
+                }
+            }
+            
             var t = document.createElement('div');
             t.className = 'position-fixed bottom-0 start-50 translate-middle-x mb-3 px-4 py-2 rounded shadow text-white';
             t.style.cssText = 'background:#22c55e;z-index:9999;font-size:0.9rem;';
