@@ -473,8 +473,18 @@ async function saveAssisted(el) {
     try {
         var res = await fetch('/crm/review-ordering/set-assisted', {method:'POST', body:fd});
         var data = await res.json();
-        if (data.ok) r.assisted_ordering = el.checked;
-    } catch(e) { alert('Error saving'); }
+        if (data.ok) {
+            r.assisted_ordering = el.checked;
+            var t = document.createElement('div');
+            t.className = 'position-fixed bottom-0 start-50 translate-middle-x mb-3 px-4 py-2 rounded shadow text-white';
+            t.style.cssText = 'background:#22c55e;z-index:9999;font-size:0.9rem;';
+            t.innerHTML = '<i class="fas fa-check-circle me-2"></i>Assisted ordering ' + (el.checked ? 'enabled' : 'disabled');
+            document.body.appendChild(t); 
+            setTimeout(function(){ t.remove(); }, 3000);
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch(e) { alert('Error saving: ' + e.message); }
 }
 
 async function saveFlags() {
