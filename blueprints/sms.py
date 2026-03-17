@@ -307,6 +307,79 @@ def sms_send():
     return redirect(url_for("sms.sms_home"))
 
 
+@sms_bp.route("/send-json", methods=["POST"])
+@login_required
+def sms_send_json():
+    import json
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}), mimetype="application/json", status=403)
+
+    sender = (request.form.get("sender_title") or os.getenv("MICROSMS_SENDER", "EPLATTFORMA")).strip()
+    message = (request.form.get("message") or "").strip()
+    unicode_mode = _needs_unicode(message)
+
+    mobile = _normalize_mob(request.form.get("mobile_number") or "")
+    if not message:
+        return Response(json.dumps({"ok": False, "error": "Message is required"}), mimetype="application/json")
+    if not mobile or not _is_valid_mob(mobile):
+        return Response(json.dumps({"ok": False, "error": "Invalid mobile number"}), mimetype="application/json")
+
+    customer_code_365 = request.form.get("customer_code_365") or None
+    customer_name = request.form.get("customer_name") or None
+    tpl_code = request.form.get("tpl_code") or None
+
+    batch_id = f"sms-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+
+    raw = ""
+    status = "UNKNOWN"
+    msgid = None
+    err_code = None
+
+    try:
+        raw = _microsms_send_direct(mobile, sender, message, unicode_mode, batch_id)
+        status, msgid, err_code = _parse_provider_response(raw)
+    except Exception as e:
+        status = "ERROR"
+        raw = f"EXCEPTION: {type(e).__name__}: {e}"
+
+    db.session.execute(db.text("""
+        INSERT INTO sms_log (
+          created_by_username,
+          context_type, context_id, template_code,
+          customer_code_365, customer_name,
+          mobile_number, sender_title, batch_id,
+          unicode_mode, message_text,
+          provider_status, provider_message_id, provider_error_code, provider_raw_response
+        ) VALUES (
+          :u, :ct, :cid, :tpl,
+          :cc, :cn,
+          :mob, :sender, :batch,
+          :uni, :msg,
+          :st, :msgid, :ecode, :raw
+        )
+    """), {
+        "u": getattr(current_user, "username", None),
+        "ct": "customer", "cid": customer_code_365, "tpl": tpl_code,
+        "cc": customer_code_365, "cn": customer_name,
+        "mob": mobile,
+        "sender": sender,
+        "batch": batch_id,
+        "uni": unicode_mode,
+        "msg": message,
+        "st": status,
+        "msgid": msgid,
+        "ecode": err_code,
+        "raw": raw
+    })
+    db.session.commit()
+
+    if status == "OK":
+        return Response(json.dumps({"ok": True, "message_id": msgid, "batch_id": batch_id}), mimetype="application/json")
+    else:
+        human = ERR_MAP.get(err_code, "") if err_code else ""
+        return Response(json.dumps({"ok": False, "error": f"SMS failed. {('Error ' + str(err_code) + ' ' + human).strip()}"}), mimetype="application/json")
+
+
 @sms_bp.route("/search-customer", methods=["GET"])
 @login_required
 def sms_search_customer():
