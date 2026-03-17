@@ -60,8 +60,11 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <i class="fas fa-clipboard-check" style="color:#22c55e; font-size:1rem;"></i>
             <span class="fw-bold" style="font-size:0.95rem;">Review Ordering</span>
             <span class="text-muted" style="font-size:0.72rem;">{{ total_open }} open</span>
-            <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-2" style="font-size:0.72rem;">
-                <i class="fas fa-arrow-left me-1"></i>Dashboard
+            <button id="btn-refresh-all" class="btn btn-sm btn-primary py-0 px-2 ms-1" onclick="refreshAllData()" title="Sync Orders & Carts" style="font-size:0.75rem; font-weight:600; background:linear-gradient(135deg,#0d6efd,#0b5ed7); border:none; border-radius:5px;">
+                <i class="fas fa-bolt spinner-icon me-1"></i><span class="refresh-text">Sync</span>
+            </button>
+            <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:0.72rem;">
+                <i class="fas fa-arrow-left me-1"></i>CRM
             </a>
         </div>
         <div class="kpi-bar">
@@ -795,5 +798,32 @@ function clearBulkSelection() {
 })();
 
 setTimeout(function(){ location.reload(); }, 600000);
+
+function refreshAllData() {
+    var btn = document.getElementById('btn-refresh-all');
+    var spinner = btn.querySelector('.spinner-icon');
+    var text = btn.querySelector('.refresh-text');
+    if (btn) btn.disabled = true;
+    if (spinner) spinner.classList.add('fa-spin');
+    Promise.all([
+        fetch('/crm/open-orders/refresh', {method:'POST'}).then(function(r){return r.json();}),
+        fetch('/crm/abandoned-carts/refresh', {method:'POST'}).then(function(r){return r.json();})
+    ]).then(function(results){
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.classList.remove('fa-spin');
+        if (results[0].success && results[1].success) {
+            location.reload();
+        } else {
+            var err = '';
+            if (!results[0].success) err += 'Orders: ' + results[0].message + '\n';
+            if (!results[1].success) err += 'Carts: ' + results[1].message;
+            alert('Sync error:\n' + err);
+        }
+    }).catch(function(){
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.classList.remove('fa-spin');
+        alert('Sync failed. Please try again.');
+    });
+}
 </script>
 {% endblock %}
