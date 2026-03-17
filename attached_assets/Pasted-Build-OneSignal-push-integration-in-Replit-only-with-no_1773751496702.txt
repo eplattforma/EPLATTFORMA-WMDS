@@ -1,0 +1,340 @@
+Build OneSignal push integration in Replit only, with no Magento dependency for phase 1. Use the fact that OneSignal already stores the customer under external_id = Magento customer number. Replit must verify a customer live in OneSignal by external_id, check whether that user has an active push subscription, and only then send the push. OneSignal’s View User API supports lookup by alias, and the Create Message API supports targeting by include_aliases.external_id with target_channel: "push".
+
+Important limitation: this server-side design can verify and send to existing linked OneSignal users, but it cannot create or relink broken web-push subscriptions from the server. OneSignal’s docs state that web push subscriptions are device/browser/profile specific, can be replaced when browser data is cleared, and web push subscriptions are not created via the REST API; the web SDK is the recommended way to manage them.
+
+Objective
+
+Add a new communications channel called onesignal_push to the Communications Hub. From a customer screen, Replit should be able to:
+
+check whether push is currently available for that customer
+
+send a push notification if available
+
+log every attempt in crm_communication_log
+
+show clear statuses such as sent, failed, and skipped_no_subscription
+
+From bulk screens later, Replit should send only to customers who pass live verification. This should use OneSignal aliases, not tags, because OneSignal explicitly recommends aliases / external_id for identifying specific users and targeting transactional messages.
+
+Environment variables
+
+Add these env vars in Replit:
+
+ONESIGNAL_APP_ID
+
+ONESIGNAL_API_KEY
+
+ONESIGNAL_API_BASE=https://api.onesignal.com
+
+Use the App API key in the Authorization: Key ... header for both View User and Create Message calls. The View User API requires authentication when querying by aliases such as external_id, and the Create Message guide requires the App ID and REST API key.
+
+Database changes
+
+Extend the generic communications log so push attempts are first-class records.
+
+Add support in crm_communication_log for:
+
+channel = 'onesignal_push'
+
+provider_name = 'onesignal'
+
+provider_message_id
+
+provider_raw_response
+
+status
+
+outcome_note
+
+Also add a small cache table so Replit does not need to hit OneSignal on every page load:
+
+CREATE TABLE IF NOT EXISTS customer_push_identity (
+    customer_code_365 VARCHAR(50) PRIMARY KEY,
+    onesignal_external_id VARCHAR(100) NOT NULL,
+    push_available BOOLEAN NOT NULL DEFAULT FALSE,
+    push_subscription_count INTEGER NOT NULL DEFAULT 0,
+    last_verified_at TIMESTAMP NULL,
+    last_provider_response JSONB NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+This cache is Replit’s local optimization layer. The source of truth remains OneSignal.
+
+Service file
+
+Create services/onesignal_service.py.
+
+Implement these functions.
+
+1) view_user_by_external_id(customer_code_365)
+
+Call:
+
+GET /apps/{app_id}/users/by/external_id/{customer_code_365}
+
+Use:
+
+Authorization: Key <ONESIGNAL_API_KEY>
+
+This is the correct OneSignal lookup pattern when external_id is your stable identifier. The endpoint returns the full user profile, including identity and subscription details.
+
+2) extract_active_push_status(user_payload)
+
+Read the returned subscriptions and decide whether push is available.
+
+Rule for phase 1:
+
+if View User returns no user, then push_available = False
+
+if user exists but has no push-capable subscription entries, then push_available = False
+
+if user exists and has at least one active push subscription, then push_available = True
+
+Keep the implementation conservative. Do not assume external_id alone means reachable push, because OneSignal separates users from subscriptions, and subscriptions can become unusable over time.
+
+3) refresh_customer_push_identity(customer_code_365)
+
+Flow:
+
+call view_user_by_external_id
+
+compute push_available
+
+compute push_subscription_count
+
+upsert customer_push_identity
+
+store the raw provider response in last_provider_response
+
+return the computed state
+
+4) send_push_to_customer(customer_code_365, title, body, url=None, source_screen=None, template_code=None)
+
+Flow:
+
+live-verify with refresh_customer_push_identity
+
+if no active subscription:
+
+write crm_communication_log row with status='skipped_no_subscription'
+
+return a clean error/result
+
+if active subscription exists:
+
+create crm_communication_log row with status='initiated'
+
+call OneSignal Create Message API
+
+update log to sent or failed
+
+save provider response and message id
+
+For the send call, use:
+
+{
+  "app_id": "YOUR_APP_ID",
+  "include_aliases": {
+    "external_id": ["12345"]
+  },
+  "target_channel": "push",
+  "headings": { "en": "Title" },
+  "contents": { "en": "Body" }
+}
+
+OneSignal’s Create Message docs explicitly support alias targeting through include_aliases, including external_id, and show target_channel: "push" for push delivery. They also state that only one targeting method may be used per request.
+
+5) bulk_send_push(customer_codes, title, body, template_code=None, source_screen='order_review')
+
+Flow:
+
+loop through customers one by one
+
+for each customer, call send_push_to_customer
+
+keep counters:
+
+selected
+
+verified
+
+sent
+
+failed
+
+skipped_no_subscription
+
+return a batch summary
+
+Do not try to guess availability from cached state alone. Use live verification before actual send.
+
+Blueprint routes
+
+Add these routes under the new communications blueprint.
+
+POST /admin/communications/push/verify
+
+Input:
+
+customer_code_365
+
+Behavior:
+
+call refresh_customer_push_identity
+
+return JSON:
+
+push_available
+
+push_subscription_count
+
+verified_at
+
+POST /admin/communications/push/send
+
+Input:
+
+customer_code_365
+
+title
+
+message
+
+optional template_code
+
+optional source_screen
+
+Behavior:
+
+call send_push_to_customer
+
+return JSON or flash/redirect result
+
+POST /admin/communications/push/bulk-send
+
+Input:
+
+list of customer codes
+
+title / message or push template fields
+
+Behavior:
+
+call bulk_send_push
+
+show summary
+
+GET /admin/communications/push/history/<customer_code>
+
+Return recent onesignal_push rows from crm_communication_log.
+
+UI changes
+
+On the customer communications screen:
+
+add a Send Push button
+
+add a Recheck Push button
+
+show a badge:
+
+Push available
+
+No active push subscription
+
+Push status unknown
+
+When the compose screen opens, Replit may show cached status first. When the user clicks Recheck Push or Send Push, Replit must run live verification against OneSignal before the final send.
+
+For push content, support:
+
+title
+
+message body
+
+optional click URL
+
+Push should have its own template fields rather than reusing pure SMS fields blindly.
+
+Logging rules
+
+Every push action must create a row in crm_communication_log.
+
+Use:
+
+channel = 'onesignal_push'
+
+provider_name = 'onesignal'
+
+Status flow:
+
+initiated
+
+sent
+
+failed
+
+skipped_no_subscription
+
+Store:
+
+customer_code_365
+
+template_code
+
+message_text
+
+provider_message_id
+
+provider_raw_response
+
+source_screen
+
+This keeps push consistent with the rest of the communications hub.
+
+Error handling
+
+Handle these cases explicitly:
+
+user not found in OneSignal
+
+user exists but no push subscriptions
+
+OneSignal API auth failure
+
+rate limit / timeout
+
+Create Message returns an error
+
+For “not found” or “no subscription”, do not treat it as a hard system failure. Log it as skipped_no_subscription.
+
+What Replit must not do
+
+Do not try to create web push subscriptions from Replit server-side. OneSignal’s docs say web push subscriptions are created and maintained through the web SDK, not via REST API. Without Magento/frontend changes, Replit is only responsible for:
+
+verifying existing linked OneSignal users
+
+sending to those users
+
+logging results
+
+Acceptance criteria
+
+This is complete when:
+
+Replit can verify a customer by external_id = customer_code_365
+
+Replit can determine whether push is available from OneSignal user/subscription data
+
+Replit can send a push to a verified customer using include_aliases.external_id
+
+Replit logs every push attempt in crm_communication_log
+
+customer screen shows push availability and supports send/recheck
+
+bulk send skips customers without active push and reports counts correctly
+
+Short instruction for Replit
+
+Implement OneSignal push in Replit without Magento changes by treating customer_code_365 as OneSignal external_id, verifying each customer live via GET /apps/{app_id}/users/by/external_id/{id}, sending via OneSignal Create Message with include_aliases.external_id and target_channel: "push", caching verification results in customer_push_identity, and logging every attempt in crm_communication_log.
