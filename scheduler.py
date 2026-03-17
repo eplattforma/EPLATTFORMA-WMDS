@@ -115,6 +115,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Pending orders sync scheduled: Every 30 minutes")
 
+            scheduler.add_job(
+                func=_run_ftp_login_sync,
+                trigger=CronTrigger(minute="15,45"),
+                id='ftp_login_sync',
+                name='FTP Login Logs Sync',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=600
+            )
+            logger.info("✓ FTP login sync scheduled: Every 30 minutes (at :15 and :45)")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
 
@@ -449,6 +460,18 @@ def _run_pending_orders_sync():
                 release_sync_lock(JOB_NAME)
     except Exception as e:
         logger.error(f"Error in scheduled pending orders sync: {str(e)}", exc_info=True)
+
+
+def _run_ftp_login_sync():
+    try:
+        from services.ftp_login_sync import sync_login_logs_from_ftp
+        logger.info("=" * 60)
+        logger.info("STARTING FTP LOGIN LOGS SYNC")
+        logger.info("=" * 60)
+        result = sync_login_logs_from_ftp()
+        logger.info(f"FTP LOGIN SYNC {'COMPLETED' if result.get('success') else 'FAILED'}: {result}")
+    except Exception as e:
+        logger.error(f"Error in FTP login sync: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():
