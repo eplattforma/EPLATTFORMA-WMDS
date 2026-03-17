@@ -592,6 +592,7 @@ def review_ordering():
             PSCustomer.sms.label("sms_number"),
             CrmCustomerProfile.classification,
             CrmCustomerProfile.assisted_ordering,
+            CrmCustomerProfile.district,
             CrmAbandonedCartState.has_abandoned_cart,
             CrmAbandonedCartState.abandoned_cart_amount,
             MagentoCustomerLastLoginCurrent.last_login_at,
@@ -765,6 +766,7 @@ def review_ordering():
         row = {
             "customer_code_365": r.customer_code_365,
             "customer_name": r.company_name or r.customer_code_365,
+            "district": r.district or "",
             "classification": r.classification or "",
             "state": state,
             "has_cart": has_cart,
