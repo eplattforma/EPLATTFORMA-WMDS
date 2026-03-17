@@ -75,6 +75,21 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
         <div class="kpi-chip"><div class="kpi-label">Has Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.has_cart }}</div></div>
     </div>
 
+    {% if open_windows %}
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+        <span style="font-size:0.72rem; text-transform:uppercase; font-weight:700; color:rgba(255,255,255,0.4); letter-spacing:0.5px; margin-right:4px;">
+            <i class="fas fa-truck me-1"></i>Open Windows
+        </span>
+        {% for w in open_windows %}
+        <div class="d-flex align-items-center gap-2" style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); border-radius:8px; padding:6px 14px;">
+            <i class="fas fa-calendar-check" style="color:#22c55e; font-size:0.85rem;"></i>
+            <span style="font-weight:700; font-size:0.88rem; color:#22c55e;">{{ w.delivery_label }}</span>
+            <span class="delivery-countdown" data-close-at="{{ w.close_at }}" style="font-size:0.75rem; color:rgba(255,255,255,0.6); font-weight:600; white-space:nowrap;"></span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <form method="GET" class="filter-bar-review mb-3">
         <div class="row g-2 align-items-end">
             <div class="col-auto">
@@ -754,6 +769,44 @@ function clearBulkSelection() {
         menu.addEventListener('click', function(e){ e.stopPropagation(); });
     });
     document.addEventListener('click', function(){ if (openMenu) closeAndSubmit(); });
+})();
+
+(function updateCountdowns(){
+    document.querySelectorAll('.delivery-countdown').forEach(function(el){
+        var closeAt = el.getAttribute('data-close-at');
+        if (!closeAt) return;
+        var closeDate = new Date(closeAt);
+        var now = new Date();
+        var diff = closeDate - now;
+        if (diff <= 0) {
+            el.innerHTML = '<span style="color:#ef4444;">Closed</span>';
+            el.closest('div').style.borderColor = 'rgba(239,68,68,0.4)';
+            el.closest('div').style.background = 'rgba(239,68,68,0.08)';
+            return;
+        }
+        var hours = Math.floor(diff / 3600000);
+        var mins = Math.floor((diff % 3600000) / 60000);
+        var label = '';
+        if (hours >= 24) {
+            var days = Math.floor(hours / 24);
+            var remHrs = hours % 24;
+            label = days + 'd ' + remHrs + 'h';
+        } else {
+            label = hours + 'h ' + mins + 'm';
+        }
+        if (hours < 4) {
+            el.innerHTML = '<i class="fas fa-exclamation-triangle me-1" style="color:#ef4444;"></i><span style="color:#ef4444;">' + label + '</span>';
+            el.closest('div').style.borderColor = 'rgba(239,68,68,0.4)';
+            el.closest('div').style.background = 'rgba(239,68,68,0.08)';
+        } else if (hours < 12) {
+            el.innerHTML = '<i class="fas fa-clock me-1" style="color:#ffc107;"></i><span style="color:#ffc107;">' + label + '</span>';
+            el.closest('div').style.borderColor = 'rgba(255,193,7,0.4)';
+            el.closest('div').style.background = 'rgba(255,193,7,0.08)';
+        } else {
+            el.innerHTML = '<i class="fas fa-hourglass-half me-1"></i>' + label;
+        }
+    });
+    setTimeout(updateCountdowns, 60000);
 })();
 </script>
 {% endblock %}

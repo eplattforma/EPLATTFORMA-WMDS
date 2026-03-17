@@ -782,6 +782,7 @@ def review_ordering():
             "open_order_count": open_order_count,
             "next_delivery": next_del.strftime('%a %d-%b') if next_del else None,
             "next_delivery_date": next_del.isoformat() if next_del else None,
+            "window_close_at": window_status.get("window_close_at").isoformat() if window_status.get("window_close_at") else None,
             "mobile_number": r.mobile or r.sms_number or "",
             "assisted_ordering": assisted,
             "expected_this_cycle": review_rec.expected_this_cycle if review_rec else False,
@@ -828,11 +829,24 @@ def review_ordering():
         if row["has_cart"]:
             kpi["has_cart"] += 1
 
+    open_windows_map = {}
+    for row in open_window_rows:
+        dd = row.get("next_delivery_date")
+        wc = row.get("window_close_at")
+        if dd and wc and dd not in open_windows_map:
+            open_windows_map[dd] = {
+                "delivery_date": dd,
+                "delivery_label": row.get("next_delivery"),
+                "close_at": wc,
+            }
+    open_windows = sorted(open_windows_map.values(), key=lambda w: w["delivery_date"])
+
     return render_template(
         "crm/review_ordering.html",
         rows=open_window_rows,
         total_open=len(open_window_rows),
         kpi=kpi,
+        open_windows=open_windows,
         allowed_classifications=allowed_classifications,
         all_districts=all_districts_q,
         outcome_reasons=OUTCOME_REASONS,

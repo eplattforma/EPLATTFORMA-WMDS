@@ -121,4 +121,5 @@ def get_customer_window_status(
         "window_open": best_window_open,
         "next_delivery": best_delivery,
         "window_open_at": best_open,
+        "window_close_at": best_anchor,
     }
