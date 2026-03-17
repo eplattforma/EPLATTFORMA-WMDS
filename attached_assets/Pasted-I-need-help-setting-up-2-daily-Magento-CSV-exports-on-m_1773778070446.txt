@@ -1,0 +1,126 @@
+I need help setting up 2 daily Magento CSV exports on my server for Replit/CRM.
+
+Server paths
+- Home: /home/eplattforma
+- Magento root: /home/eplattforma/public_html/main
+- Export folder: /home/eplattforma/public_html/eplattforma.com.cy/ReplitConnect
+
+Database
+- DB: eplattforma_mage
+- Readonly user: eplattforma_readonlymag
+- Host: localhost
+- Permission: SELECT only
+- I will store the password in: /home/eplattforma/.db_export_env
+
+What I need
+1. customer_price_master.csv
+2. customer_login_logs.csv
+
+Rules
+- Do not modify Magento observers
+- Use DB tables as source of truth
+- Export by shell scripts + cron once per day
+- Write temp file first, then rename to final CSV
+- Replit will import the files daily
+
+Pricing export
+Final file:
+- /home/eplattforma/public_html/eplattforma.com.cy/ReplitConnect/customer_price_master.csv
+
+Columns:
+- snapshot_at
+- customer_id
+- customer_email
+- sku
+- product_name
+- rule_code
+- rule_name
+- rule_description
+- origin_price
+- customer_final_price
+
+SQL:
+WITH ranked AS (
+    SELECT
+        NOW() AS snapshot_at,
+        ce.entity_id AS customer_id,
+        ce.email AS customer_email,
+        cpe.sku,
+        pp.name AS product_name,
+        pr.id AS rule_code,
+        pr.name AS rule_name,
+        pr.description AS rule_description,
+        pp.origin_price,
+        idx.final_price AS customer_final_price,
+        ROW_NUMBER() OVER (
+            PARTITION BY ce.entity_id, cpe.entity_id, idx.website_id
+            ORDER BY
+                CASE WHEN pr.priority IS NULL THEN 999999 ELSE pr.priority END ASC,
+                pr.id ASC
+        ) AS rn
+    FROM bss_applied_customers ac
+    JOIN customer_entity ce
+        ON ce.entity_id = ac.customer_id
+    JOIN bss_price_rules pr
+        ON pr.id = ac.rule_id
+    JOIN bss_custom_pricing_index idx
+        ON idx.rule_id = ac.rule_id
+       AND idx.customer_group_id = ce.group_id
+    JOIN catalog_product_entity cpe
+        ON cpe.entity_id = idx.product_id
+    LEFT JOIN bss_product_price pp
+        ON pp.rule_id = ac.rule_id
+       AND pp.product_id = idx.product_id
+    WHERE COALESCE(pr.status, 0) = 1
+      AND COALESCE(ac.applied_rule, 1) = 1
+)
+SELECT
+    snapshot_at,
+    customer_id,
+    customer_email,
+    sku,
+    product_name,
+    rule_code,
+    rule_name,
+    rule_description,
+    origin_price,
+    customer_final_price
+FROM ranked
+WHERE rn = 1
+ORDER BY customer_id, sku;
+
+Login logs export
+Final file:
+- /home/eplattforma/public_html/eplattforma.com.cy/ReplitConnect/customer_login_logs.csv
+
+Columns:
+- log_id
+- customer_id
+- email
+- first_name
+- last_name
+- ps365_code
+- last_login_at
+- last_logout_at
+
+Rolling 10-day SQL:
+SELECT
+    log_id,
+    customer_id,
+    email,
+    first_name,
+    last_name,
+    ps365_code,
+    last_login_at,
+    last_logout_at
+FROM bss_customer_login_logs
+WHERE last_login_at >= NOW() - INTERVAL 10 DAY
+   OR last_logout_at >= NOW() - INTERVAL 10 DAY
+ORDER BY log_id;
+
+Need help with
+- create the 2 shell scripts
+- use source ~/.db_export_env
+- test the scripts manually
+- add cron jobs
+- verify the final files and log files
