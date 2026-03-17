@@ -164,8 +164,18 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 </tr>
             </thead>
             <tbody>
-                {% for r in rows %}
-                <tr class="row-item state-row-{{ r.state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})">
+                {% set state_groups = rows | groupby('state') %}
+                {% for state, state_rows in state_groups %}
+                <tr class="state-group-header" data-state="{{ state }}">
+                    <td colspan="100%" style="padding: 10px; background: #f5f5f5; border-top: 2px solid #ddd;">
+                        <button class="btn btn-sm btn-outline-secondary" style="padding: 2px 8px; margin-right: 10px;" onclick="toggleStateGroup(event, '{{ state }}')">
+                            <i class="fas fa-chevron-down toggle-icon" style="width: 12px;"></i>
+                        </button>
+                        <strong>{{ state | upper }}</strong> — <span class="text-muted" style="font-size: 0.85rem;">{{ state_rows | length }} customers</span>
+                    </td>
+                </tr>
+                {% for r in state_rows %}
+                <tr class="row-item state-row-{{ r.state }} state-group-row-{{ state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})" style="display: table-row;">
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
                         <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.district %} · {{ r.district }}{% endif %}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
@@ -222,6 +232,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                         {% endif %}
                     </td>
                 </tr>
+                {% endfor %}
                 {% else %}
                 <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#198754;"></i>No ordering windows currently open</td></tr>
                 {% endfor %}
@@ -625,6 +636,20 @@ document.addEventListener('click', function(e) {
     _loadSmsTemplates();
     new bootstrap.Modal(document.getElementById('smsComposeModal')).show();
 });
+
+function toggleStateGroup(e, state) {
+    e.stopPropagation();
+    var rows = document.querySelectorAll('.state-group-row-' + state);
+    var isHidden = rows[0] && rows[0].style.display === 'none';
+    var icon = e.target.closest('button').querySelector('.toggle-icon');
+    
+    rows.forEach(function(row) {
+        row.style.display = isHidden ? 'table-row' : 'none';
+    });
+    
+    icon.classList.toggle('fa-chevron-down');
+    icon.classList.toggle('fa-chevron-up');
+}
 
 (function(){
     var openMenu = null;
