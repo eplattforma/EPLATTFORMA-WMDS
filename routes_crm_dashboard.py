@@ -704,7 +704,14 @@ def review_ordering():
                 sms_sent_map[log.customer_code_365] = log.created_at
 
     open_window_rows = []
+    allowed_classification_names = set(allowed_classifications.keys())
+    
     for r in rows:
+        # Exclude customers whose classification is not marked for review ordering
+        customer_classification = r.classification or ""
+        if customer_classification and customer_classification not in allowed_classification_names:
+            continue
+        
         slots_for_cust = customer_slots.get(r.customer_code_365, [])
         if not slots_for_cust:
             continue
