@@ -1,0 +1,246 @@
+We already have a daily CSV export from Magento called:
+
+customer_price_master.csv
+
+This file contains customer-specific price offers from Magento/BSS custom pricing.
+We want to import it into Replit and use it later on the CRM customer screen.
+
+Goal
+We want CRM to understand what special prices/offers a customer gets, link them to our existing customer and item master data, and present them clearly on the customer profile.
+
+Source file columns
+The CSV contains these columns:
+
+- snapshot_at
+- customer_id
+- customer_email
+- sku
+- product_name
+- rule_code
+- rule_name
+- rule_description
+- origin_price
+- customer_final_price
+
+Important business meaning
+- customer_id = Magento customer id
+- sku = Magento product sku
+- this file represents special/customer pricing offers
+- we want to link:
+  - customer_id -> our PSCustomer record using Magento customer id
+  - sku -> our item master using item code / item_code_365
+- then show the grouped information on the CRM customer page
+
+Please implement this in Replit using our normal Flask + SQLAlchemy structure.
+
+1. Create an import table for raw file data
+Create a table/model like:
+
+crm_customer_price_offer_import
+
+Suggested columns:
+- id
+- import_batch_id
+- snapshot_at
+- magento_customer_id
+- customer_email
+- sku
+- product_name
+- rule_code
+- rule_name
+- rule_description
+- origin_price
+- customer_final_price
+- imported_at
+
+Purpose:
+- this is the raw imported copy of the CSV
+- keep it close to source for audit/debugging
+
+2. Create a normalized CRM table for current usable data
+Create a table/model like:
+
+crm_customer_price_offer
+
+Suggested columns:
+- id
+- snapshot_at
+- magento_customer_id
+- customer_email
+
+- ps_customer_code
+- ps_customer_name
+- ps_customer_id (nullable if you use internal PK)
+
+- sku
+- item_code_365
+- item_name
+- ps_item_id (nullable if you use internal PK)
+
+- rule_code
+- rule_name
+- rule_description
+
+- origin_price
+- customer_final_price
+- discount_amount
+- discount_percent
+
+- is_linked_customer
+- is_linked_item
+
+- import_batch_id
+- imported_at
+- updated_at
+
+Unique key:
+- magento_customer_id + sku
+
+Purpose:
+- this is the final current table used by CRM
+- one row per customer + sku
+
+3. Import logic
+Build an importer that:
+- reads customer_price_master.csv
+- validates required columns
+- loads rows into crm_customer_price_offer_import
+- then transforms/upserts into crm_customer_price_offer
+
+Normalization rules:
+- trim all strings
+- uppercase sku before matching
+- convert prices to decimal
+- discount_amount = origin_price - customer_final_price
+- discount_percent = ((origin_price - customer_final_price) / origin_price) * 100 when origin_price > 0
+
+4. Customer linking
+Link Magento customer_id from the file to our customer master.
+
+Use PSCustomer as the master source.
+
+Please find the field in PSCustomer that stores Magento customer id.
+It may be called something like:
+- magento_customer_id
+- magento_id
+- customer_entity_id
+or similar.
+
+Do not guess blindly if the field already exists in our models.
+Inspect the existing model first.
+
+Link rule:
+- csv.magento_customer_id -> PSCustomer.<magento_customer_id_field>
+
+Store:
+- ps_customer_code
+- customer name if available
+- internal id if useful
+
+If no matching PSCustomer exists:
+- keep the row
+- set is_linked_customer = false
+- keep magento_customer_id and customer_email for troubleshooting
+
+5. Item linking
+Link csv.sku to our item master.
+
+Use our existing item master table/model, most likely ps_items_dw.
+
+Expected match:
+- csv.sku -> ps_items_dw.item_code_365
+
+Please inspect the exact model/field names first and use the real field names in our app.
+
+Link rule:
+- normalize both sides with trim + uppercase before match
+
+Store:
+- item_code_365
+- item description/name if available
+- internal item id if useful
+
+If no matching item exists:
+- keep the row
+- set is_linked_item = false
+
+6. Refresh strategy
+This file is a daily full snapshot of current offers.
+
+So the normalized final table should behave like a current-state table.
+
+Recommended approach:
+- import raw rows into crm_customer_price_offer_import with import_batch_id
+- then upsert into crm_customer_price_offer by (magento_customer_id, sku)
+- after successful import, remove rows from crm_customer_price_offer that were not present in the latest batch
+  OR replace the whole final table from the latest batch if simpler/safer
+
+Choose the safest implementation for our stack.
+
+7. CRM grouping and presentation
+On the CRM customer screen, we do not want to show a flat raw file dump only.
+We want grouped meaningful pricing info.
+
+Please create a customer pricing section with:
+
+A. Summary block on customer screen
+Show:
+- Has special pricing: Yes/No
+- Number of offered SKUs
+- Average discount %
+- Maximum discount %
+- Last pricing snapshot_at
+- Top rule names affecting this customer
+
+B. Detail table on customer screen
+Show columns:
+- SKU
+- Product name
+- Rule code
+- Rule name
+- Origin price
+- Customer final price
+- Discount amount
+- Discount %
+- Snapshot date
+
+C. Grouping
+Group rows by rule_name or rule_code on the UI if practical.
+At minimum allow sort/filter by:
+- rule
+- discount %
+- SKU
+
+8. Backend service methods
+Please add service functions like:
+- import_customer_price_master_csv(...)
+- link_customer_price_offers(...)
+- get_customer_price_offer_summary(ps_customer_code or magento_customer_id)
+- get_customer_price_offer_rows(ps_customer_code or magento_customer_id)
+
+9. API / route support
+Please add endpoints or backend routes needed by the CRM screen, for example:
+- GET /api/crm/customer/<id>/price-offer-summary
+- GET /api/crm/customer/<id>/price-offers
+
+Use the customer record already loaded in CRM so the screen can show this without manual lookup.
+
+10. Important implementation notes
+- This file represents price offers/custom pricing the customer gets
+- It is not just product master pricing
+- Preserve raw source fields for audit
+- Link to PSCustomer by Magento customer id
+- Link to item master by SKU -> item_code_365
+- Do not discard unmatched rows silently
+- Show unmatched counts in import logs
+
+11. What I want back from you
+Please deliver:
+- SQLAlchemy models
+- import service
+- mapping/linking logic
+- summary query/service for CRM
+- customer screen UI section
+- import log details
+- explanation of which customer field was used to link Magento customer id
+- explanation of which item field was used to link SKU to item code

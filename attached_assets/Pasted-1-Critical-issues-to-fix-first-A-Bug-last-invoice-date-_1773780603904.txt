@@ -1,0 +1,546 @@
+1) Critical issues to fix first
+A. Bug: last_invoice_date in /review-ordering is not really 90 days
+
+In review_ordering() you define:
+
+d4w = today - timedelta(days=28)
+d90 = today - timedelta(days=90)
+
+Then:
+
+sales_sq = (
+    db.session.query(
+        DwInvoiceHeader.customer_code_365.label("cc"),
+        func.coalesce(func.sum(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+        ), 0).label("value_4w"),
+        func.max(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
+        ).label("last_invoice_date"),
+    )
+    .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
+    .group_by(DwInvoiceHeader.customer_code_365)
+    .subquery()
+)
+
+Because of:
+
+.filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
+
+your last_invoice_date is effectively capped to 4 weeks, not 90 days.
+
+Fix
+
+Use >= d90 in the outer filter.
+
+sales_sq = (
+    db.session.query(
+        DwInvoiceHeader.customer_code_365.label("cc"),
+        func.coalesce(func.sum(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+        ), 0).label("value_4w"),
+        func.max(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
+        ).label("last_invoice_date"),
+    )
+    .filter(DwInvoiceHeader.invoice_date_utc0 >= d90)
+    .group_by(DwInvoiceHeader.customer_code_365)
+    .subquery()
+)
+B. Bug: duplicate PostalCodeLookup join in /review-ordering
+
+You already joined PostalCodeLookup in the base query:
+
+.outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
+
+Then later, inside the district filter, you do it again:
+
+if district:
+    q = q.outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
+
+This is unnecessary and can produce ambiguous or bloated SQL.
+
+Fix
+
+Remove the second join completely and keep only the filter.
+
+Better still, use the same fallback logic you used in /dashboard:
+
+if district:
+    q = q.filter(or_(
+        CrmCustomerProfile.district.in_(district),
+        and_(
+            CrmCustomerProfile.district.is_(None),
+            PostalCodeLookup.district.in_(district)
+        )
+    ))
+C. Inconsistency: “ordered in window” logic is not applied the same way everywhere
+
+In review_ordering() you explicitly do this:
+
+if last_invoice_date and window_status.get("window_open_at"):
+    inv_d = last_invoice_date.date() if isinstance(last_invoice_date, datetime) else last_invoice_date
+    if inv_d >= window_status["window_open_at"].date():
+        has_order = True
+        invoice_in_window = True
+
+That is good.
+
+But in customer_slot_dashboard() you do not have equivalent explicit logic. You rely on:
+
+done_for_cycle = window_status["done_for_window"]
+done_source = window_status["done_source"]
+
+which means the correctness of the dashboard depends entirely on what get_customer_window_status() does internally.
+
+Risk
+
+You may get a mismatch:
+
+Review Ordering says: customer ordered
+
+Dashboard says: still not done
+
+Recommendation
+
+Make the rule consistent in one place only.
+
+Best option:
+
+Move the “invoice issued within the ordering window counts as ordered” rule inside get_customer_window_status()
+
+Then both pages use the same result
+
+If you do not want to move it into the service, then apply the same explicit invoice-in-window logic in both routes.
+
+2) About follow_up: yes, it is automatic right now
+
+You said:
+
+but i thought the state follow up is automatic
+
+Based on your current code, yes, partly.
+
+This function proves it:
+
+def _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window):
+    if review_rec and review_rec.review_state == "done":
+        return "done"
+    if has_order and has_cart:
+        return "ordered_cart"
+    if has_order:
+        return "ordered"
+    if review_rec and review_rec.manual_follow_up_flag:
+        return "follow_up"
+    if assisted and not has_order:
+        return "follow_up"
+    if has_cart and not has_order:
+        return "follow_up"
+    if logged_in_during_window and not has_order:
+        return "follow_up"
+    if review_rec and review_rec.expected_this_cycle and not has_order:
+        return "follow_up"
+    return "waiting"
+
+So follow_up currently comes from both:
+
+manual override:
+
+manual_follow_up_flag
+
+automatic rules:
+
+assisted ordering
+
+has cart
+
+logged in during window
+
+expected this cycle
+
+Why this is confusing
+
+Because one state is being used for two different concepts:
+
+System recommendation: “this customer should be followed up”
+
+Manual operator decision: “I explicitly marked this customer for follow-up”
+
+These are not the same thing.
+
+Better model
+
+Keep state as a derived operational state, but store reason/source separately.
+
+For example:
+
+state = follow_up
+
+state_reason = has_cart | logged_in_window | assisted | expected | manual
+
+That will make the screen much easier to trust.
+
+3) KPI issue on /dashboard
+
+These values are currently misleading:
+
+kpi_action_count=sum(1 for row in dashboard_rows if row["next_action"] != "NO_ACTION"),
+kpi_done_count=sum(1 for row in dashboard_rows if row["done_for_cycle"]),
+
+At render time, dashboard_rows is often only the current page, not the full filtered result set.
+
+That means the KPI boxes may reflect only page 1 or the currently paged slice.
+
+Fix
+
+KPI counts should be computed from the full filtered population, not paginated rows.
+
+You have 3 options:
+
+Compute them in SQL
+
+Compute them before pagination in Python
+
+Keep a separate full evaluated list only for KPI/state totals
+
+Best long-term approach: SQL or service-layer aggregation.
+
+4) Performance concerns
+A. /review-ordering loads too much in Python
+
+This is the biggest scaling issue.
+
+You do:
+
+rows = q.order_by(PSCustomer.company_name).all()
+
+Then later you compute window logic in Python and discard many rows.
+
+That means you load all active customers before deciding who is actually in an open ordering window.
+
+Why this will hurt
+
+As the database grows:
+
+more memory
+
+slower response
+
+more Python-side CPU
+
+worse user experience
+
+Recommendation
+
+At minimum:
+
+paginate the page
+
+move more filters into SQL where possible
+
+consider a precomputed/materialized review dataset if this becomes a main ops screen
+
+B. /dashboard also falls back to full dataset evaluation too often
+
+This line causes it:
+
+python_side_sort = sort_col in ("cycle", "action", "")
+needs_python_eval = action_only or python_side_sort
+
+Because sort_col == "" is included, even the default request can trigger full Python evaluation.
+
+That is expensive.
+
+Fix
+
+Do not treat empty sort as requiring Python sort.
+
+Use SQL default sort by company name unless the user explicitly asked for cycle or action.
+
+For example:
+
+python_side_sort = sort_col in ("cycle", "action")
+needs_python_eval = action_only or python_side_sort
+C. Latest communication lookup is heavy
+
+This block can get expensive:
+
+comm_logs = (
+    CRMCommunicationLog.query
+    .filter(
+        CRMCommunicationLog.customer_code_365.in_(all_codes),
+        CRMCommunicationLog.direction == "outbound",
+    )
+    .order_by(CRMCommunicationLog.created_at.desc())
+    .all()
+)
+
+Then you pick the first per customer in Python.
+
+Better
+
+Use a grouped subquery or window function to fetch only the latest outbound communication per customer.
+
+5) State update issues
+A. When marking done, clear manual follow-up
+
+Right now:
+
+if new_state == "done":
+    review.review_state = "done"
+    review.done_at = datetime.now(timezone.utc)
+    review.done_by = getattr(current_user, "username", None)
+
+But you do not clear:
+
+review.manual_follow_up_flag
+
+Even though _compute_review_state() gives priority to done, keeping stale flags is not clean.
+
+Fix
+if new_state == "done":
+    review.review_state = "done"
+    review.manual_follow_up_flag = False
+    review.done_at = datetime.now(timezone.utc)
+    review.done_by = getattr(current_user, "username", None)
+    review.outcome_reason = outcome_reason
+B. follow_up endpoint should probably clear outcome_reason
+
+You already do that, which is good:
+
+review.outcome_reason = None
+
+That part is correct.
+
+6) Hidden operational issues
+A. Broad except: pass
+
+Examples:
+
+except Exception:
+    pass
+
+and
+
+try:
+    from services.ps365_pending_orders_service import get_open_orders_status
+    open_orders_status = get_open_orders_status()
+except Exception:
+    pass
+
+This suppresses real production problems.
+
+Better
+
+At least log them.
+
+except Exception as e:
+    logger.exception("Failed to load open orders status: %s", e)
+B. Refresh endpoints need stronger permission checks
+
+These routes are only protected by login_required:
+
+/open-orders/refresh
+
+/abandoned-carts/refresh
+
+That means any authenticated user may trigger sync jobs.
+
+Recommendation
+
+Restrict them to admin / backoffice / manager roles.
+
+C. FTP on port 21 is insecure
+
+You pasted agent discussion about setting up FTP imports.
+
+If you really implement that with plain FTP on port 21:
+
+credentials travel unencrypted
+
+file contents travel unencrypted
+
+Recommendation
+
+Use:
+
+SFTP if possible
+
+or FTPS
+
+or at minimum IP restriction + dedicated low-privilege user
+
+7) Timezone and date handling
+
+You are mixing:
+
+date
+
+naive datetime
+
+UTC-aware datetime
+
+local timezone conversion
+
+This is workable, but brittle.
+
+Examples:
+
+last_login_at.astimezone(ATHENS_TZ)
+
+This assumes last_login_at is timezone-aware.
+
+If the DB returns naive datetimes, this can break.
+
+Recommendation
+
+Standardize:
+
+store UTC in DB
+
+always convert to timezone-aware UTC on read
+
+only localize for UI/business-window logic
+
+8) Architectural review
+
+The blueprint is getting too large. It is doing too many things:
+
+dashboard
+
+review ordering
+
+tasks
+
+interactions
+
+customer timeline
+
+refresh jobs
+
+open order details
+
+price offers
+
+This should be split.
+
+Suggested split
+
+crm_dashboard_routes.py
+
+crm_review_ordering_routes.py
+
+crm_customer_actions_routes.py
+
+crm_refresh_routes.py
+
+crm_price_offer_routes.py
+
+And move reusable logic into services:
+
+review state derivation
+
+KPI aggregation
+
+communication latest-status fetch
+
+customer dashboard row builder
+
+That will make it easier to test and much safer to change.
+
+9) Best business-rule improvement
+
+The biggest improvement you can make is this:
+
+Separate derived state from manual override
+
+Right now the same field behaves like both system logic and operator action.
+
+Better design
+
+Store:
+
+derived_state
+
+derived_reason
+
+manual_override_state
+
+final_state
+
+For example:
+
+derived_state = follow_up
+
+derived_reason = has_cart
+
+manual_override_state = done
+
+final_state = done
+
+This removes ambiguity and makes the system easier to explain to staff.
+
+10) My priority order for you
+Fix now
+
+Fix sales_sq 90-day invoice bug
+
+Remove duplicate PostalCodeLookup join
+
+Make invoice-in-window logic consistent between dashboard and review ordering
+
+Stop default dashboard requests from forcing full Python evaluation
+
+Fix KPI totals so they are not page-based
+
+Clear manual_follow_up_flag when marking done
+
+Fix next
+
+Add role checks to refresh endpoints
+
+Replace except: pass with logging
+
+Optimize latest communication query
+
+Paginate or precompute review-ordering dataset
+
+Quick patch snippets
+1) Fix invoice aggregation window
+sales_sq = (
+    db.session.query(
+        DwInvoiceHeader.customer_code_365.label("cc"),
+        func.coalesce(func.sum(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
+        ), 0).label("value_4w"),
+        func.max(
+            case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
+        ).label("last_invoice_date"),
+    )
+    .filter(DwInvoiceHeader.invoice_date_utc0 >= d90)
+    .group_by(DwInvoiceHeader.customer_code_365)
+    .subquery()
+)
+2) Remove duplicate district join
+if district:
+    q = q.filter(or_(
+        CrmCustomerProfile.district.in_(district),
+        and_(
+            CrmCustomerProfile.district.is_(None),
+            PostalCodeLookup.district.in_(district)
+        )
+    ))
+3) Clear follow-up flag on done
+if new_state == "done":
+    review.review_state = "done"
+    review.manual_follow_up_flag = False
+    review.done_at = datetime.now(timezone.utc)
+    review.done_by = getattr(current_user, "username", None)
+    review.outcome_reason = outcome_reason
+4) Avoid full Python eval for default dashboard sort
+python_side_sort = sort_col in ("cycle", "action")
+needs_python_eval = action_only or python_side_sort
+
+My direct conclusion: the codebase is good enough to continue building on, but you should fix the logic consistency and scaling issues now before more CRM behavior is added. The most important conceptual issue is that follow_up is currently a hybrid automatic/manual state, and that will keep creating confusion until you separate “why the system recommends follow-up” from “what the operator explicitly decided.”
+
+I can turn this into a clean set of exact Replit instructions with the changes in implementation order.

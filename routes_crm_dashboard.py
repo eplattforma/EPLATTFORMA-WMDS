@@ -134,7 +134,7 @@ def customer_slot_dashboard():
     sort_dir = request.args.get("sort_dir", "asc")
     if sort_dir not in ("asc", "desc"):
         sort_dir = "asc"
-    python_side_sort = sort_col in ("cycle", "action", "")
+    python_side_sort = sort_col in ("cycle", "action")
     needs_python_eval = action_only or python_side_sort
 
     try:
@@ -250,8 +250,8 @@ def customer_slot_dashboard():
             days = int(logged_in_days)
             q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at.isnot(None))
             q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at >= datetime.now(timezone.utc) - timedelta(days=days))
-        except Exception:
-            pass
+        except (ValueError, TypeError) as e:
+            logger.warning("Invalid logged_in_days value: %s", e)
     if slot:
         try:
             dow, week = slot.split("-", 1)
@@ -475,6 +475,9 @@ def customer_slot_dashboard():
         rev = sort_dir == "desc"
         dashboard_rows.sort(key=lambda r: action_order.get(r.get("next_action", "NO_ACTION"), 4), reverse=rev)
 
+    kpi_action_count = sum(1 for row in dashboard_rows if row["next_action"] != "NO_ACTION")
+    kpi_done_count = sum(1 for row in dashboard_rows if row["done_for_cycle"])
+
     if needs_python_eval:
         total_count = len(dashboard_rows)
         total_pages = max(1, (total_count + page_size - 1) // page_size)
@@ -494,8 +497,8 @@ def customer_slot_dashboard():
     try:
         from services.ps365_pending_orders_service import get_open_orders_status
         open_orders_status = get_open_orders_status()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("Failed to load open orders status: %s", e)
 
     return render_template(
         "crm/dashboard.html",
@@ -509,8 +512,8 @@ def customer_slot_dashboard():
         page=page,
         page_size=page_size,
         total_pages=total_pages,
-        kpi_action_count=sum(1 for row in dashboard_rows if row["next_action"] != "NO_ACTION"),
-        kpi_done_count=sum(1 for row in dashboard_rows if row["done_for_cycle"]),
+        kpi_action_count=kpi_action_count,
+        kpi_done_count=kpi_done_count,
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
         filters={
@@ -579,7 +582,7 @@ def review_ordering():
                 case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
             ).label("last_invoice_date"),
         )
-        .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
+        .filter(DwInvoiceHeader.invoice_date_utc0 >= d90)
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
@@ -632,10 +635,12 @@ def review_ordering():
 
     district = request.args.getlist("district")
     if district:
-        q = q.outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
         q = q.filter(or_(
             CrmCustomerProfile.district.in_(district),
-            PostalCodeLookup.district.in_(district),
+            and_(
+                CrmCustomerProfile.district.is_(None),
+                PostalCodeLookup.district.in_(district),
+            ),
         ))
 
     filter_state = request.args.get("state", "")
@@ -823,8 +828,8 @@ def review_ordering():
                 days = int(logged_in_days)
                 if r_login_days is None or r_login_days > days:
                     continue
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as e:
+                logger.warning("Invalid logged_in_days value in review_ordering: %s", e)
 
         open_window_rows.append(row)
 
@@ -908,6 +913,7 @@ def review_ordering_update_state():
 
     if new_state == "done":
         review.review_state = "done"
+        review.manual_follow_up_flag = False
         review.done_at = datetime.now(timezone.utc)
         review.done_by = getattr(current_user, "username", None)
         if outcome_reason and outcome_reason in OUTCOME_REASONS:
@@ -1139,3 +1145,29 @@ def customer_timeline(customer_code_365):
     timeline.sort(key=lambda x: x.get("created_at") or "", reverse=True)
 
     return jsonify(timeline)
+
+
+@crm_dashboard_bp.route("/customer/<customer_code_365>/price-offer-summary")
+@login_required
+def api_price_offer_summary(customer_code_365):
+    from services.crm_price_offers import get_customer_price_offer_summary
+    summary = get_customer_price_offer_summary(ps_customer_code=customer_code_365)
+    if summary is None:
+        return jsonify({"has_special_pricing": False, "total_skus": 0})
+    return jsonify(summary)
+
+
+@crm_dashboard_bp.route("/customer/<customer_code_365>/price-offers")
+@login_required
+def api_price_offers(customer_code_365):
+    from services.crm_price_offers import get_customer_price_offer_rows
+    sort_by = request.args.get("sort", "discount_percent")
+    sort_dir = request.args.get("dir", "desc")
+    rule_filter = request.args.get("rule")
+    search = request.args.get("q")
+    rows = get_customer_price_offer_rows(
+        ps_customer_code=customer_code_365,
+        sort_by=sort_by, sort_dir=sort_dir,
+        rule_filter=rule_filter, search=search,
+    )
+    return jsonify(rows)

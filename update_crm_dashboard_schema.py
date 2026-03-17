@@ -84,5 +84,78 @@ def update_crm_dashboard_schema():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_crm_ordering_review_state ON crm_ordering_review(review_state)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_crm_ordering_review_delivery ON crm_ordering_review(delivery_date)"))
 
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS crm_customer_price_offer_import (
+                id SERIAL PRIMARY KEY,
+                import_batch_id VARCHAR(64) NOT NULL,
+                snapshot_at TIMESTAMPTZ,
+                magento_customer_id INTEGER,
+                customer_email VARCHAR(255),
+                sku VARCHAR(100),
+                product_name TEXT,
+                rule_code VARCHAR(100),
+                rule_name VARCHAR(255),
+                rule_description TEXT,
+                origin_price NUMERIC(12,4),
+                customer_final_price NUMERIC(12,4),
+                imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_cpo_import_batch ON crm_customer_price_offer_import(import_batch_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_cpo_import_cust ON crm_customer_price_offer_import(magento_customer_id)"
+        ))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS crm_customer_price_offer (
+                id SERIAL PRIMARY KEY,
+                snapshot_at TIMESTAMPTZ,
+                magento_customer_id INTEGER,
+                customer_email VARCHAR(255),
+                ps_customer_code VARCHAR(64),
+                ps_customer_name TEXT,
+                sku VARCHAR(100),
+                item_code_365 VARCHAR(64),
+                item_name VARCHAR(255),
+                rule_code VARCHAR(100),
+                rule_name VARCHAR(255),
+                rule_description TEXT,
+                origin_price NUMERIC(12,4),
+                customer_final_price NUMERIC(12,4),
+                discount_amount NUMERIC(12,4),
+                discount_percent NUMERIC(8,2),
+                is_linked_customer BOOLEAN NOT NULL DEFAULT false,
+                is_linked_item BOOLEAN NOT NULL DEFAULT false,
+                import_batch_id VARCHAR(64),
+                imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_cpo_cust_sku UNIQUE (magento_customer_id, sku)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_cpo_ps_customer ON crm_customer_price_offer(ps_customer_code)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_cpo_sku ON crm_customer_price_offer(sku)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_cpo_rule ON crm_customer_price_offer(rule_code)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_cpo_magento ON crm_customer_price_offer(magento_customer_id)"
+        ))
+
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='crm_customer_price_offer' AND column_name='product_name'"
+        ))
+        if not result.fetchone():
+            conn.execute(text(
+                "ALTER TABLE crm_customer_price_offer ADD COLUMN product_name TEXT"
+            ))
+            logger.info("Added product_name column to crm_customer_price_offer")
+
         conn.commit()
-        logger.info("CRM dashboard schema ensured (crm_customer_profile, crm_task, crm_interaction_log, crm_ordering_review)")
+        logger.info("CRM dashboard schema ensured (crm_customer_profile, crm_task, crm_interaction_log, crm_ordering_review, crm_customer_price_offer)")

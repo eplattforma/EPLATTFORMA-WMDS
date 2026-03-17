@@ -103,7 +103,7 @@ def sync_login_logs_from_ftp():
 
             db.session.commit()
 
-            db.session.execute(text("DELETE FROM magento_customer_last_login_current"))
+            db.session.execute(text("TRUNCATE TABLE magento_customer_last_login_current"))
             db.session.execute(
                 text(
                     "INSERT INTO magento_customer_last_login_current "

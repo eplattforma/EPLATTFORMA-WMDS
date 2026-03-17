@@ -546,6 +546,14 @@ function refreshAllData() {
                                 <span class="chip-value">SMS: {{ r.mobile_number }}</span>
                             </a>
                             {% endif %}
+
+                            <a href="#" class="detail-chip text-decoration-none"
+                               style="border-left: 3px solid #e599f7; cursor: pointer;"
+                               onclick="event.stopPropagation(); loadPriceOffers('{{ r.customer_code_365 }}', '{{ r.customer_name|e }}'); return false;"
+                               title="View special pricing offers">
+                                <i class="fas fa-tags chip-icon" style="color:#e599f7"></i>
+                                <span class="chip-value price-offer-chip" id="price-chip-{{ r.customer_code_365 }}">Pricing…</span>
+                            </a>
                         </div>
                     </td>
                 </tr>
@@ -922,5 +930,193 @@ document.getElementById('smsSendViaWhatsApp').addEventListener('click', function
     if (!_smsMobile.startsWith('+')) num = '357' + num;
     window.open('https://wa.me/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
 });
+
+var _priceOfferCache = {};
+function loadPriceOffers(code, name) {
+    var chip = document.getElementById('price-chip-' + code);
+    if (_priceOfferCache[code] && _priceOfferCache[code].summary && _priceOfferCache[code].rows) {
+        showPriceModal(code, name, _priceOfferCache[code].summary, _priceOfferCache[code].rows);
+        return;
+    }
+    if (chip) chip.textContent = 'Loading…';
+    Promise.all([
+        fetch('/crm/customer/' + code + '/price-offer-summary').then(r => r.json()),
+        fetch('/crm/customer/' + code + '/price-offers').then(r => r.json())
+    ]).then(function(results) {
+        var summary = results[0];
+        var rows = results[1];
+        _priceOfferCache[code] = {summary: summary, rows: rows};
+        if (chip) {
+            if (summary.has_special_pricing) {
+                chip.textContent = summary.total_skus + ' offers · avg ' + summary.avg_discount_percent.toFixed(1) + '%';
+            } else {
+                chip.textContent = 'No special pricing';
+            }
+        }
+        showPriceModal(code, name, summary, rows);
+    }).catch(function(){
+        if (chip) chip.textContent = 'Error loading';
+    });
+}
+
+function initPriceChips() {
+    document.querySelectorAll('.price-offer-chip').forEach(function(el) {
+        var code = el.id.replace('price-chip-', '');
+        if (!code) return;
+        fetch('/crm/customer/' + code + '/price-offer-summary')
+            .then(r => r.json())
+            .then(function(s) {
+                _priceOfferCache[code] = _priceOfferCache[code] || {};
+                _priceOfferCache[code].summary = s;
+                if (s.has_special_pricing) {
+                    el.textContent = s.total_skus + ' offers · avg ' + s.avg_discount_percent.toFixed(1) + '%';
+                } else {
+                    el.textContent = 'No special pricing';
+                }
+            }).catch(function(){ el.textContent = '–'; });
+    });
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function showPriceModal(code, name, summary, rows) {
+    var m = document.getElementById('priceOfferModal');
+    document.getElementById('priceModalTitle').textContent = 'Special Pricing — ' + name;
+
+    var sec = document.getElementById('priceOfferSummary');
+    sec.innerHTML = '';
+
+    if (summary.has_special_pricing) {
+        var wrap = document.createElement('div');
+        wrap.className = 'd-flex flex-wrap gap-2 mb-3';
+        var badges = [
+            {cls: 'bg-success', icon: 'fa-check', text: 'Has Special Pricing'},
+            {cls: 'bg-info', text: summary.total_skus + ' SKUs'},
+            {cls: 'bg-warning text-dark', text: 'Avg ' + summary.avg_discount_percent.toFixed(1) + '% off'},
+            {cls: 'bg-danger', text: 'Max ' + summary.max_discount_percent.toFixed(1) + '% off'},
+        ];
+        if (summary.last_snapshot) {
+            badges.push({cls: 'bg-secondary', text: 'Snapshot: ' + summary.last_snapshot.split('T')[0]});
+        }
+        badges.forEach(function(b) {
+            var sp = document.createElement('span');
+            sp.className = 'badge ' + b.cls;
+            if (b.icon) { sp.innerHTML = '<i class="fas ' + b.icon + ' me-1"></i>'; }
+            sp.appendChild(document.createTextNode(b.text));
+            wrap.appendChild(sp);
+        });
+        sec.appendChild(wrap);
+
+        if (summary.top_rules && summary.top_rules.length > 0) {
+            var rulesDiv = document.createElement('div');
+            rulesDiv.className = 'mb-2 small text-muted';
+            rulesDiv.appendChild(document.createTextNode('Top rules: '));
+            summary.top_rules.forEach(function(r, i) {
+                if (i > 0) rulesDiv.appendChild(document.createTextNode(', '));
+                var b = document.createElement('strong');
+                b.textContent = r.name;
+                rulesDiv.appendChild(b);
+                rulesDiv.appendChild(document.createTextNode(' (' + r.count + ')'));
+            });
+            sec.appendChild(rulesDiv);
+        }
+    } else {
+        sec.innerHTML = '<div class="text-muted mb-3"><i class="fas fa-info-circle me-1"></i>No special pricing offers for this customer.</div>';
+    }
+
+    var tbody = document.getElementById('priceOfferTbody');
+    var searchBox = document.getElementById('priceOfferSearch');
+    searchBox.value = '';
+
+    function renderRows(data) {
+        tbody.innerHTML = '';
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No price offers found</td></tr>';
+            return;
+        }
+        data.forEach(function(r) {
+            var tr = document.createElement('tr');
+            var dp = r.discount_percent !== null ? r.discount_percent.toFixed(1) + '%' : '–';
+            var dpClass = '';
+            if (r.discount_percent >= 20) dpClass = ' text-danger fw-bold';
+            else if (r.discount_percent >= 10) dpClass = ' text-warning';
+
+            var cells = [
+                {text: r.sku || '', cls: 'small'},
+                {text: r.product_name || r.item_name || '', cls: 'small'},
+                {text: r.rule_name || '', cls: 'small'},
+                {text: '€' + (r.origin_price !== null ? r.origin_price.toFixed(2) : '–'), cls: 'text-end small'},
+                {text: '€' + (r.customer_final_price !== null ? r.customer_final_price.toFixed(2) : '–'), cls: 'text-end small fw-bold'},
+                {text: '€' + (r.discount_amount !== null ? r.discount_amount.toFixed(2) : '–'), cls: 'text-end small'},
+                {text: dp, cls: 'text-end small' + dpClass},
+            ];
+            cells.forEach(function(c) {
+                var td = document.createElement('td');
+                td.className = c.cls;
+                td.textContent = c.text;
+                tr.appendChild(td);
+            });
+            var linkedTd = document.createElement('td');
+            linkedTd.className = 'text-center small';
+            linkedTd.innerHTML = r.is_linked_item ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-muted"></i>';
+            tr.appendChild(linkedTd);
+            tbody.appendChild(tr);
+        });
+    }
+    renderRows(rows);
+
+    searchBox.oninput = function() {
+        var q = this.value.toLowerCase();
+        if (!q) { renderRows(rows); return; }
+        var filtered = rows.filter(function(r) {
+            return (r.sku || '').toLowerCase().includes(q) ||
+                   (r.product_name || '').toLowerCase().includes(q) ||
+                   (r.rule_name || '').toLowerCase().includes(q);
+        });
+        renderRows(filtered);
+    };
+
+    var bsModal = new bootstrap.Modal(m);
+    bsModal.show();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(initPriceChips, 500);
+});
 </script>
+
+<div class="modal fade" id="priceOfferModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="priceModalTitle">Special Pricing</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div id="priceOfferSummary"></div>
+                <input type="text" id="priceOfferSearch" class="form-control form-control-sm mb-2" placeholder="Search SKU, product, or rule…">
+                <table class="table table-sm table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th>Product</th>
+                            <th>Rule</th>
+                            <th class="text-end">Origin €</th>
+                            <th class="text-end">Final €</th>
+                            <th class="text-end">Discount €</th>
+                            <th class="text-end">Discount %</th>
+                            <th class="text-center">Linked</th>
+                        </tr>
+                    </thead>
+                    <tbody id="priceOfferTbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

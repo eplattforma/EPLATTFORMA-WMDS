@@ -126,6 +126,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ FTP login sync scheduled: Every 30 minutes (at :15 and :45)")
 
+            scheduler.add_job(
+                func=_run_ftp_price_master_sync,
+                trigger=CronTrigger(hour=4, minute=30),
+                id='ftp_price_master_sync',
+                name='FTP Price Master Sync',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ FTP price master sync scheduled: Daily at 4:30 AM")
+
         scheduler.start()
         logger.info("Background scheduler started successfully")
 
@@ -472,6 +483,20 @@ def _run_ftp_login_sync():
         logger.info(f"FTP LOGIN SYNC {'COMPLETED' if result.get('success') else 'FAILED'}: {result}")
     except Exception as e:
         logger.error(f"Error in FTP login sync: {str(e)}", exc_info=True)
+
+
+def _run_ftp_price_master_sync():
+    try:
+        from app import app
+        from services.crm_price_offers import sync_price_master_from_ftp
+        logger.info("=" * 60)
+        logger.info("STARTING FTP PRICE MASTER SYNC")
+        logger.info("=" * 60)
+        with app.app_context():
+            result = sync_price_master_from_ftp()
+        logger.info(f"FTP PRICE MASTER SYNC {'COMPLETED' if result.get('success') else 'FAILED'}: {result}")
+    except Exception as e:
+        logger.error(f"Error in FTP price master sync: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():
