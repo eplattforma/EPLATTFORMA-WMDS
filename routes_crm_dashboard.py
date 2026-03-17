@@ -12,7 +12,7 @@ from models import (
     CrmAbandonedCartState, CrmTask, CrmInteractionLog,
     CustomerDeliverySlot, PostalCodeLookup,
     CRMCustomerOpenOrders, PSPendingOrderHeader,
-    CrmOrderingReview,
+    CrmOrderingReview, CRMCommunicationLog,
 )
 from services.crm_order_window import (
     get_customer_window_status, ATHENS_TZ,
@@ -690,20 +690,28 @@ def review_ordering():
         .all()
     ) if x[0]]
 
-    sms_sent_map = {}
+    comm_map = {}
     if all_codes:
-        sms_logs = (
-            CrmInteractionLog.query
+        comm_logs = (
+            CRMCommunicationLog.query
             .filter(
-                CrmInteractionLog.customer_code_365.in_(all_codes),
-                CrmInteractionLog.channel == "SMS",
+                CRMCommunicationLog.customer_code_365.in_(all_codes),
+                CRMCommunicationLog.direction == "outbound",
             )
-            .order_by(CrmInteractionLog.created_at.desc())
+            .order_by(CRMCommunicationLog.created_at.desc())
             .all()
         )
-        for log in sms_logs:
-            if log.customer_code_365 not in sms_sent_map:
-                sms_sent_map[log.customer_code_365] = log.created_at
+        for cl in comm_logs:
+            if cl.customer_code_365 not in comm_map:
+                comm_map[cl.customer_code_365] = {
+                    "channel": cl.channel,
+                    "status": cl.status,
+                    "dlr_status": cl.dlr_status,
+                    "created_at": cl.created_at.isoformat() if cl.created_at else None,
+                    "template_title": cl.template_title,
+                    "created_by": cl.created_by_username,
+                    "days_ago": (now_utc - cl.created_at.replace(tzinfo=timezone.utc)).days if cl.created_at else None,
+                }
 
     open_window_rows = []
     allowed_classification_names = set(allowed_classifications.keys())
@@ -788,7 +796,7 @@ def review_ordering():
             "expected_this_cycle": review_rec.expected_this_cycle if review_rec else False,
             "review_note": review_rec.review_note if review_rec else "",
             "outcome_reason": review_rec.outcome_reason if review_rec else "",
-            "sms_sent_at": sms_sent_map[r.customer_code_365].isoformat() if r.customer_code_365 in sms_sent_map else None,
+            "last_comm": comm_map.get(r.customer_code_365),
         }
 
         if filter_state and row["state"] != filter_state:

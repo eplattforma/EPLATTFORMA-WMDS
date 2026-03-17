@@ -180,6 +180,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     <th>Last Login</th>
                     <th>Last Invoice</th>
                     <th class="value-col">Value 4w</th>
+                    <th>Msg</th>
                     <th>Action</th>
                 </tr>
             </thead>
@@ -251,6 +252,18 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="value-col">{% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}</td>
+                    <td class="text-center" style="white-space:nowrap;">
+                        {% if r.last_comm %}
+                        {% set ch = r.last_comm.channel %}
+                        {% set ch_icon = 'fas fa-sms' if ch == 'microsms' else 'fas fa-bell' if ch == 'push' else 'fas fa-phone' if ch == 'phone_sms' else 'fab fa-whatsapp' if ch == 'whatsapp' else 'fab fa-viber' if ch == 'viber' else 'fas fa-envelope' %}
+                        {% set ch_color = '#22c55e' if ch == 'microsms' else '#6f42c1' if ch == 'push' else '#0dcaf0' if ch == 'phone_sms' else '#25d366' if ch == 'whatsapp' else '#7360f2' if ch == 'viber' else '#adb5bd' %}
+                        {% set d = r.last_comm.days_ago %}
+                        <span title="{{ ch }} — {{ r.last_comm.template_title or 'No template' }}&#10;{{ r.last_comm.created_at[:16] if r.last_comm.created_at else '' }}" style="font-size:0.72rem;">
+                            <i class="{{ ch_icon }}" style="color:{{ ch_color }};font-size:0.75rem;"></i>
+                            <span class="{% if d is not none and d <= 2 %}text-success{% elif d is not none and d <= 7 %}text-warning{% else %}text-muted{% endif %}" style="font-size:0.7rem;">{% if d is not none %}{{ d }}d{% endif %}</span>
+                        </span>
+                        {% else %}<span class="text-muted" style="font-size:0.7rem;">—</span>{% endif %}
+                    </td>
                     <td onclick="event.stopPropagation()">
                         <a href="/admin/communications/compose?ctx=customer&id={{ r.customer_code_365 }}&source=order_review" class="btn btn-outline-info btn-sm" style="padding:2px 6px;font-size:0.7rem;" title="Communications">
                             <i class="fas fa-comments"></i>
@@ -264,7 +277,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#198754;"></i>No ordering windows currently open</td></tr>
+                <tr><td colspan="12" class="text-center text-muted py-4"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#198754;"></i>No ordering windows currently open</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -290,7 +303,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
     <div class="drawer-body">
         <div class="drawer-section">
             <div class="drawer-section-title">Current Cycle</div>
-            <div class="drawer-field"><span class="label">SMS sent at</span><span class="val" id="drawer-sms-sent">—</span></div>
+            <div class="drawer-field"><span class="label">Last message</span><span class="val" id="drawer-last-comm">—</span></div>
             <div class="drawer-field"><span class="label">Order exists</span><span class="val" id="drawer-order-exists">—</span></div>
             <div class="drawer-field"><span class="label">Order value</span><span class="val" id="drawer-order-value">—</span></div>
             <div class="drawer-field"><span class="label">Active cart</span><span class="val" id="drawer-cart-exists">—</span></div>
@@ -422,7 +435,13 @@ function openDrawer(idx) {
     delBadge.textContent = r.next_delivery || '—';
     delBadge.style.display = r.next_delivery ? '' : 'none';
 
-    document.getElementById('drawer-sms-sent').textContent = r.sms_sent_at ? new Date(r.sms_sent_at).toLocaleString() : '—';
+    var commEl = document.getElementById('drawer-last-comm');
+    if (r.last_comm) {
+        var chLabels = {microsms:'SMS',push:'Push',phone_sms:'Phone SMS',whatsapp:'WhatsApp',viber:'Viber'};
+        var chLabel = chLabels[r.last_comm.channel] || r.last_comm.channel;
+        var dAgo = r.last_comm.days_ago !== null ? r.last_comm.days_ago + 'd ago' : '';
+        commEl.innerHTML = '<span style="color:#22c55e;">' + chLabel + '</span> · ' + dAgo + (r.last_comm.template_title ? '<br><small class="text-muted">' + r.last_comm.template_title + '</small>' : '');
+    } else { commEl.textContent = '—'; }
     document.getElementById('drawer-order-exists').innerHTML = r.open_order_count > 0 ? '<span class="text-success">Yes ('+r.open_order_count+')</span>' : '<span class="text-danger">No</span>';
     document.getElementById('drawer-order-value').textContent = r.open_order_amount > 0 ? '€' + Math.round(r.open_order_amount).toLocaleString() : '—';
     document.getElementById('drawer-cart-exists').innerHTML = r.has_cart ? '<span class="text-warning">Yes' + (r.cart_amount ? ' (€'+Math.round(r.cart_amount)+')' : '') + '</span>' : 'No';
