@@ -66,6 +66,7 @@
             {% if t.allow_call %}<span class="badge bg-warning text-dark" title="Call"><i class="fas fa-phone"></i></span>{% endif %}
             {% if t.allow_whatsapp %}<span class="badge bg-success" title="WhatsApp"><i class="fab fa-whatsapp"></i></span>{% endif %}
             {% if t.allow_viber %}<span class="badge" style="background:#7360f2;" title="Viber"><i class="fab fa-viber"></i></span>{% endif %}
+            {% if t.allow_onesignal_push %}<span class="badge" style="background:#e8590c;" title="Push"><i class="fas fa-bell"></i></span>{% endif %}
             {% if t.is_bulk_allowed %}<span class="badge bg-dark" title="Bulk Allowed"><i class="fas fa-users"></i></span>{% endif %}
           </div>
         </div>
@@ -83,6 +84,7 @@
                   data-allow-call="{{ t.allow_call|tojson }}"
                   data-allow-whatsapp="{{ t.allow_whatsapp|tojson }}"
                   data-allow-viber="{{ t.allow_viber|tojson }}"
+                  data-allow-onesignal-push="{{ t.allow_onesignal_push|tojson }}"
                   data-call-script="{{ (t.call_script or '')|e }}"
                   data-is-bulk="{{ t.is_bulk_allowed|tojson }}"
                   data-sort-order="{{ t.sort_order }}">
@@ -183,6 +185,10 @@
               <input class="form-check-input" type="checkbox" name="allow_viber" id="tplViber">
               <label class="form-check-label" for="tplViber"><i class="fab fa-viber me-1"></i>Viber</label>
             </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="allow_onesignal_push" id="tplPush">
+              <label class="form-check-label" for="tplPush"><i class="fas fa-bell me-1"></i>Push</label>
+            </div>
           </div>
           <div class="row g-3 mt-2">
             <div class="col-md-9">
@@ -222,6 +228,7 @@ function resetForm() {
   document.getElementById('tplCall').checked = false;
   document.getElementById('tplWhatsapp').checked = false;
   document.getElementById('tplViber').checked = false;
+  document.getElementById('tplPush').checked = false;
   document.getElementById('tplCallScript').value = '';
   document.getElementById('tplBulk').checked = false;
   document.getElementById('tplSortOrder').value = '0';
@@ -241,6 +248,7 @@ function editTemplate(t) {
   document.getElementById('tplCall').checked = t.allow_call;
   document.getElementById('tplWhatsapp').checked = t.allow_whatsapp;
   document.getElementById('tplViber').checked = t.allow_viber;
+  document.getElementById('tplPush').checked = t.allow_onesignal_push;
   document.getElementById('tplCallScript').value = t.call_script || '';
   document.getElementById('tplBulk').checked = t.is_bulk_allowed;
   document.getElementById('tplSortOrder').value = t.sort_order || 0;
@@ -272,6 +280,7 @@ document.addEventListener('click', function(e) {
     allow_call: btn.getAttribute('data-allow-call') === 'true',
     allow_whatsapp: btn.getAttribute('data-allow-whatsapp') === 'true',
     allow_viber: btn.getAttribute('data-allow-viber') === 'true',
+    allow_onesignal_push: btn.getAttribute('data-allow-onesignal-push') === 'true',
     call_script: btn.getAttribute('data-call-script'),
     is_bulk_allowed: btn.getAttribute('data-is-bulk') === 'true',
     sort_order: parseInt(btn.getAttribute('data-sort-order')) || 0

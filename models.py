@@ -2986,6 +2986,18 @@ class CRMCommunicationBatch(db.Model):
     extra_json = db.Column(db.JSON, nullable=True)
 
 
+class CustomerPushIdentity(db.Model):
+    __tablename__ = "customer_push_identity"
+    customer_code_365 = db.Column(db.String(50), primary_key=True)
+    onesignal_external_id = db.Column(db.String(100), nullable=False)
+    push_available = db.Column(db.Boolean, nullable=False, default=False)
+    push_subscription_count = db.Column(db.Integer, nullable=False, default=0)
+    last_verified_at = db.Column(db.DateTime, nullable=True)
+    last_provider_response = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: get_utc_now())
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: get_utc_now(), onupdate=lambda: get_utc_now())
+
+
 class PostalCodeLookup(db.Model):
     __tablename__ = "postal_code_lookup"
     id = db.Column(db.Integer, primary_key=True)

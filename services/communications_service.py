@@ -14,12 +14,13 @@ jinja_env = Environment(undefined=StrictUndefined, autoescape=False)
 
 MICROSMS_DIRECT_URL = "https://api.microsms.net/sendapidirect.asp"
 
-VALID_CHANNELS = ('microsms', 'phone_sms', 'phone_call', 'whatsapp', 'viber')
+VALID_CHANNELS = ('microsms', 'phone_sms', 'phone_call', 'whatsapp', 'viber', 'onesignal_push')
 
 VALID_STATUSES = (
     'initiated', 'launched', 'sent', 'delivered', 'failed',
     'answered', 'no_answer', 'callback_requested', 'wrong_number',
     'left_message', 'cancelled', 'completed',
+    'skipped_no_subscription',
 )
 
 ERR_MAP = {

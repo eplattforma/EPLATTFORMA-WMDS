@@ -67,6 +67,37 @@ def update_sms_schema():
             ON CONFLICT (code) DO NOTHING
         """))
 
+        for col, defval in [
+            ("allow_microsms", "TRUE"),
+            ("allow_phone_sms", "FALSE"),
+            ("allow_call", "FALSE"),
+            ("allow_whatsapp", "FALSE"),
+            ("allow_viber", "FALSE"),
+            ("allow_onesignal_push", "FALSE"),
+            ("call_script", None),
+            ("is_bulk_allowed", "FALSE"),
+            ("sort_order", "0"),
+        ]:
+            try:
+                col_type = "TEXT" if col == "call_script" else ("INTEGER" if col == "sort_order" else "BOOLEAN")
+                default_clause = f" DEFAULT {defval}" if defval else ""
+                db.session.execute(text(f"ALTER TABLE sms_template ADD COLUMN IF NOT EXISTS {col} {col_type}{default_clause}"))
+            except Exception:
+                pass
+
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS customer_push_identity (
+                customer_code_365 VARCHAR(50) PRIMARY KEY,
+                onesignal_external_id VARCHAR(100) NOT NULL,
+                push_available BOOLEAN NOT NULL DEFAULT FALSE,
+                push_subscription_count INTEGER NOT NULL DEFAULT 0,
+                last_verified_at TIMESTAMP NULL,
+                last_provider_response JSONB NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
+
         db.session.commit()
         logger.info("✅ SMS schema update completed successfully")
     except Exception as e:

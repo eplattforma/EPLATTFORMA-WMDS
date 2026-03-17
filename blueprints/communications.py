@@ -11,6 +11,10 @@ from services.communications_service import (
     create_comm_log, update_comm_log_status, send_microsms,
     build_launch_url, get_customer_comm_history, get_enabled_templates,
 )
+from services.onesignal_service import (
+    refresh_customer_push_identity, get_cached_push_identity,
+    send_push_to_customer, bulk_send_push,
+)
 
 communications_bp = Blueprint("communications", __name__, url_prefix="/admin/communications")
 
@@ -372,3 +376,119 @@ def bulk_send_microsms():
         "total_skipped": total_skipped,
         "results": results,
     }), mimetype="application/json")
+
+
+@communications_bp.route("/push/verify", methods=["POST"])
+@login_required
+def push_verify():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}), mimetype="application/json", status=403)
+
+    cc = request.form.get("customer_code_365", "").strip()
+    if not cc:
+        return Response(json.dumps({"ok": False, "error": "Missing customer_code_365"}), mimetype="application/json")
+
+    result = refresh_customer_push_identity(cc)
+    return Response(json.dumps({
+        "ok": True,
+        "push_available": result["push_available"],
+        "push_subscription_count": result["push_subscription_count"],
+        "verified_at": result["verified_at"],
+        "error": result.get("error"),
+    }, default=str), mimetype="application/json")
+
+
+@communications_bp.route("/push/cached-status", methods=["POST"])
+@login_required
+def push_cached_status():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False}), mimetype="application/json", status=403)
+
+    cc = request.form.get("customer_code_365", "").strip()
+    if not cc:
+        return Response(json.dumps({"ok": False}), mimetype="application/json")
+
+    cached = get_cached_push_identity(cc)
+    return Response(json.dumps({"ok": True, **cached}, default=str), mimetype="application/json")
+
+
+@communications_bp.route("/push/send", methods=["POST"])
+@login_required
+def push_send():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}), mimetype="application/json", status=403)
+
+    cc = request.form.get("customer_code_365", "").strip()
+    title = request.form.get("title", "").strip()
+    message = request.form.get("message", "").strip()
+    push_url = request.form.get("url", "").strip() or None
+    tpl_code = request.form.get("template_code", "").strip() or None
+    source = request.form.get("source_screen", "").strip() or "customer_profile"
+
+    if not cc or not message:
+        return Response(json.dumps({"ok": False, "error": "Customer code and message are required"}), mimetype="application/json")
+
+    if not title:
+        title = "Notification"
+
+    result = send_push_to_customer(
+        customer_code_365=cc,
+        title=title,
+        body=message,
+        url=push_url,
+        source_screen=source,
+        template_code=tpl_code,
+        username=getattr(current_user, "username", None),
+    )
+
+    return Response(json.dumps(result, default=str), mimetype="application/json")
+
+
+@communications_bp.route("/push/bulk-send", methods=["POST"])
+@login_required
+def push_bulk_send():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}), mimetype="application/json", status=403)
+
+    codes = request.form.getlist("customer_codes[]")
+    if not codes:
+        codes_str = request.form.get("customer_codes", "")
+        codes = [c.strip() for c in codes_str.split(",") if c.strip()]
+
+    title = request.form.get("title", "Notification").strip()
+    message = request.form.get("message", "").strip()
+    tpl_code = request.form.get("template_code", "").strip() or None
+    source = request.form.get("source_screen", "order_review")
+
+    if not codes or not message:
+        return Response(json.dumps({"ok": False, "error": "Missing customer codes or message"}), mimetype="application/json")
+
+    result = bulk_send_push(
+        customer_codes=codes,
+        title=title,
+        body=message,
+        template_code=tpl_code,
+        source_screen=source,
+        username=getattr(current_user, "username", None),
+    )
+
+    return Response(json.dumps(result, default=str), mimetype="application/json")
+
+
+@communications_bp.route("/push/history/<customer_code>", methods=["GET"])
+@login_required
+def push_history(customer_code):
+    if not _role_ok():
+        return Response(json.dumps([]), mimetype="application/json", status=403)
+
+    rows = db.session.execute(db.text("""
+        SELECT id, created_at, created_by_username, status,
+               template_code, message_text, outcome_note,
+               provider_message_id, extra_json
+        FROM crm_communication_log
+        WHERE customer_code_365 = :cc AND channel = 'onesignal_push'
+        ORDER BY created_at DESC
+        LIMIT 30
+    """), {"cc": customer_code}).mappings().all()
+
+    return Response(json.dumps([dict(r) for r in rows], default=str), mimetype="application/json")

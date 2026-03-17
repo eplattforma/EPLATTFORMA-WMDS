@@ -418,6 +418,7 @@ def sms_templates():
     rows = db.session.execute(db.text("""
         SELECT id, code, title, sender_title, body, force_unicode, is_enabled,
                allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber,
+               allow_onesignal_push,
                call_script, is_bulk_allowed, sort_order, created_at, updated_at
         FROM sms_template
         ORDER BY COALESCE(sort_order, 999), title
@@ -438,6 +439,7 @@ def sms_templates():
             "allow_call": bool(r.allow_call),
             "allow_whatsapp": bool(r.allow_whatsapp),
             "allow_viber": bool(r.allow_viber),
+            "allow_onesignal_push": bool(r.allow_onesignal_push) if r.allow_onesignal_push is not None else False,
             "call_script": r.call_script or "",
             "is_bulk_allowed": bool(r.is_bulk_allowed),
             "sort_order": r.sort_order or 0,
@@ -465,6 +467,7 @@ def sms_template_save():
     allow_call = request.form.get("allow_call") == "on"
     allow_whatsapp = request.form.get("allow_whatsapp") == "on"
     allow_viber = request.form.get("allow_viber") == "on"
+    allow_onesignal_push = request.form.get("allow_onesignal_push") == "on"
     call_script = request.form.get("call_script", "").strip() or None
     is_bulk_allowed = request.form.get("is_bulk_allowed") == "on"
     sort_order = request.form.get("sort_order", "0").strip()
@@ -484,6 +487,7 @@ def sms_template_save():
         "body": body, "fu": force_unicode, "en": is_enabled,
         "a_micro": allow_microsms, "a_phone": allow_phone_sms,
         "a_call": allow_call, "a_wa": allow_whatsapp, "a_viber": allow_viber,
+        "a_push": allow_onesignal_push,
         "cs": call_script, "bulk": is_bulk_allowed, "so": sort_order,
     }
 
@@ -496,6 +500,7 @@ def sms_template_save():
                     body = :body, force_unicode = :fu, is_enabled = :en,
                     allow_microsms = :a_micro, allow_phone_sms = :a_phone,
                     allow_call = :a_call, allow_whatsapp = :a_wa, allow_viber = :a_viber,
+                    allow_onesignal_push = :a_push,
                     call_script = :cs, is_bulk_allowed = :bulk, sort_order = :so,
                     updated_at = NOW()
                 WHERE id = :id
@@ -505,10 +510,10 @@ def sms_template_save():
             db.session.execute(db.text("""
                 INSERT INTO sms_template (code, title, sender_title, body, force_unicode, is_enabled,
                     allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber,
-                    call_script, is_bulk_allowed, sort_order)
+                    allow_onesignal_push, call_script, is_bulk_allowed, sort_order)
                 VALUES (:code, :title, :sender, :body, :fu, :en,
                     :a_micro, :a_phone, :a_call, :a_wa, :a_viber,
-                    :cs, :bulk, :so)
+                    :a_push, :cs, :bulk, :so)
             """), params)
             flash(f"Template '{title}' created.", "success")
         db.session.commit()

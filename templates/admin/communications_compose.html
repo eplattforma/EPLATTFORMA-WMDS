@@ -16,6 +16,8 @@
 .btn-whatsapp:hover { background: #1fb855; color: white; }
 .btn-viber { background: #7360f2; color: white; }
 .btn-viber:hover { background: #6050d8; color: white; }
+.btn-push { background: #e8590c; color: white; }
+.btn-push:hover { background: #d9480f; color: white; }
 .customer-header { display: flex; align-items: center; gap: 16px; }
 .customer-header .avatar { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; }
 .char-info { font-size: 0.75rem; color: rgba(255,255,255,0.4); }
@@ -66,6 +68,11 @@
                         <span>{{ customer.delivery_date }}</span>
                     </div>
                     {% endif %}
+                    <div class="d-flex align-items-center gap-2 mt-1">
+                        <i class="fas fa-bell text-info"></i>
+                        <span id="pushStatusLabel" class="badge bg-secondary" style="font-size:0.6rem;">Push: checking…</span>
+                        <button class="btn btn-outline-info btn-sm py-0 px-1" onclick="recheckPush()" title="Recheck push availability"><i class="fas fa-sync-alt" style="font-size:0.7rem;"></i></button>
+                    </div>
                 </div>
             </div>
 
@@ -101,6 +108,18 @@
                 </div>
             </div>
 
+            <div class="comm-card" id="pushFieldsCard">
+                <h6><i class="fas fa-bell me-1"></i>Push Notification Fields</h6>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:0.8rem;">Push Title</label>
+                    <input type="text" class="form-control form-control-sm" id="pushTitle" placeholder="Notification title" maxlength="100">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:0.8rem;">Click URL <small class="text-muted">(optional)</small></label>
+                    <input type="url" class="form-control form-control-sm" id="pushUrl" placeholder="https://...">
+                </div>
+            </div>
+
             <div class="comm-card">
                 <h6>Actions</h6>
                 <div class="d-flex flex-wrap gap-2">
@@ -118,6 +137,9 @@
                     </button>
                     <button class="btn channel-btn btn-viber" id="btnViber" onclick="doLaunch('viber')" {% if not customer.phone_valid %}disabled{% endif %}>
                         <i class="fab fa-viber"></i>Viber
+                    </button>
+                    <button class="btn channel-btn btn-push" id="btnPush" onclick="doSendPush()" disabled>
+                        <i class="fas fa-bell"></i>Send Push
                     </button>
                 </div>
             </div>
@@ -331,9 +353,10 @@ async function refreshHistory() {
                 phone_call: ['bg-info', 'fas fa-phone', 'Call'],
                 whatsapp: ['', 'fab fa-whatsapp', 'WhatsApp'],
                 viber: ['', 'fab fa-viber', 'Viber'],
+                onesignal_push: ['', 'fas fa-bell', 'Push'],
             };
             var m = map[ch] || ['bg-secondary', '', ch];
-            var style = ch === 'whatsapp' ? 'background:#25D366;' : ch === 'viber' ? 'background:#7360f2;' : '';
+            var style = ch === 'whatsapp' ? 'background:#25D366;' : ch === 'viber' ? 'background:#7360f2;' : ch === 'onesignal_push' ? 'background:#e8590c;' : '';
             return '<span class="badge ' + m[0] + '" style="' + style + '"><i class="' + m[1] + ' me-1"></i>' + m[2] + '</span>';
         };
         var statusBadge = function(st) {
@@ -342,7 +365,8 @@ async function refreshHistory() {
             else if (st === 'failed') cls = 'bg-danger';
             else if (st === 'launched') cls = 'bg-info';
             else if (st === 'no_answer') cls = 'bg-warning text-dark';
-            return '<span class="badge ' + cls + '">' + st + '</span>';
+            else if (st === 'skipped_no_subscription') cls = 'bg-warning text-dark';
+            return '<span class="badge ' + cls + '">' + st.replace(/_/g, ' ') + '</span>';
         };
         var html = '<table class="table table-sm table-hover" style="font-size:0.82rem;"><thead><tr><th>Date</th><th>User</th><th>Channel</th><th>Status</th><th>Template</th><th>Message</th><th>Note</th></tr></thead><tbody>';
         data.forEach(function(h){
@@ -359,6 +383,86 @@ async function refreshHistory() {
         container.innerHTML = html;
     } catch(e) {}
 }
+
+var _pushAvailable = false;
+
+async function checkPushStatus(live) {
+    var url = live ? '/admin/communications/push/verify' : '/admin/communications/push/cached-status';
+    var label = document.getElementById('pushStatusLabel');
+    var btn = document.getElementById('btnPush');
+    try {
+        var fd = new FormData();
+        fd.append('customer_code_365', _customerCode);
+        var res = await fetch(url, {method:'POST', body:fd});
+        var data = await res.json();
+        _pushAvailable = data.push_available;
+        if (data.push_available) {
+            label.className = 'badge bg-success';
+            label.style.fontSize = '0.6rem';
+            label.innerHTML = '<i class="fas fa-check me-1"></i>Push available (' + (data.push_subscription_count || 0) + ')';
+            btn.disabled = false;
+        } else if (data.cached === false && !live) {
+            label.className = 'badge bg-secondary';
+            label.style.fontSize = '0.6rem';
+            label.textContent = 'Push: unknown';
+            btn.disabled = true;
+        } else {
+            label.className = 'badge bg-warning text-dark';
+            label.style.fontSize = '0.6rem';
+            label.textContent = 'No active push subscription';
+            btn.disabled = true;
+        }
+    } catch(e) {
+        label.className = 'badge bg-secondary';
+        label.style.fontSize = '0.6rem';
+        label.textContent = 'Push: check failed';
+        btn.disabled = true;
+    }
+}
+
+async function recheckPush() {
+    var label = document.getElementById('pushStatusLabel');
+    label.className = 'badge bg-secondary';
+    label.style.fontSize = '0.6rem';
+    label.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Verifying…';
+    await checkPushStatus(true);
+}
+
+async function doSendPush() {
+    var msg = document.getElementById('messageText').value.trim();
+    var title = document.getElementById('pushTitle').value.trim() || 'Notification';
+    var pushUrl = document.getElementById('pushUrl').value.trim() || '';
+    if (!msg) { alert('Please type a message.'); return; }
+    var btn = document.getElementById('btnPush');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
+    try {
+        var fd = new FormData();
+        fd.append('customer_code_365', _customerCode);
+        fd.append('title', title);
+        fd.append('message', msg);
+        if (pushUrl) fd.append('url', pushUrl);
+        fd.append('template_code', document.getElementById('templateSelect').value || '');
+        fd.append('source_screen', _sourceScreen);
+        var res = await fetch('/admin/communications/push/send', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) {
+            showStatus('<i class="fas fa-check-circle me-2"></i>Push sent successfully', 'success');
+            refreshHistory();
+        } else if (data.status === 'skipped_no_subscription') {
+            showStatus('<i class="fas fa-exclamation-triangle me-2"></i>No active push subscription', 'error');
+            _pushAvailable = false;
+            document.getElementById('pushStatusLabel').className = 'badge bg-warning text-dark';
+            document.getElementById('pushStatusLabel').style.fontSize = '0.6rem';
+            document.getElementById('pushStatusLabel').textContent = 'No active push subscription';
+            refreshHistory();
+        } else {
+            showStatus('<i class="fas fa-exclamation-circle me-2"></i>' + (data.error || 'Send failed'), 'error');
+        }
+    } catch(e) { showStatus('<i class="fas fa-exclamation-circle me-2"></i>Error: ' + e.message, 'error'); }
+    btn.disabled = !_pushAvailable; btn.innerHTML = '<i class="fas fa-bell"></i>Send Push';
+}
+
+checkPushStatus(false);
 
 if (document.getElementById('templateSelect').value) {
     document.getElementById('templateSelect').dispatchEvent(new Event('change'));
