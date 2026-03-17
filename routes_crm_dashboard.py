@@ -72,6 +72,36 @@ def _get_allowed_classifications():
     return _normalize_classifications(raw)
 
 
+def _get_review_ordering_classifications():
+    """Get only classifications marked for inclusion in Review Ordering"""
+    s = Setting.query.filter_by(key="crm_customer_classifications").first()
+    raw = s.value if s and s.value else None
+    all_classifications = _normalize_classifications(raw)
+    
+    # Filter to only include those with include_in_review_ordering=True
+    filtered = {}
+    if isinstance(raw, str):
+        try:
+            raw_dict = json.loads(raw)
+        except Exception:
+            raw_dict = {}
+    elif isinstance(raw, dict):
+        raw_dict = raw
+    else:
+        raw_dict = {}
+    
+    for name, meta in all_classifications.items():
+        # Check if this classification should be included
+        include = True
+        if isinstance(raw_dict.get(name), dict):
+            include = raw_dict[name].get("include_in_review_ordering", True)
+        
+        if include:
+            filtered[name] = meta
+    
+    return filtered if filtered else all_classifications
+
+
 def _get_allowed_classification_names():
     return list(_get_allowed_classifications().keys())
 
@@ -617,7 +647,7 @@ def review_ordering():
 
     now_utc = datetime.now(timezone.utc)
     now_local = now_utc.astimezone(ATHENS_TZ)
-    allowed_classifications = _get_allowed_classifications()
+    allowed_classifications = _get_review_ordering_classifications()
 
     window_hours_setting = Setting.query.filter_by(key="crm_order_window_hours").first()
     window_hours = int(window_hours_setting.value) if window_hours_setting and window_hours_setting.value else 48
