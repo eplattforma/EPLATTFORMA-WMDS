@@ -1,246 +1,610 @@
 {% extends "base.html" %}
-
 {% block title %}Review Ordering Window{% endblock %}
-
 {% block head %}
 <style>
-    .review-table thead { position: sticky; top: 0; z-index: 10; }
-    .review-table th { white-space: nowrap; font-size: 0.78rem; position: sticky; top: 0; z-index: 10; }
-    .review-table td { font-size: 0.82rem; vertical-align: middle; }
-    .badge-done { background-color: #198754; }
-    .badge-pending { background-color: #dc3545; }
-    .badge-cart { background-color: #fd7e14; }
-    .value-col { text-align: right; white-space: nowrap; }
-    .days-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
-    .days-green { background: rgba(25,135,84,0.2); color: #22c55e; }
-    .days-yellow { background: rgba(255,193,7,0.2); color: #ffc107; }
-    .days-orange { background: rgba(253,126,20,0.2); color: #fd7e14; }
-    .days-red { background: rgba(220,53,69,0.2); color: #ef4444; }
-    .group-header-row td {
-        padding: 8px 12px;
-        font-size: 0.82rem;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-        border-bottom: 2px solid rgba(255,255,255,0.15);
-        cursor: pointer;
-    }
-    .group-header-row:hover td { background: rgba(255,255,255,0.03); }
-    .kpi-summary {
-        display: flex; gap: 16px; align-items: center;
-        padding: 8px 16px; background: rgba(255,255,255,0.05);
-        border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
-    }
-    .kpi-summary .kpi-item { text-align: center; }
-    .kpi-summary .kpi-label { font-size: 0.68rem; text-transform: uppercase; color: rgba(255,255,255,0.5); font-weight: 700; }
-    .kpi-summary .kpi-val { font-size: 1.1rem; font-weight: 700; }
+.review-table thead { position: sticky; top: 0; z-index: 10; }
+.review-table th { white-space: nowrap; font-size: 0.78rem; }
+.review-table td { font-size: 0.82rem; vertical-align: middle; }
+.review-table .row-item { cursor: pointer; transition: background 0.15s; }
+.review-table .row-item:hover { background: rgba(255,255,255,0.04); }
+.review-table .row-item.active-row { background: rgba(13,110,253,0.12); border-left: 3px solid #ffc107; }
+.value-col { text-align: right; white-space: nowrap; }
+.days-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+.days-green { background: rgba(25,135,84,0.2); color: #22c55e; }
+.days-yellow { background: rgba(255,193,7,0.2); color: #ffc107; }
+.days-orange { background: rgba(253,126,20,0.2); color: #fd7e14; }
+.days-red { background: rgba(220,53,69,0.2); color: #ef4444; }
+.badge-state { font-size: 0.72rem; font-weight: 600; padding: 3px 8px; border-radius: 4px; }
+.state-waiting { background: rgba(108,117,125,0.2); color: #adb5bd; }
+.state-follow_up { background: rgba(255,193,7,0.2); color: #ffc107; }
+.state-ordered { background: rgba(25,135,84,0.2); color: #22c55e; }
+.state-ordered_cart { background: rgba(253,126,20,0.2); color: #fd7e14; }
+.state-done { background: rgba(25,135,84,0.15); color: #6c757d; }
+tr.state-row-follow_up { border-left: 3px solid #ffc107; }
+.badge-cart { background-color: #fd7e14; }
+.kpi-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.kpi-chip { padding: 6px 14px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); }
+.kpi-chip .kpi-label { font-size: 0.65rem; text-transform: uppercase; color: rgba(255,255,255,0.5); font-weight: 700; }
+.kpi-chip .kpi-val { font-size: 1.1rem; font-weight: 700; }
+.filter-bar-review select, .filter-bar-review input { font-size: 0.82rem; }
+#detail-drawer {
+    position: fixed; top: 0; right: -440px; width: 420px; height: 100vh;
+    background: #1e1e2e; border-left: 1px solid rgba(255,255,255,0.12);
+    z-index: 1050; transition: right 0.25s ease; overflow-y: auto;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.4); padding: 0;
+}
+#detail-drawer.open { right: 0; }
+.drawer-header { padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #1e1e2e; z-index: 2; }
+.drawer-body { padding: 16px 20px; }
+.drawer-section { margin-bottom: 18px; }
+.drawer-section-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.4); font-weight: 700; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 4px; }
+.drawer-field { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 0.82rem; }
+.drawer-field .label { color: rgba(255,255,255,0.5); }
+.drawer-field .val { font-weight: 600; }
+.drawer-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1049; display: none; }
+.drawer-overlay.show { display: block; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid py-3">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-start mb-3">
         <div>
-            <h4 class="mb-0"><i class="fas fa-clipboard-check me-2" style="color: #22c55e;"></i>Review Ordering Window</h4>
+            <h5 class="mb-0"><i class="fas fa-clipboard-check me-2" style="color: #22c55e;"></i>Review Ordering Window</h5>
             <small class="text-muted">Customers with ordering window currently open</small>
         </div>
-        <div class="d-flex gap-2 align-items-center">
-            <div class="kpi-summary">
-                <div class="kpi-item">
-                    <div class="kpi-label">Total Open</div>
-                    <div class="kpi-val" style="color: #22c55e;">{{ total_open }}</div>
-                </div>
-                <div class="kpi-item">
-                    <div class="kpi-label">Pending</div>
-                    <div class="kpi-val text-danger">{{ pending_rows | length }}</div>
-                </div>
-                <div class="kpi-item">
-                    <div class="kpi-label">Done</div>
-                    <div class="kpi-val text-success">{{ done_rows | length }}</div>
-                </div>
-            </div>
-            <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm">
-                <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
-            </a>
-        </div>
+        <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Dashboard
+        </a>
     </div>
 
-    <div class="table-responsive" style="max-height: calc(100vh - 140px); overflow-y: auto;">
+    <div class="kpi-bar mb-3">
+        <div class="kpi-chip"><div class="kpi-label">Open</div><div class="kpi-val" style="color:#22c55e;">{{ total_open }}</div></div>
+        <div class="kpi-chip"><div class="kpi-label">Follow Up</div><div class="kpi-val" style="color:#ffc107;">{{ kpi.follow_up }}</div></div>
+        <div class="kpi-chip"><div class="kpi-label">Waiting</div><div class="kpi-val" style="color:#adb5bd;">{{ kpi.waiting }}</div></div>
+        <div class="kpi-chip"><div class="kpi-label">Ordered</div><div class="kpi-val" style="color:#22c55e;">{{ kpi.ordered }}</div></div>
+        <div class="kpi-chip"><div class="kpi-label">Ordered+Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.ordered_cart }}</div></div>
+        <div class="kpi-chip"><div class="kpi-label">Done</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.done }}</div></div>
+        <div class="kpi-chip"><div class="kpi-label">Has Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.has_cart }}</div></div>
+    </div>
+
+    <form method="GET" class="filter-bar-review mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Search</label>
+                <input type="text" class="form-control form-control-sm" name="q" value="{{ filters.q }}" placeholder="Name or code" style="width:160px;">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">State</label>
+                <select class="form-select form-select-sm" name="state" style="width:130px;">
+                    <option value="">All</option>
+                    {% for st in ['follow_up','waiting','ordered','ordered_cart','done'] %}
+                    <option value="{{ st }}" {% if filters.state == st %}selected{% endif %}>{{ st | replace('_',' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto position-relative">
+                <label class="form-label mb-0 small">Classification</label>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle classification-dropdown-btn" type="button" id="classDropdownReview" aria-expanded="false">
+                        {% if filters.classification %}{{ filters.classification | join(', ') }}{% else %}All{% endif %}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark classification-dropdown-menu" style="min-width:180px; padding:6px; display:none; position:absolute; z-index:1050;">
+                        {% for c in allowed_classifications.keys() %}
+                        <li>
+                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size:0.82rem;">
+                                <input type="checkbox" name="classification" value="{{ c }}" {% if c in filters.classification %}checked{% endif %} class="form-check-input">
+                                {{ c }}
+                            </label>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            <div class="col-auto position-relative">
+                <label class="form-label mb-0 small">District</label>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle district-dropdown-btn" type="button" aria-expanded="false">
+                        {% if filters.district %}{{ filters.district | join(', ') }}{% else %}All{% endif %}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark district-dropdown-menu" style="min-width:180px; padding:6px; display:none; position:absolute; z-index:1050;">
+                        {% for d in all_districts %}
+                        <li>
+                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size:0.82rem;">
+                                <input type="checkbox" name="district" value="{{ d }}" {% if d in filters.district %}checked{% endif %} class="form-check-input">
+                                {{ d }}
+                            </label>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Login ≤ days</label>
+                <input type="number" class="form-control form-control-sm" name="logged_in_days" value="{{ filters.logged_in_days }}" placeholder="e.g. 7" style="width:80px;">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Ordered</label>
+                <select class="form-select form-select-sm" name="ordered" style="width:120px;">
+                    <option value="">All</option>
+                    <option value="ordered" {% if filters.ordered == 'ordered' %}selected{% endif %}>Ordered</option>
+                    <option value="not_ordered" {% if filters.ordered == 'not_ordered' %}selected{% endif %}>Not Ordered</option>
+                </select>
+            </div>
+            <div class="col-auto pt-3">
+                <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="assisted_only" value="1" id="assistedOnly" {% if filters.assisted_only %}checked{% endif %}><label class="form-check-label small" for="assistedOnly">Assisted</label></div>
+            </div>
+            <div class="col-auto pt-3">
+                <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="expected_only" value="1" id="expectedOnly" {% if filters.expected_only %}checked{% endif %}><label class="form-check-label small" for="expectedOnly">Expected</label></div>
+            </div>
+            <div class="col-auto pt-3">
+                <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="has_cart_only" value="1" id="hasCartOnly" {% if filters.has_cart_only %}checked{% endif %}><label class="form-check-label small" for="hasCartOnly">Has Cart</label></div>
+            </div>
+            <div class="col-auto pt-3">
+                <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter me-1"></i>Apply</button>
+                <a href="/crm/review-ordering" class="btn btn-outline-secondary btn-sm ms-1"><i class="fas fa-redo me-1"></i>Reset</a>
+            </div>
+        </div>
+    </form>
+
+    <div class="table-responsive" style="max-height: calc(100vh - 260px); overflow-y: auto;">
         <table class="table table-sm review-table mb-0">
             <thead class="table-dark">
                 <tr>
                     <th>Customer</th>
                     <th>Classification</th>
-                    <th>Status</th>
+                    <th>State</th>
                     <th>Delivery</th>
-                    <th>Orders</th>
+                    <th class="value-col">Orders</th>
                     <th>Cart</th>
                     <th>Last Login</th>
                     <th>Last Invoice</th>
-                    <th class="value-col">Value 6m</th>
                     <th class="value-col">Value 4w</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
-                {% if pending_rows %}
-                <tr class="group-header-row" onclick="toggleReviewGroup('pending')" style="cursor:pointer;">
-                    <td colspan="10" style="background: rgba(220,53,69,0.08);">
-                        <i class="fas fa-caret-down me-1" id="group-icon-pending" style="transition: transform 0.2s;"></i>
-                        <span style="color: #ef4444;"><i class="fas fa-exclamation-circle me-1"></i>PENDING</span>
-                        <span class="ms-2" style="font-size: 0.72rem; color: rgba(255,255,255,0.4);">{{ pending_rows | length }} customers</span>
-                    </td>
-                </tr>
-                {% for r in pending_rows %}
-                <tr class="review-row" data-group="pending">
+                {% for r in rows %}
+                <tr class="row-item state-row-{{ r.state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})">
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
-                        <span class="text-muted" style="font-size: 0.72rem;">{{ r.customer_code_365 }}</span>
+                        <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
                     </td>
                     <td>
                         {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
-                        <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}"
-                             style="width: 22px; height: 22px; border-radius: 3px;" alt="{{ r.classification }}"
-                             title="{{ r.classification }}">
+                        <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}" style="width:22px;height:22px;border-radius:3px;" alt="{{ r.classification }}" title="{{ r.classification }}">
                         {% elif r.classification %}
-                        <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ r.classification }}</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
+                        <span class="badge bg-secondary" style="font-size:0.7rem;">{{ r.classification }}</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
-                    <td><span class="badge badge-pending">PENDING</span></td>
+                    <td>
+                        <span class="badge-state state-{{ r.state }}">
+                            {% if r.state == 'follow_up' %}FOLLOW UP
+                            {% elif r.state == 'waiting' %}WAITING
+                            {% elif r.state == 'ordered' %}ORDERED
+                            {% elif r.state == 'ordered_cart' %}ORDERED+CART
+                            {% elif r.state == 'done' %}DONE{% endif %}
+                        </span>
+                    </td>
                     <td>
                         {% if r.next_delivery %}
-                        <span class="badge" style="background-color: #22c55e; color: white; font-size: 0.72rem;">{{ r.next_delivery }}</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
+                        <span class="badge" style="background-color:#22c55e;color:white;font-size:0.72rem;">{{ r.next_delivery }}</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="value-col">
                         {% if r.open_order_amount > 0 %}
                         <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td>
                         {% if r.has_cart %}
-                        <span class="badge badge-cart">
-                            <i class="fas fa-shopping-cart me-1"></i>
-                            {% if r.cart_amount %}€{{ "%.0f"|format(r.cart_amount) }}{% endif %}
-                        </span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
+                        <span class="badge badge-cart"><i class="fas fa-shopping-cart me-1"></i>{% if r.cart_amount %}€{{ "%.0f"|format(r.cart_amount) }}{% endif %}</span>
+                        {% if r.cart_mode == 'add_on' %}<span class="badge bg-info text-dark" style="font-size:0.6rem;margin-left:2px;">ADD-ON</span>{% endif %}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="text-center">
                         {% if r.r_login_days is not none %}
                         <span class="days-pill {% if r.r_login_days <= 7 %}days-green{% elif r.r_login_days <= 14 %}days-yellow{% elif r.r_login_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_login_days }}d</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="text-center">
                         {% if r.r_invoice_days is not none %}
                         <span class="days-pill {% if r.r_invoice_days <= 7 %}days-green{% elif r.r_invoice_days <= 14 %}days-yellow{% elif r.r_invoice_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_invoice_days }}d</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
-                    <td class="value-col">{% if r.value_6m %}€{{ "{:,.0f}".format(r.value_6m) }}{% else %}—{% endif %}</td>
                     <td class="value-col">{% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}</td>
+                    <td onclick="event.stopPropagation()">
+                        {% if r.mobile_number %}
+                        <a href="#" class="btn btn-outline-success btn-sm sms-phone-link" style="padding:2px 6px;font-size:0.7rem;"
+                           data-mobile="{{ r.mobile_number }}" data-customer="{{ r.customer_name }}" data-code="{{ r.customer_code_365 }}" data-delivery="{{ r.next_delivery or '' }}">
+                            <i class="fas fa-sms"></i>
+                        </a>
+                        {% endif %}
+                    </td>
                 </tr>
+                {% else %}
+                <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#198754;"></i>No ordering windows currently open</td></tr>
                 {% endfor %}
-                {% endif %}
-
-                {% if done_rows %}
-                <tr class="group-header-row" onclick="toggleReviewGroup('done')" style="cursor:pointer;">
-                    <td colspan="10" style="background: rgba(25,135,84,0.08);">
-                        <i class="fas fa-caret-down me-1" id="group-icon-done" style="transition: transform 0.2s;"></i>
-                        <span style="color: #198754;"><i class="fas fa-check-circle me-1"></i>DONE</span>
-                        <span class="ms-2" style="font-size: 0.72rem; color: rgba(255,255,255,0.4);">{{ done_rows | length }} customers</span>
-                    </td>
-                </tr>
-                {% for r in done_rows %}
-                <tr class="review-row" data-group="done">
-                    <td>
-                        <div class="fw-semibold">{{ r.customer_name }}</div>
-                        <span class="text-muted" style="font-size: 0.72rem;">{{ r.customer_code_365 }}</span>
-                    </td>
-                    <td>
-                        {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
-                        <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}"
-                             style="width: 22px; height: 22px; border-radius: 3px;" alt="{{ r.classification }}"
-                             title="{{ r.classification }}">
-                        {% elif r.classification %}
-                        <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ r.classification }}</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    <td><span class="badge badge-done">DONE</span></td>
-                    <td>
-                        {% if r.next_delivery %}
-                        <span class="badge" style="background-color: #22c55e; color: white; font-size: 0.72rem;">{{ r.next_delivery }}</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="value-col">
-                        {% if r.open_order_amount > 0 %}
-                        <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if r.has_cart %}
-                        <span class="badge badge-cart">
-                            <i class="fas fa-shopping-cart me-1"></i>
-                            {% if r.cart_amount %}€{{ "%.0f"|format(r.cart_amount) }}{% endif %}
-                        </span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">
-                        {% if r.r_login_days is not none %}
-                        <span class="days-pill {% if r.r_login_days <= 7 %}days-green{% elif r.r_login_days <= 14 %}days-yellow{% elif r.r_login_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_login_days }}d</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">
-                        {% if r.r_invoice_days is not none %}
-                        <span class="days-pill {% if r.r_invoice_days <= 7 %}days-green{% elif r.r_invoice_days <= 14 %}days-yellow{% elif r.r_invoice_days <= 30 %}days-orange{% else %}days-red{% endif %}">{{ r.r_invoice_days }}d</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="value-col">{% if r.value_6m %}€{{ "{:,.0f}".format(r.value_6m) }}{% else %}—{% endif %}</td>
-                    <td class="value-col">{% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}</td>
-                </tr>
-                {% endfor %}
-                {% endif %}
-
-                {% if not pending_rows and not done_rows %}
-                <tr>
-                    <td colspan="10" class="text-center text-muted py-4">
-                        <i class="fas fa-check-circle fa-2x mb-2 d-block" style="color: #198754;"></i>
-                        No ordering windows are currently open
-                    </td>
-                </tr>
-                {% endif %}
             </tbody>
         </table>
     </div>
 </div>
 
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div id="detail-drawer">
+    <div class="drawer-header">
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <div class="fw-bold fs-6" id="drawer-customer-name"></div>
+                <div class="text-muted" style="font-size:0.78rem;" id="drawer-customer-code"></div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeDrawer()" style="padding:2px 8px;"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="d-flex gap-2 mt-2 align-items-center">
+            <span class="badge-state" id="drawer-state-badge"></span>
+            <span id="drawer-classification-badge" style="font-size:0.78rem;"></span>
+            <span id="drawer-delivery-badge" class="badge" style="background:#22c55e;color:white;font-size:0.72rem;"></span>
+        </div>
+    </div>
+    <div class="drawer-body">
+        <div class="drawer-section">
+            <div class="drawer-section-title">Current Cycle</div>
+            <div class="drawer-field"><span class="label">SMS sent at</span><span class="val" id="drawer-sms-sent">—</span></div>
+            <div class="drawer-field"><span class="label">Order exists</span><span class="val" id="drawer-order-exists">—</span></div>
+            <div class="drawer-field"><span class="label">Order value</span><span class="val" id="drawer-order-value">—</span></div>
+            <div class="drawer-field"><span class="label">Active cart</span><span class="val" id="drawer-cart-exists">—</span></div>
+            <div class="drawer-field"><span class="label">Cart mode</span><span class="val" id="drawer-cart-mode">—</span></div>
+            <div class="drawer-field"><span class="label">Last login</span><span class="val" id="drawer-last-login">—</span></div>
+            <div class="drawer-field"><span class="label">Last invoice</span><span class="val" id="drawer-last-invoice">—</span></div>
+        </div>
+
+        <div class="drawer-section">
+            <div class="drawer-section-title">Manual Flags</div>
+            <div class="drawer-field">
+                <span class="label">Assisted ordering</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="drawer-assisted" onchange="saveAssisted(this)">
+                </div>
+            </div>
+            <div class="drawer-field">
+                <span class="label">Expected this cycle</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="drawer-expected" onchange="saveFlags()">
+                </div>
+            </div>
+            <div class="mt-2">
+                <label class="form-label mb-1 small text-muted">Short note</label>
+                <textarea class="form-control form-control-sm" id="drawer-note" rows="2" onblur="saveFlags()" style="font-size:0.82rem;"></textarea>
+            </div>
+        </div>
+
+        <div class="drawer-section">
+            <div class="drawer-section-title">Action Log</div>
+            <div class="text-muted small" style="font-style:italic;">Coming soon</div>
+        </div>
+
+        <div class="drawer-section">
+            <div class="drawer-section-title">Quick Actions</div>
+            <div class="d-flex gap-2 flex-wrap" id="drawer-actions"></div>
+        </div>
+
+        <div class="drawer-section" id="drawer-done-section" style="display:none;">
+            <div class="drawer-section-title">Done Outcome</div>
+            <select class="form-select form-select-sm mb-2" id="drawer-outcome">
+                <option value="">Select reason…</option>
+                {% for reason in outcome_reasons %}
+                <option value="{{ reason }}">{{ reason | replace('_',' ') | title }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-success w-100" onclick="markDone()"><i class="fas fa-check me-1"></i>Confirm Done</button>
+        </div>
+
+        <div class="drawer-section mt-3" id="drawer-state-actions">
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-warning flex-fill" id="btn-follow-up" onclick="markFollowUp()"><i class="fas fa-flag me-1"></i>Follow Up</button>
+                <button class="btn btn-sm btn-outline-success flex-fill" id="btn-mark-done" onclick="showDoneSection()"><i class="fas fa-check-circle me-1"></i>Done</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="smsComposeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="fas fa-sms me-2"></i>Compose SMS</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex align-items-center gap-3 mb-3">
+                    <i class="fas fa-user fa-2x text-muted"></i>
+                    <div>
+                        <strong id="smsCustomerName"></strong>
+                        <small class="text-muted ms-1" id="smsCustomerCode"></small><br>
+                        <i class="fas fa-mobile-alt me-1 text-success"></i><strong id="smsMobileDisplay"></strong>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Template</label>
+                    <select class="form-select form-select-sm" id="smsTemplateSelect"><option value="">— No template —</option></select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Message</label>
+                    <textarea class="form-control" id="smsComposeText" rows="5" maxlength="600" placeholder="Type your message…"></textarea>
+                    <div class="d-flex justify-content-between mt-1">
+                        <small class="text-muted" id="smsCharCount">0 / 600 characters</small>
+                        <small class="text-muted" id="smsPartCount">1 SMS part</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="smsSendViaPhone" style="width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;"><i class="fas fa-mobile-alt fa-lg"></i></button>
+                <button type="button" class="btn text-white" id="smsSendViaViber" style="background:#7360f2;width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;"><i class="fab fa-viber fa-lg"></i></button>
+                <button type="button" class="btn text-white" id="smsSendViaWhatsApp" style="background:#25D366;width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;"><i class="fab fa-whatsapp fa-lg"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
-function toggleReviewGroup(group) {
-    const rows = document.querySelectorAll(`.review-row[data-group="${group}"]`);
-    const icon = document.getElementById(`group-icon-${group}`);
-    const isHidden = rows.length > 0 && rows[0].style.display === 'none';
-    rows.forEach(r => r.style.display = isHidden ? '' : 'none');
-    if (icon) icon.style.transform = isHidden ? '' : 'rotate(-90deg)';
+var _rowsData = {{ rows | tojson }};
+var _currentIdx = null;
+var _smsMobile = '';
+var _smsCustomerName = '';
+var _smsDeliveryDate = '';
+
+var STATE_LABELS = {follow_up:'FOLLOW UP', waiting:'WAITING', ordered:'ORDERED', ordered_cart:'ORDERED+CART', done:'DONE'};
+var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', ordered_cart:'state-ordered_cart', done:'state-done'};
+
+function openDrawer(idx) {
+    var r = _rowsData[idx];
+    if (!r) return;
+    _currentIdx = idx;
+
+    document.querySelectorAll('.row-item.active-row').forEach(function(el){ el.classList.remove('active-row'); });
+    var rowEl = document.querySelector('.row-item[data-idx="'+idx+'"]');
+    if (rowEl) rowEl.classList.add('active-row');
+
+    document.getElementById('drawer-customer-name').textContent = r.customer_name;
+    document.getElementById('drawer-customer-code').textContent = r.customer_code_365;
+
+    var badge = document.getElementById('drawer-state-badge');
+    badge.textContent = STATE_LABELS[r.state] || r.state;
+    badge.className = 'badge-state ' + (STATE_CLASSES[r.state] || '');
+
+    document.getElementById('drawer-classification-badge').textContent = r.classification || '—';
+    var delBadge = document.getElementById('drawer-delivery-badge');
+    delBadge.textContent = r.next_delivery || '—';
+    delBadge.style.display = r.next_delivery ? '' : 'none';
+
+    document.getElementById('drawer-sms-sent').textContent = r.sms_sent_at ? new Date(r.sms_sent_at).toLocaleString() : '—';
+    document.getElementById('drawer-order-exists').innerHTML = r.open_order_count > 0 ? '<span class="text-success">Yes ('+r.open_order_count+')</span>' : '<span class="text-danger">No</span>';
+    document.getElementById('drawer-order-value').textContent = r.open_order_amount > 0 ? '€' + Math.round(r.open_order_amount).toLocaleString() : '—';
+    document.getElementById('drawer-cart-exists').innerHTML = r.has_cart ? '<span class="text-warning">Yes' + (r.cart_amount ? ' (€'+Math.round(r.cart_amount)+')' : '') + '</span>' : 'No';
+    var cmText = {none:'—', pending_order:'Pending order', add_on:'Add-on after order'};
+    document.getElementById('drawer-cart-mode').textContent = cmText[r.cart_mode] || r.cart_mode || '—';
+    document.getElementById('drawer-last-login').textContent = r.r_login_days !== null ? r.r_login_days + ' days ago' : '—';
+    document.getElementById('drawer-last-invoice').textContent = r.r_invoice_days !== null ? r.r_invoice_days + ' days ago' : '—';
+
+    document.getElementById('drawer-assisted').checked = !!r.assisted_ordering;
+    document.getElementById('drawer-expected').checked = !!r.expected_this_cycle;
+    document.getElementById('drawer-note').value = r.review_note || '';
+
+    var actionsDiv = document.getElementById('drawer-actions');
+    actionsDiv.innerHTML = '';
+    if (r.mobile_number) {
+        var smsBtn = document.createElement('button');
+        smsBtn.className = 'btn btn-sm btn-outline-success';
+        smsBtn.innerHTML = '<i class="fas fa-sms me-1"></i>Send SMS';
+        smsBtn.onclick = function(){ openSmsFromDrawer(r); };
+        actionsDiv.appendChild(smsBtn);
+    }
+
+    document.getElementById('drawer-done-section').style.display = 'none';
+    document.getElementById('drawer-outcome').value = r.outcome_reason || '';
+
+    if (r.state === 'done') {
+        document.getElementById('btn-mark-done').style.display = 'none';
+        document.getElementById('btn-follow-up').textContent = '';
+        document.getElementById('btn-follow-up').innerHTML = '<i class="fas fa-undo me-1"></i>Reopen';
+    } else {
+        document.getElementById('btn-mark-done').style.display = '';
+        document.getElementById('btn-follow-up').innerHTML = '<i class="fas fa-flag me-1"></i>Follow Up';
+    }
+
+    document.getElementById('detail-drawer').classList.add('open');
+    document.getElementById('drawerOverlay').classList.add('show');
 }
+
+function closeDrawer() {
+    document.getElementById('detail-drawer').classList.remove('open');
+    document.getElementById('drawerOverlay').classList.remove('show');
+    document.querySelectorAll('.row-item.active-row').forEach(function(el){ el.classList.remove('active-row'); });
+    _currentIdx = null;
+}
+
+function openSmsFromDrawer(r) {
+    _smsMobile = (r.mobile_number || '').replace(/[^\d+]/g, '');
+    _smsCustomerName = r.customer_name || '';
+    _smsDeliveryDate = r.next_delivery || '';
+    document.getElementById('smsCustomerName').textContent = _smsCustomerName;
+    document.getElementById('smsCustomerCode').textContent = '(' + r.customer_code_365 + ')';
+    document.getElementById('smsMobileDisplay').textContent = r.mobile_number || '';
+    document.getElementById('smsComposeText').value = '';
+    document.getElementById('smsTemplateSelect').value = '';
+    document.getElementById('smsCharCount').textContent = '0 / 600 characters';
+    document.getElementById('smsPartCount').textContent = '1 SMS part';
+    _loadSmsTemplates();
+    new bootstrap.Modal(document.getElementById('smsComposeModal')).show();
+}
+
+async function _loadSmsTemplates() {
+    try {
+        var res = await fetch('/admin/tools/sms-templates-json');
+        var data = await res.json();
+        var sel = document.getElementById('smsTemplateSelect');
+        sel.innerHTML = '<option value="">— No template —</option>';
+        (data.templates || []).forEach(function(t){
+            var opt = document.createElement('option');
+            opt.value = t.code;
+            opt.textContent = t.code;
+            opt.dataset.body = t.body || '';
+            sel.appendChild(opt);
+        });
+    } catch(e) {}
+}
+
+function _renderTemplateBody(body, customerName) {
+    var parts = (customerName || '').split(' ');
+    var first = parts[0] || '';
+    return body
+        .replace(/\{\{\s*customer_name\s*\}\}/g, customerName || '')
+        .replace(/\{\{\s*first_name\s*\}\}/g, first)
+        .replace(/\{\{\s*delivery_date\s*\}\}/g, _smsDeliveryDate || '');
+}
+
+async function saveAssisted(el) {
+    if (_currentIdx === null) return;
+    var r = _rowsData[_currentIdx];
+    var fd = new FormData();
+    fd.append('customer_code_365', r.customer_code_365);
+    fd.append('assisted_ordering', el.checked ? '1' : '0');
+    try {
+        var res = await fetch('/crm/review-ordering/set-assisted', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) r.assisted_ordering = el.checked;
+    } catch(e) { alert('Error saving'); }
+}
+
+async function saveFlags() {
+    if (_currentIdx === null) return;
+    var r = _rowsData[_currentIdx];
+    var fd = new FormData();
+    fd.append('customer_code_365', r.customer_code_365);
+    fd.append('delivery_date', r.next_delivery_date || '');
+    fd.append('expected_this_cycle', document.getElementById('drawer-expected').checked ? '1' : '0');
+    fd.append('review_note', document.getElementById('drawer-note').value);
+    try {
+        var res = await fetch('/crm/review-ordering/update-flags', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) {
+            r.expected_this_cycle = document.getElementById('drawer-expected').checked;
+            r.review_note = document.getElementById('drawer-note').value;
+        }
+    } catch(e) {}
+}
+
+function showDoneSection() {
+    document.getElementById('drawer-done-section').style.display = '';
+}
+
+async function markDone() {
+    if (_currentIdx === null) return;
+    var r = _rowsData[_currentIdx];
+    var outcome = document.getElementById('drawer-outcome').value;
+    if (!outcome) { alert('Please select an outcome reason.'); return; }
+    var fd = new FormData();
+    fd.append('customer_code_365', r.customer_code_365);
+    fd.append('delivery_date', r.next_delivery_date || '');
+    fd.append('state', 'done');
+    fd.append('outcome_reason', outcome);
+    try {
+        var res = await fetch('/crm/review-ordering/update-state', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) { location.reload(); }
+    } catch(e) { alert('Error'); }
+}
+
+async function markFollowUp() {
+    if (_currentIdx === null) return;
+    var r = _rowsData[_currentIdx];
+    var fd = new FormData();
+    fd.append('customer_code_365', r.customer_code_365);
+    fd.append('delivery_date', r.next_delivery_date || '');
+    fd.append('state', 'follow_up');
+    try {
+        var res = await fetch('/crm/review-ordering/update-state', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) { location.reload(); }
+    } catch(e) { alert('Error'); }
+}
+
+document.getElementById('smsComposeText').addEventListener('input', function(){
+    var len = this.value.length;
+    document.getElementById('smsCharCount').textContent = len + ' / 600 characters';
+    document.getElementById('smsPartCount').textContent = (Math.ceil(len / 160) || 1) + ' SMS part' + (len > 160 ? 's' : '');
+});
+document.getElementById('smsTemplateSelect').addEventListener('change', function(){
+    var body = this.options[this.selectedIndex].dataset.body || '';
+    document.getElementById('smsComposeText').value = body ? _renderTemplateBody(body, _smsCustomerName) : '';
+    var ta = document.getElementById('smsComposeText');
+    document.getElementById('smsCharCount').textContent = ta.value.length + ' / 600 characters';
+    document.getElementById('smsPartCount').textContent = (Math.ceil(ta.value.length / 160) || 1) + ' SMS part' + (ta.value.length > 160 ? 's' : '');
+    ta.focus();
+});
+document.getElementById('smsSendViaPhone').addEventListener('click', function(){
+    var msg = document.getElementById('smsComposeText').value.trim();
+    if (!msg) { alert('Please type a message.'); return; }
+    var sep = /iPad|iPhone|iPod/.test(navigator.userAgent) ? '&' : '?';
+    window.location.href = 'sms:' + encodeURIComponent(_smsMobile) + sep + 'body=' + encodeURIComponent(msg);
+});
+document.getElementById('smsSendViaViber').addEventListener('click', function(){
+    var msg = document.getElementById('smsComposeText').value.trim();
+    if (!msg) { alert('Please type a message.'); return; }
+    var num = _smsMobile.replace(/[^\d+]/g, '');
+    if (!num.startsWith('+')) num = '+357' + num;
+    navigator.clipboard.writeText(msg).then(function(){
+        var t = document.createElement('div');
+        t.className = 'position-fixed bottom-0 start-50 translate-middle-x mb-3 px-4 py-2 rounded shadow text-white';
+        t.style.cssText = 'background:#7360f2;z-index:9999;font-size:0.9rem;';
+        t.innerHTML = '<i class="fas fa-clipboard-check me-2"></i>Message copied — paste in Viber';
+        document.body.appendChild(t); setTimeout(function(){ t.remove(); }, 4000);
+    }).catch(function(){});
+    setTimeout(function(){ window.location.href = 'viber://contact?number=' + encodeURIComponent(num); }, 300);
+});
+document.getElementById('smsSendViaWhatsApp').addEventListener('click', function(){
+    var msg = document.getElementById('smsComposeText').value.trim();
+    if (!msg) { alert('Please type a message.'); return; }
+    var num = _smsMobile.replace(/[^\d]/g, '');
+    if (!_smsMobile.startsWith('+')) num = '357' + num;
+    window.open('https://wa.me/' + encodeURIComponent(num) + '?text=' + encodeURIComponent(msg), '_blank');
+});
+
+document.addEventListener('click', function(e) {
+    var link = e.target.closest('.sms-phone-link');
+    if (!link) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _smsMobile = (link.dataset.mobile || '').replace(/[^\d+]/g, '');
+    if (!_smsMobile) return;
+    _smsCustomerName = link.dataset.customer || '';
+    _smsDeliveryDate = link.dataset.delivery || '';
+    document.getElementById('smsCustomerName').textContent = _smsCustomerName;
+    document.getElementById('smsCustomerCode').textContent = '(' + (link.dataset.code || '') + ')';
+    document.getElementById('smsMobileDisplay').textContent = link.dataset.mobile || '';
+    document.getElementById('smsComposeText').value = '';
+    document.getElementById('smsTemplateSelect').value = '';
+    _loadSmsTemplates();
+    new bootstrap.Modal(document.getElementById('smsComposeModal')).show();
+});
+
+(function(){
+    var openMenu = null;
+    function closeAndSubmit() {
+        if (openMenu) { openMenu.style.display = 'none'; openMenu = null; }
+    }
+    document.querySelectorAll('.classification-dropdown-btn, .district-dropdown-btn').forEach(function(btn){
+        var menu = btn.nextElementSibling;
+        btn.addEventListener('click', function(e){
+            e.preventDefault(); e.stopPropagation();
+            if (openMenu && openMenu !== menu) { openMenu.style.display = 'none'; }
+            if (menu.style.display === 'block') { closeAndSubmit(); return; }
+            menu.style.display = 'block'; openMenu = menu;
+        });
+        menu.addEventListener('click', function(e){ e.stopPropagation(); });
+    });
+    document.addEventListener('click', function(){ if (openMenu) closeAndSubmit(); });
+})();
 </script>
 {% endblock %}

@@ -12,6 +12,7 @@ from models import (
     CrmAbandonedCartState, CrmTask, CrmInteractionLog,
     CustomerDeliverySlot, PostalCodeLookup,
     CRMCustomerOpenOrders, PSPendingOrderHeader,
+    CrmOrderingReview,
 )
 from services.crm_order_window import (
     get_customer_window_status, ATHENS_TZ,
@@ -497,11 +498,44 @@ def customer_slot_dashboard():
     )
 
 
+REVIEW_STATE_ORDER = {"follow_up": 0, "waiting": 1, "ordered_cart": 2, "ordered": 3, "done": 4}
+OUTCOME_REASONS = [
+    "ordered_normally", "ordered_after_follow_up", "cart_closed_to_order",
+    "cart_added_to_existing", "valid_skip", "financial_reason",
+    "bought_elsewhere", "customer_not_ready", "other",
+]
+
+
+def _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window):
+    if review_rec and review_rec.review_state == "done":
+        return "done"
+    if has_order and has_cart:
+        return "ordered_cart"
+    if has_order:
+        return "ordered"
+    if review_rec and review_rec.manual_follow_up_flag:
+        return "follow_up"
+    if assisted and not has_order:
+        return "follow_up"
+    if has_cart and not has_order:
+        return "follow_up"
+    if logged_in_during_window and not has_order:
+        return "follow_up"
+    if review_rec and review_rec.expected_this_cycle and not has_order:
+        return "follow_up"
+    return "waiting"
+
+
+def _cart_mode(has_order, has_cart):
+    if not has_cart:
+        return "none"
+    return "add_on" if has_order else "pending_order"
+
+
 @crm_dashboard_bp.get("/review-ordering")
 @login_required
 def review_ordering():
     today = date.today()
-    d6m = today - timedelta(days=183)
     d4w = today - timedelta(days=28)
     d90 = today - timedelta(days=90)
 
@@ -509,16 +543,13 @@ def review_ordering():
         db.session.query(
             DwInvoiceHeader.customer_code_365.label("cc"),
             func.coalesce(func.sum(
-                case((DwInvoiceHeader.invoice_date_utc0 >= d6m, DwInvoiceHeader.total_grand), else_=0)
-            ), 0).label("value_6m"),
-            func.coalesce(func.sum(
                 case((DwInvoiceHeader.invoice_date_utc0 >= d4w, DwInvoiceHeader.total_grand), else_=0)
             ), 0).label("value_4w"),
             func.max(
                 case((DwInvoiceHeader.invoice_date_utc0 >= d90, DwInvoiceHeader.invoice_date_utc0), else_=None)
             ).label("last_invoice_date"),
         )
-        .filter(DwInvoiceHeader.invoice_date_utc0 >= d6m)
+        .filter(DwInvoiceHeader.invoice_date_utc0 >= d4w)
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
@@ -527,14 +558,13 @@ def review_ordering():
         db.session.query(
             PSCustomer.customer_code_365,
             PSCustomer.company_name,
-            PSCustomer.postal_code,
             PSCustomer.mobile,
             PSCustomer.sms.label("sms_number"),
             CrmCustomerProfile.classification,
+            CrmCustomerProfile.assisted_ordering,
             CrmAbandonedCartState.has_abandoned_cart,
             CrmAbandonedCartState.abandoned_cart_amount,
             MagentoCustomerLastLoginCurrent.last_login_at,
-            sales_sq.c.value_6m,
             sales_sq.c.value_4w,
             sales_sq.c.last_invoice_date,
             CRMCustomerOpenOrders.open_order_amount,
@@ -548,6 +578,40 @@ def review_ordering():
         .outerjoin(sales_sq, sales_sq.c.cc == PSCustomer.customer_code_365)
         .outerjoin(CRMCustomerOpenOrders, CRMCustomerOpenOrders.customer_code_365 == PSCustomer.customer_code_365)
     )
+
+    search_q = request.args.get("q", "").strip()
+    if search_q:
+        q = q.filter(or_(
+            PSCustomer.company_name.ilike(f"%{search_q}%"),
+            PSCustomer.customer_code_365.ilike(f"%{search_q}%"),
+        ))
+
+    classification = request.args.getlist("classification")
+    if classification:
+        named = [c for c in classification if c != "__NULL__"]
+        include_null = "__NULL__" in classification
+        conds = []
+        if named:
+            conds.append(CrmCustomerProfile.classification.in_(named))
+        if include_null:
+            conds.append(CrmCustomerProfile.classification.is_(None))
+        if conds:
+            q = q.filter(or_(*conds))
+
+    district = request.args.getlist("district")
+    if district:
+        q = q.outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
+        q = q.filter(or_(
+            CrmCustomerProfile.district.in_(district),
+            PostalCodeLookup.district.in_(district),
+        ))
+
+    filter_state = request.args.get("state", "")
+    filter_assisted = request.args.get("assisted_only") == "1"
+    filter_expected = request.args.get("expected_only") == "1"
+    filter_ordered = request.args.get("ordered", "")
+    filter_has_cart = request.args.get("has_cart_only") == "1"
+    logged_in_days = request.args.get("logged_in_days")
 
     rows = q.order_by(PSCustomer.company_name).all()
 
@@ -576,6 +640,39 @@ def review_ordering():
             {"dow": s.dow, "week_code": s.week_code}
         )
 
+    review_recs = {}
+    if all_codes:
+        for rv in CrmOrderingReview.query.filter(
+            CrmOrderingReview.customer_code_365.in_(all_codes),
+            CrmOrderingReview.delivery_date >= today - timedelta(days=14),
+        ).all():
+            review_recs.setdefault(rv.customer_code_365, {})[rv.delivery_date] = rv
+
+    all_districts_q = [x[0] for x in (
+        db.session.query(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
+        .select_from(PSCustomer)
+        .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
+        .filter(PSCustomer.active.is_(True), PSCustomer.deleted_at.is_(None))
+        .distinct().order_by(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
+        .all()
+    ) if x[0]]
+
+    sms_sent_map = {}
+    if all_codes:
+        sms_logs = (
+            CrmInteractionLog.query
+            .filter(
+                CrmInteractionLog.customer_code_365.in_(all_codes),
+                CrmInteractionLog.channel == "SMS",
+            )
+            .order_by(CrmInteractionLog.created_at.desc())
+            .all()
+        )
+        for log in sms_logs:
+            if log.customer_code_365 not in sms_sent_map:
+                sms_sent_map[log.customer_code_365] = log.created_at
+
     open_window_rows = []
     for r in rows:
         slots_for_cust = customer_slots.get(r.customer_code_365, [])
@@ -599,14 +696,19 @@ def review_ordering():
         if not window_status["window_open"]:
             continue
 
-        done_for_cycle = window_status["done_for_window"]
         has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
         cart_amount = float(r.abandoned_cart_amount) if r.abandoned_cart_amount is not None else 0
+        has_order = open_order_count > 0
+        assisted = bool(r.assisted_ordering) if r.assisted_ordering is not None else False
 
         last_login_at = r.last_login_at
         r_login_days = None
+        logged_in_during_window = False
         if last_login_at:
             r_login_days = (now_utc.date() - last_login_at.date()).days
+            window_open_at = window_status.get("window_open_at")
+            if window_open_at and last_login_at.astimezone(ATHENS_TZ) >= window_open_at:
+                logged_in_during_window = True
 
         r_invoice_days = None
         if last_invoice_date:
@@ -617,45 +719,188 @@ def review_ordering():
             r_invoice_days = (now_utc.date() - invoice_date_only).days
 
         next_del = window_status["next_delivery"]
-        open_window_rows.append({
+        cust_reviews = review_recs.get(r.customer_code_365, {})
+        review_rec = cust_reviews.get(next_del) if next_del else None
+
+        state = _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window)
+        cm = _cart_mode(has_order, has_cart)
+
+        row = {
             "customer_code_365": r.customer_code_365,
             "customer_name": r.company_name or r.customer_code_365,
             "classification": r.classification or "",
-            "done_for_cycle": done_for_cycle,
+            "state": state,
             "has_cart": has_cart,
             "cart_amount": cart_amount,
-            "last_login_at": last_login_at,
+            "cart_mode": cm,
+            "last_login_at": last_login_at.isoformat() if last_login_at else None,
             "r_login_days": r_login_days,
-            "last_invoice_date": last_invoice_date,
+            "last_invoice_date": last_invoice_date.isoformat() if isinstance(last_invoice_date, (date, datetime)) else str(last_invoice_date) if last_invoice_date else None,
             "r_invoice_days": r_invoice_days,
-            "value_6m": float(r.value_6m or 0),
             "value_4w": float(r.value_4w or 0),
             "open_order_amount": float(r.open_order_amount) if r.open_order_amount else 0,
             "open_order_count": open_order_count,
             "next_delivery": next_del.strftime('%a %d-%b') if next_del else None,
-            "next_delivery_date": next_del,
+            "next_delivery_date": next_del.isoformat() if next_del else None,
             "mobile_number": r.mobile or r.sms_number or "",
-        })
+            "assisted_ordering": assisted,
+            "expected_this_cycle": review_rec.expected_this_cycle if review_rec else False,
+            "review_note": review_rec.review_note if review_rec else "",
+            "outcome_reason": review_rec.outcome_reason if review_rec else "",
+            "sms_sent_at": sms_sent_map[r.customer_code_365].isoformat() if r.customer_code_365 in sms_sent_map else None,
+        }
+
+        if filter_state and row["state"] != filter_state:
+            continue
+        if filter_assisted and not assisted:
+            continue
+        if filter_expected and not row["expected_this_cycle"]:
+            continue
+        if filter_ordered == "ordered" and not has_order:
+            continue
+        if filter_ordered == "not_ordered" and has_order:
+            continue
+        if filter_has_cart and not has_cart:
+            continue
+        if logged_in_days:
+            try:
+                days = int(logged_in_days)
+                if r_login_days is None or r_login_days > days:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        open_window_rows.append(row)
 
     far_future = date(2099, 12, 31)
     open_window_rows.sort(key=lambda r: (
-        0 if not r["done_for_cycle"] else 1,
+        REVIEW_STATE_ORDER.get(r["state"], 5),
         r["next_delivery_date"] or far_future,
         -(r["cart_amount"] or 0),
         r["r_login_days"] if r["r_login_days"] is not None else 9999,
         r["r_invoice_days"] if r["r_invoice_days"] is not None else 9999,
     ))
 
-    pending_rows = [r for r in open_window_rows if not r["done_for_cycle"]]
-    done_rows = [r for r in open_window_rows if r["done_for_cycle"]]
+    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "ordered_cart": 0, "done": 0, "has_cart": 0}
+    for row in open_window_rows:
+        kpi[row["state"]] = kpi.get(row["state"], 0) + 1
+        if row["has_cart"]:
+            kpi["has_cart"] += 1
 
     return render_template(
         "crm/review_ordering.html",
-        pending_rows=pending_rows,
-        done_rows=done_rows,
+        rows=open_window_rows,
         total_open=len(open_window_rows),
+        kpi=kpi,
         allowed_classifications=allowed_classifications,
+        all_districts=all_districts_q,
+        outcome_reasons=OUTCOME_REASONS,
+        filters={
+            "q": search_q,
+            "classification": classification or [],
+            "district": district or [],
+            "state": filter_state,
+            "assisted_only": filter_assisted,
+            "expected_only": filter_expected,
+            "ordered": filter_ordered,
+            "has_cart_only": filter_has_cart,
+            "logged_in_days": logged_in_days or "",
+        },
     )
+
+
+@crm_dashboard_bp.post("/review-ordering/update-state")
+@login_required
+def review_ordering_update_state():
+    customer_code = request.form.get("customer_code_365", "").strip()
+    delivery_date_str = request.form.get("delivery_date", "").strip()
+    new_state = request.form.get("state", "").strip()
+    outcome_reason = request.form.get("outcome_reason", "").strip()
+
+    if not customer_code or not delivery_date_str:
+        return jsonify({"ok": False, "error": "Missing required fields"}), 400
+    if new_state not in ("follow_up", "done"):
+        return jsonify({"ok": False, "error": "Invalid state"}), 400
+    if new_state == "done" and (not outcome_reason or outcome_reason not in OUTCOME_REASONS):
+        return jsonify({"ok": False, "error": "Valid outcome reason required for done state"}), 400
+
+    try:
+        delivery_date = date.fromisoformat(delivery_date_str)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid date"}), 400
+
+    review = CrmOrderingReview.query.filter_by(
+        customer_code_365=customer_code, delivery_date=delivery_date
+    ).first()
+    if not review:
+        review = CrmOrderingReview(customer_code_365=customer_code, delivery_date=delivery_date)
+        db.session.add(review)
+
+    if new_state == "done":
+        review.review_state = "done"
+        review.done_at = datetime.now(timezone.utc)
+        review.done_by = getattr(current_user, "username", None)
+        if outcome_reason and outcome_reason in OUTCOME_REASONS:
+            review.outcome_reason = outcome_reason
+    elif new_state == "follow_up":
+        review.review_state = "follow_up"
+        review.manual_follow_up_flag = True
+        review.done_at = None
+        review.done_by = None
+        review.outcome_reason = None
+
+    db.session.commit()
+    return jsonify({"ok": True, "state": review.review_state})
+
+
+@crm_dashboard_bp.post("/review-ordering/update-flags")
+@login_required
+def review_ordering_update_flags():
+    customer_code = request.form.get("customer_code_365", "").strip()
+    delivery_date_str = request.form.get("delivery_date", "").strip()
+
+    if not customer_code or not delivery_date_str:
+        return jsonify({"ok": False, "error": "Missing required fields"}), 400
+    try:
+        delivery_date = date.fromisoformat(delivery_date_str)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid date"}), 400
+
+    review = CrmOrderingReview.query.filter_by(
+        customer_code_365=customer_code, delivery_date=delivery_date
+    ).first()
+    if not review:
+        review = CrmOrderingReview(customer_code_365=customer_code, delivery_date=delivery_date)
+        db.session.add(review)
+
+    if "expected_this_cycle" in request.form:
+        review.expected_this_cycle = request.form.get("expected_this_cycle") == "1"
+    if "review_note" in request.form:
+        review.review_note = request.form.get("review_note", "").strip() or None
+
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@crm_dashboard_bp.post("/review-ordering/set-assisted")
+@login_required
+def review_ordering_set_assisted():
+    customer_code = request.form.get("customer_code_365", "").strip()
+    assisted = request.form.get("assisted_ordering") == "1"
+
+    if not customer_code:
+        return jsonify({"ok": False, "error": "Missing customer code"}), 400
+
+    prof = CrmCustomerProfile.query.get(customer_code)
+    if not prof:
+        prof = CrmCustomerProfile(customer_code_365=customer_code)
+        db.session.add(prof)
+
+    prof.assisted_ordering = assisted
+    prof.updated_at = datetime.now(timezone.utc)
+    prof.updated_by = getattr(current_user, "username", None)
+    db.session.commit()
+    return jsonify({"ok": True, "assisted_ordering": assisted})
 
 
 @crm_dashboard_bp.post("/customer/<customer_code_365>/set-classification")

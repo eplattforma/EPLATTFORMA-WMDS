@@ -2821,8 +2821,30 @@ class CrmCustomerProfile(db.Model):
     district = db.Column(db.String(100), nullable=True)
     area = db.Column(db.String(100), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    assisted_ordering = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
     updated_by = db.Column(db.String(100), nullable=True)
+
+
+class CrmOrderingReview(db.Model):
+    __tablename__ = "crm_ordering_review"
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_code_365 = db.Column(db.String(64), nullable=False, index=True)
+    delivery_date = db.Column(db.Date, nullable=False)
+    review_state = db.Column(db.String(20), nullable=False, default="waiting")
+    outcome_reason = db.Column(db.String(50), nullable=True)
+    expected_this_cycle = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
+    manual_follow_up_flag = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
+    cart_mode = db.Column(db.String(20), nullable=True)
+    review_note = db.Column(db.Text, nullable=True)
+    done_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    done_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
+
+    __table_args__ = (
+        db.UniqueConstraint('customer_code_365', 'delivery_date', name='uq_crm_ordering_review_cust_date'),
+    )
 
 
 class CrmTask(db.Model):

@@ -1,0 +1,433 @@
+Ordering Review Screen — revised instructions based on the current page
+
+We are keeping the current flat queue layout on the Ordering Review screen.
+Do not add accordion expansion here.
+
+The goal is to make this page a fast operational review queue with compact rows and a right-side detail drawer when a row is clicked.
+
+1) Page purpose
+
+This screen must be only for reviewing customers currently in the ordering window.
+
+It should help the operator answer quickly:
+
+who needs review now
+
+why they need review
+
+what action to take
+
+whether the cycle is closed
+
+It should not behave like a full CRM/customer profile page.
+
+2) Keep the table flat
+
+Do not add row expansion.
+
+Required behavior:
+
+each row stays compact
+
+clicking a row opens a right-side drawer
+
+the drawer shows the detailed review info and actions
+
+the main list remains fast to scan and scroll
+
+3) Simplify the state model
+
+Replace the current broad PENDING / DONE style with these 5 review states only:
+
+waiting
+
+follow_up
+
+ordered
+
+ordered_cart
+
+done
+
+Meaning
+
+waiting
+Customer is in the ordering window, no order yet, no special follow-up trigger yet.
+
+follow_up
+Customer needs review/action now.
+
+ordered
+Order exists, no extra issue.
+
+ordered_cart
+Order exists and there is still an active cart.
+
+done
+Operator has reviewed and closed this cycle for this customer.
+
+4) State logic — mostly automatic
+
+States should mostly be set automatically by the system.
+
+Automatic rules
+
+Apply in this order:
+
+Rule 1
+If operator marked the record done → done
+
+Rule 2
+Else if order exists and active cart exists → ordered_cart
+
+Rule 3
+Else if order exists → ordered
+
+Rule 4
+Else if assisted-ordering flag is true and no order exists → follow_up
+
+Rule 5
+Else if active cart exists and no order exists → follow_up
+
+Rule 6
+Else if customer logged in during the current ordering window and still no order exists → follow_up
+
+Rule 7
+Else if operator manually marked expected_this_cycle = true and no order exists → follow_up
+
+Rule 8
+Else → waiting
+
+Operator controls
+
+Operator should only be able to:
+
+manually mark follow_up
+
+manually mark done
+
+reopen a done row back to follow_up
+
+set outcome reason when done
+
+5) Main table columns
+
+Keep only the columns needed for fast review.
+
+Recommended columns
+
+Customer
+
+Classification
+
+State
+
+Delivery
+
+Orders
+
+Cart
+
+Last Login
+
+Last Invoice
+
+Value 4w
+
+Action
+
+Remove from this page
+
+Value 6m
+
+extra analytical or historical fields that are not needed for immediate action
+
+This page should stay operational, not analytical.
+
+6) Add row click + right-side detail drawer
+Required interaction
+
+When user clicks any row, open a right-side drawer.
+
+The drawer should slide in and keep the table visible underneath.
+
+7) Drawer contents
+Header
+
+customer name
+
+customer code
+
+classification
+
+state badge
+
+delivery date
+
+Section A — Current cycle
+
+SMS sent at
+
+order exists yes/no
+
+order value if exists
+
+active cart yes/no
+
+cart mode: pending / add-on
+
+last login
+
+last invoice
+
+Section B — Manual flags
+
+assisted ordering: yes/no
+
+expected this cycle: yes/no
+
+optional short notes
+
+Assisted ordering — how to implement
+
+This is a customer-level operational flag, not a per-cycle review field.
+
+Implement it as a boolean field on the customer CRM/profile record, for example in CrmCustomerProfile:
+
+assisted_ordering boolean not null default false
+
+This flag means: this customer is known to usually need human assistance/follow-up to place orders.
+
+Use it in two ways:
+
+in the ordering review state logic, where assisted customers move to follow_up earlier
+
+as a filter on the ordering screen (Assisted only)
+
+For phase 1:
+
+display this field in the drawer
+
+allow it to be edited in the drawer with a simple checkbox/toggle and save button
+
+This field should not be stored in the ordering review record, because it is a persistent customer behavior, not a cycle-specific event.
+
+Section C — Action log
+
+This will be implemented later.
+
+Do not build the full action log yet.
+
+Later this section should contain:
+
+last action type
+
+last action at
+
+last action by
+
+last action note
+
+Section D — Quick actions
+
+Keep the title Quick actions, but for now show only one button:
+
+Send SMS
+
+Do not implement the other action buttons yet.
+
+So for now, under Quick actions, only include:
+
+Send SMS
+
+Section E — Done outcome
+
+If operator marks done, show required outcome dropdown:
+
+ordered normally
+
+ordered after follow-up
+
+cart closed to order
+
+cart added to existing order
+
+valid skip
+
+financial reason
+
+bought elsewhere
+
+customer not ready
+
+other
+
+8) Simplify visible row actions
+
+The table currently risks becoming visually noisy if too many actions are shown inline.
+
+Recommendation
+
+Keep only these row-level actions visible:
+
+Review or whole-row click
+
+optionally SMS
+
+Do not show more inline actions for now.
+
+Everything else should be handled later inside the drawer.
+
+9) Filters to keep and add
+Keep
+
+Search
+
+Classification
+
+District
+
+Login ≤ X days
+
+Action needed only
+
+Has cart only
+
+Add
+
+State
+
+Assisted only
+
+Expected this cycle only
+
+Ordered only / Not ordered only
+
+10) Top summary cards
+
+For this page, the summary cards should reflect the operational queue, not total customer analytics.
+
+Recommended cards
+
+Open
+
+Follow Up
+
+Ordered
+
+Ordered + Cart
+
+Done
+
+Optional extra
+
+Has Cart
+
+Do not overload this page with too many commercial KPIs.
+
+11) Recommended visual treatment
+Badge colors
+
+Use consistent state colors:
+
+waiting = blue/grey
+
+follow_up = amber/red
+
+ordered = green
+
+ordered_cart = orange/purple
+
+done = muted green
+
+Highlighting
+
+Only strongly highlight follow_up rows.
+
+The rest should stay visually calm.
+
+12) Data fields needed
+
+Split the fields into customer-level and ordering-review-level.
+
+A. Customer-level field
+
+This belongs to the CRM/profile record, not the review record:
+
+assisted_ordering boolean default false
+
+B. Ordering review / cycle-level fields
+
+Add or confirm these fields for the ordering review record:
+
+review_state
+
+outcome_reason
+
+done_at
+
+done_by
+
+expected_this_cycle
+
+manual_follow_up_flag
+
+cart_mode (none, pending_order, add_on_after_order)
+
+short_note or review_note
+
+Do not implement yet
+
+These can come later with the action log phase:
+
+last_action_type
+
+last_action_at
+
+last_action_by
+
+last_action_note
+
+13) Important business behavior to preserve
+
+Please keep the business rules below exactly:
+
+biweekly is already handled by the ordering-window engine, so no extra UI treatment is needed
+
+some customers are assisted-ordering customers and should move to follow_up earlier
+
+some customers may legitimately skip a cycle, so this should be captured as an outcome reason (valid_skip), not as a permanent negative state
+
+active cart with no order means operator should check whether customer thinks the order was already sent or help them close the order
+
+active cart after an existing order means operator should check whether they want the extra items added
+
+14) Final implementation direction
+
+Build the Ordering Review screen as:
+
+a compact flat queue
+
+no accordion
+
+row click opens right-side detail drawer
+
+5 simple states only
+
+most states set automatically
+
+operator only confirms follow-up / done / outcome
+
+cart meaning split into pending vs add-on
+
+minimal inline actions
+
+detailed actions progressively added inside the drawer
+
+for now, only Send SMS is implemented in Quick actions
+
+action log is deferred to a later phase
+
+assisted ordering is implemented as a customer-level boolean flag and shown/edited in the drawer
+
+This will make the screen faster, cleaner, and much better aligned with the actual ordering-window process.
