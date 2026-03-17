@@ -339,9 +339,11 @@ def crm_classifications_settings():
     for name, meta in allowed.items():
         if isinstance(meta, dict):
             icon = meta.get("icon")
+            include_in_review_ordering = meta.get("include_in_review_ordering", True)
         else:
             icon = meta or None
-        items.append({"name": name, "icon": icon, "is_default": name in defaults})
+            include_in_review_ordering = True
+        items.append({"name": name, "icon": icon, "is_default": name in defaults, "include_in_review_ordering": include_in_review_ordering})
     
     window_hours = Setting.get(db.session, "crm_order_window_hours", "48")
     if not isinstance(window_hours, str):
@@ -407,6 +409,7 @@ def save_crm_classifications():
         for item in items:
             name = (item.get('name') or '').strip()
             is_default = item.get('is_default', False)
+            include_in_review_ordering = item.get('include_in_review_ordering', True)
             if not name:
                 continue
             prev = existing.get(name, {"icon": None})
@@ -414,6 +417,7 @@ def save_crm_classifications():
                 "icon": prev.get("icon"),
                 "color": prev.get("color"),
                 "sort_order": prev.get("sort_order"),
+                "include_in_review_ordering": include_in_review_ordering,
             }
             if is_default:
                 defaults.append(name)

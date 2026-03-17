@@ -46,10 +46,11 @@
                             <table class="table table-sm mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th style="width: 25%;">Classification Name</th>
-                                        <th style="width: 15%;">Current Icon</th>
-                                        <th style="width: 40%;">Upload New Icon (JPG)</th>
-                                        <th style="width: 20%;">Default Filter</th>
+                                        <th style="width: 20%;">Classification Name</th>
+                                        <th style="width: 12%;">Current Icon</th>
+                                        <th style="width: 35%;">Upload New Icon (JPG)</th>
+                                        <th style="width: 16%;">Default Filter</th>
+                                        <th style="width: 17%;">Review Ordering</th>
                                     </tr>
                                 </thead>
                                 <tbody id="classificationsList">
@@ -81,6 +82,13 @@
                                                 <input type="checkbox" class="form-check-input classification-default" 
                                                        {% if item.is_default %}checked{% endif %}>
                                                 <label class="form-check-label">Use as default</label>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="form-check">
+                                                <input type="checkbox" class="form-check-input classification-review-ordering" 
+                                                       {% if item.include_in_review_ordering %}checked{% endif %}>
+                                                <label class="form-check-label">Include</label>
                                             </div>
                                         </td>
                                     </tr>
@@ -134,6 +142,12 @@ document.getElementById('addRow').addEventListener('click', function() {
                 <label class="form-check-label">Use as default</label>
             </div>
         </td>
+        <td>
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input classification-review-ordering" checked>
+                <label class="form-check-label">Include</label>
+            </div>
+        </td>
     `;
     tr.querySelector('.delete-row').addEventListener('click', function() { tr.remove(); });
     tbody.appendChild(tr);
@@ -164,12 +178,13 @@ document.getElementById('classifyForm').addEventListener('submit', async functio
         const name = row.querySelector('.classification-name').value.trim();
         const file = row.querySelector('.classification-file').files[0];
         const isDefault = row.querySelector('.classification-default').checked;
+        const includeInReviewOrdering = row.querySelector('.classification-review-ordering').checked;
         if (name) {
-            rows.push({ name, file, is_default: isDefault });
+            rows.push({ name, file, is_default: isDefault, include_in_review_ordering: includeInReviewOrdering });
         }
     });
 
-    formData.append('data', JSON.stringify(rows.map(r => ({ name: r.name, is_default: r.is_default }))));
+    formData.append('data', JSON.stringify(rows.map(r => ({ name: r.name, is_default: r.is_default, include_in_review_ordering: r.include_in_review_ordering }))));
     
     rows.forEach((r, i) => {
         if (r.file) {
