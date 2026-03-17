@@ -43,6 +43,12 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .drawer-field .val { font-weight: 600; }
 .drawer-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1049; display: none; }
 .drawer-overlay.show { display: block; }
+.state-group-header { cursor: pointer; user-select: none; }
+.state-group-header td { padding: 8px 12px !important; background: rgba(255,255,255,0.03); border-top: 1px solid rgba(255,255,255,0.08); border-bottom: none; }
+.state-group-header:hover td { background: rgba(255,255,255,0.06); }
+.state-group-header .toggle-icon { font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-right: 10px; transition: transform 0.2s; }
+.state-group-header.collapsed .toggle-icon { transform: rotate(-90deg); }
+.state-group-count { font-size: 0.75rem; color: rgba(255,255,255,0.35); margin-left: 8px; font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -166,12 +172,17 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <tbody>
                 {% set state_groups = rows | groupby('state') %}
                 {% for state, state_rows in state_groups %}
-                <tr class="state-group-header" data-state="{{ state }}">
-                    <td colspan="100%" style="padding: 10px; background: #f5f5f5; border-top: 2px solid #ddd;">
-                        <button class="btn btn-sm btn-outline-secondary" style="padding: 2px 8px; margin-right: 10px;" onclick="toggleStateGroup(event, '{{ state }}')">
-                            <i class="fas fa-chevron-down toggle-icon" style="width: 12px;"></i>
-                        </button>
-                        <strong>{{ state | upper }}</strong> — <span class="text-muted" style="font-size: 0.85rem;">{{ state_rows | length }} customers</span>
+                <tr class="state-group-header state-group-{{ state }}" data-state="{{ state }}" onclick="toggleStateGroup(event, '{{ state }}')">
+                    <td colspan="100%">
+                        <i class="fas fa-chevron-down toggle-icon"></i>
+                        <span class="badge-state state-{{ state }}">
+                            {% if state == 'follow_up' %}FOLLOW UP
+                            {% elif state == 'waiting' %}WAITING
+                            {% elif state == 'ordered' %}ORDERED
+                            {% elif state == 'ordered_cart' %}ORDERED+CART
+                            {% elif state == 'done' %}DONE{% endif %}
+                        </span>
+                        <span class="state-group-count">{{ state_rows | length }}</span>
                     </td>
                 </tr>
                 {% for r in state_rows %}
@@ -639,16 +650,13 @@ document.addEventListener('click', function(e) {
 
 function toggleStateGroup(e, state) {
     e.stopPropagation();
+    var header = e.target.closest('.state-group-header');
     var rows = document.querySelectorAll('.state-group-row-' + state);
-    var isHidden = rows[0] && rows[0].style.display === 'none';
-    var icon = e.target.closest('button').querySelector('.toggle-icon');
-    
+    var isCollapsed = header.classList.contains('collapsed');
+    header.classList.toggle('collapsed');
     rows.forEach(function(row) {
-        row.style.display = isHidden ? 'table-row' : 'none';
+        row.style.display = isCollapsed ? 'table-row' : 'none';
     });
-    
-    icon.classList.toggle('fa-chevron-down');
-    icon.classList.toggle('fa-chevron-up');
 }
 
 (function(){
