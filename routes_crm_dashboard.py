@@ -592,7 +592,7 @@ def review_ordering():
             PSCustomer.sms.label("sms_number"),
             CrmCustomerProfile.classification,
             CrmCustomerProfile.assisted_ordering,
-            CrmCustomerProfile.district,
+            func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district).label("district"),
             CrmAbandonedCartState.has_abandoned_cart,
             CrmAbandonedCartState.abandoned_cart_amount,
             MagentoCustomerLastLoginCurrent.last_login_at,
@@ -604,6 +604,7 @@ def review_ordering():
         .filter(PSCustomer.active.is_(True))
         .filter(PSCustomer.deleted_at.is_(None))
         .outerjoin(CrmCustomerProfile, CrmCustomerProfile.customer_code_365 == PSCustomer.customer_code_365)
+        .outerjoin(PostalCodeLookup, PostalCodeLookup.postcode == PSCustomer.postal_code)
         .outerjoin(CrmAbandonedCartState, CrmAbandonedCartState.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(MagentoCustomerLastLoginCurrent, MagentoCustomerLastLoginCurrent.customer_code_365 == PSCustomer.customer_code_365)
         .outerjoin(sales_sq, sales_sq.c.cc == PSCustomer.customer_code_365)
