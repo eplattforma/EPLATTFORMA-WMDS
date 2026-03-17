@@ -814,6 +814,7 @@ def review_ordering():
     far_future = date(2099, 12, 31)
     open_window_rows.sort(key=lambda r: (
         REVIEW_STATE_ORDER.get(r["state"], 5),
+        r["district"] or "",
         r["next_delivery_date"] or far_future,
         -(r["cart_amount"] or 0),
         r["r_login_days"] if r["r_login_days"] is not None else 9999,
