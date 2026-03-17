@@ -464,22 +464,6 @@ function _renderTemplateBody(body, customerName) {
         .replace(/\{\{\s*delivery_date\s*\}\}/g, _smsDeliveryDate || '');
 }
 
-function _recomputeState(r) {
-    var review_rec = r.review_state === 'done' ? {review_state: 'done'} : null;
-    var has_order = r.open_order_count > 0;
-    var has_cart = r.has_cart;
-    var assisted = r.assisted_ordering;
-    
-    if (review_rec && review_rec.review_state === 'done') return 'done';
-    if (has_order && has_cart) return 'ordered_cart';
-    if (has_order) return 'ordered';
-    if (review_rec && r.outcome_reason) return 'follow_up';
-    if (assisted && !has_order) return 'follow_up';
-    if (has_cart && !has_order) return 'follow_up';
-    if (r.expected_this_cycle && !has_order) return 'follow_up';
-    return 'waiting';
-}
-
 async function saveAssisted(el) {
     if (_currentIdx === null) return;
     var r = _rowsData[_currentIdx];
@@ -492,11 +476,7 @@ async function saveAssisted(el) {
         if (data.ok) {
             r.assisted_ordering = el.checked;
             
-            // Recompute state based on new assisted flag
-            var newState = _recomputeState(r);
-            r.state = newState;
-            
-            // Update table row to show/hide assisted ordering icon and update state badge
+            // Update table row to show/hide assisted ordering icon and update state
             var rowEl = document.querySelector('.row-item[data-idx="' + _currentIdx + '"]');
             if (rowEl) {
                 // Update code with icon
@@ -507,11 +487,16 @@ async function saveAssisted(el) {
                     codeSpan.innerHTML = codeText + iconHTML;
                 }
                 
-                // Update state badge
+                // Recompute state: if assisted is now enabled and no open orders, set to follow_up
+                var newState = r.state;
+                if (el.checked && r.open_order_count === 0) {
+                    newState = 'follow_up';
+                }
+                r.state = newState;
+                
+                // Update state badge if state changed
                 var stateBadge = rowEl.querySelector('.badge-state');
                 if (stateBadge) {
-                    var STATE_LABELS = {follow_up:'FOLLOW UP', waiting:'WAITING', ordered:'ORDERED', ordered_cart:'ORDERED+CART', done:'DONE'};
-                    var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', ordered_cart:'state-ordered_cart', done:'state-done'};
                     stateBadge.textContent = STATE_LABELS[newState] || newState;
                     stateBadge.className = 'badge-state ' + (STATE_CLASSES[newState] || '');
                 }
