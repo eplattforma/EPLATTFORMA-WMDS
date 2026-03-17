@@ -43,8 +43,13 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .drawer-field .val { font-weight: 600; }
 .drawer-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1049; display: none; }
 .drawer-overlay.show { display: block; }
-.state-separator td { padding: 0 !important; height: 10px; border: none; background: transparent; }
-.state-separator:first-child td { height: 0; }
+.state-divider { cursor: pointer; user-select: none; }
+.state-divider td { padding: 6px 12px !important; background: rgba(255,255,255,0.03); border: none; }
+.state-divider:first-child td { border-top: none; }
+.state-divider:hover td { background: rgba(255,255,255,0.06); }
+.state-divider .toggle-icon { font-size: 0.6rem; color: rgba(255,255,255,0.35); margin-right: 8px; transition: transform 0.2s; }
+.state-divider.collapsed .toggle-icon { transform: rotate(-90deg); }
+.state-grp-count { font-size: 0.72rem; color: rgba(255,255,255,0.3); margin-left: 6px; }
 </style>
 {% endblock %}
 
@@ -166,10 +171,22 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 </tr>
             </thead>
             <tbody>
+                {% set ns = namespace(prev_state='') %}
                 {% for r in rows %}
-                {% if loop.first or rows[loop.index0 - 1].state != r.state %}
-                <tr class="state-separator state-sep-{{ r.state }}">
-                    <td colspan="100%"></td>
+                {% if r.state != ns.prev_state %}
+                {% set ns.prev_state = r.state %}
+                <tr class="state-divider" data-state="{{ r.state }}" onclick="toggleStateGroup(event, '{{ r.state }}')">
+                    <td colspan="100%">
+                        <i class="fas fa-chevron-down toggle-icon"></i>
+                        <span class="badge-state state-{{ r.state }}">
+                            {% if r.state == 'follow_up' %}FOLLOW UP
+                            {% elif r.state == 'waiting' %}WAITING
+                            {% elif r.state == 'ordered' %}ORDERED
+                            {% elif r.state == 'ordered_cart' %}ORDERED+CART
+                            {% elif r.state == 'done' %}DONE{% endif %}
+                        </span>
+                        <span class="state-grp-count" id="count-{{ r.state }}"></span>
+                    </td>
                 </tr>
                 {% endif %}
                 <tr class="row-item state-row-{{ r.state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})">
@@ -632,6 +649,25 @@ document.addEventListener('click', function(e) {
     _loadSmsTemplates();
     new bootstrap.Modal(document.getElementById('smsComposeModal')).show();
 });
+
+function toggleStateGroup(e, state) {
+    e.stopPropagation();
+    var divider = e.target.closest('.state-divider');
+    var rows = document.querySelectorAll('.state-row-' + state);
+    var isCollapsed = divider.classList.contains('collapsed');
+    divider.classList.toggle('collapsed');
+    rows.forEach(function(row) {
+        row.style.display = isCollapsed ? '' : 'none';
+    });
+}
+(function(){
+    document.querySelectorAll('.state-divider').forEach(function(div) {
+        var state = div.dataset.state;
+        var count = document.querySelectorAll('.state-row-' + state).length;
+        var el = div.querySelector('.state-grp-count');
+        if (el) el.textContent = count;
+    });
+})();
 
 (function(){
     var openMenu = null;
