@@ -22,6 +22,7 @@
                 {% elif h.channel == 'phone_call' %}<span class="badge bg-info"><i class="fas fa-phone me-1"></i>Call</span>
                 {% elif h.channel == 'whatsapp' %}<span class="badge" style="background:#25D366;"><i class="fab fa-whatsapp me-1"></i>WhatsApp</span>
                 {% elif h.channel == 'viber' %}<span class="badge" style="background:#7360f2;"><i class="fab fa-viber me-1"></i>Viber</span>
+                {% elif h.channel == 'onesignal_push' %}<span class="badge" style="background:#e8590c;"><i class="fas fa-bell me-1"></i>Push</span>
                 {% else %}<span class="badge bg-secondary">{{ h.channel }}</span>{% endif %}
             </td>
             <td>
@@ -30,10 +31,16 @@
                 {% elif h.status == 'launched' %}<span class="badge bg-info">{{ h.status }}</span>
                 {% elif h.status == 'answered' %}<span class="badge bg-success">{{ h.status }}</span>
                 {% elif h.status == 'no_answer' %}<span class="badge bg-warning text-dark">{{ h.status }}</span>
+                {% elif h.status == 'skipped_no_subscription' %}<span class="badge bg-warning text-dark" style="font-size:0.65rem;">no subscription</span>
                 {% else %}<span class="badge bg-secondary">{{ h.status }}</span>{% endif %}
             </td>
             <td>{{ h.template_code or '—' }}</td>
-            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ h.message_text or '' }}">{{ (h.message_text or '—')[:60] }}{% if h.message_text and h.message_text|length > 60 %}…{% endif %}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ h.message_text or '' }}">
+                {{ (h.message_text or '—')[:60] }}{% if h.message_text and h.message_text|length > 60 %}…{% endif %}
+                {% if h.push_target_type and h.push_target_type != 'none' %}
+                <br><small class="text-info"><i class="fas fa-crosshairs me-1"></i>{{ h.push_target_type }}{% if h.push_target_id %}: {{ h.push_target_id }}{% elif h.push_deep_link %}: {{ h.push_deep_link[:40] }}{% endif %}</small>
+                {% endif %}
+            </td>
             <td>
                 {{ h.outcome_note or '' }}
                 {% if h.channel == 'phone_call' and h.status == 'launched' %}

@@ -1,0 +1,269 @@
+Add a Push navigation target option inside the Communications Hub when the channel is OneSignal Push. For native app push, OneSignal supports a Launch URL via the url field and also supports custom payload values via data. The best design for our app is to send the routing values in data and let the mobile app open the correct screen from the notification click handler. OneSignal’s docs describe url as the push Launch URL and recommend data / additional data when you need flexible app navigation logic.
+
+Objective
+
+When the user sends a push from the communications screen, they must be able to choose one of these target modes:
+
+No target
+
+Category
+
+Product
+
+Custom deep link
+
+If the user chooses:
+
+Category, store and send category_id
+
+Product, store and send product_id
+
+Custom deep link, store and send a deep link string such as myapp://product/26184
+
+The push payload should carry these values in data, and the native app will read them from the OneSignal notification click event and navigate accordingly. OneSignal documents deep links for push and supports both custom URI schemes and https:// app/universal links, while data is available in the notification payload for SDK-side routing.
+
+UI changes in Replit
+
+On the communications compose screen, when channel = onesignal_push, add a new section:
+
+Push destination
+
+Target type dropdown:
+
+none
+
+category
+
+product
+
+custom_deeplink
+
+If target type = category:
+
+show category_id input
+
+If target type = product:
+
+show product_id input
+
+If target type = custom_deeplink:
+
+show deep_link input
+
+Also keep the existing push fields:
+
+push title
+
+push body
+
+Optional advanced field:
+
+launch URL / app URL preview
+
+The goal is that the CRM user can choose not only the message, but also where the customer should land inside the app after tapping the notification. OneSignal supports click destinations for push and custom payload data, so this belongs in the message composition flow.
+
+Database changes
+
+Extend the communications log and, if you are using templates, the template schema.
+
+Extend crm_communication_log
+
+Add:
+
+push_target_type VARCHAR(30) NULL
+
+push_target_id VARCHAR(100) NULL
+
+push_deep_link TEXT NULL
+
+push_data_json JSONB NULL
+
+This lets us audit exactly what destination was attached to each push.
+
+Extend push templates if needed
+
+If templates are being used for push, add:
+
+push_target_type
+
+push_target_id
+
+push_deep_link
+
+These should be optional so that a template may either:
+
+contain only content, or
+
+contain both content and a preconfigured destination
+
+Payload rules for OneSignal
+
+For native app push, use data as the main routing mechanism. That data should contain normalized routing values.
+
+Category example
+{
+  "app_id": "YOUR_APP_ID",
+  "include_aliases": {
+    "external_id": ["77"]
+  },
+  "target_channel": "push",
+  "headings": { "en": "New offers for you" },
+  "contents": { "en": "Tap to open the category" },
+  "data": {
+    "target_type": "category",
+    "category_id": 132
+  }
+}
+Product example
+{
+  "app_id": "YOUR_APP_ID",
+  "include_aliases": {
+    "external_id": ["77"]
+  },
+  "target_channel": "push",
+  "headings": { "en": "Back in stock" },
+  "contents": { "en": "Tap to open the product" },
+  "data": {
+    "target_type": "product",
+    "product_id": 26184
+  }
+}
+Custom deep link example
+{
+  "app_id": "YOUR_APP_ID",
+  "include_aliases": {
+    "external_id": ["77"]
+  },
+  "target_channel": "push",
+  "headings": { "en": "Open this page" },
+  "contents": { "en": "Tap to continue" },
+  "url": "myapp://product/26184",
+  "data": {
+    "target_type": "custom_deeplink",
+    "deep_link": "myapp://product/26184"
+  }
+}
+
+OneSignal’s push API supports targeting by include_aliases and supports a Launch URL via url. Their docs also explain that push and in-app messages can use deep links and that additional payload data can be used to drive custom behavior inside the app.
+
+Recommended implementation rule
+
+Use this logic in Replit:
+
+Always send push routing info in data
+
+Optionally also set url when a deep link exists
+
+For category and product, do not make OneSignal interpret those IDs
+
+The app must interpret them after notification click
+
+That is the most robust design for a native app, because the app owns the routing rules while OneSignal only transports the payload. OneSignal’s docs specifically support this pattern by exposing custom data in the notification payload and supporting deep links for push.
+
+Backend changes in Replit
+
+Update the push send builder so it accepts these optional fields:
+
+push_target_type
+
+category_id
+
+product_id
+
+deep_link
+
+Create a helper like:
+
+build_onesignal_push_payload(title, body, external_id, push_target_type=None, category_id=None, product_id=None, deep_link=None)
+
+Rules:
+
+if push_target_type == "category":
+
+set data.target_type = "category"
+
+set data.category_id = <value>
+
+if push_target_type == "product":
+
+set data.target_type = "product"
+
+set data.product_id = <value>
+
+if push_target_type == "custom_deeplink":
+
+set data.target_type = "custom_deeplink"
+
+set data.deep_link = <value>
+
+also set url = <value> if provided
+
+if no target:
+
+send push without navigation fields
+
+Validation rules
+
+Replit must validate before send:
+
+category target requires numeric category_id
+
+product target requires numeric product_id
+
+custom deep link requires non-empty deep_link
+
+If invalid, do not send the push.
+
+Logging rules
+
+Every push send must log:
+
+channel = onesignal_push
+
+title
+
+body
+
+target type
+
+target id or deep link
+
+full push_data_json
+
+provider response
+
+final status
+
+This makes later debugging much easier when checking whether the wrong product or category was attached to a notification.
+
+App-side contract
+
+Replit should document this contract for the mobile developer:
+
+When the user taps a OneSignal notification, the app reads additionalData / payload data and routes:
+
+if target_type = category → open category screen with category_id
+
+if target_type = product → open product screen with product_id
+
+if target_type = custom_deeplink → open the provided deep link
+
+otherwise → open app home or notifications screen
+
+OneSignal’s SDK payload reference makes custom data available to the app, and their links/deep-link docs describe using deep links and additional data to control navigation.
+
+What to build now
+
+Add push destination fields to the communications UI.
+
+Extend the push payload builder to include data routing fields.
+
+Save those fields in crm_communication_log.
+
+Keep data as the source of truth for native app routing.
+
+Optionally include url for custom deep-link sends.
+
+Short instruction for Replit
+
+Add a “Push destination” option to the messaging functionality when sending OneSignal push. Support target types none, category, product, and custom_deeplink. Put the routing values in the OneSignal data payload, optionally set url when a deep link is provided, log the target fields in crm_communication_log, and document the payload contract for the native app click handler.

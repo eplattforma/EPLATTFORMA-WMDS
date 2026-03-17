@@ -240,9 +240,30 @@ def get_cached_push_identity(customer_code_365):
     }
 
 
+def _build_push_data(push_target_type, category_id=None, product_id=None, deep_link=None):
+    if not push_target_type or push_target_type == "none":
+        return None
+    data = {"target_type": push_target_type}
+    try:
+        if push_target_type == "category" and category_id:
+            data["category_id"] = int(category_id)
+        elif push_target_type == "product" and product_id:
+            data["product_id"] = int(product_id)
+        elif push_target_type == "custom_deeplink" and deep_link:
+            data["deep_link"] = str(deep_link)
+        else:
+            return None
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid push target value: type={push_target_type}, cat={category_id}, prod={product_id}, dl={deep_link}")
+        return None
+    return data
+
+
 def send_push_to_customer(customer_code_365, title, body, url=None,
                           source_screen=None, template_code=None,
-                          username=None):
+                          username=None, push_target_type=None,
+                          category_id=None, product_id=None,
+                          deep_link=None):
     identity = refresh_customer_push_identity(customer_code_365)
 
     customer_ctx = resolve_customer_context(customer_code_365)
@@ -256,19 +277,36 @@ def send_push_to_customer(customer_code_365, title, body, url=None,
         if tpl_row:
             tpl_title = tpl_row["title"]
 
+    push_data = _build_push_data(push_target_type, category_id, product_id, deep_link)
+    if push_target_type == "category":
+        push_target_id_val = category_id
+    elif push_target_type == "product":
+        push_target_id_val = product_id
+    else:
+        push_target_id_val = None
+    push_data_json_str = json.dumps(push_data, default=str) if push_data else None
+
+    common_log_kwargs = dict(
+        channel='onesignal_push',
+        customer_code_365=customer_code_365,
+        customer_name=customer_name,
+        source_screen=source_screen,
+        context_type='customer',
+        context_id=customer_code_365,
+        template_code=template_code,
+        template_title=tpl_title,
+        message_text=body,
+        username=username,
+        push_target_type=push_target_type or None,
+        push_target_id=str(push_target_id_val) if push_target_id_val else None,
+        push_deep_link=deep_link or None,
+        push_data_json=push_data_json_str,
+    )
+
     if not identity["push_available"]:
         log_id = create_comm_log(
-            channel='onesignal_push',
-            customer_code_365=customer_code_365,
-            customer_name=customer_name,
-            source_screen=source_screen,
-            context_type='customer',
-            context_id=customer_code_365,
-            template_code=template_code,
-            template_title=tpl_title,
-            message_text=body,
+            **common_log_kwargs,
             status='skipped_no_subscription',
-            username=username,
             extra_json=json.dumps({
                 "push_title": title,
                 "push_url": url,
@@ -284,17 +322,8 @@ def send_push_to_customer(customer_code_365, title, body, url=None,
         }
 
     log_id = create_comm_log(
-        channel='onesignal_push',
-        customer_code_365=customer_code_365,
-        customer_name=customer_name,
-        source_screen=source_screen,
-        context_type='customer',
-        context_id=customer_code_365,
-        template_code=template_code,
-        template_title=tpl_title,
-        message_text=body,
+        **common_log_kwargs,
         status='initiated',
-        username=username,
         extra_json=json.dumps({
             "push_title": title,
             "push_url": url,
@@ -313,7 +342,11 @@ def send_push_to_customer(customer_code_365, title, body, url=None,
         "headings": {"en": title or "Notification"},
         "contents": {"en": body or ""},
     }
-    if url:
+    if push_data:
+        payload["data"] = push_data
+    if push_target_type == "custom_deeplink" and deep_link:
+        payload["url"] = deep_link
+    elif url:
         payload["url"] = url
 
     raw_response = ""
@@ -360,7 +393,9 @@ def send_push_to_customer(customer_code_365, title, body, url=None,
 
 
 def bulk_send_push(customer_codes, title, body, template_code=None,
-                   source_screen='order_review', username=None):
+                   source_screen='order_review', username=None,
+                   push_target_type=None, category_id=None,
+                   product_id=None, deep_link=None):
     counters = {
         "selected": len(customer_codes),
         "verified": 0,
@@ -380,6 +415,10 @@ def bulk_send_push(customer_codes, title, body, template_code=None,
             source_screen=source_screen,
             template_code=template_code,
             username=username,
+            push_target_type=push_target_type,
+            category_id=category_id,
+            product_id=product_id,
+            deep_link=deep_link,
         )
 
         if result.get("push_available"):

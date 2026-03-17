@@ -115,8 +115,31 @@
                     <input type="text" class="form-control form-control-sm" id="pushTitle" placeholder="Notification title" maxlength="100">
                 </div>
                 <div class="mb-2">
-                    <label class="form-label" style="font-size:0.8rem;">Click URL <small class="text-muted">(optional)</small></label>
+                    <label class="form-label" style="font-size:0.8rem;">Click URL <small class="text-muted">(optional, overridden by deep link)</small></label>
                     <input type="url" class="form-control form-control-sm" id="pushUrl" placeholder="https://...">
+                </div>
+                <hr style="border-color:rgba(255,255,255,0.1);margin:12px 0;">
+                <h6 style="margin-bottom:8px;"><i class="fas fa-crosshairs me-1"></i>Push Destination</h6>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:0.8rem;">Target Type</label>
+                    <select class="form-select form-select-sm" id="pushTargetType" onchange="togglePushTarget()">
+                        <option value="none">No target (open app home)</option>
+                        <option value="category">Category</option>
+                        <option value="product">Product</option>
+                        <option value="custom_deeplink">Custom Deep Link</option>
+                    </select>
+                </div>
+                <div class="mb-2" id="pushTargetCategoryWrap" style="display:none;">
+                    <label class="form-label" style="font-size:0.8rem;">Category ID</label>
+                    <input type="number" class="form-control form-control-sm" id="pushCategoryId" placeholder="e.g. 132" min="1">
+                </div>
+                <div class="mb-2" id="pushTargetProductWrap" style="display:none;">
+                    <label class="form-label" style="font-size:0.8rem;">Product ID</label>
+                    <input type="number" class="form-control form-control-sm" id="pushProductId" placeholder="e.g. 26184" min="1">
+                </div>
+                <div class="mb-2" id="pushTargetDeeplinkWrap" style="display:none;">
+                    <label class="form-label" style="font-size:0.8rem;">Deep Link URL</label>
+                    <input type="text" class="form-control form-control-sm" id="pushDeepLink" placeholder="myapp://product/26184">
                 </div>
             </div>
 
@@ -373,11 +396,18 @@ async function refreshHistory() {
             var dt = h.created_at ? new Date(h.created_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
             var msgPreview = (h.message_text || '—').substring(0, 60);
             if (h.message_text && h.message_text.length > 60) msgPreview += '…';
+            var targetInfo = '';
+            if (h.push_target_type && h.push_target_type !== 'none') {
+                targetInfo = '<br><small class="text-info"><i class="fas fa-crosshairs me-1"></i>' + h.push_target_type;
+                if (h.push_target_id) targetInfo += ': ' + h.push_target_id;
+                else if (h.push_deep_link) targetInfo += ': ' + h.push_deep_link.substring(0, 40);
+                targetInfo += '</small>';
+            }
             var noteHtml = h.outcome_note || '';
             if (h.channel === 'phone_call' && h.status === 'launched') {
                 noteHtml += ' <button class="btn btn-outline-info btn-sm py-0 px-1" style="font-size:0.7rem;" onclick="openOutcomeModal(' + h.id + ')">Update</button>';
             }
-            html += '<tr><td style="white-space:nowrap;">' + dt + '</td><td>' + (h.created_by_username || '—') + '</td><td>' + channelBadge(h.channel) + '</td><td>' + statusBadge(h.status) + '</td><td>' + (h.template_code || '—') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (h.message_text || '').replace(/"/g, '&quot;') + '">' + msgPreview + '</td><td>' + noteHtml + '</td></tr>';
+            html += '<tr><td style="white-space:nowrap;">' + dt + '</td><td>' + (h.created_by_username || '—') + '</td><td>' + channelBadge(h.channel) + '</td><td>' + statusBadge(h.status) + '</td><td>' + (h.template_code || '—') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (h.message_text || '').replace(/"/g, '&quot;') + '">' + msgPreview + targetInfo + '</td><td>' + noteHtml + '</td></tr>';
         });
         html += '</tbody></table>';
         container.innerHTML = html;
@@ -428,11 +458,34 @@ async function recheckPush() {
     await checkPushStatus(true);
 }
 
+function togglePushTarget() {
+    var tt = document.getElementById('pushTargetType').value;
+    document.getElementById('pushTargetCategoryWrap').style.display = (tt === 'category') ? '' : 'none';
+    document.getElementById('pushTargetProductWrap').style.display = (tt === 'product') ? '' : 'none';
+    document.getElementById('pushTargetDeeplinkWrap').style.display = (tt === 'custom_deeplink') ? '' : 'none';
+    if (tt !== 'category') document.getElementById('pushCategoryId').value = '';
+    if (tt !== 'product') document.getElementById('pushProductId').value = '';
+    if (tt !== 'custom_deeplink') document.getElementById('pushDeepLink').value = '';
+}
+
 async function doSendPush() {
     var msg = document.getElementById('messageText').value.trim();
     var title = document.getElementById('pushTitle').value.trim() || 'Notification';
     var pushUrl = document.getElementById('pushUrl').value.trim() || '';
     if (!msg) { alert('Please type a message.'); return; }
+
+    var targetType = document.getElementById('pushTargetType').value;
+    if (targetType === 'category') {
+        var catId = document.getElementById('pushCategoryId').value.trim();
+        if (!catId || isNaN(catId) || parseInt(catId) < 1) { alert('Please enter a valid Category ID.'); return; }
+    } else if (targetType === 'product') {
+        var prodId = document.getElementById('pushProductId').value.trim();
+        if (!prodId || isNaN(prodId) || parseInt(prodId) < 1) { alert('Please enter a valid Product ID.'); return; }
+    } else if (targetType === 'custom_deeplink') {
+        var dl = document.getElementById('pushDeepLink').value.trim();
+        if (!dl) { alert('Please enter a deep link URL.'); return; }
+    }
+
     var btn = document.getElementById('btnPush');
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
     try {
@@ -443,6 +496,10 @@ async function doSendPush() {
         if (pushUrl) fd.append('url', pushUrl);
         fd.append('template_code', document.getElementById('templateSelect').value || '');
         fd.append('source_screen', _sourceScreen);
+        fd.append('push_target_type', targetType);
+        if (targetType === 'category') fd.append('category_id', document.getElementById('pushCategoryId').value.trim());
+        if (targetType === 'product') fd.append('product_id', document.getElementById('pushProductId').value.trim());
+        if (targetType === 'custom_deeplink') fd.append('deep_link', document.getElementById('pushDeepLink').value.trim());
         var res = await fetch('/admin/communications/push/send', {method:'POST', body:fd});
         var data = await res.json();
         if (data.ok) {

@@ -425,11 +425,41 @@ def push_send():
     tpl_code = request.form.get("template_code", "").strip() or None
     source = request.form.get("source_screen", "").strip() or "customer_profile"
 
+    push_target_type = request.form.get("push_target_type", "").strip() or None
+    category_id = request.form.get("category_id", "").strip() or None
+    product_id = request.form.get("product_id", "").strip() or None
+    deep_link = request.form.get("deep_link", "").strip() or None
+
     if not cc or not message:
         return Response(json.dumps({"ok": False, "error": "Customer code and message are required"}), mimetype="application/json")
 
     if not title:
         title = "Notification"
+
+    VALID_PUSH_TARGETS = {"none", "category", "product", "custom_deeplink"}
+    if push_target_type and push_target_type not in VALID_PUSH_TARGETS:
+        return Response(json.dumps({"ok": False, "error": f"Invalid push target type: {push_target_type}"}), mimetype="application/json")
+
+    if push_target_type == "none" or not push_target_type:
+        push_target_type = None
+        category_id = None
+        product_id = None
+        deep_link = None
+    elif push_target_type == "category":
+        if not category_id or not category_id.isdigit():
+            return Response(json.dumps({"ok": False, "error": "Category target requires a numeric category ID"}), mimetype="application/json")
+        product_id = None
+        deep_link = None
+    elif push_target_type == "product":
+        if not product_id or not product_id.isdigit():
+            return Response(json.dumps({"ok": False, "error": "Product target requires a numeric product ID"}), mimetype="application/json")
+        category_id = None
+        deep_link = None
+    elif push_target_type == "custom_deeplink":
+        if not deep_link:
+            return Response(json.dumps({"ok": False, "error": "Custom deep link target requires a deep link URL"}), mimetype="application/json")
+        category_id = None
+        product_id = None
 
     result = send_push_to_customer(
         customer_code_365=cc,
@@ -439,6 +469,10 @@ def push_send():
         source_screen=source,
         template_code=tpl_code,
         username=getattr(current_user, "username", None),
+        push_target_type=push_target_type if push_target_type and push_target_type != "none" else None,
+        category_id=category_id,
+        product_id=product_id,
+        deep_link=deep_link,
     )
 
     return Response(json.dumps(result, default=str), mimetype="application/json")

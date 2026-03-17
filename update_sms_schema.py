@@ -85,6 +85,17 @@ def update_sms_schema():
             except Exception:
                 pass
 
+        for col, typ in [
+            ("push_target_type", "VARCHAR(30)"),
+            ("push_target_id", "VARCHAR(100)"),
+            ("push_deep_link", "TEXT"),
+            ("push_data_json", "JSONB"),
+        ]:
+            try:
+                db.session.execute(text(f"ALTER TABLE crm_communication_log ADD COLUMN IF NOT EXISTS {col} {typ}"))
+            except Exception:
+                pass
+
         db.session.execute(text("""
             CREATE TABLE IF NOT EXISTS customer_push_identity (
                 customer_code_365 VARCHAR(50) PRIMARY KEY,

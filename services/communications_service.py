@@ -184,7 +184,9 @@ def create_comm_log(channel, customer_code_365=None, customer_name=None,
                     template_code=None, template_title=None,
                     recipient_number=None, message_text=None,
                     status='initiated', batch_id=None, launch_url=None,
-                    extra_json=None, username=None):
+                    extra_json=None, username=None,
+                    push_target_type=None, push_target_id=None,
+                    push_deep_link=None, push_data_json=None):
 
     phone = normalize_phone(recipient_number)
 
@@ -194,13 +196,15 @@ def create_comm_log(channel, customer_code_365=None, customer_name=None,
             context_type, context_id, source_screen,
             channel, direction, template_code, template_title,
             recipient_number, recipient_number_normalized,
-            message_text, status, batch_id, launch_url, extra_json
+            message_text, status, batch_id, launch_url, extra_json,
+            push_target_type, push_target_id, push_deep_link, push_data_json
         ) VALUES (
             :username, :cc, :cn,
             :ctx_type, :ctx_id, :source,
             :channel, 'outbound', :tpl_code, :tpl_title,
             :recip, :recip_norm,
-            :msg, :status, :batch, :launch, :extra
+            :msg, :status, :batch, :launch, :extra,
+            :push_tt, :push_tid, :push_dl, CAST(:push_dj AS jsonb)
         )
         RETURNING id
     """), {
@@ -214,6 +218,8 @@ def create_comm_log(channel, customer_code_365=None, customer_name=None,
         "msg": message_text, "status": status,
         "batch": batch_id, "launch": launch_url,
         "extra": extra_json,
+        "push_tt": push_target_type, "push_tid": push_target_id,
+        "push_dl": push_deep_link, "push_dj": push_data_json,
     })
     row = db.session.execute(db.text("SELECT lastval()")).scalar()
     db.session.commit()
@@ -394,7 +400,8 @@ def get_customer_comm_history(customer_code_365, limit=30):
         SELECT id, created_at, created_by_username, channel, status,
                template_code, template_title, message_text,
                outcome_note, recipient_number, source_screen,
-               provider_message_id, dlr_status
+               provider_message_id, dlr_status,
+               push_target_type, push_target_id, push_deep_link
         FROM crm_communication_log
         WHERE customer_code_365 = :cc
         ORDER BY created_at DESC
