@@ -23,9 +23,9 @@
 tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .badge-cart { background-color: #fd7e14; }
 .kpi-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.kpi-chip { padding: 6px 14px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); }
-.kpi-chip .kpi-label { font-size: 0.65rem; text-transform: uppercase; color: rgba(255,255,255,0.5); font-weight: 700; }
-.kpi-chip .kpi-val { font-size: 1.1rem; font-weight: 700; }
+.kpi-chip { padding: 3px 10px; border-radius: 6px; text-align: center; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); }
+.kpi-chip .kpi-label { font-size: 0.6rem; text-transform: uppercase; color: rgba(255,255,255,0.5); font-weight: 700; line-height: 1; }
+.kpi-chip .kpi-val { font-size: 0.92rem; font-weight: 700; line-height: 1.2; }
 .filter-bar-review select, .filter-bar-review input { font-size: 0.82rem; }
 #detail-drawer {
     position: fixed; top: 0; right: -440px; width: 420px; height: 100vh;
@@ -54,67 +54,59 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-3">
-    <div class="d-flex justify-content-between align-items-start mb-3">
-        <div>
-            <h5 class="mb-0"><i class="fas fa-clipboard-check me-2" style="color: #22c55e;"></i>Review Ordering Window</h5>
-            <small class="text-muted">Customers with ordering window currently open</small>
+<div class="container-fluid py-2">
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+        <div class="d-flex align-items-center gap-2 me-auto">
+            <i class="fas fa-clipboard-check" style="color:#22c55e; font-size:1rem;"></i>
+            <span class="fw-bold" style="font-size:0.95rem;">Review Ordering</span>
+            <span class="text-muted" style="font-size:0.72rem;">{{ total_open }} open</span>
+            <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-2" style="font-size:0.72rem;">
+                <i class="fas fa-arrow-left me-1"></i>Dashboard
+            </a>
         </div>
-        <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm">
-            <i class="fas fa-arrow-left me-1"></i>Dashboard
-        </a>
-    </div>
-
-    <div class="kpi-bar mb-3">
-        <div class="kpi-chip"><div class="kpi-label">Open</div><div class="kpi-val" style="color:#22c55e;">{{ total_open }}</div></div>
-        <div class="kpi-chip"><div class="kpi-label">Follow Up</div><div class="kpi-val" style="color:#ffc107;">{{ kpi.follow_up }}</div></div>
-        <div class="kpi-chip"><div class="kpi-label">Waiting</div><div class="kpi-val" style="color:#adb5bd;">{{ kpi.waiting }}</div></div>
-        <div class="kpi-chip"><div class="kpi-label">Ordered</div><div class="kpi-val" style="color:#22c55e;">{{ kpi.ordered }}</div></div>
-        <div class="kpi-chip"><div class="kpi-label">Ordered+Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.ordered_cart }}</div></div>
-        <div class="kpi-chip"><div class="kpi-label">Done</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.done }}</div></div>
-        <div class="kpi-chip"><div class="kpi-label">Has Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.has_cart }}</div></div>
-    </div>
-
-    {% if open_windows %}
-    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
-        <span style="font-size:0.72rem; text-transform:uppercase; font-weight:700; color:rgba(255,255,255,0.4); letter-spacing:0.5px; margin-right:4px;">
-            <i class="fas fa-truck me-1"></i>Open Windows
-        </span>
-        {% for w in open_windows %}
-        <div class="d-flex align-items-center gap-2" style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); border-radius:8px; padding:6px 14px;">
-            <i class="fas fa-calendar-check" style="color:#22c55e; font-size:0.85rem;"></i>
-            <span style="font-weight:700; font-size:0.88rem; color:#22c55e;">{{ w.delivery_label }}</span>
-            <span class="delivery-countdown" data-close-at="{{ w.close_at }}" style="font-size:0.75rem; color:rgba(255,255,255,0.6); font-weight:600; white-space:nowrap;"></span>
+        <div class="kpi-bar">
+            <div class="kpi-chip"><div class="kpi-label">Follow Up</div><div class="kpi-val" style="color:#ffc107;">{{ kpi.follow_up }}</div></div>
+            <div class="kpi-chip"><div class="kpi-label">Waiting</div><div class="kpi-val" style="color:#adb5bd;">{{ kpi.waiting }}</div></div>
+            <div class="kpi-chip"><div class="kpi-label">Ordered</div><div class="kpi-val" style="color:#22c55e;">{{ kpi.ordered }}</div></div>
+            <div class="kpi-chip"><div class="kpi-label">Ord+Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.ordered_cart }}</div></div>
+            <div class="kpi-chip"><div class="kpi-label">Done</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.done }}</div></div>
+            <div class="kpi-chip"><div class="kpi-label">Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.has_cart }}</div></div>
         </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <form method="GET" class="filter-bar-review mb-3">
-        <div class="row g-2 align-items-end">
-            <div class="col-auto">
-                <label class="form-label mb-0 small">Search</label>
-                <input type="text" class="form-control form-control-sm" name="q" value="{{ filters.q }}" placeholder="Name or code" style="width:160px;">
+        {% if open_windows %}
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            {% for w in open_windows %}
+            <div class="d-flex align-items-center gap-1" style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); border-radius:6px; padding:3px 10px;">
+                <i class="fas fa-calendar-check" style="color:#22c55e; font-size:0.72rem;"></i>
+                <span style="font-weight:700; font-size:0.78rem; color:#22c55e;">{{ w.delivery_label }}</span>
+                <span class="delivery-countdown" data-close-at="{{ w.close_at }}" style="font-size:0.7rem; color:rgba(255,255,255,0.6); font-weight:600; white-space:nowrap;"></span>
             </div>
-            <div class="col-auto">
-                <label class="form-label mb-0 small">State</label>
-                <select class="form-select form-select-sm" name="state" style="width:130px;">
-                    <option value="">All</option>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <form method="GET" class="filter-bar-review mb-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <div>
+                <input type="text" class="form-control form-control-sm" name="q" value="{{ filters.q }}" placeholder="Search…" style="width:140px; font-size:0.78rem;">
+            </div>
+            <div>
+                <select class="form-select form-select-sm" name="state" style="width:110px; font-size:0.78rem;">
+                    <option value="">State</option>
                     {% for st in ['follow_up','waiting','ordered','ordered_cart','done'] %}
                     <option value="{{ st }}" {% if filters.state == st %}selected{% endif %}>{{ st | replace('_',' ') | title }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-auto position-relative">
-                <label class="form-label mb-0 small">Classification</label>
+            <div class="position-relative">
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle classification-dropdown-btn" type="button" id="classDropdownReview" aria-expanded="false">
-                        {% if filters.classification %}{{ filters.classification | join(', ') }}{% else %}All{% endif %}
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle classification-dropdown-btn" type="button" style="font-size:0.78rem;">
+                        {% if filters.classification %}{{ filters.classification | join(', ') }}{% else %}Class{% endif %}
                     </button>
                     <ul class="dropdown-menu dropdown-menu-dark classification-dropdown-menu" style="min-width:180px; padding:6px; display:none; position:absolute; z-index:1050;">
                         {% for c in allowed_classifications.keys() %}
                         <li>
-                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size:0.82rem;">
+                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size:0.78rem;">
                                 <input type="checkbox" name="classification" value="{{ c }}" {% if c in filters.classification %}checked{% endif %} class="form-check-input">
                                 {{ c }}
                             </label>
@@ -123,16 +115,15 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </ul>
                 </div>
             </div>
-            <div class="col-auto position-relative">
-                <label class="form-label mb-0 small">District</label>
+            <div class="position-relative">
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle district-dropdown-btn" type="button" aria-expanded="false">
-                        {% if filters.district %}{{ filters.district | join(', ') }}{% else %}All{% endif %}
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle district-dropdown-btn" type="button" style="font-size:0.78rem;">
+                        {% if filters.district %}{{ filters.district | join(', ') }}{% else %}District{% endif %}
                     </button>
                     <ul class="dropdown-menu dropdown-menu-dark district-dropdown-menu" style="min-width:180px; padding:6px; display:none; position:absolute; z-index:1050;">
                         {% for d in all_districts %}
                         <li>
-                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size:0.82rem;">
+                            <label class="d-flex align-items-center gap-2 px-2 py-1" style="cursor:pointer; font-size:0.78rem;">
                                 <input type="checkbox" name="district" value="{{ d }}" {% if d in filters.district %}checked{% endif %} class="form-check-input">
                                 {{ d }}
                             </label>
@@ -141,30 +132,24 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </ul>
                 </div>
             </div>
-            <div class="col-auto">
-                <label class="form-label mb-0 small">Login ≤ days</label>
-                <input type="number" class="form-control form-control-sm" name="logged_in_days" value="{{ filters.logged_in_days }}" placeholder="e.g. 7" style="width:80px;">
+            <div>
+                <input type="number" class="form-control form-control-sm" name="logged_in_days" value="{{ filters.logged_in_days }}" placeholder="Login ≤ d" style="width:75px; font-size:0.78rem;">
             </div>
-            <div class="col-auto">
-                <label class="form-label mb-0 small">Ordered</label>
-                <select class="form-select form-select-sm" name="ordered" style="width:120px;">
-                    <option value="">All</option>
-                    <option value="ordered" {% if filters.ordered == 'ordered' %}selected{% endif %}>Ordered</option>
-                    <option value="not_ordered" {% if filters.ordered == 'not_ordered' %}selected{% endif %}>Not Ordered</option>
+            <div>
+                <select class="form-select form-select-sm" name="ordered" style="width:105px; font-size:0.78rem;">
+                    <option value="">Ordered</option>
+                    <option value="ordered" {% if filters.ordered == 'ordered' %}selected{% endif %}>Yes</option>
+                    <option value="not_ordered" {% if filters.ordered == 'not_ordered' %}selected{% endif %}>No</option>
                 </select>
             </div>
-            <div class="col-auto pt-3">
-                <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="assisted_only" value="1" id="assistedOnly" {% if filters.assisted_only %}checked{% endif %}><label class="form-check-label small" for="assistedOnly">Assisted</label></div>
+            <div class="d-flex align-items-center gap-2">
+                <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="assisted_only" value="1" id="assistedOnly" {% if filters.assisted_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="assistedOnly">Assisted</label></div>
+                <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="expected_only" value="1" id="expectedOnly" {% if filters.expected_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="expectedOnly">Expected</label></div>
+                <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="has_cart_only" value="1" id="hasCartOnly" {% if filters.has_cart_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="hasCartOnly">Cart</label></div>
             </div>
-            <div class="col-auto pt-3">
-                <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="expected_only" value="1" id="expectedOnly" {% if filters.expected_only %}checked{% endif %}><label class="form-check-label small" for="expectedOnly">Expected</label></div>
-            </div>
-            <div class="col-auto pt-3">
-                <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="has_cart_only" value="1" id="hasCartOnly" {% if filters.has_cart_only %}checked{% endif %}><label class="form-check-label small" for="hasCartOnly">Has Cart</label></div>
-            </div>
-            <div class="col-auto pt-3">
-                <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter me-1"></i>Apply</button>
-                <a href="/crm/review-ordering" class="btn btn-outline-secondary btn-sm ms-1"><i class="fas fa-redo me-1"></i>Reset</a>
+            <div>
+                <button type="submit" class="btn btn-sm btn-primary py-0 px-2" style="font-size:0.78rem;"><i class="fas fa-filter me-1"></i>Apply</button>
+                <a href="/crm/review-ordering" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:0.78rem;"><i class="fas fa-redo"></i></a>
             </div>
         </div>
     </form>
@@ -178,7 +163,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
         </div>
     </form>
 
-    <div class="table-responsive" style="max-height: calc(100vh - 280px); overflow-y: auto;">
+    <div class="table-responsive" style="max-height: calc(100vh - 180px); overflow-y: auto;">
         <table class="table table-sm review-table mb-0">
             <thead class="table-dark">
                 <tr>
