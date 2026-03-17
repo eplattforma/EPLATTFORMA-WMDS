@@ -128,7 +128,13 @@
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="customersDropdown">
                             <li>
-                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('crm_dashboard.') %}active{% endif %}" 
+                                <a class="dropdown-item {% if request.path == '/crm/review-ordering' %}active{% endif %}" 
+                                   href="/crm/review-ordering">
+                                    <i class="fas fa-clipboard-check me-2"></i>Ordering Dashboard
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('crm_dashboard.') and request.path != '/crm/review-ordering' %}active{% endif %}" 
                                    href="{{ url_for('crm_dashboard.customer_slot_dashboard') }}">
                                     <i class="fas fa-bolt me-2"></i>EP SmartGrowth AI
                                 </a>
