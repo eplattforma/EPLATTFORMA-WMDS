@@ -233,6 +233,8 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     <td class="value-col">
                         {% if r.open_order_amount > 0 %}
                         <span class="badge" style="background:#6f42c1;">€{{ "{:,.0f}".format(r.open_order_amount) }}</span>
+                        {% elif r.invoice_in_window %}
+                        <span class="badge" style="background:#198754;font-size:0.68rem;" title="Invoice issued during window"><i class="fas fa-file-invoice me-1"></i>Invoiced</span>
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td>
@@ -442,7 +444,7 @@ function openDrawer(idx) {
         var dAgo = r.last_comm.days_ago !== null ? r.last_comm.days_ago + 'd ago' : '';
         commEl.innerHTML = '<span style="color:#22c55e;">' + chLabel + '</span> · ' + dAgo + (r.last_comm.template_title ? '<br><small class="text-muted">' + r.last_comm.template_title + '</small>' : '');
     } else { commEl.textContent = '—'; }
-    document.getElementById('drawer-order-exists').innerHTML = r.open_order_count > 0 ? '<span class="text-success">Yes ('+r.open_order_count+')</span>' : '<span class="text-danger">No</span>';
+    document.getElementById('drawer-order-exists').innerHTML = r.open_order_count > 0 ? '<span class="text-success">Yes ('+r.open_order_count+')</span>' : r.invoice_in_window ? '<span class="text-success"><i class="fas fa-file-invoice me-1"></i>Invoiced</span>' : '<span class="text-danger">No</span>';
     document.getElementById('drawer-order-value').textContent = r.open_order_amount > 0 ? '€' + Math.round(r.open_order_amount).toLocaleString() : '—';
     document.getElementById('drawer-cart-exists').innerHTML = r.has_cart ? '<span class="text-warning">Yes' + (r.cart_amount ? ' (€'+Math.round(r.cart_amount)+')' : '') + '</span>' : 'No';
     var cmText = {none:'—', pending_order:'Pending order', add_on:'Add-on after order'};

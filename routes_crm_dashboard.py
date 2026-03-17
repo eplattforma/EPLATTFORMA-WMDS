@@ -746,6 +746,12 @@ def review_ordering():
         has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
         cart_amount = float(r.abandoned_cart_amount) if r.abandoned_cart_amount is not None else 0
         has_order = open_order_count > 0
+        invoice_in_window = False
+        if last_invoice_date and window_status.get("window_open_at"):
+            inv_d = last_invoice_date.date() if isinstance(last_invoice_date, datetime) else last_invoice_date
+            if inv_d >= window_status["window_open_at"].date():
+                has_order = True
+                invoice_in_window = True
         assisted = bool(r.assisted_ordering) if r.assisted_ordering is not None else False
 
         last_login_at = r.last_login_at
@@ -788,6 +794,7 @@ def review_ordering():
             "value_4w": float(r.value_4w or 0),
             "open_order_amount": float(r.open_order_amount) if r.open_order_amount else 0,
             "open_order_count": open_order_count,
+            "invoice_in_window": invoice_in_window,
             "next_delivery": next_del.strftime('%a %d-%b') if next_del else None,
             "next_delivery_date": next_del.isoformat() if next_del else None,
             "window_close_at": window_status.get("window_close_at").isoformat() if window_status.get("window_close_at") else None,
