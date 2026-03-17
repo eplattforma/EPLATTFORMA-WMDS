@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Bulk SMS Send{% endblock %}
+{% block head %}
+<style>
+.bulk-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.bulk-card h6 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.45); margin-bottom: 10px; }
+.stats-row { display: flex; gap: 16px; margin-bottom: 16px; }
+.stat-box { padding: 10px 20px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); }
+.stat-box .num { font-size: 1.4rem; font-weight: 700; }
+.stat-box .lbl { font-size: 0.65rem; text-transform: uppercase; color: rgba(255,255,255,0.45); }
+#bulkResults { display: none; }
+.result-summary { display: flex; gap: 16px; margin-bottom: 16px; }
+.result-box { padding: 12px 20px; border-radius: 8px; text-align: center; flex: 1; }
+.result-box.success { background: rgba(25,135,84,0.15); border: 1px solid rgba(25,135,84,0.3); }
+.result-box.failed { background: rgba(220,53,69,0.15); border: 1px solid rgba(220,53,69,0.3); }
+.result-box.skipped { background: rgba(108,117,125,0.15); border: 1px solid rgba(108,117,125,0.3); }
+.result-box .num { font-size: 1.6rem; font-weight: 700; }
+.result-box .lbl { font-size: 0.7rem; text-transform: uppercase; color: rgba(255,255,255,0.5); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="fas fa-paper-plane me-2"></i>Bulk MicroSMS Send</h4>
+        <a href="{{ request.referrer or url_for('crm_dashboard.review_ordering') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Review</a>
+    </div>
+
+    <div id="bulkForm">
+        <div class="stats-row">
+            <div class="stat-box">
+                <div class="num text-primary">{{ total_selected }}</div>
+                <div class="lbl">Selected</div>
+            </div>
+            <div class="stat-box">
+                <div class="num text-success">{{ valid_count }}</div>
+                <div class="lbl">Valid Phone</div>
+            </div>
+            <div class="stat-box">
+                <div class="num text-danger">{{ invalid_count }}</div>
+                <div class="lbl">Invalid / Skipped</div>
+            </div>
+        </div>
+
+        <div class="bulk-card">
+            <h6>Choose Template</h6>
+            {% if templates %}
+            <select class="form-select form-select-sm mb-2" id="bulkTemplate">
+                <option value="">— Select template —</option>
+                {% for t in templates %}
+                <option value="{{ t.code }}" data-body="{{ t.body or '' }}">{{ t.title or t.code }}</option>
+                {% endfor %}
+            </select>
+            <div class="mb-2">
+                <label class="form-label" style="font-size:0.8rem;">Preview (first customer):</label>
+                <textarea class="form-control" id="bulkPreview" rows="3" readonly placeholder="Select a template…" style="font-size:0.85rem;"></textarea>
+            </div>
+            {% else %}
+            <div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>No bulk-enabled templates found. Mark templates as "Bulk Allowed" in template management.</div>
+            {% endif %}
+        </div>
+
+        <div class="bulk-card">
+            <h6>Recipients ({{ valid_count }} valid)</h6>
+            <div style="max-height:300px;overflow-y:auto;">
+                <table class="table table-sm" style="font-size:0.82rem;">
+                    <thead><tr><th>Customer</th><th>Phone</th><th>Status</th></tr></thead>
+                    <tbody>
+                        {% for c in customers %}
+                        <tr>
+                            <td>{{ c.customer_name }}<br><small class="text-muted">{{ c.customer_code_365 }}</small></td>
+                            <td>{{ c.primary_display or c.mobile_number or '—' }}</td>
+                            <td>
+                                {% if c.phone_valid %}<span class="badge bg-success">valid</span>
+                                {% else %}<span class="badge bg-danger">invalid</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% if templates and valid_count > 0 %}
+        <button class="btn btn-primary btn-lg" id="btnBulkSend" onclick="executeBulkSend()">
+            <i class="fas fa-paper-plane me-2"></i>Send to {{ valid_count }} Customers
+        </button>
+        {% endif %}
+    </div>
+
+    <div id="bulkResults">
+        <div class="result-summary">
+            <div class="result-box success">
+                <div class="num" id="resSent">0</div>
+                <div class="lbl">Sent</div>
+            </div>
+            <div class="result-box failed">
+                <div class="num" id="resFailed">0</div>
+                <div class="lbl">Failed</div>
+            </div>
+            <div class="result-box skipped">
+                <div class="num" id="resSkipped">0</div>
+                <div class="lbl">Skipped</div>
+            </div>
+        </div>
+        <div class="bulk-card">
+            <h6>Results</h6>
+            <div id="resDetails" style="max-height:400px;overflow-y:auto;"></div>
+        </div>
+        <a href="{{ url_for('crm_dashboard.review_ordering') }}" class="btn btn-outline-secondary mt-2"><i class="fas fa-arrow-left me-1"></i>Back to Review</a>
+    </div>
+</div>
+
+<script>
+var _customerCodes = {{ customers | map(attribute='customer_code_365') | list | tojson }};
+
+{% if customers|length > 0 %}
+document.getElementById('bulkTemplate').addEventListener('change', function(){
+    if (!this.value) { document.getElementById('bulkPreview').value = ''; return; }
+    var fd = new FormData();
+    fd.append('customer_code_365', _customerCodes[0]);
+    fd.append('template_code', this.value);
+    fetch('/admin/communications/preview', {method:'POST', body:fd})
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            document.getElementById('bulkPreview').value = data.rendered_body || data.error || '';
+        });
+});
+{% endif %}
+
+async function executeBulkSend() {
+    var tpl = document.getElementById('bulkTemplate').value;
+    if (!tpl) { alert('Please select a template.'); return; }
+    if (!confirm('Send MicroSMS to ' + {{ valid_count }} + ' customers?')) return;
+
+    var btn = document.getElementById('btnBulkSend');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending…';
+
+    var fd = new FormData();
+    _customerCodes.forEach(function(c){ fd.append('customer_codes[]', c); });
+    fd.append('template_code', tpl);
+    fd.append('source_screen', '{{ source_screen }}');
+
+    try {
+        var res = await fetch('/admin/communications/bulk/send-microsms', {method:'POST', body:fd});
+        var data = await res.json();
+        document.getElementById('bulkForm').style.display = 'none';
+        document.getElementById('bulkResults').style.display = 'block';
+        document.getElementById('resSent').textContent = data.total_sent || 0;
+        document.getElementById('resFailed').textContent = data.total_failed || 0;
+        document.getElementById('resSkipped').textContent = data.total_skipped || 0;
+
+        var html = '<table class="table table-sm" style="font-size:0.82rem;"><thead><tr><th>Customer</th><th>Status</th><th>Note</th></tr></thead><tbody>';
+        (data.results || []).forEach(function(r){
+            var cls = r.status === 'sent' ? 'bg-success' : r.status === 'failed' ? 'bg-danger' : 'bg-secondary';
+            html += '<tr><td>' + r.code + '</td><td><span class="badge ' + cls + '">' + r.status + '</span></td><td>' + (r.reason || '') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('resDetails').innerHTML = html;
+    } catch(e) {
+        alert('Error: ' + e.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send';
+    }
+}
+</script>
+{% endblock %}

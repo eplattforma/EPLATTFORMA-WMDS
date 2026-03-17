@@ -2936,6 +2936,56 @@ class SyncJobLock(db.Model):
     locked_by = db.Column(db.String(100))
 
 
+class CRMCommunicationLog(db.Model):
+    __tablename__ = "crm_communication_log"
+    id = db.Column(db.BigInteger, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: get_utc_now())
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: get_utc_now(), onupdate=lambda: get_utc_now())
+    created_by_username = db.Column(db.String(100), nullable=True)
+    customer_code_365 = db.Column(db.String(50), nullable=True)
+    customer_name = db.Column(db.String(255), nullable=True)
+    context_type = db.Column(db.String(50), nullable=True)
+    context_id = db.Column(db.String(100), nullable=True)
+    source_screen = db.Column(db.String(50), nullable=True)
+    channel = db.Column(db.String(30), nullable=False)
+    direction = db.Column(db.String(10), nullable=False, default='outbound')
+    template_code = db.Column(db.String(100), nullable=True)
+    template_title = db.Column(db.String(255), nullable=True)
+    recipient_number = db.Column(db.String(50), nullable=True)
+    recipient_number_normalized = db.Column(db.String(30), nullable=True)
+    message_text = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(30), nullable=False, default='initiated')
+    outcome_note = db.Column(db.Text, nullable=True)
+    batch_id = db.Column(db.String(120), nullable=True)
+    provider_name = db.Column(db.String(50), nullable=True)
+    provider_message_id = db.Column(db.String(120), nullable=True)
+    provider_error_code = db.Column(db.String(50), nullable=True)
+    provider_raw_response = db.Column(db.Text, nullable=True)
+    dlr_status = db.Column(db.String(50), nullable=True)
+    dlr_received_at = db.Column(db.DateTime, nullable=True)
+    launch_url = db.Column(db.Text, nullable=True)
+    extra_json = db.Column(db.JSON, nullable=True)
+
+
+class CRMCommunicationBatch(db.Model):
+    __tablename__ = "crm_communication_batch"
+    id = db.Column(db.BigInteger, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: get_utc_now())
+    created_by_username = db.Column(db.String(100), nullable=True)
+    source_screen = db.Column(db.String(50), nullable=True)
+    channel = db.Column(db.String(30), nullable=False)
+    template_code = db.Column(db.String(100), nullable=True)
+    template_title = db.Column(db.String(255), nullable=True)
+    total_selected = db.Column(db.Integer, nullable=False, default=0)
+    total_valid = db.Column(db.Integer, nullable=False, default=0)
+    total_sent = db.Column(db.Integer, nullable=False, default=0)
+    total_failed = db.Column(db.Integer, nullable=False, default=0)
+    total_skipped = db.Column(db.Integer, nullable=False, default=0)
+    batch_id = db.Column(db.String(120), nullable=False, unique=True)
+    notes = db.Column(db.Text, nullable=True)
+    extra_json = db.Column(db.JSON, nullable=True)
+
+
 class PostalCodeLookup(db.Model):
     __tablename__ = "postal_code_lookup"
     id = db.Column(db.Integer, primary_key=True)

@@ -1,0 +1,49 @@
+{% if history %}
+<table class="table table-sm table-hover" style="font-size:0.82rem;">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>User</th>
+            <th>Channel</th>
+            <th>Status</th>
+            <th>Template</th>
+            <th>Message</th>
+            <th>Note</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for h in history %}
+        <tr data-log-id="{{ h.id }}">
+            <td style="white-space:nowrap;">{{ h.created_at.strftime('%d-%b %H:%M') if h.created_at else '—' }}</td>
+            <td>{{ h.created_by_username or '—' }}</td>
+            <td>
+                {% if h.channel == 'microsms' %}<span class="badge bg-primary"><i class="fas fa-satellite-dish me-1"></i>MicroSMS</span>
+                {% elif h.channel == 'phone_sms' %}<span class="badge bg-success"><i class="fas fa-mobile-alt me-1"></i>Phone SMS</span>
+                {% elif h.channel == 'phone_call' %}<span class="badge bg-info"><i class="fas fa-phone me-1"></i>Call</span>
+                {% elif h.channel == 'whatsapp' %}<span class="badge" style="background:#25D366;"><i class="fab fa-whatsapp me-1"></i>WhatsApp</span>
+                {% elif h.channel == 'viber' %}<span class="badge" style="background:#7360f2;"><i class="fab fa-viber me-1"></i>Viber</span>
+                {% else %}<span class="badge bg-secondary">{{ h.channel }}</span>{% endif %}
+            </td>
+            <td>
+                {% if h.status == 'sent' or h.status == 'delivered' %}<span class="badge bg-success">{{ h.status }}</span>
+                {% elif h.status == 'failed' %}<span class="badge bg-danger">{{ h.status }}</span>
+                {% elif h.status == 'launched' %}<span class="badge bg-info">{{ h.status }}</span>
+                {% elif h.status == 'answered' %}<span class="badge bg-success">{{ h.status }}</span>
+                {% elif h.status == 'no_answer' %}<span class="badge bg-warning text-dark">{{ h.status }}</span>
+                {% else %}<span class="badge bg-secondary">{{ h.status }}</span>{% endif %}
+            </td>
+            <td>{{ h.template_code or '—' }}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ h.message_text or '' }}">{{ (h.message_text or '—')[:60] }}{% if h.message_text and h.message_text|length > 60 %}…{% endif %}</td>
+            <td>
+                {{ h.outcome_note or '' }}
+                {% if h.channel == 'phone_call' and h.status == 'launched' %}
+                <button class="btn btn-outline-info btn-sm py-0 px-1" style="font-size:0.7rem;" onclick="openOutcomeModal({{ h.id }})">Update</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="text-muted text-center py-3"><i class="fas fa-inbox me-2"></i>No communication history yet</p>
+{% endif %}

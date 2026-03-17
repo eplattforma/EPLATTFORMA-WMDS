@@ -202,6 +202,9 @@ app.register_blueprint(ai_feedback_bp)
 from blueprints.sms import sms_bp
 app.register_blueprint(sms_bp)
 
+from blueprints.communications import communications_bp
+app.register_blueprint(communications_bp)
+
 from blueprints.replenishment_mvp import replenishment_bp
 app.register_blueprint(replenishment_bp)
 

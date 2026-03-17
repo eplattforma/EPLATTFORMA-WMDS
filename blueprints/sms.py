@@ -416,9 +416,11 @@ def sms_templates():
         return redirect(url_for("admin_dashboard"))
 
     rows = db.session.execute(db.text("""
-        SELECT id, code, title, sender_title, body, force_unicode, is_enabled, created_at, updated_at
+        SELECT id, code, title, sender_title, body, force_unicode, is_enabled,
+               allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber,
+               call_script, is_bulk_allowed, sort_order, created_at, updated_at
         FROM sms_template
-        ORDER BY title
+        ORDER BY COALESCE(sort_order, 999), title
     """)).mappings().all()
 
     templates = []
@@ -431,6 +433,14 @@ def sms_templates():
             "body": r.body,
             "force_unicode": bool(r.force_unicode),
             "is_enabled": bool(r.is_enabled),
+            "allow_microsms": bool(r.allow_microsms) if r.allow_microsms is not None else True,
+            "allow_phone_sms": bool(r.allow_phone_sms),
+            "allow_call": bool(r.allow_call),
+            "allow_whatsapp": bool(r.allow_whatsapp),
+            "allow_viber": bool(r.allow_viber),
+            "call_script": r.call_script or "",
+            "is_bulk_allowed": bool(r.is_bulk_allowed),
+            "sort_order": r.sort_order or 0,
         })
 
     return render_template("admin/sms_templates.html", templates=templates)
@@ -450,6 +460,18 @@ def sms_template_save():
     body = request.form.get("body", "").strip()
     force_unicode = request.form.get("force_unicode") == "on"
     is_enabled = request.form.get("is_enabled") == "on"
+    allow_microsms = request.form.get("allow_microsms") == "on"
+    allow_phone_sms = request.form.get("allow_phone_sms") == "on"
+    allow_call = request.form.get("allow_call") == "on"
+    allow_whatsapp = request.form.get("allow_whatsapp") == "on"
+    allow_viber = request.form.get("allow_viber") == "on"
+    call_script = request.form.get("call_script", "").strip() or None
+    is_bulk_allowed = request.form.get("is_bulk_allowed") == "on"
+    sort_order = request.form.get("sort_order", "0").strip()
+    try:
+        sort_order = int(sort_order)
+    except ValueError:
+        sort_order = 0
 
     if not code or not title or not body:
         flash("Code, title and body are required.", "danger")
@@ -457,23 +479,37 @@ def sms_template_save():
 
     code = re.sub(r'[^A-Z0-9_]', '_', code)
 
+    params = {
+        "code": code, "title": title, "sender": sender_title,
+        "body": body, "fu": force_unicode, "en": is_enabled,
+        "a_micro": allow_microsms, "a_phone": allow_phone_sms,
+        "a_call": allow_call, "a_wa": allow_whatsapp, "a_viber": allow_viber,
+        "cs": call_script, "bulk": is_bulk_allowed, "so": sort_order,
+    }
+
     try:
         if tpl_id:
+            params["id"] = int(tpl_id)
             db.session.execute(db.text("""
                 UPDATE sms_template
                 SET code = :code, title = :title, sender_title = :sender,
                     body = :body, force_unicode = :fu, is_enabled = :en,
+                    allow_microsms = :a_micro, allow_phone_sms = :a_phone,
+                    allow_call = :a_call, allow_whatsapp = :a_wa, allow_viber = :a_viber,
+                    call_script = :cs, is_bulk_allowed = :bulk, sort_order = :so,
                     updated_at = NOW()
                 WHERE id = :id
-            """), {"id": int(tpl_id), "code": code, "title": title, "sender": sender_title,
-                   "body": body, "fu": force_unicode, "en": is_enabled})
+            """), params)
             flash(f"Template '{title}' updated.", "success")
         else:
             db.session.execute(db.text("""
-                INSERT INTO sms_template (code, title, sender_title, body, force_unicode, is_enabled)
-                VALUES (:code, :title, :sender, :body, :fu, :en)
-            """), {"code": code, "title": title, "sender": sender_title,
-                   "body": body, "fu": force_unicode, "en": is_enabled})
+                INSERT INTO sms_template (code, title, sender_title, body, force_unicode, is_enabled,
+                    allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber,
+                    call_script, is_bulk_allowed, sort_order)
+                VALUES (:code, :title, :sender, :body, :fu, :en,
+                    :a_micro, :a_phone, :a_call, :a_wa, :a_viber,
+                    :cs, :bulk, :so)
+            """), params)
             flash(f"Template '{title}' created.", "success")
         db.session.commit()
     except Exception as e:
@@ -557,6 +593,16 @@ def microsms_dlr():
             WHERE mobile_number = :mob
               AND batch_id = :batch
         """), {"st": smsstatus, "ts": now, "raw": raw_xml, "mob": mob, "batch": batchid})
+
+        db.session.execute(db.text("""
+            UPDATE crm_communication_log
+            SET dlr_status = :st,
+                dlr_received_at = :ts,
+                updated_at = :ts
+            WHERE recipient_number_normalized = :mob
+              AND batch_id = :batch
+              AND channel = 'microsms'
+        """), {"st": smsstatus, "ts": now, "mob": mob, "batch": batchid})
 
     db.session.commit()
     return Response("ok", status=200)

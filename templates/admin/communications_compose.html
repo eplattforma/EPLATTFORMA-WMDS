@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+{% block title %}Communications — {{ customer.customer_name }}{% endblock %}
+{% block head %}
+<style>
+.comm-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.comm-card h6 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.45); margin-bottom: 10px; }
+.channel-btn { min-width: 130px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.channel-btn i { font-size: 1rem; }
+.btn-microsms { background: #0d6efd; color: white; }
+.btn-microsms:hover { background: #0b5ed7; color: white; }
+.btn-phone-sms { background: #198754; color: white; }
+.btn-phone-sms:hover { background: #157347; color: white; }
+.btn-call { background: #0dcaf0; color: #000; }
+.btn-call:hover { background: #0ab9de; color: #000; }
+.btn-whatsapp { background: #25D366; color: white; }
+.btn-whatsapp:hover { background: #1fb855; color: white; }
+.btn-viber { background: #7360f2; color: white; }
+.btn-viber:hover { background: #6050d8; color: white; }
+.customer-header { display: flex; align-items: center; gap: 16px; }
+.customer-header .avatar { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; }
+.char-info { font-size: 0.75rem; color: rgba(255,255,255,0.4); }
+.call-script-panel { background: rgba(0,220,180,0.05); border: 1px solid rgba(0,220,180,0.15); border-radius: 6px; padding: 12px; margin-top: 10px; display: none; }
+.call-script-panel.visible { display: block; }
+#commStatus { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9999; display: none; padding: 10px 24px; border-radius: 8px; font-size: 0.9rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="fas fa-comments me-2"></i>Communications</h4>
+        <a href="{{ request.referrer or url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back</a>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-5">
+            <div class="comm-card">
+                <h6>Customer</h6>
+                <div class="customer-header">
+                    <div class="avatar"><i class="fas fa-user fa-lg text-muted"></i></div>
+                    <div>
+                        <strong>{{ customer.customer_name }}</strong><br>
+                        <small class="text-muted">{{ customer.customer_code_365 }}</small>
+                        {% if customer.contact_first_name %}
+                        <small class="text-muted ms-2"><i class="fas fa-user-tag me-1"></i>{{ customer.contact_first_name }}</small>
+                        {% endif %}
+                        {% if source_screen %}
+                        <span class="badge bg-secondary ms-2" style="font-size:0.65rem;">{{ source_screen }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <i class="fas fa-mobile-alt text-success"></i>
+                        <span id="phoneDisplay">{{ customer.primary_display or customer.mobile_number or '—' }}</span>
+                        {% if customer.phone_valid %}
+                        <span class="badge bg-success" style="font-size:0.6rem;">valid</span>
+                        {% else %}
+                        <span class="badge bg-danger" style="font-size:0.6rem;">invalid</span>
+                        {% endif %}
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="copyToClip('{{ customer.primary_e164 }}', 'Number copied')" title="Copy number"><i class="fas fa-copy" style="font-size:0.7rem;"></i></button>
+                    </div>
+                    {% if customer.delivery_date %}
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="fas fa-truck text-warning"></i>
+                        <span>{{ customer.delivery_date }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="comm-card">
+                <h6>Template & Message</h6>
+                <div class="mb-2">
+                    <select class="form-select form-select-sm" id="templateSelect">
+                        <option value="">— No template —</option>
+                        {% for t in templates %}
+                        <option value="{{ t.code }}" data-body="{{ t.body or '' }}" data-call-script="{{ t.call_script or '' }}"
+                                data-allow-microsms="{{ t.allow_microsms }}" data-allow-phone-sms="{{ t.allow_phone_sms }}"
+                                data-allow-call="{{ t.allow_call }}" data-allow-whatsapp="{{ t.allow_whatsapp }}"
+                                data-allow-viber="{{ t.allow_viber }}" data-sender="{{ t.sender_title or '' }}"
+                                {% if selected_tpl == t.code %}selected{% endif %}>
+                            {{ t.title or t.code }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <textarea class="form-control" id="messageText" rows="5" placeholder="Type your message…">{% if rendered and rendered.rendered_body %}{{ rendered.rendered_body }}{% endif %}</textarea>
+                    <div class="d-flex justify-content-between mt-1">
+                        <span class="char-info" id="charCount">0 / 600</span>
+                        <span class="char-info" id="partCount">1 SMS part</span>
+                    </div>
+                </div>
+                <div class="call-script-panel" id="callScriptPanel">
+                    <h6 style="color:#0dcaf0;"><i class="fas fa-phone-alt me-1"></i>Call Script</h6>
+                    <div id="callScriptText" style="white-space:pre-wrap;font-size:0.85rem;"></div>
+                </div>
+                <div class="d-flex gap-1 mt-2">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="copyToClip(document.getElementById('messageText').value, 'Message copied')" title="Copy message"><i class="fas fa-clipboard me-1"></i>Copy</button>
+                </div>
+            </div>
+
+            <div class="comm-card">
+                <h6>Actions</h6>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn channel-btn btn-microsms" id="btnMicrosms" onclick="doSendMicrosms()" {% if not customer.phone_valid %}disabled{% endif %}>
+                        <i class="fas fa-satellite-dish"></i>Send MicroSMS
+                    </button>
+                    <button class="btn channel-btn btn-phone-sms" id="btnPhoneSms" onclick="doLaunch('phone_sms')" {% if not customer.phone_valid %}disabled{% endif %}>
+                        <i class="fas fa-mobile-alt"></i>SMS via Phone
+                    </button>
+                    <button class="btn channel-btn btn-call" id="btnCall" onclick="doLaunch('phone_call')" {% if not customer.phone_valid %}disabled{% endif %}>
+                        <i class="fas fa-phone"></i>Call
+                    </button>
+                    <button class="btn channel-btn btn-whatsapp" id="btnWhatsapp" onclick="doLaunch('whatsapp')" {% if not customer.phone_valid %}disabled{% endif %}>
+                        <i class="fab fa-whatsapp"></i>WhatsApp
+                    </button>
+                    <button class="btn channel-btn btn-viber" id="btnViber" onclick="doLaunch('viber')" {% if not customer.phone_valid %}disabled{% endif %}>
+                        <i class="fab fa-viber"></i>Viber
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="comm-card">
+                <h6>Communication History</h6>
+                <div id="historyContainer">
+                    {% include "admin/partials/communication_history_table.html" %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="outcomeModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-dark">
+                <h6 class="modal-title"><i class="fas fa-phone me-2"></i>Call Outcome</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="outcomeLogId">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-sm" onclick="saveOutcome('answered')"><i class="fas fa-check me-1"></i>Answered</button>
+                    <button class="btn btn-warning btn-sm" onclick="saveOutcome('no_answer')"><i class="fas fa-phone-slash me-1"></i>No Answer</button>
+                    <button class="btn btn-info btn-sm" onclick="saveOutcome('callback_requested')"><i class="fas fa-redo me-1"></i>Callback Requested</button>
+                    <button class="btn btn-danger btn-sm" onclick="saveOutcome('wrong_number')"><i class="fas fa-times me-1"></i>Wrong Number</button>
+                    <button class="btn btn-secondary btn-sm" onclick="saveOutcome('left_message')"><i class="fas fa-voicemail me-1"></i>Left Message</button>
+                </div>
+                <div class="mt-2">
+                    <textarea class="form-control form-control-sm" id="outcomeNote" rows="2" placeholder="Optional note…"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="commStatus" class="text-white"></div>
+
+<script>
+var _customerCode = '{{ customer.customer_code_365 }}';
+var _customerName = '{{ customer.customer_name | e }}';
+var _sourceScreen = '{{ source_screen }}';
+var _lastLogId = null;
+
+function showStatus(msg, type) {
+    var el = document.getElementById('commStatus');
+    el.style.background = type === 'success' ? '#22c55e' : type === 'error' ? '#dc3545' : '#0dcaf0';
+    el.innerHTML = msg;
+    el.style.display = 'block';
+    setTimeout(function(){ el.style.display = 'none'; }, 5000);
+}
+
+function copyToClip(text, label) {
+    navigator.clipboard.writeText(text).then(function(){
+        showStatus('<i class="fas fa-clipboard-check me-2"></i>' + label, 'success');
+    });
+}
+
+function updateCharCount() {
+    var ta = document.getElementById('messageText');
+    var len = ta.value.length;
+    document.getElementById('charCount').textContent = len + ' / 600';
+    var parts = Math.ceil(len / 160) || 1;
+    document.getElementById('partCount').textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
+}
+document.getElementById('messageText').addEventListener('input', updateCharCount);
+updateCharCount();
+
+document.getElementById('templateSelect').addEventListener('change', function(){
+    var opt = this.options[this.selectedIndex];
+    if (!this.value) {
+        document.getElementById('messageText').value = '';
+        document.getElementById('callScriptPanel').classList.remove('visible');
+        updateCharCount();
+        return;
+    }
+
+    var fd = new FormData();
+    fd.append('customer_code_365', _customerCode);
+    fd.append('template_code', this.value);
+    fetch('/admin/communications/preview', {method:'POST', body:fd})
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            if (data.error) {
+                showStatus('<i class="fas fa-exclamation-circle me-2"></i>' + data.error, 'error');
+                return;
+            }
+            document.getElementById('messageText').value = data.rendered_body || '';
+            updateCharCount();
+            if (data.warning) {
+                showStatus('<i class="fas fa-exclamation-triangle me-2"></i>Warning: ' + data.warning, 'info');
+            }
+            if (data.rendered_call_script) {
+                document.getElementById('callScriptText').textContent = data.rendered_call_script;
+                document.getElementById('callScriptPanel').classList.add('visible');
+            } else {
+                document.getElementById('callScriptPanel').classList.remove('visible');
+            }
+        })
+        .catch(function(e){
+            var body = opt.dataset.body || '';
+            document.getElementById('messageText').value = body
+                .replace(/\{\{\s*customer_name\s*\}\}/g, _customerName)
+                .replace(/\{\{\s*first_name\s*\}\}/g, _customerName.split(' ')[0] || '');
+            updateCharCount();
+        });
+});
+
+async function doSendMicrosms() {
+    var msg = document.getElementById('messageText').value.trim();
+    if (!msg) { alert('Please type a message.'); return; }
+    var btn = document.getElementById('btnMicrosms');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
+    try {
+        var fd = new FormData();
+        fd.append('customer_code_365', _customerCode);
+        fd.append('message', msg);
+        fd.append('template_code', document.getElementById('templateSelect').value || '');
+        fd.append('source_screen', _sourceScreen);
+        var res = await fetch('/admin/communications/send-microsms', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) {
+            showStatus('<i class="fas fa-check-circle me-2"></i>SMS sent successfully', 'success');
+            refreshHistory();
+        } else {
+            showStatus('<i class="fas fa-exclamation-circle me-2"></i>' + (data.error || 'Send failed'), 'error');
+        }
+    } catch(e) { showStatus('<i class="fas fa-exclamation-circle me-2"></i>Error: ' + e.message, 'error'); }
+    btn.disabled = false; btn.innerHTML = '<i class="fas fa-satellite-dish"></i>Send MicroSMS';
+}
+
+async function doLaunch(channel) {
+    var msg = document.getElementById('messageText').value.trim();
+    var fd = new FormData();
+    fd.append('customer_code_365', _customerCode);
+    fd.append('message', msg);
+    fd.append('template_code', document.getElementById('templateSelect').value || '');
+    fd.append('source_screen', _sourceScreen);
+
+    try {
+        var urlMap = {phone_sms: 'launch-phone-sms', phone_call: 'launch-call', whatsapp: 'launch-whatsapp', viber: 'launch-viber'};
+        var res = await fetch('/admin/communications/' + urlMap[channel], {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) {
+            _lastLogId = data.log_id;
+            if (data.launch_url) {
+                if (channel === 'whatsapp') {
+                    window.open(data.launch_url, '_blank');
+                } else {
+                    window.location.href = data.launch_url;
+                }
+            }
+            showStatus('<i class="fas fa-check-circle me-2"></i>' + channel.replace('_', ' ') + ' launched', 'success');
+            refreshHistory();
+
+            if (channel === 'phone_call') {
+                setTimeout(function(){
+                    document.getElementById('outcomeLogId').value = data.log_id;
+                    document.getElementById('outcomeNote').value = '';
+                    new bootstrap.Modal(document.getElementById('outcomeModal')).show();
+                }, 1000);
+            }
+        } else {
+            showStatus('<i class="fas fa-exclamation-circle me-2"></i>' + (data.error || 'Launch failed'), 'error');
+        }
+    } catch(e) { showStatus('<i class="fas fa-exclamation-circle me-2"></i>Error: ' + e.message, 'error'); }
+}
+
+async function saveOutcome(status) {
+    var logId = document.getElementById('outcomeLogId').value;
+    var note = document.getElementById('outcomeNote').value.trim();
+    if (!logId) return;
+    var fd = new FormData();
+    fd.append('log_id', logId);
+    fd.append('status', status);
+    fd.append('outcome_note', note);
+    try {
+        var res = await fetch('/admin/communications/log-outcome', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) {
+            showStatus('<i class="fas fa-check-circle me-2"></i>Outcome saved', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('outcomeModal')).hide();
+            refreshHistory();
+        }
+    } catch(e) {}
+}
+
+function openOutcomeModal(logId) {
+    document.getElementById('outcomeLogId').value = logId;
+    document.getElementById('outcomeNote').value = '';
+    new bootstrap.Modal(document.getElementById('outcomeModal')).show();
+}
+
+async function refreshHistory() {
+    try {
+        var res = await fetch('/admin/communications/history/customer/' + _customerCode);
+        var data = await res.json();
+        var container = document.getElementById('historyContainer');
+        if (!data.length) {
+            container.innerHTML = '<p class="text-muted text-center py-3"><i class="fas fa-inbox me-2"></i>No communication history yet</p>';
+            return;
+        }
+        var channelBadge = function(ch) {
+            var map = {
+                microsms: ['bg-primary', 'fas fa-satellite-dish', 'MicroSMS'],
+                phone_sms: ['bg-success', 'fas fa-mobile-alt', 'Phone SMS'],
+                phone_call: ['bg-info', 'fas fa-phone', 'Call'],
+                whatsapp: ['', 'fab fa-whatsapp', 'WhatsApp'],
+                viber: ['', 'fab fa-viber', 'Viber'],
+            };
+            var m = map[ch] || ['bg-secondary', '', ch];
+            var style = ch === 'whatsapp' ? 'background:#25D366;' : ch === 'viber' ? 'background:#7360f2;' : '';
+            return '<span class="badge ' + m[0] + '" style="' + style + '"><i class="' + m[1] + ' me-1"></i>' + m[2] + '</span>';
+        };
+        var statusBadge = function(st) {
+            var cls = 'bg-secondary';
+            if (st === 'sent' || st === 'delivered' || st === 'answered') cls = 'bg-success';
+            else if (st === 'failed') cls = 'bg-danger';
+            else if (st === 'launched') cls = 'bg-info';
+            else if (st === 'no_answer') cls = 'bg-warning text-dark';
+            return '<span class="badge ' + cls + '">' + st + '</span>';
+        };
+        var html = '<table class="table table-sm table-hover" style="font-size:0.82rem;"><thead><tr><th>Date</th><th>User</th><th>Channel</th><th>Status</th><th>Template</th><th>Message</th><th>Note</th></tr></thead><tbody>';
+        data.forEach(function(h){
+            var dt = h.created_at ? new Date(h.created_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+            var msgPreview = (h.message_text || '—').substring(0, 60);
+            if (h.message_text && h.message_text.length > 60) msgPreview += '…';
+            var noteHtml = h.outcome_note || '';
+            if (h.channel === 'phone_call' && h.status === 'launched') {
+                noteHtml += ' <button class="btn btn-outline-info btn-sm py-0 px-1" style="font-size:0.7rem;" onclick="openOutcomeModal(' + h.id + ')">Update</button>';
+            }
+            html += '<tr><td style="white-space:nowrap;">' + dt + '</td><td>' + (h.created_by_username || '—') + '</td><td>' + channelBadge(h.channel) + '</td><td>' + statusBadge(h.status) + '</td><td>' + (h.template_code || '—') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (h.message_text || '').replace(/"/g, '&quot;') + '">' + msgPreview + '</td><td>' + noteHtml + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch(e) {}
+}
+
+if (document.getElementById('templateSelect').value) {
+    document.getElementById('templateSelect').dispatchEvent(new Event('change'));
+}
+</script>
+{% endblock %}

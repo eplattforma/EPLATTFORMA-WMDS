@@ -60,6 +60,14 @@
           <small class="text-muted d-block mb-1">Sender: <strong>{{ t.sender_title }}</strong></small>
           {% endif %}
           <pre class="mb-0 p-2 rounded" style="background: rgba(0,0,0,0.15); white-space: pre-wrap; font-size: 0.82rem; max-height: 120px; overflow-y: auto;">{{ t.body }}</pre>
+          <div class="mt-2 d-flex gap-1 flex-wrap">
+            {% if t.allow_microsms %}<span class="badge bg-primary" title="MicroSMS"><i class="fas fa-envelope"></i></span>{% endif %}
+            {% if t.allow_phone_sms %}<span class="badge bg-info" title="Phone SMS"><i class="fas fa-mobile-alt"></i></span>{% endif %}
+            {% if t.allow_call %}<span class="badge bg-warning text-dark" title="Call"><i class="fas fa-phone"></i></span>{% endif %}
+            {% if t.allow_whatsapp %}<span class="badge bg-success" title="WhatsApp"><i class="fab fa-whatsapp"></i></span>{% endif %}
+            {% if t.allow_viber %}<span class="badge" style="background:#7360f2;" title="Viber"><i class="fab fa-viber"></i></span>{% endif %}
+            {% if t.is_bulk_allowed %}<span class="badge bg-dark" title="Bulk Allowed"><i class="fas fa-users"></i></span>{% endif %}
+          </div>
         </div>
         <div class="card-footer d-flex gap-2">
           <button class="btn btn-outline-primary btn-sm edit-tpl-btn"
@@ -69,7 +77,15 @@
                   data-sender="{{ (t.sender_title or '')|e }}"
                   data-body="{{ t.body|e }}"
                   data-enabled="{{ t.is_enabled|tojson }}"
-                  data-unicode="{{ t.force_unicode|tojson }}">
+                  data-unicode="{{ t.force_unicode|tojson }}"
+                  data-allow-microsms="{{ t.allow_microsms|tojson }}"
+                  data-allow-phone-sms="{{ t.allow_phone_sms|tojson }}"
+                  data-allow-call="{{ t.allow_call|tojson }}"
+                  data-allow-whatsapp="{{ t.allow_whatsapp|tojson }}"
+                  data-allow-viber="{{ t.allow_viber|tojson }}"
+                  data-call-script="{{ (t.call_script or '')|e }}"
+                  data-is-bulk="{{ t.is_bulk_allowed|tojson }}"
+                  data-sort-order="{{ t.sort_order }}">
             <i class="fas fa-edit me-1"></i>Edit
           </button>
           <form method="post" action="{{ url_for('sms.sms_template_delete', tpl_id=t.id) }}"
@@ -130,7 +146,7 @@
               <small class="text-muted" id="tplPartCount">1 SMS part</small>
             </div>
           </div>
-          <div class="mt-3 d-flex gap-4">
+          <div class="mt-3 d-flex gap-4 flex-wrap">
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="is_enabled" id="tplEnabled" checked>
               <label class="form-check-label" for="tplEnabled">Enabled</label>
@@ -138,6 +154,46 @@
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="force_unicode" id="tplUnicode">
               <label class="form-check-label" for="tplUnicode">Force Unicode</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="is_bulk_allowed" id="tplBulk">
+              <label class="form-check-label" for="tplBulk">Bulk Send Allowed</label>
+            </div>
+          </div>
+          <hr class="my-3">
+          <label class="form-label fw-bold">Allowed Channels</label>
+          <div class="d-flex gap-4 flex-wrap">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="allow_microsms" id="tplMicrosms" checked>
+              <label class="form-check-label" for="tplMicrosms"><i class="fas fa-envelope me-1"></i>MicroSMS</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="allow_phone_sms" id="tplPhoneSms">
+              <label class="form-check-label" for="tplPhoneSms"><i class="fas fa-mobile-alt me-1"></i>Phone SMS</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="allow_call" id="tplCall">
+              <label class="form-check-label" for="tplCall"><i class="fas fa-phone me-1"></i>Call</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="allow_whatsapp" id="tplWhatsapp">
+              <label class="form-check-label" for="tplWhatsapp"><i class="fab fa-whatsapp me-1"></i>WhatsApp</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="allow_viber" id="tplViber">
+              <label class="form-check-label" for="tplViber"><i class="fab fa-viber me-1"></i>Viber</label>
+            </div>
+          </div>
+          <div class="row g-3 mt-2">
+            <div class="col-md-9">
+              <label class="form-label fw-bold">Call Script <small class="text-muted">(optional, shown when channel is Call)</small></label>
+              <textarea class="form-control" name="call_script" id="tplCallScript" rows="3"
+                        placeholder="Script text to display during call…" maxlength="2000"></textarea>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold">Sort Order</label>
+              <input class="form-control" type="number" name="sort_order" id="tplSortOrder" value="0" min="0" max="999">
+              <small class="text-muted">Lower = first</small>
             </div>
           </div>
         </div>
@@ -161,6 +217,14 @@ function resetForm() {
   document.getElementById('tplBody').value = '';
   document.getElementById('tplEnabled').checked = true;
   document.getElementById('tplUnicode').checked = false;
+  document.getElementById('tplMicrosms').checked = true;
+  document.getElementById('tplPhoneSms').checked = false;
+  document.getElementById('tplCall').checked = false;
+  document.getElementById('tplWhatsapp').checked = false;
+  document.getElementById('tplViber').checked = false;
+  document.getElementById('tplCallScript').value = '';
+  document.getElementById('tplBulk').checked = false;
+  document.getElementById('tplSortOrder').value = '0';
   document.getElementById('tplModalTitle').innerHTML = '<i class="fas fa-plus me-2"></i>New Template';
   updateTplCounts();
 }
@@ -172,6 +236,14 @@ function editTemplate(t) {
   document.getElementById('tplBody').value = t.body;
   document.getElementById('tplEnabled').checked = t.is_enabled;
   document.getElementById('tplUnicode').checked = t.force_unicode;
+  document.getElementById('tplMicrosms').checked = t.allow_microsms;
+  document.getElementById('tplPhoneSms').checked = t.allow_phone_sms;
+  document.getElementById('tplCall').checked = t.allow_call;
+  document.getElementById('tplWhatsapp').checked = t.allow_whatsapp;
+  document.getElementById('tplViber').checked = t.allow_viber;
+  document.getElementById('tplCallScript').value = t.call_script || '';
+  document.getElementById('tplBulk').checked = t.is_bulk_allowed;
+  document.getElementById('tplSortOrder').value = t.sort_order || 0;
   document.getElementById('tplModalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Template';
   updateTplCounts();
   var modal = new bootstrap.Modal(document.getElementById('tplModal'));
@@ -194,7 +266,15 @@ document.addEventListener('click', function(e) {
     sender_title: btn.getAttribute('data-sender'),
     body: btn.getAttribute('data-body'),
     is_enabled: btn.getAttribute('data-enabled') === 'true',
-    force_unicode: btn.getAttribute('data-unicode') === 'true'
+    force_unicode: btn.getAttribute('data-unicode') === 'true',
+    allow_microsms: btn.getAttribute('data-allow-microsms') === 'true',
+    allow_phone_sms: btn.getAttribute('data-allow-phone-sms') === 'true',
+    allow_call: btn.getAttribute('data-allow-call') === 'true',
+    allow_whatsapp: btn.getAttribute('data-allow-whatsapp') === 'true',
+    allow_viber: btn.getAttribute('data-allow-viber') === 'true',
+    call_script: btn.getAttribute('data-call-script'),
+    is_bulk_allowed: btn.getAttribute('data-is-bulk') === 'true',
+    sort_order: parseInt(btn.getAttribute('data-sort-order')) || 0
   };
   editTemplate(t);
 });
