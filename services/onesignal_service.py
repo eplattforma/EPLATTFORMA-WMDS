@@ -13,7 +13,7 @@ from services.communications_service import (
 
 logger = logging.getLogger(__name__)
 
-ONESIGNAL_API_BASE = os.getenv("ONESIGNAL_API_BASE", "https://api.onesignal.com")
+ONESIGNAL_API_BASE = os.getenv("ONESIGNAL_API_BASE", "https://onesignal.com/api/v1")
 
 
 def _headers():
@@ -29,19 +29,85 @@ def _app_id():
     return os.getenv("ONESIGNAL_APP_ID", "").strip()
 
 
+def _resolve_magento_id(customer_code_365):
+    row = db.session.execute(db.text("""
+        SELECT DISTINCT magento_customer_id
+        FROM magento_customer_login_log
+        WHERE customer_code_365 = :cc
+        LIMIT 1
+    """), {"cc": customer_code_365}).first()
+    if row:
+        return str(row[0])
+    row2 = db.session.execute(db.text("""
+        SELECT DISTINCT magento_customer_id
+        FROM magento_customer_last_login_current
+        WHERE customer_code_365 = :cc
+        LIMIT 1
+    """), {"cc": customer_code_365}).first()
+    if row2:
+        return str(row2[0])
+    return None
+
+
 def view_user_by_external_id(customer_code_365):
     app_id = _app_id()
     if not app_id:
         return {"error": "ONESIGNAL_APP_ID not configured", "status_code": 0}
 
-    url = f"{ONESIGNAL_API_BASE}/apps/{app_id}/users/by/external_id/{customer_code_365}"
+    magento_id = _resolve_magento_id(customer_code_365)
+    if not magento_id:
+        logger.info(f"No Magento ID found for customer {customer_code_365}")
+        return {"error": "no_magento_id", "status_code": 0,
+                "detail": "Customer has no linked Magento account"}
+
+    url = f"{ONESIGNAL_API_BASE}/players?app_id={app_id}&limit=300"
 
     try:
         r = req_lib.get(url, headers=_headers(), timeout=15)
-        if r.status_code == 404:
-            return {"error": "user_not_found", "status_code": 404}
         r.raise_for_status()
-        return r.json()
+        data = r.json()
+        players = data.get("players", [])
+        total = data.get("total_count", 0)
+        matching = [p for p in players if str(p.get("external_user_id", "")) == magento_id]
+
+        if not matching and total > 300:
+            offset = 300
+            while offset < total and not matching:
+                batch_url = f"{ONESIGNAL_API_BASE}/players?app_id={app_id}&limit=300&offset={offset}"
+                rb = req_lib.get(batch_url, headers=_headers(), timeout=15)
+                rb.raise_for_status()
+                batch = rb.json().get("players", [])
+                if not batch:
+                    break
+                matching = [p for p in batch if str(p.get("external_user_id", "")) == magento_id]
+                offset += 300
+
+        if not matching:
+            return {"error": "user_not_found", "status_code": 404,
+                    "magento_id": magento_id}
+
+        def _is_push_active(player):
+            nt = player.get("notification_types")
+            if nt is not None and int(nt) < 0:
+                return False
+            if player.get("invalid_identifier"):
+                return False
+            if not player.get("identifier"):
+                return False
+            return True
+
+        return {
+            "subscriptions": [
+                {
+                    "type": "iOSPush" if p.get("device_type") == 0 else "AndroidPush" if p.get("device_type") == 1 else "Push",
+                    "enabled": _is_push_active(p),
+                    "id": p.get("id"),
+                }
+                for p in matching
+            ],
+            "magento_id": magento_id,
+            "external_id": magento_id,
+        }
     except req_lib.exceptions.HTTPError as e:
         logger.warning(f"OneSignal view user HTTP error for {customer_code_365}: {e}")
         return {"error": str(e), "status_code": getattr(e.response, 'status_code', 0)}
@@ -91,6 +157,8 @@ def refresh_customer_push_identity(customer_code_365):
     push_available = push_status["push_available"]
     push_sub_count = push_status["push_subscription_count"]
 
+    magento_id = user_payload.get("magento_id") or user_payload.get("external_id") or customer_code_365
+
     now = datetime.utcnow()
 
     safe_response = None
@@ -129,7 +197,7 @@ def refresh_customer_push_identity(customer_code_365):
                 updated_at = :now
         """), {
             "cc": customer_code_365,
-            "ext_id": customer_code_365,
+            "ext_id": magento_id,
             "avail": push_available,
             "sub_count": push_sub_count,
             "now": now,
@@ -142,6 +210,7 @@ def refresh_customer_push_identity(customer_code_365):
 
     return {
         "customer_code_365": customer_code_365,
+        "magento_id": magento_id,
         "push_available": push_available,
         "push_subscription_count": push_sub_count,
         "verified_at": now.isoformat(),
@@ -232,11 +301,13 @@ def send_push_to_customer(customer_code_365, title, body, url=None,
         }, default=str),
     )
 
+    magento_id = identity.get("magento_id") or _resolve_magento_id(customer_code_365) or customer_code_365
+
     app_id = _app_id()
     payload = {
         "app_id": app_id,
         "include_aliases": {
-            "external_id": [str(customer_code_365)]
+            "external_id": [str(magento_id)]
         },
         "target_channel": "push",
         "headings": {"en": title or "Notification"},
