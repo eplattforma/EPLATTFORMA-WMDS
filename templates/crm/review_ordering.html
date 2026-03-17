@@ -43,12 +43,8 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .drawer-field .val { font-weight: 600; }
 .drawer-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1049; display: none; }
 .drawer-overlay.show { display: block; }
-.state-group-header { cursor: pointer; user-select: none; }
-.state-group-header td { padding: 8px 12px !important; background: rgba(255,255,255,0.03); border-top: 1px solid rgba(255,255,255,0.08); border-bottom: none; }
-.state-group-header:hover td { background: rgba(255,255,255,0.06); }
-.state-group-header .toggle-icon { font-size: 0.65rem; color: rgba(255,255,255,0.4); margin-right: 10px; transition: transform 0.2s; }
-.state-group-header.collapsed .toggle-icon { transform: rotate(-90deg); }
-.state-group-count { font-size: 0.75rem; color: rgba(255,255,255,0.35); margin-left: 8px; font-weight: 600; }
+.state-separator td { padding: 0 !important; height: 10px; border: none; background: transparent; }
+.state-separator:first-child td { height: 0; }
 </style>
 {% endblock %}
 
@@ -170,23 +166,13 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 </tr>
             </thead>
             <tbody>
-                {% set state_groups = rows | groupby('state') %}
-                {% for state, state_rows in state_groups %}
-                <tr class="state-group-header state-group-{{ state }}" data-state="{{ state }}" onclick="toggleStateGroup(event, '{{ state }}')">
-                    <td colspan="100%">
-                        <i class="fas fa-chevron-down toggle-icon"></i>
-                        <span class="badge-state state-{{ state }}">
-                            {% if state == 'follow_up' %}FOLLOW UP
-                            {% elif state == 'waiting' %}WAITING
-                            {% elif state == 'ordered' %}ORDERED
-                            {% elif state == 'ordered_cart' %}ORDERED+CART
-                            {% elif state == 'done' %}DONE{% endif %}
-                        </span>
-                        <span class="state-group-count">{{ state_rows | length }}</span>
-                    </td>
+                {% for r in rows %}
+                {% if loop.first or rows[loop.index0 - 1].state != r.state %}
+                <tr class="state-separator state-sep-{{ r.state }}">
+                    <td colspan="100%"></td>
                 </tr>
-                {% for r in state_rows %}
-                <tr class="row-item state-row-{{ r.state }} state-group-row-{{ state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})" style="display: table-row;">
+                {% endif %}
+                <tr class="row-item state-row-{{ r.state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})">
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
                         <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.district %} · {{ r.district }}{% endif %}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
@@ -243,7 +229,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                         {% endif %}
                     </td>
                 </tr>
-                {% endfor %}
                 {% else %}
                 <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#198754;"></i>No ordering windows currently open</td></tr>
                 {% endfor %}
@@ -647,17 +632,6 @@ document.addEventListener('click', function(e) {
     _loadSmsTemplates();
     new bootstrap.Modal(document.getElementById('smsComposeModal')).show();
 });
-
-function toggleStateGroup(e, state) {
-    e.stopPropagation();
-    var header = e.target.closest('.state-group-header');
-    var rows = document.querySelectorAll('.state-group-row-' + state);
-    var isCollapsed = header.classList.contains('collapsed');
-    header.classList.toggle('collapsed');
-    rows.forEach(function(row) {
-        row.style.display = isCollapsed ? 'table-row' : 'none';
-    });
-}
 
 (function(){
     var openMenu = null;
