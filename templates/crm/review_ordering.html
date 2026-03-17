@@ -168,7 +168,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 <tr class="row-item state-row-{{ r.state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})">
                     <td>
                         <div class="fw-semibold">{{ r.customer_name }}</div>
-                        <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
+                        <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.district %} · {{ r.district }}{% endif %}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
                     </td>
                     <td>
                         {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
