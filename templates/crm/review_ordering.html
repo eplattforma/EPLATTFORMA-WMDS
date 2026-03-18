@@ -145,6 +145,14 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     <option value="not_ordered" {% if filters.ordered == 'not_ordered' %}selected{% endif %}>No</option>
                 </select>
             </div>
+            <div>
+                <select class="form-select form-select-sm" name="delivery_slot" style="width:130px; font-size:0.78rem;">
+                    <option value="">Delivery Slot</option>
+                    {% for s in all_delivery_slots %}
+                    <option value="{{ s.delivery_date }}" {% if filters.delivery_slot == s.delivery_date %}selected{% endif %}>{{ s.delivery_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
             <div class="d-flex align-items-center gap-2">
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="assisted_only" value="1" id="assistedOnly" {% if filters.assisted_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="assistedOnly">Assisted</label></div>
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="expected_only" value="1" id="expectedOnly" {% if filters.expected_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="expectedOnly">Expected</label></div>

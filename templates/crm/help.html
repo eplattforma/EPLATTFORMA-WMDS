@@ -1,0 +1,546 @@
+{% extends "base.html" %}
+
+{% block title %}EP SmartGrowth CRM - Help Documentation{% endblock %}
+
+{% block head %}
+<style>
+    .help-nav { position: sticky; top: 100px; max-height: calc(100vh - 120px); overflow-y: auto; }
+    .help-section { scroll-margin-top: 100px; }
+    .help-nav .nav-link { padding: 6px 12px; font-size: 0.9rem; }
+    .help-nav .nav-link.active { border-left: 3px solid #0d6efd; font-weight: 600; }
+    .help-content h2 { border-bottom: 2px solid #0d6efd; padding-bottom: 12px; margin-top: 30px; margin-bottom: 20px; }
+    .help-content h3 { color: #6ea8fe; margin-top: 20px; margin-bottom: 12px; }
+    .help-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .help-card .card-title { color: #6ea8fe; font-weight: 600; margin-bottom: 10px; }
+    .help-tip { background: rgba(34,197,94,0.08); border-left: 4px solid #22c55e; padding: 12px; border-radius: 6px; margin: 12px 0; }
+    .help-warning { background: rgba(239,68,68,0.08); border-left: 4px solid #ef4444; padding: 12px; border-radius: 6px; margin: 12px 0; }
+    .help-info { background: rgba(59,130,246,0.08); border-left: 4px solid #3b82f6; padding: 12px; border-radius: 6px; margin: 12px 0; }
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin: 20px 0; }
+    .feature-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; text-align: center; }
+    .feature-box i { font-size: 2rem; color: #6ea8fe; margin-bottom: 10px; }
+    .feature-box h5 { margin-top: 10px; }
+    .kbd { background: #1e1e1e; border: 1px solid #444; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 0.85rem; color: #00ff00; }
+    .pill { display: inline-block; background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.5); color: #22c55e; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; margin: 2px; }
+    .pill.red { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.5); color: #ef4444; }
+    .pill.yellow { background: rgba(251,146,60,0.15); border-color: rgba(251,146,60,0.5); color: #fb923c; }
+    .pill.blue { background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.5); color: #3b82f6; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <i class="fas fa-graduation-cap" style="font-size: 2.5rem; color: #6ea8fe;"></i>
+                <div>
+                    <h1 class="mb-0">EP SmartGrowth CRM Help</h1>
+                    <p class="text-muted mb-0">Complete guide to managing your customer relationships</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Navigation Sidebar -->
+        <div class="col-lg-3 mb-4">
+            <nav class="help-nav">
+                <div class="card bg-dark border-secondary">
+                    <div class="card-body p-0">
+                        <div class="nav flex-column">
+                            <a class="nav-link help-nav-link active" href="#overview" onclick="scrollToSection(event)">
+                                <i class="fas fa-home me-2"></i>Overview
+                            </a>
+                            <a class="nav-link help-nav-link" href="#dashboard" onclick="scrollToSection(event)">
+                                <i class="fas fa-chart-line me-2"></i>CRM Dashboard
+                            </a>
+                            <a class="nav-link help-nav-link" href="#search-filter" onclick="scrollToSection(event)">
+                                <i class="fas fa-filter me-2"></i>Search & Filtering
+                            </a>
+                            <a class="nav-link help-nav-link" href="#review-ordering" onclick="scrollToSection(event)">
+                                <i class="fas fa-tasks me-2"></i>Review Ordering
+                            </a>
+                            <a class="nav-link help-nav-link" href="#communications" onclick="scrollToSection(event)">
+                                <i class="fas fa-envelope me-2"></i>Communications Hub
+                            </a>
+                            <a class="nav-link help-nav-link" href="#price-offers" onclick="scrollToSection(event)">
+                                <i class="fas fa-tags me-2"></i>Price Offers
+                            </a>
+                            <a class="nav-link help-nav-link" href="#tips" onclick="scrollToSection(event)">
+                                <i class="fas fa-lightbulb me-2"></i>Tips & Tricks
+                            </a>
+                            <a class="nav-link help-nav-link" href="#faq" onclick="scrollToSection(event)">
+                                <i class="fas fa-question-circle me-2"></i>FAQ
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-lg-9">
+            <div class="help-content">
+                <!-- OVERVIEW SECTION -->
+                <section id="overview" class="help-section">
+                    <h2><i class="fas fa-home me-2"></i>Overview</h2>
+                    <p>EP SmartGrowth CRM is a comprehensive customer relationship management system designed to help you manage sales, customer communications, and order fulfillment efficiently.</p>
+                    
+                    <div class="feature-grid">
+                        <div class="feature-box">
+                            <i class="fas fa-users"></i>
+                            <h5>Customer Management</h5>
+                            <p class="text-muted small">View and manage customer profiles with detailed information</p>
+                        </div>
+                        <div class="feature-box">
+                            <i class="fas fa-shopping-cart"></i>
+                            <h5>Order Review</h5>
+                            <p class="text-muted small">Track open delivery windows and pending orders</p>
+                        </div>
+                        <div class="feature-box">
+                            <i class="fas fa-envelope"></i>
+                            <h5>Multi-Channel Comms</h5>
+                            <p class="text-muted small">Send SMS, calls, WhatsApp, and push notifications</p>
+                        </div>
+                        <div class="feature-box">
+                            <i class="fas fa-chart-bar"></i>
+                            <h5>Analytics</h5>
+                            <p class="text-muted small">Track KPIs and customer engagement metrics</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- CRM DASHBOARD SECTION -->
+                <section id="dashboard" class="help-section">
+                    <h2><i class="fas fa-chart-line me-2"></i>CRM Dashboard</h2>
+                    <p>The CRM Dashboard gives you a complete view of your customer base with real-time metrics and detailed customer information.</p>
+
+                    <h3><i class="fas fa-key me-2"></i>Key Metrics (KPIs)</h3>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title">Orders KPI</div>
+                                <p class="small">Total number of orders in the system</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title">Total Customers</div>
+                                <p class="small">Active customers meeting current filter criteria</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title">Action Required</div>
+                                <p class="small">Customers needing follow-up or intervention</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title">Done</div>
+                                <p class="small">Completed customer interactions</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3><i class="fas fa-table me-2"></i>Customer Table</h3>
+                    <p>The main table displays customer information including:</p>
+                    <ul>
+                        <li><strong>Customer Code & Name:</strong> Unique identifier and company name</li>
+                        <li><strong>Classification:</strong> Customer type (Customer, EKO, Petrolina, SHELL, Monitor, At Risk, Frozen)</li>
+                        <li><strong>District:</strong> Geographic region</li>
+                        <li><strong>Last Login:</strong> Days since last platform login (shown as colored pill)</li>
+                        <li><strong>Orders:</strong> Number of open orders</li>
+                        <li><strong>Cart:</strong> Abandoned cart status and amount</li>
+                        <li><strong>Actions:</strong> Quick action buttons for customer interaction</li>
+                    </ul>
+
+                    <h3><i class="fas fa-expand me-2"></i>Expanding Customer Details</h3>
+                    <p>Click on a customer row to expand and view:</p>
+                    <ul>
+                        <li><span class="pill">District</span> - Geographic location</li>
+                        <li><span class="pill">Area</span> - Sales area assignment</li>
+                        <li><span class="pill">Postal Code</span> - Delivery postal code</li>
+                        <li><span class="pill">Town</span> - City/municipality</li>
+                        <li><span class="pill">Delivery Slot</span> - Next delivery day</li>
+                        <li><span class="pill">PS Code</span> - Primary system customer code</li>
+                        <li><span class="pill">Last Login</span> - Timestamp of last login</li>
+                        <li><span class="pill">Last Invoice</span> - Date of most recent invoice</li>
+                    </ul>
+
+                    <div class="help-tip">
+                        <strong><i class="fas fa-lightbulb me-2"></i>Tip:</strong> Expand customer rows to see complete address and communication history details.
+                    </div>
+                </section>
+
+                <!-- SEARCH & FILTERING SECTION -->
+                <section id="search-filter" class="help-section">
+                    <h2><i class="fas fa-filter me-2"></i>Search & Filtering</h2>
+                    <p>Use the filter bar to quickly find customers matching your criteria. Filters can be combined for precise searching.</p>
+
+                    <h3><i class="fas fa-search me-2"></i>Quick Search</h3>
+                    <p>Search by customer name or code in the search box at the top of the filter bar. Results appear as you type.</p>
+
+                    <h3><i class="fas fa-sliders-h me-2"></i>Advanced Filters</h3>
+                    
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-cube me-2"></i>Classification</div>
+                        <p class="small mb-2">Filter by customer classification type:</p>
+                        <div style="margin: 10px 0;">
+                            <span class="pill">Customer</span>
+                            <span class="pill">EKO</span>
+                            <span class="pill">Petrolina</span>
+                            <span class="pill">SHELL</span>
+                            <span class="pill blue">Monitor</span>
+                            <span class="pill red">At Risk</span>
+                            <span class="pill red">Frozen</span>
+                        </div>
+                        <p class="text-muted small mt-2">Select multiple classifications by clicking the Classification dropdown.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-map-pin me-2"></i>District</div>
+                        <p class="small mb-2">Filter customers by geographic region. Multi-select available.</p>
+                        <p class="text-muted small">Click "District" dropdown to choose one or more districts.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-clock me-2"></i>Login ≤ d (Days)</div>
+                        <p class="small mb-2">Show customers who logged in within the last N days:</p>
+                        <ul class="small" style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>0</strong> = Logged in today</li>
+                            <li><strong>1</strong> = Logged in within 1 day</li>
+                            <li><strong>7</strong> = Logged in within 1 week</li>
+                            <li><strong>30</strong> = Logged in within 1 month</li>
+                        </ul>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-toggle-on me-2"></i>Checkboxes</div>
+                        <p class="small mb-2">Quick toggles for common filters:</p>
+                        <ul class="small" style="margin: 10px 0; padding-left: 20px;">
+                            <li><strong>Assisted:</strong> Customers using assisted ordering</li>
+                            <li><strong>Expected:</strong> Expected to order this cycle</li>
+                            <li><strong>Cart:</strong> Customers with abandoned carts</li>
+                        </ul>
+                    </div>
+
+                    <h3><i class="fas fa-redo me-2"></i>Apply & Reset</h3>
+                    <p>Click <span class="kbd">Apply</span> to update the customer list. Click the reset icon to clear all filters and start fresh.</p>
+
+                    <div class="help-tip">
+                        <strong><i class="fas fa-lightbulb me-2"></i>Pro Tip:</strong> Combine filters (e.g., Classification="At Risk" + Login≤7 days) to find high-priority customers needing attention.
+                    </div>
+                </section>
+
+                <!-- REVIEW ORDERING SECTION -->
+                <section id="review-ordering" class="help-section">
+                    <h2><i class="fas fa-tasks me-2"></i>Review Ordering</h2>
+                    <p>The Review Ordering page helps you manage order delivery windows and track customer ordering status.</p>
+
+                    <h3><i class="fas fa-window-maximize me-2"></i>Open Delivery Windows</h3>
+                    <p>At the top of the page, you'll see all currently open delivery windows with countdown timers. Green indicates active windows; red indicates windows closing within 4 hours.</p>
+                    <div class="help-info">
+                        <strong><i class="fas fa-info-circle me-2"></i>Info:</strong> An open delivery window means customers can place orders for that delivery date.
+                    </div>
+
+                    <h3><i class="fas fa-bar-chart me-2"></i>Review KPIs</h3>
+                    <ul>
+                        <li><strong>Follow Up:</strong> Customers who need to be contacted</li>
+                        <li><strong>Waiting:</strong> Customers waiting for delivery</li>
+                        <li><strong>Ordered:</strong> Customers who have ordered</li>
+                        <li><strong>Ordered+Cart:</strong> Customers with both orders and abandoned carts</li>
+                        <li><strong>Done:</strong> Review completed</li>
+                        <li><strong>Cart:</strong> Customers with abandoned carts</li>
+                    </ul>
+
+                    <h3><i class="fas fa-filter me-2"></i>Review Filters</h3>
+                    <div class="help-card">
+                        <div class="card-title">Delivery Slot</div>
+                        <p class="small">Filter customers by their next delivery window. Shows all open slots.</p>
+                    </div>
+                    <div class="help-card">
+                        <div class="card-title">State</div>
+                        <p class="small">Filter by review status: Follow Up, Waiting, Ordered, Ordered+Cart, or Done</p>
+                    </div>
+                    <div class="help-card">
+                        <div class="card-title">Classification & District</div>
+                        <p class="small">Same as dashboard - multi-select by customer type and region</p>
+                    </div>
+                    <div class="help-card">
+                        <div class="card-title">Login ≤ d</div>
+                        <p class="small">Days since last login (0=today, 7=within week, etc)</p>
+                    </div>
+                    <div class="help-card">
+                        <div class="card-title">Ordered</div>
+                        <p class="small">Show only customers who have ordered (Yes) or have not ordered (No)</p>
+                    </div>
+
+                    <h3><i class="fas fa-edit me-2"></i>Update Customer State</h3>
+                    <p>Click on a customer to open the detail drawer. Options include:</p>
+                    <ul>
+                        <li><strong>Change State:</strong> Update review status (Follow Up → Waiting → Ordered → Done)</li>
+                        <li><strong>Mark Assisted:</strong> Flag for assisted ordering</li>
+                        <li><strong>Add Note:</strong> Record interaction notes</li>
+                        <li><strong>Expected This Cycle:</strong> Mark if expected to order</li>
+                        <li><strong>Select for Bulk Communication:</strong> Use checkbox to bulk message</li>
+                    </ul>
+
+                    <h3><i class="fas fa-paper-plane me-2"></i>Bulk Communications</h3>
+                    <p>Select multiple customers using checkboxes and click "Send MicroSMS" to message them at once.</p>
+                    <div class="help-warning">
+                        <strong><i class="fas fa-exclamation-triangle me-2"></i>Warning:</strong> Bulk messages are sent immediately. Review selections before sending.
+                    </div>
+                </section>
+
+                <!-- COMMUNICATIONS SECTION -->
+                <section id="communications" class="help-section">
+                    <h2><i class="fas fa-envelope me-2"></i>Communications Hub</h2>
+                    <p>The Communications Hub allows you to reach customers through multiple channels for targeted engagement.</p>
+
+                    <h3><i class="fas fa-phone me-2"></i>Supported Channels</h3>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title"><i class="fas fa-comments me-2"></i>MicroSMS</div>
+                                <p class="small">Send SMS text messages to customer phone numbers</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title"><i class="fas fa-phone-alt me-2"></i>Voice Calls</div>
+                                <p class="small">Initiate automated voice calls for urgent messages</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title"><i class="fab fa-whatsapp me-2"></i>WhatsApp</div>
+                                <p class="small">Send WhatsApp messages for rich communication</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="help-card">
+                                <div class="card-title"><i class="fas fa-bell me-2"></i>Push Notifications</div>
+                                <p class="small">Send app push notifications via OneSignal</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3><i class="fas fa-envelope-open me-2"></i>Send a Message</h3>
+                    <ol>
+                        <li>Click <strong>Communications</strong> in the main navigation</li>
+                        <li>Select a customer or group</li>
+                        <li>Choose your preferred channel (SMS, WhatsApp, etc.)</li>
+                        <li>Write your message using available templates or custom text</li>
+                        <li>Click <strong>Send</strong> to deliver the message</li>
+                    </ol>
+
+                    <h3><i class="fas fa-history me-2"></i>Communication Log</h3>
+                    <p>Every message sent is logged with:</p>
+                    <ul>
+                        <li>Channel used</li>
+                        <li>Timestamp</li>
+                        <li>Delivery status (Sent, Failed, Pending)</li>
+                        <li>Message content</li>
+                        <li>Sent by (user name)</li>
+                    </ul>
+
+                    <div class="help-tip">
+                        <strong><i class="fas fa-lightbulb me-2"></i>Tip:</strong> View communication history by expanding a customer row on the dashboard to see all previous interactions.
+                    </div>
+                </section>
+
+                <!-- PRICE OFFERS SECTION -->
+                <section id="price-offers" class="help-section">
+                    <h2><i class="fas fa-tags me-2"></i>Price Offers</h2>
+                    <p>View and manage special pricing offers available to customers based on order history and business rules.</p>
+
+                    <h3><i class="fas fa-percent me-2"></i>Understanding Price Offers</h3>
+                    <p>Price offers are discount rules automatically applied based on:</p>
+                    <ul>
+                        <li>Customer classification</li>
+                        <li>Order volume</li>
+                        <li>Loyalty history</li>
+                        <li>Seasonal promotions</li>
+                        <li>Bulk purchase quantities</li>
+                    </ul>
+
+                    <h3><i class="fas fa-search me-2"></i>View Customer Price Offers</h3>
+                    <ol>
+                        <li>Open a customer's detail view from the dashboard</li>
+                        <li>Click the <strong>Price Offers</strong> tab</li>
+                        <li>Review available offers with discount percentages</li>
+                        <li>Sort by discount, SKU, or rule name</li>
+                        <li>Search for specific products</li>
+                    </ol>
+
+                    <h3><i class="fas fa-sort me-2"></i>Sorting Options</h3>
+                    <ul>
+                        <li><strong>By Discount %:</strong> Highest discounts first</li>
+                        <li><strong>By Rule:</strong> Offer rule name</li>
+                        <li><strong>By Product:</strong> Product SKU or name</li>
+                    </ul>
+
+                    <div class="help-tip">
+                        <strong><i class="fas fa-lightbulb me-2"></i>Tip:</strong> Share high-discount offers with customers to encourage ordering during review periods.
+                    </div>
+                </section>
+
+                <!-- TIPS & TRICKS SECTION -->
+                <section id="tips" class="help-section">
+                    <h2><i class="fas fa-lightbulb me-2"></i>Tips & Tricks</h2>
+
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-keyboard me-2"></i>Keyboard Shortcuts</div>
+                        <ul class="small" style="margin: 10px 0; padding-left: 20px;">
+                            <li><span class="kbd">Ctrl</span> + <span class="kbd">F</span> - Search within page</li>
+                            <li><span class="kbd">Ctrl</span> + <span class="kbd">K</span> - Quick customer search (if enabled)</li>
+                        </ul>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-chart-line me-2"></i>Dashboard Best Practices</div>
+                        <ul class="small" style="margin: 10px 0; padding-left: 20px;">
+                            <li>Start each day by checking the "Action Required" KPI count</li>
+                            <li>Use the "At Risk" classification filter to monitor at-risk customers</li>
+                            <li>Track "Cart" status to identify abandoned shopping sessions</li>
+                            <li>Review "Last Login" regularly to stay current with customer engagement</li>
+                        </ul>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-tasks me-2"></i>Review Ordering Best Practices</div>
+                        <ul class="small" style="margin: 10px 0; padding-left: 20px;">
+                            <li>Process customers in delivery slot order (use the slot filter)</li>
+                            <li>Prioritize "Follow Up" state customers first</li>
+                            <li>Use bulk messaging for multiple customers with the same message</li>
+                            <li>Mark "Assisted" for customers needing extra support</li>
+                            <li>Always update state after customer interaction</li>
+                        </ul>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title"><i class="fas fa-envelope me-2"></i>Communication Tips</div>
+                        <ul class="small" style="margin: 10px 0; padding-left: 20px;">
+                            <li>Use SMS for time-sensitive messages (delivery updates, reminders)</li>
+                            <li>Use WhatsApp for detailed offers and product information</li>
+                            <li>Use push notifications for app-exclusive deals</li>
+                            <li>Always include clear call-to-action in your messages</li>
+                            <li>Check delivery status after sending bulk messages</li>
+                        </ul>
+                    </div>
+
+                    <div class="help-tip">
+                        <strong><i class="fas fa-star me-2"></i>Power Tip:</strong> Combine filters to create customer segments, then use bulk messaging to reach them with tailored offers. For example: Classification="At Risk" + Login≤30 + District="Athens" = Send re-engagement offer.
+                    </div>
+                </section>
+
+                <!-- FAQ SECTION -->
+                <section id="faq" class="help-section">
+                    <h2><i class="fas fa-question-circle me-2"></i>Frequently Asked Questions</h2>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: Why is a customer not showing in my filtered results?</div>
+                        <p class="small mb-0">A: Check that the customer's classification is enabled for the current view, has a delivery slot assigned, and meets all active filter criteria. Click the reset button to clear filters and verify the customer exists.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: How are delivery windows determined?</div>
+                        <p class="small mb-0">A: Delivery windows are based on customer delivery slot assignments and the order submission deadline set in system settings. Check the window countdown timer at the top of Review Ordering for exact close times.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: What does "Login ≤ 0" mean?</div>
+                        <p class="small mb-0">A: This shows customers who logged in today. Login ≤ 7 shows anyone who logged in within the past 7 days, Login ≤ 30 shows the past month, etc.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: Can I undo a state change?</div>
+                        <p class="small mb-0">A: Yes. Open the customer drawer and select a different state. The system tracks all state changes in the customer history.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: How do I know if a message was delivered?</div>
+                        <p class="small mb-0">A: Check the communication log by expanding a customer row. Each message shows its delivery status (Sent, Failed, Pending, or Delivered).</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: What's the difference between "Cart" and "Ordered"?</div>
+                        <p class="small mb-0">A: "Cart" indicates an abandoned shopping session (customer started but didn't complete an order). "Ordered" means they submitted a completed order for delivery.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: Can I bulk edit multiple customers at once?</div>
+                        <p class="small mb-0">A: You can send bulk communications to multiple selected customers. For state changes, you need to update each customer individually through their detail view.</p>
+                    </div>
+
+                    <div class="help-card">
+                        <div class="card-title">Q: How often is customer data updated?</div>
+                        <p class="small mb-0">A: Customer login data, order information, and cart status are updated in near real-time as actions occur in the system.</p>
+                    </div>
+                </section>
+
+                <!-- SUPPORT SECTION -->
+                <section id="support" class="help-section mt-5 pt-4 border-top">
+                    <h2><i class="fas fa-headset me-2"></i>Need More Help?</h2>
+                    <p>If you can't find an answer to your question:</p>
+                    <ul>
+                        <li>Check back on this help page - it's regularly updated with new information</li>
+                        <li>Contact your system administrator for technical issues</li>
+                        <li>Report bugs or feature requests to the development team</li>
+                    </ul>
+                    <div class="help-info">
+                        <strong><i class="fas fa-info-circle me-2"></i>Last Updated:</strong> March 2026
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function scrollToSection(e) {
+        e.preventDefault();
+        const href = e.target.closest('a').getAttribute('href');
+        const target = document.querySelector(href);
+        if (target) {
+            target.scrollIntoView({ behavior: 'smooth' });
+            updateActiveNavLink(href);
+        }
+    }
+
+    function updateActiveNavLink(href) {
+        document.querySelectorAll('.help-nav-link').forEach(link => {
+            link.classList.remove('active');
+        });
+        document.querySelector(`a[href="${href}"]`).classList.add('active');
+    }
+
+    // Update active nav link on scroll
+    window.addEventListener('scroll', function() {
+        const sections = document.querySelectorAll('.help-section');
+        let current = '';
+        sections.forEach(section => {
+            const sectionTop = section.offsetTop;
+            if (pageYOffset >= sectionTop - 150) {
+                current = section.getAttribute('id');
+            }
+        });
+        if (current) {
+            updateActiveNavLink('#' + current);
+        }
+    });
+
+    // Smooth scroll for all internal links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function(e) {
+            if (this.classList.contains('help-nav-link')) return;
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+    });
+</script>
+{% endblock %}

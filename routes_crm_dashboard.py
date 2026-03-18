@@ -650,6 +650,7 @@ def review_ordering():
     filter_ordered = request.args.get("ordered", "")
     filter_has_cart = request.args.get("has_cart_only") == "1"
     logged_in_days = request.args.get("logged_in_days")
+    filter_delivery_slot = request.args.get("delivery_slot", "")
 
     rows = q.order_by(PSCustomer.company_name).all()
 
@@ -720,6 +721,7 @@ def review_ordering():
                 }
 
     open_window_rows = []
+    all_delivery_slots_map = {}
     allowed_classification_names = set(allowed_classifications.keys())
     
     for r in rows:
@@ -778,6 +780,16 @@ def review_ordering():
             r_invoice_days = (now_utc.date() - invoice_date_only).days
 
         next_del = window_status["next_delivery"]
+        if next_del:
+            nd_iso = next_del.isoformat()
+            if nd_iso not in all_delivery_slots_map:
+                wc = window_status.get("window_close_at")
+                all_delivery_slots_map[nd_iso] = {
+                    "delivery_date": nd_iso,
+                    "delivery_label": next_del.strftime('%a %d-%b'),
+                    "close_at": wc.isoformat() if wc else None,
+                }
+
         cust_reviews = review_recs.get(r.customer_code_365, {})
         review_rec = cust_reviews.get(next_del) if next_del else None
 
@@ -824,6 +836,8 @@ def review_ordering():
             continue
         if filter_has_cart and not has_cart:
             continue
+        if filter_delivery_slot and row.get("next_delivery_date") != filter_delivery_slot:
+            continue
         if logged_in_days:
             try:
                 days = int(logged_in_days)
@@ -861,6 +875,7 @@ def review_ordering():
                 "close_at": wc,
             }
     open_windows = sorted(open_windows_map.values(), key=lambda w: w["delivery_date"])
+    all_delivery_slots = sorted(all_delivery_slots_map.values(), key=lambda w: w["delivery_date"])
 
     return render_template(
         "crm/review_ordering.html",
@@ -868,6 +883,7 @@ def review_ordering():
         total_open=len(open_window_rows),
         kpi=kpi,
         open_windows=open_windows,
+        all_delivery_slots=all_delivery_slots,
         allowed_classifications=allowed_classifications,
         all_districts=all_districts_q,
         outcome_reasons=OUTCOME_REASONS,
@@ -881,8 +897,16 @@ def review_ordering():
             "ordered": filter_ordered,
             "has_cart_only": filter_has_cart,
             "logged_in_days": logged_in_days or "",
+            "delivery_slot": filter_delivery_slot,
         },
     )
+
+
+@crm_dashboard_bp.get("/help")
+@login_required
+def crm_help():
+    """Display help documentation for EP SmartGrowth CRM"""
+    return render_template("crm/help.html")
 
 
 @crm_dashboard_bp.post("/review-ordering/update-state")
