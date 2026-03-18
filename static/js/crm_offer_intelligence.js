@@ -116,14 +116,6 @@ window.addEventListener('load', function() {
             h += '<div class="offer-generated-sentence">' + esc(sentence) + '</div>';
         }
 
-        h += '<div class="offer-section-title">Offer Usage</div>';
-        h += '<div class="offer-summary-section">';
-        h += sumRow('Active offer SKUs', s.active_offer_skus || 0);
-        h += sumRow('SKUs bought (4w)', s.offered_skus_bought_4w || 0);
-        h += sumRow('SKUs not bought', '<span style="color:' + ((s.offered_skus_not_bought || 0) > 0 ? '#ffc107' : '#22c55e') + '">' + (s.offered_skus_not_bought || 0) + '</span>');
-        h += sumRow('Usage %', '<span style="color:' + (usagePct >= 50 ? '#22c55e' : usagePct >= 25 ? '#ffc107' : '#ef4444') + '">' + fmtPct(usagePct) + '</span>');
-        h += '</div>';
-
         h += '<div class="offer-section-title">Sales Dependency</div>';
         h += '<div class="offer-summary-section">';
         h += sumRow('Offer sales (4w)', fmtEur(s.offer_sales_4w));
