@@ -767,8 +767,8 @@ def review_ordering():
         logged_in_during_window = False
         if last_login_at:
             r_login_days = (now_utc.date() - last_login_at.date()).days
-            window_open_at = window_status.get("window_open_at")
-            if window_open_at and last_login_at.astimezone(ATHENS_TZ) >= window_open_at:
+            # Flag if logged in within last 1-2 days (recent engagement) while window is open
+            if r_login_days is not None and r_login_days <= 1 and window_status.get("window_open"):
                 logged_in_during_window = True
 
         r_invoice_days = None
