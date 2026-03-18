@@ -2,6 +2,15 @@
 {% block title %}Review Ordering Window{% endblock %}
 {% block head %}
 <style>
+.popover { background: #2b2b3d; border: 1px solid #444; }
+.popover-header { background: #333; color: #eee; border-bottom: 1px solid #444; font-size: 0.82rem; }
+.popover-body { color: #ccc; font-size: 0.8rem; }
+.popover .popover-arrow::after { border-left-color: #2b2b3d; }
+.bs-popover-start > .popover-arrow::after { border-left-color: #2b2b3d; }
+.bs-popover-end > .popover-arrow::after { border-right-color: #2b2b3d; }
+.bs-popover-top > .popover-arrow::after { border-top-color: #2b2b3d; }
+.bs-popover-bottom > .popover-arrow::after { border-bottom-color: #2b2b3d; }
+.msg-popover:hover { text-decoration: underline; text-underline-offset: 2px; }
 .review-table thead { position: sticky; top: 0; z-index: 10; }
 .review-table th { white-space: nowrap; font-size: 0.78rem; }
 .review-table td { font-size: 0.82rem; vertical-align: middle; }
@@ -268,7 +277,16 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                         {% set ch_icon = 'fas fa-sms' if ch == 'microsms' else 'fas fa-bell' if ch == 'push' else 'fas fa-phone' if ch == 'phone_sms' else 'fab fa-whatsapp' if ch == 'whatsapp' else 'fab fa-viber' if ch == 'viber' else 'fas fa-envelope' %}
                         {% set ch_color = '#22c55e' if ch == 'microsms' else '#6f42c1' if ch == 'push' else '#0dcaf0' if ch == 'phone_sms' else '#25d366' if ch == 'whatsapp' else '#7360f2' if ch == 'viber' else '#adb5bd' %}
                         {% set d = r.last_comm.days_ago %}
-                        <span title="{{ ch }} — {{ r.last_comm.template_title or 'No template' }}&#10;{{ r.last_comm.created_at[:16] if r.last_comm.created_at else '' }}" style="font-size:0.72rem;">
+                        {% set ch_label = 'MicroSMS' if ch == 'microsms' else 'Push' if ch == 'push' else 'Phone SMS' if ch == 'phone_sms' else 'WhatsApp' if ch == 'whatsapp' else 'Viber' if ch == 'viber' else ch %}
+                        {% set msg_preview = r.last_comm.message_text[:200] if r.last_comm.message_text else '(no content)' %}
+                        {% set sent_date = r.last_comm.created_at[:16].replace('T', ' ') if r.last_comm.created_at else 'Unknown' %}
+                        {% set sent_by = r.last_comm.created_by or 'System' %}
+                        {% set dlr = r.last_comm.dlr_status or r.last_comm.status or '' %}
+                        <span class="msg-popover" tabindex="0" role="button"
+                              data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-placement="left" data-bs-html="true"
+                              data-bs-title="<i class='{{ ch_icon }}' style='color:{{ ch_color }}'></i> {{ ch_label }} — {{ r.last_comm.template_title or 'Direct' }}"
+                              data-bs-content="<div style='max-width:280px;font-size:0.8rem;'><div class='mb-1'><strong>Sent:</strong> {{ sent_date }}</div><div class='mb-1'><strong>By:</strong> {{ sent_by }}</div>{% if dlr %}<div class='mb-1'><strong>Status:</strong> {{ dlr }}</div>{% endif %}<hr class='my-1'><div style='white-space:pre-wrap;word-break:break-word;color:#ccc;'>{{ msg_preview|e }}</div></div>"
+                              style="font-size:0.72rem;cursor:pointer;">
                             <i class="{{ ch_icon }}" style="color:{{ ch_color }};font-size:0.75rem;"></i>
                             <span class="{% if d is not none and d <= 2 %}text-success{% elif d is not none and d <= 7 %}text-warning{% else %}text-muted{% endif %}" style="font-size:0.7rem;">{% if d is not none %}{{ d }}d{% endif %}</span>
                         </span>
@@ -854,5 +872,11 @@ function refreshAllData() {
         alert('Sync failed. Please try again.');
     });
 }
+
+window.addEventListener('load', function() {
+    document.querySelectorAll('.msg-popover[data-bs-toggle="popover"]').forEach(function(el) {
+        new bootstrap.Popover(el, {sanitize: false, container: 'body'});
+    });
+});
 </script>
 {% endblock %}

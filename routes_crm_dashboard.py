@@ -718,6 +718,7 @@ def review_ordering():
                     "template_title": cl.template_title,
                     "created_by": cl.created_by_username,
                     "days_ago": (now_utc - cl.created_at.replace(tzinfo=timezone.utc)).days if cl.created_at else None,
+                    "message_text": cl.message_text or "",
                 }
 
     open_window_rows = []
