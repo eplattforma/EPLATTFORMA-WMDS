@@ -115,27 +115,32 @@ def setup_scheduler(app):
             )
             logger.info("✓ Pending orders sync scheduled: Every 30 minutes")
 
-            scheduler.add_job(
-                func=_run_ftp_login_sync,
-                trigger=CronTrigger(minute="15,45"),
-                id='ftp_login_sync',
-                name='FTP Login Logs Sync',
-                replace_existing=True,
-                max_instances=1,
-                misfire_grace_time=600
-            )
-            logger.info("✓ FTP login sync scheduled: Every 30 minutes (at :15 and :45)")
+            is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
+            if is_deployed:
+                scheduler.add_job(
+                    func=_run_ftp_login_sync,
+                    trigger=CronTrigger(minute="15,45"),
+                    id='ftp_login_sync',
+                    name='FTP Login Logs Sync',
+                    replace_existing=True,
+                    max_instances=1,
+                    misfire_grace_time=600
+                )
+                logger.info("✓ FTP login sync scheduled: Every 30 minutes (at :15 and :45)")
 
-            scheduler.add_job(
-                func=_run_ftp_price_master_sync,
-                trigger=CronTrigger(hour=4, minute=30),
-                id='ftp_price_master_sync',
-                name='FTP Price Master Sync',
-                replace_existing=True,
-                max_instances=1,
-                misfire_grace_time=3600
-            )
-            logger.info("✓ FTP price master sync scheduled: Daily at 4:30 AM")
+                scheduler.add_job(
+                    func=_run_ftp_price_master_sync,
+                    trigger=CronTrigger(hour=4, minute=30),
+                    id='ftp_price_master_sync',
+                    name='FTP Price Master Sync',
+                    replace_existing=True,
+                    max_instances=1,
+                    misfire_grace_time=3600
+                )
+                logger.info("✓ FTP price master sync scheduled: Daily at 4:30 AM")
+            else:
+                logger.info("⏭ FTP login sync skipped (not deployed)")
+                logger.info("⏭ FTP price master sync skipped (not deployed)")
 
         scheduler.start()
         logger.info("Background scheduler started successfully")
