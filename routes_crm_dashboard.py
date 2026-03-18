@@ -249,7 +249,8 @@ def customer_slot_dashboard():
         try:
             days = int(logged_in_days)
             q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at.isnot(None))
-            q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at >= datetime.now(timezone.utc) - timedelta(days=days))
+            cutoff = datetime.combine(date.today() - timedelta(days=days), datetime.min.time()).replace(tzinfo=timezone.utc)
+            q = q.filter(MagentoCustomerLastLoginCurrent.last_login_at >= cutoff)
         except (ValueError, TypeError) as e:
             logger.warning("Invalid logged_in_days value: %s", e)
     if slot:
