@@ -137,31 +137,32 @@ def _build_customer_id_map():
 
 def _build_customer_email_map():
     em = {}
-    try:
-        rows = db.session.execute(text("""
-            SELECT LOWER(TRIM(customer_email)), customer_code_365
-            FROM magento_customer_last_login_current
-            WHERE customer_email IS NOT NULL AND customer_email != ''
-              AND customer_code_365 IS NOT NULL
-        """)).fetchall()
-        for r in rows:
-            if r[0] and r[0] not in em:
-                em[r[0]] = r[1]
-    except Exception as e:
-        logger.debug(f"Email map from login table: {e}")
+    with db.engine.connect() as conn:
+        try:
+            rows = conn.execute(text("""
+                SELECT LOWER(TRIM(email)), customer_code_365
+                FROM magento_customer_last_login_current
+                WHERE email IS NOT NULL AND email != ''
+                  AND customer_code_365 IS NOT NULL
+            """)).fetchall()
+            for r in rows:
+                if r[0] and r[0] not in em:
+                    em[r[0]] = r[1]
+        except Exception as e:
+            logger.debug(f"Email map from login table: {e}")
 
-    try:
-        rows2 = db.session.execute(text("""
-            SELECT LOWER(TRIM(email)), customer_code_365
-            FROM ps_customers
-            WHERE email IS NOT NULL AND email != ''
-              AND customer_code_365 IS NOT NULL
-        """)).fetchall()
-        for r in rows2:
-            if r[0] and r[0] not in em:
-                em[r[0]] = r[1]
-    except Exception as e:
-        logger.debug(f"Email map from ps_customers: {e}")
+        try:
+            rows2 = conn.execute(text("""
+                SELECT LOWER(TRIM(email)), customer_code_365
+                FROM ps_customers
+                WHERE email IS NOT NULL AND email != ''
+                  AND customer_code_365 IS NOT NULL
+            """)).fetchall()
+            for r in rows2:
+                if r[0] and r[0] not in em:
+                    em[r[0]] = r[1]
+        except Exception as e:
+            logger.debug(f"Email map from ps_customers: {e}")
 
     logger.info(f"Customer email map: {len(em)} email→ps365 mappings")
     return em
@@ -252,11 +253,12 @@ def _get_cost_column():
 
 
 def _build_item_cost_map(cost_column):
-    rows = db.session.execute(text(f"""
-        SELECT item_code_365, {cost_column}
-        FROM ps_items_dw
-        WHERE {cost_column} IS NOT NULL
-    """)).fetchall()
+    with db.engine.connect() as conn:
+        rows = conn.execute(text(f"""
+            SELECT item_code_365, {cost_column}
+            FROM ps_items_dw
+            WHERE {cost_column} IS NOT NULL
+        """)).fetchall()
     return {r[0]: r[1] for r in rows}
 
 
@@ -275,18 +277,19 @@ def _get_recent_sales_bulk(customer_codes):
     d90 = now - timedelta(days=90)
 
     try:
-        rows = db.session.execute(text("""
-            SELECT customer_code_365, item_code_365,
-                   COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN quantity ELSE 0 END), 0) AS qty_4w,
-                   COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN net_amount ELSE 0 END), 0) AS val_4w,
-                   COALESCE(SUM(quantity), 0) AS qty_90d,
-                   COALESCE(SUM(net_amount), 0) AS val_90d,
-                   MAX(sale_date) AS last_sold
-            FROM dw_sales_lines_mv
-            WHERE customer_code_365 = ANY(:codes)
-              AND sale_date >= :d90
-            GROUP BY customer_code_365, item_code_365
-        """), {"codes": list(customer_codes), "d28": d28, "d90": d90}).fetchall()
+        with db.engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT customer_code_365, item_code_365,
+                       COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN quantity ELSE 0 END), 0) AS qty_4w,
+                       COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN net_amount ELSE 0 END), 0) AS val_4w,
+                       COALESCE(SUM(quantity), 0) AS qty_90d,
+                       COALESCE(SUM(net_amount), 0) AS val_90d,
+                       MAX(sale_date) AS last_sold
+                FROM dw_sales_lines_mv
+                WHERE customer_code_365 = ANY(:codes)
+                  AND sale_date >= :d90
+                GROUP BY customer_code_365, item_code_365
+            """), {"codes": list(customer_codes), "d28": d28, "d90": d90}).fetchall()
 
         result = {}
         for r in rows:
@@ -404,24 +407,30 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
 
 def _rebuild_from_batch(batch_id):
     t0 = time.time()
-    cust_id_map = _build_customer_id_map()
-    cust_email_map = _build_customer_email_map()
-    item_code_map, item_sku_map = _build_item_map()
-    category_map = _build_category_map()
+    try:
+        cust_id_map = _build_customer_id_map()
+        cust_email_map = _build_customer_email_map()
+        item_code_map, item_sku_map = _build_item_map()
+        category_map = _build_category_map()
 
-    cost_column = _get_cost_column()
-    cost_map = _build_item_cost_map(cost_column)
+        cost_column = _get_cost_column()
+        cost_map = _build_item_cost_map(cost_column)
 
-    low_margin_pct = float(_get_setting("crm_offer_low_margin_pct_threshold", DEFAULT_LOW_MARGIN_PCT))
-    strong_discount_pct = float(_get_setting("crm_offer_strong_discount_pct_threshold", DEFAULT_STRONG_DISCOUNT_PCT))
+        low_margin_pct = float(_get_setting("crm_offer_low_margin_pct_threshold", DEFAULT_LOW_MARGIN_PCT))
+        strong_discount_pct = float(_get_setting("crm_offer_strong_discount_pct_threshold", DEFAULT_STRONG_DISCOUNT_PCT))
 
-    raw_rows = db.session.execute(text("""
-        SELECT customer_id_magento, customer_email, sku, product_name,
-               rule_code, rule_name, rule_description,
-               origin_price, offer_price, snapshot_at
-        FROM crm_customer_offer_raw
-        WHERE import_batch_id = :bid
-    """), {"bid": batch_id}).fetchall()
+        with db.engine.connect() as conn:
+            raw_rows = conn.execute(text("""
+                SELECT customer_id_magento, customer_email, sku, product_name,
+                       rule_code, rule_name, rule_description,
+                       origin_price, offer_price, snapshot_at
+                FROM crm_customer_offer_raw
+                WHERE import_batch_id = :bid
+            """), {"bid": batch_id}).fetchall()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in rebuild setup: {e}")
+        raise
 
     now = datetime.now(timezone.utc)
 
