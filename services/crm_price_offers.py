@@ -53,10 +53,11 @@ def _safe_float(val):
 
 def _get_setting(key, default=None):
     try:
-        row = db.session.execute(
-            text("SELECT value FROM settings WHERE key = :k"),
-            {"k": key}
-        ).fetchone()
+        with db.engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT value FROM settings WHERE key = :k"),
+                {"k": key}
+            ).fetchone()
         return row[0] if row else default
     except Exception:
         return default
@@ -114,22 +115,29 @@ def _normalize_rule_name(rn, rc):
 
 def _build_customer_id_map():
     m = {}
-    rows = db.session.execute(text("""
-        SELECT DISTINCT magento_customer_id, customer_code_365
-        FROM magento_customer_last_login_current
-        WHERE magento_customer_id IS NOT NULL AND customer_code_365 IS NOT NULL
-    """)).fetchall()
-    for r in rows:
-        m[r[0]] = r[1]
+    with db.engine.connect() as conn:
+        try:
+            rows = conn.execute(text("""
+                SELECT DISTINCT magento_customer_id, customer_code_365
+                FROM magento_customer_last_login_current
+                WHERE magento_customer_id IS NOT NULL AND customer_code_365 IS NOT NULL
+            """)).fetchall()
+            for r in rows:
+                m[r[0]] = r[1]
+        except Exception as e:
+            logger.debug(f"ID map from login table: {e}")
 
-    rows2 = db.session.execute(text("""
-        SELECT DISTINCT magento_customer_id, customer_code_365
-        FROM crm_abandoned_cart_state
-        WHERE magento_customer_id IS NOT NULL AND customer_code_365 IS NOT NULL
-    """)).fetchall()
-    for r in rows2:
-        if r[0] not in m:
-            m[r[0]] = r[1]
+        try:
+            rows2 = conn.execute(text("""
+                SELECT DISTINCT magento_customer_id, customer_code_365
+                FROM crm_abandoned_cart_state
+                WHERE magento_customer_id IS NOT NULL AND customer_code_365 IS NOT NULL
+            """)).fetchall()
+            for r in rows2:
+                if r[0] not in m:
+                    m[r[0]] = r[1]
+        except Exception as e:
+            logger.debug(f"ID map from abandoned cart: {e}")
 
     logger.info(f"Customer ID map: {len(m)} magento→ps365 mappings")
     return m
@@ -180,20 +188,26 @@ def resolve_customer_code(customer_id_magento, customer_email, id_map, email_map
 def _build_customer_names(codes):
     if not codes:
         return {}
-    rows = db.session.execute(text("""
-        SELECT customer_code_365, company_name
-        FROM ps_customers
-        WHERE customer_code_365 = ANY(:codes)
-    """), {"codes": list(codes)}).fetchall()
-    return {r[0]: r[1] for r in rows}
+    try:
+        with db.engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT customer_code_365, company_name
+                FROM ps_customers
+                WHERE customer_code_365 = ANY(:codes)
+            """), {"codes": list(codes)}).fetchall()
+        return {r[0]: r[1] for r in rows}
+    except Exception as e:
+        logger.debug(f"Customer names lookup: {e}")
+        return {}
 
 
 def _build_item_map():
-    rows = db.session.execute(text("""
-        SELECT item_code_365, item_name, brand_code_365,
-               supplier_code_365, supplier_name, category_code_365
-        FROM ps_items_dw
-    """)).fetchall()
+    with db.engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT item_code_365, item_name, brand_code_365,
+                   supplier_code_365, supplier_name, category_code_365
+            FROM ps_items_dw
+        """)).fetchall()
     by_code = {}
     by_sku = {}
     for r in rows:
@@ -228,10 +242,11 @@ def resolve_item(sku, item_code_map, item_sku_map):
 
 def _build_category_map():
     try:
-        rows = db.session.execute(text("""
-            SELECT category_code_365, category_description
-            FROM dw_item_categories
-        """)).fetchall()
+        with db.engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT category_code_365, category_description
+                FROM dw_item_categories
+            """)).fetchall()
         return {r[0]: r[1] for r in rows}
     except Exception:
         return {}
@@ -241,10 +256,11 @@ def _get_cost_column():
     configured = _get_setting("crm_offer_cost_source", DEFAULT_COST_SOURCE)
     if configured and configured in VALID_COST_COLUMNS:
         try:
-            exists = db.session.execute(text("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'ps_items_dw' AND column_name = :col
-            """), {"col": configured}).fetchone()
+            with db.engine.connect() as conn:
+                exists = conn.execute(text("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'ps_items_dw' AND column_name = :col
+                """), {"col": configured}).fetchone()
             if exists:
                 return configured
         except Exception:
@@ -280,12 +296,12 @@ def _get_recent_sales_bulk(customer_codes):
         with db.engine.connect() as conn:
             rows = conn.execute(text("""
                 SELECT customer_code_365, item_code_365,
-                       COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN quantity ELSE 0 END), 0) AS qty_4w,
-                       COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN net_amount ELSE 0 END), 0) AS val_4w,
-                       COALESCE(SUM(quantity), 0) AS qty_90d,
-                       COALESCE(SUM(net_amount), 0) AS val_90d,
+                       COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN qty ELSE 0 END), 0) AS qty_4w,
+                       COALESCE(SUM(CASE WHEN sale_date >= :d28 THEN net_excl ELSE 0 END), 0) AS val_4w,
+                       COALESCE(SUM(qty), 0) AS qty_90d,
+                       COALESCE(SUM(net_excl), 0) AS val_90d,
                        MAX(sale_date) AS last_sold
-                FROM dw_sales_lines_mv
+                FROM dw_sales_lines_v
                 WHERE customer_code_365 = ANY(:codes)
                   AND sale_date >= :d90
                 GROUP BY customer_code_365, item_code_365
@@ -303,7 +319,7 @@ def _get_recent_sales_bulk(customer_codes):
             }
         return result
     except Exception as e:
-        logger.warning(f"Sales enrichment unavailable (dw_sales_lines_mv): {e}")
+        logger.warning(f"Sales enrichment unavailable (dw_sales_lines_v): {e}")
         return {}
 
 
@@ -333,6 +349,8 @@ def release_price_offers_lock():
 def import_customer_price_master_csv(csv_text, source_label="manual"):
     from update_crm_offer_schema import ensure_crm_offer_schema
     ensure_crm_offer_schema()
+
+    db.session.rollback()
 
     reader = csv.DictReader(io.StringIO(csv_text))
     fieldnames = reader.fieldnames or []
@@ -593,6 +611,13 @@ def _rebuild_from_batch(batch_id):
         })
 
     if current_rows:
+        deduped = {}
+        for row in current_rows:
+            key = (row["cc"], row["sku"], row["rc"])
+            deduped[key] = row
+        current_rows = list(deduped.values())
+        logger.info(f"Deduplicated to {len(current_rows)} unique offer rows")
+
         db.session.execute(text("""
             INSERT INTO crm_customer_offer_current
             (snapshot_at, customer_id_magento, customer_email, customer_code_365,

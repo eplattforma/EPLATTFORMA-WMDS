@@ -79,10 +79,10 @@ def ensure_crm_offer_schema():
                 origin_price NUMERIC(12,4),
                 offer_price NUMERIC(12,4),
                 discount_value NUMERIC(12,4),
-                discount_percent NUMERIC(8,4),
+                discount_percent NUMERIC(12,4),
                 cost NUMERIC(12,4),
                 gross_profit NUMERIC(12,4),
-                gross_margin_percent NUMERIC(8,4),
+                gross_margin_percent NUMERIC(12,4),
                 margin_status VARCHAR(30),
                 sold_qty_4w NUMERIC(12,3) NOT NULL DEFAULT 0,
                 sold_value_4w NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -102,10 +102,10 @@ def ensure_crm_offer_schema():
             ("crm_customer_offer_current", "category_name", "VARCHAR(255)"),
             ("crm_customer_offer_current", "rule_id", "INTEGER REFERENCES crm_offer_rule_dim(id)"),
             ("crm_customer_offer_current", "discount_value", "NUMERIC(12,4)"),
-            ("crm_customer_offer_current", "discount_percent", "NUMERIC(8,4)"),
+            ("crm_customer_offer_current", "discount_percent", "NUMERIC(12,4)"),
             ("crm_customer_offer_current", "cost", "NUMERIC(12,4)"),
             ("crm_customer_offer_current", "gross_profit", "NUMERIC(12,4)"),
-            ("crm_customer_offer_current", "gross_margin_percent", "NUMERIC(8,4)"),
+            ("crm_customer_offer_current", "gross_margin_percent", "NUMERIC(12,4)"),
             ("crm_customer_offer_current", "margin_status", "VARCHAR(30)"),
             ("crm_customer_offer_current", "sold_qty_4w", "NUMERIC(12,3) NOT NULL DEFAULT 0"),
             ("crm_customer_offer_current", "sold_value_4w", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
@@ -129,6 +129,15 @@ def ensure_crm_offer_schema():
             EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
             END $$
         """))
+        for widen in [
+            ("crm_customer_offer_current", "discount_percent", "NUMERIC(12,4)"),
+            ("crm_customer_offer_current", "gross_margin_percent", "NUMERIC(12,4)"),
+        ]:
+            try:
+                conn.execute(text(f"ALTER TABLE {widen[0]} ALTER COLUMN {widen[1]} TYPE {widen[2]}"))
+            except Exception:
+                pass
+
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_offer_current_customer ON crm_customer_offer_current(customer_code_365)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_offer_current_item ON crm_customer_offer_current(item_code_365)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_offer_current_rule ON crm_customer_offer_current(rule_code)"))
@@ -143,9 +152,9 @@ def ensure_crm_offer_schema():
                 has_special_pricing BOOLEAN NOT NULL DEFAULT false,
                 active_offer_skus INTEGER NOT NULL DEFAULT 0,
                 active_offer_rules INTEGER NOT NULL DEFAULT 0,
-                avg_discount_percent NUMERIC(8,4),
-                max_discount_percent NUMERIC(8,4),
-                avg_gross_margin_percent NUMERIC(8,4),
+                avg_discount_percent NUMERIC(12,4),
+                max_discount_percent NUMERIC(12,4),
+                avg_gross_margin_percent NUMERIC(12,4),
                 margin_risk_skus INTEGER NOT NULL DEFAULT 0,
                 negative_margin_skus INTEGER NOT NULL DEFAULT 0,
                 offered_skus_bought_4w INTEGER NOT NULL DEFAULT 0,
@@ -161,8 +170,8 @@ def ensure_crm_offer_schema():
             )
         """))
         for col_add in [
-            ("crm_customer_offer_summary_current", "max_discount_percent", "NUMERIC(8,4)"),
-            ("crm_customer_offer_summary_current", "avg_gross_margin_percent", "NUMERIC(8,4)"),
+            ("crm_customer_offer_summary_current", "max_discount_percent", "NUMERIC(12,4)"),
+            ("crm_customer_offer_summary_current", "avg_gross_margin_percent", "NUMERIC(12,4)"),
             ("crm_customer_offer_summary_current", "negative_margin_skus", "INTEGER NOT NULL DEFAULT 0"),
             ("crm_customer_offer_summary_current", "offered_skus_bought_90d", "INTEGER NOT NULL DEFAULT 0"),
             ("crm_customer_offer_summary_current", "offer_sales_90d", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
@@ -177,6 +186,16 @@ def ensure_crm_offer_schema():
                 EXCEPTION WHEN duplicate_column THEN NULL;
                 END $$
             """))
+
+        for widen_sum in [
+            ("crm_customer_offer_summary_current", "avg_discount_percent", "NUMERIC(12,4)"),
+            ("crm_customer_offer_summary_current", "max_discount_percent", "NUMERIC(12,4)"),
+            ("crm_customer_offer_summary_current", "avg_gross_margin_percent", "NUMERIC(12,4)"),
+        ]:
+            try:
+                conn.execute(text(f"ALTER TABLE {widen_sum[0]} ALTER COLUMN {widen_sum[1]} TYPE {widen_sum[2]}"))
+            except Exception:
+                pass
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_offer_summary_has_special ON crm_customer_offer_summary_current(has_special_pricing)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_offer_summary_risk ON crm_customer_offer_summary_current(margin_risk_skus)"))
