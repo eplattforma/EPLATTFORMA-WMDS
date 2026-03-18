@@ -366,6 +366,32 @@ function refreshAllData() {
                 <div class="fw-bold fs-5" style="color:#6f42c1;">€{{ "{:,.0f}".format(kpi_total_open_amount) }}</div>
             </div>
         </div>
+        {% if offer_kpi and offer_kpi.kpi_offer_customers_with_offers > 0 %}
+        <div class="col-auto">
+            <div class="card kpi-card px-3 py-2" style="border-color: #20c997;">
+                <div class="small text-muted">With Offers</div>
+                <div class="fw-bold fs-5" style="color:#20c997;">{{ offer_kpi.kpi_offer_customers_with_offers }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card px-3 py-2" style="border-color: #ffc107;">
+                <div class="small text-muted">Unused Offers</div>
+                <div class="fw-bold fs-5" style="color:#ffc107;">{{ offer_kpi.kpi_offer_customers_with_unused }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card px-3 py-2" style="border-color: #e74c3c;">
+                <div class="small text-muted">Margin Risk</div>
+                <div class="fw-bold fs-5" style="color:#e74c3c;">{{ offer_kpi.kpi_offer_customers_with_margin_risk }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card px-3 py-2" style="border-color: #17a2b8;">
+                <div class="small text-muted">Offer Sales 4w</div>
+                <div class="fw-bold fs-5" style="color:#17a2b8;">€{{ "{:,.0f}".format(offer_kpi.kpi_offer_sales_4w) }}</div>
+            </div>
+        </div>
+        {% endif %}
         <div class="col-auto d-flex align-items-center gap-2">
             <div class="d-flex align-items-center" style="background: rgba(255,255,255,0.08); border-radius: 6px; padding: 2px 8px; border: 1px solid rgba(255,255,255,0.12);">
                 <i class="fas fa-sort-amount-down me-1" style="font-size: 0.75rem; color: rgba(255,255,255,0.5);"></i>
@@ -509,12 +535,16 @@ function refreshAllData() {
                         {% endif %}
                     </td>
                     <td>
-                        {% if r.offer_indicator_state != 'none' %}
-                        <span class="offer-chip offer-{{ r.offer_indicator_state }}" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">
-                            <i class="fas fa-tag"></i>{{ r.active_offer_skus }}
-                        </span>
-                        {% else %}
+                        {% if r.offer_indicator_state == 'none' %}
                         <span class="text-muted" style="font-size:0.72rem;">—</span>
+                        {% elif r.offer_indicator_state == 'used' %}
+                        <span class="offer-chip offer-used" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }}</span>
+                        {% elif r.offer_indicator_state == 'mixed' %}
+                        <span class="offer-chip offer-mixed" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }} / {{ r.offered_skus_not_bought }} unused</span>
+                        {% elif r.offer_indicator_state == 'unused' %}
+                        <span class="offer-chip offer-unused" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }} unused</span>
+                        {% elif r.offer_indicator_state == 'risk' %}
+                        <span class="offer-chip offer-risk" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }} / risk {{ r.margin_risk_skus }}</span>
                         {% endif %}
                     </td>
                     <td>

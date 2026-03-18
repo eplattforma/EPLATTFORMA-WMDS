@@ -1,0 +1,743 @@
+Review of current offer-intelligence implementation and exact next steps
+
+Overall status
+
+The backend is moving in the right direction, but it is not finished yet.
+The main issues now are:
+1) duplicated old/new offer schemas
+2) missing resolver logic fallback
+3) incomplete KPI aggregation
+4) no refresh locking
+5) no front-end offer drawer/UI yet
+6) a few correctness bugs in the service layer
+
+Do the work below in this order.
+
+==================================================
+A. CRITICAL FIXES FIRST
+==================================================
+
+1) Standardize on the NEW schema only
+
+Keep these tables as the official offer-intelligence source of truth:
+- crm_customer_offer_import_batch
+- crm_customer_offer_raw
+- crm_offer_rule_dim
+- crm_customer_offer_current
+- crm_customer_offer_summary_current
+- crm_customer_offer_unresolved
+
+Do NOT continue building new logic around these old legacy tables:
+- crm_customer_price_offer_import
+- crm_customer_price_offer
+
+Action:
+- remove _ensure_legacy_tables() from services/crm_price_offers.py
+- remove _update_legacy_table() call from _rebuild_from_batch()
+- remove the creation of crm_customer_price_offer_import and crm_customer_price_offer from update_crm_dashboard_schema()
+
+If temporary backward compatibility is needed, keep the old tables untouched for now, but stop writing to them.
+Do not duplicate the same business logic in both old and new schemas.
+
+2) Ensure the NEW schema is created before import
+
+Right now import_customer_price_master_csv() calls _ensure_legacy_tables(), which is wrong because the service actually writes into the new crm_customer_offer_* tables.
+
+Fix:
+- import and call ensure_crm_offer_schema() at the start of:
+  - import_customer_price_master_csv()
+  - refresh_all_customer_price_offers()
+
+Expected:
+Before any import/rebuild, the new tables/indexes/constraints must exist.
+
+3) Add refresh locking to price offers refresh
+
+The route /crm/price-offers/refresh currently has no lock.
+That means two users or a cron+user can run the rebuild at the same time.
+
+Implement the same lock pattern used in open orders refresh.
+
+Add a job name like:
+- JOB_NAME = "crm_price_offers_refresh"
+
+Create helper functions similar to open orders sync lock if a generic lock service already exists:
+- acquire_sync_lock()
+- release_sync_lock()
+
+Expected behavior:
+- if refresh already running, return HTTP 409
+- otherwise run refresh and release lock in finally block
+
+4) Fix JSON body handling in refresh route
+
+Current code can fail if request.json is None.
+
+Change:
+- payload = request.get_json(silent=True) or {}
+- csv_path = payload.get("csv_path")
+
+Do not use request.json.get(...) directly.
+
+==================================================
+B. SERVICE LAYER FIXES IN services/crm_price_offers.py
+==================================================
+
+5) Replace single-source customer resolution with proper resolver priority
+
+Current issue:
+_build_customer_map() only maps by magento_customer_id from:
+- magento_customer_last_login_current
+- crm_abandoned_cart_state
+
+That is incomplete.
+We need fallback by email when customer_id does not resolve.
+
+Implement a resolver with this priority:
+
+Priority 1
+Resolve by Magento customer ID
+
+Use the best available reliable sources in this order:
+- magento_customer_last_login_current
+- crm_abandoned_cart_state
+- any dedicated Magento customer mapping table if the app already has one
+
+Priority 2
+Resolve by exact normalized email
+
+Implement normalized email matching:
+- lower(trim(email))
+
+Look for email->customer_code_365 mapping from any trusted source already in the app.
+Examples to inspect:
+- Magento customer import/current table if one exists
+- CRM/Magento mapping table
+- PSCustomer email field if available and trustworthy
+- Magento login/current-state table if it stores email
+
+If no trustworthy email source exists, explicitly note that and skip email fallback until a clean email mapping source is available.
+
+Create helpers:
+- _normalize_email(email)
+- _build_customer_id_map()
+- _build_customer_email_map()
+- resolve_customer_code(customer_id_magento, customer_email)
+
+Expected behavior:
+- use ID mapping first
+- only use email mapping as fallback
+- do not silently skip unmatched rows
+
+6) Replace single-source item resolution with proper resolver priority
+
+Current issue:
+_build_item_map() only matches UPPER(TRIM(item_code_365)) against SKU.
+That is too narrow.
+
+Implement item resolution priority:
+1) exact match SKU -> item_code_365
+2) exact match SKU -> ps_items_dw.sku (or equivalent Magento SKU field if present)
+3) use explicit mapping table if one already exists in project
+4) unresolved
+
+Create helper:
+- resolve_item_code(sku)
+
+Also enrich:
+- item_name
+- brand_name
+- supplier_code
+- supplier_name
+- category_code
+- category_name
+
+Inspect ps_items_dw for available fields and use them directly if present.
+
+7) Add missing unresolved issue types
+
+Current issue:
+Only customer_unmapped is written to crm_customer_offer_unresolved.
+Missing:
+- sku_unmapped
+- cost_missing
+
+Required changes:
+When customer cannot resolve:
+- insert issue_type = 'customer_unmapped'
+
+When customer resolves but item cannot resolve:
+- insert issue_type = 'sku_unmapped'
+
+When item resolves but cost is missing:
+- insert issue_type = 'cost_missing'
+
+Also improve crm_customer_offer_unresolved table:
+Add columns:
+- import_batch_id INTEGER NULL
+- customer_code_365 VARCHAR(50) NULL
+- item_code_365 VARCHAR(100) NULL
+
+Then always populate batch ID in unresolved rows.
+
+Important:
+Clear unresolved rows for the current rebuild properly.
+Do NOT leave stale unresolved data from prior batches.
+
+Best approach:
+- add import_batch_id to unresolved
+- insert unresolved rows for the current batch
+- when reading unresolved counts, use current batch only
+
+8) Make rule_code non-null and normalized
+
+Current issue:
+Unique constraint is:
+(customer_code_365, sku, rule_code)
+
+If rule_code is NULL, Postgres unique behavior can allow duplicates.
+That can create duplicate rows for the same customer+sku where rule_code is null.
+
+Fix:
+Normalize rule code during import/rebuild:
+- normalized_rule_code = stripped rule_code if present
+- otherwise use '__NO_RULE__'
+
+Also normalize rule_name similarly if blank:
+- rule_name = original if present else 'No Rule'
+
+Then make rule_code consistently non-null inside crm_customer_offer_current.
+
+Expected result:
+- one stable row per customer + sku + normalized rule
+
+9) Remove redundant DELETE + ON CONFLICT pattern
+
+Current issue:
+_rebuild_from_batch() does:
+- DELETE FROM crm_customer_offer_current
+- then INSERT ... ON CONFLICT ...
+
+If current table is fully rebuilt each run, ON CONFLICT is unnecessary.
+
+Simpler and faster:
+- DELETE FROM crm_customer_offer_current
+- bulk INSERT fresh rows only
+
+If you keep ON CONFLICT, then do not clear the whole table first.
+Choose one strategy only.
+
+Recommendation:
+Because current table represents latest snapshot only:
+- clear current table
+- bulk insert fresh rows
+- no ON CONFLICT
+
+10) Use bulk insert / executemany for performance
+
+Current issue:
+Rows are inserted one by one in Python loops.
+
+Improve:
+- prepare list of dicts
+- use db.session.execute(text(...), rows_payload) for batch insert
+- commit once per stage
+
+Do this for:
+- crm_customer_offer_raw inserts
+- crm_customer_offer_current inserts
+- crm_customer_offer_unresolved inserts
+
+This will be cleaner and faster.
+
+11) Make cost source configurable and actually use it
+
+Current issue:
+DEFAULT_COST_SOURCE exists but is not used.
+Current code hardcodes ps_items_dw.cost_price.
+
+Implement settings-based cost source:
+- crm_offer_cost_source
+
+Accepted values should match real available columns in ps_items_dw or related item source.
+Inspect available columns and support the real ones you have.
+Example:
+- cost_price
+- average_cost
+- last_purchase_cost
+- standard_cost
+
+Add helper:
+- get_item_cost_from_row(item_row, cost_source_setting)
+
+Behavior:
+- use configured source if available
+- fallback to first valid cost column
+- if no cost found, set cost None and issue unresolved cost_missing
+
+12) Populate brand_name properly
+
+Current issue:
+brand_name is always inserted as None.
+
+Inspect ps_items_dw for actual brand field(s), for example:
+- brand_name
+- brand_code_365
+- manufacturer_name
+or equivalent
+
+Populate brand_name in crm_customer_offer_current if available.
+
+13) Improve supplier/category lookup sources
+
+Current implementation:
+- supplier_map is built from ps_items_dw
+- category_map is built from dw_item_categories
+
+This may be okay, but make it cleaner:
+- if ps_items_dw already contains supplier_name/category_name directly, use them directly
+- only fall back to separate maps when needed
+- avoid duplicate scans if the names already live in ps_items_dw
+
+14) Parse snapshot_at robustly
+
+Current issue:
+snapshot_at is kept mostly as string input.
+
+Improve:
+- parse snapshot_at into timezone-aware datetime if possible
+- fallback to now UTC if parsing fails
+
+Use one helper:
+- _parse_snapshot_at(value)
+
+Use the parsed value consistently for:
+- batch snapshot_at
+- raw rows
+- current rows
+
+15) Improve sales enrichment structure
+
+Current issue:
+_get_recent_sales_bulk() is okay, but keep it bulk-only and ensure it remains optional.
+
+Actions:
+- keep one bulk sales query
+- document source table used: dw_sales_lines_mv
+- if source missing, log warning and continue gracefully
+- ensure values default to zero, not None
+
+16) Fix top_rule_name query in summary rebuild
+
+Current issue:
+The DISTINCT ON query for top_rule_name is not deterministic enough.
+
+Replace the current update with a deterministic ranking query.
+
+Recommended approach:
+Use a ranked subquery with explicit ordering by:
+- customer_code_365
+- count DESC
+- rule_name ASC
+
+Then update summary from the top-ranked row.
+
+Example approach:
+- build grouped counts per customer+rule_name
+- apply row_number() over (partition by customer_code_365 order by cnt desc, rule_name asc)
+- update where rn = 1
+
+This is safer than relying on order preservation inside nested DISTINCT ON.
+
+17) Improve summary metrics completeness
+
+Keep these summary fields fully populated:
+- active_offer_skus
+- active_offer_rules
+- avg_discount_percent
+- max_discount_percent
+- avg_gross_margin_percent
+- margin_risk_skus
+- negative_margin_skus
+- offered_skus_bought_4w
+- offered_skus_bought_90d
+- offered_skus_not_bought
+- offer_sales_4w
+- offer_sales_90d
+- offer_utilisation_pct
+- high_discount_unused_skus
+- top_rule_name
+- top_opportunity_count
+
+Also ensure:
+- has_special_pricing = true for inserted summary rows
+- rows absent from summary simply mean no offers for that customer
+
+18) Keep generated sentence, but make it slightly smarter
+
+Current generated sentence is good.
+Keep it, but extend it slightly:
+- if no offers used in last 4 weeks, say so explicitly
+- if margin_risk_skus > 0, append warning
+- if high_discount_unused_skus > 0, append opportunity note
+
+Example:
+“Customer has 24 active offer SKUs, bought 6 in the last 4 weeks, 18 remain unused, average discount 12.5%, margin risk on 2 lines, 5 strong-discount lines remain unused.”
+
+==================================================
+C. SETTINGS / BOOTSTRAP WORK
+==================================================
+
+19) Add default settings bootstrap
+
+Create a helper that inserts missing settings rows if absent.
+
+Add these keys:
+- crm_offer_low_margin_pct_threshold = 12
+- crm_offer_negative_margin_pct_threshold = 0
+- crm_offer_strong_discount_pct_threshold = 15
+- crm_offer_cost_source = cost_price
+- crm_offer_import_latest_csv_path = (blank or configured path)
+
+Optional:
+- crm_offer_show_on_dashboard = 1
+- crm_offer_show_on_review_ordering = 1
+
+Run this bootstrap during app init or schema init.
+
+==================================================
+D. CRM BLUEPRINT FIXES
+==================================================
+
+20) Compute offer KPI cards for dashboard from the filtered customer set, not only the page rows
+
+Current issue:
+dashboard rows are enriched only for page_customer_codes.
+That is okay for row display, but not for top KPI cards.
+
+Add a separate KPI aggregate query using:
+- filtered_codes_sq
+joined to
+- crm_customer_offer_summary_current
+
+Compute and pass these to dashboard template:
+- kpi_offer_customers_with_offers
+- kpi_offer_customers_with_unused
+- kpi_offer_customers_with_margin_risk
+- kpi_offer_sales_4w
+- kpi_offer_high_discount_unused
+
+Definitions:
+- customers_with_offers = count where has_special_pricing = true
+- customers_with_unused = count where has_special_pricing = true and offered_skus_bought_4w = 0
+- customers_with_margin_risk = count where margin_risk_skus > 0
+- offer_sales_4w = sum(offer_sales_4w)
+- high_discount_unused = sum(high_discount_unused_skus)
+
+Important:
+These KPI cards must reflect the current filters, not global totals.
+
+21) Add missing offer fields to review_ordering rows
+
+Current issue:
+review_ordering row dict is missing some useful offer fields.
+
+Add:
+- offered_skus_not_bought
+- offer_sales_4w
+- high_discount_unused_skus
+- offered_skus_bought_4w
+
+So each row has a fuller offer context for the UI.
+
+22) Add KPI cards for review_ordering
+
+Compute and pass:
+- kpi_offer_with_offers
+- kpi_offer_unused
+- kpi_offer_margin_risk
+- kpi_offer_sales_4w
+- kpi_offer_high_discount_unused
+
+These should be based on open_window_rows after all review-ordering filters have been applied.
+
+Simplest approach:
+Compute them in Python from open_window_rows after the rows list is finalized.
+
+23) Move summary table access into a helper/service
+
+Current raw SQL in blueprint is acceptable, but cleaner would be:
+- service helper load_offer_summary_map(customer_codes)
+
+Use this helper in both:
+- customer_slot_dashboard()
+- review_ordering()
+
+This avoids duplicate raw SQL blocks.
+
+24) Keep /offer-intelligence route but simplify it
+
+Current route:
+- calls get_customer_offer_intelligence()
+- then separately calls get_customer_price_offer_rows()
+- then injects all_offers
+
+Either keep this shape or move all_offers inside service.
+Recommendation:
+Move it inside service so the route stays very thin.
+
+Target payload from service:
+- summary
+- opportunities
+- margin_risks
+- rules_breakdown
+- all_offers
+- generated_sentence
+
+==================================================
+E. FRONT-END / UI WORK STILL MISSING
+==================================================
+
+25) Add offer KPI cards to crm/dashboard.html
+
+Add a second KPI strip or integrate with current KPI strip.
+Show:
+- With Offers
+- Unused Offers
+- Margin Risk
+- Offer Sales 4w
+- High Disc Unused
+
+Use compact WMDS dark-theme cards.
+
+26) Add offer KPI cards to crm/review_ordering.html
+
+Add similar cards on review ordering:
+- With Offers
+- Unused
+- Margin Risk
+- Offer Sales 4w
+- High Disc Unused
+
+These are extremely useful for prioritization during ordering review.
+
+27) Add compact Offers column in both grids
+
+Add one column named:
+- Offers
+
+Per row render a compact chip/button based on offer_indicator_state.
+
+State rules:
+- none -> grey outlined chip, show “—”
+- used -> green chip, show “24 offers”
+- mixed -> amber/blue chip, show “24 / 18 unused”
+- unused -> amber chip, show “24 unused”
+- risk -> red chip, show “24 / risk 2”
+
+Recommended text:
+- none: —
+- used: {active_offer_skus}
+- mixed: {active_offer_skus} / {offered_skus_not_bought} unused
+- unused: {active_offer_skus} unused
+- risk: {active_offer_skus} / risk {margin_risk_skus}
+
+Optional tiny subtext or tooltip:
+- avg discount %
+- offer sales 4w
+
+28) Add right-side offer intelligence drawer
+
+Create one drawer component shared by both dashboard and review-ordering pages.
+
+Drawer sections:
+Tab 1 Summary
+- generated_sentence
+- summary KPI cards
+- top rules breakdown
+
+Tab 2 Opportunities
+- unused and high-discount-unused lines
+Columns:
+  - SKU
+  - Product
+  - Offer Price
+  - Discount %
+  - Margin %
+  - Supplier / Brand
+  - badge “Mention”
+
+Tab 3 Margin Watch
+- lines where margin_status in ('low','negative')
+Columns:
+  - SKU
+  - Product
+  - Offer Price
+  - Cost
+  - GP
+  - Margin %
+  - Rule
+  - Status
+
+Tab 4 All Offers
+- full sortable table of active offers
+Columns:
+  - SKU
+  - Product
+  - Rule
+  - Normal Price
+  - Offer Price
+  - Discount %
+  - Cost
+  - GP
+  - Margin %
+  - Sold 4w
+  - Last Sold
+  - Status
+
+Drawer footer actions:
+- Create OFFER_FOLLOWUP task
+- Log OFFER interaction
+- Close
+
+29) Add JS file for drawer behavior
+
+Create:
+- static/js/crm_offer_intelligence.js
+
+Implement:
+- openOfferDrawer(customerCode)
+- fetch /crm/customer/<code>/offer-intelligence
+- loading state
+- empty state
+- render summary
+- render opportunities
+- render margin risks
+- render all offers
+- tab switching
+- simple client-side search in All Offers tab
+
+Important:
+Do not preload all offer detail data for all customers.
+Load only when a row chip is clicked.
+
+30) Add CSS file for offer chips and drawer
+
+Create:
+- static/css/crm_offer_intelligence.css
+
+Styles needed:
+- offer chip states
+- KPI cards
+- drawer layout
+- risk badges
+- empty/loading states
+- compact table layout matching current WMDS dark UI
+
+==================================================
+F. CLEANUP IN update_crm_dashboard_schema()
+==================================================
+
+31) Remove old offer table creation from dashboard schema update
+
+In update_crm_dashboard_schema(), remove creation of:
+- crm_customer_price_offer_import
+- crm_customer_price_offer
+
+Those belong to the old implementation and should no longer be extended.
+
+Leave dashboard schema update responsible only for:
+- crm_customer_profile
+- crm_task
+- crm_interaction_log
+- crm_ordering_review
+and any real CRM dashboard tables still in use
+
+Create a separate offer schema initializer:
+- ensure_crm_offer_schema()
+
+Keep responsibilities separate.
+
+==================================================
+G. TESTING / ACCEPTANCE CHECKLIST
+==================================================
+
+32) Test these exact scenarios
+
+Scenario 1
+Customer has offers, bought some recently, no margin risk
+Expected:
+- offer chip shows used/mixed
+- drawer summary correct
+- opportunities shown only for unused lines
+
+Scenario 2
+Customer has offers, bought none in last 4 weeks
+Expected:
+- offer chip shows unused
+- generated sentence says none bought in last 4 weeks
+
+Scenario 3
+Customer has low/negative margin lines
+Expected:
+- offer chip shows risk
+- Margin Watch tab populated
+- summary margin_risk_skus > 0
+
+Scenario 4
+Customer cannot resolve from Magento customer ID but can resolve by email
+Expected:
+- row imports successfully
+- no customer_unmapped unresolved for that row
+
+Scenario 5
+Customer resolves, SKU does not resolve
+Expected:
+- sku_unmapped unresolved row exists for current batch
+- row does not break rebuild
+
+Scenario 6
+Customer resolves, item resolves, cost missing
+Expected:
+- cost_missing unresolved row exists
+- margin_status = unknown
+
+Scenario 7
+Refresh triggered twice quickly
+Expected:
+- second run returns 409 while first is active
+
+Scenario 8
+Customer has no offers
+Expected:
+- no offer chip or grey chip
+- drawer empty state says no active special pricing
+
+==================================================
+H. DELIVERABLES EXPECTED FROM REPLIT
+==================================================
+
+Please complete the following and then summarize exactly what was changed:
+
+1) remove dual-schema ambiguity
+2) fix service-layer resolver logic
+3) add missing unresolved issue types
+4) add settings bootstrap
+5) add refresh locking
+6) add dashboard filtered offer KPI cards
+7) add review-ordering offer KPI cards
+8) add Offers column chips to both pages
+9) add full offer-intelligence drawer
+10) keep the current order-window logic untouched
+
+When done, report back with:
+- which tables are now official
+- whether legacy tables are still written to or not
+- which customer mapping sources are used
+- which SKU/item mapping sources are used
+- which cost column is used
+- which sales table is used
+- what new template/js/css files were added
+- what unresolved counts were seen on the first rebuild
+
+The biggest priority is to stop maintaining both the old and new offer-table designs at the same time. That will create confusion and bugs later.

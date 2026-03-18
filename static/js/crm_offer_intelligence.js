@@ -47,6 +47,8 @@ window.addEventListener('load', function() {
         var opps = data.opportunities || [];
         var marginWatch = data.margin_risks || [];
         var allOffers = data.all_offers || [];
+        var rulesBreakdown = data.rules_breakdown || [];
+        var generatedSentence = data.generated_sentence || '';
 
         if (!summary.has_special_pricing) {
             body.innerHTML = '<div class="offer-empty-state"><i class="fas fa-tag"></i>No special pricing for this customer</div>';
@@ -70,7 +72,7 @@ window.addEventListener('load', function() {
         html += '</div>';
 
         html += '<div id="offer-tab-summary" class="offer-tab-content active">';
-        html += renderSummaryTab(summary);
+        html += renderSummaryTab(summary, rulesBreakdown, generatedSentence);
         html += '</div>';
 
         html += '<div id="offer-tab-opportunities" class="offer-tab-content">';
@@ -103,18 +105,45 @@ window.addEventListener('load', function() {
     function fmtPct(v) { return v != null ? parseFloat(v).toFixed(1) + '%' : '—'; }
     function fmtEur(v) { return v != null ? '€' + parseFloat(v).toLocaleString('en', {maximumFractionDigits:0}) : '—'; }
 
-    function renderSummaryTab(s) {
-        var h = '<div class="offer-summary-section">';
+    function renderSummaryTab(s, rulesBreakdown, sentence) {
+        var h = '';
+
+        if (sentence) {
+            h += '<div class="offer-generated-sentence">' + esc(sentence) + '</div>';
+        }
+
+        h += '<div class="offer-summary-section">';
         h += sumRow('Active offer SKUs', s.active_offer_skus || 0);
         h += sumRow('Average discount', fmtPct(s.avg_discount_percent));
+        h += sumRow('Max discount', fmtPct(s.max_discount_percent));
         h += sumRow('Offer sales (4w)', fmtEur(s.offer_sales_4w));
         h += sumRow('Offer sales (90d)', fmtEur(s.offer_sales_90d));
         h += sumRow('SKUs bought (4w)', s.offered_skus_bought_4w || 0);
+        h += sumRow('SKUs bought (90d)', s.offered_skus_bought_90d || 0);
         h += sumRow('SKUs not bought', '<span style="color:' + ((s.offered_skus_not_bought || 0) > 0 ? '#ffc107' : '#22c55e') + '">' + (s.offered_skus_not_bought || 0) + '</span>');
         h += sumRow('Utilisation %', fmtPct(s.offer_utilisation_pct));
         h += sumRow('Margin risk SKUs', '<span style="color:' + ((s.margin_risk_skus || 0) > 0 ? '#ef4444' : '#22c55e') + '">' + (s.margin_risk_skus || 0) + '</span>');
+        h += sumRow('Negative margin', '<span style="color:' + ((s.negative_margin_skus || 0) > 0 ? '#ef4444' : '#22c55e') + '">' + (s.negative_margin_skus || 0) + '</span>');
         h += sumRow('High discount unused', '<span style="color:' + ((s.high_discount_unused_skus || 0) > 0 ? '#ffc107' : '#22c55e') + '">' + (s.high_discount_unused_skus || 0) + '</span>');
+        if (s.top_rule_name) {
+            h += sumRow('Top rule', esc(s.top_rule_name));
+        }
         h += '</div>';
+
+        if (rulesBreakdown && rulesBreakdown.length > 0) {
+            h += '<div class="offer-rules-section">';
+            h += '<div class="rules-title">Rules Breakdown</div>';
+            h += '<table class="rules-table"><thead><tr><th>Rule</th><th class="text-end">SKUs</th><th class="text-end">Avg Disc</th></tr></thead><tbody>';
+            rulesBreakdown.forEach(function(rule) {
+                h += '<tr>';
+                h += '<td>' + esc(rule.rule_name || rule.rule_code || '') + '</td>';
+                h += '<td class="text-end">' + rule.count + '</td>';
+                h += '<td class="text-end">' + fmtPct(rule.avg_discount) + '</td>';
+                h += '</tr>';
+            });
+            h += '</tbody></table></div>';
+        }
+
         return h;
     }
 
@@ -124,45 +153,46 @@ window.addEventListener('load', function() {
 
     function renderOpportunitiesTab(opps) {
         if (!opps.length) return '<div class="offer-empty-state"><i class="fas fa-check-circle"></i>No unused opportunities found</div>';
-        var h = '<div style="padding:4px 0;">';
+        var h = '<div style="overflow-x:auto;">';
+        h += '<table class="all-offers-table"><thead><tr>';
+        h += '<th>SKU</th><th>Product</th><th class="text-end">Offer €</th><th class="text-end">Disc %</th><th class="text-end">Margin %</th><th>Supplier / Brand</th><th>Mention</th>';
+        h += '</tr></thead><tbody>';
         opps.forEach(function(o) {
-            h += '<div class="opp-card">';
-            h += '<div class="opp-sku">' + esc(o.sku || '') + '</div>';
-            h += '<div class="opp-name">' + esc(o.product_name || '') + '</div>';
-            h += '<div class="opp-detail">';
-            h += '<strong>Discount:</strong> ' + fmtPct(o.discount_percent) + ' · ';
-            h += '<strong>Rule:</strong> ' + esc(o.rule_name || o.supplier_name || '—') + ' · ';
-            h += '<strong>Price:</strong> ' + fmtEur(o.offer_price);
-            if (o.cost != null) h += ' · <strong>Cost:</strong> ' + fmtEur(o.cost);
-            h += '</div>';
-            h += '</div>';
+            h += '<tr>';
+            h += '<td style="font-weight:600;">' + esc(o.sku || '') + '</td>';
+            h += '<td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
+            h += '<td class="text-end">' + (o.offer_price != null ? '€' + parseFloat(o.offer_price).toFixed(2) : '—') + '</td>';
+            h += '<td class="text-end">' + fmtPct(o.discount_percent) + '</td>';
+            h += '<td class="text-end">' + (o.gross_margin_percent != null ? fmtPct(o.gross_margin_percent) : '—') + '</td>';
+            h += '<td style="font-size:0.72rem;">' + esc(o.supplier_name || o.brand_name || '—') + '</td>';
+            h += '<td><span class="badge-mention">Mention</span></td>';
+            h += '</tr>';
         });
-        h += '</div>';
+        h += '</tbody></table></div>';
         return h;
     }
 
     function renderMarginTab(items) {
         if (!items.length) return '<div class="offer-empty-state"><i class="fas fa-shield-alt" style="color:#22c55e"></i>No margin risks detected</div>';
-        var h = '<div style="padding:4px 0;">';
+        var h = '<div style="overflow-x:auto;">';
+        h += '<table class="all-offers-table"><thead><tr>';
+        h += '<th>SKU</th><th>Product</th><th class="text-end">Offer €</th><th class="text-end">Cost €</th><th class="text-end">GP €</th><th class="text-end">Margin %</th><th>Rule</th><th>Status</th>';
+        h += '</tr></thead><tbody>';
         items.forEach(function(m) {
-            var isRisk = m.gross_margin_percent != null && m.gross_margin_percent < 15;
-            h += '<div class="margin-card ' + (isRisk ? 'risk' : 'ok') + '">';
-            h += '<div class="d-flex justify-content-between align-items-center">';
-            h += '<div>';
-            h += '<div class="opp-sku">' + esc(m.sku || '') + '</div>';
-            h += '<div class="opp-name">' + esc(m.product_name || '') + '</div>';
-            h += '</div>';
-            var mClass = m.gross_margin_percent != null ? (m.gross_margin_percent < 10 ? 'margin-pct-bad' : m.gross_margin_percent < 20 ? 'margin-pct-warn' : 'margin-pct-good') : '';
-            h += '<div class="text-end">';
-            h += '<div class="' + mClass + '" style="font-size:1rem;font-weight:700;">' + fmtPct(m.gross_margin_percent) + '</div>';
-            h += '<div style="font-size:0.68rem;color:rgba(255,255,255,0.4);">margin</div>';
-            h += '</div></div>';
-            h += '<div class="opp-detail mt-1">';
-            h += '<strong>Cost:</strong> ' + fmtEur(m.cost) + ' · <strong>Offer:</strong> ' + fmtEur(m.offer_price) + ' · <strong>Disc:</strong> ' + fmtPct(m.discount_percent);
-            h += '</div>';
-            h += '</div>';
+            var mClass = m.gross_margin_percent != null ? (m.gross_margin_percent < 0 ? 'margin-pct-bad' : m.gross_margin_percent < 12 ? 'margin-pct-warn' : 'margin-pct-good') : '';
+            var statusBadge = m.margin_status === 'negative' ? '<span class="badge-risk-neg">Negative</span>' : '<span class="badge-risk-low">Low</span>';
+            h += '<tr>';
+            h += '<td style="font-weight:600;">' + esc(m.sku || '') + '</td>';
+            h += '<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(m.product_name || '') + '">' + esc(m.product_name || '') + '</td>';
+            h += '<td class="text-end">' + (m.offer_price != null ? '€' + parseFloat(m.offer_price).toFixed(2) : '—') + '</td>';
+            h += '<td class="text-end">' + (m.cost != null ? '€' + parseFloat(m.cost).toFixed(2) : '—') + '</td>';
+            h += '<td class="text-end">' + (m.gross_profit != null ? '€' + parseFloat(m.gross_profit).toFixed(2) : '—') + '</td>';
+            h += '<td class="text-end ' + mClass + '">' + (m.gross_margin_percent != null ? fmtPct(m.gross_margin_percent) : '—') + '</td>';
+            h += '<td style="font-size:0.72rem;">' + esc(m.rule_name || '—') + '</td>';
+            h += '<td>' + statusBadge + '</td>';
+            h += '</tr>';
         });
-        h += '</div>';
+        h += '</tbody></table></div>';
         return h;
     }
 
@@ -171,7 +201,7 @@ window.addEventListener('load', function() {
         var h = '<div class="offer-search-bar"><input type="text" id="offerSearchInput" placeholder="Search SKU or product..." oninput="filterOfferRows(this.value)"></div>';
         h += '<div style="overflow-x:auto;">';
         h += '<table class="all-offers-table"><thead><tr>';
-        h += '<th>SKU</th><th>Product</th><th class="text-end">Origin €</th><th class="text-end">Final €</th><th class="text-end">Disc %</th><th class="text-end">Margin</th><th>Rule</th>';
+        h += '<th>SKU</th><th>Product</th><th>Rule</th><th class="text-end">Normal €</th><th class="text-end">Offer €</th><th class="text-end">Disc %</th><th class="text-end">Cost €</th><th class="text-end">GP €</th><th class="text-end">Margin</th><th class="text-end">Sold 4w</th><th>Last Sold</th><th>Status</th>';
         h += '</tr></thead><tbody id="allOffersBody">';
         offers.forEach(function(o) {
             h += offerRow(o);
@@ -184,16 +214,30 @@ window.addEventListener('load', function() {
         var mClass = '';
         var gm = o.gross_margin_percent;
         if (gm != null) {
-            mClass = gm < 10 ? 'margin-pct-bad' : gm < 20 ? 'margin-pct-warn' : 'margin-pct-good';
+            mClass = gm < 0 ? 'margin-pct-bad' : gm < 12 ? 'margin-pct-warn' : 'margin-pct-good';
         }
+        var statusMap = {
+            'selling': '<span class="badge-status-selling">Selling</span>',
+            'unused': '<span class="badge-status-unused">Unused</span>',
+            'high_discount_unused': '<span class="badge-status-hdu">High Disc</span>',
+            'margin_risk': '<span class="badge-status-risk">Risk</span>',
+            'unknown': '<span class="badge-status-unknown">—</span>'
+        };
+        var statusBadge = statusMap[o.line_status] || '<span class="badge-status-unknown">' + esc(o.line_status || '—') + '</span>';
+
         var r = '<tr class="offer-row" data-search="' + esc((o.sku || '') + ' ' + (o.product_name || '')).toLowerCase() + '">';
         r += '<td style="font-weight:600;">' + esc(o.sku || '') + '</td>';
-        r += '<td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
+        r += '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
+        r += '<td style="font-size:0.72rem;max-width:80px;overflow:hidden;text-overflow:ellipsis;" title="' + esc(o.rule_name || '') + '">' + esc(o.rule_name || '') + '</td>';
         r += '<td class="text-end">' + (o.origin_price != null ? '€' + parseFloat(o.origin_price).toFixed(2) : '—') + '</td>';
         r += '<td class="text-end">' + (o.offer_price != null ? '€' + parseFloat(o.offer_price).toFixed(2) : '—') + '</td>';
         r += '<td class="text-end">' + fmtPct(o.discount_percent) + '</td>';
+        r += '<td class="text-end">' + (o.cost != null ? '€' + parseFloat(o.cost).toFixed(2) : '—') + '</td>';
+        r += '<td class="text-end">' + (o.gross_profit != null ? '€' + parseFloat(o.gross_profit).toFixed(2) : '—') + '</td>';
         r += '<td class="text-end ' + mClass + '">' + (gm != null ? fmtPct(gm) : '—') + '</td>';
-        r += '<td style="font-size:0.72rem;max-width:90px;overflow:hidden;text-overflow:ellipsis;">' + esc(o.rule_name || '') + '</td>';
+        r += '<td class="text-end">' + (o.sold_qty_4w || 0) + '</td>';
+        r += '<td style="font-size:0.72rem;">' + (o.last_sold_at ? o.last_sold_at.substring(0, 10) : '—') + '</td>';
+        r += '<td>' + statusBadge + '</td>';
         r += '</tr>';
         return r;
     }

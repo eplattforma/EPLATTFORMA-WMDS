@@ -380,31 +380,19 @@ def customer_slot_dashboard():
         for s in db.session.query(CustomerDeliverySlot.dow, CustomerDeliverySlot.week_code).distinct().all()
     })
 
-    offer_summary_map = {}
-    if page_customer_codes:
-        try:
-            offer_rows = db.session.execute(text("""
-                SELECT customer_code_365, has_special_pricing, active_offer_skus,
-                       avg_discount_percent, offered_skus_not_bought, margin_risk_skus,
-                       offer_sales_4w, offer_utilisation_pct, high_discount_unused_skus,
-                       offered_skus_bought_4w
-                FROM crm_customer_offer_summary_current
-                WHERE customer_code_365 = ANY(:codes)
-            """), {"codes": page_customer_codes}).fetchall()
-            for orow in offer_rows:
-                offer_summary_map[orow[0]] = {
-                    "has_special_pricing": orow[1],
-                    "active_offer_skus": orow[2],
-                    "avg_discount_percent": float(orow[3]) if orow[3] else 0,
-                    "offered_skus_not_bought": orow[4],
-                    "margin_risk_skus": orow[5],
-                    "offer_sales_4w": float(orow[6]) if orow[6] else 0,
-                    "offer_utilisation_pct": float(orow[7]) if orow[7] else 0,
-                    "high_discount_unused_skus": orow[8],
-                    "offered_skus_bought_4w": orow[9],
-                }
-        except Exception as e:
-            logger.warning(f"Offer summary load failed (non-critical): {e}")
+    from services.crm_price_offers import load_offer_summary_map, compute_offer_indicator, compute_offer_kpi_from_summaries
+    offer_summary_map = load_offer_summary_map(page_customer_codes)
+
+    all_filtered_codes = list(filtered_codes_sq.column_descriptions[0]["expr"]) if False else None
+    try:
+        all_fc_rows = db.session.execute(
+            db.session.query(filtered_codes_sq.c.customer_code_365).statement
+        ).fetchall()
+        all_filtered_codes = [r[0] for r in all_fc_rows]
+    except Exception:
+        all_filtered_codes = page_customer_codes
+    offer_kpi_map = load_offer_summary_map(all_filtered_codes)
+    offer_kpi = compute_offer_kpi_from_summaries(offer_kpi_map)
 
     dashboard_rows = []
 
@@ -482,25 +470,17 @@ def customer_slot_dashboard():
             "next_delivery_date": window_status["next_delivery"] if window_status["next_delivery"] else None,
             "mobile_number": r.mobile or r.sms_number or "",
         })
-        os = offer_summary_map.get(r.customer_code_365, {})
-        dashboard_rows[-1]["has_special_pricing"] = os.get("has_special_pricing", False)
-        dashboard_rows[-1]["active_offer_skus"] = os.get("active_offer_skus", 0)
-        dashboard_rows[-1]["avg_discount_percent"] = os.get("avg_discount_percent", 0)
-        dashboard_rows[-1]["offered_skus_not_bought"] = os.get("offered_skus_not_bought", 0)
-        dashboard_rows[-1]["margin_risk_skus"] = os.get("margin_risk_skus", 0)
-        dashboard_rows[-1]["offer_sales_4w"] = os.get("offer_sales_4w", 0)
-        dashboard_rows[-1]["offer_utilisation_pct"] = os.get("offer_utilisation_pct", 0)
-        bought_4w = os.get("offered_skus_bought_4w", 0)
-        if not os.get("has_special_pricing"):
-            dashboard_rows[-1]["offer_indicator_state"] = "none"
-        elif os.get("margin_risk_skus", 0) > 0:
-            dashboard_rows[-1]["offer_indicator_state"] = "risk"
-        elif bought_4w == 0:
-            dashboard_rows[-1]["offer_indicator_state"] = "unused"
-        elif os.get("offered_skus_not_bought", 0) > 0:
-            dashboard_rows[-1]["offer_indicator_state"] = "mixed"
-        else:
-            dashboard_rows[-1]["offer_indicator_state"] = "used"
+        os_data = offer_summary_map.get(r.customer_code_365, {})
+        dashboard_rows[-1]["has_special_pricing"] = os_data.get("has_special_pricing", False)
+        dashboard_rows[-1]["active_offer_skus"] = os_data.get("active_offer_skus", 0)
+        dashboard_rows[-1]["avg_discount_percent"] = os_data.get("avg_discount_percent", 0)
+        dashboard_rows[-1]["offered_skus_not_bought"] = os_data.get("offered_skus_not_bought", 0)
+        dashboard_rows[-1]["margin_risk_skus"] = os_data.get("margin_risk_skus", 0)
+        dashboard_rows[-1]["offer_sales_4w"] = os_data.get("offer_sales_4w", 0)
+        dashboard_rows[-1]["offer_utilisation_pct"] = os_data.get("offer_utilisation_pct", 0)
+        dashboard_rows[-1]["high_discount_unused_skus"] = os_data.get("high_discount_unused_skus", 0)
+        dashboard_rows[-1]["offered_skus_bought_4w"] = os_data.get("offered_skus_bought_4w", 0)
+        dashboard_rows[-1]["offer_indicator_state"] = compute_offer_indicator(os_data)
 
     if action_only:
         dashboard_rows = [r for r in dashboard_rows if r["next_action"] != "NO_ACTION"]
@@ -562,6 +542,7 @@ def customer_slot_dashboard():
         kpi_done_count=kpi_done_count,
         kpi_cart_count=int(kpi_row.cart_count or 0),
         kpi_total_open_amount=float(kpi_row.total_open_amount or 0),
+        offer_kpi=offer_kpi,
         filters={
             "slot": slot or "",
             "classification": classification or [],
@@ -766,31 +747,8 @@ def review_ordering():
                     "message_text": cl.message_text or "",
                 }
 
-    ro_offer_map = {}
-    if all_codes:
-        try:
-            ro_offer_rows = db.session.execute(text("""
-                SELECT customer_code_365, has_special_pricing, active_offer_skus,
-                       avg_discount_percent, offered_skus_not_bought, margin_risk_skus,
-                       offer_sales_4w, offer_utilisation_pct, high_discount_unused_skus,
-                       offered_skus_bought_4w
-                FROM crm_customer_offer_summary_current
-                WHERE customer_code_365 = ANY(:codes)
-            """), {"codes": all_codes}).fetchall()
-            for orow in ro_offer_rows:
-                ro_offer_map[orow[0]] = {
-                    "has_special_pricing": orow[1],
-                    "active_offer_skus": orow[2],
-                    "avg_discount_percent": float(orow[3]) if orow[3] else 0,
-                    "offered_skus_not_bought": orow[4],
-                    "margin_risk_skus": orow[5],
-                    "offer_sales_4w": float(orow[6]) if orow[6] else 0,
-                    "offer_utilisation_pct": float(orow[7]) if orow[7] else 0,
-                    "high_discount_unused_skus": orow[8],
-                    "offered_skus_bought_4w": orow[9],
-                }
-        except Exception as e:
-            logger.warning(f"Review ordering offer summary load failed (non-critical): {e}")
+    from services.crm_price_offers import load_offer_summary_map, compute_offer_indicator, compute_offer_kpi_from_summaries
+    ro_offer_map = load_offer_summary_map(all_codes)
 
     open_window_rows = []
     all_delivery_slots_map = {}
@@ -900,18 +858,12 @@ def review_ordering():
         row["active_offer_skus"] = ros.get("active_offer_skus", 0)
         row["avg_discount_percent"] = ros.get("avg_discount_percent", 0)
         row["margin_risk_skus"] = ros.get("margin_risk_skus", 0)
+        row["offer_sales_4w"] = ros.get("offer_sales_4w", 0)
         row["offer_utilisation_pct"] = ros.get("offer_utilisation_pct", 0)
-        bought_4w_ro = ros.get("offered_skus_bought_4w", 0)
-        if not ros.get("has_special_pricing"):
-            row["offer_indicator_state"] = "none"
-        elif ros.get("margin_risk_skus", 0) > 0:
-            row["offer_indicator_state"] = "risk"
-        elif bought_4w_ro == 0:
-            row["offer_indicator_state"] = "unused"
-        elif ros.get("offered_skus_not_bought", 0) > 0:
-            row["offer_indicator_state"] = "mixed"
-        else:
-            row["offer_indicator_state"] = "used"
+        row["high_discount_unused_skus"] = ros.get("high_discount_unused_skus", 0)
+        row["offered_skus_not_bought"] = ros.get("offered_skus_not_bought", 0)
+        row["offered_skus_bought_4w"] = ros.get("offered_skus_bought_4w", 0)
+        row["offer_indicator_state"] = compute_offer_indicator(ros)
 
         if filter_state and row["state"] != filter_state:
             continue
@@ -953,6 +905,13 @@ def review_ordering():
         if row["has_cart"]:
             kpi["has_cart"] += 1
 
+    ro_offer_kpi_map = {}
+    for row in open_window_rows:
+        cc = row.get("customer_code_365")
+        if cc and cc in ro_offer_map:
+            ro_offer_kpi_map[cc] = ro_offer_map[cc]
+    offer_kpi = compute_offer_kpi_from_summaries(ro_offer_kpi_map)
+
     open_windows_map = {}
     for row in open_window_rows:
         dd = row.get("next_delivery_date")
@@ -971,6 +930,7 @@ def review_ordering():
         rows=open_window_rows,
         total_open=len(open_window_rows),
         kpi=kpi,
+        offer_kpi=offer_kpi,
         open_windows=open_windows,
         all_delivery_slots=all_delivery_slots,
         allowed_classifications=allowed_classifications,
@@ -1292,24 +1252,27 @@ def api_price_offers(customer_code_365):
 def api_offer_intelligence(customer_code_365):
     from services.crm_price_offers import get_customer_offer_intelligence
     data = get_customer_offer_intelligence(customer_code_365)
-    all_rows = []
-    from services.crm_price_offers import get_customer_price_offer_rows
-    sort_by = request.args.get("sort", "discount_percent")
-    sort_dir = request.args.get("dir", "desc")
-    search = request.args.get("q")
-    all_rows = get_customer_price_offer_rows(
-        ps_customer_code=customer_code_365,
-        sort_by=sort_by, sort_dir=sort_dir, search=search,
-    )
-    data["all_offers"] = all_rows
     return jsonify(data)
 
 
 @crm_dashboard_bp.route("/price-offers/refresh", methods=["POST"])
 @login_required
 def api_price_offers_refresh():
-    from services.crm_price_offers import refresh_all_customer_price_offers
-    csv_path = request.json.get("csv_path") if request.is_json else None
+    from services.crm_price_offers import (
+        refresh_all_customer_price_offers,
+        acquire_price_offers_lock,
+        release_price_offers_lock,
+    )
     triggered_by = current_user.username if current_user and hasattr(current_user, "username") else "manual"
-    result = refresh_all_customer_price_offers(csv_path=csv_path, triggered_by=triggered_by)
-    return jsonify(result)
+
+    locked = acquire_price_offers_lock(triggered_by)
+    if not locked:
+        return jsonify({"success": False, "error": "Refresh already in progress"}), 409
+
+    try:
+        payload = request.get_json(silent=True) or {}
+        csv_path = payload.get("csv_path")
+        result = refresh_all_customer_price_offers(csv_path=csv_path, triggered_by=triggered_by)
+        return jsonify(result)
+    finally:
+        release_price_offers_lock()

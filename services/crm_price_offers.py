@@ -28,6 +28,10 @@ DEFAULT_NEGATIVE_MARGIN_PCT = 0
 DEFAULT_STRONG_DISCOUNT_PCT = 15
 DEFAULT_COST_SOURCE = "cost_price"
 
+PRICE_OFFERS_JOB_NAME = "crm_price_offers_refresh"
+
+VALID_COST_COLUMNS = ["cost_price", "average_cost", "last_purchase_cost", "standard_cost"]
+
 
 def _safe_decimal(val):
     if val is None or val == "":
@@ -58,73 +62,65 @@ def _get_setting(key, default=None):
         return default
 
 
-def _ensure_legacy_tables():
-    with db.engine.connect() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS crm_customer_price_offer_import (
-                id SERIAL PRIMARY KEY,
-                import_batch_id VARCHAR(64) NOT NULL,
-                snapshot_at TIMESTAMPTZ,
-                magento_customer_id INTEGER,
-                customer_email VARCHAR(255),
-                sku VARCHAR(100),
-                product_name TEXT,
-                rule_code VARCHAR(100),
-                rule_name VARCHAR(255),
-                rule_description TEXT,
-                origin_price NUMERIC(12,4),
-                customer_final_price NUMERIC(12,4),
-                imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-        """))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_cpo_import_batch ON crm_customer_price_offer_import(import_batch_id)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_cpo_import_cust ON crm_customer_price_offer_import(magento_customer_id)"
-        ))
-
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS crm_customer_price_offer (
-                id SERIAL PRIMARY KEY,
-                snapshot_at TIMESTAMPTZ,
-                magento_customer_id INTEGER,
-                customer_email VARCHAR(255),
-                ps_customer_code VARCHAR(64),
-                ps_customer_name TEXT,
-                sku VARCHAR(100),
-                item_code_365 VARCHAR(64),
-                item_name VARCHAR(255),
-                rule_code VARCHAR(100),
-                rule_name VARCHAR(255),
-                rule_description TEXT,
-                origin_price NUMERIC(12,4),
-                customer_final_price NUMERIC(12,4),
-                discount_amount NUMERIC(12,4),
-                discount_percent NUMERIC(8,2),
-                is_linked_customer BOOLEAN NOT NULL DEFAULT false,
-                is_linked_item BOOLEAN NOT NULL DEFAULT false,
-                import_batch_id VARCHAR(64),
-                imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                CONSTRAINT uq_cpo_cust_sku UNIQUE (magento_customer_id, sku)
-            )
-        """))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cpo_ps_customer ON crm_customer_price_offer(ps_customer_code)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cpo_sku ON crm_customer_price_offer(sku)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cpo_rule ON crm_customer_price_offer(rule_code)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cpo_magento ON crm_customer_price_offer(magento_customer_id)"))
-        conn.commit()
-    logger.info("Legacy price offer tables ensured")
+def _parse_snapshot_at(value):
+    if value is None:
+        return datetime.now(timezone.utc)
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+    s = str(value).strip()
+    if not s:
+        return datetime.now(timezone.utc)
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ]:
+        try:
+            dt = datetime.strptime(s, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            continue
+    return datetime.now(timezone.utc)
 
 
-def _build_customer_map():
+def _normalize_email(email):
+    if not email:
+        return None
+    return email.strip().lower() or None
+
+
+def _normalize_rule_code(rc):
+    if rc is None:
+        return "__NO_RULE__"
+    rc = str(rc).strip()
+    return rc if rc else "__NO_RULE__"
+
+
+def _normalize_rule_name(rn, rc):
+    if rn is None or str(rn).strip() == "":
+        if rc and rc != "__NO_RULE__":
+            return rc
+        return "No Rule"
+    return str(rn).strip()
+
+
+def _build_customer_id_map():
+    m = {}
     rows = db.session.execute(text("""
         SELECT DISTINCT magento_customer_id, customer_code_365
         FROM magento_customer_last_login_current
         WHERE magento_customer_id IS NOT NULL AND customer_code_365 IS NOT NULL
     """)).fetchall()
-    m = {r[0]: r[1] for r in rows}
+    for r in rows:
+        m[r[0]] = r[1]
 
     rows2 = db.session.execute(text("""
         SELECT DISTINCT magento_customer_id, customer_code_365
@@ -135,8 +131,49 @@ def _build_customer_map():
         if r[0] not in m:
             m[r[0]] = r[1]
 
-    logger.info(f"Customer map: {len(m)} magento→ps365 mappings")
+    logger.info(f"Customer ID map: {len(m)} magento→ps365 mappings")
     return m
+
+
+def _build_customer_email_map():
+    em = {}
+    try:
+        rows = db.session.execute(text("""
+            SELECT LOWER(TRIM(customer_email)), customer_code_365
+            FROM magento_customer_last_login_current
+            WHERE customer_email IS NOT NULL AND customer_email != ''
+              AND customer_code_365 IS NOT NULL
+        """)).fetchall()
+        for r in rows:
+            if r[0] and r[0] not in em:
+                em[r[0]] = r[1]
+    except Exception as e:
+        logger.debug(f"Email map from login table: {e}")
+
+    try:
+        rows2 = db.session.execute(text("""
+            SELECT LOWER(TRIM(email)), customer_code_365
+            FROM ps_customers
+            WHERE email IS NOT NULL AND email != ''
+              AND customer_code_365 IS NOT NULL
+        """)).fetchall()
+        for r in rows2:
+            if r[0] and r[0] not in em:
+                em[r[0]] = r[1]
+    except Exception as e:
+        logger.debug(f"Email map from ps_customers: {e}")
+
+    logger.info(f"Customer email map: {len(em)} email→ps365 mappings")
+    return em
+
+
+def resolve_customer_code(customer_id_magento, customer_email, id_map, email_map):
+    if customer_id_magento and customer_id_magento in id_map:
+        return id_map[customer_id_magento]
+    norm_email = _normalize_email(customer_email)
+    if norm_email and norm_email in email_map:
+        return email_map[norm_email]
+    return None
 
 
 def _build_customer_names(codes):
@@ -152,38 +189,40 @@ def _build_customer_names(codes):
 
 def _build_item_map():
     rows = db.session.execute(text("""
-        SELECT UPPER(TRIM(item_code_365)), item_code_365, item_name
+        SELECT item_code_365, item_name, brand_code_365,
+               supplier_code_365, supplier_name, category_code_365
         FROM ps_items_dw
     """)).fetchall()
-    return {r[0]: (r[1], r[2]) for r in rows}
-
-
-def _build_item_details_map():
-    rows = db.session.execute(text("""
-        SELECT item_code_365, cost_price,
-               supplier_code_365, category_code_365
-        FROM ps_items_dw
-    """)).fetchall()
-    result = {}
+    by_code = {}
+    by_sku = {}
     for r in rows:
-        result[r[0]] = {
-            "cost": r[1],
-            "supplier_code": r[2],
-            "category_code": r[3],
+        item_code = r[0]
+        upper_code = item_code.upper().strip() if item_code else None
+        info = {
+            "item_code_365": item_code,
+            "item_name": r[1],
+            "brand_name": r[2],
+            "supplier_code": r[3],
+            "supplier_name": r[4],
+            "category_code": r[5],
         }
-    return result
+        if upper_code:
+            by_code[upper_code] = info
+            by_sku[upper_code] = info
+    return by_code, by_sku
 
 
-def _build_supplier_map():
-    try:
-        rows = db.session.execute(text("""
-            SELECT supplier_code_365, supplier_name
-            FROM ps_items_dw
-            WHERE supplier_code_365 IS NOT NULL AND supplier_name IS NOT NULL
-        """)).fetchall()
-        return {r[0]: r[1] for r in rows}
-    except Exception:
-        return {}
+def resolve_item(sku, item_code_map, item_sku_map):
+    sku_upper = sku.upper().strip() if sku else None
+    if not sku_upper:
+        return None
+    info = item_code_map.get(sku_upper)
+    if info:
+        return info
+    info = item_sku_map.get(sku_upper)
+    if info:
+        return info
+    return None
 
 
 def _build_category_map():
@@ -195,6 +234,37 @@ def _build_category_map():
         return {r[0]: r[1] for r in rows}
     except Exception:
         return {}
+
+
+def _get_cost_column():
+    configured = _get_setting("crm_offer_cost_source", DEFAULT_COST_SOURCE)
+    if configured and configured in VALID_COST_COLUMNS:
+        try:
+            exists = db.session.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'ps_items_dw' AND column_name = :col
+            """), {"col": configured}).fetchone()
+            if exists:
+                return configured
+        except Exception:
+            pass
+    return "cost_price"
+
+
+def _build_item_cost_map(cost_column):
+    rows = db.session.execute(text(f"""
+        SELECT item_code_365, {cost_column}
+        FROM ps_items_dw
+        WHERE {cost_column} IS NOT NULL
+    """)).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def get_item_cost_from_row(item_code, cost_map):
+    if not item_code:
+        return None
+    cost = cost_map.get(item_code)
+    return Decimal(str(cost)) if cost is not None else None
 
 
 def _get_recent_sales_bulk(customer_codes):
@@ -230,12 +300,36 @@ def _get_recent_sales_bulk(customer_codes):
             }
         return result
     except Exception as e:
-        logger.warning(f"Sales enrichment unavailable: {e}")
+        logger.warning(f"Sales enrichment unavailable (dw_sales_lines_mv): {e}")
         return {}
 
 
+def acquire_price_offers_lock(locked_by="manual"):
+    try:
+        db.session.execute(text("""
+            DELETE FROM sync_job_lock
+            WHERE job_name = :job_name AND locked_at < NOW() - INTERVAL '15 minutes'
+        """), {"job_name": PRICE_OFFERS_JOB_NAME})
+        db.session.execute(text("""
+            INSERT INTO sync_job_lock (job_name, locked_at, locked_by)
+            VALUES (:job_name, NOW(), :locked_by)
+        """), {"job_name": PRICE_OFFERS_JOB_NAME, "locked_by": locked_by})
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
+
+
+def release_price_offers_lock():
+    db.session.execute(text("DELETE FROM sync_job_lock WHERE job_name = :job_name"),
+                       {"job_name": PRICE_OFFERS_JOB_NAME})
+    db.session.commit()
+
+
 def import_customer_price_master_csv(csv_text, source_label="manual"):
-    _ensure_legacy_tables()
+    from update_crm_offer_schema import ensure_crm_offer_schema
+    ensure_crm_offer_schema()
 
     reader = csv.DictReader(io.StringIO(csv_text))
     fieldnames = reader.fieldnames or []
@@ -248,7 +342,7 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
         return {"success": False, "error": "CSV is empty"}
 
     now = datetime.now(timezone.utc)
-    snapshot_val = rows_list[0].get("snapshot_at", "").strip() or now.isoformat()
+    snapshot_val = _parse_snapshot_at(rows_list[0].get("snapshot_at", ""))
 
     batch_row = db.session.execute(text("""
         INSERT INTO crm_customer_offer_import_batch
@@ -262,7 +356,7 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
     batch_id = batch_row[0]
     db.session.commit()
 
-    raw_inserted = 0
+    raw_params = []
     for row in rows_list:
         magento_id = None
         try:
@@ -270,14 +364,8 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
         except (ValueError, TypeError):
             pass
 
-        snap = row.get("snapshot_at", "").strip() or None
-        db.session.execute(text("""
-            INSERT INTO crm_customer_offer_raw
-            (import_batch_id, snapshot_at, customer_id_magento, customer_email,
-             sku, product_name, rule_code, rule_name, rule_description,
-             origin_price, offer_price, imported_at)
-            VALUES (:bid, :sa, :mid, :em, :sku, :pn, :rc, :rn, :rd, :op, :cfp, :ia)
-        """), {
+        snap = _parse_snapshot_at(row.get("snapshot_at", ""))
+        raw_params.append({
             "bid": batch_id, "sa": snap,
             "mid": magento_id,
             "em": (row.get("customer_email") or "").strip(),
@@ -290,13 +378,20 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
             "cfp": _safe_decimal(row.get("customer_final_price")),
             "ia": now,
         })
-        raw_inserted += 1
 
+    if raw_params:
+        db.session.execute(text("""
+            INSERT INTO crm_customer_offer_raw
+            (import_batch_id, snapshot_at, customer_id_magento, customer_email,
+             sku, product_name, rule_code, rule_name, rule_description,
+             origin_price, offer_price, imported_at)
+            VALUES (:bid, :sa, :mid, :em, :sku, :pn, :rc, :rn, :rd, :op, :cfp, :ia)
+        """), raw_params)
     db.session.commit()
-    logger.info(f"Raw import: {raw_inserted} rows (batch {batch_id})")
+    logger.info(f"Raw import: {len(raw_params)} rows (batch {batch_id})")
 
     result = _rebuild_from_batch(batch_id)
-    result["raw_imported"] = raw_inserted
+    result["raw_imported"] = len(raw_params)
     result["batch_id"] = batch_id
 
     db.session.execute(text("""
@@ -309,11 +404,13 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
 
 def _rebuild_from_batch(batch_id):
     t0 = time.time()
-    cust_map = _build_customer_map()
-    item_map = _build_item_map()
-    item_details = _build_item_details_map()
-    supplier_map = _build_supplier_map()
+    cust_id_map = _build_customer_id_map()
+    cust_email_map = _build_customer_email_map()
+    item_code_map, item_sku_map = _build_item_map()
     category_map = _build_category_map()
+
+    cost_column = _get_cost_column()
+    cost_map = _build_item_cost_map(cost_column)
 
     low_margin_pct = float(_get_setting("crm_offer_low_margin_pct_threshold", DEFAULT_LOW_MARGIN_PCT))
     strong_discount_pct = float(_get_setting("crm_offer_strong_discount_pct_threshold", DEFAULT_STRONG_DISCOUNT_PCT))
@@ -330,8 +427,8 @@ def _rebuild_from_batch(batch_id):
 
     rule_codes_seen = {}
     for r in raw_rows:
-        rc = (r[4] or "").strip()
-        if rc:
+        rc = _normalize_rule_code(r[4])
+        if rc != "__NO_RULE__":
             rule_codes_seen[rc] = {"name": r[5], "desc": r[6]}
 
     for rc, info in rule_codes_seen.items():
@@ -352,21 +449,24 @@ def _rebuild_from_batch(batch_id):
 
     ps_codes_needed = set()
     for r in raw_rows:
-        mid = r[0]
-        if mid and mid in cust_map:
-            ps_codes_needed.add(cust_map[mid])
+        ps_code = resolve_customer_code(r[0], r[1], cust_id_map, cust_email_map)
+        if ps_code:
+            ps_codes_needed.add(ps_code)
 
     cust_names = _build_customer_names(ps_codes_needed)
-
     sales_data = _get_recent_sales_bulk(list(ps_codes_needed))
 
     db.session.execute(text("DELETE FROM crm_customer_offer_current"))
+    db.session.execute(text(
+        "DELETE FROM crm_customer_offer_unresolved WHERE import_batch_id = :bid OR import_batch_id IS NULL"
+    ), {"bid": batch_id})
 
     linked_cust = 0
     unlinked_cust = 0
     linked_item = 0
     unlinked_item = 0
-    upserted = 0
+    cost_missing_count = 0
+    current_rows = []
     unresolved_rows = []
 
     for r in raw_rows:
@@ -376,40 +476,54 @@ def _rebuild_from_batch(batch_id):
         if not sku_raw:
             continue
 
-        sku_upper = sku_raw.upper()
         product_name = r[3]
-        rule_code = (r[4] or "").strip()
-        rule_name = r[5]
+        rule_code = _normalize_rule_code(r[4])
+        rule_name = _normalize_rule_name(r[5], rule_code)
         origin_price = r[7]
         offer_price = r[8]
-        snapshot_at = r[9]
+        snapshot_at = _parse_snapshot_at(r[9])
 
-        ps_code = cust_map.get(magento_id) if magento_id else None
+        ps_code = resolve_customer_code(magento_id, email, cust_id_map, cust_email_map)
         if not ps_code:
             unlinked_cust += 1
             unresolved_rows.append({
-                "snapshot_at": snapshot_at, "mid": magento_id, "em": email,
-                "sku": sku_raw, "rc": rule_code,
+                "bid": batch_id, "sa": snapshot_at, "mid": magento_id, "em": email,
+                "cc": None, "sku": sku_raw, "ic": None, "rc": rule_code,
                 "issue_type": "customer_unmapped",
                 "issue_detail": f"magento_id={magento_id}, email={email}",
             })
             continue
         linked_cust += 1
 
-        item_info = item_map.get(sku_upper)
-        item_code = item_info[0] if item_info else None
-        is_linked_itm = item_info is not None
-        if is_linked_itm:
-            linked_item += 1
-        else:
-            unlinked_item += 1
+        item_info = resolve_item(sku_raw, item_code_map, item_sku_map)
+        item_code = item_info["item_code_365"] if item_info else None
 
-        details = item_details.get(item_code, {}) if item_code else {}
-        cost = _safe_decimal(details.get("cost"))
-        supplier_code = details.get("supplier_code")
-        sup_name = supplier_map.get(supplier_code) if supplier_code else None
-        cat_code = details.get("category_code")
+        if not item_info:
+            unlinked_item += 1
+            unresolved_rows.append({
+                "bid": batch_id, "sa": snapshot_at, "mid": magento_id, "em": email,
+                "cc": ps_code, "sku": sku_raw, "ic": None, "rc": rule_code,
+                "issue_type": "sku_unmapped",
+                "issue_detail": f"sku={sku_raw} not found in ps_items_dw",
+            })
+        else:
+            linked_item += 1
+
+        brand_name = item_info["brand_name"] if item_info else None
+        supplier_code = item_info["supplier_code"] if item_info else None
+        sup_name = item_info["supplier_name"] if item_info else None
+        cat_code = item_info["category_code"] if item_info else None
         cat_name = category_map.get(cat_code) if cat_code else None
+
+        cost = get_item_cost_from_row(item_code, cost_map)
+        if item_info and cost is None:
+            cost_missing_count += 1
+            unresolved_rows.append({
+                "bid": batch_id, "sa": snapshot_at, "mid": magento_id, "em": email,
+                "cc": ps_code, "sku": sku_raw, "ic": item_code, "rc": rule_code,
+                "issue_type": "cost_missing",
+                "issue_detail": f"item_code={item_code}, cost_column={cost_column}",
+            })
 
         disc_value = None
         disc_percent = None
@@ -437,10 +551,10 @@ def _rebuild_from_batch(batch_id):
 
         sales_key = (ps_code, item_code) if item_code else None
         sales = sales_data.get(sales_key, {}) if sales_key else {}
-        sold_qty_4w = sales.get("sold_qty_4w", 0)
-        sold_value_4w = sales.get("sold_value_4w", 0)
-        sold_qty_90d = sales.get("sold_qty_90d", 0)
-        sold_value_90d = sales.get("sold_value_90d", 0)
+        sold_qty_4w = float(sales.get("sold_qty_4w", 0))
+        sold_value_4w = float(sales.get("sold_value_4w", 0))
+        sold_qty_90d = float(sales.get("sold_qty_90d", 0))
+        sold_value_90d = float(sales.get("sold_value_90d", 0))
         last_sold_at = sales.get("last_sold_at")
 
         if sold_qty_4w > 0:
@@ -456,6 +570,20 @@ def _rebuild_from_batch(batch_id):
 
         rid = rule_id_map.get(rule_code)
 
+        current_rows.append({
+            "sa": snapshot_at, "mid": magento_id, "em": email, "cc": ps_code,
+            "sku": sku_raw, "ic": item_code, "pn": product_name,
+            "bn": brand_name, "sc": supplier_code, "sn": sup_name, "cn": cat_name,
+            "rc": rule_code, "rid": rid, "rn": rule_name,
+            "op": origin_price, "cfp": offer_price,
+            "dv": disc_value, "dp": disc_percent,
+            "cost": cost, "gp": gp, "gm": gm_pct, "ms": margin_status,
+            "sq4": sold_qty_4w, "sv4": sold_value_4w,
+            "sq9": sold_qty_90d, "sv9": sold_value_90d, "lsa": last_sold_at,
+            "ls": line_status, "now": now,
+        })
+
+    if current_rows:
         db.session.execute(text("""
             INSERT INTO crm_customer_offer_current
             (snapshot_at, customer_id_magento, customer_email, customer_code_365,
@@ -472,162 +600,35 @@ def _rebuild_from_batch(batch_id):
                     :cost, :gp, :gm, :ms,
                     :sq4, :sv4, :sq9, :sv9, :lsa,
                     :ls, true, :now, :now)
-            ON CONFLICT (customer_code_365, sku, rule_code) DO UPDATE SET
-                snapshot_at = EXCLUDED.snapshot_at,
-                offer_price = EXCLUDED.offer_price,
-                origin_price = EXCLUDED.origin_price,
-                discount_value = EXCLUDED.discount_value,
-                discount_percent = EXCLUDED.discount_percent,
-                cost = EXCLUDED.cost,
-                gross_profit = EXCLUDED.gross_profit,
-                gross_margin_percent = EXCLUDED.gross_margin_percent,
-                margin_status = EXCLUDED.margin_status,
-                sold_qty_4w = EXCLUDED.sold_qty_4w,
-                sold_value_4w = EXCLUDED.sold_value_4w,
-                sold_qty_90d = EXCLUDED.sold_qty_90d,
-                sold_value_90d = EXCLUDED.sold_value_90d,
-                last_sold_at = EXCLUDED.last_sold_at,
-                line_status = EXCLUDED.line_status,
-                product_name = EXCLUDED.product_name,
-                supplier_name = EXCLUDED.supplier_name,
-                category_name = EXCLUDED.category_name,
-                rule_name = EXCLUDED.rule_name,
-                updated_at = EXCLUDED.updated_at
-        """), {
-            "sa": snapshot_at, "mid": magento_id, "em": email, "cc": ps_code,
-            "sku": sku_raw, "ic": item_code, "pn": product_name,
-            "bn": None, "sc": supplier_code, "sn": sup_name, "cn": cat_name,
-            "rc": rule_code, "rid": rid, "rn": rule_name,
-            "op": origin_price, "cfp": offer_price,
-            "dv": disc_value, "dp": disc_percent,
-            "cost": cost, "gp": gp, "gm": gm_pct, "ms": margin_status,
-            "sq4": sold_qty_4w, "sv4": sold_value_4w,
-            "sq9": sold_qty_90d, "sv9": sold_value_90d, "lsa": last_sold_at,
-            "ls": line_status, "now": now,
-        })
-        upserted += 1
+        """), current_rows)
 
     if unresolved_rows:
-        db.session.execute(text("DELETE FROM crm_customer_offer_unresolved"))
-        for ur in unresolved_rows:
-            db.session.execute(text("""
-                INSERT INTO crm_customer_offer_unresolved
-                (snapshot_at, customer_id_magento, customer_email, sku, rule_code,
-                 issue_type, issue_detail, created_at)
-                VALUES (:sa, :mid, :em, :sku, :rc, :it, :id, :now)
-            """), {
-                "sa": ur["snapshot_at"], "mid": ur["mid"], "em": ur["em"],
-                "sku": ur["sku"], "rc": ur["rc"],
-                "it": ur["issue_type"], "id": ur["issue_detail"], "now": now,
-            })
+        db.session.execute(text("""
+            INSERT INTO crm_customer_offer_unresolved
+            (import_batch_id, snapshot_at, customer_id_magento, customer_email,
+             customer_code_365, sku, item_code_365, rule_code,
+             issue_type, issue_detail, created_at)
+            VALUES (:bid, :sa, :mid, :em, :cc, :sku, :ic, :rc, :issue_type, :issue_detail, :now)
+        """), [{**ur, "now": now} for ur in unresolved_rows])
 
     db.session.commit()
 
     _rebuild_customer_offer_summary()
 
-    # Also update legacy table for backward compatibility
-    _update_legacy_table(raw_rows, cust_map, item_map, cust_names, now)
-
     duration = time.time() - t0
     stats = {
         "success": True,
-        "current_rows": upserted,
+        "current_rows": len(current_rows),
         "linked_customers": linked_cust,
         "unlinked_customers": unlinked_cust,
         "linked_items": linked_item,
         "unlinked_items": unlinked_item,
+        "cost_missing": cost_missing_count,
         "unresolved_rows": len(unresolved_rows),
         "duration_seconds": round(duration, 2),
     }
     logger.info(f"Offer rebuild complete: {stats}")
     return stats
-
-
-def _update_legacy_table(raw_rows, cust_map, item_map, cust_names, now):
-    try:
-        import uuid
-        batch_id = f"offer_rebuild_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-        upserted = 0
-
-        for r in raw_rows:
-            magento_id = r[0]
-            email = r[1]
-            sku_raw = (r[2] or "").strip()
-            if magento_id is None or not sku_raw:
-                continue
-
-            sku_upper = sku_raw.upper()
-            ps_code = cust_map.get(magento_id)
-            ps_name = cust_names.get(ps_code) if ps_code else None
-            item_info = item_map.get(sku_upper)
-            item_code = item_info[0] if item_info else None
-            item_name = item_info[1] if item_info else None
-
-            origin_price = r[7]
-            customer_final_price = r[8]
-            disc_amount = None
-            disc_percent = None
-            if origin_price is not None and customer_final_price is not None:
-                op = Decimal(str(origin_price))
-                cfp = Decimal(str(customer_final_price))
-                disc_amount = op - cfp
-                if op > 0:
-                    disc_percent = ((op - cfp) / op * 100).quantize(Decimal("0.01"))
-
-            db.session.execute(text("""
-                INSERT INTO crm_customer_price_offer
-                (snapshot_at, magento_customer_id, customer_email,
-                 ps_customer_code, ps_customer_name,
-                 sku, product_name, item_code_365, item_name,
-                 rule_code, rule_name, rule_description,
-                 origin_price, customer_final_price, discount_amount, discount_percent,
-                 is_linked_customer, is_linked_item,
-                 import_batch_id, imported_at, updated_at)
-                VALUES (:sa, :mid, :em, :psc, :psn, :sku, :pname, :ic, :iname,
-                        :rc, :rn, :rd, :op, :cfp, :da, :dp,
-                        :ilc, :ili, :bid, :ia, :ua)
-                ON CONFLICT (magento_customer_id, sku)
-                DO UPDATE SET
-                    snapshot_at = EXCLUDED.snapshot_at,
-                    customer_email = EXCLUDED.customer_email,
-                    ps_customer_code = EXCLUDED.ps_customer_code,
-                    ps_customer_name = EXCLUDED.ps_customer_name,
-                    product_name = EXCLUDED.product_name,
-                    item_code_365 = EXCLUDED.item_code_365,
-                    item_name = EXCLUDED.item_name,
-                    rule_code = EXCLUDED.rule_code,
-                    rule_name = EXCLUDED.rule_name,
-                    rule_description = EXCLUDED.rule_description,
-                    origin_price = EXCLUDED.origin_price,
-                    customer_final_price = EXCLUDED.customer_final_price,
-                    discount_amount = EXCLUDED.discount_amount,
-                    discount_percent = EXCLUDED.discount_percent,
-                    is_linked_customer = EXCLUDED.is_linked_customer,
-                    is_linked_item = EXCLUDED.is_linked_item,
-                    import_batch_id = EXCLUDED.import_batch_id,
-                    updated_at = EXCLUDED.updated_at
-            """), {
-                "sa": r[9], "mid": magento_id, "em": email,
-                "psc": ps_code, "psn": ps_name,
-                "sku": sku_raw, "pname": r[3],
-                "ic": item_code, "iname": item_name,
-                "rc": r[4], "rn": r[5], "rd": r[6],
-                "op": origin_price, "cfp": customer_final_price,
-                "da": disc_amount, "dp": disc_percent,
-                "ilc": ps_code is not None, "ili": item_info is not None,
-                "bid": batch_id, "ia": now, "ua": now,
-            })
-            upserted += 1
-
-        if upserted > 0:
-            db.session.execute(text("""
-                DELETE FROM crm_customer_price_offer WHERE import_batch_id != :bid
-            """), {"bid": batch_id})
-        db.session.commit()
-        logger.info(f"Legacy table updated: {upserted} rows")
-    except Exception as e:
-        logger.warning(f"Legacy table update failed (non-critical): {e}")
-        db.session.rollback()
 
 
 def _rebuild_customer_offer_summary():
@@ -652,7 +653,7 @@ def _rebuild_customer_offer_summary():
             MAX(snapshot_at),
             true,
             COUNT(DISTINCT sku),
-            COUNT(DISTINCT rule_code),
+            COUNT(DISTINCT CASE WHEN rule_code != '__NO_RULE__' THEN rule_code END),
             AVG(discount_percent),
             MAX(discount_percent),
             AVG(CASE WHEN gross_margin_percent IS NOT NULL THEN gross_margin_percent END),
@@ -679,19 +680,23 @@ def _rebuild_customer_offer_summary():
 
     db.session.execute(text("""
         UPDATE crm_customer_offer_summary_current s
-        SET top_rule_name = sub.rule_name
+        SET top_rule_name = ranked.rule_name
         FROM (
-            SELECT DISTINCT ON (customer_code_365)
-                customer_code_365, rule_name
+            SELECT customer_code_365, rule_name
             FROM (
-                SELECT customer_code_365, rule_name, COUNT(*) AS cnt
+                SELECT customer_code_365, rule_name,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY customer_code_365
+                           ORDER BY COUNT(*) DESC, rule_name ASC
+                       ) AS rn
                 FROM crm_customer_offer_current
                 WHERE is_active = true AND customer_code_365 IS NOT NULL
+                  AND rule_code != '__NO_RULE__'
                 GROUP BY customer_code_365, rule_name
-                ORDER BY customer_code_365, cnt DESC
-            ) ranked
-        ) sub
-        WHERE s.customer_code_365 = sub.customer_code_365
+            ) sub
+            WHERE rn = 1
+        ) ranked
+        WHERE s.customer_code_365 = ranked.customer_code_365
     """))
 
     db.session.commit()
@@ -722,12 +727,81 @@ def sync_price_master_from_ftp():
 
 
 def refresh_all_customer_price_offers(csv_path=None, triggered_by=None):
+    from update_crm_offer_schema import ensure_crm_offer_schema
+    ensure_crm_offer_schema()
+
     if csv_path and os.path.exists(csv_path):
         with open(csv_path, "r", encoding="utf-8", errors="replace") as f:
             csv_text = f.read()
         return import_customer_price_master_csv(csv_text, source_label=triggered_by or "manual_refresh")
 
     return sync_price_master_from_ftp()
+
+
+def load_offer_summary_map(customer_codes):
+    if not customer_codes:
+        return {}
+    try:
+        offer_rows = db.session.execute(text("""
+            SELECT customer_code_365, has_special_pricing, active_offer_skus,
+                   avg_discount_percent, offered_skus_not_bought, margin_risk_skus,
+                   offer_sales_4w, offer_utilisation_pct, high_discount_unused_skus,
+                   offered_skus_bought_4w
+            FROM crm_customer_offer_summary_current
+            WHERE customer_code_365 = ANY(:codes)
+        """), {"codes": list(customer_codes)}).fetchall()
+        result = {}
+        for orow in offer_rows:
+            result[orow[0]] = {
+                "has_special_pricing": orow[1],
+                "active_offer_skus": orow[2],
+                "avg_discount_percent": float(orow[3]) if orow[3] else 0,
+                "offered_skus_not_bought": orow[4],
+                "margin_risk_skus": orow[5],
+                "offer_sales_4w": float(orow[6]) if orow[6] else 0,
+                "offer_utilisation_pct": float(orow[7]) if orow[7] else 0,
+                "high_discount_unused_skus": orow[8],
+                "offered_skus_bought_4w": orow[9],
+            }
+        return result
+    except Exception as e:
+        logger.warning(f"Offer summary load failed (non-critical): {e}")
+        return {}
+
+
+def compute_offer_indicator(summary_data):
+    if not summary_data or not summary_data.get("has_special_pricing"):
+        return "none"
+    if summary_data.get("margin_risk_skus", 0) > 0:
+        return "risk"
+    bought_4w = summary_data.get("offered_skus_bought_4w", 0)
+    if bought_4w == 0:
+        return "unused"
+    if summary_data.get("offered_skus_not_bought", 0) > 0:
+        return "mixed"
+    return "used"
+
+
+def compute_offer_kpi_from_summaries(summary_map):
+    kpi = {
+        "kpi_offer_customers_with_offers": 0,
+        "kpi_offer_customers_with_unused": 0,
+        "kpi_offer_customers_with_margin_risk": 0,
+        "kpi_offer_sales_4w": 0,
+        "kpi_offer_high_discount_unused": 0,
+    }
+    for code, s in summary_map.items():
+        if not s.get("has_special_pricing"):
+            continue
+        kpi["kpi_offer_customers_with_offers"] += 1
+        if s.get("offered_skus_bought_4w", 0) == 0:
+            kpi["kpi_offer_customers_with_unused"] += 1
+        if s.get("margin_risk_skus", 0) > 0:
+            kpi["kpi_offer_customers_with_margin_risk"] += 1
+        kpi["kpi_offer_sales_4w"] += float(s.get("offer_sales_4w", 0))
+        kpi["kpi_offer_high_discount_unused"] += int(s.get("high_discount_unused_skus", 0))
+    kpi["kpi_offer_sales_4w"] = round(kpi["kpi_offer_sales_4w"], 2)
+    return kpi
 
 
 def get_customer_price_offer_summary(ps_customer_code=None, magento_customer_id=None):
@@ -766,6 +840,7 @@ def get_customer_price_offer_summary(ps_customer_code=None, magento_customer_id=
         SELECT rule_name, COUNT(*) AS cnt
         FROM crm_customer_offer_current
         WHERE customer_code_365 = :code AND is_active = true
+          AND rule_code != '__NO_RULE__'
         GROUP BY rule_name ORDER BY cnt DESC LIMIT 5
     """), {"code": rm["customer_code_365"]}).fetchall()
 
@@ -857,12 +932,42 @@ def get_customer_price_offer_rows(ps_customer_code=None, magento_customer_id=Non
         "cost": _safe_float(r[9]), "gross_profit": _safe_float(r[10]),
         "gross_margin_percent": _safe_float(r[11]),
         "margin_status": r[12], "line_status": r[13],
-        "sold_qty_4w": _safe_float(r[14]), "sold_value_4w": _safe_float(r[15]),
-        "sold_qty_90d": _safe_float(r[16]), "sold_value_90d": _safe_float(r[17]),
+        "sold_qty_4w": _safe_float(r[14]) or 0, "sold_value_4w": _safe_float(r[15]) or 0,
+        "sold_qty_90d": _safe_float(r[16]) or 0, "sold_value_90d": _safe_float(r[17]) or 0,
         "last_sold_at": r[18].isoformat() if r[18] else None,
         "supplier_name": r[19], "brand_name": r[20], "category_name": r[21],
         "snapshot_at": r[22].isoformat() if r[22] else None,
     } for r in rows]
+
+
+def _generate_sentence(summary):
+    s = summary or {}
+    skus = s.get("active_offer_skus") or 0
+    bought_4w = s.get("offered_skus_bought_4w") or 0
+    not_bought = s.get("offered_skus_not_bought") or 0
+    avg_disc = s.get("avg_discount_percent") or 0
+    margin_risk = s.get("margin_risk_skus") or 0
+    high_disc_unused = s.get("high_discount_unused_skus") or 0
+
+    parts = [f"Customer has {skus} active offer SKUs"]
+
+    if bought_4w > 0:
+        parts.append(f"bought {bought_4w} in the last 4 weeks")
+    else:
+        parts.append("none bought in the last 4 weeks")
+
+    if not_bought > 0:
+        parts.append(f"{not_bought} remain unused")
+
+    parts.append(f"average discount {avg_disc:.1f}%")
+
+    if margin_risk > 0:
+        parts.append(f"margin risk on {margin_risk} lines")
+
+    if high_disc_unused > 0:
+        parts.append(f"{high_disc_unused} strong-discount lines remain unused")
+
+    return ", ".join(parts) + "."
 
 
 def get_customer_offer_intelligence(customer_code_365):
@@ -885,7 +990,7 @@ def get_customer_offer_intelligence(customer_code_365):
           AND line_status IN ('unused', 'high_discount_unused')
           AND margin_status != 'negative'
         ORDER BY discount_percent DESC NULLS LAST
-        LIMIT 10
+        LIMIT 20
     """), {"code": customer_code_365}).fetchall()
 
     margin_risks = db.session.execute(text("""
@@ -895,7 +1000,7 @@ def get_customer_offer_intelligence(customer_code_365):
         WHERE customer_code_365 = :code AND is_active = true
           AND margin_status IN ('low', 'negative')
         ORDER BY gross_margin_percent ASC NULLS LAST
-        LIMIT 10
+        LIMIT 20
     """), {"code": customer_code_365}).fetchall()
 
     rules = db.session.execute(text("""
@@ -903,20 +1008,14 @@ def get_customer_offer_intelligence(customer_code_365):
                AVG(discount_percent) AS avg_disc
         FROM crm_customer_offer_current
         WHERE customer_code_365 = :code AND is_active = true
+          AND rule_code != '__NO_RULE__'
         GROUP BY rule_name, rule_code
         ORDER BY cnt DESC
     """), {"code": customer_code_365}).fetchall()
 
-    s = summary
-    sentence = (
-        f"Customer has {s.get('active_offer_skus', 0)} active offer SKUs"
-        f", bought {s.get('offered_skus_bought_4w', 0)} in the last 4 weeks"
-        f", {s.get('offered_skus_not_bought', 0)} remain unused"
-        f", average discount {s.get('avg_discount_percent', 0):.1f}%"
-    )
-    if s.get("margin_risk_skus", 0) > 0:
-        sentence += f", margin risk on {s['margin_risk_skus']} lines"
-    sentence += "."
+    all_offers = get_customer_price_offer_rows(ps_customer_code=customer_code_365)
+
+    sentence = _generate_sentence(summary)
 
     return {
         "summary": summary,
@@ -939,5 +1038,6 @@ def get_customer_offer_intelligence(customer_code_365):
             "rule_name": r[0], "rule_code": r[1],
             "count": r[2], "avg_discount": _safe_float(r[3]),
         } for r in rules],
+        "all_offers": all_offers,
         "generated_sentence": sentence,
     }

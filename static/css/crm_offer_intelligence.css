@@ -117,6 +117,60 @@
 }
 .offer-tab-content.active { display: block; }
 
+.offer-generated-sentence {
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    background: rgba(110,168,254,0.08);
+    border-left: 3px solid #6ea8fe;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    color: rgba(255,255,255,0.75);
+    line-height: 1.5;
+}
+
+.offer-summary-section {
+    padding: 0;
+}
+.offer-summary-section .sum-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 0.82rem;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.offer-summary-section .sum-row .sum-label { color: rgba(255,255,255,0.55); }
+.offer-summary-section .sum-row .sum-val { font-weight: 600; }
+
+.offer-rules-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+.offer-rules-section .rules-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    margin-bottom: 8px;
+}
+.rules-table {
+    width: 100%;
+    font-size: 0.78rem;
+}
+.rules-table th {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    font-weight: 700;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding: 4px 8px;
+}
+.rules-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
 .opp-card, .margin-card {
     padding: 10px 12px;
     border-radius: 6px;
@@ -161,8 +215,8 @@
 .offer-empty-state i { font-size: 1.5rem; display: block; margin-bottom: 8px; opacity: 0.3; }
 
 .offer-search-bar {
-    padding: 8px 20px;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 8px 0;
+    margin-bottom: 8px;
 }
 .offer-search-bar input {
     font-size: 0.8rem;
@@ -179,15 +233,58 @@
 .margin-pct-warn { color: #ffc107; }
 .margin-pct-bad { color: #ef4444; }
 
-.offer-summary-section {
-    padding: 14px 20px;
+.badge-mention {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: rgba(110,168,254,0.15);
+    color: #6ea8fe;
+    text-transform: uppercase;
 }
-.offer-summary-section .sum-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 4px 0;
-    font-size: 0.82rem;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
+
+.badge-risk-neg {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: rgba(239,68,68,0.15);
+    color: #ef4444;
 }
-.offer-summary-section .sum-row .sum-label { color: rgba(255,255,255,0.55); }
-.offer-summary-section .sum-row .sum-val { font-weight: 600; }
+.badge-risk-low {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: rgba(255,193,7,0.15);
+    color: #ffc107;
+}
+
+.badge-status-selling {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 0.65rem; font-weight: 700;
+    background: rgba(34,197,94,0.15); color: #22c55e;
+}
+.badge-status-unused {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 0.65rem; font-weight: 700;
+    background: rgba(255,193,7,0.15); color: #ffc107;
+}
+.badge-status-hdu {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 0.65rem; font-weight: 700;
+    background: rgba(255,193,7,0.2); color: #fd7e14;
+}
+.badge-status-risk {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 0.65rem; font-weight: 700;
+    background: rgba(239,68,68,0.15); color: #ef4444;
+}
+.badge-status-unknown {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 0.65rem; font-weight: 700;
+    background: rgba(108,117,125,0.15); color: #6c757d;
+}
