@@ -535,13 +535,13 @@ function refreshAllData() {
                         {% if r.offer_indicator_state == 'none' %}
                         <span class="text-muted" style="font-size:0.72rem;">—</span>
                         {% elif r.offer_indicator_state == 'used' %}
-                        <span class="offer-chip offer-used" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Usage {{ r.offer_usage_pct|round(0)|int }}% · Share {{ r.offer_sales_share_pct|round(0)|int }}%">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }}</span>
+                        <span class="offer-chip offer-used" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Usage {{ r.offer_usage_pct|round(0)|int }}%">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }} <span class="chip-share">{{ r.offer_sales_share_pct|round(0)|int }}%</span></span>
                         {% elif r.offer_indicator_state == 'mixed' %}
-                        <span class="offer-chip offer-mixed" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Usage {{ r.offer_usage_pct|round(0)|int }}% · {{ r.offered_skus_not_bought }} unused">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }}</span>
+                        <span class="offer-chip offer-mixed" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Usage {{ r.offer_usage_pct|round(0)|int }}% · {{ r.offered_skus_not_bought }} unused">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }} <span class="chip-share">{{ r.offer_sales_share_pct|round(0)|int }}%</span></span>
                         {% elif r.offer_indicator_state == 'unused' %}
-                        <span class="offer-chip offer-unused" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="0 of {{ r.active_offer_skus }} SKUs bought">0/{{ r.active_offer_skus }}</span>
+                        <span class="offer-chip offer-unused" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="0 of {{ r.active_offer_skus }} SKUs bought">0/{{ r.active_offer_skus }} <span class="chip-share">0%</span></span>
                         {% elif r.offer_indicator_state == 'low_usage' %}
-                        <span class="offer-chip offer-low-usage" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Low usage {{ r.offer_usage_pct|round(0)|int }}%">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }}</span>
+                        <span class="offer-chip offer-low-usage" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Low usage {{ r.offer_usage_pct|round(0)|int }}%">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }} <span class="chip-share">{{ r.offer_sales_share_pct|round(0)|int }}%</span></span>
                         {% endif %}
                     </td>
                     <td>

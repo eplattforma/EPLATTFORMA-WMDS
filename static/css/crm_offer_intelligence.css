@@ -19,6 +19,13 @@
 .offer-chip.offer-used { background: rgba(25,135,84,0.2); color: #22c55e; }
 .offer-chip.offer-low-usage { background: rgba(253,126,20,0.2); color: #fd7e14; }
 
+.chip-share {
+    opacity: 0.7;
+    font-size: 0.65rem;
+    font-weight: 500;
+    margin-left: 2px;
+}
+
 #offerDrawer {
     position: fixed;
     top: 0;
