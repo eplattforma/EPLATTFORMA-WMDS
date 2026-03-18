@@ -3,6 +3,7 @@
 {% block title %}EP SmartGrowth CRM{% endblock %}
 
 {% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/crm_offer_intelligence.css') }}">
 <style>
     .crm-table thead { position: sticky; top: 0; z-index: 10; }
     .crm-table th { white-space: nowrap; font-size: 0.78rem; position: sticky; top: 0; z-index: 10; }
@@ -419,6 +420,7 @@ function refreshAllData() {
                         {% endif %}
                     </th>
                     {% endfor %}
+                    <th>Offers</th>
                     <th>Comm</th>
                 </tr>
             </thead>
@@ -507,6 +509,15 @@ function refreshAllData() {
                         {% endif %}
                     </td>
                     <td>
+                        {% if r.offer_indicator_state != 'none' %}
+                        <span class="offer-chip offer-{{ r.offer_indicator_state }}" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">
+                            <i class="fas fa-tag"></i>{{ r.active_offer_skus }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted" style="font-size:0.72rem;">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
                         <div onclick="event.stopPropagation()">
                             <a href="{{ url_for('communications.compose', id=r.customer_code_365, source='crm_dashboard') }}"
                                class="btn btn-outline-primary action-btn" title="Communications">
@@ -516,7 +527,7 @@ function refreshAllData() {
                     </td>
                 </tr>
                 <tr class="detail-row">
-                    <td colspan="12">
+                    <td colspan="13">
                         <div class="detail-content">
                             {% if r.district %}
                             <span class="detail-chip district"><i class="fas fa-map-marker-alt chip-icon" style="color:#6ea8fe"></i> <span class="chip-value">{{ r.district }}</span></span>
@@ -1051,8 +1062,8 @@ function showPriceModal(code, name, summary, rows) {
                 {text: r.product_name || r.item_name || '', cls: 'small'},
                 {text: r.rule_name || '', cls: 'small'},
                 {text: '€' + (r.origin_price !== null ? r.origin_price.toFixed(2) : '–'), cls: 'text-end small'},
-                {text: '€' + (r.customer_final_price !== null ? r.customer_final_price.toFixed(2) : '–'), cls: 'text-end small fw-bold'},
-                {text: '€' + (r.discount_amount !== null ? r.discount_amount.toFixed(2) : '–'), cls: 'text-end small'},
+                {text: '€' + (r.offer_price !== null ? r.offer_price.toFixed(2) : '–'), cls: 'text-end small fw-bold'},
+                {text: '€' + (r.discount_value !== null ? r.discount_value.toFixed(2) : '–'), cls: 'text-end small'},
                 {text: dp, cls: 'text-end small' + dpClass},
             ];
             cells.forEach(function(c) {
@@ -1063,7 +1074,7 @@ function showPriceModal(code, name, summary, rows) {
             });
             var linkedTd = document.createElement('td');
             linkedTd.className = 'text-center small';
-            linkedTd.innerHTML = r.is_linked_item ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-muted"></i>';
+            linkedTd.innerHTML = r.item_code_365 ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-muted"></i>';
             tr.appendChild(linkedTd);
             tbody.appendChild(tr);
         });
@@ -1119,4 +1130,19 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 </div>
+
+<div class="offer-drawer-overlay" id="offerDrawerOverlay"></div>
+<div id="offerDrawer">
+    <div class="offer-drawer-header">
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <div class="fw-bold fs-6" id="offer-drawer-cust-name"></div>
+                <div class="text-muted" style="font-size:0.78rem;" id="offer-drawer-cust-code"></div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeOfferDrawer()" style="padding:2px 8px;"><i class="fas fa-times"></i></button>
+        </div>
+    </div>
+    <div class="offer-drawer-body" id="offer-drawer-body"></div>
+</div>
+<script src="{{ url_for('static', filename='js/crm_offer_intelligence.js') }}"></script>
 {% endblock %}

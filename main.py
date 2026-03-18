@@ -486,6 +486,13 @@ with app.app_context():
     except Exception as e:
         logging.error(f"Error updating Magento last login current schema: {e}")
 
+    try:
+        from update_crm_offer_schema import ensure_crm_offer_schema
+        ensure_crm_offer_schema()
+        logging.info("CRM offer intelligence schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating CRM offer schema: {e}")
+
     # Initialize remaining tables
     from app import db
     db.create_all()

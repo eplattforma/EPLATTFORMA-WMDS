@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Review Ordering Window{% endblock %}
 {% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/crm_offer_intelligence.css') }}">
 <style>
 .popover { background: #2b2b3d; border: 1px solid #444; }
 .popover-header { background: #333; color: #eee; border-bottom: 1px solid #444; font-size: 0.82rem; }
@@ -197,6 +198,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     <th>Last Login</th>
                     <th>Last Invoice</th>
                     <th class="value-col">Value 4w</th>
+                    <th>Offers</th>
                     <th>Msg</th>
                     <th>Action</th>
                 </tr>
@@ -271,6 +273,15 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="value-col">{% if r.value_4w %}€{{ "{:,.0f}".format(r.value_4w) }}{% else %}—{% endif %}</td>
+                    <td>
+                        {% if r.offer_indicator_state != 'none' %}
+                        <span class="offer-chip offer-{{ r.offer_indicator_state }}" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">
+                            <i class="fas fa-tag"></i>{{ r.active_offer_skus }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted" style="font-size:0.72rem;">—</span>
+                        {% endif %}
+                    </td>
                     <td class="text-center" style="white-space:nowrap;">
                         {% if r.last_comm %}
                         {% set ch = r.last_comm.channel %}
@@ -305,7 +316,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="12" class="text-center text-muted py-4"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#198754;"></i>No ordering windows currently open</td></tr>
+                <tr><td colspan="13" class="text-center text-muted py-4"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#198754;"></i>No ordering windows currently open</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -879,4 +890,19 @@ window.addEventListener('load', function() {
     });
 });
 </script>
+
+<div class="offer-drawer-overlay" id="offerDrawerOverlay"></div>
+<div id="offerDrawer">
+    <div class="offer-drawer-header">
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <div class="fw-bold fs-6" id="offer-drawer-cust-name"></div>
+                <div class="text-muted" style="font-size:0.78rem;" id="offer-drawer-cust-code"></div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeOfferDrawer()" style="padding:2px 8px;"><i class="fas fa-times"></i></button>
+        </div>
+    </div>
+    <div class="offer-drawer-body" id="offer-drawer-body"></div>
+</div>
+<script src="{{ url_for('static', filename='js/crm_offer_intelligence.js') }}"></script>
 {% endblock %}

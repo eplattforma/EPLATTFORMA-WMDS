@@ -1,0 +1,980 @@
+Paste this to Replit as the build brief.
+
+Build objective
+
+Add a full “Offer Intelligence” layer to EP WMDS CRM so that customer-specific Magento offers can be reviewed:
+1) on the main CRM dashboard
+2) on Review Ordering
+3) inside a customer offer drawer/panel with KPIs and detailed offer lines
+
+Use Flask + SQLAlchemy.
+Do not break or redesign the current order-window logic.
+Keep the existing routes and behavior, and extend them cleanly.
+
+--------------------------------------------------
+1. BUSINESS GOAL
+--------------------------------------------------
+
+We already import daily Magento customer offer rows with these columns:
+
+- snapshot_at
+- customer_id
+- customer_email
+- sku
+- product_name
+- rule_code
+- rule_name
+- rule_description
+- origin_price
+- customer_final_price
+
+We want to turn this into CRM intelligence, not just a raw price list.
+
+The CRM user must be able to see quickly:
+- whether the customer has active offers
+- how many active offer SKUs they have
+- average / strongest discount
+- whether they used these offers recently
+- which offered SKUs are not being bought
+- whether any active offers are low-margin / risky
+- which offer lines are the best opportunity to mention in a call / visit / push / SMS
+
+We also need cost enrichment from our item master so we can calculate:
+- gross profit
+- gross margin %
+- margin risk flags
+
+IMPORTANT:
+Do not load detailed offer rows into the main dashboard query.
+The main dashboard and review-ordering pages must only join a compact customer summary table.
+Detailed offer lines must load lazily on click.
+
+--------------------------------------------------
+2. IMPLEMENTATION PRINCIPLES
+--------------------------------------------------
+
+- Keep the raw Magento import exactly as received for audit/debugging.
+- Normalize current offers into a proper current table.
+- Build a current customer summary table for fast CRM queries.
+- Use lazy-loaded detail endpoints for per-customer offer lines.
+- Reuse the current dark WMDS style.
+- Do not add heavy joins against raw import data in dashboard routes.
+- Keep pagination and list performance good.
+
+--------------------------------------------------
+3. FILES TO CREATE / UPDATE
+--------------------------------------------------
+
+Create / update these files:
+
+A) models.py
+Add new ORM models for:
+- CrmCustomerOfferImportBatch
+- CrmCustomerOfferRaw
+- CrmOfferRuleDim
+- CrmCustomerOfferCurrent
+- CrmCustomerOfferSummaryCurrent
+- optionally CrmCustomerOfferUnresolved if mapping fails
+
+B) services/crm_price_offers.py
+New service module to:
+- import raw Magento CSV data
+- resolve customer links
+- resolve SKU -> item_code_365
+- enrich cost
+- build current offer rows
+- build current customer summary
+- provide API helper methods for summary and detail rows
+
+C) migrations / schema update script
+Create a safe migration function, similar to our existing schema scripts.
+
+Suggested file:
+- migrations/update_crm_price_offer_schema.py
+
+D) templates/crm/dashboard.html
+Add:
+- top KPI cards for offers
+- one compact Offers column in the grid
+- right-side offer drawer markup
+
+E) templates/crm/review_ordering.html
+Add:
+- offer KPI cards at top
+- compact Offers column
+- right-side offer drawer markup
+
+F) static/js/crm_offer_intelligence.js
+Add JS for:
+- opening drawer
+- fetching summary and line items
+- filtering tabs
+- rendering badges / states
+
+G) static/css/crm_offer_intelligence.css
+Add shared CRM offer styling for chips, KPI cards, risk tags, drawer layout
+
+H) existing CRM blueprint file
+Update current blueprint routes to join offer summary and expose drawer/detail data cleanly.
+
+--------------------------------------------------
+4. DATABASE DESIGN
+--------------------------------------------------
+
+Create these tables.
+
+4.1 crm_customer_offer_import_batch
+Purpose:
+Track each CSV import batch.
+
+Fields:
+- id PK
+- source_name VARCHAR(100) not null default 'magento_customer_price_master'
+- snapshot_at TIMESTAMP NULL
+- row_count INTEGER not null default 0
+- imported_at TIMESTAMP not null default now()
+- imported_by VARCHAR(100) NULL
+- status VARCHAR(30) not null default 'done'
+- notes TEXT NULL
+
+Indexes:
+- idx_offer_import_batch_snapshot_at(snapshot_at)
+
+4.2 crm_customer_offer_raw
+Purpose:
+Audit copy of Magento rows exactly as imported.
+
+Fields:
+- id PK
+- import_batch_id FK crm_customer_offer_import_batch.id not null
+- snapshot_at TIMESTAMP NULL
+- customer_id_magento INTEGER NULL
+- customer_email VARCHAR(255) NULL
+- sku VARCHAR(100) not null
+- product_name VARCHAR(255) NULL
+- rule_code VARCHAR(100) NULL
+- rule_name VARCHAR(255) NULL
+- rule_description TEXT NULL
+- origin_price NUMERIC(12,4) NULL
+- offer_price NUMERIC(12,4) NULL
+- imported_at TIMESTAMP not null default now()
+
+Indexes:
+- idx_offer_raw_snapshot(snapshot_at)
+- idx_offer_raw_magento_customer(customer_id_magento)
+- idx_offer_raw_email(customer_email)
+- idx_offer_raw_sku(sku)
+- idx_offer_raw_rule(rule_code)
+
+Optional unique protection if needed:
+- unique(import_batch_id, customer_id_magento, customer_email, sku, rule_code)
+
+4.3 crm_offer_rule_dim
+Purpose:
+Reusable rule master.
+
+Fields:
+- id PK
+- rule_code VARCHAR(100) not null unique
+- rule_name VARCHAR(255) NULL
+- rule_description TEXT NULL
+- is_active BOOLEAN not null default true
+- first_seen_at TIMESTAMP not null default now()
+- last_seen_at TIMESTAMP not null default now()
+
+4.4 crm_customer_offer_current
+Purpose:
+Latest active offer lines per customer + SKU + rule.
+
+Fields:
+- id PK
+- snapshot_at TIMESTAMP not null
+
+Customer mapping:
+- customer_id_magento INTEGER NULL
+- customer_email VARCHAR(255) NULL
+- customer_code_365 VARCHAR(50) NULL
+
+Product mapping:
+- sku VARCHAR(100) not null
+- item_code_365 VARCHAR(100) NULL
+- product_name VARCHAR(255) NULL
+- brand_name VARCHAR(255) NULL
+- supplier_code VARCHAR(100) NULL
+- supplier_name VARCHAR(255) NULL
+- category_name VARCHAR(255) NULL
+
+Rule:
+- rule_code VARCHAR(100) NULL
+- rule_id INTEGER NULL FK crm_offer_rule_dim.id
+- rule_name VARCHAR(255) NULL
+
+Pricing:
+- origin_price NUMERIC(12,4) NULL
+- offer_price NUMERIC(12,4) NULL
+- discount_value NUMERIC(12,4) NULL
+- discount_percent NUMERIC(8,4) NULL
+
+Cost / margin:
+- cost NUMERIC(12,4) NULL
+- gross_profit NUMERIC(12,4) NULL
+- gross_margin_percent NUMERIC(8,4) NULL
+- margin_status VARCHAR(30) NULL   # healthy / low / negative / unknown
+
+Recent sales enrichment:
+- sold_qty_4w NUMERIC(12,3) not null default 0
+- sold_value_4w NUMERIC(12,2) not null default 0
+- sold_qty_90d NUMERIC(12,3) not null default 0
+- sold_value_90d NUMERIC(12,2) not null default 0
+- last_sold_at DATE NULL
+
+Status:
+- line_status VARCHAR(40) NULL   # selling / unused / high_discount_unused / margin_risk / unknown
+- is_active BOOLEAN not null default true
+- created_at TIMESTAMP not null default now()
+- updated_at TIMESTAMP not null default now()
+
+Unique key:
+- uq_offer_current_customer_sku_rule(customer_code_365, sku, rule_code)
+
+Indexes:
+- idx_offer_current_customer(customer_code_365)
+- idx_offer_current_item(item_code_365)
+- idx_offer_current_rule(rule_code)
+- idx_offer_current_snapshot(snapshot_at)
+- idx_offer_current_margin(margin_status)
+- idx_offer_current_line_status(line_status)
+
+4.5 crm_customer_offer_summary_current
+Purpose:
+Fast one-row-per-customer summary used by dashboard and review-ordering.
+
+Fields:
+- customer_code_365 VARCHAR(50) PK
+- snapshot_at TIMESTAMP NULL
+- has_special_pricing BOOLEAN not null default false
+- active_offer_skus INTEGER not null default 0
+- active_offer_rules INTEGER not null default 0
+- avg_discount_percent NUMERIC(8,4) NULL
+- max_discount_percent NUMERIC(8,4) NULL
+- avg_gross_margin_percent NUMERIC(8,4) NULL
+- margin_risk_skus INTEGER not null default 0
+- negative_margin_skus INTEGER not null default 0
+- offered_skus_bought_4w INTEGER not null default 0
+- offered_skus_bought_90d INTEGER not null default 0
+- offered_skus_not_bought INTEGER not null default 0
+- offer_sales_4w NUMERIC(12,2) not null default 0
+- offer_sales_90d NUMERIC(12,2) not null default 0
+- offer_utilisation_pct NUMERIC(8,4) NULL
+- high_discount_unused_skus INTEGER not null default 0
+- top_rule_name VARCHAR(255) NULL
+- top_opportunity_count INTEGER not null default 0
+- updated_at TIMESTAMP not null default now()
+
+Indexes:
+- idx_offer_summary_has_special(has_special_pricing)
+- idx_offer_summary_risk(margin_risk_skus)
+- idx_offer_summary_unused(offered_skus_not_bought)
+
+4.6 optional: crm_customer_offer_unresolved
+Purpose:
+Capture rows where customer or SKU mapping fails.
+
+Fields:
+- id PK
+- snapshot_at TIMESTAMP NULL
+- customer_id_magento INTEGER NULL
+- customer_email VARCHAR(255) NULL
+- sku VARCHAR(100) NULL
+- rule_code VARCHAR(100) NULL
+- issue_type VARCHAR(50) not null   # customer_unmapped / sku_unmapped / cost_missing
+- issue_detail TEXT NULL
+- created_at TIMESTAMP not null default now()
+
+--------------------------------------------------
+5. CUSTOMER AND PRODUCT LINKING
+--------------------------------------------------
+
+5.1 Customer resolution priority
+When importing raw rows into current normalized rows, resolve customer_code_365 in this order:
+
+1) direct Magento customer ID mapping, if we already have a mapping table or import
+2) exact email match (lower(trim(email))) to known Magento/CRM customer mapping
+3) existing customer mapping table if present in project
+4) unresolved -> write to crm_customer_offer_unresolved
+
+Do not silently discard unresolved rows.
+
+Implement a reusable resolver function:
+- resolve_customer_code_365(customer_id_magento, customer_email) -> customer_code_365 or None
+
+5.2 SKU / item resolution priority
+Resolve item_code_365 in this order:
+
+1) exact sku = item_code_365
+2) existing product mapping table if the project already has one
+3) exact match against ps_items_dw sku field if present
+4) unresolved -> write to crm_customer_offer_unresolved
+
+Implement:
+- resolve_item_code_365(sku) -> item_code_365 or None
+
+5.3 Cost enrichment
+Bring cost from our item master.
+Use the current item DW source already used in project.
+
+If multiple cost columns exist, use this setting:
+- crm_offer_cost_source
+
+Accepted setting values:
+- average_cost
+- last_purchase_cost
+- standard_cost
+
+Default to average_cost if available, else fallback to first valid cost column found.
+
+Implement:
+- get_item_cost(item_code_365) -> Decimal or None
+
+If cost missing:
+- gross profit and margin remain null
+- margin_status = 'unknown'
+
+--------------------------------------------------
+6. SALES ENRICHMENT FOR OFFER LINES
+--------------------------------------------------
+
+For each current offer line, enrich recent sales.
+Use existing sales line fact if available in project.
+Preferred source order:
+1) pbi_fact_sales if it contains customer_code_365 + item_code_365 + qty + net value + invoice date
+2) dw sales lines view/table if already present
+3) otherwise skip line-level recent sales and still build summary from offers only
+
+Implement a helper:
+- get_recent_offer_sales_metrics(customer_code_365, item_code_365)
+
+Metrics required:
+- sold_qty_4w
+- sold_value_4w
+- sold_qty_90d
+- sold_value_90d
+- last_sold_at
+
+Definitions:
+- 4w = last 28 days
+- 90d = last 90 days
+
+--------------------------------------------------
+7. KPI LOGIC
+--------------------------------------------------
+
+Use these calculations.
+
+7.1 Line-level calculations
+For each offer line:
+- discount_value = origin_price - offer_price
+- discount_percent = ((origin_price - offer_price) / origin_price) * 100 if origin_price > 0 else null
+- gross_profit = offer_price - cost if cost is not null else null
+- gross_margin_percent = ((offer_price - cost) / offer_price) * 100 if offer_price > 0 and cost is not null else null
+
+7.2 Configurable thresholds
+Add Settings keys:
+- crm_offer_low_margin_pct_threshold default 12
+- crm_offer_negative_margin_pct_threshold default 0
+- crm_offer_strong_discount_pct_threshold default 15
+- crm_offer_unused_days_threshold default 30
+- crm_offer_recent_sales_days default 28
+
+7.3 margin_status
+- unknown -> cost or offer price missing
+- negative -> gross_margin_percent < 0
+- low -> gross_margin_percent >= 0 and < low_margin_threshold
+- healthy -> >= low_margin_threshold
+
+7.4 line_status
+- selling -> sold_qty_4w > 0
+- high_discount_unused -> discount_percent >= strong_discount_threshold and sold_qty_4w = 0
+- margin_risk -> margin_status in ('low','negative')
+- unused -> sold_qty_4w = 0
+- unknown -> fallback
+
+7.5 Summary KPIs per customer
+- has_special_pricing = active_offer_skus > 0
+- active_offer_skus = count distinct sku
+- active_offer_rules = count distinct rule_code
+- avg_discount_percent = avg(discount_percent)
+- max_discount_percent = max(discount_percent)
+- avg_gross_margin_percent = avg(gross_margin_percent where not null)
+- margin_risk_skus = count where margin_status in ('low','negative')
+- negative_margin_skus = count where margin_status = 'negative'
+- offered_skus_bought_4w = count distinct sku where sold_qty_4w > 0
+- offered_skus_bought_90d = count distinct sku where sold_qty_90d > 0
+- offered_skus_not_bought = active_offer_skus - offered_skus_bought_4w
+- offer_sales_4w = sum(sold_value_4w)
+- offer_sales_90d = sum(sold_value_90d)
+- offer_utilisation_pct = offered_skus_bought_4w / active_offer_skus * 100
+- high_discount_unused_skus = count where line_status = 'high_discount_unused'
+- top_rule_name = most frequent rule_name by offer count
+- top_opportunity_count = count of lines where line_status in ('unused','high_discount_unused') and margin_status != 'negative'
+
+--------------------------------------------------
+8. SERVICE LAYER
+--------------------------------------------------
+
+Create services/crm_price_offers.py with these public functions.
+
+8.1 Import / rebuild functions
+- import_customer_price_offer_csv(csv_path, triggered_by=None)
+- rebuild_offer_rule_dim()
+- rebuild_customer_offer_current(snapshot_at=None)
+- rebuild_customer_offer_summary()
+- refresh_all_customer_price_offers(csv_path=None, triggered_by=None)
+
+Behavior:
+- import raw CSV rows into crm_customer_offer_raw
+- update rule dim
+- normalize current offer rows from latest snapshot
+- enrich customer mapping, product mapping, cost, recent sales
+- rebuild summary table
+- return counts / timings / unresolved counts
+
+8.2 Query functions
+- get_customer_price_offer_summary(ps_customer_code)
+- get_customer_price_offer_rows(ps_customer_code, sort_by='discount_percent', sort_dir='desc', rule_filter=None, search=None)
+- get_customer_offer_opportunities(ps_customer_code)
+- get_customer_offer_margin_risks(ps_customer_code)
+
+8.3 Summary shape for API
+Return at least:
+{
+  "has_special_pricing": true,
+  "active_offer_skus": 24,
+  "active_offer_rules": 3,
+  "avg_discount_percent": 12.5,
+  "max_discount_percent": 25.0,
+  "avg_gross_margin_percent": 18.2,
+  "margin_risk_skus": 2,
+  "negative_margin_skus": 0,
+  "offered_skus_bought_4w": 6,
+  "offered_skus_not_bought": 18,
+  "offer_sales_4w": 215.40,
+  "offer_sales_90d": 620.10,
+  "offer_utilisation_pct": 25.0,
+  "high_discount_unused_skus": 5,
+  "top_rule_name": "WHOLESALE OFFER",
+  "last_offer_snapshot_at": "...",
+  "opportunity_state": "used" | "unused" | "risk" | "none"
+}
+
+8.4 Detail rows shape
+Each detail row should include:
+- sku
+- item_code_365
+- product_name
+- rule_code
+- rule_name
+- origin_price
+- offer_price
+- discount_value
+- discount_percent
+- cost
+- gross_profit
+- gross_margin_percent
+- sold_qty_4w
+- sold_value_4w
+- sold_qty_90d
+- sold_value_90d
+- last_sold_at
+- line_status
+- margin_status
+- supplier_name
+- brand_name
+- category_name
+
+--------------------------------------------------
+9. ROUTE / API CHANGES
+--------------------------------------------------
+
+Keep existing routes:
+- /customer/<customer_code_365>/price-offer-summary
+- /customer/<customer_code_365>/price-offers
+
+Back them with the new summary/current tables.
+
+Add one combined drawer endpoint:
+- GET /crm/customer/<customer_code_365>/offer-intelligence
+
+This endpoint should return:
+- summary
+- opportunities (top 10 unused/high-discount-unused lines)
+- margin_risks (top 10)
+- rules breakdown
+- last snapshot timestamp
+
+This avoids many browser round-trips when opening the drawer.
+
+Add refresh endpoint:
+- POST /crm/price-offers/refresh
+
+Behavior:
+- read configured latest CSV path if available
+- or accept optional posted path
+- run refresh_all_customer_price_offers()
+- return JSON summary with counts and timings
+
+Suggested response:
+{
+  "success": true,
+  "imported_rows": 10311,
+  "current_rows": 10085,
+  "summary_rows": 622,
+  "unresolved_customer_rows": 14,
+  "unresolved_sku_rows": 8,
+  "snapshot_at": "...",
+  "duration_seconds": 4.2
+}
+
+--------------------------------------------------
+10. INTEGRATE WITH EXISTING CRM BLUEPRINT
+--------------------------------------------------
+
+10.1 customer_slot_dashboard()
+Join crm_customer_offer_summary_current with PSCustomer.customer_code_365.
+
+Add these selected fields:
+- has_special_pricing
+- active_offer_skus
+- avg_discount_percent
+- offered_skus_not_bought
+- margin_risk_skus
+- offer_sales_4w
+- offer_utilisation_pct
+- high_discount_unused_skus
+
+In dashboard_rows append:
+- has_special_pricing
+- active_offer_skus
+- avg_discount_percent
+- offered_skus_not_bought
+- margin_risk_skus
+- offer_sales_4w
+- offer_utilisation_pct
+- offer_indicator_state
+
+offer_indicator_state logic:
+- none -> no special pricing
+- risk -> margin_risk_skus > 0
+- unused -> has_special_pricing and offered_skus_bought_4w == 0
+- mixed -> has_special_pricing and some used, some unused
+- used -> offered_skus_bought_4w > 0 and margin_risk_skus = 0
+
+Also add filtered offer KPI cards:
+- customers_with_offers
+- customers_with_unused_offers
+- total_offer_sales_4w
+- customers_with_margin_risk
+
+Compute these based on already filtered customer set, not global.
+
+10.2 review_ordering()
+Join crm_customer_offer_summary_current similarly.
+
+Add to each open_window_rows row:
+- has_special_pricing
+- active_offer_skus
+- avg_discount_percent
+- offered_skus_not_bought
+- margin_risk_skus
+- offer_sales_4w
+- offer_indicator_state
+
+Add new KPI cards at top:
+- with_offers
+- unused_offers
+- margin_risk
+- offer_sales_4w
+- high_discount_unused
+
+Keep current state logic untouched.
+
+--------------------------------------------------
+11. UI / UX SPEC
+--------------------------------------------------
+
+We already have dense operational tables. Do not add a huge embedded offers table in the row.
+
+11.1 Main list column
+Add one compact column named:
+- Offers
+
+Each row should show a small chip/button.
+
+Chip format:
+- if no offers: grey outlined chip "—"
+- if offers exist: "24 offers"
+- sub-chip or tiny badges:
+  - green dot if used recently
+  - amber dot if offers exist but none used
+  - red dot if margin risk
+  - purple small badge for top discount, e.g. "max 25%"
+
+Examples:
+- "24 offers" + green dot
+- "24 offers / 18 unused" + amber dot
+- "24 offers / risk 2" + red dot
+
+Clicking the chip opens the drawer.
+
+11.2 Drawer / side panel
+Use a right-side slide-over drawer.
+Width desktop: around 620px.
+On smaller screens use full-width modal style.
+
+Drawer header:
+- customer name
+- customer code
+- classification
+- district
+- next delivery (if on review-ordering)
+- buttons: refresh, close
+
+Drawer KPI cards (first row):
+- Active offers
+- Avg discount %
+- Offer sales 4w
+- Unused offers
+- Margin risk
+- Utilisation %
+
+Drawer sections/tabs:
+Tab 1 Summary
+- summary cards
+- rule breakdown list
+- most important notes:
+  - "No offered SKUs bought in last 4 weeks"
+  - "2 low-margin lines"
+  - "5 strong-discount unused lines"
+
+Tab 2 Opportunities
+Show top actionable lines where:
+- sold_qty_4w = 0
+- discount strong or margin healthy
+Columns:
+- SKU
+- product
+- offer price
+- discount %
+- margin %
+- supplier / brand
+- badge "Mention to customer"
+
+Tab 3 Margin Watch
+Show lines with margin_status low/negative
+Columns:
+- SKU
+- product
+- offer price
+- cost
+- GP
+- margin %
+- rule
+- status badge
+
+Tab 4 All Active Offers
+Sortable table with:
+- SKU
+- product
+- rule
+- origin price
+- offer price
+- discount %
+- cost
+- GP
+- margin %
+- sold 4w
+- last sold
+- status
+
+Drawer footer quick actions:
+- Create OFFER_FOLLOWUP task
+- Log OFFER interaction
+- Copy offer summary text
+- Mark reviewed (optional note only, not replacing current review logic)
+
+11.3 Visual style
+Match current WMDS theme:
+- dark navy background
+- chips with subtle glow
+- green = used / healthy
+- amber = unused opportunity
+- red = margin risk
+- blue/purple = informational KPI
+
+Keep typography compact.
+Do not overcrowd the main table.
+
+--------------------------------------------------
+12. JS BEHAVIOR
+--------------------------------------------------
+
+In static/js/crm_offer_intelligence.js:
+
+Implement:
+- openOfferDrawer(customerCode)
+- fetch `/crm/customer/<code>/offer-intelligence`
+- render summary cards
+- render opportunities table
+- render risks table
+- render all offers table
+- support quick search within all offers tab
+- support sort for all offers tab
+- show loading skeleton while fetching
+- show empty state if no offers
+
+Attach click handlers to:
+- dashboard table offer chips
+- review-ordering offer chips
+
+Do not preload all customer offer detail data on page load.
+
+--------------------------------------------------
+13. TEMPLATE CHANGES
+--------------------------------------------------
+
+13.1 dashboard.html
+Add:
+- top KPI cards for offer intelligence
+- new column header "Offers"
+- in each row render compact offer chip
+- include drawer markup once at page bottom
+
+13.2 review_ordering.html
+Add:
+- KPI cards for offer intelligence alongside current review KPIs
+- new row column "Offers"
+- same chip behavior
+- include drawer markup once
+
+Keep current filters intact.
+
+--------------------------------------------------
+14. PERFORMANCE REQUIREMENTS
+--------------------------------------------------
+
+Important:
+The dashboard query is already substantial.
+Do not join crm_customer_offer_current in dashboard or review_ordering.
+Only join crm_customer_offer_summary_current.
+
+The drawer detail endpoint may query crm_customer_offer_current on demand.
+
+Add proper indexes.
+Prefer precomputed summary over repeated ad hoc aggregates.
+
+Avoid N+1 queries:
+- one summary join in dashboard route
+- one summary join in review_ordering route
+- one on-demand detail query per drawer open
+
+--------------------------------------------------
+15. SETTINGS TO ADD
+--------------------------------------------------
+
+Add new Setting keys if missing:
+- crm_offer_low_margin_pct_threshold
+- crm_offer_negative_margin_pct_threshold
+- crm_offer_strong_discount_pct_threshold
+- crm_offer_unused_days_threshold
+- crm_offer_recent_sales_days
+- crm_offer_cost_source
+- crm_offer_import_latest_csv_path
+
+Optional:
+- crm_offer_show_on_dashboard default 1
+- crm_offer_show_on_review_ordering default 1
+
+--------------------------------------------------
+16. SQLALCHEMY MODEL NOTES
+--------------------------------------------------
+
+Implement timestamps in UTC.
+Use Numeric for prices and margins.
+Use helper methods or service functions for Decimal-safe calculations.
+Do not compute margin with float where avoidable.
+
+If project already has mixins for audit timestamps, reuse them.
+
+--------------------------------------------------
+17. SAFE MIGRATION APPROACH
+--------------------------------------------------
+
+Create a migration/update function similar to our other safe schema scripts.
+Use:
+- CREATE TABLE IF NOT EXISTS
+- CREATE INDEX IF NOT EXISTS
+- ALTER TABLE ADD COLUMN IF NOT EXISTS
+
+Do not drop existing tables.
+Do not assume empty database.
+
+Also add a small helper to backfill summary table after schema creation.
+
+--------------------------------------------------
+18. ACCEPTANCE CRITERIA
+--------------------------------------------------
+
+A) Data
+- raw import stores all CSV rows
+- current offer table contains latest normalized offer rows
+- summary table contains one row per customer with offers
+- unresolved customer / SKU rows are not lost
+
+B) CRM dashboard
+- shows compact offers column
+- shows offer KPI cards
+- still performs well
+- clicking offers opens drawer
+
+C) Review Ordering
+- shows compact offers column
+- shows offer KPI cards
+- helps operator see offer opportunity during ordering review
+- clicking offers opens drawer
+
+D) Drawer
+- opens fast
+- shows summary, opportunities, margin watch, all offers
+- allows quick operational review
+
+E) Margin
+- cost is linked where possible
+- GP and margin % visible on offer lines
+- low/negative margin lines clearly flagged
+
+F) Maintainability
+- raw / current / summary separation exists
+- service functions are reusable
+- no heavy logic embedded directly in templates
+
+--------------------------------------------------
+19. IMPLEMENTATION ORDER
+--------------------------------------------------
+
+Do this in order:
+
+Step 1
+Create schema + ORM models.
+
+Step 2
+Create services/crm_price_offers.py import and rebuild functions.
+
+Step 3
+Build one-time refresh endpoint and test import from current CSV.
+
+Step 4
+Populate current rows and summary rows.
+
+Step 5
+Update existing /price-offer-summary and /price-offers endpoints to read from new tables.
+
+Step 6
+Add summary join to customer_slot_dashboard() and review_ordering().
+
+Step 7
+Add KPI cards and compact Offers column to both pages.
+
+Step 8
+Build drawer endpoint and JS drawer rendering.
+
+Step 9
+Polish styling and empty/loading/error states.
+
+Step 10
+Test on:
+- customer with many offers
+- customer with no offers
+- customer with offers but no recent sales
+- customer with low-margin offers
+- unresolved mapping cases
+
+--------------------------------------------------
+20. IMPORTANT DO NOTS
+--------------------------------------------------
+
+- Do not refactor the existing window-open / done-for-cycle logic.
+- Do not join detailed offer rows directly into main dashboard query.
+- Do not delete unresolved rows silently.
+- Do not depend only on customer_email for mapping if Magento customer_id mapping exists.
+- Do not use the raw import table directly for page rendering.
+
+--------------------------------------------------
+21. OPTIONAL NICE-TO-HAVE AFTER MVP
+--------------------------------------------------
+
+After MVP works, optionally add:
+- supplier / brand breakdown in drawer
+- “copy customer offer script” button for sales call
+- quick push/SMS template prefill using top unused offer lines
+- historical offer comparison against previous snapshot
+- customer-level “offer dependency” indicator
+- export to Excel of current customer offers
+
+--------------------------------------------------
+22. EXISTING ROUTES TO KEEP COMPATIBLE
+--------------------------------------------------
+
+Keep these routes alive and powered by the new backend:
+- /crm/customer/<customer_code_365>/price-offer-summary
+- /crm/customer/<customer_code_365>/price-offers
+
+New recommended endpoint:
+- /crm/customer/<customer_code_365>/offer-intelligence
+
+Also add:
+- /crm/price-offers/refresh
+
+--------------------------------------------------
+23. SMALL UI CONTENT GUIDELINES
+--------------------------------------------------
+
+Use concise labels:
+- Offers
+- Avg Disc
+- Offer Sales 4w
+- Unused
+- Risk
+- Utilisation
+
+Badge text:
+- Used
+- Unused
+- Risk
+- Low Margin
+- Negative Margin
+- Strong Disc
+- No Cost
+
+--------------------------------------------------
+24. FINAL DELIVERY EXPECTED
+--------------------------------------------------
+
+Deliver code changes plus:
+1) schema update script
+2) service layer
+3) updated blueprint
+4) dashboard UI
+5) review-ordering UI
+6) JS drawer behavior
+7) short notes explaining:
+   - how customer linking works
+   - how SKU linking works
+   - which cost source was used
+   - which sales fact source was used
+   - unresolved rows count
+
+If some underlying sales-line or item-cost source is missing, do not block the whole build.
+Complete the MVP using current offers + summary, and clearly mark missing enrichment parts.
+
+
+One practical addition: in the drawer, show a generated sentence at the top like: “Customer has 24 active offer SKUs, bought 6 in the last 4 weeks, 18 remain unused, average discount 12.5%, margin risk on 2 lines.” That will help the operator act immediately.
