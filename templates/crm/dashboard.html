@@ -374,21 +374,21 @@ function refreshAllData() {
             </div>
         </div>
         <div class="col-auto">
-            <div class="card kpi-card px-3 py-2" style="border-color: #ffc107;">
-                <div class="small text-muted">Unused Offers</div>
-                <div class="fw-bold fs-5" style="color:#ffc107;">{{ offer_kpi.kpi_offer_customers_with_unused }}</div>
-            </div>
-        </div>
-        <div class="col-auto">
-            <div class="card kpi-card px-3 py-2" style="border-color: #e74c3c;">
-                <div class="small text-muted">Margin Risk</div>
-                <div class="fw-bold fs-5" style="color:#e74c3c;">{{ offer_kpi.kpi_offer_customers_with_margin_risk }}</div>
+            <div class="card kpi-card px-3 py-2" style="border-color: #6ea8fe;">
+                <div class="small text-muted">Avg Usage</div>
+                <div class="fw-bold fs-5" style="color:#6ea8fe;">{{ offer_kpi.kpi_offer_avg_usage_pct }}%</div>
             </div>
         </div>
         <div class="col-auto">
             <div class="card kpi-card px-3 py-2" style="border-color: #17a2b8;">
                 <div class="small text-muted">Offer Sales 4w</div>
                 <div class="fw-bold fs-5" style="color:#17a2b8;">€{{ "{:,.0f}".format(offer_kpi.kpi_offer_sales_4w) }}</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="card kpi-card px-3 py-2" style="border-color: #fd7e14;">
+                <div class="small text-muted">High Dependency</div>
+                <div class="fw-bold fs-5" style="color:#fd7e14;">{{ offer_kpi.kpi_offer_customers_high_dependency }}</div>
             </div>
         </div>
         {% endif %}
@@ -535,13 +535,13 @@ function refreshAllData() {
                         {% if r.offer_indicator_state == 'none' %}
                         <span class="text-muted" style="font-size:0.72rem;">—</span>
                         {% elif r.offer_indicator_state == 'used' %}
-                        <span class="offer-chip offer-used" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }}</span>
+                        <span class="offer-chip offer-used" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Usage {{ r.offer_usage_pct|round(0)|int }}% · Share {{ r.offer_sales_share_pct|round(0)|int }}%">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }}</span>
                         {% elif r.offer_indicator_state == 'mixed' %}
-                        <span class="offer-chip offer-mixed" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }} / {{ r.offered_skus_not_bought }} unused</span>
+                        <span class="offer-chip offer-mixed" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Usage {{ r.offer_usage_pct|round(0)|int }}% · {{ r.offered_skus_not_bought }} unused">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }}</span>
                         {% elif r.offer_indicator_state == 'unused' %}
-                        <span class="offer-chip offer-unused" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }} unused</span>
-                        {% elif r.offer_indicator_state == 'risk' %}
-                        <span class="offer-chip offer-risk" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}">{{ r.active_offer_skus }} / risk {{ r.margin_risk_skus }}</span>
+                        <span class="offer-chip offer-unused" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="0 of {{ r.active_offer_skus }} SKUs bought">0/{{ r.active_offer_skus }}</span>
+                        {% elif r.offer_indicator_state == 'low_usage' %}
+                        <span class="offer-chip offer-low-usage" data-customer="{{ r.customer_code_365 }}" data-name="{{ r.customer_name }}" title="Low usage {{ r.offer_usage_pct|round(0)|int }}%">{{ r.offered_skus_bought_4w }}/{{ r.active_offer_skus }}</span>
                         {% endif %}
                     </td>
                     <td>

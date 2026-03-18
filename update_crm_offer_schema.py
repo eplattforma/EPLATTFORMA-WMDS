@@ -179,6 +179,9 @@ def ensure_crm_offer_schema():
             ("crm_customer_offer_summary_current", "high_discount_unused_skus", "INTEGER NOT NULL DEFAULT 0"),
             ("crm_customer_offer_summary_current", "top_rule_name", "VARCHAR(255)"),
             ("crm_customer_offer_summary_current", "top_opportunity_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("crm_customer_offer_summary_current", "total_customer_sales_4w", "NUMERIC(12,2) NOT NULL DEFAULT 0"),
+            ("crm_customer_offer_summary_current", "offer_usage_pct", "NUMERIC(8,4)"),
+            ("crm_customer_offer_summary_current", "offer_sales_share_pct", "NUMERIC(8,4)"),
         ]:
             conn.execute(text(f"""
                 DO $$ BEGIN

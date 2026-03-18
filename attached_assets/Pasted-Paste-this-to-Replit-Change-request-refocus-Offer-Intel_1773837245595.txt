@@ -1,0 +1,532 @@
+Paste this to Replit.
+
+Change request: refocus Offer Intelligence from “margin risk” to “offer usage and offer sales dependency”
+
+Business correction
+
+For our business, these customer offers are intentionally low-margin in many cases because they are used to win, retain, or grow the customer.
+So the CRM dashboard should NOT primarily highlight margin risk.
+
+Instead, the dashboard and review-ordering screens should focus on:
+
+1) how many active offers the customer has
+2) what % of those offers are actually used
+3) what % of the customer’s sales are on offered items
+
+Margin can still exist in the drawer as secondary/commercial detail, but it should not be the main dashboard signal.
+
+==================================================
+1. NEW PRIMARY METRICS
+==================================================
+
+Implement these as the main offer metrics.
+
+A) active_offer_skus
+Definition:
+- count of distinct active offered SKUs for the customer
+
+B) offered_skus_bought_4w
+Definition:
+- count of distinct active offered SKUs that the customer bought in the last 28 days
+
+C) offer_usage_pct
+Definition:
+- offered_skus_bought_4w / active_offer_skus * 100
+
+Interpretation:
+- how much of the offered assortment is actually being used
+
+D) offer_sales_4w
+Definition:
+- total sales value in last 28 days from SKUs that are currently active offers for this customer
+
+E) total_customer_sales_4w
+Definition:
+- total customer sales value in last 28 days from all sales, not only offers
+
+Source:
+- use the same sales base already used in dashboard/review-ordering value_4w logic where possible
+
+F) offer_sales_share_pct
+Definition:
+- offer_sales_4w / total_customer_sales_4w * 100
+
+Interpretation:
+- what % of the customer’s sales are on offered items
+
+==================================================
+2. CHANGE THE MAIN DASHBOARD MEANING
+==================================================
+
+Replace the current emphasis on:
+- margin_risk_skus
+- risk chip state as the main customer offer indicator
+
+With new primary emphasis on:
+- active_offer_skus
+- offer_usage_pct
+- offer_sales_share_pct
+
+Margin risk should remain available in the drawer and detail table, but not be the headline metric on the main grids.
+
+==================================================
+3. DATABASE / SUMMARY TABLE CHANGES
+==================================================
+
+Update crm_customer_offer_summary_current.
+
+Add these columns if missing:
+
+- total_customer_sales_4w NUMERIC(12,2) NOT NULL DEFAULT 0
+- offer_usage_pct NUMERIC(8,4) NULL
+- offer_sales_share_pct NUMERIC(8,4) NULL
+
+Keep existing fields.
+Do not remove margin-related columns yet.
+Just demote them from primary UI usage.
+
+Safe migration:
+- ALTER TABLE ADD COLUMN IF NOT EXISTS ...
+
+==================================================
+4. SUMMARY REBUILD LOGIC CHANGES
+==================================================
+
+Update _rebuild_customer_offer_summary().
+
+In addition to existing metrics, calculate:
+
+A) total_customer_sales_4w
+For each customer_code_365 in crm_customer_offer_current, pull total customer sales for the last 28 days from the same sales fact source used by CRM.
+Preferred source:
+- dw_sales_lines_mv
+Fallback:
+- whatever current CRM uses for value_4w if equivalent line-level sales source exists
+
+Definition:
+- sum(net_amount) for that customer over last 28 days
+
+B) offer_usage_pct
+Formula:
+- if active_offer_skus > 0:
+    offered_skus_bought_4w / active_offer_skus * 100
+  else 0
+
+C) offer_sales_share_pct
+Formula:
+- if total_customer_sales_4w > 0:
+    offer_sales_4w / total_customer_sales_4w * 100
+  else 0
+
+Important:
+Guard against divide-by-zero.
+
+==================================================
+5. SERVICE LAYER CHANGES
+==================================================
+
+Update services/crm_price_offers.py.
+
+5.1 get_customer_price_offer_summary()
+Return these fields explicitly:
+- active_offer_skus
+- offered_skus_bought_4w
+- offered_skus_not_bought
+- offer_usage_pct
+- offer_sales_4w
+- total_customer_sales_4w
+- offer_sales_share_pct
+- avg_discount_percent
+- top_rule_name
+- high_discount_unused_skus
+- margin_risk_skus
+- negative_margin_skus
+- last_snapshot
+
+5.2 get_customer_offer_intelligence()
+Update generated_sentence to use the new business meaning.
+
+Target style:
+“Customer has 75 active offer SKUs, uses 24.0% of the offered assortment, and 40.0% of the last 4 weeks’ sales are on offered items.”
+
+Optional extension:
+- if offered_skus_not_bought > 0, append:
+  “57 offered SKUs were not bought in the last 4 weeks.”
+- if high_discount_unused_skus > 0, append:
+  “12 strong-discount lines remain unused.”
+
+Do not lead with margin risk anymore.
+
+5.3 all offer rows
+Keep margin fields in detail rows:
+- gross_margin_percent
+- margin_status
+- gross_profit
+- cost
+
+But treat them as secondary fields.
+
+==================================================
+6. DASHBOARD ROUTE CHANGES
+==================================================
+
+Update customer_slot_dashboard().
+
+6.1 For each row, add these fields from summary:
+- active_offer_skus
+- offered_skus_bought_4w
+- offered_skus_not_bought
+- offer_usage_pct
+- offer_sales_4w
+- total_customer_sales_4w
+- offer_sales_share_pct
+- avg_discount_percent
+
+6.2 Change offer_indicator_state logic
+
+Old logic focused too much on risk.
+
+New logic should focus on usage/dependency.
+
+Recommended states:
+
+- none
+  no offers
+
+- low_usage
+  has offers and offer_usage_pct < 20
+
+- medium_usage
+  offer_usage_pct >= 20 and < 50
+
+- high_usage
+  offer_usage_pct >= 50
+
+Optional extra flag:
+- high_dependency
+  offer_sales_share_pct >= 50
+
+If needed, allow two separate display cues:
+- usage state drives chip color
+- high dependency adds a badge/icon
+
+Example:
+- grey = none
+- amber = low_usage
+- blue = medium_usage
+- green = high_usage
+- purple small marker = high_dependency
+
+Do not use red risk as the main state anymore.
+
+6.3 Add filtered KPI cards for offers
+Compute these from the filtered customer set, not only current page rows:
+
+- kpi_offer_customers_with_offers
+- kpi_offer_avg_usage_pct
+- kpi_offer_avg_sales_share_pct
+- kpi_offer_low_usage_customers
+- kpi_offer_high_dependency_customers
+
+Definitions:
+- customers_with_offers = count(has_special_pricing = true)
+- avg_usage_pct = avg(offer_usage_pct) for customers with offers
+- avg_sales_share_pct = avg(offer_sales_share_pct) for customers with offers
+- low_usage_customers = count where has_special_pricing = true and offer_usage_pct < 20
+- high_dependency_customers = count where has_special_pricing = true and offer_sales_share_pct >= 50
+
+==================================================
+7. REVIEW ORDERING ROUTE CHANGES
+==================================================
+
+Update review_ordering().
+
+For each row add:
+- active_offer_skus
+- offered_skus_bought_4w
+- offered_skus_not_bought
+- offer_usage_pct
+- offer_sales_4w
+- total_customer_sales_4w
+- offer_sales_share_pct
+- avg_discount_percent
+
+Change row offer indicator state to the same usage/dependency logic as dashboard.
+
+Add review-ordering KPI cards:
+- with_offers
+- avg_usage_pct
+- avg_sales_share_pct
+- low_usage_customers
+- high_dependency_customers
+
+These can be computed in Python from open_window_rows after filtering.
+
+==================================================
+8. MAIN GRID CHIP DESIGN
+==================================================
+
+Change the compact row chip text.
+
+Do NOT show:
+- “75 / risk 74”
+
+Instead show:
+- number of offers
+- usage %
+- sales-on-offer %
+
+Preferred full format:
+- “75 offers · 24% used · 40% sales on offer”
+
+If space is tight, compact format:
+- “75 · U24% · S40%”
+
+Where:
+- 75 = active_offer_skus
+- U24% = offer_usage_pct
+- S40% = offer_sales_share_pct
+
+Tooltip / hover text:
+- Active offers: 75
+- Offer usage: 24%
+- Sales on offer: 40%
+- Unused offered SKUs: 57
+- Avg discount: 12.5%
+
+Use chip color based on usage state, not margin risk.
+
+==================================================
+9. DRAWER / OFFER INTELLIGENCE PANEL
+==================================================
+
+Keep margin detail in the drawer, but reorganize the drawer to emphasize behavior first.
+
+Drawer top summary cards:
+- Active Offers
+- Offer Usage %
+- Sales on Offer %
+- Offer Sales 4w
+- Unused Offered SKUs
+- Avg Discount %
+
+Drawer generated sentence should summarize:
+- count of offers
+- usage %
+- share of sales on offer
+
+Tabs should be:
+
+Tab 1 Summary
+- generated sentence
+- KPI cards
+- rules breakdown
+- quick interpretation
+
+Tab 2 Opportunities
+- offered SKUs not bought recently
+- especially strong-discount unused lines
+Columns:
+  - SKU
+  - product
+  - offer price
+  - discount %
+  - sold 4w
+  - supplier / brand
+
+Tab 3 All Active Offers
+- full active offer list
+
+Tab 4 Margin / Commercial Detail
+- low / negative margin lines
+- keep this for secondary review, not top headline
+
+==================================================
+10. INTERPRETATION LABELS
+==================================================
+
+Add simple business labels based on the new metrics.
+
+Suggested interpretation logic:
+
+A) Underused offer package
+- active_offer_skus >= 10
+- offer_usage_pct < 20
+
+B) Strong offer engagement
+- offer_usage_pct >= 50
+
+C) Offer-dependent customer
+- offer_sales_share_pct >= 50
+
+D) Broad non-offer buyer
+- offer_sales_share_pct < 20 and total_customer_sales_4w > 0
+
+E) No recent offer use
+- active_offer_skus > 0 and offered_skus_bought_4w = 0
+
+These labels can appear:
+- in drawer
+- in tooltip
+- optionally as subtle badges in the row
+
+==================================================
+11. SALES SHARE CALCULATION DETAILS
+==================================================
+
+Important:
+offer_sales_4w already represents sales value on active offer lines.
+Now add total_customer_sales_4w.
+
+Implement a helper query to get all customer 4-week sales in bulk for the summary rebuild.
+Do this once for all customer codes, not row-by-row.
+
+Suggested helper:
+- _get_total_customer_sales_4w_bulk(customer_codes)
+
+Return map:
+{
+  customer_code_365: total_sales_4w
+}
+
+Use this during summary rebuild.
+
+==================================================
+12. KEEP MARGIN, BUT DEMOTE IT
+==================================================
+
+Do not delete margin logic.
+Keep:
+- margin_status
+- gross_margin_percent
+- gross_profit
+- margin_risk_skus
+- negative_margin_skus
+
+But change UI usage:
+
+Main dashboard/review-ordering:
+- usage/share first
+- margin hidden or secondary tooltip only
+
+Drawer:
+- full commercial detail remains available
+
+==================================================
+13. FRONT-END WORK TO IMPLEMENT
+==================================================
+
+Update:
+- templates/crm/dashboard.html
+- templates/crm/review_ordering.html
+
+Add:
+1) offer KPI cards using new metrics
+2) Offers column with new chip text
+3) click chip opens drawer
+4) drawer summary cards changed to usage/share emphasis
+5) margin info moved to secondary tab/section
+
+Update JS:
+- render new summary fields
+- render generated sentence
+- render usage/share values
+- keep margin tab available
+
+Update CSS:
+- chip colors based on usage state
+- optional high dependency badge style
+
+==================================================
+14. THRESHOLDS / SETTINGS
+==================================================
+
+Add settings for these if useful:
+
+- crm_offer_low_usage_pct_threshold default 20
+- crm_offer_high_usage_pct_threshold default 50
+- crm_offer_high_dependency_sales_share_pct default 50
+
+Use these for state/badge logic instead of hardcoding if possible.
+
+==================================================
+15. WHAT TO REMOVE FROM PRIMARY DISPLAY
+==================================================
+
+Remove margin risk from:
+- main chip text
+- main dashboard KPI cards
+- main review-ordering KPI cards
+
+Do not remove it from:
+- detail rows
+- drawer
+- commercial analysis tab
+
+==================================================
+16. EXAMPLES OF EXPECTED OUTPUT
+==================================================
+
+Example 1
+Customer with:
+- active_offer_skus = 75
+- offered_skus_bought_4w = 18
+- offer_usage_pct = 24
+- offer_sales_share_pct = 40
+
+Row chip:
+- “75 offers · 24% used · 40% sales on offer”
+
+Example 2
+Customer with:
+- active_offer_skus = 12
+- offer_usage_pct = 0
+- offer_sales_share_pct = 0
+
+Row chip:
+- “12 offers · 0% used · 0% sales on offer”
+State:
+- low_usage / no_recent_offer_use
+
+Example 3
+Customer with:
+- active_offer_skus = 20
+- offer_usage_pct = 65
+- offer_sales_share_pct = 70
+
+Row chip:
+- “20 offers · 65% used · 70% sales on offer”
+State:
+- high_usage + high_dependency badge
+
+==================================================
+17. ACCEPTANCE CRITERIA
+==================================================
+
+The build is correct when:
+
+1) dashboard shows how many offers the customer has
+2) dashboard shows what % of offers are used
+3) dashboard shows what % of sales are on offer
+4) review-ordering shows the same behavior-focused metrics
+5) margin is still visible in the drawer, but no longer the main headline
+6) KPI cards are based on filtered customer sets
+7) generated sentence speaks about usage and sales dependency, not mainly about risk
+
+==================================================
+18. REPORT BACK WHEN DONE
+==================================================
+
+After implementation, report back with:
+- exact new columns added to crm_customer_offer_summary_current
+- exact formulas used for offer_usage_pct
+- exact formulas used for offer_sales_share_pct
+- which sales source was used for total_customer_sales_4w
+- what chip text format was implemented
+- what thresholds were used for low/high usage and high dependency
+
+The simplest correct headline for each customer is:
+
+offers count + usage % + sales on offer %
+
+That matches the way you want to manage these accounts.

@@ -57,17 +57,19 @@ window.addEventListener('load', function() {
 
         var html = '';
 
+        var usagePct = summary.offer_usage_pct != null ? summary.offer_usage_pct : summary.offer_utilisation_pct;
+        var sharePct = summary.offer_sales_share_pct || 0;
         html += '<div class="offer-kpi-row">';
         html += kpiCard(summary.active_offer_skus || 0, 'SKUs', '#6ea8fe');
-        html += kpiCard(fmtPct(summary.avg_discount_percent), 'Avg Disc', '#ffc107');
-        html += kpiCard(fmtPct(summary.offer_utilisation_pct), 'Util %', summary.offer_utilisation_pct >= 50 ? '#22c55e' : '#ef4444');
-        html += kpiCard(summary.margin_risk_skus || 0, 'Margin Risk', summary.margin_risk_skus > 0 ? '#ef4444' : '#22c55e');
+        html += kpiCard(fmtPct(usagePct), 'Usage', usagePct >= 50 ? '#22c55e' : usagePct >= 25 ? '#ffc107' : '#ef4444');
+        html += kpiCard(fmtEur(summary.offer_sales_4w), 'Sales 4w', '#17a2b8');
+        html += kpiCard(fmtPct(sharePct), 'Sales Share', sharePct >= 50 ? '#fd7e14' : '#22c55e');
         html += '</div>';
 
         html += '<div class="offer-tabs">';
         html += '<button class="offer-tab-btn active" onclick="switchOfferTab(this, \'summary\')">Summary</button>';
-        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'opportunities\')">Opportunities (' + opps.length + ')</button>';
-        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'margin\')">Margin Watch (' + marginWatch.length + ')</button>';
+        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'opportunities\')">Unused (' + opps.length + ')</button>';
+        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'margin\')">Sales Dep. (' + marginWatch.length + ')</button>';
         html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'all\')">All Offers (' + allOffers.length + ')</button>';
         html += '</div>';
 
@@ -107,27 +109,37 @@ window.addEventListener('load', function() {
 
     function renderSummaryTab(s, rulesBreakdown, sentence) {
         var h = '';
+        var usagePct = s.offer_usage_pct != null ? s.offer_usage_pct : s.offer_utilisation_pct;
+        var sharePct = s.offer_sales_share_pct || 0;
 
         if (sentence) {
             h += '<div class="offer-generated-sentence">' + esc(sentence) + '</div>';
         }
 
+        h += '<div class="offer-section-title">Offer Usage</div>';
         h += '<div class="offer-summary-section">';
         h += sumRow('Active offer SKUs', s.active_offer_skus || 0);
+        h += sumRow('SKUs bought (4w)', s.offered_skus_bought_4w || 0);
+        h += sumRow('SKUs not bought', '<span style="color:' + ((s.offered_skus_not_bought || 0) > 0 ? '#ffc107' : '#22c55e') + '">' + (s.offered_skus_not_bought || 0) + '</span>');
+        h += sumRow('Usage %', '<span style="color:' + (usagePct >= 50 ? '#22c55e' : usagePct >= 25 ? '#ffc107' : '#ef4444') + '">' + fmtPct(usagePct) + '</span>');
+        h += '</div>';
+
+        h += '<div class="offer-section-title">Sales Dependency</div>';
+        h += '<div class="offer-summary-section">';
+        h += sumRow('Offer sales (4w)', fmtEur(s.offer_sales_4w));
+        h += sumRow('Total customer sales (4w)', fmtEur(s.total_customer_sales_4w));
+        h += sumRow('Sales share %', '<span style="color:' + (sharePct >= 50 ? '#fd7e14' : '#22c55e') + '">' + fmtPct(sharePct) + '</span>');
+        h += sumRow('Offer sales (90d)', fmtEur(s.offer_sales_90d));
+        h += '</div>';
+
+        h += '<div class="offer-section-title">Pricing</div>';
+        h += '<div class="offer-summary-section">';
         h += sumRow('Average discount', fmtPct(s.avg_discount_percent));
         h += sumRow('Max discount', fmtPct(s.max_discount_percent));
-        h += sumRow('Offer sales (4w)', fmtEur(s.offer_sales_4w));
-        h += sumRow('Offer sales (90d)', fmtEur(s.offer_sales_90d));
-        h += sumRow('SKUs bought (4w)', s.offered_skus_bought_4w || 0);
-        h += sumRow('SKUs bought (90d)', s.offered_skus_bought_90d || 0);
-        h += sumRow('SKUs not bought', '<span style="color:' + ((s.offered_skus_not_bought || 0) > 0 ? '#ffc107' : '#22c55e') + '">' + (s.offered_skus_not_bought || 0) + '</span>');
-        h += sumRow('Utilisation %', fmtPct(s.offer_utilisation_pct));
-        h += sumRow('Margin risk SKUs', '<span style="color:' + ((s.margin_risk_skus || 0) > 0 ? '#ef4444' : '#22c55e') + '">' + (s.margin_risk_skus || 0) + '</span>');
-        h += sumRow('Negative margin', '<span style="color:' + ((s.negative_margin_skus || 0) > 0 ? '#ef4444' : '#22c55e') + '">' + (s.negative_margin_skus || 0) + '</span>');
-        h += sumRow('High discount unused', '<span style="color:' + ((s.high_discount_unused_skus || 0) > 0 ? '#ffc107' : '#22c55e') + '">' + (s.high_discount_unused_skus || 0) + '</span>');
         if (s.top_rule_name) {
             h += sumRow('Top rule', esc(s.top_rule_name));
         }
+        h += sumRow('Margin risk SKUs', '<span style="color:' + ((s.margin_risk_skus || 0) > 0 ? '#ef4444' : '#22c55e') + '">' + (s.margin_risk_skus || 0) + '</span>');
         h += '</div>';
 
         if (rulesBreakdown && rulesBreakdown.length > 0) {
@@ -173,21 +185,20 @@ window.addEventListener('load', function() {
     }
 
     function renderMarginTab(items) {
-        if (!items.length) return '<div class="offer-empty-state"><i class="fas fa-shield-alt" style="color:#22c55e"></i>No margin risks detected</div>';
+        if (!items.length) return '<div class="offer-empty-state"><i class="fas fa-chart-pie" style="color:#22c55e"></i>No high-dependency lines detected</div>';
         var h = '<div style="overflow-x:auto;">';
         h += '<table class="all-offers-table"><thead><tr>';
-        h += '<th>SKU</th><th>Product</th><th class="text-end">Offer €</th><th class="text-end">Cost €</th><th class="text-end">GP €</th><th class="text-end">Margin %</th><th>Rule</th><th>Status</th>';
+        h += '<th>SKU</th><th>Product</th><th class="text-end">Offer €</th><th class="text-end">Sold 4w</th><th class="text-end">Value 4w</th><th class="text-end">Disc %</th><th>Rule</th><th>Status</th>';
         h += '</tr></thead><tbody>';
         items.forEach(function(m) {
-            var mClass = m.gross_margin_percent != null ? (m.gross_margin_percent < 0 ? 'margin-pct-bad' : m.gross_margin_percent < 12 ? 'margin-pct-warn' : 'margin-pct-good') : '';
-            var statusBadge = m.margin_status === 'negative' ? '<span class="badge-risk-neg">Negative</span>' : '<span class="badge-risk-low">Low</span>';
+            var statusBadge = m.margin_status === 'negative' ? '<span class="badge-risk-neg">Neg Margin</span>' : m.margin_status === 'low' ? '<span class="badge-risk-low">Low Margin</span>' : '<span class="badge-status-selling">OK</span>';
             h += '<tr>';
             h += '<td style="font-weight:600;">' + esc(m.sku || '') + '</td>';
             h += '<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(m.product_name || '') + '">' + esc(m.product_name || '') + '</td>';
             h += '<td class="text-end">' + (m.offer_price != null ? '€' + parseFloat(m.offer_price).toFixed(2) : '—') + '</td>';
-            h += '<td class="text-end">' + (m.cost != null ? '€' + parseFloat(m.cost).toFixed(2) : '—') + '</td>';
-            h += '<td class="text-end">' + (m.gross_profit != null ? '€' + parseFloat(m.gross_profit).toFixed(2) : '—') + '</td>';
-            h += '<td class="text-end ' + mClass + '">' + (m.gross_margin_percent != null ? fmtPct(m.gross_margin_percent) : '—') + '</td>';
+            h += '<td class="text-end">' + (m.sold_qty_4w != null ? m.sold_qty_4w : '—') + '</td>';
+            h += '<td class="text-end">' + (m.sold_value_4w != null ? fmtEur(m.sold_value_4w) : '—') + '</td>';
+            h += '<td class="text-end">' + (m.discount_percent != null ? fmtPct(m.discount_percent) : '—') + '</td>';
             h += '<td style="font-size:0.72rem;">' + esc(m.rule_name || '—') + '</td>';
             h += '<td>' + statusBadge + '</td>';
             h += '</tr>';

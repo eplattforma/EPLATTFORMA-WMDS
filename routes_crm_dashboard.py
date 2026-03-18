@@ -480,6 +480,8 @@ def customer_slot_dashboard():
         dashboard_rows[-1]["offer_utilisation_pct"] = os_data.get("offer_utilisation_pct", 0)
         dashboard_rows[-1]["high_discount_unused_skus"] = os_data.get("high_discount_unused_skus", 0)
         dashboard_rows[-1]["offered_skus_bought_4w"] = os_data.get("offered_skus_bought_4w", 0)
+        dashboard_rows[-1]["offer_usage_pct"] = os_data.get("offer_usage_pct", 0)
+        dashboard_rows[-1]["offer_sales_share_pct"] = os_data.get("offer_sales_share_pct", 0)
         dashboard_rows[-1]["offer_indicator_state"] = compute_offer_indicator(os_data)
 
     if action_only:
@@ -863,6 +865,8 @@ def review_ordering():
         row["high_discount_unused_skus"] = ros.get("high_discount_unused_skus", 0)
         row["offered_skus_not_bought"] = ros.get("offered_skus_not_bought", 0)
         row["offered_skus_bought_4w"] = ros.get("offered_skus_bought_4w", 0)
+        row["offer_usage_pct"] = ros.get("offer_usage_pct", 0)
+        row["offer_sales_share_pct"] = ros.get("offer_sales_share_pct", 0)
         row["offer_indicator_state"] = compute_offer_indicator(ros)
 
         if filter_state and row["state"] != filter_state:

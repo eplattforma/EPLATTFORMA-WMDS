@@ -665,6 +665,26 @@ def _rebuild_from_batch(batch_id):
     return stats
 
 
+def _get_total_customer_sales_4w_bulk(customer_codes):
+    if not customer_codes:
+        return {}
+    now = date.today()
+    d28 = now - timedelta(days=28)
+    try:
+        with db.engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT customer_code_365, COALESCE(SUM(net_excl), 0) AS total_sales
+                FROM dw_sales_lines_v
+                WHERE customer_code_365 = ANY(:codes)
+                  AND sale_date >= :d28
+                GROUP BY customer_code_365
+            """), {"codes": list(customer_codes), "d28": d28}).fetchall()
+        return {r[0]: float(r[1]) for r in rows}
+    except Exception as e:
+        logger.warning(f"Total customer sales 4w unavailable (dw_sales_lines_v): {e}")
+        return {}
+
+
 def _rebuild_customer_offer_summary():
     db.session.execute(text("DELETE FROM crm_customer_offer_summary_current"))
 
@@ -733,6 +753,34 @@ def _rebuild_customer_offer_summary():
         WHERE s.customer_code_365 = ranked.customer_code_365
     """))
 
+    db.session.flush()
+
+    all_codes = [r[0] for r in db.session.execute(text(
+        "SELECT customer_code_365 FROM crm_customer_offer_summary_current"
+    )).fetchall()]
+    total_sales_map = _get_total_customer_sales_4w_bulk(all_codes)
+
+    for cc, total_sales in total_sales_map.items():
+        db.session.execute(text("""
+            UPDATE crm_customer_offer_summary_current
+            SET total_customer_sales_4w = :ts
+            WHERE customer_code_365 = :cc
+        """), {"ts": total_sales, "cc": cc})
+
+    db.session.execute(text("""
+        UPDATE crm_customer_offer_summary_current
+        SET offer_usage_pct = CASE
+                WHEN active_offer_skus > 0
+                THEN (offered_skus_bought_4w::NUMERIC / active_offer_skus * 100)
+                ELSE 0
+            END,
+            offer_sales_share_pct = CASE
+                WHEN total_customer_sales_4w > 0
+                THEN (offer_sales_4w / total_customer_sales_4w * 100)
+                ELSE 0
+            END
+    """))
+
     db.session.commit()
 
     cnt = db.session.execute(text("SELECT COUNT(*) FROM crm_customer_offer_summary_current")).scalar()
@@ -780,7 +828,10 @@ def load_offer_summary_map(customer_codes):
             SELECT customer_code_365, has_special_pricing, active_offer_skus,
                    avg_discount_percent, offered_skus_not_bought, margin_risk_skus,
                    offer_sales_4w, offer_utilisation_pct, high_discount_unused_skus,
-                   offered_skus_bought_4w
+                   offered_skus_bought_4w,
+                   COALESCE(offer_usage_pct, 0),
+                   COALESCE(total_customer_sales_4w, 0),
+                   COALESCE(offer_sales_share_pct, 0)
             FROM crm_customer_offer_summary_current
             WHERE customer_code_365 = ANY(:codes)
         """), {"codes": list(customer_codes)}).fetchall()
@@ -796,6 +847,9 @@ def load_offer_summary_map(customer_codes):
                 "offer_utilisation_pct": float(orow[7]) if orow[7] else 0,
                 "high_discount_unused_skus": orow[8],
                 "offered_skus_bought_4w": orow[9],
+                "offer_usage_pct": float(orow[10]) if orow[10] else 0,
+                "total_customer_sales_4w": float(orow[11]) if orow[11] else 0,
+                "offer_sales_share_pct": float(orow[12]) if orow[12] else 0,
             }
         return result
     except Exception as e:
@@ -806,14 +860,15 @@ def load_offer_summary_map(customer_codes):
 def compute_offer_indicator(summary_data):
     if not summary_data or not summary_data.get("has_special_pricing"):
         return "none"
-    if summary_data.get("margin_risk_skus", 0) > 0:
-        return "risk"
+    usage = summary_data.get("offer_usage_pct", summary_data.get("offer_utilisation_pct", 0)) or 0
     bought_4w = summary_data.get("offered_skus_bought_4w", 0)
     if bought_4w == 0:
         return "unused"
-    if summary_data.get("offered_skus_not_bought", 0) > 0:
+    if usage >= 75:
+        return "used"
+    if usage >= 25:
         return "mixed"
-    return "used"
+    return "low_usage"
 
 
 def compute_offer_kpi_from_summaries(summary_map):
@@ -823,10 +878,17 @@ def compute_offer_kpi_from_summaries(summary_map):
         "kpi_offer_customers_with_margin_risk": 0,
         "kpi_offer_sales_4w": 0,
         "kpi_offer_high_discount_unused": 0,
+        "kpi_offer_avg_usage_pct": 0,
+        "kpi_offer_avg_sales_share_pct": 0,
+        "kpi_offer_customers_high_dependency": 0,
     }
+    usage_sum = 0
+    share_sum = 0
+    count_with_offers = 0
     for code, s in summary_map.items():
         if not s.get("has_special_pricing"):
             continue
+        count_with_offers += 1
         kpi["kpi_offer_customers_with_offers"] += 1
         if s.get("offered_skus_bought_4w", 0) == 0:
             kpi["kpi_offer_customers_with_unused"] += 1
@@ -834,7 +896,15 @@ def compute_offer_kpi_from_summaries(summary_map):
             kpi["kpi_offer_customers_with_margin_risk"] += 1
         kpi["kpi_offer_sales_4w"] += float(s.get("offer_sales_4w", 0))
         kpi["kpi_offer_high_discount_unused"] += int(s.get("high_discount_unused_skus", 0))
+        usage_sum += float(s.get("offer_usage_pct", 0))
+        share_pct = float(s.get("offer_sales_share_pct", 0))
+        share_sum += share_pct
+        if share_pct >= 50:
+            kpi["kpi_offer_customers_high_dependency"] += 1
     kpi["kpi_offer_sales_4w"] = round(kpi["kpi_offer_sales_4w"], 2)
+    if count_with_offers > 0:
+        kpi["kpi_offer_avg_usage_pct"] = round(usage_sum / count_with_offers, 1)
+        kpi["kpi_offer_avg_sales_share_pct"] = round(share_sum / count_with_offers, 1)
     return kpi
 
 
@@ -894,6 +964,9 @@ def get_customer_price_offer_summary(ps_customer_code=None, magento_customer_id=
         "offer_sales_4w": _safe_float(rm["offer_sales_4w"]) or 0,
         "offer_sales_90d": _safe_float(rm["offer_sales_90d"]) or 0,
         "offer_utilisation_pct": _safe_float(rm["offer_utilisation_pct"]) or 0,
+        "offer_usage_pct": _safe_float(rm.get("offer_usage_pct")) or 0,
+        "total_customer_sales_4w": _safe_float(rm.get("total_customer_sales_4w")) or 0,
+        "offer_sales_share_pct": _safe_float(rm.get("offer_sales_share_pct")) or 0,
         "high_discount_unused_skus": rm["high_discount_unused_skus"],
         "top_rule_name": rm["top_rule_name"],
         "top_opportunity_count": rm["top_opportunity_count"],
@@ -979,27 +1052,27 @@ def _generate_sentence(summary):
     skus = s.get("active_offer_skus") or 0
     bought_4w = s.get("offered_skus_bought_4w") or 0
     not_bought = s.get("offered_skus_not_bought") or 0
-    avg_disc = s.get("avg_discount_percent") or 0
-    margin_risk = s.get("margin_risk_skus") or 0
-    high_disc_unused = s.get("high_discount_unused_skus") or 0
+    usage_pct = s.get("offer_usage_pct") or s.get("offer_utilisation_pct") or 0
+    offer_sales = s.get("offer_sales_4w") or 0
+    share_pct = s.get("offer_sales_share_pct") or 0
 
     parts = [f"Customer has {skus} active offer SKUs"]
 
     if bought_4w > 0:
-        parts.append(f"bought {bought_4w} in the last 4 weeks")
+        parts.append(f"using {bought_4w} ({usage_pct:.0f}% usage)")
     else:
         parts.append("none bought in the last 4 weeks")
 
     if not_bought > 0:
         parts.append(f"{not_bought} remain unused")
 
-    parts.append(f"average discount {avg_disc:.1f}%")
+    if offer_sales > 0:
+        parts.append(f"€{offer_sales:,.0f} in offer sales (4w)")
 
-    if margin_risk > 0:
-        parts.append(f"margin risk on {margin_risk} lines")
-
-    if high_disc_unused > 0:
-        parts.append(f"{high_disc_unused} strong-discount lines remain unused")
+    if share_pct >= 50:
+        parts.append(f"high sales dependency ({share_pct:.0f}% of total)")
+    elif share_pct > 0:
+        parts.append(f"{share_pct:.0f}% of sales from offers")
 
     return ", ".join(parts) + "."
 
@@ -1029,11 +1102,12 @@ def get_customer_offer_intelligence(customer_code_365):
 
     margin_risks = db.session.execute(text("""
         SELECT sku, product_name, offer_price, cost,
-               gross_profit, gross_margin_percent, rule_name, margin_status
+               gross_profit, gross_margin_percent, rule_name, margin_status,
+               sold_qty_4w, sold_value_4w, discount_percent
         FROM crm_customer_offer_current
         WHERE customer_code_365 = :code AND is_active = true
-          AND margin_status IN ('low', 'negative')
-        ORDER BY gross_margin_percent ASC NULLS LAST
+          AND sold_qty_4w > 0
+        ORDER BY sold_value_4w DESC NULLS LAST
         LIMIT 20
     """), {"code": customer_code_365}).fetchall()
 
@@ -1067,6 +1141,9 @@ def get_customer_offer_intelligence(customer_code_365):
             "gross_profit": _safe_float(r[4]),
             "gross_margin_percent": _safe_float(r[5]),
             "rule_name": r[6], "margin_status": r[7],
+            "sold_qty_4w": int(r[8]) if r[8] else 0,
+            "sold_value_4w": _safe_float(r[9]),
+            "discount_percent": _safe_float(r[10]),
         } for r in margin_risks],
         "rules_breakdown": [{
             "rule_name": r[0], "rule_code": r[1],

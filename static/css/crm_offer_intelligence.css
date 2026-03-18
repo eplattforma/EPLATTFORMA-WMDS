@@ -17,6 +17,7 @@
 .offer-chip.offer-unused { background: rgba(255,193,7,0.2); color: #ffc107; }
 .offer-chip.offer-mixed { background: rgba(13,110,253,0.2); color: #6ea8fe; }
 .offer-chip.offer-used { background: rgba(25,135,84,0.2); color: #22c55e; }
+.offer-chip.offer-low-usage { background: rgba(253,126,20,0.2); color: #fd7e14; }
 
 #offerDrawer {
     position: fixed;
@@ -126,6 +127,21 @@
     font-size: 0.82rem;
     color: rgba(255,255,255,0.75);
     line-height: 1.5;
+}
+
+.offer-section-title {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 10px 0 4px 0;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin-top: 6px;
+}
+.offer-section-title:first-child {
+    border-top: none;
+    margin-top: 0;
 }
 
 .offer-summary-section {
