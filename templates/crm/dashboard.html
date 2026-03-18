@@ -165,30 +165,6 @@ function applySort(val) {
 }
 
 
-function refreshOfferData() {
-    var btn = document.getElementById('btn-refresh-offers');
-    var text = document.getElementById('offer-refresh-text');
-    if (btn) btn.disabled = true;
-    if (text) text.textContent = 'Syncing...';
-    fetch('/crm/price-offers/refresh', {method: 'POST', headers: {'Content-Type': 'application/json'}})
-    .then(r => r.json())
-    .then(data => {
-        if (btn) btn.disabled = false;
-        if (text) text.textContent = 'Offers';
-        if (data.success) {
-            alert('Offer data synced: ' + (data.current_rows || 0) + ' offer lines loaded for ' + (data.linked_customers || 0) + ' customers');
-            location.reload();
-        } else {
-            alert('Offer sync failed: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(err => {
-        if (btn) btn.disabled = false;
-        if (text) text.textContent = 'Offers';
-        alert('Offer sync error: ' + err.message);
-    });
-}
-
 function refreshAllData() {
     var btn = document.getElementById('btn-refresh-all');
     var spinner = btn.querySelector('.spinner-icon');
@@ -431,12 +407,6 @@ function refreshAllData() {
                     <option value="action" {% if filters.sort == 'action' %}selected{% endif %} style="background: #1e1e2e; color: #e0e0e0;">Action</option>
                 </select>
             </div>
-            <a href="/crm/review-ordering" class="btn btn-sm" title="Review Ordering Window" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border: none; box-shadow: 0 2px 6px rgba(34, 197, 94, 0.3); color: white; text-decoration: none; display: flex; align-items: center; gap: 4px;">
-                <i class="fas fa-clipboard-check" style="font-size: 0.9rem;"></i><span>Review</span>
-            </a>
-            <button id="btn-refresh-offers" class="btn btn-sm" onclick="refreshOfferData()" title="Sync Offer Intelligence from FTP" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border: none; box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3); color: white; display: flex; align-items: center; gap: 4px;">
-                <i class="fas fa-tags" style="font-size: 0.9rem;"></i><span id="offer-refresh-text">Offers</span>
-            </button>
             <button id="btn-refresh-all" class="btn btn-sm btn-primary" onclick="refreshAllData()" title="Refresh Orders & Abandoned Carts" style="padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%); border: none; box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3); display: flex; flex-direction: column; align-items: center;">
                 <div style="display: flex; align-items: center;">
                     <i class="fas fa-bolt spinner-icon me-1" style="font-size: 0.95rem;"></i><span class="refresh-text">Sync</span>

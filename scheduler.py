@@ -130,14 +130,14 @@ def setup_scheduler(app):
 
                 scheduler.add_job(
                     func=_run_ftp_price_master_sync,
-                    trigger=CronTrigger(hour=4, minute=30),
+                    trigger=CronTrigger(hour=6, minute=0),
                     id='ftp_price_master_sync',
                     name='FTP Price Master Sync',
                     replace_existing=True,
                     max_instances=1,
                     misfire_grace_time=3600
                 )
-                logger.info("✓ FTP price master sync scheduled: Daily at 4:30 AM")
+                logger.info("✓ FTP price master sync scheduled: Daily at 6:00 AM")
             else:
                 logger.info("⏭ FTP login sync skipped (not deployed)")
                 logger.info("⏭ FTP price master sync skipped (not deployed)")
