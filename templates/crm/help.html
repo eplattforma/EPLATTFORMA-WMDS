@@ -534,7 +534,12 @@
         document.querySelectorAll('.help-nav-link').forEach(link => {
             link.classList.remove('active');
         });
-        document.querySelector(`a[href="${href}"]`).classList.add('active');
+        if (href && href !== '#') {
+            const link = document.querySelector(`a[href="${href}"]`);
+            if (link) {
+                link.classList.add('active');
+            }
+        }
     }
 
     // Update active nav link on scroll
