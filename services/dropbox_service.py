@@ -599,6 +599,8 @@ def _cost_import_processor(file_bytes, sync_log_id=None):
 
     db.session.commit()
 
+    invoice_lines_backfilled = _backfill_invoice_line_costs(tag, updates)
+
     log_entry = db.session.query(ExternalFileSyncLog).get(sync_log_id) if sync_log_id else None
     if log_entry:
         md = log_entry.metadata_json or {}
@@ -610,6 +612,7 @@ def _cost_import_processor(file_bytes, sync_log_id=None):
         md['parse_errors'] = parse_errors
         md['unmatched_count'] = len(unmatched_codes)
         md['unmatched_codes'] = unmatched_codes[:50]
+        md['invoice_lines_backfilled'] = invoice_lines_backfilled
         log_entry.metadata_json = md
         db.session.commit()
 
@@ -617,7 +620,8 @@ def _cost_import_processor(file_bytes, sync_log_id=None):
         f"{tag} Cost import complete: "
         f"read={rows_read}, matched={rows_matched}, updated={rows_updated}, "
         f"skipped_blank_cost={rows_skipped_blank_cost}, skipped_no_code={rows_skipped_no_code}, "
-        f"parse_errors={parse_errors}, unmatched={len(unmatched_codes)}"
+        f"parse_errors={parse_errors}, unmatched={len(unmatched_codes)}, "
+        f"invoice_lines_backfilled={invoice_lines_backfilled}"
     )
     return rows_updated
 
