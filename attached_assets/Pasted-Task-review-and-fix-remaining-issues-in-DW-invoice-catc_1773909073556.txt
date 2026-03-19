@@ -1,0 +1,382 @@
+Task: review and fix remaining issues in DW invoice catch-up flow
+
+We are not changing the overwrite/delete-and-reimport logic.
+We are also not changing the cost snapshot logic for now.
+
+Already accepted / out of scope
+
+2026 cost snapshot logic stays as implemented
+
+cost freshness is ensured by overnight item loading
+
+return margin behavior stays as-is for now
+
+delete & re-import remains our correction path
+
+What to fix now
+
+There are 2 main fixes plus 1 small clarity improvement.
+
+1) Make operator DW catch-up scoped and lightweight
+Problem
+
+The current sync_invoice_lines_from_date() and related invoice sync logic preload all existing DW invoice lines and headers into memory:
+
+all (invoice_no_365, line_number) from dw_invoice_line
+
+all invoice headers from dw_invoice_header
+
+This is too heavy for:
+
+operator-triggered single-invoice sync
+
+operator-triggered single-day catch-up
+
+background catch-up after operational sync
+
+We want the DW catch-up to scale with the requested scope, not with total DW size.
+
+Required change
+
+Refactor invoice DW sync so it supports scoped preload.
+
+A. Add a helper to preload only relevant headers
+
+Create a helper like:
+
+_load_existing_invoice_headers_map(session, invoice_nos=None, date_from=None, date_to=None)
+
+Return:
+
+existing_headers_set
+
+invoice_type_map
+
+invoice_header_map
+
+Behavior:
+
+if invoice_nos provided: load only those invoice numbers
+
+else if date_from/date_to provided: load only headers in that date range
+
+else fallback to current full behavior only if absolutely necessary
+
+B. Add a helper to preload only relevant line keys
+
+Create a helper like:
+
+_load_existing_invoice_line_keys(session, invoice_nos=None, date_from=None, date_to=None)
+
+Return:
+
+set of (invoice_no_365, line_number)
+
+Behavior:
+
+if invoice_nos provided: load only lines for those invoices
+
+else if date_from/date_to provided: load only lines for invoices whose headers fall in that date range
+
+do not load the whole table for operator catch-up
+
+C. Add scoped parameters to DW invoice sync
+
+Refactor sync_invoice_lines_from_date() and sync_invoices_from_date() so they can accept optional scope parameters such as:
+
+invoice_nos: list[str] | None = None
+
+scoped_mode: bool = False
+
+Behavior:
+
+for normal wide/manual DW sync by date range, current logic can still work
+
+for operator catch-up, pass a tight scope so preload only touches relevant invoices
+
+D. Add a dedicated targeted path for operator catch-up
+
+Create a dedicated helper, for example:
+
+sync_invoice_to_dw(session, invoice_no_365: str, sync_trigger='operator', refresh_mv=False)
+
+Flow:
+
+resolve invoice date from PS365 if needed
+
+sync DW headers/lines only for that invoice
+
+use scoped preload by that invoice number
+
+skip MV refresh by default
+
+Alternative acceptable version:
+
+sync_invoices_from_date(..., invoice_nos=[invoice_no], scoped_mode=True)
+
+But I prefer a dedicated helper because the intent is clearer.
+
+Important rule
+
+Do not break the existing manual date-range invoice sync screen.
+The new scoped logic should improve operator/background catch-up without changing the manual full/date-range behavior.
+
+2) Fix background sync status timing
+Problem
+
+In background_sync.py, invoice sync status is marked with completed_at too early — before the DW catch-up phase actually finishes.
+
+That makes the UI/status misleading.
+
+Required change
+
+In _run_invoice_sync():
+
+Current bad behavior
+
+After operational sync succeeds, status is updated like:
+
+result set
+
+progress = "Operational sync completed. Updating data warehouse..."
+
+completed_at = now
+
+This is wrong because the DW phase is still running.
+
+Required new behavior
+
+Use a proper lifecycle:
+
+At start
+
+running=True
+
+started_at=...
+
+completed_at=None
+
+progress="Starting sync..."
+
+After operational sync success but before DW catch-up
+
+keep running=True
+
+keep completed_at=None
+
+set progress to "Operational sync completed. Updating data warehouse..."
+
+After DW catch-up success
+
+progress="Completed"
+
+completed_at=now
+
+running=False
+
+After DW catch-up fails but operational sync succeeded
+
+still finalize properly:
+
+progress="Completed (DW catch-up failed: ...)" or similar
+
+completed_at=now
+
+running=False
+
+do not leave status half-open
+
+If operational sync fails
+
+set:
+
+error=...
+
+progress="Error: ..."
+
+completed_at=now
+
+running=False
+
+Goal
+
+completed_at must always represent the true end of the entire background process, not just the operational PS365 import part.
+
+3) Make status/reporting clearer about MV refresh behavior
+Problem
+
+Operator/background catch-up skips MV refresh, which is intentional, but this should be visible in logs/status so users are not confused.
+
+Required change
+
+Do not change the business behavior.
+Only make it more explicit in logs and sync details.
+
+In sync_invoices_from_date()
+
+When refresh_mv=False, log clearly:
+
+"Skipping materialized view refresh (operator catch-up / lightweight mode)"
+
+When refresh_mv=True, log:
+
+"Refreshing materialized view dw_sales_lines_mv"
+
+In sync log details
+
+Include whether MV refresh was:
+
+executed
+
+skipped
+
+Add to finish_sync_log(...) details text, e.g.
+
+MV refresh: skipped
+
+MV refresh: completed
+
+This is for observability only.
+
+Files likely affected
+
+datawarehouse_sync.py
+
+background_sync.py
+
+possibly route/service file that calls the background invoice sync
+
+optionally shared sync logging helpers if needed
+
+Implementation notes
+For scoped line preload by date range
+
+Do not query dw_invoice_line directly without narrowing.
+Use a join/subquery to dw_invoice_header so the scope is limited by invoice date.
+
+Example pattern:
+
+load invoice numbers from dw_invoice_header in date range
+
+then load only line keys for those invoice numbers
+
+For scoped preload by invoice number
+
+This should be very cheap:
+
+one/few headers
+
+one/few invoices’ lines
+
+Keep current insert-only semantics
+
+Do not introduce overwrite/update behavior in normal sync.
+We already use delete & re-import when we want replacement.
+
+Do not change cost logic
+
+Keep:
+
+_should_apply_cost_snapshot()
+
+_get_item_cost_map()
+
+_build_cost_fields()
+
+as they are, unless needed only for signature compatibility.
+
+Acceptance criteria
+A. Operator/background catch-up no longer loads the whole DW invoice universe
+
+For a single invoice or single-day catch-up:
+
+existing headers preload is scoped
+
+existing lines preload is scoped
+
+no .all() over the full dw_invoice_line or full dw_invoice_header tables in this path
+
+B. Manual date-range sync still works
+
+The screen under invoice DW sync must still:
+
+sync headers
+
+sync lines
+
+sync stores
+
+sync cashiers
+
+optionally refresh MV
+
+continue to support delete & re-import
+
+C. Background status is accurate
+
+During DW catch-up:
+
+running=True
+
+completed_at still null
+
+Only when the whole process ends:
+
+running=False
+
+completed_at populated
+
+D. Logs are clearer
+
+Sync logs must show whether MV refresh was skipped or executed.
+
+Testing required
+Test 1: single invoice background sync
+
+trigger operational sync for one invoice
+
+verify DW catch-up runs
+
+verify status does not set completed_at before DW finishes
+
+verify logs show scoped behavior
+
+Test 2: single-day operator catch-up
+
+sync one day only
+
+verify it does not preload all historical invoice lines/headers
+
+verify sync result still correct
+
+Test 3: manual date-range sync
+
+run normal date-range sync from the DW page
+
+verify no regression
+
+verify MV refresh behavior still works as before
+
+Test 4: operational sync success but DW catch-up failure
+
+simulate or force a DW-side error
+
+verify operational result still remains visible
+
+verify final status becomes completed with DW failure note
+
+verify running=False and completed_at populated
+
+Deliverables
+
+Please provide:
+
+summary of what was changed
+
+list of affected functions
+
+any new helper functions added
+
+confirmation that full-table preload is no longer used in operator/background catch-up
+
+confirmation that completed_at now reflects the true end of the whole process

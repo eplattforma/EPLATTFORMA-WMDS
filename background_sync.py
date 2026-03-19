@@ -1,4 +1,76 @@
-tus_file(status)
+"""
+Background sync module for long-running PS365 operations.
+Prevents request timeouts by running syncs in background threads.
+Uses file-based status to work across multiple gunicorn workers.
+"""
+import threading
+import logging
+import time
+import json
+import os
+from datetime import datetime
+
+STATUS_FILE = "/tmp/sync_status.json"
+_lock = threading.Lock()
+
+def _read_status_file():
+    """Read status from file"""
+    try:
+        if os.path.exists(STATUS_FILE):
+            with open(STATUS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logging.error(f"Error reading status file: {e}")
+    return {
+        "invoices": {"running": False, "started_at": None, "completed_at": None, "progress": "", "result": None, "error": None},
+        "customers": {"running": False, "started_at": None, "completed_at": None, "progress": "", "result": None, "error": None}
+    }
+
+def _write_status_file(status):
+    """Write status to file atomically"""
+    try:
+        temp_file = STATUS_FILE + ".tmp"
+        with open(temp_file, 'w') as f:
+            json.dump(status, f)
+        os.replace(temp_file, STATUS_FILE)
+    except Exception as e:
+        logging.error(f"Error writing status file: {e}")
+
+def _update_status(sync_type, **kwargs):
+    """Update specific fields in sync status"""
+    with _lock:
+        status = _read_status_file()
+        if sync_type not in status:
+            status[sync_type] = {}
+        status[sync_type].update(kwargs)
+        _write_status_file(status)
+
+def get_sync_status(sync_type="invoices"):
+    """Get current status of a sync operation"""
+    with _lock:
+        status = _read_status_file()
+        return status.get(sync_type, {}).copy()
+
+STALE_LOCK_TIMEOUT_SECONDS = 1800
+
+def is_sync_running(sync_type="invoices"):
+    """Check if a sync is currently running. Auto-clears stale locks older than 30 minutes."""
+    with _lock:
+        status = _read_status_file()
+        sync_status = status.get(sync_type, {})
+        if not sync_status.get("running", False):
+            return False
+        started_at = sync_status.get("started_at")
+        if started_at:
+            try:
+                started_dt = datetime.fromisoformat(started_at)
+                elapsed = (datetime.now() - started_dt).total_seconds()
+                if elapsed > STALE_LOCK_TIMEOUT_SECONDS:
+                    logging.warning(f"Clearing stale {sync_type} sync lock (started {elapsed:.0f}s ago)")
+                    status[sync_type]["running"] = False
+                    status[sync_type]["error"] = f"Stale lock cleared after {elapsed:.0f}s"
+                    status[sync_type]["completed_at"] = datetime.now().isoformat()
+                    _write_status_file(status)
                     return False
             except (ValueError, TypeError):
                 pass
@@ -45,9 +117,9 @@ def _resolve_invoice_date_from_ps365(invoice_no: str):
 
 
 def _run_invoice_sync(app, invoice_no, import_date):
-    """Background worker for invoice sync"""
+    """Background worker for invoice sync with proper status lifecycle."""
     from services_powersoft import sync_invoices_from_ps365
-    
+
     _update_status("invoices",
         running=True,
         started_at=datetime.now().isoformat(),
@@ -56,50 +128,70 @@ def _run_invoice_sync(app, invoice_no, import_date):
         result=None,
         error=None
     )
-    
+
     try:
         with app.app_context():
             logging.info(f"Background sync started: invoice={invoice_no}, date={import_date}")
-            
+
             _update_status("invoices", progress="Fetching invoices from PS365...")
-            
+
             result = sync_invoices_from_ps365(
                 invoice_no_365=invoice_no or "",
                 import_date=import_date or ""
             )
-            
+
+            logging.info(f"Background sync completed: {result}")
+
+            if not result.get("success", True):
+                logging.info("Operational sync returned failure, finalizing with error")
+                _update_status("invoices",
+                    result=result,
+                    error=result.get("error", "Operational sync failed"),
+                    progress=f"Error: {result.get('error', 'Operational sync failed')}",
+                    completed_at=datetime.now().isoformat()
+                )
+                return
+
             _update_status("invoices",
                 result=result,
-                progress="Operational sync completed. Updating data warehouse...",
-                completed_at=datetime.now().isoformat()
+                progress="Operational sync completed. Checking data warehouse..."
             )
-                
-            logging.info(f"Background sync completed: {result}")
-            
-            dw_catchup_status = None
-            if result.get("success", True):
-                dw_date = import_date or None
-                if not dw_date and invoice_no:
-                    logging.info(f"Resolving invoice date from PS365 for invoice {invoice_no}...")
-                    dw_date = _resolve_invoice_date_from_ps365(invoice_no)
-                    logging.info(f"Resolved DW catch-up date: {dw_date}")
-                
-                if dw_date:
+
+            final_progress = "Completed"
+            if True:
+                from app import db
+
+                if invoice_no and not import_date:
+                    logging.info(f"Single-invoice catch-up: resolving date for {invoice_no}...")
+                    _update_status("invoices", progress="Resolving invoice date for DW catch-up...")
+                    resolved_date = _resolve_invoice_date_from_ps365(invoice_no)
+                    logging.info(f"Resolved DW catch-up date: {resolved_date}")
+
+                    if resolved_date:
+                        try:
+                            from datawarehouse_sync import sync_invoice_to_dw
+                            _update_status("invoices", progress=f"Updating data warehouse for invoice {invoice_no}...")
+                            sync_invoice_to_dw(db.session, invoice_no, sync_trigger='operator', refresh_mv=False)
+                            logging.info(f"DW catch-up completed for invoice {invoice_no}")
+                        except Exception as dw_err:
+                            logging.error(f"DW catch-up failed (operational sync still OK): {dw_err}")
+                            final_progress = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
+
+                elif import_date:
                     try:
-                        from app import db
                         from datawarehouse_sync import sync_invoices_from_date
-                        logging.info(f"Starting DW catch-up for date {dw_date}...")
-                        _update_status("invoices", progress="Updating data warehouse...")
-                        sync_invoices_from_date(db.session, dw_date, dw_date, sync_trigger='operator', refresh_mv=False)
-                        logging.info(f"DW catch-up completed for date {dw_date}")
+                        _update_status("invoices", progress=f"Updating data warehouse for {import_date}...")
+                        sync_invoices_from_date(db.session, import_date, import_date, sync_trigger='operator', refresh_mv=False)
+                        logging.info(f"DW catch-up completed for date {import_date}")
                     except Exception as dw_err:
                         logging.error(f"DW catch-up failed (operational sync still OK): {dw_err}")
-                        dw_catchup_status = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
-            else:
-                logging.info("Operational sync was not successful, skipping DW catch-up")
-            
-            _update_status("invoices", progress=dw_catchup_status or "Completed")
-            
+                        final_progress = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
+
+            _update_status("invoices",
+                progress=final_progress,
+                completed_at=datetime.now().isoformat()
+            )
+
     except Exception as e:
         logging.error(f"Background sync error: {str(e)}")
         _update_status("invoices",
@@ -121,16 +213,16 @@ def start_invoice_sync_background(app, invoice_no=None, import_date=None):
             "error": "A sync is already running. Please wait for it to complete.",
             "status": get_sync_status("invoices")
         }
-    
+
     thread = threading.Thread(
         target=_run_invoice_sync,
         args=(app, invoice_no, import_date),
         daemon=True
     )
     thread.start()
-    
+
     time.sleep(0.2)
-    
+
     return {
         "success": True,
         "message": "Sync started in background",
@@ -140,7 +232,7 @@ def start_invoice_sync_background(app, invoice_no=None, import_date=None):
 def _run_customer_sync(app):
     """Background worker for customer sync with payment terms creation"""
     from services_powersoft import sync_active_customers
-    
+
     _update_status("customers",
         running=True,
         started_at=datetime.now().isoformat(),
@@ -149,23 +241,23 @@ def _run_customer_sync(app):
         result=None,
         error=None
     )
-    
+
     try:
         with app.app_context():
             from app import db
             from sqlalchemy import text
             from main import _default_terms_values_for
-            
+
             logging.info("Background customer sync started")
-            
+
             _update_status("customers", progress="Fetching customers from PS365...")
             result = sync_active_customers()
-            
+
             if not result.get("success", True):
                 raise Exception(result.get("error", "Customer sync failed"))
-            
+
             _update_status("customers", progress="Syncing payment customers...")
-            
+
             sync_result = db.session.execute(text("""
                 INSERT INTO payment_customers (code, name, "group")
                 SELECT 
@@ -186,9 +278,9 @@ def _run_customer_sync(app):
             db.session.commit()
             logging.info(f"Synced {synced_count} payment customers")
             result["synced_customers"] = synced_count
-            
+
             _update_status("customers", progress="Creating payment terms for new customers...")
-            
+
             terms_defaults = _default_terms_values_for("dummy")
             terms_result = db.session.execute(text("""
                 INSERT INTO credit_terms (
@@ -220,18 +312,18 @@ def _run_customer_sync(app):
             created_terms = terms_result.rowcount
             db.session.commit()
             logging.info(f"Created {created_terms} default payment terms")
-            
+
             result["created_defaults"] = created_terms
             result["synced_customers"] = result.get("total_customers", 0)
-            
+
             _update_status("customers",
                 result=result,
                 progress="Completed",
                 completed_at=datetime.now().isoformat()
             )
-                
+
             logging.info(f"Background customer sync completed: {result}")
-            
+
     except Exception as e:
         logging.error(f"Background customer sync error: {str(e)}")
         _update_status("customers",
@@ -250,16 +342,16 @@ def start_customer_sync_background(app):
             "error": "A customer sync is already running.",
             "status": get_sync_status("customers")
         }
-    
+
     thread = threading.Thread(
         target=_run_customer_sync,
         args=(app,),
         daemon=True
     )
     thread.start()
-    
+
     time.sleep(0.2)
-    
+
     return {
         "success": True,
         "message": "Customer sync started in background",

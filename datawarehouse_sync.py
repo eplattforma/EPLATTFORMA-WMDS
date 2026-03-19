@@ -1112,6 +1112,67 @@ def _build_cost_fields(invoice_date, item_code, quantity, line_total_excl, item_
 
 
 # ----------------------
+# SCOPED PRELOAD HELPERS
+# ----------------------
+
+def _load_existing_invoice_headers_map(session: Session, invoice_nos=None, date_from=None, date_to=None):
+    """
+    Load existing invoice headers for fast lookup, scoped to a subset.
+    Returns (existing_headers_set, invoice_type_map, invoice_header_map).
+    """
+    existing_headers_set = set()
+    invoice_type_map = {}
+    invoice_header_map = {}
+
+    q = session.query(
+        DwInvoiceHeader.invoice_no_365,
+        DwInvoiceHeader.invoice_type,
+        DwInvoiceHeader.invoice_date_utc0,
+    )
+
+    if invoice_nos is not None:
+        q = q.filter(DwInvoiceHeader.invoice_no_365.in_(invoice_nos))
+    elif date_from is not None:
+        q = q.filter(DwInvoiceHeader.invoice_date_utc0 >= date_from)
+        if date_to is not None:
+            q = q.filter(DwInvoiceHeader.invoice_date_utc0 <= date_to)
+
+    for row in q.all():
+        existing_headers_set.add(row[0])
+        invoice_type_map[row[0]] = row[1]
+        invoice_header_map[row[0]] = {
+            "type": row[1],
+            "date": row[2],
+        }
+
+    return existing_headers_set, invoice_type_map, invoice_header_map
+
+
+def _load_existing_invoice_line_keys(session: Session, invoice_nos=None, date_from=None, date_to=None):
+    """
+    Load existing (invoice_no_365, line_number) keys for fast duplicate check, scoped to a subset.
+    """
+    existing_lines_set = set()
+
+    q = session.query(DwInvoiceLine.invoice_no_365, DwInvoiceLine.line_number)
+
+    if invoice_nos is not None:
+        q = q.filter(DwInvoiceLine.invoice_no_365.in_(invoice_nos))
+    elif date_from is not None:
+        hdr_nos = session.query(DwInvoiceHeader.invoice_no_365).filter(
+            DwInvoiceHeader.invoice_date_utc0 >= date_from
+        )
+        if date_to is not None:
+            hdr_nos = hdr_nos.filter(DwInvoiceHeader.invoice_date_utc0 <= date_to)
+        q = q.filter(DwInvoiceLine.invoice_no_365.in_(hdr_nos))
+
+    for row in q.all():
+        existing_lines_set.add((row[0], row[1]))
+
+    return existing_lines_set
+
+
+# ----------------------
 # INVOICE SYNC FUNCTIONS
 # ----------------------
 
@@ -1304,27 +1365,15 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
     logger.info(f"Syncing invoice lines from {date_from} to {date_to if date_to else 'today'}")
     logger.info(f"API invoice date filter: {from_date} to {to_date}")
     
-    # Pre-load all existing lines and headers into sets for fast lookup (much faster than querying each time)
-    existing_lines_set = set()
-    for row in session.query(DwInvoiceLine.invoice_no_365, DwInvoiceLine.line_number).all():
-        existing_lines_set.add((row[0], row[1]))
-    logger.info(f"Pre-loaded {len(existing_lines_set)} existing invoice lines for fast lookup")
-    
-    existing_headers_set = set()
-    invoice_type_map = {}
-    invoice_header_map = {}
-    for row in session.query(
-        DwInvoiceHeader.invoice_no_365,
-        DwInvoiceHeader.invoice_type,
-        DwInvoiceHeader.invoice_date_utc0,
-    ).all():
-        existing_headers_set.add(row[0])
-        invoice_type_map[row[0]] = row[1]
-        invoice_header_map[row[0]] = {
-            "type": row[1],
-            "date": row[2],
-        }
-    logger.info(f"Pre-loaded {len(existing_headers_set)} existing invoice headers for fast lookup")
+    existing_headers_set, invoice_type_map, invoice_header_map = _load_existing_invoice_headers_map(
+        session, date_from=date_from, date_to=date_to or datetime.now().strftime("%Y-%m-%d")
+    )
+    logger.info(f"Pre-loaded {len(existing_headers_set)} existing invoice headers (scoped to date range)")
+
+    existing_lines_set = _load_existing_invoice_line_keys(
+        session, date_from=date_from, date_to=date_to or datetime.now().strftime("%Y-%m-%d")
+    )
+    logger.info(f"Pre-loaded {len(existing_lines_set)} existing invoice lines (scoped to date range)")
     
     while True:
         try:
@@ -1694,6 +1743,7 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         _update_invoice_sync_status(session, "RUNNING", "Syncing cashiers...")
         u_ins, u_upd = sync_invoice_cashiers(session)
         
+        mv_status = "skipped"
         if refresh_mv:
             _update_invoice_sync_status(session, "RUNNING", "Refreshing materialized views...")
             try:
@@ -1701,12 +1751,15 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
                 session.commit()
                 session.execute(sa_text("ANALYZE dw_sales_lines_mv"))
                 session.commit()
-                logger.info("Refreshed dw_sales_lines_mv materialized view")
+                logger.info("Refreshing materialized view dw_sales_lines_mv — completed")
+                mv_status = "completed"
             except Exception as mv_err:
                 logger.warning(f"Could not refresh dw_sales_lines_mv: {mv_err}")
                 session.rollback()
+                mv_status = f"failed: {str(mv_err)[:80]}"
         else:
-            logger.info("Skipping materialized view refresh (refresh_mv=False)")
+            logger.info("Skipping materialized view refresh (operator catch-up / lightweight mode)")
+            mv_status = "skipped (lightweight mode)"
         
         summary = f"Headers: {h_ins}, Lines: {l_ins}, Stores: {s_ins}, Cashiers: {u_ins}"
         _update_invoice_sync_status(session, "COMPLETE", summary)
@@ -1727,7 +1780,7 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
                         items_found=total_ins + total_upd,
                         items_inserted=total_ins,
                         items_updated=total_upd,
-                        details=f"Range: {date_range_str}. Headers: {h_ins}/{h_upd}, Lines: {l_ins}/{l_upd}, Stores: {s_ins}/{s_upd}, Cashiers: {u_ins}/{u_upd}")
+                        details=f"Range: {date_range_str}. Headers: {h_ins}/{h_upd}, Lines: {l_ins}/{l_upd}, Stores: {s_ins}/{s_upd}, Cashiers: {u_ins}/{u_upd}. MV refresh: {mv_status}")
 
         return h_ins, h_upd
         
@@ -1765,6 +1818,306 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
             logger.error(f"Full traceback: {traceback.format_exc()}")
             logger.error(f"{'='*80}\n")
         raise
+
+def _sync_single_invoice_header(session: Session, invoice_no_365: str) -> int:
+    """
+    Fetch and insert a single invoice header from PS365 by invoice number.
+    Returns count of headers inserted (0 or 1).
+    """
+    existing = session.query(DwInvoiceHeader).filter_by(invoice_no_365=invoice_no_365).first()
+    if existing:
+        logger.info(f"Invoice header {invoice_no_365} already exists in DW, skipping header sync")
+        return 0
+
+    payload = {
+        "filter_define": {
+            "only_counted": "N",
+            "page_number": 1,
+            "page_size": 10,
+            "invoice_type": "all",
+            "invoice_number_selection": invoice_no_365,
+            "invoice_customer_code_selection": "",
+            "invoice_customer_name_selection": "",
+            "invoice_customer_email_selection": "",
+            "invoice_customer_phone_selection": "",
+            "from_date": "",
+            "to_date": "",
+        }
+    }
+
+    response = call_ps365("list_loyalty_invoices_header", payload)
+    invoices = response.get("list_invoices", []) or []
+
+    inserted = 0
+    for inv in invoices:
+        inv_no = inv.get("invoice_no_365")
+        if inv_no != invoice_no_365:
+            continue
+
+        inv_date_str = inv.get("invoice_date_utc0")
+        if inv_date_str:
+            if isinstance(inv_date_str, str):
+                inv_date = datetime.fromisoformat(inv_date_str.replace('Z', '+00:00')).date()
+            else:
+                inv_date = inv_date_str.date() if hasattr(inv_date_str, 'date') else inv_date_str
+        else:
+            inv_date = None
+
+        invoice_type = inv.get("invoice_type")
+        sign = _get_invoice_type_sign(invoice_type)
+
+        header = DwInvoiceHeader(
+            invoice_no_365=inv_no,
+            invoice_type=invoice_type,
+            invoice_date_utc0=inv_date,
+            customer_code_365=inv.get("customer_code_365"),
+            store_code_365=inv.get("store_code_365"),
+            user_code_365=inv.get("user_code_365"),
+            total_sub=(inv.get("total_sub") or 0) * sign,
+            total_discount=(inv.get("total_discount") or 0) * sign,
+            total_vat=(inv.get("total_vat") or 0) * sign,
+            total_grand=(inv.get("total_grand") or 0) * sign,
+            points_earned=inv.get("points_earned"),
+            points_redeemed=inv.get("points_redeemed"),
+            attr_hash=_compute_hash({
+                "invoice_no_365": inv_no,
+                "invoice_type": invoice_type,
+                "invoice_date_utc0": str(inv_date),
+                "customer_code_365": inv.get("customer_code_365"),
+                "total_grand": str(inv.get("total_grand")),
+            }),
+            last_sync_at=utc_now_for_db()
+        )
+        session.add(header)
+        inserted += 1
+        logger.info(f"Inserted invoice header {inv_no} into DW")
+
+    if inserted:
+        session.commit()
+
+    return inserted
+
+
+def sync_invoice_to_dw(session: Session, invoice_no_365: str, sync_trigger: str = 'operator', refresh_mv: bool = False):
+    """
+    Targeted DW catch-up for a single invoice.
+    Uses scoped preload so only the relevant invoice is loaded — no full-table scan.
+    """
+    from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
+
+    slog = start_sync_log(session, 'INVOICE_SYNC', sync_trigger)
+    log_file = _setup_file_logging("sync_invoices")
+
+    logger.info(f"Starting targeted DW catch-up for invoice {invoice_no_365}")
+
+    try:
+        existing_headers_set, invoice_type_map, invoice_header_map = _load_existing_invoice_headers_map(
+            session, invoice_nos=[invoice_no_365]
+        )
+
+        inv_date = None
+        if invoice_no_365 in invoice_header_map:
+            inv_date = invoice_header_map[invoice_no_365].get("date")
+        if inv_date:
+            inv_date_str = inv_date.isoformat() if hasattr(inv_date, "isoformat") else str(inv_date)
+        else:
+            inv_date_str = datetime.now().strftime("%Y-%m-%d")
+
+        h_ins = _sync_single_invoice_header(session, invoice_no_365)
+
+        existing_headers_set, invoice_type_map, invoice_header_map = _load_existing_invoice_headers_map(
+            session, invoice_nos=[invoice_no_365]
+        )
+        logger.info(f"Scoped preload: {len(existing_headers_set)} headers for invoice {invoice_no_365}")
+
+        existing_lines_set = _load_existing_invoice_line_keys(
+            session, invoice_nos=[invoice_no_365]
+        )
+        logger.info(f"Scoped preload: {len(existing_lines_set)} existing lines for invoice {invoice_no_365}")
+
+        page = 1
+        l_ins = 0
+        while True:
+            try:
+                payload = {
+                    "filter_define": {
+                        "only_counted": "N",
+                        "page_number": page,
+                        "page_size": PAGE_SIZE,
+                        "invoice_type": "all",
+                        "invoice_number_selection": invoice_no_365,
+                        "invoice_customer_code_selection": "",
+                        "invoice_customer_name_selection": "",
+                        "invoice_customer_email_selection": "",
+                        "invoice_customer_phone_selection": "",
+                        "from_date": "",
+                        "to_date": "",
+                    }
+                }
+
+                response = call_ps365("list_loyalty_invoices", payload)
+                api_resp = response.get("api_response", {})
+                if api_resp.get("response_code") != "1":
+                    logger.error(f"PS365 API Error: {api_resp}")
+                    break
+
+                invoices = response.get("list_invoices", []) or []
+                if not invoices:
+                    break
+
+                page_new_item_codes = set()
+                page_new_lines_info = []
+                for inv in invoices:
+                    inv_no = _extract_invoice_no(inv)
+                    if not inv_no or inv_no != invoice_no_365:
+                        continue
+                    if inv_no not in existing_headers_set:
+                        continue
+                    hdr_info = invoice_header_map.get(inv_no, {})
+                    inv_date_val = hdr_info.get("date")
+                    lines = _extract_invoice_lines(inv)
+                    for line in lines:
+                        line_number = line.get("line_number")
+                        if (inv_no, line_number) not in existing_lines_set:
+                            ic = (line.get("item_code_365") or "").strip().upper()
+                            if ic:
+                                page_new_item_codes.add(ic)
+
+                item_cost_map = _get_item_cost_map(session, list(page_new_item_codes)) if page_new_item_codes else {}
+
+                for inv in invoices:
+                    inv_no = _extract_invoice_no(inv)
+                    if not inv_no or inv_no != invoice_no_365:
+                        continue
+                    if inv_no not in existing_headers_set:
+                        continue
+
+                    invoice_type = invoice_type_map.get(inv_no, "")
+                    sign = _get_invoice_type_sign(invoice_type)
+                    inv_date_val = invoice_header_map.get(inv_no, {}).get("date")
+                    lines = _extract_invoice_lines(inv)
+
+                    for line in lines:
+                        line_number = line.get("line_number")
+                        if (inv_no, line_number) in existing_lines_set:
+                            continue
+
+                        raw_quantity = line.get("line_quantity")
+                        raw_line_total_excl = line.get("line_total_sub")
+                        raw_line_total_discount = line.get("line_total_discount")
+                        raw_line_total_vat = line.get("line_total_vat")
+                        raw_line_total_incl = line.get("line_total_grand")
+
+                        quantity = float(raw_quantity or 0) * sign if raw_quantity else None
+                        line_total_excl = float(raw_line_total_excl or 0) * sign if raw_line_total_excl else None
+                        line_total_discount = float(raw_line_total_discount or 0) * sign if raw_line_total_discount else None
+                        line_total_vat = float(raw_line_total_vat or 0) * sign if raw_line_total_vat else None
+                        line_total_incl = float(raw_line_total_incl or 0) * sign if raw_line_total_incl else None
+
+                        hash_data = {
+                            "invoice_no_365": inv_no,
+                            "line_number": str(line_number),
+                            "item_code_365": line.get("item_code_365"),
+                            "quantity": str(quantity),
+                            "price_excl": str(line.get("line_price_exclude_vat")),
+                            "price_incl": str(line.get("line_price_include_vat")),
+                            "vat_percent": str(line.get("line_vat_percentage")),
+                            "line_total_excl": str(line_total_excl),
+                            "line_total_incl": str(line_total_incl),
+                        }
+                        attr_hash = _compute_hash(hash_data)
+
+                        cost_fields = _build_cost_fields(
+                            invoice_date=inv_date_val,
+                            item_code=line.get("item_code_365"),
+                            quantity=quantity,
+                            line_total_excl=line_total_excl,
+                            item_cost_map=item_cost_map,
+                        )
+
+                        invoice_line = DwInvoiceLine(
+                            invoice_no_365=inv_no,
+                            line_number=line_number,
+                            item_code_365=line.get("item_code_365"),
+                            quantity=quantity,
+                            price_excl=line.get("line_price_exclude_vat"),
+                            price_incl=line.get("line_price_include_vat"),
+                            discount_percent=line.get("line_discount_percentage"),
+                            vat_code_365=line.get("line_vat_code_365"),
+                            vat_percent=line.get("line_vat_percentage"),
+                            line_total_excl=line_total_excl,
+                            line_total_discount=line_total_discount,
+                            line_total_vat=line_total_vat,
+                            line_total_incl=line_total_incl,
+                            attr_hash=attr_hash,
+                            last_sync_at=utc_now_for_db(),
+                            unit_cost_snapshot=cost_fields["unit_cost_snapshot"],
+                            line_cost_total=cost_fields["line_cost_total"],
+                            gross_profit=cost_fields["gross_profit"],
+                            gross_margin_pct=cost_fields["gross_margin_pct"],
+                            cost_source=cost_fields["cost_source"],
+                            cost_snapshot_at=cost_fields["cost_snapshot_at"],
+                        )
+                        session.add(invoice_line)
+                        l_ins += 1
+                        existing_lines_set.add((inv_no, line_number))
+
+                session.commit()
+                page += 1
+            except Exception as e:
+                logger.error(f"Error on page {page}: {str(e)}", exc_info=True)
+                session.rollback()
+                break
+
+        s_ins, s_upd = sync_invoice_stores(session)
+        u_ins, u_upd = sync_invoice_cashiers(session)
+
+        logger.info("Skipping materialized view refresh (operator catch-up / lightweight mode)")
+
+        logger.info(f"Targeted DW catch-up for {invoice_no_365}: Headers={h_ins}, Lines={l_ins}, Stores={s_ins}, Cashiers={u_ins}")
+
+        finish_sync_log(session, slog,
+                        items_found=h_ins + l_ins,
+                        items_inserted=h_ins + l_ins,
+                        items_updated=0,
+                        details=f"Targeted invoice {invoice_no_365}. Headers: {h_ins}, Lines: {l_ins}. MV refresh: skipped (targeted catch-up)")
+
+    except Exception as e:
+        import traceback
+        error_msg = str(e)[:200]
+        logger.error(f"Targeted DW catch-up failed for {invoice_no_365}: {error_msg}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        try:
+            session.rollback()
+        except:
+            pass
+        fail_sync_log(session, slog, error_msg)
+        raise
+
+
+def _extract_invoice_no(inv):
+    """Extract invoice_no_365 from various API response structures."""
+    if "invoice" in inv:
+        inv_obj = inv.get("invoice", inv)
+        header = inv_obj.get("invoice_header", {})
+        return header.get("invoice_no_365")
+    elif "invoice_no_365" in inv:
+        return inv.get("invoice_no_365")
+    elif "invoice_header" in inv:
+        header = inv.get("invoice_header", {})
+        return header.get("invoice_no_365")
+    return None
+
+
+def _extract_invoice_lines(inv):
+    """Extract list of invoice detail lines from various API response structures."""
+    if "invoice" in inv:
+        inv_obj = inv.get("invoice", inv)
+        return inv_obj.get("list_invoice_details", []) or []
+    elif "list_invoice_details" in inv:
+        return inv.get("list_invoice_details", []) or []
+    return []
+
 
 if __name__ == '__main__':
     # Standalone execution support
