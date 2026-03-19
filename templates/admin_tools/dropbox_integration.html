@@ -3,20 +3,38 @@
 
 {% block content %}
 <style>
-    .dbx-page .card { color: #212529; }
+    .dbx-page .card,
+    .dbx-page .card-header,
+    .dbx-page .card-body { background-color: #fff !important; color: #212529 !important; }
     .dbx-page .card .text-muted { color: #6c757d !important; }
-    .dbx-page .card .badge { color: inherit; }
+    .dbx-page .card .fw-medium,
+    .dbx-page .card .font-monospace,
+    .dbx-page .card span,
+    .dbx-page .card div,
+    .dbx-page .card small,
+    .dbx-page .card td,
+    .dbx-page .card th,
+    .dbx-page .card h6,
+    .dbx-page .card p { color: #212529 !important; }
+    .dbx-page .card .text-muted { color: #6c757d !important; }
+    .dbx-page .card .text-danger { color: #dc3545 !important; }
+    .dbx-page .card .text-success { color: #198754 !important; }
+    .dbx-page .card .text-primary { color: #0d6efd !important; }
+    .dbx-page .card .text-warning { color: #ffc107 !important; }
     .dbx-page .card .badge.bg-success,
     .dbx-page .card .badge.bg-danger,
     .dbx-page .card .badge.bg-primary,
     .dbx-page .card .badge.bg-secondary,
     .dbx-page .card .badge.bg-info { color: #fff !important; }
     .dbx-page .card .badge.bg-warning { color: #212529 !important; }
-    .dbx-page .card .table { color: #212529; }
+    .dbx-page .card .table { color: #212529 !important; }
+    .dbx-page .card .table-light { background-color: #f8f9fa !important; }
     .dbx-page .card .alert { color: inherit; }
-    .dbx-page .card a:not(.btn) { color: #0d6efd; }
+    .dbx-page .card .alert-danger { background-color: #f8d7da !important; color: #842029 !important; }
+    .dbx-page .card .alert-info { background-color: #cff4fc !important; color: #055160 !important; }
+    .dbx-page .card a:not(.btn) { color: #0d6efd !important; }
     .dbx-page h4 { color: #f8f9fa; }
-    .dbx-page .stat-label { font-size: 0.75rem; color: #6c757d; }
+    .dbx-page .stat-label { font-size: 0.75rem; color: #6c757d !important; }
     .dbx-page .stat-value { font-size: 1.1rem; font-weight: 600; }
 </style>
 <div class="container mt-4 mb-5 dbx-page">
