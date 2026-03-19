@@ -253,7 +253,12 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </td>
                     <td>
                         {% if r.next_delivery %}
-                        <span class="badge" style="background-color:#22c55e;color:white;font-size:0.72rem;"><i class="fas fa-truck me-1" style="font-size:0.65rem;"></i>{{ r.next_delivery }}</span>
+                        <span class="badge" style="background-color:#22c55e;color:white;font-size:0.72rem;position:relative;display:inline-block;">
+                            <i class="fas fa-truck me-1" style="font-size:0.65rem;"></i>{{ r.next_delivery }}
+                            {% if r.slot_closing_soon %}
+                            <i class="fas fa-exclamation-triangle" style="position:absolute;top:-6px;right:-6px;background:#dc3545;color:white;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;"></i>
+                            {% endif %}
+                        </span>
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="value-col">
@@ -341,7 +346,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
         <div class="d-flex gap-2 mt-2 align-items-center">
             <span class="badge-state" id="drawer-state-badge"></span>
             <span id="drawer-classification-badge" style="font-size:0.78rem;"></span>
-            <span id="drawer-delivery-badge" class="badge" style="background:#22c55e;color:white;font-size:0.72rem;"></span>
+            <span id="drawer-delivery-badge" class="badge" style="background:#22c55e;color:white;font-size:0.72rem;position:relative;display:inline-block;"></span>
         </div>
     </div>
     <div class="drawer-body">
@@ -432,7 +437,8 @@ function openDrawer(idx) {
     document.getElementById('drawer-classification-badge').textContent = r.classification || '—';
     var delBadge = document.getElementById('drawer-delivery-badge');
     if (r.next_delivery) {
-        delBadge.innerHTML = '<i class="fas fa-truck me-1" style="font-size:0.65rem;"></i>' + r.next_delivery;
+        var warningIcon = r.slot_closing_soon ? '<i class="fas fa-exclamation-triangle" style="position:absolute;top:-6px;right:-6px;background:#dc3545;color:white;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;"></i>' : '';
+        delBadge.innerHTML = '<i class="fas fa-truck me-1" style="font-size:0.65rem;"></i>' + r.next_delivery + warningIcon;
         delBadge.style.display = '';
     } else {
         delBadge.textContent = '—';

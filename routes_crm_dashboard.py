@@ -828,6 +828,13 @@ def review_ordering():
         state = _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window)
         cm = _cart_mode(has_order, has_cart)
 
+        # Check if delivery slot is closing in less than 6 hours
+        slot_closing_soon = False
+        window_close = window_status.get("window_close_at")
+        if window_close:
+            hours_until_close = (window_close - now_local).total_seconds() / 3600
+            slot_closing_soon = hours_until_close < 6
+        
         row = {
             "customer_code_365": r.customer_code_365,
             "customer_name": r.company_name or r.customer_code_365,
@@ -848,6 +855,7 @@ def review_ordering():
             "next_delivery": next_del.strftime('%a %d-%b') if next_del else None,
             "next_delivery_date": next_del.isoformat() if next_del else None,
             "window_close_at": window_status.get("window_close_at").isoformat() if window_status.get("window_close_at") else None,
+            "slot_closing_soon": slot_closing_soon,
             "mobile_number": r.mobile or r.sms_number or "",
             "assisted_ordering": assisted,
             "expected_this_cycle": review_rec.expected_this_cycle if review_rec else False,
