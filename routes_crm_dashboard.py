@@ -560,7 +560,7 @@ def customer_slot_dashboard():
     )
 
 
-REVIEW_STATE_ORDER = {"follow_up": 0, "waiting": 1, "ordered_cart": 2, "ordered": 3, "done": 4}
+REVIEW_STATE_ORDER = {"follow_up": 0, "waiting": 1, "ordered": 2, "done": 3}
 OUTCOME_REASONS = [
     "ordered_normally", "ordered_after_follow_up", "cart_closed_to_order",
     "cart_added_to_existing", "valid_skip", "financial_reason",
@@ -571,8 +571,6 @@ OUTCOME_REASONS = [
 def _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window):
     if review_rec and review_rec.review_state == "done":
         return "done"
-    if has_order and has_cart:
-        return "ordered_cart"
     if has_order:
         return "ordered"
     if review_rec and review_rec.manual_follow_up_flag:
@@ -904,6 +902,7 @@ def review_ordering():
     far_future = date(2099, 12, 31)
     open_window_rows.sort(key=lambda r: (
         REVIEW_STATE_ORDER.get(r["state"], 5),
+        0 if r.get("has_cart") else 1,
         r["district"] or "",
         r["next_delivery_date"] or far_future,
         -(r["cart_amount"] or 0),
@@ -911,7 +910,7 @@ def review_ordering():
         r["r_invoice_days"] if r["r_invoice_days"] is not None else 9999,
     ))
 
-    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "ordered_cart": 0, "done": 0, "has_cart": 0}
+    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "done": 0, "has_cart": 0}
     for row in open_window_rows:
         kpi[row["state"]] = kpi.get(row["state"], 0) + 1
         if row["has_cart"]:

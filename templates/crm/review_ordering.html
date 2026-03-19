@@ -28,7 +28,6 @@
 .state-waiting { background: rgba(108,117,125,0.2); color: #adb5bd; }
 .state-follow_up { background: rgba(255,193,7,0.2); color: #ffc107; }
 .state-ordered { background: rgba(25,135,84,0.2); color: #22c55e; }
-.state-ordered_cart { background: rgba(253,126,20,0.2); color: #fd7e14; }
 .state-done { background: rgba(25,135,84,0.15); color: #6c757d; }
 tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .badge-cart { background-color: #fd7e14; }
@@ -81,7 +80,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div class="kpi-chip"><div class="kpi-label">Follow Up</div><div class="kpi-val" style="color:#ffc107;">{{ kpi.follow_up }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Waiting</div><div class="kpi-val" style="color:#adb5bd;">{{ kpi.waiting }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Ordered</div><div class="kpi-val" style="color:#22c55e;">{{ kpi.ordered }}</div></div>
-            <div class="kpi-chip"><div class="kpi-label">Ord+Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.ordered_cart }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Done</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.done }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.has_cart }}</div></div>
             {% if offer_kpi and offer_kpi.kpi_offer_customers_with_offers > 0 %}
@@ -113,7 +111,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div>
                 <select class="form-select form-select-sm" name="state" style="width:110px; font-size:0.78rem;">
                     <option value="">State</option>
-                    {% for st in ['follow_up','waiting','ordered','ordered_cart','done'] %}
+                    {% for st in ['follow_up','waiting','ordered','done'] %}
                     <option value="{{ st }}" {% if filters.state == st %}selected{% endif %}>{{ st | replace('_',' ') | title }}</option>
                     {% endfor %}
                 </select>
@@ -222,7 +220,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                             {% if r.state == 'follow_up' %}FOLLOW UP
                             {% elif r.state == 'waiting' %}WAITING
                             {% elif r.state == 'ordered' %}ORDERED
-                            {% elif r.state == 'ordered_cart' %}ORDERED+CART
                             {% elif r.state == 'done' %}DONE{% endif %}
                         </span>
                         <span class="state-grp-count" id="count-{{ r.state }}"></span>
@@ -247,7 +244,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                             {% if r.state == 'follow_up' %}FOLLOW UP
                             {% elif r.state == 'waiting' %}WAITING
                             {% elif r.state == 'ordered' %}ORDERED
-                            {% elif r.state == 'ordered_cart' %}ORDERED+CART
                             {% elif r.state == 'done' %}DONE{% endif %}
                         </span>
                     </td>
@@ -417,8 +413,8 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 var _rowsData = {{ rows | tojson }};
 var _currentIdx = null;
 
-var STATE_LABELS = {follow_up:'FOLLOW UP', waiting:'WAITING', ordered:'ORDERED', ordered_cart:'ORDERED+CART', done:'DONE'};
-var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', ordered_cart:'state-ordered_cart', done:'state-done'};
+var STATE_LABELS = {follow_up:'FOLLOW UP', waiting:'WAITING', ordered:'ORDERED', done:'DONE'};
+var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', done:'state-done'};
 
 function openDrawer(idx) {
     var r = _rowsData[idx];
