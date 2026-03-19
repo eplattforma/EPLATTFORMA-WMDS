@@ -905,8 +905,6 @@ def review_ordering():
     open_window_rows.sort(key=lambda r: (
         REVIEW_STATE_ORDER.get(r["state"], 5),
         0 if r.get("has_cart") else 1,
-        r["district"] or "",
-        r["next_delivery_date"] or far_future,
         -(r["cart_amount"] or 0),
         r["r_login_days"] if r["r_login_days"] is not None else 9999,
         r["r_invoice_days"] if r["r_invoice_days"] is not None else 9999,
