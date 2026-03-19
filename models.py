@@ -2841,7 +2841,6 @@ class CrmOrderingReview(db.Model):
     delivery_date = db.Column(db.Date, nullable=False)
     review_state = db.Column(db.String(20), nullable=False, default="waiting")
     outcome_reason = db.Column(db.String(50), nullable=True)
-    expected_this_cycle = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     manual_follow_up_flag = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     cart_mode = db.Column(db.String(20), nullable=True)
     review_note = db.Column(db.Text, nullable=True)

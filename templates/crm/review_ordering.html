@@ -160,7 +160,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             </div>
             <div class="d-flex align-items-center gap-2">
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="assisted_only" value="1" id="assistedOnly" {% if filters.assisted_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="assistedOnly">Assisted</label></div>
-                <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="expected_only" value="1" id="expectedOnly" {% if filters.expected_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="expectedOnly">Expected</label></div>
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="has_cart_only" value="1" id="hasCartOnly" {% if filters.has_cart_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="hasCartOnly">Cart</label></div>
             </div>
             <div>
@@ -221,7 +220,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     <td>
                         <div class="fw-semibold">
                             {{ r.customer_name }}
-                            {% if r.expected_this_cycle %}<span class="badge bg-warning text-dark ms-1" style="font-size:0.6rem;" title="Expected this cycle"><i class="fas fa-star"></i></span>{% endif %}
                         </div>
                         <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.district %} · {{ r.district }}{% endif %}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
                     </td>
@@ -365,12 +363,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     <input class="form-check-input" type="checkbox" id="drawer-assisted" onchange="saveAssisted(this)">
                 </div>
             </div>
-            <div class="drawer-field">
-                <span class="label">Expected this cycle</span>
-                <div class="form-check form-switch mb-0">
-                    <input class="form-check-input" type="checkbox" id="drawer-expected" onchange="saveFlags()">
-                </div>
-            </div>
             <div class="mt-2">
                 <label class="form-label mb-1 small text-muted">Short note</label>
                 <textarea class="form-control form-control-sm" id="drawer-note" rows="2" onblur="saveFlags()" style="font-size:0.82rem;"></textarea>
@@ -463,7 +455,6 @@ function openDrawer(idx) {
     document.getElementById('drawer-last-invoice').textContent = r.r_invoice_days !== null ? r.r_invoice_days + ' days ago' : '—';
 
     document.getElementById('drawer-assisted').checked = !!r.assisted_ordering;
-    document.getElementById('drawer-expected').checked = !!r.expected_this_cycle;
     document.getElementById('drawer-note').value = r.review_note || '';
 
     // Populate action log with message history
@@ -571,13 +562,11 @@ async function saveFlags() {
     var fd = new FormData();
     fd.append('customer_code_365', r.customer_code_365);
     fd.append('delivery_date', r.next_delivery_date || '');
-    fd.append('expected_this_cycle', document.getElementById('drawer-expected').checked ? '1' : '0');
     fd.append('review_note', document.getElementById('drawer-note').value);
     try {
         var res = await fetch('/crm/review-ordering/update-flags', {method:'POST', body:fd});
         var data = await res.json();
         if (data.ok) {
-            r.expected_this_cycle = document.getElementById('drawer-expected').checked;
             r.review_note = document.getElementById('drawer-note').value;
         }
     } catch(e) {}

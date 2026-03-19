@@ -581,8 +581,6 @@ def _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_d
         return "follow_up"
     if logged_in_during_window and not has_order:
         return "follow_up"
-    if review_rec and review_rec.expected_this_cycle and not has_order:
-        return "follow_up"
     return "waiting"
 
 
@@ -672,7 +670,6 @@ def review_ordering():
 
     filter_state = request.args.get("state", "")
     filter_assisted = request.args.get("assisted_only") == "1"
-    filter_expected = request.args.get("expected_only") == "1"
     filter_ordered = request.args.get("ordered", "")
     filter_has_cart = request.args.get("has_cart_only") == "1"
     logged_in_days = request.args.get("logged_in_days")
@@ -869,7 +866,6 @@ def review_ordering():
             "slot_closing_soon": slot_closing_soon,
             "mobile_number": r.mobile or r.sms_number or "",
             "assisted_ordering": assisted,
-            "expected_this_cycle": review_rec.expected_this_cycle if review_rec else False,
             "review_note": review_rec.review_note if review_rec else "",
             "outcome_reason": review_rec.outcome_reason if review_rec else "",
             "last_comm": comm_map.get(r.customer_code_365),
@@ -892,8 +888,6 @@ def review_ordering():
         if filter_state and row["state"] != filter_state:
             continue
         if filter_assisted and not assisted:
-            continue
-        if filter_expected and not row["expected_this_cycle"]:
             continue
         if filter_ordered == "ordered" and not has_order:
             continue
@@ -967,7 +961,6 @@ def review_ordering():
             "district": district or [],
             "state": filter_state,
             "assisted_only": filter_assisted,
-            "expected_only": filter_expected,
             "ordered": filter_ordered,
             "has_cart_only": filter_has_cart,
             "logged_in_days": logged_in_days or "",
@@ -1048,8 +1041,6 @@ def review_ordering_update_flags():
         review = CrmOrderingReview(customer_code_365=customer_code, delivery_date=delivery_date)
         db.session.add(review)
 
-    if "expected_this_cycle" in request.form:
-        review.expected_this_cycle = request.form.get("expected_this_cycle") == "1"
     if "review_note" in request.form:
         review.review_note = request.form.get("review_note", "").strip() or None
 

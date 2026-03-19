@@ -70,7 +70,6 @@ def update_crm_dashboard_schema():
                 delivery_date DATE NOT NULL,
                 review_state VARCHAR(20) NOT NULL DEFAULT 'waiting',
                 outcome_reason VARCHAR(50) NULL,
-                expected_this_cycle BOOLEAN NOT NULL DEFAULT false,
                 manual_follow_up_flag BOOLEAN NOT NULL DEFAULT false,
                 cart_mode VARCHAR(20) NULL,
                 review_note TEXT NULL,
