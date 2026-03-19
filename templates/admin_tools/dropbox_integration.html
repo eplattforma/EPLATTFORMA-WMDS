@@ -21,6 +21,22 @@
     {% endif %}
     {% endwith %}
 
+    {% if status.status == 'auth_error' %}
+    <div class="alert alert-danger d-flex align-items-center mb-4">
+        <i class="fas fa-exclamation-triangle fs-4 me-3"></i>
+        <div>
+            <strong>Reconnect Required</strong> — Dropbox authorization has been revoked or the refresh token is no longer valid.
+            Please reconnect to resume syncing.
+            {% if status.last_error %}
+            <div class="small mt-1 text-muted">{{ status.last_error }}</div>
+            {% endif %}
+        </div>
+        <a href="{{ url_for('dropbox_integration.dropbox_connect') }}" class="btn btn-danger btn-sm ms-auto text-nowrap">
+            <i class="fas fa-plug me-1"></i>Reconnect Now
+        </a>
+    </div>
+    {% endif %}
+
     <div class="row g-4">
         <div class="col-lg-5">
             <div class="card border-0 shadow-sm">
@@ -30,7 +46,7 @@
                 <div class="card-body">
                     {% if status.connected %}
                     <div class="d-flex align-items-center mb-3">
-                        <span class="badge bg-success px-3 py-2 me-2"><i class="fas fa-check-circle me-1"></i>Connected</span>
+                        <span class="badge bg-success px-3 py-2"><i class="fas fa-check-circle me-1"></i>Connected</span>
                     </div>
                     {% if status.email %}
                     <div class="mb-2">
@@ -58,11 +74,8 @@
                     {% endif %}
                     {% elif status.status == 'auth_error' %}
                     <div class="d-flex align-items-center mb-3">
-                        <span class="badge bg-warning text-dark px-3 py-2 me-2"><i class="fas fa-exclamation-triangle me-1"></i>Reconnect Required</span>
+                        <span class="badge bg-danger px-3 py-2"><i class="fas fa-exclamation-circle me-1"></i>Reconnect Required</span>
                     </div>
-                    {% if status.last_error %}
-                    <div class="alert alert-warning py-2 small">{{ status.last_error }}</div>
-                    {% endif %}
                     {% elif status.status == 'disconnected' %}
                     <div class="d-flex align-items-center mb-3">
                         <span class="badge bg-secondary px-3 py-2"><i class="fas fa-unlink me-1"></i>Disconnected</span>
@@ -94,6 +107,16 @@
                                 <i class="fas fa-unlink me-1"></i>Disconnect
                             </button>
                         </form>
+                        {% elif status.status == 'auth_error' and status.configured %}
+                        <a href="{{ url_for('dropbox_integration.dropbox_connect') }}"
+                           class="btn btn-danger btn-sm">
+                            <i class="fas fa-plug me-1"></i>Reconnect Dropbox
+                        </a>
+                        {% elif status.status == 'disconnected' and status.configured %}
+                        <a href="{{ url_for('dropbox_integration.dropbox_connect') }}"
+                           class="btn btn-primary btn-sm">
+                            <i class="fab fa-dropbox me-1"></i>Reconnect Dropbox
+                        </a>
                         {% elif status.configured %}
                         <a href="{{ url_for('dropbox_integration.dropbox_connect') }}"
                            class="btn btn-primary btn-sm">
@@ -121,6 +144,19 @@
                     </div>
                     {% endif %}
 
+                    {% if status.last_success.file_revision %}
+                    <div class="mb-2">
+                        <small class="text-muted">Last known revision</small>
+                        <div class="font-monospace small">{{ status.last_success.file_revision }}</div>
+                    </div>
+                    {% endif %}
+                    {% if status.last_success.file_modified_at %}
+                    <div class="mb-2">
+                        <small class="text-muted">Last known file modified</small>
+                        <div class="small">{{ status.last_success.file_modified_at.strftime('%d %b %Y %H:%M') }}</div>
+                    </div>
+                    {% endif %}
+
                     <div class="d-flex flex-wrap gap-2 mt-3">
                         {% if status.connected and status.file_path %}
                         <form method="POST" action="{{ url_for('dropbox_integration.dropbox_test') }}" class="d-inline">
@@ -143,13 +179,43 @@
         </div>
 
         <div class="col-lg-7">
+            <div class="row g-3 mb-4">
+                <div class="col-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body py-3">
+                            <small class="text-muted d-block">Last Sync Attempt</small>
+                            {% if status.last_sync.started_at %}
+                            <span class="fw-medium">{{ status.last_sync.started_at.strftime('%d %b %Y %H:%M') }}</span>
+                            {% set ls = status.last_sync.status %}
+                            <span class="badge ms-1 {% if ls == 'success' or ls == 'success_no_change' %}bg-success{% elif ls == 'running' %}bg-primary{% elif ls == 'auth_error' %}bg-danger{% elif ls == 'skipped_concurrent' %}bg-secondary{% elif ls == 'config_error' %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ ls }}</span>
+                            {% else %}
+                            <span class="text-muted">Never</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body py-3">
+                            <small class="text-muted d-block">Last Successful Sync</small>
+                            {% if status.last_success.started_at %}
+                            <span class="fw-medium">{{ status.last_success.started_at.strftime('%d %b %Y %H:%M') }}</span>
+                            <span class="text-muted small ms-1">({{ '{:,}'.format(status.last_success.rows_imported) }} rows)</span>
+                            {% else %}
+                            <span class="text-muted">Never</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="card border-0 shadow-sm">
                 <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Last Sync</h6>
+                    <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Last Sync Details</h6>
                     {% if status.last_sync.status %}
                     {% set s = status.last_sync.status %}
-                    <span class="badge {% if s == 'success' %}bg-success{% elif s == 'running' %}bg-primary{% elif s == 'auth_error' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                        {{ s|upper }}
+                    <span class="badge {% if s == 'success' or s == 'success_no_change' %}bg-success{% elif s == 'running' %}bg-primary{% elif s == 'auth_error' %}bg-danger{% elif s == 'config_error' %}bg-warning text-dark{% elif s == 'skipped_concurrent' %}bg-secondary{% else %}bg-danger{% endif %}">
+                        {{ s|replace('_', ' ')|upper }}
                     </span>
                     {% endif %}
                 </div>
@@ -192,29 +258,21 @@
                 </div>
             </div>
 
-            {% if status.last_success.started_at and status.last_sync.status != 'success' %}
             <div class="card border-0 shadow-sm mt-4">
-                <div class="card-header bg-white border-bottom">
-                    <h6 class="mb-0"><i class="fas fa-check-circle me-2 text-success"></i>Last Successful Sync</h6>
-                </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-6">
-                            <small class="text-muted d-block">Date</small>
-                            <span>{{ status.last_success.started_at.strftime('%d %b %Y %H:%M') }}</span>
-                        </div>
-                        <div class="col-6">
-                            <small class="text-muted d-block">Rows imported</small>
-                            <span class="fw-medium">{{ '{:,}'.format(status.last_success.rows_imported) }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-
-            <div class="card border-0 shadow-sm mt-4">
-                <div class="card-header bg-white border-bottom">
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="fas fa-history me-2"></i>Sync History</h6>
+                    <div class="d-flex gap-1">
+                        <a href="{{ url_for('dropbox_integration.dropbox_status') }}"
+                           class="btn btn-outline-secondary btn-sm {% if not status.filter_status %}active{% endif %}">All</a>
+                        <a href="{{ url_for('dropbox_integration.dropbox_status', filter_status='success') }}"
+                           class="btn btn-outline-success btn-sm {% if status.filter_status == 'success' %}active{% endif %}">OK</a>
+                        <a href="{{ url_for('dropbox_integration.dropbox_status', filter_status='auth_error') }}"
+                           class="btn btn-outline-danger btn-sm {% if status.filter_status == 'auth_error' %}active{% endif %}">Auth</a>
+                        <a href="{{ url_for('dropbox_integration.dropbox_status', filter_status='download_error') }}"
+                           class="btn btn-outline-danger btn-sm {% if status.filter_status == 'download_error' %}active{% endif %}">DL</a>
+                        <a href="{{ url_for('dropbox_integration.dropbox_status', filter_status='parse_error') }}"
+                           class="btn btn-outline-warning btn-sm {% if status.filter_status == 'parse_error' %}active{% endif %}">Parse</a>
+                    </div>
                 </div>
                 <div class="card-body p-0">
                     {% if status.sync_history %}
@@ -236,8 +294,16 @@
                                     <td class="small">{{ log.started_at.strftime('%d %b %H:%M') }}</td>
                                     <td>
                                         {% set ls = log.status %}
-                                        <span class="badge {% if ls == 'success' %}bg-success{% elif ls == 'running' %}bg-primary{% elif ls == 'auth_error' %}bg-warning text-dark{% else %}bg-danger{% endif %} badge-sm">
-                                            {{ ls }}
+                                        <span class="badge
+                                            {% if ls == 'success' %}bg-success
+                                            {% elif ls == 'success_no_change' %}bg-info
+                                            {% elif ls == 'running' %}bg-primary
+                                            {% elif ls == 'auth_error' %}bg-danger
+                                            {% elif ls == 'config_error' %}bg-warning text-dark
+                                            {% elif ls == 'parse_error' %}bg-warning text-dark
+                                            {% elif ls == 'skipped_concurrent' %}bg-secondary
+                                            {% else %}bg-danger{% endif %}">
+                                            {{ ls|replace('_', ' ') }}
                                         </span>
                                     </td>
                                     <td class="small">{{ '{:,}'.format(log.rows_imported) }}</td>
@@ -256,7 +322,7 @@
                         </table>
                     </div>
                     {% else %}
-                    <div class="p-3 text-muted small">No sync history.</div>
+                    <div class="p-3 text-muted small">No sync history{% if status.filter_status %} matching filter "{{ status.filter_status }}"{% endif %}.</div>
                     {% endif %}
                 </div>
             </div>

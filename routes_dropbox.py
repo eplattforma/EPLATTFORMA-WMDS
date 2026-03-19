@@ -2,7 +2,7 @@ import os
 import logging
 import secrets
 from functools import wraps
-from flask import Blueprint, render_template, redirect, url_for, flash, request, session, jsonify, abort
+from flask import Blueprint, render_template, redirect, url_for, flash, request, session, abort
 from flask_login import login_required, current_user
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,13 @@ def _validate_csrf():
 @admin_required
 def dropbox_status():
     from services.dropbox_service import get_dropbox_status
+    status_filter = request.args.get('filter_status', '')
     status = get_dropbox_status()
+    if status_filter:
+        status['sync_history'] = [
+            log for log in status['sync_history'] if log.status == status_filter
+        ]
+    status['filter_status'] = status_filter
     return render_template('admin_tools/dropbox_integration.html', status=status)
 
 
@@ -58,13 +64,14 @@ def dropbox_callback():
 
     error = request.args.get('error')
     if error:
-        flash(f'Dropbox authorization denied: {error}', 'danger')
+        desc = request.args.get('error_description', error)
+        flash(f'Dropbox authorization denied: {desc}', 'danger')
         return redirect(url_for('dropbox_integration.dropbox_status'))
 
     state = request.args.get('state', '')
     expected_state = session.pop('dropbox_oauth_state', None)
     if not expected_state or state != expected_state:
-        flash('Invalid OAuth state — possible CSRF. Please try again.', 'danger')
+        flash('Invalid OAuth state — please try connecting again.', 'danger')
         return redirect(url_for('dropbox_integration.dropbox_status'))
 
     code = request.args.get('code', '')
@@ -77,7 +84,7 @@ def dropbox_callback():
         label = cred.dropbox_email or cred.account_label or 'Dropbox account'
         flash(f'Dropbox connected successfully as {label}.', 'success')
     except Exception as e:
-        logger.error(f"Dropbox callback error: {e}")
+        logger.error(f"Dropbox callback failed: {e}")
         flash(f'Failed to connect Dropbox: {e}', 'danger')
 
     return redirect(url_for('dropbox_integration.dropbox_status'))
@@ -90,7 +97,12 @@ def dropbox_sync():
     from services.dropbox_service import sync_dropbox_file
     try:
         log = sync_dropbox_file()
-        flash(f'Sync completed: {log.rows_imported} rows imported.', 'success')
+        if log.status == 'success_no_change':
+            flash('File unchanged since last sync — no import needed.', 'info')
+        elif log.status == 'skipped_concurrent':
+            flash('Sync skipped — another sync is already running.', 'warning')
+        else:
+            flash(f'Sync completed: {log.rows_imported:,} rows imported.', 'success')
     except Exception as e:
         logger.error(f"Dropbox sync error: {e}")
         flash(f'Sync failed: {e}', 'danger')
@@ -104,7 +116,7 @@ def dropbox_disconnect():
     from services.dropbox_service import disconnect_dropbox
     try:
         disconnect_dropbox()
-        flash('Dropbox disconnected.', 'info')
+        flash('Dropbox disconnected. Sync history preserved.', 'info')
     except Exception as e:
         flash(f'Error disconnecting: {e}', 'danger')
     return redirect(url_for('dropbox_integration.dropbox_status'))

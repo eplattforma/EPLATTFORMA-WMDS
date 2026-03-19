@@ -1,8 +1,11 @@
 import os
 import logging
 import time
+import hashlib
+import base64
 import requests
 from datetime import datetime, timedelta
+from cryptography.fernet import Fernet, InvalidToken
 from app import db
 from models import ExternalAuthCredential, ExternalFileSyncLog
 from timezone_utils import get_utc_now
@@ -11,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = 'dropbox'
 DROPBOX_AUTH_URL = 'https://www.dropbox.com/oauth2/authorize'
-DROPBOX_TOKEN_URL = 'https://api.content.dropboxapi.com/2/oauth2/token'
 DROPBOX_TOKEN_URL_API = 'https://api.dropboxapi.com/oauth2/token'
 DROPBOX_ACCOUNT_URL = 'https://api.dropboxapi.com/2/users/get_current_account'
 DROPBOX_METADATA_URL = 'https://api.dropboxapi.com/2/files/get_metadata'
@@ -20,6 +22,40 @@ DROPBOX_DOWNLOAD_URL = 'https://content.dropboxapi.com/2/files/download'
 TOKEN_EXPIRY_BUFFER = timedelta(minutes=5)
 MAX_RETRIES = 2
 RETRY_BACKOFF = [1, 3]
+SYNC_LOCK_MINUTES = 15
+
+VALID_STATUSES = (
+    'success', 'success_no_change', 'auth_error', 'download_error',
+    'parse_error', 'config_error', 'running', 'skipped_concurrent',
+)
+
+
+def _get_fernet():
+    secret = os.environ.get('SESSION_SECRET', '')
+    if not secret:
+        raise ValueError("SESSION_SECRET is required for token encryption")
+    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
+    return Fernet(key)
+
+
+def _encrypt_token(plaintext):
+    if not plaintext:
+        return plaintext
+    f = _get_fernet()
+    return 'fernet:' + f.encrypt(plaintext.encode()).decode()
+
+
+def _decrypt_token(stored):
+    if not stored:
+        return stored
+    if stored.startswith('fernet:'):
+        try:
+            f = _get_fernet()
+            return f.decrypt(stored[7:].encode()).decode()
+        except (InvalidToken, Exception) as e:
+            logger.error(f"Token decryption failed: {e}")
+            return None
+    return stored
 
 
 def _get_config():
@@ -37,7 +73,9 @@ def _get_config():
 
 
 def get_dropbox_credentials():
-    return db.session.query(ExternalAuthCredential).filter_by(provider=PROVIDER).first()
+    return db.session.query(ExternalAuthCredential).filter_by(
+        provider=PROVIDER
+    ).order_by(ExternalAuthCredential.id.desc()).first()
 
 
 def build_dropbox_authorize_url(state_token):
@@ -73,18 +111,25 @@ def exchange_code_for_tokens(code):
     logger.info("Exchanging authorization code for tokens")
     resp = requests.post(DROPBOX_TOKEN_URL_API, data=data, timeout=30)
     if resp.status_code != 200:
-        logger.error(f"Token exchange failed: {resp.status_code} {resp.text}")
-        raise ValueError(f"Token exchange failed: {resp.text}")
+        logger.error(f"Token exchange failed: {resp.status_code}")
+        raise ValueError(f"Token exchange failed (HTTP {resp.status_code})")
 
     token_data = resp.json()
     now = get_utc_now()
 
+    db.session.query(ExternalAuthCredential).filter(
+        ExternalAuthCredential.provider == PROVIDER,
+        ExternalAuthCredential.status == 'active'
+    ).update({'status': 'replaced'})
+
     cred = get_dropbox_credentials()
-    if not cred:
+    if cred and cred.status in ('disconnected', 'auth_error', 'replaced'):
+        pass
+    else:
         cred = ExternalAuthCredential(provider=PROVIDER)
         db.session.add(cred)
 
-    cred.refresh_token = token_data['refresh_token']
+    cred.refresh_token = _encrypt_token(token_data['refresh_token'])
     cred.access_token = token_data['access_token']
     expires_in = token_data.get('expires_in', 14400)
     cred.access_token_expires_at = now + timedelta(seconds=expires_in)
@@ -122,35 +167,36 @@ def refresh_dropbox_access_token(force=False):
     config = _get_config()
     cred = get_dropbox_credentials()
     if not cred or cred.status != 'active':
-        raise ValueError("No active Dropbox credential found")
+        raise ValueError("No active Dropbox credential found — reconnect required")
 
     now = get_utc_now()
     if not force and cred.access_token and cred.access_token_expires_at:
         if cred.access_token_expires_at > now + TOKEN_EXPIRY_BUFFER:
             return cred.access_token
 
-    if not cred.refresh_token:
+    raw_refresh = _decrypt_token(cred.refresh_token)
+    if not raw_refresh:
         cred.status = 'auth_error'
-        cred.last_error = 'No refresh token available'
+        cred.last_error = 'Refresh token missing or corrupt'
         db.session.commit()
-        raise ValueError("No refresh token — reconnect required")
+        raise ValueError("Refresh token unavailable — reconnect required")
 
     logger.info("Refreshing Dropbox access token")
     data = {
         'grant_type': 'refresh_token',
-        'refresh_token': cred.refresh_token,
+        'refresh_token': raw_refresh,
         'client_id': config['app_key'],
         'client_secret': config['app_secret'],
     }
 
     resp = requests.post(DROPBOX_TOKEN_URL_API, data=data, timeout=30)
     if resp.status_code != 200:
-        error_msg = f"Token refresh failed: {resp.status_code}"
-        logger.error(f"{error_msg} — {resp.text}")
+        error_msg = f"Token refresh failed (HTTP {resp.status_code})"
+        logger.error(error_msg)
         cred.status = 'auth_error'
         cred.last_error = error_msg
         db.session.commit()
-        raise ValueError(f"Token refresh failed — reconnect required")
+        raise ValueError("Token refresh failed — reconnect required")
 
     token_data = resp.json()
     cred.access_token = token_data['access_token']
@@ -180,6 +226,17 @@ def _dropbox_api_call(method, url, headers=None, **kwargs):
                 token = refresh_dropbox_access_token(force=True)
                 hdrs['Authorization'] = f'Bearer {token}'
                 continue
+            if resp.status_code in (429, 500, 502, 503) and attempt == 0:
+                wait = RETRY_BACKOFF[0]
+                retry_after = resp.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        wait = min(int(retry_after), 10)
+                    except ValueError:
+                        pass
+                logger.warning(f"Dropbox {resp.status_code} — retrying in {wait}s")
+                time.sleep(wait)
+                continue
             return resp
         except requests.exceptions.RequestException as e:
             if attempt < MAX_RETRIES - 1:
@@ -198,8 +255,15 @@ def get_dropbox_file_metadata(path):
         headers={'Content-Type': 'application/json'},
         json={'path': path}
     )
+    if resp.status_code == 409:
+        error_detail = ''
+        try:
+            error_detail = resp.json().get('error_summary', '')
+        except Exception:
+            pass
+        raise ValueError(f"File not found or inaccessible: {error_detail}")
     if resp.status_code != 200:
-        raise ValueError(f"Metadata fetch failed ({resp.status_code}): {resp.text}")
+        raise ValueError(f"Metadata fetch failed (HTTP {resp.status_code})")
     return resp.json()
 
 
@@ -210,7 +274,7 @@ def download_dropbox_file_bytes(path):
         headers={'Dropbox-API-Arg': json.dumps({'path': path})}
     )
     if resp.status_code != 200:
-        raise ValueError(f"Download failed ({resp.status_code}): {resp.text}")
+        raise ValueError(f"Download failed (HTTP {resp.status_code})")
 
     metadata = {}
     api_result = resp.headers.get('Dropbox-API-Result', '')
@@ -231,13 +295,14 @@ def get_dropbox_status():
         provider=PROVIDER
     ).order_by(ExternalFileSyncLog.started_at.desc()).first()
 
-    last_success = db.session.query(ExternalFileSyncLog).filter_by(
-        provider=PROVIDER, status='success'
+    last_success = db.session.query(ExternalFileSyncLog).filter(
+        ExternalFileSyncLog.provider == PROVIDER,
+        ExternalFileSyncLog.status.in_(['success', 'success_no_change'])
     ).order_by(ExternalFileSyncLog.started_at.desc()).first()
 
     recent_logs = db.session.query(ExternalFileSyncLog).filter_by(
         provider=PROVIDER
-    ).order_by(ExternalFileSyncLog.started_at.desc()).limit(20).all()
+    ).order_by(ExternalFileSyncLog.started_at.desc()).limit(50).all()
 
     return {
         'configured': config['configured'],
@@ -262,12 +327,23 @@ def get_dropbox_status():
             'started_at': last_success.started_at if last_success else None,
             'rows_imported': last_success.rows_imported if last_success else 0,
             'file_revision': last_success.file_revision if last_success else None,
+            'file_modified_at': last_success.file_modified_at if last_success else None,
         },
         'sync_history': recent_logs,
     }
 
 
-def sync_dropbox_file(file_processor=None):
+def _check_sync_lock():
+    cutoff = get_utc_now() - timedelta(minutes=SYNC_LOCK_MINUTES)
+    running = db.session.query(ExternalFileSyncLog).filter(
+        ExternalFileSyncLog.provider == PROVIDER,
+        ExternalFileSyncLog.status == 'running',
+        ExternalFileSyncLog.started_at > cutoff,
+    ).first()
+    return running
+
+
+def sync_dropbox_file(file_processor=None, skip_unchanged=True):
     config = _get_config()
     file_path = config['file_path'] or '(not configured)'
 
@@ -279,6 +355,8 @@ def sync_dropbox_file(file_processor=None):
     )
     db.session.add(log)
     db.session.commit()
+    sync_log_id = log.id
+    logger.info(f"[sync:{sync_log_id}] Dropbox sync started for {file_path}")
 
     try:
         if not config['configured']:
@@ -286,11 +364,25 @@ def sync_dropbox_file(file_processor=None):
         if not config['file_path']:
             raise _SyncError("DROPBOX_FILE_PATH not configured", 'config_error')
 
+        existing_running = db.session.query(ExternalFileSyncLog).filter(
+            ExternalFileSyncLog.provider == PROVIDER,
+            ExternalFileSyncLog.status == 'running',
+            ExternalFileSyncLog.id != sync_log_id,
+            ExternalFileSyncLog.started_at > get_utc_now() - timedelta(minutes=SYNC_LOCK_MINUTES),
+        ).first()
+        if existing_running:
+            log.status = 'skipped_concurrent'
+            log.error_message = 'Another sync is already running'
+            log.finished_at = get_utc_now()
+            db.session.commit()
+            logger.info(f"[sync:{sync_log_id}] Skipped — concurrent sync in progress (id={existing_running.id})")
+            return log
+
         cred = get_dropbox_credentials()
         if not cred or cred.status != 'active':
             raise _SyncError("Dropbox not connected — please connect from the admin UI", 'auth_error')
 
-        logger.info(f"Dropbox sync: fetching metadata for {file_path}")
+        logger.info(f"[sync:{sync_log_id}] Fetching metadata")
         metadata = get_dropbox_file_metadata(file_path)
         log.file_name = metadata.get('name', '')
         log.file_revision = metadata.get('rev', '')
@@ -300,27 +392,45 @@ def sync_dropbox_file(file_processor=None):
                 log.file_modified_at = datetime.fromisoformat(modified_str.replace('Z', '+00:00'))
             except Exception:
                 pass
+        content_hash = metadata.get('content_hash', '')
         log.metadata_json = {
             'size': metadata.get('size'),
-            'content_hash': metadata.get('content_hash'),
+            'content_hash': content_hash,
         }
         db.session.commit()
 
-        logger.info(f"Dropbox sync: downloading {file_path}")
+        if skip_unchanged and content_hash:
+            prev_success = db.session.query(ExternalFileSyncLog).filter(
+                ExternalFileSyncLog.provider == PROVIDER,
+                ExternalFileSyncLog.status == 'success',
+                ExternalFileSyncLog.id != sync_log_id,
+            ).order_by(ExternalFileSyncLog.started_at.desc()).first()
+            if prev_success and prev_success.metadata_json:
+                prev_hash = prev_success.metadata_json.get('content_hash', '')
+                if prev_hash and prev_hash == content_hash:
+                    log.status = 'success_no_change'
+                    log.rows_imported = prev_success.rows_imported
+                    log.finished_at = get_utc_now()
+                    db.session.commit()
+                    logger.info(f"[sync:{sync_log_id}] File unchanged (hash match) — skipped import")
+                    return log
+
+        logger.info(f"[sync:{sync_log_id}] Downloading file")
         file_bytes, dl_metadata = download_dropbox_file_bytes(file_path)
-        logger.info(f"Dropbox sync: downloaded {len(file_bytes)} bytes")
+        logger.info(f"[sync:{sync_log_id}] Downloaded {len(file_bytes)} bytes")
 
         rows_imported = 0
         if file_processor:
             rows_imported = file_processor(file_bytes, metadata)
         else:
-            rows_imported = _default_stock_processor(file_bytes)
+            rows_imported = _default_stock_processor(file_bytes, sync_log_id)
 
         log.status = 'success'
         log.rows_imported = rows_imported
         log.finished_at = get_utc_now()
         db.session.commit()
-        logger.info(f"Dropbox sync complete: {rows_imported} rows imported")
+        duration = (log.finished_at - log.started_at).total_seconds()
+        logger.info(f"[sync:{sync_log_id}] Complete: {rows_imported} rows in {duration:.1f}s")
         return log
 
     except _SyncError as e:
@@ -328,29 +438,31 @@ def sync_dropbox_file(file_processor=None):
         log.error_message = str(e)
         log.finished_at = get_utc_now()
         db.session.commit()
-        logger.error(f"Dropbox sync failed: {e}")
+        logger.error(f"[sync:{sync_log_id}] {e.sync_status}: {e}")
         raise ValueError(str(e))
 
     except ValueError as e:
         error_msg = str(e)
-        if 'auth' in error_msg.lower() or '401' in error_msg or 'token' in error_msg.lower():
+        if 'auth' in error_msg.lower() or '401' in error_msg or 'token' in error_msg.lower() or 'reconnect' in error_msg.lower():
             log.status = 'auth_error'
-        elif 'not_found' in error_msg.lower() or '409' in error_msg:
+        elif 'not found' in error_msg.lower() or 'not_found' in error_msg.lower() or '409' in error_msg:
             log.status = 'download_error'
+        elif 'parse' in error_msg.lower() or 'worksheet' in error_msg.lower() or 'column' in error_msg.lower():
+            log.status = 'parse_error'
         else:
             log.status = 'download_error'
         log.error_message = error_msg
         log.finished_at = get_utc_now()
         db.session.commit()
-        logger.error(f"Dropbox sync failed: {error_msg}")
+        logger.error(f"[sync:{sync_log_id}] {log.status}: {error_msg}")
         raise
 
     except Exception as e:
         log.status = 'download_error'
-        log.error_message = str(e)
+        log.error_message = str(e)[:500]
         log.finished_at = get_utc_now()
         db.session.commit()
-        logger.error(f"Dropbox sync error: {e}")
+        logger.error(f"[sync:{sync_log_id}] download_error: {e}")
         raise
 
 
@@ -360,40 +472,90 @@ class _SyncError(Exception):
         self.sync_status = sync_status
 
 
-def _default_stock_processor(file_bytes):
+def _default_stock_processor(file_bytes, sync_log_id=None):
     import openpyxl
     from io import BytesIO
     from sqlalchemy import text
 
-    workbook = openpyxl.load_workbook(BytesIO(file_bytes))
+    tag = f"[sync:{sync_log_id}]" if sync_log_id else "[sync]"
+
+    try:
+        workbook = openpyxl.load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+    except Exception as e:
+        raise _SyncError(f"Cannot open workbook: {e}", 'parse_error')
+
     worksheet = workbook.active
     if worksheet is None:
-        raise ValueError("No worksheet found in workbook")
+        raise _SyncError("No active worksheet found in workbook", 'parse_error')
 
-    rows = list(worksheet.iter_rows(min_row=5, values_only=True))
+    logger.info(f"{tag} Parsing worksheet: {worksheet.title}")
+
+    data_start_row = 5
+    header_found = False
+    for row in worksheet.iter_rows(min_row=1, max_row=6, values_only=True):
+        cells = [str(c).strip().lower() if c else '' for c in row]
+        has_item = any('item' in c or 'code' in c or 'sku' in c for c in cells)
+        has_store = any('store' in c or 'stock' in c or 'quantity' in c for c in cells)
+        if has_item and has_store:
+            header_found = True
+            break
+
+    if not header_found:
+        sample_rows = []
+        for row in worksheet.iter_rows(min_row=1, max_row=2, values_only=True):
+            sample_rows.append([str(c)[:30] if c else '' for c in (row or [])[:4]])
+        raise _SyncError(
+            f"Worksheet '{worksheet.title}' does not contain expected headers (item/store/stock columns). "
+            f"First rows: {sample_rows}",
+            'parse_error'
+        )
+
+    rows = list(worksheet.iter_rows(min_row=data_start_row, values_only=True))
+
+    if not rows:
+        raise _SyncError(f"Worksheet '{worksheet.title}' has no data rows (starting from row {data_start_row})", 'parse_error')
+
+    first_row = rows[0]
+    if not first_row or len(first_row) < 7:
+        raise _SyncError(
+            f"Data rows have fewer than 7 columns (found {len(first_row) if first_row else 0}). "
+            f"Expected: ItemCode, Description, StoreCode, StoreName, ExpiryDate, ..., Quantity",
+            'parse_error'
+        )
     records = []
+    skipped = 0
+    parse_errors = 0
 
-    for row in rows:
-        if len(row) < 7:
+    for row_idx, row in enumerate(rows, start=5):
+        if not row or len(row) < 7:
+            skipped += 1
             continue
         item_code = str(row[0]).strip() if row[0] else ''
         if not item_code:
+            skipped += 1
             continue
         item_description = str(row[1]).strip() if row[1] else ''
         store_code = str(row[2]).strip() if row[2] else ''
         store_name = str(row[3]).strip() if row[3] else ''
         if store_code != '777':
             continue
+
         expiry_date = row[4] if row[4] else None
-        if isinstance(expiry_date, str):
+        if isinstance(expiry_date, datetime):
+            expiry_date = expiry_date.strftime('%Y-%m-%d')
+        elif isinstance(expiry_date, str):
             try:
-                expiry_date = datetime.strptime(expiry_date, '%Y-%m-%d')
+                datetime.strptime(expiry_date.strip(), '%Y-%m-%d')
             except Exception:
                 expiry_date = None
+        elif expiry_date is not None:
+            expiry_date = None
+
         stock_quantity = 0
         try:
             stock_quantity = float(row[6]) if row[6] else 0
         except (ValueError, TypeError):
+            parse_errors += 1
             stock_quantity = 0
 
         records.append({
@@ -405,20 +567,42 @@ def _default_stock_processor(file_bytes):
             'stock_quantity': stock_quantity,
         })
 
+    workbook.close()
+
     if not records:
-        return 0
+        raise _SyncError(f"No valid store-777 records found (total rows: {len(rows)}, skipped: {skipped})", 'parse_error')
+
+    seen_keys = set()
+    deduped = []
+    for r in records:
+        key = (r['item_code'], r['store_code'], str(r['expiry_date']))
+        if key not in seen_keys:
+            seen_keys.add(key)
+            deduped.append(r)
+        else:
+            skipped += 1
+
+    log_entry = db.session.query(ExternalFileSyncLog).get(sync_log_id) if sync_log_id else None
+    if log_entry:
+        md = log_entry.metadata_json or {}
+        md['total_rows'] = len(rows)
+        md['skipped_rows'] = skipped
+        md['parse_errors'] = parse_errors
+        md['deduped_records'] = len(deduped)
+        log_entry.metadata_json = md
+        db.session.commit()
 
     db.session.execute(text("TRUNCATE TABLE stock_positions"))
 
+    from models import StockPosition
     batch_size = 1000
-    for i in range(0, len(records), batch_size):
-        batch = records[i:i + batch_size]
-        from models import StockPosition
+    for i in range(0, len(deduped), batch_size):
+        batch = deduped[i:i + batch_size]
         db.session.bulk_insert_mappings(StockPosition, batch)
 
     db.session.commit()
-    logger.info(f"Imported {len(records)} stock position records from Dropbox")
-    return len(records)
+    logger.info(f"{tag} Imported {len(deduped)} stock position records (skipped {skipped}, parse_errors {parse_errors})")
+    return len(deduped)
 
 
 def disconnect_dropbox():

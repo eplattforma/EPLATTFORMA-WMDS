@@ -1,0 +1,114 @@
+The Dropbox integration design looks correct and I want to proceed with a final production hardening pass before we treat it as complete.
+
+Please review and implement the following final checks / improvements.
+
+1) Credential storage safety
+- Confirm refresh_token is never shown in UI, logs, flash messages, exceptions, or debug output
+- Confirm app secret is only read from environment/secrets
+- Confirm any serialized credential metadata excludes secrets
+- If straightforward, encrypt refresh_token at rest before saving to DB
+
+2) Single active Dropbox credential rule
+- Enforce that only one active Dropbox credential exists for this integration/provider at a time
+- If a new connection is completed, either replace the active credential cleanly or deactivate the old one
+- Avoid ambiguity if multiple auth rows exist
+
+3) Sync concurrency protection
+- Prevent two manual/scheduled syncs from running at the same time for the same provider/file
+- Add a simple guard such as:
+  - check for an in-progress sync row started recently and block a second run
+  - or use a DB/application lock
+- Return a clear message like “Sync already running”
+
+4) Unchanged file optimization
+- Use Dropbox file revision / content hash / modified timestamp to detect unchanged files
+- If unchanged, optionally skip import and log status clearly as skipped or success_no_change
+- Still write a sync log row so history remains complete
+
+5) Import transaction safety
+- Ensure business-table writes are transactionally safe
+- A failed parse/import must not leave partial imported rows behind
+- If needed, stage into temp structures and only commit once validation passes
+- Previous successful data must remain intact if a new run fails
+
+6) File parser robustness
+- Confirm the default Excel processor validates:
+  - expected workbook/sheet
+  - required column headers
+  - duplicate/blank key handling
+  - numeric/date conversion errors
+- Record row-level validation counts in metadata_json where useful
+- Return clear parse_error details without exposing stack traces to users
+
+7) Better sync statuses
+Please expand statuses to distinguish:
+- success
+- success_no_change
+- auth_error
+- download_error
+- parse_error
+- config_error
+- running
+- skipped_concurrent
+This will make the admin screen and audit trail more operationally useful.
+
+8) Admin UI improvements
+On the Dropbox admin page add:
+- last successful sync timestamp
+- last attempted sync timestamp
+- current configured file path
+- last known file revision
+- last known file modified time
+- a very clear “Reconnect required” warning when auth is revoked
+- clearer badge colors for connected / warning / error
+- optional filter on sync history by status/date
+
+9) Operational test plan
+Please test and confirm all of these explicitly:
+- first-time connect works
+- sync works immediately after connect
+- access token expiry is simulated and refresh works automatically
+- forced 401 triggers one refresh-and-retry only
+- revoked credential shows reconnect required
+- wrong file path shows clean file-not-found message
+- malformed Excel shows parse_error without partial import
+- scheduled job calls the exact same service logic as the UI
+- disconnect removes active status but preserves history
+- reconnect after disconnect works cleanly
+
+10) Logging and observability
+- Keep structured logs for auth, refresh, metadata fetch, download, parse, import, completion
+- Never log tokens or authorization codes
+- Include sync log id in application logs so we can trace problems easily
+- Log row counts, durations, and final status
+
+11) CLI / scheduled job quality
+For python -m jobs.dropbox_sync:
+- print a concise operational summary
+- exit 0 on success/success_no_change
+- exit non-zero on failure
+- ensure app context and DB session cleanup are correct
+- ensure the command can be reused in Replit scheduled deployment
+
+12) Permission checks
+- Confirm all Dropbox integration routes are admin-only
+- Confirm CSRF protection is active on POST routes
+- Confirm callback route handles invalid/missing state cleanly
+- Confirm integration UI is not accessible to non-admin users
+
+13) Future-proofing
+Without overengineering, keep the pattern generic enough that later we can reuse it for:
+- Dropbox file imports for other reports
+- Google Drive / OneDrive style connectors
+- multiple file processors
+
+14) Final deliverables I want from you
+After the hardening pass, give me:
+- the final list of files created/changed
+- the migration name
+- the exact secrets required
+- the production callback URL format
+- the manual test checklist results
+- any remaining limitations or edge cases
+
+If any of the above is already implemented, verify it explicitly rather than assuming it is covered.
