@@ -110,7 +110,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             </div>
             <div>
                 <select class="form-select form-select-sm" name="state" style="width:110px; font-size:0.78rem;">
-                    <option value="">State</option>
+                    <option value="">All</option>
                     {% for st in ['follow_up','waiting','ordered','done'] %}
                     <option value="{{ st }}" {% if filters.state == st %}selected{% endif %}>{{ st | replace('_',' ') | title }}</option>
                     {% endfor %}
