@@ -518,18 +518,16 @@ def _run_ftp_price_master_sync():
 def _run_dropbox_cost_import():
     try:
         from app import app
-        from services.dropbox_service import sync_dropbox_file, get_dropbox_status
+        from services.dropbox_service import sync_dropbox_file
         logger.info("=" * 60)
         logger.info("STARTING SCHEDULED DROPBOX COST IMPORT")
         logger.info("=" * 60)
         with app.app_context():
-            status = get_dropbox_status()
-            if not status.get('connected'):
-                logger.info("Dropbox not connected — skipping scheduled cost import")
-                return
             log = sync_dropbox_file(skip_unchanged=True)
             if log.status == 'success_no_change':
                 logger.info("DROPBOX COST IMPORT: File unchanged — no update needed")
+            elif log.status in ('config_error', 'auth_error'):
+                logger.error(f"DROPBOX COST IMPORT FAILED: {log.error_message}")
             else:
                 md = log.metadata_json or {}
                 logger.info(
