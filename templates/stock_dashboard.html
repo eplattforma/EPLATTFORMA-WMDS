@@ -20,6 +20,9 @@
             <button id="refreshBtn" class="btn btn-primary">
                 <i class="fas fa-sync me-1"></i>Refresh Exp Dates
             </button>
+            <button id="updateCostsBtn" class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#updateCostsModal">
+                <i class="fas fa-euro-sign me-1"></i>Update Costs
+            </button>
             <a href="{{ url_for('item_scanner.scan_item_page') }}" class="btn btn-success ms-2">
                 <i class="fas fa-search me-1"></i>Find Item
             </a>
@@ -185,6 +188,32 @@
     </div>
 </div>
 
+<!-- Update Costs Modal -->
+<div class="modal fade" id="updateCostsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-euro-sign me-2"></i>Update Item Costs</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="card border-warning">
+                    <div class="card-body text-center">
+                        <h6 class="card-title"><i class="fas fa-robot me-1 text-warning"></i> Fetch Costs from ERP</h6>
+                        <p class="card-text text-muted small mb-3">Exports the Item Catalogue report (with Cost column) from Powersoft365 and updates cost prices for all items in the database.</p>
+                        <button id="erpCostBtn" type="button" class="btn btn-warning" onclick="refreshCostsFromERP()">
+                            <i class="fas fa-download me-1"></i>Fetch Costs from ERP
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 // Toggle detail rows
 window.toggleDetails = function(button) {
@@ -340,6 +369,45 @@ window.refreshFromERP = async function() {
         erpBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch from ERP';
         topBtn.disabled = false;
         topBtn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
+    }
+};
+
+window.refreshCostsFromERP = async function() {
+    const costBtn = document.getElementById('erpCostBtn');
+    const topBtn = document.getElementById('updateCostsBtn');
+    costBtn.disabled = true;
+    costBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Fetching costs from ERP...';
+    topBtn.disabled = true;
+    topBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Updating...';
+
+    try {
+        const response = await fetch('{{ url_for("erp_bot.erp_refresh_item_costs") }}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('updateCostsModal'));
+            if (modal) modal.hide();
+            alert(`✅ ${data.message}`);
+            location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+            costBtn.disabled = false;
+            costBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch Costs from ERP';
+            topBtn.disabled = false;
+            topBtn.innerHTML = '<i class="fas fa-euro-sign me-1"></i>Update Costs';
+        }
+    } catch (error) {
+        alert(`❌ Error: ${error.message}`);
+        costBtn.disabled = false;
+        costBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch Costs from ERP';
+        topBtn.disabled = false;
+        topBtn.innerHTML = '<i class="fas fa-euro-sign me-1"></i>Update Costs';
     }
 };
 

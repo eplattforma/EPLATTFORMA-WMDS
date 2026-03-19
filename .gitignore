@@ -27,3 +27,9 @@ Thumbs.db
 # Local export archives (do not commit)
 warehouse-system-export.tar.gz
 warehouse-system-export.zip
+
+# ERP bot runtime data (auth state, exports, screenshots)
+data/erp_auth_state/
+data/erp_exports/
+data/erp_downloads/
+data/erp_screenshots/

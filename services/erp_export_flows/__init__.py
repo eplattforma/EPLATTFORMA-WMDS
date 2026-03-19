@@ -1,8 +1,10 @@
 from services.erp_export_flows.base import BaseExportFlow
 from services.erp_export_flows.stock_position import StockPositionExportFlow
+from services.erp_export_flows.item_catalogue import ItemCatalogueExportFlow
 
 EXPORT_FLOWS = {
     'stock_position': StockPositionExportFlow,
+    'item_catalogue': ItemCatalogueExportFlow,
 }
 
 

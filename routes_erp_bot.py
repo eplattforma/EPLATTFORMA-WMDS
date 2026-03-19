@@ -146,6 +146,44 @@ def erp_refresh_stock_positions():
         return {'success': False, 'error': str(e)}, 500
 
 
+@erp_bot_bp.route('/refresh-item-costs', methods=['POST'])
+@login_required
+def erp_refresh_item_costs():
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        return {'success': False, 'error': 'Access denied'}, 403
+
+    from services.erp_export_bot import check_concurrent_run, run_export_sync
+
+    if check_concurrent_run('item_catalogue'):
+        return {'success': False, 'error': 'Item catalogue export is already running'}, 409
+
+    try:
+        result = run_export_sync('item_catalogue', triggered_by=f'manual:{current_user.username}')
+
+        if result.get('status') == 'success':
+            post = result.get('post_process', {})
+            return {
+                'success': True,
+                'message': (
+                    f"Updated {post.get('items_updated', 0):,} item costs from ERP"
+                    f" ({post.get('items_not_found', 0)} not in DW,"
+                    f" {post.get('items_skipped', 0)} skipped)"
+                ),
+                'items_updated': post.get('items_updated', 0),
+                'items_not_found': post.get('items_not_found', 0),
+                'file_name': result.get('file_name'),
+                'file_size': result.get('file_size'),
+            }
+        else:
+            return {
+                'success': False,
+                'error': result.get('error_message', 'Export failed'),
+            }, 500
+    except Exception as e:
+        logger.error(f"ERP item cost refresh failed: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}, 500
+
+
 @erp_bot_bp.route('/download/<int:run_id>')
 @admin_required
 def erp_bot_download(run_id):
