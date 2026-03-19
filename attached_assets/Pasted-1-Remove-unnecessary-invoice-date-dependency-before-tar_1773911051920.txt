@@ -1,0 +1,358 @@
+1) Remove unnecessary invoice-date dependency before targeted DW catch-up
+Problem
+
+In background_sync._run_invoice_sync(), when we have invoice_no and no import_date, the code first calls _resolve_invoice_date_from_ps365(invoice_no) and only runs sync_invoice_to_dw() if a date was resolved.
+
+This is unnecessary because sync_invoice_to_dw() already works by invoice number only.
+
+Bad current behavior
+
+If invoice date resolution fails:
+
+operational sync may succeed
+
+but targeted DW catch-up is skipped
+
+even though invoice-number-based catch-up could still work
+
+Required fix
+
+In _run_invoice_sync():
+
+For single-invoice mode
+
+When:
+
+invoice_no is provided
+
+import_date is empty
+
+then call:
+
+sync_invoice_to_dw(db.session, invoice_no, sync_trigger='operator', refresh_mv=False)
+
+directly
+
+Keep _resolve_invoice_date_from_ps365() only if needed for:
+
+optional logging
+
+optional display text
+
+fallback diagnostics
+
+But do not gate DW catch-up on resolved_date.
+
+Desired behavior
+
+Single-invoice DW catch-up must run as long as:
+
+operational sync succeeded
+
+invoice number is available
+
+even if invoice-date lookup fails.
+
+2) Make targeted single-invoice catch-up fully lightweight for store/cashier handling
+Problem
+
+sync_invoice_to_dw() is now scoped for headers/lines, but at the end it still calls:
+
+sync_invoice_stores(session)
+
+sync_invoice_cashiers(session)
+
+These functions scan distinct values across the whole dw_invoice_header table, which makes single-invoice catch-up heavier than it should be.
+
+Required fix
+
+Create small targeted helpers, for example:
+
+_sync_invoice_store_for_header(session, invoice_no_365)
+
+_sync_invoice_cashier_for_header(session, invoice_no_365)
+
+Behavior
+
+For the given invoice number:
+
+load that one DW invoice header
+
+read:
+
+store_code_365
+
+user_code_365
+
+upsert only that specific store/cashier into:
+
+dw_store
+
+dw_cashier
+
+Important
+
+Keep existing:
+
+sync_invoice_stores(session)
+
+sync_invoice_cashiers(session)
+
+for normal full/date-range sync.
+
+But in sync_invoice_to_dw() replace the global calls with targeted ones only.
+
+Goal
+
+A targeted invoice catch-up should only touch:
+
+the invoice header
+
+its invoice lines
+
+its store
+
+its cashier
+
+It must not scan all historical DW headers just to sync one invoice.
+
+3) Normalize scoped preload date parameters to real date objects
+Problem
+
+The scoped preload helpers currently compare DwInvoiceHeader.invoice_date_utc0 to values that are often passed in as strings like "2026-03-19".
+
+This may work due to implicit DB casting, but it is not clean or robust.
+
+Required fix
+
+Normalize inputs before filtering.
+
+Add helper
+
+Create a small helper, for example:
+
+_coerce_to_date(value)
+
+Behavior:
+
+if already date, return it
+
+if datetime, return .date()
+
+if string YYYY-MM-DD, parse to date
+
+if None, return None
+
+if invalid format, raise clear exception
+
+Use it in:
+
+_load_existing_invoice_headers_map()
+
+_load_existing_invoice_line_keys()
+
+and anywhere else scoped date filtering is performed.
+
+Desired behavior
+
+All DB date filters should compare invoice_date_utc0 to actual Python date values, not raw strings.
+
+4) Remove N+1 duplicate checks in sync_invoice_headers_from_date()
+Problem
+
+Inside sync_invoice_headers_from_date() the code still does one DB query per invoice:
+
+session.query(DwInvoiceHeader).filter_by(invoice_no_365=invoice_no).first()
+
+This is inefficient for larger date ranges.
+
+Required fix
+
+Use a preloaded scoped header set instead of querying per row.
+
+Approach
+
+Before looping through PS365 header results:
+
+load existing header invoice numbers for the requested date range using a scoped helper
+
+Then inside the loop:
+
+use set membership to decide if header already exists
+
+Acceptable implementation
+
+Either:
+
+reuse _load_existing_invoice_headers_map(...)
+
+or add a smaller helper that returns just existing invoice numbers for the date range
+
+Goal
+
+No row-by-row existence check query for every incoming invoice header.
+
+5) Do not close caller-owned SQLAlchemy session inside sync_invoices_from_date()
+Problem
+
+In the exception path of sync_invoices_from_date() the code does:
+
+session.rollback()
+
+session.close()
+
+This function receives the session from the caller, so it should not close it unless session ownership is explicit.
+
+Required fix
+
+Remove session.close() from sync_invoices_from_date().
+
+Keep
+
+session.rollback()
+
+Do not do
+
+session.close()
+
+Goal
+
+The caller remains responsible for session lifecycle.
+
+6) Minor cleanup
+
+These are not business-critical but should be cleaned now:
+
+Remove dead code / leftovers
+
+remove if True: in _run_invoice_sync()
+
+remove unused max_retries / retry_count
+
+remove unused page_new_lines_info
+
+remove other unused locals if any
+
+Align header hash payload
+
+_sync_single_invoice_header() currently builds a narrower attr_hash payload than the normal header sync path.
+
+Please align it with the same logical fields used in normal header sync, unless there is a deliberate reason not to.
+
+Goal:
+
+avoid inconsistent hash semantics between single-invoice sync and date-range sync
+
+Important structural check
+
+In the pasted version, background_sync.py appeared appended directly after the __main__ block of datawarehouse_sync.py.
+
+Action
+
+Please verify that in the actual codebase these are still separate files:
+
+datawarehouse_sync.py
+
+background_sync.py
+
+If they were accidentally merged during editing, split them back immediately.
+
+Acceptance criteria
+A. Single-invoice catch-up no longer depends on resolved invoice date
+
+When operational sync succeeds for one invoice:
+
+targeted DW catch-up runs by invoice number
+
+it does not get skipped just because invoice-date lookup failed
+
+B. Targeted catch-up does not scan all stores/cashiers
+
+For single-invoice DW catch-up:
+
+only that invoice’s store is upserted
+
+only that invoice’s cashier is upserted
+
+no full-table distinct scan is used in this path
+
+C. Scoped preload uses real dates
+
+Date filtering in scoped preload helpers uses parsed date values, not raw strings.
+
+D. Header sync no longer does N+1 duplicate queries
+
+Duplicate check for headers uses a preloaded set/map, not one query per invoice.
+
+E. sync_invoices_from_date() does not close external session
+
+On error:
+
+rollback happens
+
+session is not closed by the function
+
+F. Code is cleaned
+
+No if True:, no unused retry variables, no unused temp variables left.
+
+Testing required
+Test 1: single invoice background sync with failed date resolution
+
+Simulate _resolve_invoice_date_from_ps365() returning None or failing.
+
+Expected:
+
+operational sync success still leads to sync_invoice_to_dw(...)
+
+targeted DW catch-up still runs by invoice number
+
+Test 2: targeted catch-up DB footprint
+
+Trigger sync_invoice_to_dw() for one invoice.
+
+Verify:
+
+header/line preload is scoped
+
+store/cashier sync is targeted
+
+no global distinct scan over all DW headers in this path
+
+Test 3: normal date-range invoice sync
+
+Run normal date-range DW sync.
+
+Verify:
+
+full flow still works
+
+global store/cashier sync still works there
+
+no regression
+
+Test 4: exception handling
+
+Force an exception inside sync_invoices_from_date().
+
+Verify:
+
+rollback occurs
+
+caller session is not closed unexpectedly
+
+Deliverables
+
+Please provide:
+
+summary of each fix applied
+
+list of functions changed
+
+confirmation that single-invoice catch-up no longer depends on invoice-date resolution
+
+confirmation that store/cashier sync in targeted mode is no longer global
+
+confirmation that scoped date filters now use date objects
+
+confirmation that session.close() was removed from sync_invoices_from_date()

@@ -1115,6 +1115,25 @@ def _build_cost_fields(invoice_date, item_code, quantity, line_total_excl, item_
 # SCOPED PRELOAD HELPERS
 # ----------------------
 
+def _coerce_to_date(value):
+    """
+    Normalize a value to a Python date object for safe DB comparison.
+    Accepts: date, datetime, 'YYYY-MM-DD' string, or None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError(f"Cannot parse date string '{value}' — expected YYYY-MM-DD format")
+    raise TypeError(f"Cannot coerce {type(value).__name__} to date")
+
+
 def _load_existing_invoice_headers_map(session: Session, invoice_nos=None, date_from=None, date_to=None):
     """
     Load existing invoice headers for fast lookup, scoped to a subset.
@@ -1133,9 +1152,9 @@ def _load_existing_invoice_headers_map(session: Session, invoice_nos=None, date_
     if invoice_nos is not None:
         q = q.filter(DwInvoiceHeader.invoice_no_365.in_(invoice_nos))
     elif date_from is not None:
-        q = q.filter(DwInvoiceHeader.invoice_date_utc0 >= date_from)
+        q = q.filter(DwInvoiceHeader.invoice_date_utc0 >= _coerce_to_date(date_from))
         if date_to is not None:
-            q = q.filter(DwInvoiceHeader.invoice_date_utc0 <= date_to)
+            q = q.filter(DwInvoiceHeader.invoice_date_utc0 <= _coerce_to_date(date_to))
 
     for row in q.all():
         existing_headers_set.add(row[0])
@@ -1160,10 +1179,10 @@ def _load_existing_invoice_line_keys(session: Session, invoice_nos=None, date_fr
         q = q.filter(DwInvoiceLine.invoice_no_365.in_(invoice_nos))
     elif date_from is not None:
         hdr_nos = session.query(DwInvoiceHeader.invoice_no_365).filter(
-            DwInvoiceHeader.invoice_date_utc0 >= date_from
+            DwInvoiceHeader.invoice_date_utc0 >= _coerce_to_date(date_from)
         )
         if date_to is not None:
-            hdr_nos = hdr_nos.filter(DwInvoiceHeader.invoice_date_utc0 <= date_to)
+            hdr_nos = hdr_nos.filter(DwInvoiceHeader.invoice_date_utc0 <= _coerce_to_date(date_to))
         q = q.filter(DwInvoiceLine.invoice_no_365.in_(hdr_nos))
 
     for row in q.all():
@@ -1202,7 +1221,15 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
     
     logger.info(f"Syncing invoice headers from {date_from} to {date_to if date_to else 'today'}")
     logger.info(f"API invoice date filter: {from_date} to {to_date}")
-    
+
+    existing_header_nos = set(
+        row[0] for row in session.query(DwInvoiceHeader.invoice_no_365).filter(
+            DwInvoiceHeader.invoice_date_utc0 >= _coerce_to_date(date_from),
+            DwInvoiceHeader.invoice_date_utc0 <= _coerce_to_date(date_to or datetime.now().strftime("%Y-%m-%d"))
+        ).all()
+    )
+    logger.info(f"Pre-loaded {len(existing_header_nos)} existing header invoice numbers for date range")
+
     while True:
         try:
             payload = {
@@ -1258,11 +1285,7 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 }
                 attr_hash = _compute_hash(hash_data)
                 
-                # Check if exists (skip if it does - headers don't change)
-                existing = session.query(DwInvoiceHeader).filter_by(invoice_no_365=invoice_no).first()
-                
-                if existing:
-                    # Header already exists - skip it since headers don't change
+                if invoice_no in existing_header_nos:
                     all_headers.append(invoice_no)
                     continue
                 
@@ -1302,6 +1325,7 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
                 )
                 session.add(header)
                 inserted += 1
+                existing_header_nos.add(invoice_no)
                 
                 all_headers.append(invoice_no)
             
@@ -1727,9 +1751,6 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
     logger.info(f"Log file: {log_file}")
     logger.info(f"{'='*80}\n")
     
-    max_retries = 3
-    retry_count = 0
-    
     try:
         _update_invoice_sync_status(session, "RUNNING", "Syncing invoice headers...")
         h_ins, h_upd = sync_invoice_headers_from_date(session, date_from, date_to)
@@ -1799,7 +1820,6 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         import traceback
         error_msg = str(e)[:200]
         session.rollback()
-        session.close()
         
         # Log the full error details including SSL connection errors
         if 'SSL' in str(e) or 'connection' in str(e).lower():
@@ -1866,6 +1886,22 @@ def _sync_single_invoice_header(session: Session, invoice_no_365: str) -> int:
         invoice_type = inv.get("invoice_type")
         sign = _get_invoice_type_sign(invoice_type)
 
+        hash_data = {
+            "invoice_no_365": inv_no,
+            "invoice_type": invoice_type,
+            "invoice_date_utc0": inv.get("invoice_date_utc0"),
+            "customer_code_365": inv.get("customer_code_365"),
+            "store_code_365": inv.get("store_code_365"),
+            "user_code_365": inv.get("user_code_365"),
+            "total_sub": str(inv.get("total_sub")),
+            "total_discount": str(inv.get("total_discount")),
+            "total_vat": str(inv.get("total_vat")),
+            "total_grand": str(inv.get("total_grand")),
+            "points_earned": str(inv.get("points_earned")),
+            "points_redeemed": str(inv.get("points_redeemed")),
+        }
+        attr_hash = _compute_hash(hash_data)
+
         header = DwInvoiceHeader(
             invoice_no_365=inv_no,
             invoice_type=invoice_type,
@@ -1879,13 +1915,7 @@ def _sync_single_invoice_header(session: Session, invoice_no_365: str) -> int:
             total_grand=(inv.get("total_grand") or 0) * sign,
             points_earned=inv.get("points_earned"),
             points_redeemed=inv.get("points_redeemed"),
-            attr_hash=_compute_hash({
-                "invoice_no_365": inv_no,
-                "invoice_type": invoice_type,
-                "invoice_date_utc0": str(inv_date),
-                "customer_code_365": inv.get("customer_code_365"),
-                "total_grand": str(inv.get("total_grand")),
-            }),
+            attr_hash=attr_hash,
             last_sync_at=utc_now_for_db()
         )
         session.add(header)
@@ -1896,6 +1926,60 @@ def _sync_single_invoice_header(session: Session, invoice_no_365: str) -> int:
         session.commit()
 
     return inserted
+
+
+def _sync_invoice_store_for_header(session: Session, invoice_no_365: str):
+    """Upsert only the store for a specific invoice header into dw_store."""
+    header = session.query(DwInvoiceHeader).filter_by(invoice_no_365=invoice_no_365).first()
+    if not header or not header.store_code_365:
+        return 0, 0
+    store_code = header.store_code_365
+    hash_data = {"store_code_365": store_code}
+    attr_hash = _compute_hash(hash_data)
+    existing = session.query(DwStore).filter_by(store_code_365=store_code).first()
+    if existing:
+        if existing.attr_hash != attr_hash:
+            existing.attr_hash = attr_hash
+            existing.last_sync_at = utc_now_for_db()
+            session.commit()
+            return 0, 1
+        return 0, 0
+    store = DwStore(
+        store_code_365=store_code,
+        store_name=store_code,
+        attr_hash=attr_hash,
+        last_sync_at=utc_now_for_db()
+    )
+    session.add(store)
+    session.commit()
+    return 1, 0
+
+
+def _sync_invoice_cashier_for_header(session: Session, invoice_no_365: str):
+    """Upsert only the cashier for a specific invoice header into dw_cashier."""
+    header = session.query(DwInvoiceHeader).filter_by(invoice_no_365=invoice_no_365).first()
+    if not header or not header.user_code_365:
+        return 0, 0
+    user_code = header.user_code_365
+    hash_data = {"user_code_365": user_code}
+    attr_hash = _compute_hash(hash_data)
+    existing = session.query(DwCashier).filter_by(user_code_365=user_code).first()
+    if existing:
+        if existing.attr_hash != attr_hash:
+            existing.attr_hash = attr_hash
+            existing.last_sync_at = utc_now_for_db()
+            session.commit()
+            return 0, 1
+        return 0, 0
+    cashier = DwCashier(
+        user_code_365=user_code,
+        user_name=user_code,
+        attr_hash=attr_hash,
+        last_sync_at=utc_now_for_db()
+    )
+    session.add(cashier)
+    session.commit()
+    return 1, 0
 
 
 def sync_invoice_to_dw(session: Session, invoice_no_365: str, sync_trigger: str = 'operator', refresh_mv: bool = False):
@@ -1911,18 +1995,6 @@ def sync_invoice_to_dw(session: Session, invoice_no_365: str, sync_trigger: str 
     logger.info(f"Starting targeted DW catch-up for invoice {invoice_no_365}")
 
     try:
-        existing_headers_set, invoice_type_map, invoice_header_map = _load_existing_invoice_headers_map(
-            session, invoice_nos=[invoice_no_365]
-        )
-
-        inv_date = None
-        if invoice_no_365 in invoice_header_map:
-            inv_date = invoice_header_map[invoice_no_365].get("date")
-        if inv_date:
-            inv_date_str = inv_date.isoformat() if hasattr(inv_date, "isoformat") else str(inv_date)
-        else:
-            inv_date_str = datetime.now().strftime("%Y-%m-%d")
-
         h_ins = _sync_single_invoice_header(session, invoice_no_365)
 
         existing_headers_set, invoice_type_map, invoice_header_map = _load_existing_invoice_headers_map(
@@ -1966,7 +2038,6 @@ def sync_invoice_to_dw(session: Session, invoice_no_365: str, sync_trigger: str 
                     break
 
                 page_new_item_codes = set()
-                page_new_lines_info = []
                 for inv in invoices:
                     inv_no = _extract_invoice_no(inv)
                     if not inv_no or inv_no != invoice_no_365:
@@ -2069,8 +2140,8 @@ def sync_invoice_to_dw(session: Session, invoice_no_365: str, sync_trigger: str 
                 session.rollback()
                 break
 
-        s_ins, s_upd = sync_invoice_stores(session)
-        u_ins, u_upd = sync_invoice_cashiers(session)
+        s_ins, s_upd = _sync_invoice_store_for_header(session, invoice_no_365)
+        u_ins, u_upd = _sync_invoice_cashier_for_header(session, invoice_no_365)
 
         logger.info("Skipping materialized view refresh (operator catch-up / lightweight mode)")
 

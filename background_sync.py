@@ -76,46 +76,6 @@ def is_sync_running(sync_type="invoices"):
                 pass
         return True
 
-def _resolve_invoice_date_from_ps365(invoice_no: str):
-    """Resolve invoice date from PS365 API for a given invoice number."""
-    try:
-        from ps365_client import call_ps365
-
-        payload = {
-            "filter_define": {
-                "only_counted": "N",
-                "page_number": 1,
-                "page_size": 10,
-                "invoice_type": "all",
-                "invoice_number_selection": invoice_no,
-                "invoice_customer_code_selection": "",
-                "invoice_customer_name_selection": "",
-                "invoice_customer_email_selection": "",
-                "invoice_customer_phone_selection": "",
-                "from_date": "",
-                "to_date": "",
-            }
-        }
-
-        response = call_ps365("list_loyalty_invoices_header", payload)
-        invoices = response.get("list_invoices", []) or []
-        if not invoices:
-            return None
-
-        inv_date = invoices[0].get("invoice_date_utc0")
-        if not inv_date:
-            return None
-
-        if isinstance(inv_date, str):
-            from datetime import datetime as dt_cls
-            return dt_cls.fromisoformat(inv_date.replace("Z", "+00:00")).date().isoformat()
-
-        return inv_date.date().isoformat() if hasattr(inv_date, "date") else str(inv_date)
-    except Exception as e:
-        logging.warning(f"Could not resolve invoice date from PS365 for {invoice_no}: {e}")
-        return None
-
-
 def _run_invoice_sync(app, invoice_no, import_date):
     """Background worker for invoice sync with proper status lifecycle."""
     from services_powersoft import sync_invoices_from_ps365
@@ -158,34 +118,27 @@ def _run_invoice_sync(app, invoice_no, import_date):
             )
 
             final_progress = "Completed"
-            if True:
-                from app import db
+            from app import db
 
-                if invoice_no and not import_date:
-                    logging.info(f"Single-invoice catch-up: resolving date for {invoice_no}...")
-                    _update_status("invoices", progress="Resolving invoice date for DW catch-up...")
-                    resolved_date = _resolve_invoice_date_from_ps365(invoice_no)
-                    logging.info(f"Resolved DW catch-up date: {resolved_date}")
+            if invoice_no and not import_date:
+                try:
+                    from datawarehouse_sync import sync_invoice_to_dw
+                    _update_status("invoices", progress=f"Updating data warehouse for invoice {invoice_no}...")
+                    sync_invoice_to_dw(db.session, invoice_no, sync_trigger='operator', refresh_mv=False)
+                    logging.info(f"DW catch-up completed for invoice {invoice_no}")
+                except Exception as dw_err:
+                    logging.error(f"DW catch-up failed (operational sync still OK): {dw_err}")
+                    final_progress = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
 
-                    if resolved_date:
-                        try:
-                            from datawarehouse_sync import sync_invoice_to_dw
-                            _update_status("invoices", progress=f"Updating data warehouse for invoice {invoice_no}...")
-                            sync_invoice_to_dw(db.session, invoice_no, sync_trigger='operator', refresh_mv=False)
-                            logging.info(f"DW catch-up completed for invoice {invoice_no}")
-                        except Exception as dw_err:
-                            logging.error(f"DW catch-up failed (operational sync still OK): {dw_err}")
-                            final_progress = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
-
-                elif import_date:
-                    try:
-                        from datawarehouse_sync import sync_invoices_from_date
-                        _update_status("invoices", progress=f"Updating data warehouse for {import_date}...")
-                        sync_invoices_from_date(db.session, import_date, import_date, sync_trigger='operator', refresh_mv=False)
-                        logging.info(f"DW catch-up completed for date {import_date}")
-                    except Exception as dw_err:
-                        logging.error(f"DW catch-up failed (operational sync still OK): {dw_err}")
-                        final_progress = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
+            elif import_date:
+                try:
+                    from datawarehouse_sync import sync_invoices_from_date
+                    _update_status("invoices", progress=f"Updating data warehouse for {import_date}...")
+                    sync_invoices_from_date(db.session, import_date, import_date, sync_trigger='operator', refresh_mv=False)
+                    logging.info(f"DW catch-up completed for date {import_date}")
+                except Exception as dw_err:
+                    logging.error(f"DW catch-up failed (operational sync still OK): {dw_err}")
+                    final_progress = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
 
             _update_status("invoices",
                 progress=final_progress,
