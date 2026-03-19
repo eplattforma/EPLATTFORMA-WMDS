@@ -2,7 +2,22 @@
 {% block title %}Dropbox Integration — Admin{% endblock %}
 
 {% block content %}
-<div class="container mt-4 mb-5">
+<style>
+    .dbx-page .card { color: #212529; }
+    .dbx-page .card .text-muted { color: #6c757d !important; }
+    .dbx-page .card .badge { color: inherit; }
+    .dbx-page .card .badge.bg-success,
+    .dbx-page .card .badge.bg-danger,
+    .dbx-page .card .badge.bg-primary,
+    .dbx-page .card .badge.bg-secondary,
+    .dbx-page .card .badge.bg-info { color: #fff !important; }
+    .dbx-page .card .badge.bg-warning { color: #212529 !important; }
+    .dbx-page .card .table { color: #212529; }
+    .dbx-page .card .alert { color: inherit; }
+    .dbx-page .card a:not(.btn) { color: #0d6efd; }
+    .dbx-page h4 { color: #f8f9fa; }
+</style>
+<div class="container mt-4 mb-5 dbx-page">
     <div class="d-flex align-items-center mb-4">
         <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm me-3">
             <i class="fas fa-arrow-left"></i>
