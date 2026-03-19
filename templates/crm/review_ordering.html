@@ -151,16 +151,6 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 </div>
             </div>
             <div>
-                <input type="number" class="form-control form-control-sm" name="logged_in_days" value="{{ filters.logged_in_days }}" placeholder="Login ≤ d" style="width:75px; font-size:0.78rem;">
-            </div>
-            <div>
-                <select class="form-select form-select-sm" name="ordered" style="width:105px; font-size:0.78rem;">
-                    <option value="">Ordered</option>
-                    <option value="ordered" {% if filters.ordered == 'ordered' %}selected{% endif %}>Yes</option>
-                    <option value="not_ordered" {% if filters.ordered == 'not_ordered' %}selected{% endif %}>No</option>
-                </select>
-            </div>
-            <div>
                 <select class="form-select form-select-sm" name="delivery_slot" style="width:130px; font-size:0.78rem;">
                     <option value="">Delivery Slot</option>
                     {% for s in all_delivery_slots %}
@@ -386,7 +376,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 
         <div class="drawer-section">
             <div class="drawer-section-title">Action Log</div>
-            <div class="text-muted small" style="font-style:italic;">Coming soon</div>
+            <div id="drawer-action-log" style="font-size:0.75rem;max-height:200px;overflow-y:auto;"></div>
         </div>
 
         <div class="drawer-section">
@@ -472,6 +462,28 @@ function openDrawer(idx) {
     document.getElementById('drawer-assisted').checked = !!r.assisted_ordering;
     document.getElementById('drawer-expected').checked = !!r.expected_this_cycle;
     document.getElementById('drawer-note').value = r.review_note || '';
+
+    // Populate action log with message history
+    var actionLog = document.getElementById('drawer-action-log');
+    if (r.msg_history && r.msg_history.length > 0) {
+        var html = '';
+        var chLabels = {microsms:'SMS',push:'Push',phone_sms:'Phone SMS',whatsapp:'WhatsApp',viber:'Viber'};
+        for (var i = 0; i < r.msg_history.length; i++) {
+            var msg = r.msg_history[i];
+            var chLabel = chLabels[msg.channel] || msg.channel;
+            var dAgo = msg.days_ago !== null ? msg.days_ago + 'd ago' : 'Recently';
+            var title = msg.template_title ? ' · ' + msg.template_title : '';
+            html += '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.08);">';
+            html += '<div><strong style="color:#20c997;">' + chLabel + '</strong> · ' + dAgo + title + '</div>';
+            if (msg.message_text) {
+                html += '<div style="color:#adb5bd;margin-top:3px;word-break:break-word;">' + msg.message_text.substring(0, 100) + (msg.message_text.length > 100 ? '...' : '') + '</div>';
+            }
+            html += '</div>';
+        }
+        actionLog.innerHTML = html;
+    } else {
+        actionLog.innerHTML = '<div class="text-muted" style="padding:8px;">No messages sent</div>';
+    }
 
     var actionsDiv = document.getElementById('drawer-actions');
     actionsDiv.innerHTML = '';

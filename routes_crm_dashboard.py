@@ -724,6 +724,7 @@ def review_ordering():
     ) if x[0]]
 
     comm_map = {}
+    comm_list_map = {}
     if all_codes:
         comm_logs = (
             CRMCommunicationLog.query
@@ -746,6 +747,18 @@ def review_ordering():
                     "days_ago": (now_utc - cl.created_at.replace(tzinfo=timezone.utc)).days if cl.created_at else None,
                     "message_text": cl.message_text or "",
                 }
+            # Build full message list (up to 20 most recent)
+            if cl.customer_code_365 not in comm_list_map:
+                comm_list_map[cl.customer_code_365] = []
+            if len(comm_list_map[cl.customer_code_365]) < 20:
+                comm_list_map[cl.customer_code_365].append({
+                    "channel": cl.channel,
+                    "created_at": cl.created_at.isoformat() if cl.created_at else None,
+                    "template_title": cl.template_title,
+                    "created_by": cl.created_by_username,
+                    "days_ago": (now_utc - cl.created_at.replace(tzinfo=timezone.utc)).days if cl.created_at else None,
+                    "message_text": cl.message_text or "",
+                })
 
     from services.crm_price_offers import load_offer_summary_map, compute_offer_indicator, compute_offer_kpi_from_summaries
     ro_offer_map = load_offer_summary_map(all_codes)
@@ -860,6 +873,7 @@ def review_ordering():
             "review_note": review_rec.review_note if review_rec else "",
             "outcome_reason": review_rec.outcome_reason if review_rec else "",
             "last_comm": comm_map.get(r.customer_code_365),
+            "msg_history": comm_list_map.get(r.customer_code_365, []),
         }
         ros = ro_offer_map.get(r.customer_code_365, {})
         row["has_special_pricing"] = ros.get("has_special_pricing", False)
