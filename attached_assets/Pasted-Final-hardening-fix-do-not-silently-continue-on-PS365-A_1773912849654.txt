@@ -1,0 +1,192 @@
+Final hardening fix: do not silently continue on PS365 API error responses
+
+The recent exception-propagation fix was correct, but there is still one remaining partial-success path.
+
+Problem
+
+In some sync loops, when the PS365 API returns a response with:
+
+api_response.response_code != "1"
+
+the code currently does:
+
+log error
+
+break
+
+This is still unsafe because it can produce:
+
+partial import
+
+normal return from the function
+
+parent sync looking completed or partially successful when the API actually failed mid-run
+
+We already fixed Python exception failures.
+Now we must also fix PS365-declared API failures.
+
+Required change
+Goal
+
+If PS365 returns a non-success API response for a page, the sync must raise, not break.
+
+That way the failure propagates to:
+
+sync_invoices_from_date()
+
+sync_invoice_to_dw()
+
+background_sync.py
+
+and the run is marked correctly.
+
+Functions to update
+1) sync_invoice_headers_from_date()
+Current behavior
+
+Inside the page loop, this pattern still exists:
+
+if api_resp.get("response_code") != "1":
+    logger.error(f"PS365 API Error: {api_resp}")
+    break
+Required change
+
+Replace with a raised error.
+
+Desired pattern
+
+Use something like:
+
+if api_resp.get("response_code") != "1":
+    msg = api_resp.get("response_msg") or str(api_resp)
+    logger.error(f"PS365 API Error on invoice headers page {page}: {msg}")
+    raise RuntimeError(f"PS365 API error in sync_invoice_headers_from_date on page {page}: {msg}")
+2) sync_invoice_lines_from_date()
+Current behavior
+
+Same issue exists there.
+
+Required change
+
+Replace the break branch with a raised error.
+
+Desired pattern
+if api_resp.get("response_code") != "1":
+    msg = api_resp.get("response_msg") or str(api_resp)
+    logger.error(f"PS365 API Error on invoice lines page {page}: {msg}")
+    raise RuntimeError(f"PS365 API error in sync_invoice_lines_from_date on page {page}: {msg}")
+3) sync_invoice_to_dw()
+Current behavior
+
+Same issue in the targeted single-invoice catch-up loop.
+
+Required change
+
+Replace the API-error break with a raise.
+
+Desired pattern
+if api_resp.get("response_code") != "1":
+    msg = api_resp.get("response_msg") or str(api_resp)
+    logger.error(f"PS365 API Error on targeted invoice {invoice_no_365} page {page}: {msg}")
+    raise RuntimeError(f"PS365 API error in sync_invoice_to_dw for invoice {invoice_no_365} on page {page}: {msg}")
+Important rule
+
+Do not change behavior for:
+
+normal loop completion when no more rows are returned
+
+valid empty pages at the end of pagination
+
+This change applies only when PS365 explicitly reports an API failure (response_code != "1").
+
+Why this matters
+
+After this change, both categories of failure will behave correctly:
+
+Already fixed
+
+Python exceptions during page processing → rollback + raise
+
+To fix now
+
+PS365 API non-success responses during page processing → raise
+
+This will eliminate the remaining silent partial-success path.
+
+Acceptance criteria
+A. Header sync
+
+If PS365 returns response_code != "1" on any header page:
+
+sync_invoice_headers_from_date() raises
+
+parent sync does not return as if successful
+
+B. Line sync
+
+If PS365 returns response_code != "1" on any invoice-lines page:
+
+sync_invoice_lines_from_date() raises
+
+sync_invoices_from_date() marks failure correctly
+
+C. Targeted invoice catch-up
+
+If PS365 returns response_code != "1" on any targeted invoice page:
+
+sync_invoice_to_dw() raises
+
+background sync records DW catch-up failure correctly
+
+D. No silent partial success from API-declared failure
+
+A mid-run PS365 API error must no longer produce a normal-looking completion.
+
+Testing required
+Test 1: header API failure
+
+Mock or force response_code != "1" in sync_invoice_headers_from_date().
+
+Expected:
+
+raised exception
+
+outer handler catches it
+
+sync marked failed
+
+Test 2: line API failure
+
+Mock or force response_code != "1" in sync_invoice_lines_from_date().
+
+Expected:
+
+raised exception
+
+no completed status for the overall sync
+
+Test 3: targeted invoice API failure
+
+Mock or force response_code != "1" in sync_invoice_to_dw().
+
+Expected:
+
+raised exception
+
+background sync shows DW catch-up failed
+
+Deliverables
+
+Please provide:
+
+exact functions changed
+
+confirmation that API-error break was replaced with raise
+
+confirmation that PS365-declared page failures now propagate upward
+
+confirmation that silent partial-success behavior is now removed for both:
+
+Python exceptions
+
+PS365 API non-success responses

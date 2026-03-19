@@ -1254,8 +1254,9 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
             api_resp = response.get("api_response", {})
             
             if api_resp.get("response_code") != "1":
-                logger.error(f"PS365 API Error: {api_resp}")
-                break
+                msg = api_resp.get("response_msg") or str(api_resp)
+                logger.error(f"PS365 API Error on invoice headers page {page}: {msg}")
+                raise RuntimeError(f"PS365 API error in sync_invoice_headers_from_date on page {page}: {msg}")
             
             invoices = response.get("list_invoices", []) or []
             logger.info(f"Page {page}: received {len(invoices)} invoices")
@@ -1422,8 +1423,9 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
             api_resp = response.get("api_response", {})
             
             if api_resp.get("response_code") != "1":
-                logger.error(f"PS365 API Error: {api_resp}")
-                break
+                msg = api_resp.get("response_msg") or str(api_resp)
+                logger.error(f"PS365 API Error on invoice lines page {page}: {msg}")
+                raise RuntimeError(f"PS365 API error in sync_invoice_lines_from_date on page {page}: {msg}")
             
             invoices = response.get("list_invoices", []) or []
             logger.info(f"Page {page}: received {len(invoices)} invoices with details")
@@ -2030,8 +2032,9 @@ def sync_invoice_to_dw(session: Session, invoice_no_365: str, sync_trigger: str 
                 response = call_ps365("list_loyalty_invoices", payload)
                 api_resp = response.get("api_response", {})
                 if api_resp.get("response_code") != "1":
-                    logger.error(f"PS365 API Error: {api_resp}")
-                    break
+                    msg = api_resp.get("response_msg") or str(api_resp)
+                    logger.error(f"PS365 API Error on targeted invoice {invoice_no_365} page {page}: {msg}")
+                    raise RuntimeError(f"PS365 API error in sync_invoice_to_dw for invoice {invoice_no_365} on page {page}: {msg}")
 
                 invoices = response.get("list_invoices", []) or []
                 if not invoices:
