@@ -204,7 +204,6 @@ def build_item_core(ps_item: dict) -> dict:
         "barcode": extract_primary_barcode(ps_item),
         "vat_code_365": ps_item.get("vat_code_365") or None,
         "vat_percent": to_float(ps_item.get("vat_percent")),
-        "cost_price": to_float(ps_item.get("price_excl_1")) or None,
     }
 
 
@@ -222,8 +221,6 @@ def _upsert_dimension(session: Session, model, key_field: str, data: dict):
     now = utc_now_for_db()
     if existing:
         for k, v in data.items():
-            if k == "cost_price" and v is None and existing.cost_price is not None and float(existing.cost_price) > 0:
-                continue
             setattr(existing, k, v)
         existing.last_sync_at = now
     else:
