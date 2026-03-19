@@ -204,7 +204,7 @@ def build_item_core(ps_item: dict) -> dict:
         "barcode": extract_primary_barcode(ps_item),
         "vat_code_365": ps_item.get("vat_code_365") or None,
         "vat_percent": to_float(ps_item.get("vat_percent")),
-        "cost_price": to_float(ps_item.get("item_cost")) or None,
+        "cost_price": to_float(ps_item.get("item_cost")) or to_float(ps_item.get("price_excl_1")) or None,
     }
 
 
