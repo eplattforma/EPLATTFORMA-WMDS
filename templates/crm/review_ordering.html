@@ -253,7 +253,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </td>
                     <td>
                         {% if r.next_delivery %}
-                        <span class="badge" style="background-color:#22c55e;color:white;font-size:0.72rem;">
+                        <span class="badge" style="background-color:{% if r.slot_closing_soon %}#dc3545{% else %}#22c55e{% endif %};color:white;font-size:0.72rem;">
                             {% if r.slot_closing_soon %}
                             <i class="fas fa-exclamation-triangle me-1" style="font-size:0.65rem;"></i>
                             {% else %}
@@ -441,6 +441,7 @@ function openDrawer(idx) {
     if (r.next_delivery) {
         var iconHTML = r.slot_closing_soon ? '<i class="fas fa-exclamation-triangle me-1" style="font-size:0.65rem;"></i>' : '<i class="fas fa-truck me-1" style="font-size:0.65rem;"></i>';
         delBadge.innerHTML = iconHTML + r.next_delivery;
+        delBadge.style.backgroundColor = r.slot_closing_soon ? '#dc3545' : '#22c55e';
         delBadge.style.display = '';
     } else {
         delBadge.textContent = '—';
