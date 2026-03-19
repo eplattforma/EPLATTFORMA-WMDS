@@ -392,7 +392,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 <option value="{{ reason }}">{{ reason | replace('_',' ') | title }}</option>
                 {% endfor %}
             </select>
-            <button class="btn btn-sm btn-success w-100" onclick="markDone()"><i class="fas fa-check me-1"></i>Confirm Done</button>
+            <button class="btn btn-sm btn-success w-100" onclick="markClose()"><i class="fas fa-check me-1"></i>Confirm Close</button>
         </div>
 
         <div class="drawer-section mt-3" id="drawer-state-actions">
