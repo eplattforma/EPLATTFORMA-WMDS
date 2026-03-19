@@ -510,7 +510,7 @@ async function saveAssisted(el) {
                 var codeSpan = rowEl.querySelector('[style*="font-size:0.72rem"]');
                 if (codeSpan) {
                     var iconHTML = el.checked ? ' <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>' : '';
-                    var codeText = r.customer_code_365;
+                    var codeText = r.customer_code_365 + (r.district ? ' · ' + r.district : '');
                     codeSpan.innerHTML = codeText + iconHTML;
                 }
                 
@@ -524,7 +524,7 @@ async function saveAssisted(el) {
                 // Update state badge if state changed
                 var stateBadge = rowEl.querySelector('.badge-state');
                 if (stateBadge) {
-                    stateBadge.textContent = STATE_LABELS[newState] || newState;
+                    stateBadge.innerHTML = STATE_LABELS[newState] || newState;
                     stateBadge.className = 'badge-state ' + (STATE_CLASSES[newState] || '');
                 }
             }
