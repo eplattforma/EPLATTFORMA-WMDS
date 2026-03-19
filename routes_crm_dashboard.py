@@ -1316,13 +1316,85 @@ def admin_offers_export():
     sort = request.args.get("sort", "")
     sort_dir = request.args.get("sort_dir", "desc")
 
-    headers, rows = get_offer_admin_export(tab, filters, sort or None, sort_dir)
+    rule_code = request.args.get("rule_code", "").strip()
+    if tab in ("rule_products", "rule_customers") and rule_code:
+        from services.crm_offer_admin import get_offer_rule_export
+        headers, rows = get_offer_rule_export(rule_code, tab, filters, sort or None, sort_dir)
+    else:
+        headers, rows = get_offer_admin_export(tab, filters, sort or None, sort_dir)
     output = io.StringIO()
     writer = csv_mod.writer(output)
     writer.writerow(headers)
     writer.writerows(rows)
+    fname = f"offer_admin_{tab}"
+    if rule_code:
+        fname += f"_{rule_code}"
     return Response(output.getvalue(), mimetype="text/csv",
-                    headers={"Content-Disposition": f"attachment; filename=offer_admin_{tab}.csv"})
+                    headers={"Content-Disposition": f"attachment; filename={fname}.csv"})
+
+
+@crm_dashboard_bp.get("/admin/offers/rules/lookup")
+@login_required
+def admin_offers_rule_lookup():
+    from services.crm_offer_admin import get_offer_rule_lookup
+    search = request.args.get("q", "").strip()
+    rules = get_offer_rule_lookup(search or None)
+    return jsonify(rules)
+
+
+@crm_dashboard_bp.get("/admin/offers/rule/<rule_code>")
+@login_required
+def admin_offer_rule_detail(rule_code):
+    from services.crm_offer_admin import (
+        get_offer_rule_overview, get_offer_rule_product_rows,
+        get_offer_rule_customer_rows, get_offer_rule_alerts,
+    )
+    overview = get_offer_rule_overview(rule_code)
+    if not overview:
+        from flask import abort
+        abort(404)
+
+    tab = request.args.get("tab", "products")
+    sort = request.args.get("sort", "")
+    sort_dir = request.args.get("sort_dir", "desc")
+    page = max(1, request.args.get("page", 1, type=int))
+
+    product_filters = {
+        "q": request.args.get("q", "").strip(),
+        "supplier": request.args.get("supplier", "").strip(),
+        "category": request.args.get("category", "").strip(),
+        "brand": request.args.get("brand", "").strip(),
+        "line_status": request.args.get("line_status", "").strip(),
+        "low_margin": request.args.get("low_margin") == "1",
+        "negative_margin": request.args.get("negative_margin") == "1",
+        "missing_cost": request.args.get("missing_cost") == "1",
+        "only_unused": request.args.get("only_unused") == "1",
+        "only_bought": request.args.get("only_bought") == "1",
+    }
+    customer_filters = {
+        "q": request.args.get("cq", "").strip(),
+        "classification": request.args.get("classification", "").strip(),
+        "district": request.args.get("district", "").strip(),
+        "zero_usage": request.args.get("zero_usage") == "1",
+        "high_dependency": request.args.get("high_dep") == "1",
+    }
+
+    products = get_offer_rule_product_rows(rule_code, product_filters,
+        sort=sort or "customers_with_offer", sort_dir=sort_dir, page=page)
+    customers = get_offer_rule_customer_rows(rule_code, customer_filters,
+        sort=sort or "offer_sales_4w", sort_dir=sort_dir, page=page)
+    alerts = get_offer_rule_alerts(rule_code)
+
+    all_classifications = _get_all_classifications()
+    all_districts = _get_all_districts()
+
+    return render_template("crm/admin_offer_rule_detail.html",
+        overview=overview, products=products, customers=customers,
+        alerts=alerts, rule_code=rule_code, tab=tab,
+        sort=sort, sort_dir=sort_dir, page=page,
+        product_filters=product_filters, customer_filters=customer_filters,
+        all_classifications=all_classifications, all_districts=all_districts,
+    )
 
 
 def _parse_offer_admin_filters(req):
@@ -1331,6 +1403,7 @@ def _parse_offer_admin_filters(req):
         "classification": req.args.get("classification", "").strip(),
         "district": req.args.get("district", "").strip(),
         "rule_code": req.args.get("rule_code", "").strip(),
+        "rule_name": req.args.get("rule_name", "").strip(),
         "supplier": req.args.get("supplier", "").strip(),
         "category": req.args.get("category", "").strip(),
         "brand": req.args.get("brand", "").strip(),

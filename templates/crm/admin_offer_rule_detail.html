@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block title %}Offer: {{ overview.rule_name }}{% endblock %}
+{% block content %}
+<style>
+.ord-page { padding: 16px; }
+.ord-kpi-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+.ord-kpi { padding:6px 14px; border-radius:6px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); text-align:center; min-width:90px; }
+.ord-kpi .kl { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.5px; color:#adb5bd; }
+.ord-kpi .kv { font-size:1.1rem; font-weight:700; }
+.ord-tabs { display:flex; gap:4px; margin-bottom:10px; }
+.ord-tab { padding:5px 14px; border-radius:5px 5px 0 0; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); cursor:pointer; font-size:0.78rem; font-weight:600; color:#adb5bd; text-decoration:none; }
+.ord-tab.active { background:rgba(255,255,255,0.08); color:#fff; border-bottom-color:transparent; }
+.ord-tab:hover { color:#fff; }
+.ord-section { display:none; }
+.ord-section.active { display:block; }
+.ord-table { width:100%; font-size:0.73rem; border-collapse:collapse; }
+.ord-table th { position:sticky; top:0; background:#1e1e2e; padding:5px 8px; text-align:left; font-size:0.66rem; text-transform:uppercase; letter-spacing:0.3px; color:#adb5bd; border-bottom:1px solid rgba(255,255,255,0.1); white-space:nowrap; cursor:pointer; }
+.ord-table th:hover { color:#fff; }
+.ord-table td { padding:4px 8px; border-bottom:1px solid rgba(255,255,255,0.04); vertical-align:middle; }
+.ord-table tr:hover { background:rgba(255,255,255,0.03); }
+.ord-badge { font-size:0.62rem; padding:2px 6px; border-radius:3px; font-weight:600; display:inline-block; }
+.ord-badge-danger { background:rgba(220,53,69,0.2); color:#ef4444; }
+.ord-badge-warning { background:rgba(255,193,7,0.2); color:#ffc107; }
+.ord-badge-success { background:rgba(34,197,94,0.2); color:#22c55e; }
+.ord-badge-muted { background:rgba(108,117,125,0.2); color:#adb5bd; }
+.ord-panel { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:10px 14px; margin-bottom:14px; }
+.ord-panel-title { font-size:0.75rem; font-weight:700; margin-bottom:8px; color:#e9ecef; }
+.ord-mini-table { width:100%; font-size:0.72rem; }
+.ord-mini-table td { padding:3px 6px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.ord-mini-table tr:hover { background:rgba(255,255,255,0.03); }
+.ord-filter-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:10px; padding:8px 10px; background:rgba(255,255,255,0.03); border-radius:6px; border:1px solid rgba(255,255,255,0.08); }
+.ord-filter-bar input, .ord-filter-bar select { font-size:0.75rem; }
+.ord-filter-bar .form-check-label { font-size:0.72rem; }
+.val-col { text-align:right; }
+.sort-arrow { font-size:0.55rem; margin-left:2px; }
+.ord-pager { display:flex; gap:6px; align-items:center; justify-content:center; margin-top:8px; font-size:0.78rem; }
+.ord-summary { font-size:0.82rem; color:#ced4da; line-height:1.5; padding:8px 14px; background:rgba(255,255,255,0.03); border-radius:6px; border-left:3px solid #6f42c1; margin-bottom:14px; }
+.margin-neg { color:#ef4444; font-weight:600; }
+.margin-low { color:#fd7e14; }
+.margin-ok { color:#22c55e; }
+</style>
+
+<div class="ord-page">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+            <a href="/crm/admin/offers?tab=rules" class="text-muted" style="font-size:0.75rem; text-decoration:none;"><i class="fas fa-arrow-left me-1"></i>Back to Offer Admin</a>
+            <h5 class="mb-0 mt-1"><i class="fas fa-tag me-2 text-primary"></i>{{ overview.rule_name }}</h5>
+            <span class="text-muted" style="font-size:0.72rem;">Rule Code: {{ overview.rule_code }} &bull; Snapshot: {{ overview.snapshot_at }}</span>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="/crm/admin/offers/export?tab=rule_products&rule_code={{ rule_code }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>Products CSV</a>
+            <a href="/crm/admin/offers/export?tab=rule_customers&rule_code={{ rule_code }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>Customers CSV</a>
+        </div>
+    </div>
+
+    <div class="ord-summary">{{ overview.summary_sentence }}</div>
+
+    <div class="ord-kpi-bar">
+        <div class="ord-kpi"><div class="kl">Customers</div><div class="kv" style="color:#20c997;">{{ overview.customers_on_offer }}</div></div>
+        <div class="ord-kpi"><div class="kl">Products</div><div class="kv" style="color:#0dcaf0;">{{ overview.products_on_offer }}</div></div>
+        <div class="ord-kpi"><div class="kl">Buying 4w</div><div class="kv" style="color:#22c55e;">{{ overview.customers_buying_4w }}</div></div>
+        <div class="ord-kpi"><div class="kl">Usage %</div><div class="kv" style="color:#ffc107;">{{ overview.offer_usage_by_customers_pct }}%</div></div>
+        <div class="ord-kpi"><div class="kl">Sales 4w</div><div class="kv" style="color:#22c55e;">€{{ "{:,.0f}".format(overview.offer_sales_4w) }}</div></div>
+        <div class="ord-kpi"><div class="kl">Avg Disc %</div><div class="kv" style="color:#fd7e14;">{{ overview.avg_discount_percent }}%</div></div>
+        <div class="ord-kpi"><div class="kl">Avg Margin %</div><div class="kv {% if overview.avg_offer_margin_pct < 0 %}margin-neg{% elif overview.avg_offer_margin_pct < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ overview.avg_offer_margin_pct }}%</div></div>
+        <div class="ord-kpi"><div class="kl">HDU Lines</div><div class="kv" style="color:#dc3545;">{{ overview.high_discount_unused_lines }}</div></div>
+    </div>
+
+    <div class="ord-tabs">
+        <a class="ord-tab {% if tab == 'products' %}active{% endif %}" onclick="switchTab(event,'products')">Products ({{ products.total }})</a>
+        <a class="ord-tab {% if tab == 'customers' %}active{% endif %}" onclick="switchTab(event,'customers')">Customers ({{ customers.total }})</a>
+        <a class="ord-tab {% if tab == 'insights' %}active{% endif %}" onclick="switchTab(event,'insights')">Insights</a>
+    </div>
+
+    <div id="sec-products" class="ord-section {% if tab == 'products' %}active{% endif %}">
+        <form method="get" action="/crm/admin/offers/rule/{{ rule_code }}" class="ord-filter-bar">
+            <input type="hidden" name="tab" value="products">
+            <input type="text" class="form-control form-control-sm" name="q" value="{{ product_filters.q }}" placeholder="SKU/Product…" style="width:130px;">
+            <input type="text" class="form-control form-control-sm" name="supplier" value="{{ product_filters.supplier }}" placeholder="Supplier…" style="width:100px;">
+            <input type="text" class="form-control form-control-sm" name="category" value="{{ product_filters.category }}" placeholder="Category…" style="width:100px;">
+            <input type="text" class="form-control form-control-sm" name="brand" value="{{ product_filters.brand }}" placeholder="Brand…" style="width:100px;">
+            <select class="form-select form-select-sm" name="line_status" style="width:110px;">
+                <option value="">All Status</option>
+                <option value="used" {% if product_filters.line_status == 'used' %}selected{% endif %}>Used</option>
+                <option value="unused" {% if product_filters.line_status == 'unused' %}selected{% endif %}>Unused</option>
+                <option value="high_discount_unused" {% if product_filters.line_status == 'high_discount_unused' %}selected{% endif %}>High Disc Unused</option>
+            </select>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" name="low_margin" value="1" id="fLowM" {% if product_filters.low_margin %}checked{% endif %}>
+                <label class="form-check-label" for="fLowM">Low Margin</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" name="negative_margin" value="1" id="fNegM" {% if product_filters.negative_margin %}checked{% endif %}>
+                <label class="form-check-label" for="fNegM">Neg. Margin</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" name="missing_cost" value="1" id="fMissC" {% if product_filters.missing_cost %}checked{% endif %}>
+                <label class="form-check-label" for="fMissC">No Cost</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" name="only_unused" value="1" id="fUnused" {% if product_filters.only_unused %}checked{% endif %}>
+                <label class="form-check-label" for="fUnused">Unused Only</label>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary py-0 px-2"><i class="fas fa-filter me-1"></i>Apply</button>
+            <a href="/crm/admin/offers/rule/{{ rule_code }}?tab=products" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="fas fa-times"></i></a>
+        </form>
+
+        <div style="overflow-x:auto; max-height:65vh; overflow-y:auto;">
+        <table class="ord-table">
+            <thead><tr>
+                <th>SKU</th>
+                <th>Product</th>
+                <th>Supplier</th>
+                <th>Category</th>
+                <th onclick="pSort('customers_with_offer')" class="val-col">Offered {% if sort == 'customers_with_offer' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th class="val-col">Bought</th>
+                <th onclick="pSort('customer_usage_pct')" class="val-col">Usage % {% if sort == 'customer_usage_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th class="val-col">Normal €</th>
+                <th class="val-col">Offer €</th>
+                <th onclick="pSort('avg_discount_percent')" class="val-col">Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th class="val-col">Cost €</th>
+                <th class="val-col">GP €</th>
+                <th onclick="pSort('avg_gross_margin_percent')" class="val-col">Margin % {% if sort == 'avg_gross_margin_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th onclick="pSort('total_offer_sales_4w')" class="val-col">Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th onclick="pSort('high_discount_unused_customer_count')" class="val-col">HDU {% if sort == 'high_discount_unused_customer_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+            </tr></thead>
+            <tbody>
+            {% for r in products.rows %}
+            <tr>
+                <td><span class="fw-semibold" style="font-size:0.7rem;">{{ r.sku }}</span></td>
+                <td style="max-width:180px;">{{ r.product_name[:35] }}</td>
+                <td><span style="font-size:0.68rem;">{{ r.supplier_name[:18] }}</span></td>
+                <td><span style="font-size:0.68rem;">{{ r.category_name[:18] }}</span></td>
+                <td class="val-col">{{ r.customers_with_offer }}</td>
+                <td class="val-col">{{ r.customers_bought_4w }}</td>
+                <td class="val-col">
+                    <span class="ord-badge {% if r.customer_usage_pct >= 50 %}ord-badge-success{% elif r.customer_usage_pct >= 20 %}ord-badge-warning{% else %}ord-badge-danger{% endif %}">{{ r.customer_usage_pct }}%</span>
+                </td>
+                <td class="val-col">€{{ "%.2f"|format(r.avg_origin_price) }}</td>
+                <td class="val-col">€{{ "%.2f"|format(r.avg_offer_price) }}</td>
+                <td class="val-col">{{ r.avg_discount_percent }}%</td>
+                <td class="val-col">{% if r.avg_cost is not none %}€{{ "%.2f"|format(r.avg_cost) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td class="val-col">{% if r.avg_gross_profit is not none %}€{{ "%.2f"|format(r.avg_gross_profit) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td class="val-col">
+                    {% if r.avg_gross_margin_percent is not none %}
+                    <span class="{% if r.avg_gross_margin_percent < 0 %}margin-neg{% elif r.avg_gross_margin_percent < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.avg_gross_margin_percent }}%</span>
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="val-col">€{{ "{:,.0f}".format(r.total_offer_sales_4w) }}</td>
+                <td class="val-col">{% if r.high_discount_unused_customer_count > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_customer_count }}</span>{% else %}0{% endif %}</td>
+            </tr>
+            {% endfor %}
+            {% if not products.rows %}<tr><td colspan="15" class="text-muted text-center py-3">No products found</td></tr>{% endif %}
+            </tbody>
+        </table>
+        </div>
+        {% if products.total > products.page_size %}
+        <div class="ord-pager">
+            {% if page > 1 %}<a href="?tab=products&page={{ page - 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}" class="btn btn-sm btn-outline-secondary">&laquo; Prev</a>{% endif %}
+            <span class="text-muted">Page {{ page }} of {{ ((products.total - 1) // products.page_size) + 1 }} ({{ products.total }})</span>
+            {% if page * products.page_size < products.total %}<a href="?tab=products&page={{ page + 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}" class="btn btn-sm btn-outline-secondary">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="sec-customers" class="ord-section {% if tab == 'customers' %}active{% endif %}">
+        <form method="get" action="/crm/admin/offers/rule/{{ rule_code }}" class="ord-filter-bar">
+            <input type="hidden" name="tab" value="customers">
+            <input type="text" class="form-control form-control-sm" name="cq" value="{{ customer_filters.q }}" placeholder="Customer…" style="width:140px;">
+            <select class="form-select form-select-sm" name="classification" style="width:120px;">
+                <option value="">All Classes</option>
+                {% for c in all_classifications %}<option value="{{ c }}" {% if customer_filters.classification == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+            <select class="form-select form-select-sm" name="district" style="width:120px;">
+                <option value="">All Districts</option>
+                {% for d in all_districts %}<option value="{{ d }}" {% if customer_filters.district == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+            </select>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" name="zero_usage" value="1" id="fZero" {% if customer_filters.zero_usage %}checked{% endif %}>
+                <label class="form-check-label" for="fZero">Zero Usage</label>
+            </div>
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" name="high_dep" value="1" id="fHighD" {% if customer_filters.high_dependency %}checked{% endif %}>
+                <label class="form-check-label" for="fHighD">High Dep.</label>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary py-0 px-2"><i class="fas fa-filter me-1"></i>Apply</button>
+            <a href="/crm/admin/offers/rule/{{ rule_code }}?tab=customers" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="fas fa-times"></i></a>
+        </form>
+
+        <div style="overflow-x:auto; max-height:65vh; overflow-y:auto;">
+        <table class="ord-table">
+            <thead><tr>
+                <th onclick="cSort('customer_name')">Customer {% if sort == 'customer_name' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th>Class</th>
+                <th>District</th>
+                <th onclick="cSort('offered_products_count')" class="val-col">Offered {% if sort == 'offered_products_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th onclick="cSort('bought_products_count_4w')" class="val-col">Bought {% if sort == 'bought_products_count_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th onclick="cSort('offer_usage_pct')" class="val-col">Usage % {% if sort == 'offer_usage_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th onclick="cSort('offer_sales_4w')" class="val-col">Offer €4w {% if sort == 'offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th class="val-col">Total €4w</th>
+                <th onclick="cSort('offer_sales_share_pct')" class="val-col">Share % {% if sort == 'offer_sales_share_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th class="val-col">Disc %</th>
+                <th class="val-col">Margin %</th>
+                <th>Last Buy</th>
+                <th>Status</th>
+            </tr></thead>
+            <tbody>
+            {% for r in customers.rows %}
+            <tr>
+                <td>
+                    <div class="fw-semibold">{{ r.customer_name }}</div>
+                    <span class="text-muted" style="font-size:0.68rem;">{{ r.customer_code_365 }}</span>
+                </td>
+                <td><span class="text-muted" style="font-size:0.68rem;">{{ r.classification }}</span></td>
+                <td><span class="text-muted" style="font-size:0.68rem;">{{ r.district }}</span></td>
+                <td class="val-col">{{ r.offered_products_count }}</td>
+                <td class="val-col">{{ r.bought_products_count_4w }}</td>
+                <td class="val-col">
+                    <span class="ord-badge {% if r.offer_usage_pct >= 50 %}ord-badge-success{% elif r.offer_usage_pct >= 20 %}ord-badge-warning{% elif r.offer_usage_pct > 0 %}ord-badge-danger{% else %}ord-badge-muted{% endif %}">{{ r.offer_usage_pct }}%</span>
+                </td>
+                <td class="val-col">€{{ "{:,.0f}".format(r.offer_sales_4w) }}</td>
+                <td class="val-col">€{{ "{:,.0f}".format(r.total_customer_sales_4w) }}</td>
+                <td class="val-col">
+                    {% if r.offer_sales_share_pct >= 50 %}<span class="ord-badge ord-badge-danger">{{ r.offer_sales_share_pct }}%</span>
+                    {% elif r.offer_sales_share_pct >= 20 %}<span class="ord-badge ord-badge-warning">{{ r.offer_sales_share_pct }}%</span>
+                    {% else %}{{ r.offer_sales_share_pct }}%{% endif %}
+                </td>
+                <td class="val-col">{{ r.avg_discount_percent }}%</td>
+                <td class="val-col">{% if r.avg_offer_margin_percent is not none %}<span class="{% if r.avg_offer_margin_percent < 0 %}margin-neg{% elif r.avg_offer_margin_percent < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.avg_offer_margin_percent }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td><span style="font-size:0.68rem;">{{ r.last_offer_purchase_date[:10] if r.last_offer_purchase_date else '—' }}</span></td>
+                <td>
+                    {% if r.offer_usage_pct == 0 %}<span class="ord-badge ord-badge-muted">No Use</span>
+                    {% elif r.offer_usage_pct < 20 %}<span class="ord-badge ord-badge-danger">Low</span>
+                    {% elif r.offer_sales_share_pct >= 50 %}<span class="ord-badge ord-badge-warning">High Dep.</span>
+                    {% elif r.offer_usage_pct >= 50 %}<span class="ord-badge ord-badge-success">Strong</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not customers.rows %}<tr><td colspan="13" class="text-muted text-center py-3">No customers found</td></tr>{% endif %}
+            </tbody>
+        </table>
+        </div>
+        {% if customers.total > customers.page_size %}
+        <div class="ord-pager">
+            {% if page > 1 %}<a href="?tab=customers&page={{ page - 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}" class="btn btn-sm btn-outline-secondary">&laquo; Prev</a>{% endif %}
+            <span class="text-muted">Page {{ page }} of {{ ((customers.total - 1) // customers.page_size) + 1 }} ({{ customers.total }})</span>
+            {% if page * customers.page_size < customers.total %}<a href="?tab=customers&page={{ page + 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}" class="btn btn-sm btn-outline-secondary">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="sec-insights" class="ord-section {% if tab == 'insights' %}active{% endif %}">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="ord-panel">
+                    <div class="ord-panel-title"><i class="fas fa-exclamation-triangle me-1 text-warning"></i>Widely Assigned, Weakly Used Products</div>
+                    <table class="ord-mini-table">
+                        <tr style="color:#adb5bd;font-size:0.63rem;"><td>Product</td><td class="val-col">Offered</td><td class="val-col">Bought</td><td class="val-col">Usage</td></tr>
+                        {% for r in alerts.weak_products %}
+                        <tr>
+                            <td>{{ r.product_name[:30] }}</td>
+                            <td class="val-col">{{ r.customers_with }}</td>
+                            <td class="val-col">{{ r.customers_bought }}</td>
+                            <td class="val-col"><span class="ord-badge {% if r.usage_pct < 20 %}ord-badge-danger{% elif r.usage_pct < 50 %}ord-badge-warning{% else %}ord-badge-success{% endif %}">{{ r.usage_pct }}%</span></td>
+                        </tr>
+                        {% endfor %}
+                        {% if not alerts.weak_products %}<tr><td class="text-muted" colspan="4">No data</td></tr>{% endif %}
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="ord-panel">
+                    <div class="ord-panel-title"><i class="fas fa-user-slash me-1 text-danger"></i>Customers with Zero Usage</div>
+                    <table class="ord-mini-table">
+                        <tr style="color:#adb5bd;font-size:0.63rem;"><td>Customer</td><td class="val-col">Products</td></tr>
+                        {% for r in alerts.zero_usage_customers %}
+                        <tr>
+                            <td>{{ r.customer_name or r.customer_code }}</td>
+                            <td class="val-col">{{ r.offered_count }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% if not alerts.zero_usage_customers %}<tr><td class="text-muted" colspan="2">All customers using this offer</td></tr>{% endif %}
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="ord-panel">
+                    <div class="ord-panel-title"><i class="fas fa-trophy me-1 text-success"></i>Top Products by Sales</div>
+                    <table class="ord-mini-table">
+                        <tr style="color:#adb5bd;font-size:0.63rem;"><td>Product</td><td class="val-col">Sales 4w</td></tr>
+                        {% for r in alerts.top_products %}
+                        <tr>
+                            <td>{{ r.product_name[:30] }}</td>
+                            <td class="val-col">€{{ "{:,.0f}".format(r.sales_4w) }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% if not alerts.top_products %}<tr><td class="text-muted" colspan="2">No sales in 4 weeks</td></tr>{% endif %}
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchTab(e, name) {
+    document.querySelectorAll('.ord-tab').forEach(function(t){ t.classList.remove('active'); });
+    document.querySelectorAll('.ord-section').forEach(function(s){ s.classList.remove('active'); });
+    e.target.classList.add('active');
+    document.getElementById('sec-' + name).classList.add('active');
+}
+
+function pSort(col) {
+    var params = new URLSearchParams(window.location.search);
+    var currentSort = params.get('sort');
+    var currentDir = params.get('sort_dir') || 'desc';
+    var newDir = (currentSort === col && currentDir === 'desc') ? 'asc' : 'desc';
+    params.set('sort', col);
+    params.set('sort_dir', newDir);
+    params.set('tab', 'products');
+    params.set('page', '1');
+    window.location.search = params.toString();
+}
+
+function cSort(col) {
+    var params = new URLSearchParams(window.location.search);
+    var currentSort = params.get('sort');
+    var currentDir = params.get('sort_dir') || 'desc';
+    var newDir = (currentSort === col && currentDir === 'desc') ? 'asc' : 'desc';
+    params.set('sort', col);
+    params.set('sort_dir', newDir);
+    params.set('tab', 'customers');
+    params.set('page', '1');
+    window.location.search = params.toString();
+}
+</script>
+
+{% endblock %}

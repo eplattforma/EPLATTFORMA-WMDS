@@ -61,6 +61,7 @@
         <input type="text" class="form-control form-control-sm" name="supplier" value="{{ filters.supplier }}" placeholder="Supplier…" style="width:100px;">
         <input type="text" class="form-control form-control-sm" name="category" value="{{ filters.category }}" placeholder="Category…" style="width:100px;">
         <input type="text" class="form-control form-control-sm" name="brand" value="{{ filters.brand }}" placeholder="Brand…" style="width:100px;">
+        <input type="text" class="form-control form-control-sm" name="rule_name" value="{{ filters.rule_name }}" placeholder="Offer/Rule…" style="width:120px;">
         <select class="form-select form-select-sm" name="usage_band" style="width:100px;">
             <option value="">Usage %</option>
             <option value="0-20" {% if filters.usage_band == '0-20' %}selected{% endif %}>0–20%</option>
@@ -259,8 +260,8 @@
             <tbody>
                 {% for r in rules %}
                 <tr>
-                    <td><span class="fw-semibold" style="font-size:0.72rem;">{{ r.rule_code }}</span></td>
-                    <td>{{ r.rule_name[:40] }}</td>
+                    <td><a href="/crm/admin/offers/rule/{{ r.rule_code }}" class="fw-semibold" style="font-size:0.72rem; text-decoration:none;">{{ r.rule_code }}</a></td>
+                    <td><a href="/crm/admin/offers/rule/{{ r.rule_code }}" style="text-decoration:none; color:inherit;">{{ r.rule_name[:40] }}</a></td>
                     <td class="val-col">{{ r.customers_count }}</td>
                     <td class="val-col">{{ r.active_offer_sku_lines }}</td>
                     <td class="val-col">{{ r.distinct_skus }}</td>

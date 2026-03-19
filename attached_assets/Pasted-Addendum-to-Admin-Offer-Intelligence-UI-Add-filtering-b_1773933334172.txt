@@ -1,0 +1,503 @@
+Addendum to Admin Offer Intelligence UI:
+Add filtering by offer name and a full Offer Detail review screen
+
+New requirement
+
+In the admin offers UI, I need to be able to:
+
+1) filter by offer name / rule name
+2) open one specific offer / rule
+3) see all products under that offer
+4) review offer price vs cost
+5) see which customers are assigned that offer
+6) understand usage of that offer by customer and by product
+
+This should become a major part of the admin UI.
+
+==================================================
+1. NEW FILTERS TO ADD
+==================================================
+
+In the Admin Offers page filter bar, add:
+
+- offer_rule_name
+- offer_rule_code
+
+Behavior:
+- user can search by partial rule name
+- user can search by exact or partial rule code
+- if rule name filter is applied, all tabs should narrow to that offer/rule only
+
+UI:
+- searchable dropdown or autocomplete if possible
+- fallback = text search input
+
+Apply this filter to:
+- Overview
+- Customers tab
+- Rules tab
+- Products tab
+
+==================================================
+2. NEW OFFER DETAIL PAGE / PANEL
+==================================================
+
+Create a dedicated offer-rule detail page:
+
+- GET /crm/admin/offers/rule/<rule_code>
+
+Optional support:
+- open by rule name if needed, but rule_code should be the main key
+
+Purpose:
+Review one specific offer/rule in depth.
+
+This page should answer:
+- which products are in this offer
+- what is the normal price vs offer price vs cost
+- which customers receive this offer
+- which customers actually buy from it
+- how much sales this offer generates
+- whether some products in this offer are widely assigned but not used
+
+==================================================
+3. OFFER DETAIL PAGE LAYOUT
+==================================================
+
+Page structure:
+
+A) Header summary for the selected offer
+B) KPI cards
+C) Products under this offer
+D) Customers under this offer
+E) Optional supplier/category/brand summary
+
+==================================================
+4. HEADER SUMMARY FOR SELECTED OFFER
+==================================================
+
+Show:
+
+- Rule Code
+- Rule Name
+- Rule Description
+- Last Snapshot Date
+- Active Customer Count
+- Active Product Count
+- Total Offer Sales 4w
+
+Add a small generated sentence, e.g.:
+
+“This offer is assigned to 84 customers across 37 products. In the last 4 weeks, 26 customers bought at least one product from this offer, generating €8,420 in offer sales.”
+
+==================================================
+5. KPI CARDS FOR OFFER DETAIL
+==================================================
+
+Required KPI cards:
+
+- Customers on Offer
+- Products on Offer
+- Customers Buying 4w
+- Offer Usage by Customers %
+- Offer Sales 4w
+- Avg Discount %
+- Avg Offer Margin %
+- High Discount Unused Lines
+
+Definitions:
+
+Customers on Offer
+- distinct customer_code_365 for rows with this rule_code
+
+Products on Offer
+- distinct sku for rows with this rule_code
+
+Customers Buying 4w
+- distinct customer_code_365 where sold_qty_4w > 0 for this rule_code
+
+Offer Usage by Customers %
+- customers_buying_4w / customers_on_offer * 100
+
+Offer Sales 4w
+- sum(sold_value_4w) for rows with this rule_code
+
+Avg Discount %
+- average discount_percent for rows with this rule_code
+
+Avg Offer Margin %
+- average gross_margin_percent where not null for rows with this rule_code
+
+High Discount Unused Lines
+- count rows where line_status = 'high_discount_unused' for this rule_code
+
+==================================================
+6. PRODUCTS TAB INSIDE OFFER DETAIL
+==================================================
+
+This is one of the most important views.
+
+Show one row per product/SKU under the selected offer.
+
+Columns:
+- sku
+- item_code_365
+- product_name
+- supplier_name
+- category_name
+- brand_name
+- customers_with_offer
+- customers_bought_4w
+- customer_usage_pct
+- avg_origin_price
+- avg_offer_price
+- avg_discount_percent
+- avg_cost
+- avg_gross_profit
+- avg_gross_margin_percent
+- total_offer_sales_4w
+- high_discount_unused_customer_count
+
+Definitions:
+
+customers_with_offer
+- distinct customers with this SKU under this rule
+
+customers_bought_4w
+- distinct customers with sold_qty_4w > 0 for this SKU under this rule
+
+customer_usage_pct
+- customers_bought_4w / customers_with_offer * 100
+
+avg_origin_price
+- avg(origin_price)
+
+avg_offer_price
+- avg(offer_price)
+
+avg_discount_percent
+- avg(discount_percent)
+
+avg_cost
+- avg(cost) where not null
+
+avg_gross_profit
+- avg(gross_profit) where not null
+
+avg_gross_margin_percent
+- avg(gross_margin_percent) where not null
+
+total_offer_sales_4w
+- sum(sold_value_4w)
+
+high_discount_unused_customer_count
+- count distinct customers where line_status = 'high_discount_unused'
+
+This table is for reviewing:
+- whether the offer price is reasonable vs cost
+- whether the product is commercially active
+- whether many customers get it but few buy it
+
+Sorting:
+Allow sorting by:
+- customers_with_offer
+- customer_usage_pct
+- avg_discount_percent
+- avg_gross_margin_percent
+- total_offer_sales_4w
+- high_discount_unused_customer_count
+
+==================================================
+7. CUSTOMER TAB INSIDE OFFER DETAIL
+==================================================
+
+Show one row per customer assigned to this offer.
+
+Columns:
+- customer_code_365
+- customer_name
+- classification
+- district
+- offered_products_count
+- bought_products_count_4w
+- offer_usage_pct
+- offer_sales_4w
+- total_customer_sales_4w
+- offer_sales_share_pct
+- avg_discount_percent
+- avg_offer_margin_percent
+- last_offer_purchase_date
+
+Definitions:
+
+offered_products_count
+- count distinct sku for this customer under this rule
+
+bought_products_count_4w
+- count distinct sku with sold_qty_4w > 0 for this customer under this rule
+
+offer_usage_pct
+- bought_products_count_4w / offered_products_count * 100
+
+offer_sales_4w
+- sum(sold_value_4w) for this customer under this rule
+
+total_customer_sales_4w
+- total 4-week sales for that customer from the general customer sales source
+
+offer_sales_share_pct
+- offer_sales_4w / total_customer_sales_4w * 100
+
+avg_discount_percent
+- avg(discount_percent) for this customer under this rule
+
+avg_offer_margin_percent
+- avg(gross_margin_percent) where not null
+
+last_offer_purchase_date
+- max(last_sold_at)
+
+This table should help answer:
+- which customers really use this offer
+- which customers receive it but ignore it
+- which customers are highly dependent on this offer
+
+Sorting:
+- offer_usage_pct
+- offer_sales_4w
+- offer_sales_share_pct
+- offered_products_count
+- bought_products_count_4w
+
+==================================================
+8. PRICE VS COST REVIEW
+==================================================
+
+This is required inside the selected offer detail.
+
+For products under the selected offer, clearly show:
+
+- Normal Price
+- Offer Price
+- Discount %
+- Cost
+- Gross Profit
+- Gross Margin %
+
+Because the same rule may apply across many products, the admin should be able to review:
+- average position
+- individual product lines
+- suspiciously low or negative margin products
+
+Important:
+Margin is NOT the main CRM dashboard metric, but it IS important in this admin review page.
+
+So:
+- keep price vs cost clearly visible here
+- add filters for:
+  - only low margin
+  - only negative margin
+  - only missing cost
+  - only strong discount unused
+
+==================================================
+9. RULE / OFFER FILTERING BEHAVIOR
+==================================================
+
+On the main admin page:
+
+If user filters by offer name or rule code:
+- Overview KPIs should narrow to that rule
+- Customers tab should show only customers tied to that rule
+- Products tab should show only products tied to that rule
+- Rules tab may show only the matching rule(s)
+
+Also:
+Clicking a rule in the Rules tab should open the dedicated rule detail page.
+
+==================================================
+10. NEW SERVICE FUNCTIONS
+==================================================
+
+Create or extend services/crm_offer_admin.py with these functions:
+
+- get_offer_rule_lookup(search=None)
+  Return rule_code + rule_name for filter dropdown/autocomplete
+
+- get_offer_rule_overview(rule_code, filters=None)
+  Return KPI/header summary for one rule
+
+- get_offer_rule_product_rows(rule_code, filters=None, page=1, page_size=50, sort='customers_with_offer', sort_dir='desc')
+
+- get_offer_rule_customer_rows(rule_code, filters=None, page=1, page_size=50, sort='offer_sales_4w', sort_dir='desc')
+
+- get_offer_rule_supplier_summary(rule_code, filters=None)
+  Optional grouped supplier summary
+
+Keep blueprint thin; heavy grouped queries belong in service layer.
+
+==================================================
+11. NEW ROUTES
+==================================================
+
+Add:
+
+- GET /crm/admin/offers/rules/lookup
+  for rule filter autocomplete if needed
+
+- GET /crm/admin/offers/rule/<rule_code>
+  HTML page
+
+Optional JSON endpoints:
+- GET /crm/admin/offers/rule/<rule_code>/summary
+- GET /crm/admin/offers/rule/<rule_code>/products
+- GET /crm/admin/offers/rule/<rule_code>/customers
+
+If easier, render full page server-side first, then enhance later.
+
+==================================================
+12. TEMPLATE FILES
+==================================================
+
+Create:
+- templates/crm/admin_offer_rule_detail.html
+
+This page should include:
+- header summary
+- KPI strip
+- Products table
+- Customers table
+- filters inside the rule page
+
+Possible inline filters on the rule detail page:
+- supplier
+- category
+- brand
+- only bought in 4w
+- only unused
+- only low margin
+- only negative margin
+- search by SKU / product / customer
+
+==================================================
+13. EXTRA FILTERS ON RULE DETAIL PAGE
+==================================================
+
+Add these filters:
+
+Product-side filters:
+- supplier_name
+- category_name
+- brand_name
+- line_status
+- margin_status
+- minimum discount %
+- maximum margin %
+- only products with missing cost
+
+Customer-side filters:
+- classification
+- district
+- minimum offer usage %
+- minimum offer sales 4w
+- minimum offer sales share %
+- only customers with zero usage
+- only customers with high dependency
+
+==================================================
+14. USEFUL INTERPRETATION PANELS ON RULE DETAIL PAGE
+==================================================
+
+Add 3 small ranked lists:
+
+A) Products widely assigned but weakly used
+Sort by:
+- customers_with_offer desc
+- customer_usage_pct asc
+
+B) Customers on this offer with zero usage
+Sort by:
+- offered_products_count desc
+
+C) Strongest products in this offer
+Sort by:
+- total_offer_sales_4w desc
+
+These make the page very actionable.
+
+==================================================
+15. EXPORTS
+==================================================
+
+Add export for rule detail:
+
+- export products under selected rule
+- export customers under selected rule
+
+Route examples:
+- GET /crm/admin/offers/export?tab=rule_products&rule_code=...
+- GET /crm/admin/offers/export?tab=rule_customers&rule_code=...
+
+==================================================
+16. DATA SOURCE RULES
+==================================================
+
+Use:
+- crm_customer_offer_current for rule-level and SKU-level review
+- crm_customer_offer_summary_current only where customer summary is sufficient
+
+For the rule detail page:
+- current table is the main source
+
+Join to:
+- ps_customers
+- crm_customer_profile
+- customer total sales source
+
+Do not use raw import tables for page rendering.
+
+==================================================
+17. PERFORMANCE GUIDELINES
+==================================================
+
+Because rule detail pages may scan many rows:
+- group in SQL, not Python
+- paginate product/customer tables
+- index rule_code on crm_customer_offer_current
+- index (rule_code, sku)
+- index (rule_code, customer_code_365)
+
+If needed add:
+- CREATE INDEX IF NOT EXISTS idx_offer_current_rule_customer ON crm_customer_offer_current(rule_code, customer_code_365)
+- CREATE INDEX IF NOT EXISTS idx_offer_current_rule_sku ON crm_customer_offer_current(rule_code, sku)
+
+==================================================
+18. ACCEPTANCE CRITERIA
+==================================================
+
+This is correct when I can:
+
+1) filter admin offers by offer name
+2) open one specific offer
+3) see all products in that offer
+4) review normal price vs offer price vs cost
+5) see which customers are on that offer
+6) see which customers actually buy it
+7) export both product and customer views for that offer
+
+==================================================
+19. REPORT BACK WHEN DONE
+==================================================
+
+After implementation, report:
+- routes added
+- service functions added
+- filters supported on main admin page
+- filters supported on offer detail page
+- exact columns shown in product view
+- exact columns shown in customer view
+- export options added
+
+The most important new screen is:
+
+Offer Rule Detail = one offer name -> products + price vs cost + customers
