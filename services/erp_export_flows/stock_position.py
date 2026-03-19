@@ -1,9 +1,101 @@
 import os
 import asyncio
 import logging
+from datetime import datetime
 from services.erp_export_flows.base import BaseExportFlow
 
 logger = logging.getLogger(__name__)
+
+
+def import_stock_positions_from_xlsx(file_path: str) -> dict:
+    import openpyxl
+    from sqlalchemy import text
+    from app import db
+
+    wb = openpyxl.load_workbook(file_path)
+    ws = wb.active
+    if ws is None:
+        raise RuntimeError("No worksheet found in workbook")
+
+    rows = list(ws.iter_rows(min_row=5, values_only=True))
+    records = []
+    current_item_code = None
+    current_item_desc = None
+    current_store_code = None
+    current_store_name = None
+
+    for row in rows:
+        if not any(row):
+            continue
+
+        if row[0] and not row[1] and not row[2]:
+            item_text = str(row[0]).strip()
+            if ' - ' in item_text:
+                parts = item_text.split(' - ', 1)
+                current_item_code = parts[0].strip()
+                current_item_desc = parts[1].strip()
+            else:
+                current_item_code = item_text
+                current_item_desc = item_text
+            current_store_code = None
+            current_store_name = None
+            continue
+
+        if not row[0] and row[1] and row[2]:
+            current_store_code = str(row[1]).strip()
+            current_store_name = str(row[2]).strip()
+            if current_store_code != "777":
+                current_store_code = None
+                current_store_name = None
+            continue
+
+        if (not row[0] and not row[1]
+                and current_item_code and current_store_code == "777"):
+            expiry = row[4] if len(row) > 4 else None
+            stock = row[6] if len(row) > 6 else 0
+
+            expiry_str = None
+            if expiry:
+                try:
+                    if hasattr(expiry, 'strftime'):
+                        expiry_str = expiry.strftime('%Y-%m-%d')
+                    else:
+                        expiry_str = str(expiry)[:10]
+                except:
+                    pass
+
+            try:
+                stock_val = float(stock) if stock else 0
+                records.append({
+                    'item_code': current_item_code,
+                    'item_description': current_item_desc,
+                    'store_code': current_store_code,
+                    'store_name': current_store_name,
+                    'expiry_date': expiry_str,
+                    'stock_quantity': stock_val,
+                    'imported_at': datetime.utcnow(),
+                })
+            except (ValueError, TypeError):
+                pass
+
+    db.session.execute(text('TRUNCATE TABLE stock_positions'))
+
+    for i in range(0, len(records), 1000):
+        batch = records[i:i + 1000]
+        db.session.execute(
+            text(
+                'INSERT INTO stock_positions '
+                '(item_code, item_description, store_code, store_name, '
+                'expiry_date, stock_quantity, imported_at) '
+                'VALUES (:item_code, :item_description, :store_code, '
+                ':store_name, :expiry_date, :stock_quantity, :imported_at)'
+            ),
+            batch,
+        )
+
+    db.session.commit()
+    logger.info(f"Imported {len(records)} stock position records into DB")
+    return {'records_imported': len(records)}
 
 REPORT_PAGE_URL = 'https://accv3.powersoft365.com/restricted/StockControl/repPowerSerials.aspx'
 
@@ -115,6 +207,18 @@ class StockPositionExportFlow(BaseExportFlow):
             'file_name': getattr(self, '_downloaded_name', None),
             'file_size': getattr(self, '_downloaded_size', None),
         }
+
+    async def post_process(self, file_path: str, metadata: dict) -> dict:
+        from app import app
+        logger.info(f"Post-processing: importing stock positions from {file_path}")
+        try:
+            with app.app_context():
+                result = import_stock_positions_from_xlsx(file_path)
+            logger.info(f"Post-process complete: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"Post-process failed: {e}", exc_info=True)
+            return {'error': str(e)}
 
     def validate_download(self, file_path: str) -> bool:
         if not os.path.exists(file_path):
