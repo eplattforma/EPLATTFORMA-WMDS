@@ -28,7 +28,7 @@
 .state-waiting { background: rgba(108,117,125,0.2); color: #adb5bd; }
 .state-follow_up { background: rgba(255,193,7,0.2); color: #ffc107; }
 .state-ordered { background: rgba(25,135,84,0.2); color: #22c55e; }
-.state-done { background: rgba(25,135,84,0.15); color: #6c757d; }
+.state-close { background: rgba(25,135,84,0.15); color: #6c757d; }
 tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .badge-cart { background-color: #fd7e14; }
 .kpi-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -80,7 +80,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div class="kpi-chip"><div class="kpi-label">Follow Up</div><div class="kpi-val" style="color:#ffc107;">{{ kpi.follow_up }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Waiting</div><div class="kpi-val" style="color:#adb5bd;">{{ kpi.waiting }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Ordered</div><div class="kpi-val" style="color:#22c55e;">{{ kpi.ordered }}</div></div>
-            <div class="kpi-chip"><div class="kpi-label">Done</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.done }}</div></div>
+            <div class="kpi-chip"><div class="kpi-label">Close</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.close }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.has_cart }}</div></div>
             {% if offer_kpi and offer_kpi.kpi_offer_customers_with_offers > 0 %}
             <div style="width:1px; height:20px; background:rgba(255,255,255,0.15); margin:0 4px;"></div>
@@ -111,7 +111,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div>
                 <select class="form-select form-select-sm" name="state" style="width:110px; font-size:0.78rem;">
                     <option value="">All</option>
-                    {% for st in ['follow_up','waiting','ordered','done'] %}
+                    {% for st in ['follow_up','waiting','ordered','close'] %}
                     <option value="{{ st }}" {% if filters.state == st %}selected{% endif %}>{{ st | replace('_',' ') | title }}</option>
                     {% endfor %}
                 </select>
@@ -220,7 +220,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                             {% if r.state == 'follow_up' %}FOLLOW UP
                             {% elif r.state == 'waiting' %}WAITING
                             {% elif r.state == 'ordered' %}ORDERED
-                            {% elif r.state == 'done' %}DONE{% endif %}
+                            {% elif r.state == 'close' %}CLOSE{% endif %}
                         </span>
                         <span class="state-grp-count" id="count-{{ r.state }}"></span>
                     </td>
@@ -244,7 +244,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                             {% if r.state == 'follow_up' %}FOLLOW UP
                             {% elif r.state == 'waiting' %}WAITING
                             {% elif r.state == 'ordered' %}ORDERED
-                            {% elif r.state == 'done' %}DONE{% endif %}
+                            {% elif r.state == 'close' %}CLOSE{% endif %}
                         </span>
                     </td>
                     <td>
@@ -389,7 +389,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div class="d-flex gap-2 flex-wrap" id="drawer-actions"></div>
         </div>
 
-        <div class="drawer-section" id="drawer-done-section" style="display:none;">
+        <div class="drawer-section" id="drawer-close-section" style="display:none;">
             <div class="drawer-section-title">Done Outcome</div>
             <select class="form-select form-select-sm mb-2" id="drawer-outcome">
                 <option value="">Select reason…</option>
@@ -403,7 +403,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
         <div class="drawer-section mt-3" id="drawer-state-actions">
             <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-outline-warning flex-fill" id="btn-follow-up" onclick="markFollowUp()"><i class="fas fa-flag me-1"></i>Follow Up</button>
-                <button class="btn btn-sm btn-outline-success flex-fill" id="btn-mark-done" onclick="showDoneSection()"><i class="fas fa-check-circle me-1"></i>Done</button>
+                <button class="btn btn-sm btn-outline-success flex-fill" id="btn-mark-close" onclick="showCloseSection()"><i class="fas fa-check-circle me-1"></i>Close</button>
             </div>
         </div>
     </div>
@@ -413,8 +413,8 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 var _rowsData = {{ rows | tojson }};
 var _currentIdx = null;
 
-var STATE_LABELS = {follow_up:'FOLLOW UP', waiting:'WAITING', ordered:'ORDERED', done:'DONE'};
-var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', done:'state-done'};
+var STATE_LABELS = {follow_up:'FOLLOW UP', waiting:'WAITING', ordered:'ORDERED', close:'CLOSE'};
+var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', close:'state-close'};
 
 function openDrawer(idx) {
     var r = _rowsData[idx];
@@ -466,15 +466,15 @@ function openDrawer(idx) {
     var actionsDiv = document.getElementById('drawer-actions');
     actionsDiv.innerHTML = '';
 
-    document.getElementById('drawer-done-section').style.display = 'none';
+    document.getElementById('drawer-close-section').style.display = 'none';
     document.getElementById('drawer-outcome').value = r.outcome_reason || '';
 
-    if (r.state === 'done') {
-        document.getElementById('btn-mark-done').style.display = 'none';
+    if (r.state === 'close') {
+        document.getElementById('btn-mark-close').style.display = 'none';
         document.getElementById('btn-follow-up').textContent = '';
         document.getElementById('btn-follow-up').innerHTML = '<i class="fas fa-undo me-1"></i>Reopen';
     } else {
-        document.getElementById('btn-mark-done').style.display = '';
+        document.getElementById('btn-mark-close').style.display = '';
         document.getElementById('btn-follow-up').innerHTML = '<i class="fas fa-flag me-1"></i>Follow Up';
     }
 
@@ -558,11 +558,11 @@ async function saveFlags() {
     } catch(e) {}
 }
 
-function showDoneSection() {
-    document.getElementById('drawer-done-section').style.display = '';
+function showCloseSection() {
+    document.getElementById('drawer-close-section').style.display = '';
 }
 
-async function markDone() {
+async function markClose() {
     if (_currentIdx === null) return;
     var r = _rowsData[_currentIdx];
     var outcome = document.getElementById('drawer-outcome').value;
@@ -570,7 +570,7 @@ async function markDone() {
     var fd = new FormData();
     fd.append('customer_code_365', r.customer_code_365);
     fd.append('delivery_date', r.next_delivery_date || '');
-    fd.append('state', 'done');
+    fd.append('state', 'close');
     fd.append('outcome_reason', outcome);
     try {
         var res = await fetch('/crm/review-ordering/update-state', {method:'POST', body:fd});

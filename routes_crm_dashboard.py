@@ -560,7 +560,7 @@ def customer_slot_dashboard():
     )
 
 
-REVIEW_STATE_ORDER = {"follow_up": 0, "waiting": 1, "ordered": 2, "done": 3}
+REVIEW_STATE_ORDER = {"follow_up": 0, "waiting": 1, "ordered": 2, "close": 3}
 OUTCOME_REASONS = [
     "ordered_normally", "ordered_after_follow_up", "cart_closed_to_order",
     "cart_added_to_existing", "valid_skip", "financial_reason",
@@ -569,8 +569,8 @@ OUTCOME_REASONS = [
 
 
 def _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window):
-    if review_rec and review_rec.review_state == "done":
-        return "done"
+    if review_rec and review_rec.review_state == "close":
+        return "close"
     if has_order:
         return "ordered"
     if review_rec and review_rec.manual_follow_up_flag:
@@ -910,7 +910,7 @@ def review_ordering():
         r["r_invoice_days"] if r["r_invoice_days"] is not None else 9999,
     ))
 
-    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "done": 0, "has_cart": 0}
+    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "close": 0, "has_cart": 0}
     for row in open_window_rows:
         kpi[row["state"]] = kpi.get(row["state"], 0) + 1
         if row["has_cart"]:
@@ -979,10 +979,10 @@ def review_ordering_update_state():
 
     if not customer_code or not delivery_date_str:
         return jsonify({"ok": False, "error": "Missing required fields"}), 400
-    if new_state not in ("follow_up", "done"):
+    if new_state not in ("follow_up", "close"):
         return jsonify({"ok": False, "error": "Invalid state"}), 400
-    if new_state == "done" and (not outcome_reason or outcome_reason not in OUTCOME_REASONS):
-        return jsonify({"ok": False, "error": "Valid outcome reason required for done state"}), 400
+    if new_state == "close" and (not outcome_reason or outcome_reason not in OUTCOME_REASONS):
+        return jsonify({"ok": False, "error": "Valid outcome reason required for close state"}), 400
 
     try:
         delivery_date = date.fromisoformat(delivery_date_str)
@@ -996,18 +996,18 @@ def review_ordering_update_state():
         review = CrmOrderingReview(customer_code_365=customer_code, delivery_date=delivery_date)
         db.session.add(review)
 
-    if new_state == "done":
-        review.review_state = "done"
+    if new_state == "close":
+        review.review_state = "close"
         review.manual_follow_up_flag = False
-        review.done_at = datetime.now(timezone.utc)
-        review.done_by = getattr(current_user, "username", None)
+        review.close_at = datetime.now(timezone.utc)
+        review.close_by = getattr(current_user, "username", None)
         if outcome_reason and outcome_reason in OUTCOME_REASONS:
             review.outcome_reason = outcome_reason
     elif new_state == "follow_up":
         review.review_state = "follow_up"
         review.manual_follow_up_flag = True
-        review.done_at = None
-        review.done_by = None
+        review.close_at = None
+        review.close_by = None
         review.outcome_reason = None
 
     db.session.commit()

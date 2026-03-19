@@ -2845,8 +2845,8 @@ class CrmOrderingReview(db.Model):
     manual_follow_up_flag = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     cart_mode = db.Column(db.String(20), nullable=True)
     review_note = db.Column(db.Text, nullable=True)
-    done_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    done_by = db.Column(db.String(100), nullable=True)
+    close_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    close_by = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
 
     __table_args__ = (
