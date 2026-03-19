@@ -247,6 +247,11 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                             {% elif r.state == 'close' %}<i class="fas fa-check-circle"></i>{% endif %}
                         </span>
                     </td>
+                    <td style="max-width:200px;">
+                        {% if r.review_note %}
+                        <span class="text-muted" style="font-size:0.75rem;word-wrap:break-word;">{{ r.review_note[:60] }}{% if r.review_note|length > 60 %}...{% endif %}</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
                     <td>
                         {% if r.next_delivery %}
                         <span class="badge" style="background-color:{% if r.slot_closing_soon %}#dc3545{% else %}#22c55e{% endif %};color:white;font-size:0.72rem;">
