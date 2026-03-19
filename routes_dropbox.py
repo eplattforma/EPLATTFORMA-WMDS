@@ -98,7 +98,7 @@ def dropbox_sync():
     _validate_csrf()
     from services.dropbox_service import sync_dropbox_file
     try:
-        log = sync_dropbox_file()
+        log = sync_dropbox_file(skip_unchanged=False)
         if log.status == 'success_no_change':
             flash('File unchanged since last import — no update needed.', 'info')
         elif log.status == 'skipped_concurrent':
