@@ -204,7 +204,7 @@ def build_item_core(ps_item: dict) -> dict:
         "barcode": extract_primary_barcode(ps_item),
         "vat_code_365": ps_item.get("vat_code_365") or None,
         "vat_percent": to_float(ps_item.get("vat_percent")),
-        "cost_price": to_float(ps_item.get("item_cost")) or to_float(ps_item.get("price_excl_1")) or None,
+        "cost_price": to_float(ps_item.get("price_excl_1")) or None,
     }
 
 
@@ -359,8 +359,7 @@ def test_fetch_single_item(session: Session):
                 "last_modified_to": "",
                 "creation_date_from": "",
                 "creattion_date_to": "",
-                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,item_cost,item_average_cost,item_weighetd_average_cost,price_excl_1,supplier_code_365,supplier_name",
-                "request_password_365": os.environ.get("PS365_REQUEST_PASSWORD_365", ""),
+                "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1,supplier_code_365,supplier_name",
             },
         })
         
@@ -672,8 +671,7 @@ def full_dw_update(session: Session, force_update: bool = False, sync_trigger: s
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,number_field_5_value,text_field_2_value,list_item_barcodes,vat_code_365,vat_percent,item_cost,item_average_cost,item_weighetd_average_cost,price_excl_1,supplier_code_365,supplier_name",
-                    "request_password_365": os.environ.get("PS365_REQUEST_PASSWORD_365", ""),
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,number_field_5_value,text_field_2_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1,supplier_code_365,supplier_name",
                 },
             })
 
@@ -922,8 +920,7 @@ def incremental_dw_update(session: Session, sync_trigger: str = 'manual'):
                     "last_modified_to": "",
                     "creation_date_from": "",
                     "creattion_date_to": "",
-                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,item_cost,item_average_cost,item_weighetd_average_cost,price_excl_1,supplier_code_365,supplier_name",
-                    "request_password_365": os.environ.get("PS365_REQUEST_PASSWORD_365", ""),
+                    "display_fields": "item_code_365,item_name,active,category_code_365,brand_code_365,season_code_365,attribute_1_code_365,attribute_2_code_365,attribute_3_code_365,attribute_4_code_365,attribute_5_code_365,attribute_6_code_365,item_length,item_width,item_height,item_weight,number_of_pieces,number_field_1_value,number_field_2_value,text_field_2_value,number_field_5_value,list_item_barcodes,vat_code_365,vat_percent,price_excl_1,supplier_code_365,supplier_name",
                 },
             })
             
