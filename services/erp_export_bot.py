@@ -21,7 +21,7 @@ DEFAULT_ACTION_TIMEOUT = 15000
 def _get_config():
     return {
         'base_url': os.environ.get('ERP_BASE_URL', ''),
-        'login_url': os.environ.get('ERP_LOGIN_URL', '') or os.environ.get('ERP_BASE_URL', ''),
+        'login_url': os.environ.get('ERP_LOGIN_URL', '') or os.environ.get('ERP_BASE_URL', '') or 'https://accpr.powersoft365.com/',
         'username': os.environ.get('ERP_USERNAME', ''),
         'password': os.environ.get('ERP_PASSWORD', ''),
         'headless': os.environ.get('ERP_HEADLESS', 'true').lower() in ('true', '1', 'yes'),
@@ -99,9 +99,9 @@ async def _login(page, config: dict) -> bool:
 
     logger.info("Filling login credentials")
 
-    username_sel = 'input[name="username"], input[name="email"], input[type="email"], #username, #email'
-    password_sel = 'input[name="password"], input[type="password"], #password'
-    submit_sel = 'button[type="submit"], input[type="submit"], .login-btn, #login-button'
+    username_sel = '#ContentMasterMain_txtUserName'
+    password_sel = '#ContentMasterMain_txtPassword'
+    submit_sel = 'input[name="ctl00$ContentMasterMain$btnLogin"]'
 
     try:
         await page.wait_for_selector(username_sel, timeout=DEFAULT_ACTION_TIMEOUT)
