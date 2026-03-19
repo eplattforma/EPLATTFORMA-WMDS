@@ -217,10 +217,10 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     <td colspan="100%">
                         <i class="fas fa-chevron-down toggle-icon"></i>
                         <span class="badge-state state-{{ r.state }}">
-                            {% if r.state == 'follow_up' %}FOLLOW UP
-                            {% elif r.state == 'waiting' %}WAITING
-                            {% elif r.state == 'ordered' %}ORDERED
-                            {% elif r.state == 'close' %}CLOSE{% endif %}
+                            {% if r.state == 'follow_up' %}<i class="fas fa-bell me-1"></i>FOLLOW UP
+                            {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end me-1"></i>WAITING
+                            {% elif r.state == 'ordered' %}<i class="fas fa-box me-1"></i>ORDERED
+                            {% elif r.state == 'close' %}<i class="fas fa-check-circle me-1"></i>CLOSE{% endif %}
                         </span>
                         <span class="state-grp-count" id="count-{{ r.state }}"></span>
                     </td>
@@ -241,10 +241,10 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </td>
                     <td>
                         <span class="badge-state state-{{ r.state }}">
-                            {% if r.state == 'follow_up' %}FOLLOW UP
-                            {% elif r.state == 'waiting' %}WAITING
-                            {% elif r.state == 'ordered' %}ORDERED
-                            {% elif r.state == 'close' %}CLOSE{% endif %}
+                            {% if r.state == 'follow_up' %}<i class="fas fa-bell me-1"></i>FOLLOW UP
+                            {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end me-1"></i>WAITING
+                            {% elif r.state == 'ordered' %}<i class="fas fa-box me-1"></i>ORDERED
+                            {% elif r.state == 'close' %}<i class="fas fa-check-circle me-1"></i>CLOSE{% endif %}
                         </span>
                     </td>
                     <td>
@@ -413,7 +413,12 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 var _rowsData = {{ rows | tojson }};
 var _currentIdx = null;
 
-var STATE_LABELS = {follow_up:'FOLLOW UP', waiting:'WAITING', ordered:'ORDERED', close:'CLOSE'};
+var STATE_LABELS = {
+    follow_up:'<i class="fas fa-bell me-1"></i>FOLLOW UP',
+    waiting:'<i class="fas fa-hourglass-end me-1"></i>WAITING',
+    ordered:'<i class="fas fa-box me-1"></i>ORDERED',
+    close:'<i class="fas fa-check-circle me-1"></i>CLOSE'
+};
 var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', close:'state-close'};
 
 function openDrawer(idx) {
@@ -429,7 +434,7 @@ function openDrawer(idx) {
     document.getElementById('drawer-customer-code').textContent = r.customer_code_365;
 
     var badge = document.getElementById('drawer-state-badge');
-    badge.textContent = STATE_LABELS[r.state] || r.state;
+    badge.innerHTML = STATE_LABELS[r.state] || r.state;
     badge.className = 'badge-state ' + (STATE_CLASSES[r.state] || '');
 
     document.getElementById('drawer-classification-badge').textContent = r.classification || '—';
