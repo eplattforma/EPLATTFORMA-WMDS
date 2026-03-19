@@ -55,6 +55,6 @@ SMTP_PORT = "465"
 SMTP_EMAIL = "purchase.orders@eplattforma.com.cy"
 ONESIGNAL_API_BASE = "https://api.onesignal.com"
 DROPBOX_FILE_PATH = "/EPLATTFORMA SHARED FILES/EPLATTFORMA BI/EPLATTFORMA NEW DW/DATA/SerialsStockPositionReport1.xlsx"
+DROPBOX_REDIRECT_URI = "https://ep-picking-bro.replit.app/admin/integrations/dropbox/callback"
 
 [userenv.development]
-DROPBOX_REDIRECT_URI = "https://f59e80e7-ea74-449e-9901-29910cc17def-00-3qljqf5587r8t.riker.replit.dev/admin/integrations/dropbox/callback"
