@@ -219,7 +219,10 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 <tr class="row-item state-row-{{ r.state }}" data-idx="{{ loop.index0 }}" onclick="openDrawer({{ loop.index0 }})">
                     <td onclick="event.stopPropagation()"><input type="checkbox" class="bulk-cb" form="bulkForm" name="customer_codes[]" value="{{ r.customer_code_365 }}" onchange="updateBulkCount()"></td>
                     <td>
-                        <div class="fw-semibold">{{ r.customer_name }}</div>
+                        <div class="fw-semibold">
+                            {{ r.customer_name }}
+                            {% if r.expected_this_cycle %}<span class="badge bg-warning text-dark ms-1" style="font-size:0.6rem;" title="Expected this cycle"><i class="fas fa-star"></i></span>{% endif %}
+                        </div>
                         <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.district %} · {{ r.district }}{% endif %}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
                     </td>
                     <td>
