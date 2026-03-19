@@ -216,11 +216,11 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 <tr class="state-divider" data-state="{{ r.state }}" onclick="toggleStateGroup(event, '{{ r.state }}')">
                     <td colspan="100%">
                         <i class="fas fa-chevron-down toggle-icon"></i>
-                        <span class="badge-state state-{{ r.state }}">
-                            {% if r.state == 'follow_up' %}<i class="fas fa-bell me-1"></i>FOLLOW UP
-                            {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end me-1"></i>WAITING
-                            {% elif r.state == 'ordered' %}<i class="fas fa-box me-1"></i>ORDERED
-                            {% elif r.state == 'close' %}<i class="fas fa-check-circle me-1"></i>CLOSE{% endif %}
+                        <span class="badge-state state-{{ r.state }}" title="{% if r.state == 'follow_up' %}Follow Up{% elif r.state == 'waiting' %}Waiting{% elif r.state == 'ordered' %}Ordered{% elif r.state == 'close' %}Close{% endif %}">
+                            {% if r.state == 'follow_up' %}<i class="fas fa-bell"></i>
+                            {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end"></i>
+                            {% elif r.state == 'ordered' %}<i class="fas fa-box"></i>
+                            {% elif r.state == 'close' %}<i class="fas fa-check-circle"></i>{% endif %}
                         </span>
                         <span class="state-grp-count" id="count-{{ r.state }}"></span>
                     </td>
@@ -240,11 +240,11 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td>
-                        <span class="badge-state state-{{ r.state }}">
-                            {% if r.state == 'follow_up' %}<i class="fas fa-bell me-1"></i>FOLLOW UP
-                            {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end me-1"></i>WAITING
-                            {% elif r.state == 'ordered' %}<i class="fas fa-box me-1"></i>ORDERED
-                            {% elif r.state == 'close' %}<i class="fas fa-check-circle me-1"></i>CLOSE{% endif %}
+                        <span class="badge-state state-{{ r.state }}" title="{% if r.state == 'follow_up' %}Follow Up{% elif r.state == 'waiting' %}Waiting{% elif r.state == 'ordered' %}Ordered{% elif r.state == 'close' %}Close{% endif %}">
+                            {% if r.state == 'follow_up' %}<i class="fas fa-bell"></i>
+                            {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end"></i>
+                            {% elif r.state == 'ordered' %}<i class="fas fa-box"></i>
+                            {% elif r.state == 'close' %}<i class="fas fa-check-circle"></i>{% endif %}
                         </span>
                     </td>
                     <td>
@@ -414,10 +414,10 @@ var _rowsData = {{ rows | tojson }};
 var _currentIdx = null;
 
 var STATE_LABELS = {
-    follow_up:'<i class="fas fa-bell me-1"></i>FOLLOW UP',
-    waiting:'<i class="fas fa-hourglass-end me-1"></i>WAITING',
-    ordered:'<i class="fas fa-box me-1"></i>ORDERED',
-    close:'<i class="fas fa-check-circle me-1"></i>CLOSE'
+    follow_up:'<i class="fas fa-bell" title="Follow Up"></i>',
+    waiting:'<i class="fas fa-hourglass-end" title="Waiting"></i>',
+    ordered:'<i class="fas fa-box" title="Ordered"></i>',
+    close:'<i class="fas fa-check-circle" title="Close"></i>'
 };
 var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', close:'state-close'};
 
