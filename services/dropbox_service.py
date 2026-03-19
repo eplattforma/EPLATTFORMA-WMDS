@@ -423,7 +423,7 @@ def sync_dropbox_file(file_processor=None, skip_unchanged=True):
         if file_processor:
             rows_imported = file_processor(file_bytes, metadata)
         else:
-            rows_imported = _default_stock_processor(file_bytes, sync_log_id)
+            rows_imported = _cost_import_processor(file_bytes, sync_log_id)
 
         log.status = 'success'
         log.rows_imported = rows_imported
@@ -472,10 +472,11 @@ class _SyncError(Exception):
         self.sync_status = sync_status
 
 
-def _default_stock_processor(file_bytes, sync_log_id=None):
+def _cost_import_processor(file_bytes, sync_log_id=None):
     import openpyxl
     from io import BytesIO
-    from sqlalchemy import text
+    from decimal import Decimal, InvalidOperation
+    from models import DwItem
 
     tag = f"[sync:{sync_log_id}]" if sync_log_id else "[sync]"
 
@@ -490,119 +491,122 @@ def _default_stock_processor(file_bytes, sync_log_id=None):
 
     logger.info(f"{tag} Parsing worksheet: {worksheet.title}")
 
-    data_start_row = 5
-    header_found = False
-    for row in worksheet.iter_rows(min_row=1, max_row=6, values_only=True):
-        cells = [str(c).strip().lower() if c else '' for c in row]
-        has_item = any('item' in c or 'code' in c or 'sku' in c for c in cells)
-        has_store = any('store' in c or 'stock' in c or 'quantity' in c for c in cells)
-        if has_item and has_store:
-            header_found = True
+    header_row = None
+    item_code_col = None
+    cost_col = None
+
+    for row_idx, row in enumerate(worksheet.iter_rows(min_row=1, max_row=10, values_only=False), start=1):
+        cells = [(c.value, c.column - 1) for c in row if c.value]
+        for val, col_idx in cells:
+            cell_lower = str(val).strip().lower()
+            if item_code_col is None and any(kw in cell_lower for kw in ['item code', 'item_code', 'itemcode', 'item no', 'item_no']):
+                item_code_col = col_idx
+                header_row = row_idx
+            if cost_col is None and any(kw in cell_lower for kw in ['cost', 'cost price', 'cost_price', 'costprice', 'unit cost']):
+                cost_col = col_idx
+                header_row = row_idx
+        if item_code_col is not None and cost_col is not None:
             break
 
-    if not header_found:
+    if item_code_col is None or cost_col is None:
         sample_rows = []
-        for row in worksheet.iter_rows(min_row=1, max_row=2, values_only=True):
-            sample_rows.append([str(c)[:30] if c else '' for c in (row or [])[:4]])
+        for row in worksheet.iter_rows(min_row=1, max_row=3, values_only=True):
+            sample_rows.append([str(c)[:40] if c else '' for c in (row or [])[:10]])
         raise _SyncError(
-            f"Worksheet '{worksheet.title}' does not contain expected headers (item/store/stock columns). "
+            f"Cannot find required columns. Need 'Item Code' and 'Cost' columns. "
+            f"Found item_code_col={'yes' if item_code_col is not None else 'NO'}, "
+            f"cost_col={'yes' if cost_col is not None else 'NO'}. "
             f"First rows: {sample_rows}",
             'parse_error'
         )
 
-    rows = list(worksheet.iter_rows(min_row=data_start_row, values_only=True))
+    logger.info(f"{tag} Header at row {header_row}: item_code=col{item_code_col}, cost=col{cost_col}")
 
-    if not rows:
-        raise _SyncError(f"Worksheet '{worksheet.title}' has no data rows (starting from row {data_start_row})", 'parse_error')
-
-    first_row = rows[0]
-    if not first_row or len(first_row) < 7:
-        raise _SyncError(
-            f"Data rows have fewer than 7 columns (found {len(first_row) if first_row else 0}). "
-            f"Expected: ItemCode, Description, StoreCode, StoreName, ExpiryDate, ..., Quantity",
-            'parse_error'
-        )
-    records = []
-    skipped = 0
+    data_start = header_row + 1
+    rows_read = 0
+    rows_matched = 0
+    rows_updated = 0
+    rows_skipped_blank_cost = 0
+    rows_skipped_no_code = 0
     parse_errors = 0
+    unmatched_codes = []
 
-    for row_idx, row in enumerate(rows, start=5):
-        if not row or len(row) < 7:
-            skipped += 1
+    all_item_codes = set(
+        code for (code,) in db.session.query(DwItem.item_code_365).all()
+    )
+    logger.info(f"{tag} Loaded {len(all_item_codes)} existing item codes from ps_items_dw")
+
+    updates = {}
+
+    for row in worksheet.iter_rows(min_row=data_start, values_only=True):
+        if not row:
             continue
-        item_code = str(row[0]).strip() if row[0] else ''
-        if not item_code:
-            skipped += 1
-            continue
-        item_description = str(row[1]).strip() if row[1] else ''
-        store_code = str(row[2]).strip() if row[2] else ''
-        store_name = str(row[3]).strip() if row[3] else ''
-        if store_code != '777':
+        rows_read += 1
+
+        item_code_raw = row[item_code_col] if item_code_col < len(row) else None
+        cost_raw = row[cost_col] if cost_col < len(row) else None
+
+        if not item_code_raw or str(item_code_raw).strip() == '':
+            rows_skipped_no_code += 1
             continue
 
-        expiry_date = row[4] if row[4] else None
-        if isinstance(expiry_date, datetime):
-            expiry_date = expiry_date.strftime('%Y-%m-%d')
-        elif isinstance(expiry_date, str):
-            try:
-                datetime.strptime(expiry_date.strip(), '%Y-%m-%d')
-            except Exception:
-                expiry_date = None
-        elif expiry_date is not None:
-            expiry_date = None
+        item_code = str(item_code_raw).strip()
 
-        stock_quantity = 0
+        if cost_raw is None or str(cost_raw).strip() == '':
+            rows_skipped_blank_cost += 1
+            continue
+
         try:
-            stock_quantity = float(row[6]) if row[6] else 0
-        except (ValueError, TypeError):
+            cost_value = Decimal(str(cost_raw).strip())
+        except (InvalidOperation, ValueError, TypeError):
             parse_errors += 1
-            stock_quantity = 0
+            continue
 
-        records.append({
-            'item_code': item_code,
-            'item_description': item_description,
-            'store_code': store_code,
-            'store_name': store_name,
-            'expiry_date': expiry_date,
-            'stock_quantity': stock_quantity,
-        })
+        if item_code in all_item_codes:
+            rows_matched += 1
+            updates[item_code] = cost_value
+        else:
+            unmatched_codes.append(item_code)
 
     workbook.close()
 
-    if not records:
-        raise _SyncError(f"No valid store-777 records found (total rows: {len(rows)}, skipped: {skipped})", 'parse_error')
+    if not rows_read:
+        raise _SyncError(f"No data rows found after header (row {header_row})", 'parse_error')
 
-    seen_keys = set()
-    deduped = []
-    for r in records:
-        key = (r['item_code'], r['store_code'], str(r['expiry_date']))
-        if key not in seen_keys:
-            seen_keys.add(key)
-            deduped.append(r)
-        else:
-            skipped += 1
+    batch_size = 500
+    item_codes_list = list(updates.keys())
+    for i in range(0, len(item_codes_list), batch_size):
+        batch_codes = item_codes_list[i:i + batch_size]
+        for code in batch_codes:
+            item = db.session.query(DwItem).get(code)
+            if item:
+                if item.cost_price != updates[code]:
+                    item.cost_price = updates[code]
+                    rows_updated += 1
+
+    db.session.commit()
 
     log_entry = db.session.query(ExternalFileSyncLog).get(sync_log_id) if sync_log_id else None
     if log_entry:
         md = log_entry.metadata_json or {}
-        md['total_rows'] = len(rows)
-        md['skipped_rows'] = skipped
+        md['rows_read'] = rows_read
+        md['rows_matched'] = rows_matched
+        md['rows_updated'] = rows_updated
+        md['rows_skipped_blank_cost'] = rows_skipped_blank_cost
+        md['rows_skipped_no_code'] = rows_skipped_no_code
         md['parse_errors'] = parse_errors
-        md['deduped_records'] = len(deduped)
+        md['unmatched_count'] = len(unmatched_codes)
+        md['unmatched_codes'] = unmatched_codes[:50]
         log_entry.metadata_json = md
         db.session.commit()
 
-    db.session.execute(text("TRUNCATE TABLE stock_positions"))
-
-    from models import StockPosition
-    batch_size = 1000
-    for i in range(0, len(deduped), batch_size):
-        batch = deduped[i:i + batch_size]
-        db.session.bulk_insert_mappings(StockPosition, batch)
-
-    db.session.commit()
-    logger.info(f"{tag} Imported {len(deduped)} stock position records (skipped {skipped}, parse_errors {parse_errors})")
-    return len(deduped)
+    logger.info(
+        f"{tag} Cost import complete: "
+        f"read={rows_read}, matched={rows_matched}, updated={rows_updated}, "
+        f"skipped_blank_cost={rows_skipped_blank_cost}, skipped_no_code={rows_skipped_no_code}, "
+        f"parse_errors={parse_errors}, unmatched={len(unmatched_codes)}"
+    )
+    return rows_updated
 
 
 def disconnect_dropbox():

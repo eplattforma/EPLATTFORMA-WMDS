@@ -1,12 +1,12 @@
 """
-Dropbox file sync job — callable from CLI or scheduled deployment.
+Dropbox cost import job — reads items.xlsx from Dropbox, updates cost_price in ps_items_dw.
 
 Usage:
     python -m jobs.dropbox_sync
 
 Exit codes:
-    0  — sync completed (success or unchanged)
-    1  — sync failed (check logs / sync history)
+    0  — import completed (success or unchanged)
+    1  — import failed (check logs / import history)
 """
 import sys
 import logging
@@ -27,16 +27,21 @@ def run():
         try:
             log = sync_dropbox_file()
             duration = time.time() - start
+            md = log.metadata_json or {}
             if log.status == 'success_no_change':
-                logger.info(f"Sync complete: file unchanged — no import needed ({duration:.1f}s)")
+                logger.info(f"Cost import: file unchanged — no update needed ({duration:.1f}s)")
             elif log.status == 'skipped_concurrent':
-                logger.info(f"Sync skipped: another sync already running ({duration:.1f}s)")
+                logger.info(f"Cost import: skipped — another import already running ({duration:.1f}s)")
             else:
-                logger.info(f"Sync complete: {log.rows_imported:,} rows imported in {duration:.1f}s (rev: {log.file_revision or 'n/a'})")
+                logger.info(
+                    f"Cost import complete in {duration:.1f}s: "
+                    f"read={md.get('rows_read', 0)}, matched={md.get('rows_matched', 0)}, "
+                    f"updated={log.rows_imported}, unmatched={md.get('unmatched_count', 0)}"
+                )
             return 0
         except Exception as e:
             duration = time.time() - start
-            logger.error(f"Sync failed after {duration:.1f}s: {e}")
+            logger.error(f"Cost import failed after {duration:.1f}s: {e}")
             return 1
 
 

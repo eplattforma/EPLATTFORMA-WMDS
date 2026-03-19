@@ -1,0 +1,80 @@
+Please correct the implementation direction.
+
+I do NOT want a generic Dropbox mirror or folder sync.
+
+What I want is this:
+
+Source file:
+`/EPLATTFORMA SHARED FILES/EPLATTFORMA BI/EPLATTFORMA NEW DW/DATA/items.xlsx`
+
+Target table:
+`psitems`
+
+Purpose:
+Import the COST value for each item from the Excel file into `psitems`.
+
+Important rules:
+1. Read the Excel file from Dropbox
+2. Match each Excel row to the existing item in `psitems`
+3. Update ONLY the cost field in `psitems`
+4. Do not update any other fields
+5. Do not create new items
+6. Do not delete anything
+7. Do not null existing costs if the Excel row is blank
+8. If item code from Excel does not exist in `psitems`, skip and report it
+9. Keep a sync log with counts and errors
+
+Business meaning:
+Dropbox file = source of cost data
+psitems table = destination where cost must be stored
+
+Expected import logic:
+- download `items.xlsx` from Dropbox when sync runs
+- open the workbook
+- detect the item code column
+- detect the cost column
+- for each valid row:
+  - find matching item in `psitems`
+  - update `psitems.cost`
+- commit changes
+- log summary
+
+Matching:
+Use the existing item code field in `psitems` that corresponds to the ERP item code.
+Most likely this is something like:
+- `item_code_365`
+or the existing main item code column already used in item sync
+
+Cost target:
+Use the existing cost column in `psitems`.
+If there is no dedicated cost column yet, add one cleanly.
+
+Do NOT:
+- build a local mirrored Dropbox folder
+- overwrite product descriptions
+- overwrite prices
+- overwrite stock
+- overwrite supplier
+- create new records in `psitems`
+
+What I want from you after implementation:
+1. exact file(s) changed
+2. exact `psitems` column used for item-code matching
+3. exact `psitems` column used for cost
+4. admin button/route to run the import
+5. test result showing:
+   - rows read
+   - rows matched
+   - rows updated
+   - rows skipped
+   - unmatched item codes
+
+This is a dedicated:
+Dropbox Excel -> psitems cost import
+not a general Dropbox sync.
+
+To make it even clearer for them, the process is:
+
+Dropbox file → read Excel → find item code → take cost → update psitems.cost
+
+That is the whole job.

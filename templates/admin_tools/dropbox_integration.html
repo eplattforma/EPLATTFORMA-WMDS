@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dropbox Integration — Admin{% endblock %}
+{% block title %}Dropbox Cost Import — Admin{% endblock %}
 
 {% block content %}
 <style>
@@ -16,13 +16,15 @@
     .dbx-page .card .alert { color: inherit; }
     .dbx-page .card a:not(.btn) { color: #0d6efd; }
     .dbx-page h4 { color: #f8f9fa; }
+    .dbx-page .stat-label { font-size: 0.75rem; color: #6c757d; }
+    .dbx-page .stat-value { font-size: 1.1rem; font-weight: 600; }
 </style>
 <div class="container mt-4 mb-5 dbx-page">
     <div class="d-flex align-items-center mb-4">
         <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm me-3">
             <i class="fas fa-arrow-left"></i>
         </a>
-        <h4 class="mb-0"><i class="fab fa-dropbox me-2 text-primary"></i>Dropbox Integration</h4>
+        <h4 class="mb-0"><i class="fab fa-dropbox me-2 text-primary"></i>Dropbox Cost Import</h4>
     </div>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -41,7 +43,7 @@
         <i class="fas fa-exclamation-triangle fs-4 me-3"></i>
         <div>
             <strong>Reconnect Required</strong> — Dropbox authorization has been revoked or the refresh token is no longer valid.
-            Please reconnect to resume syncing.
+            Please reconnect to resume importing.
             {% if status.last_error %}
             <div class="small mt-1 text-muted">{{ status.last_error }}</div>
             {% endif %}
@@ -116,7 +118,7 @@
                             <i class="fas fa-sync me-1"></i>Reconnect
                         </a>
                         <form method="POST" action="{{ url_for('dropbox_integration.dropbox_disconnect') }}" class="d-inline"
-                              onsubmit="return confirm('Disconnect Dropbox? Sync history will be preserved.')">
+                              onsubmit="return confirm('Disconnect Dropbox? Import history will be preserved.')">
                             <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
                             <button type="submit" class="btn btn-outline-danger btn-sm">
                                 <i class="fas fa-unlink me-1"></i>Disconnect
@@ -144,12 +146,12 @@
 
             <div class="card border-0 shadow-sm mt-4">
                 <div class="card-header bg-white border-bottom">
-                    <h6 class="mb-0"><i class="fas fa-file me-2"></i>File Configuration</h6>
+                    <h6 class="mb-0"><i class="fas fa-file-excel me-2"></i>Source File</h6>
                 </div>
                 <div class="card-body">
                     {% if status.file_path %}
                     <div class="mb-2">
-                        <small class="text-muted">Configured file path</small>
+                        <small class="text-muted">Dropbox file path</small>
                         <div class="font-monospace small text-break">{{ status.file_path }}</div>
                     </div>
                     {% else %}
@@ -158,6 +160,15 @@
                         Set <code>DROPBOX_FILE_PATH</code> in environment secrets.
                     </div>
                     {% endif %}
+
+                    <div class="mb-2">
+                        <small class="text-muted">Target table</small>
+                        <div class="font-monospace small">ps_items_dw.cost_price</div>
+                    </div>
+                    <div class="mb-2">
+                        <small class="text-muted">Match column</small>
+                        <div class="font-monospace small">item_code_365</div>
+                    </div>
 
                     {% if status.last_success.file_revision %}
                     <div class="mb-2">
@@ -181,10 +192,10 @@
                             </button>
                         </form>
                         <form method="POST" action="{{ url_for('dropbox_integration.dropbox_sync') }}" class="d-inline"
-                              onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerHTML='<i class=\'fas fa-spinner fa-spin me-1\'></i>Syncing…';">
+                              onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerHTML='<i class=\'fas fa-spinner fa-spin me-1\'></i>Importing…';">
                             <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
                             <button type="submit" class="btn btn-success btn-sm">
-                                <i class="fas fa-download me-1"></i>Sync Now
+                                <i class="fas fa-file-import me-1"></i>Import Costs Now
                             </button>
                         </form>
                         {% endif %}
@@ -198,7 +209,7 @@
                 <div class="col-6">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-body py-3">
-                            <small class="text-muted d-block">Last Sync Attempt</small>
+                            <small class="text-muted d-block">Last Import Attempt</small>
                             {% if status.last_sync.started_at %}
                             <span class="fw-medium">{{ status.last_sync.started_at.strftime('%d %b %Y %H:%M') }}</span>
                             {% set ls = status.last_sync.status %}
@@ -212,10 +223,10 @@
                 <div class="col-6">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-body py-3">
-                            <small class="text-muted d-block">Last Successful Sync</small>
+                            <small class="text-muted d-block">Last Successful Import</small>
                             {% if status.last_success.started_at %}
                             <span class="fw-medium">{{ status.last_success.started_at.strftime('%d %b %Y %H:%M') }}</span>
-                            <span class="text-muted small ms-1">({{ '{:,}'.format(status.last_success.rows_imported) }} rows)</span>
+                            <span class="text-muted small ms-1">({{ '{:,}'.format(status.last_success.rows_imported) }} updated)</span>
                             {% else %}
                             <span class="text-muted">Never</span>
                             {% endif %}
@@ -224,9 +235,56 @@
                 </div>
             </div>
 
+            {% if status.last_sync.status and status.last_sync.status in ('success',) %}
+            {% set md = status.last_sync_metadata or {} %}
+            {% if md %}
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Last Import Summary</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 text-center">
+                        <div class="col-4 col-md-2">
+                            <div class="stat-label">Rows Read</div>
+                            <div class="stat-value">{{ '{:,}'.format(md.get('rows_read', 0)) }}</div>
+                        </div>
+                        <div class="col-4 col-md-2">
+                            <div class="stat-label">Matched</div>
+                            <div class="stat-value text-success">{{ '{:,}'.format(md.get('rows_matched', 0)) }}</div>
+                        </div>
+                        <div class="col-4 col-md-2">
+                            <div class="stat-label">Updated</div>
+                            <div class="stat-value text-primary">{{ '{:,}'.format(md.get('rows_updated', 0)) }}</div>
+                        </div>
+                        <div class="col-4 col-md-2">
+                            <div class="stat-label">Blank Cost</div>
+                            <div class="stat-value text-muted">{{ '{:,}'.format(md.get('rows_skipped_blank_cost', 0)) }}</div>
+                        </div>
+                        <div class="col-4 col-md-2">
+                            <div class="stat-label">No Code</div>
+                            <div class="stat-value text-muted">{{ '{:,}'.format(md.get('rows_skipped_no_code', 0)) }}</div>
+                        </div>
+                        <div class="col-4 col-md-2">
+                            <div class="stat-label">Unmatched</div>
+                            <div class="stat-value {% if md.get('unmatched_count', 0) > 0 %}text-warning{% else %}text-muted{% endif %}">{{ '{:,}'.format(md.get('unmatched_count', 0)) }}</div>
+                        </div>
+                    </div>
+                    {% if md.get('unmatched_codes') %}
+                    <div class="mt-3">
+                        <small class="text-muted d-block mb-1">Unmatched item codes (first {{ md.get('unmatched_codes', [])|length }}):</small>
+                        <div class="font-monospace small" style="max-height:120px; overflow-y:auto; background:#f8f9fa; padding:8px; border-radius:4px;">
+                            {{ md.get('unmatched_codes', [])|join(', ') }}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            {% endif %}
+
             <div class="card border-0 shadow-sm">
                 <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Last Sync Details</h6>
+                    <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Last Import Details</h6>
                     {% if status.last_sync.status %}
                     {% set s = status.last_sync.status %}
                     <span class="badge {% if s == 'success' or s == 'success_no_change' %}bg-success{% elif s == 'running' %}bg-primary{% elif s == 'auth_error' %}bg-danger{% elif s == 'config_error' %}bg-warning text-dark{% elif s == 'skipped_concurrent' %}bg-secondary{% else %}bg-danger{% endif %}">
@@ -246,7 +304,7 @@
                             <span>{{ status.last_sync.finished_at.strftime('%d %b %Y %H:%M') if status.last_sync.finished_at else '—' }}</span>
                         </div>
                         <div class="col-6">
-                            <small class="text-muted d-block">Rows imported</small>
+                            <small class="text-muted d-block">Costs updated</small>
                             <span class="fw-medium">{{ '{:,}'.format(status.last_sync.rows_imported) }}</span>
                         </div>
                         <div class="col-6">
@@ -268,14 +326,14 @@
                         {% endif %}
                     </div>
                     {% else %}
-                    <p class="text-muted mb-0">No sync attempts yet.</p>
+                    <p class="text-muted mb-0">No import attempts yet.</p>
                     {% endif %}
                 </div>
             </div>
 
             <div class="card border-0 shadow-sm mt-4">
                 <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0"><i class="fas fa-history me-2"></i>Sync History</h6>
+                    <h6 class="mb-0"><i class="fas fa-history me-2"></i>Import History</h6>
                     <div class="d-flex gap-1">
                         <a href="{{ url_for('dropbox_integration.dropbox_status') }}"
                            class="btn btn-outline-secondary btn-sm {% if not status.filter_status %}active{% endif %}">All</a>
@@ -297,7 +355,7 @@
                                 <tr>
                                     <th>Date</th>
                                     <th>Status</th>
-                                    <th>Rows</th>
+                                    <th>Updated</th>
                                     <th>Revision</th>
                                     <th>Duration</th>
                                     <th>Error</th>
@@ -337,7 +395,7 @@
                         </table>
                     </div>
                     {% else %}
-                    <div class="p-3 text-muted small">No sync history{% if status.filter_status %} matching filter "{{ status.filter_status }}"{% endif %}.</div>
+                    <div class="p-3 text-muted small">No import history{% if status.filter_status %} matching filter "{{ status.filter_status }}"{% endif %}.</div>
                     {% endif %}
                 </div>
             </div>

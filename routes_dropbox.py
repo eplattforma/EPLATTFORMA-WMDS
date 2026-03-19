@@ -39,6 +39,8 @@ def dropbox_status():
             log for log in status['sync_history'] if log.status == status_filter
         ]
     status['filter_status'] = status_filter
+    last_sync_log = status.get('sync_history', [None])[0] if status.get('sync_history') else None
+    status['last_sync_metadata'] = last_sync_log.metadata_json if last_sync_log and last_sync_log.metadata_json else {}
     return render_template('admin_tools/dropbox_integration.html', status=status)
 
 
@@ -98,14 +100,23 @@ def dropbox_sync():
     try:
         log = sync_dropbox_file()
         if log.status == 'success_no_change':
-            flash('File unchanged since last sync — no import needed.', 'info')
+            flash('File unchanged since last import — no update needed.', 'info')
         elif log.status == 'skipped_concurrent':
-            flash('Sync skipped — another sync is already running.', 'warning')
+            flash('Import skipped — another import is already running.', 'warning')
         else:
-            flash(f'Sync completed: {log.rows_imported:,} rows imported.', 'success')
+            md = log.metadata_json or {}
+            summary = (
+                f"Cost import complete: {md.get('rows_read', 0):,} rows read, "
+                f"{md.get('rows_matched', 0):,} matched, "
+                f"{log.rows_imported:,} costs updated"
+            )
+            unmatched = md.get('unmatched_count', 0)
+            if unmatched:
+                summary += f", {unmatched} unmatched"
+            flash(summary, 'success')
     except Exception as e:
-        logger.error(f"Dropbox sync error: {e}")
-        flash(f'Sync failed: {e}', 'danger')
+        logger.error(f"Dropbox cost import error: {e}")
+        flash(f'Cost import failed: {e}', 'danger')
     return redirect(url_for('dropbox_integration.dropbox_status'))
 
 
