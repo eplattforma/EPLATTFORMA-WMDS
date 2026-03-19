@@ -76,6 +76,46 @@ def is_sync_running(sync_type="invoices"):
                 pass
         return True
 
+def _resolve_invoice_date_from_ps365(invoice_no: str):
+    """Resolve invoice date from PS365 API for a given invoice number."""
+    try:
+        from ps365_client import call_ps365
+
+        payload = {
+            "filter_define": {
+                "only_counted": "N",
+                "page_number": 1,
+                "page_size": 10,
+                "invoice_type": "all",
+                "invoice_number_selection": invoice_no,
+                "invoice_customer_code_selection": "",
+                "invoice_customer_name_selection": "",
+                "invoice_customer_email_selection": "",
+                "invoice_customer_phone_selection": "",
+                "from_date": "",
+                "to_date": "",
+            }
+        }
+
+        response = call_ps365("list_loyalty_invoices_header", payload)
+        invoices = response.get("list_invoices", []) or []
+        if not invoices:
+            return None
+
+        inv_date = invoices[0].get("invoice_date_utc0")
+        if not inv_date:
+            return None
+
+        if isinstance(inv_date, str):
+            from datetime import datetime as dt_cls
+            return dt_cls.fromisoformat(inv_date.replace("Z", "+00:00")).date().isoformat()
+
+        return inv_date.date().isoformat() if hasattr(inv_date, "date") else str(inv_date)
+    except Exception as e:
+        logging.warning(f"Could not resolve invoice date from PS365 for {invoice_no}: {e}")
+        return None
+
+
 def _run_invoice_sync(app, invoice_no, import_date):
     """Background worker for invoice sync"""
     from services_powersoft import sync_invoices_from_ps365
@@ -102,11 +142,35 @@ def _run_invoice_sync(app, invoice_no, import_date):
             
             _update_status("invoices",
                 result=result,
-                progress="Completed",
+                progress="Operational sync completed. Updating data warehouse...",
                 completed_at=datetime.now().isoformat()
             )
                 
             logging.info(f"Background sync completed: {result}")
+            
+            dw_catchup_status = None
+            if result.get("success", True):
+                dw_date = import_date or None
+                if not dw_date and invoice_no:
+                    logging.info(f"Resolving invoice date from PS365 for invoice {invoice_no}...")
+                    dw_date = _resolve_invoice_date_from_ps365(invoice_no)
+                    logging.info(f"Resolved DW catch-up date: {dw_date}")
+                
+                if dw_date:
+                    try:
+                        from app import db
+                        from datawarehouse_sync import sync_invoices_from_date
+                        logging.info(f"Starting DW catch-up for date {dw_date}...")
+                        _update_status("invoices", progress="Updating data warehouse...")
+                        sync_invoices_from_date(db.session, dw_date, dw_date, sync_trigger='operator', refresh_mv=False)
+                        logging.info(f"DW catch-up completed for date {dw_date}")
+                    except Exception as dw_err:
+                        logging.error(f"DW catch-up failed (operational sync still OK): {dw_err}")
+                        dw_catchup_status = f"Completed (DW catch-up failed: {str(dw_err)[:100]})"
+            else:
+                logging.info("Operational sync was not successful, skipping DW catch-up")
+            
+            _update_status("invoices", progress=dw_catchup_status or "Completed")
             
     except Exception as e:
         logging.error(f"Background sync error: {str(e)}")

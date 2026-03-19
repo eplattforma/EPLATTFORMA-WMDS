@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import time
 from logging.handlers import RotatingFileHandler
 from sqlalchemy import text as sa_text
@@ -1041,6 +1041,77 @@ def incremental_dw_update(session: Session, sync_trigger: str = 'manual'):
 
 
 # ----------------------
+# COST ENRICHMENT HELPERS
+# ----------------------
+
+COST_ENRICHMENT_START_DATE = date(2026, 1, 1)
+
+
+def _should_apply_cost_snapshot(invoice_date) -> bool:
+    if not invoice_date:
+        return False
+    if hasattr(invoice_date, "date"):
+        invoice_date = invoice_date.date()
+    return invoice_date >= COST_ENRICHMENT_START_DATE
+
+
+def _get_item_cost_map(session, item_codes: list) -> dict:
+    if not item_codes:
+        return {}
+    rows = (
+        session.query(DwItem.item_code_365, DwItem.cost_price)
+        .filter(DwItem.item_code_365.in_(item_codes))
+        .all()
+    )
+    return {
+        (code or "").upper(): float(cost)
+        for code, cost in rows
+        if code and cost is not None
+    }
+
+
+def _build_cost_fields(invoice_date, item_code, quantity, line_total_excl, item_cost_map):
+    empty = {
+        "unit_cost_snapshot": None,
+        "line_cost_total": None,
+        "gross_profit": None,
+        "gross_margin_pct": None,
+        "cost_source": None,
+        "cost_snapshot_at": None,
+    }
+
+    if not _should_apply_cost_snapshot(invoice_date):
+        return empty
+
+    code = (item_code or "").strip().upper()
+    if not code:
+        return empty
+
+    unit_cost = item_cost_map.get(code)
+    if unit_cost is None:
+        return empty
+
+    qty = float(quantity or 0)
+    revenue_excl = float(line_total_excl or 0)
+
+    line_cost_total = qty * unit_cost
+    gross_profit = revenue_excl - line_cost_total
+
+    gross_margin_pct = None
+    if revenue_excl not in (None, 0):
+        gross_margin_pct = gross_profit / revenue_excl
+
+    return {
+        "unit_cost_snapshot": unit_cost,
+        "line_cost_total": line_cost_total,
+        "gross_profit": gross_profit,
+        "gross_margin_pct": gross_margin_pct,
+        "cost_source": "dw_item.cost_price",
+        "cost_snapshot_at": utc_now_for_db(),
+    }
+
+
+# ----------------------
 # INVOICE SYNC FUNCTIONS
 # ----------------------
 
@@ -1240,10 +1311,19 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
     logger.info(f"Pre-loaded {len(existing_lines_set)} existing invoice lines for fast lookup")
     
     existing_headers_set = set()
-    invoice_type_map = {}  # Map invoice_no -> type for sign calculation
-    for row in session.query(DwInvoiceHeader.invoice_no_365, DwInvoiceHeader.invoice_type).all():
+    invoice_type_map = {}
+    invoice_header_map = {}
+    for row in session.query(
+        DwInvoiceHeader.invoice_no_365,
+        DwInvoiceHeader.invoice_type,
+        DwInvoiceHeader.invoice_date_utc0,
+    ).all():
         existing_headers_set.add(row[0])
         invoice_type_map[row[0]] = row[1]
+        invoice_header_map[row[0]] = {
+            "type": row[1],
+            "date": row[2],
+        }
     logger.info(f"Pre-loaded {len(existing_headers_set)} existing invoice headers for fast lookup")
     
     while True:
@@ -1281,6 +1361,39 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
             total_invoices_received += len(invoices)
             page_lines_inserted = 0
             page_lines_skipped = 0
+            
+            page_new_item_codes = set()
+            page_new_lines_info = []
+            for inv in invoices:
+                invoice_no = None
+                if "invoice" in inv:
+                    inv_obj = inv.get("invoice", inv)
+                    header = inv_obj.get("invoice_header", {})
+                    invoice_no = header.get("invoice_no_365")
+                elif "invoice_no_365" in inv:
+                    invoice_no = inv.get("invoice_no_365")
+                elif "invoice_header" in inv:
+                    header = inv.get("invoice_header", {})
+                    invoice_no = header.get("invoice_no_365")
+                if not invoice_no or invoice_no not in existing_headers_set:
+                    continue
+                hdr_info = invoice_header_map.get(invoice_no, {})
+                invoice_date = hdr_info.get("date")
+                if not _should_apply_cost_snapshot(invoice_date):
+                    continue
+                lines = []
+                if "invoice" in inv:
+                    inv_obj = inv.get("invoice", inv)
+                    lines = inv_obj.get("list_invoice_details", []) or []
+                elif "list_invoice_details" in inv:
+                    lines = inv.get("list_invoice_details", []) or []
+                for line in lines:
+                    line_number = line.get("line_number")
+                    if (invoice_no, line_number) not in existing_lines_set:
+                        ic = (line.get("item_code_365") or "").strip().upper()
+                        if ic:
+                            page_new_item_codes.add(ic)
+            item_cost_map = _get_item_cost_map(session, list(page_new_item_codes)) if page_new_item_codes else {}
             
             for inv_idx, inv in enumerate(invoices, 1):
                 # Log raw response structure for first few invoices to debug
@@ -1365,6 +1478,15 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
                     }
                     attr_hash = _compute_hash(hash_data)
                     
+                    invoice_date = invoice_header_map.get(invoice_no, {}).get("date")
+                    cost_fields = _build_cost_fields(
+                        invoice_date=invoice_date,
+                        item_code=line.get("item_code_365"),
+                        quantity=quantity,
+                        line_total_excl=line_total_excl,
+                        item_cost_map=item_cost_map,
+                    )
+                    
                     invoice_line = DwInvoiceLine(
                         invoice_no_365=invoice_no,
                         line_number=line_number,
@@ -1380,7 +1502,13 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
                         line_total_vat=line_total_vat,
                         line_total_incl=line_total_incl,
                         attr_hash=attr_hash,
-                        last_sync_at=utc_now_for_db()
+                        last_sync_at=utc_now_for_db(),
+                        unit_cost_snapshot=cost_fields["unit_cost_snapshot"],
+                        line_cost_total=cost_fields["line_cost_total"],
+                        gross_profit=cost_fields["gross_profit"],
+                        gross_margin_pct=cost_fields["gross_margin_pct"],
+                        cost_source=cost_fields["cost_source"],
+                        cost_snapshot_at=cost_fields["cost_snapshot_at"],
                     )
                     session.add(invoice_line)
                     inserted += 1
@@ -1525,11 +1653,12 @@ def _update_invoice_sync_status(session: Session, status: str, message: str):
             pass
 
 
-def sync_invoices_from_date(session: Session, date_from: str, date_to: str = None, sync_trigger: str = 'manual'):
+def sync_invoices_from_date(session: Session, date_from: str, date_to: str = None, sync_trigger: str = 'manual', refresh_mv: bool = True):
     """
     Complete invoice sync: headers -> lines -> stores -> cashiers (uses existing PSCustomer table)
     date_from: YYYY-MM-DD format (required)
     date_to: YYYY-MM-DD format (optional, defaults to today)
+    refresh_mv: if True, refresh materialized views after sync (default True for cron, False for operator catch-up)
     """
     from services.sync_logger import start_sync_log, finish_sync_log, fail_sync_log
     from sqlalchemy import event, pool
@@ -1565,16 +1694,19 @@ def sync_invoices_from_date(session: Session, date_from: str, date_to: str = Non
         _update_invoice_sync_status(session, "RUNNING", "Syncing cashiers...")
         u_ins, u_upd = sync_invoice_cashiers(session)
         
-        _update_invoice_sync_status(session, "RUNNING", "Refreshing materialized views...")
-        try:
-            session.execute(sa_text("REFRESH MATERIALIZED VIEW dw_sales_lines_mv"))
-            session.commit()
-            session.execute(sa_text("ANALYZE dw_sales_lines_mv"))
-            session.commit()
-            logger.info("Refreshed dw_sales_lines_mv materialized view")
-        except Exception as mv_err:
-            logger.warning(f"Could not refresh dw_sales_lines_mv: {mv_err}")
-            session.rollback()
+        if refresh_mv:
+            _update_invoice_sync_status(session, "RUNNING", "Refreshing materialized views...")
+            try:
+                session.execute(sa_text("REFRESH MATERIALIZED VIEW dw_sales_lines_mv"))
+                session.commit()
+                session.execute(sa_text("ANALYZE dw_sales_lines_mv"))
+                session.commit()
+                logger.info("Refreshed dw_sales_lines_mv materialized view")
+            except Exception as mv_err:
+                logger.warning(f"Could not refresh dw_sales_lines_mv: {mv_err}")
+                session.rollback()
+        else:
+            logger.info("Skipping materialized view refresh (refresh_mv=False)")
         
         summary = f"Headers: {h_ins}, Lines: {l_ins}, Stores: {s_ins}, Cashiers: {u_ins}"
         _update_invoice_sync_status(session, "COMPLETE", summary)

@@ -1,0 +1,461 @@
+Replit brief — DW catch-up after operational invoice sync + 2026 cost snapshot on DW lines
+Objective
+
+Implement the following without renaming existing functions and without changing the current DW skip behavior for already imported invoices:
+
+Keep the current operational invoice sync and DW cron sync as separate flows.
+
+After a successful operator-triggered invoice sync, run a lightweight DW catch-up for the same invoice date / invoice scope.
+
+In DW, add cost snapshot + profitability fields to invoice lines, but only for invoices dated from 2026-01-01 onward.
+
+Older invoices must remain without cost values.
+
+Do not build a separate backfill/backload utility now. If we need historic 2026 data to receive cost later, we will handle that through a rerun / overwrite path separately.
+
+Non-negotiable rules
+
+Do not rename existing functions.
+
+Do not change current insert/skip logic for DW invoices and lines at this stage.
+
+Keep nightly DW cron separate and still running as the reconciliation / reporting flow.
+
+Pre-2026 invoices must remain with null cost fields.
+
+Do not overwrite an existing cost snapshot on a DW invoice line once it has been set.
+
+Operator-triggered DW catch-up should be lightweight and should not do a full materialized view refresh unless explicitly forced.
+
+No separate backfill utility is needed now.
+
+1) Schema changes
+1.1 Add columns to dw_invoice_line
+
+Add these nullable columns:
+
+unit_cost_snapshot NUMERIC(18,6) NULL
+
+line_cost_total NUMERIC(18,2) NULL
+
+gross_profit NUMERIC(18,2) NULL
+
+gross_margin_pct NUMERIC(12,6) NULL
+
+cost_source VARCHAR(50) NULL
+
+cost_snapshot_at TIMESTAMP NULL
+
+SQL migration
+ALTER TABLE dw_invoice_line
+    ADD COLUMN IF NOT EXISTS unit_cost_snapshot NUMERIC(18,6),
+    ADD COLUMN IF NOT EXISTS line_cost_total NUMERIC(18,2),
+    ADD COLUMN IF NOT EXISTS gross_profit NUMERIC(18,2),
+    ADD COLUMN IF NOT EXISTS gross_margin_pct NUMERIC(12,6),
+    ADD COLUMN IF NOT EXISTS cost_source VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS cost_snapshot_at TIMESTAMP NULL;
+1.2 Add helpful indexes if missing
+CREATE INDEX IF NOT EXISTS idx_dw_invoice_header_date
+    ON dw_invoice_header (invoice_date_utc0);
+
+CREATE INDEX IF NOT EXISTS idx_dw_invoice_line_item
+    ON dw_invoice_line (item_code_365);
+
+CREATE INDEX IF NOT EXISTS idx_dw_invoice_line_cost_null
+    ON dw_invoice_line (unit_cost_snapshot);
+2) Update SQLAlchemy model
+File: models.py
+
+Update the DwInvoiceLine model to include:
+
+unit_cost_snapshot = db.Column(db.Numeric(18, 6), nullable=True)
+line_cost_total = db.Column(db.Numeric(18, 2), nullable=True)
+gross_profit = db.Column(db.Numeric(18, 2), nullable=True)
+gross_margin_pct = db.Column(db.Numeric(12, 6), nullable=True)
+cost_source = db.Column(db.String(50), nullable=True)
+cost_snapshot_at = db.Column(db.DateTime, nullable=True)
+
+Do not change existing keys or uniqueness logic.
+
+3) Add helper logic in datawarehouse_sync.py
+3.1 Add constant
+
+At module level:
+
+from datetime import date
+
+COST_ENRICHMENT_START_DATE = date(2026, 1, 1)
+3.2 Add helper: should cost be applied
+def _should_apply_cost_snapshot(invoice_date) -> bool:
+    if not invoice_date:
+        return False
+    if hasattr(invoice_date, "date"):
+        invoice_date = invoice_date.date()
+    return invoice_date >= COST_ENRICHMENT_START_DATE
+3.3 Add helper: fetch item costs in bulk
+
+Use DwItem.cost_price as the source.
+
+def _get_item_cost_map(session, item_codes: list[str]) -> dict[str, float]:
+    if not item_codes:
+        return {}
+
+    rows = (
+        session.query(DwItem.item_code_365, DwItem.cost_price)
+        .filter(DwItem.item_code_365.in_(item_codes))
+        .all()
+    )
+    return {
+        (code or "").upper(): float(cost)
+        for code, cost in rows
+        if code and cost is not None
+    }
+3.4 Add helper: calculate profitability values
+def _build_cost_fields(invoice_date, item_code, quantity, line_total_excl, item_cost_map):
+    empty = {
+        "unit_cost_snapshot": None,
+        "line_cost_total": None,
+        "gross_profit": None,
+        "gross_margin_pct": None,
+        "cost_source": None,
+        "cost_snapshot_at": None,
+    }
+
+    if not _should_apply_cost_snapshot(invoice_date):
+        return empty
+
+    code = (item_code or "").strip().upper()
+    if not code:
+        return empty
+
+    unit_cost = item_cost_map.get(code)
+    if unit_cost is None:
+        return empty
+
+    qty = float(quantity or 0)
+    revenue_excl = float(line_total_excl or 0)
+
+    line_cost_total = qty * unit_cost
+    gross_profit = revenue_excl - line_cost_total
+
+    gross_margin_pct = None
+    if revenue_excl not in (None, 0):
+        gross_margin_pct = gross_profit / revenue_excl
+
+    return {
+        "unit_cost_snapshot": unit_cost,
+        "line_cost_total": line_cost_total,
+        "gross_profit": gross_profit,
+        "gross_margin_pct": gross_margin_pct,
+        "cost_source": "dw_item.cost_price",
+        "cost_snapshot_at": utc_now_for_db(),
+    }
+
+Important:
+
+This should work for returns too because quantity and revenue are already signed.
+
+4) Modify DW line import logic
+File: datawarehouse_sync.py
+Function: sync_invoice_lines_from_date(...)
+4.1 Extend the header preload
+
+Right now headers are preloaded for existence and type. Extend that preload to also include invoice date.
+
+existing_headers_set = set()
+invoice_header_map = {}
+
+for row in session.query(
+    DwInvoiceHeader.invoice_no_365,
+    DwInvoiceHeader.invoice_type,
+    DwInvoiceHeader.invoice_date_utc0
+).all():
+    invoice_no = row[0]
+    existing_headers_set.add(invoice_no)
+    invoice_header_map[invoice_no] = {
+        "type": row[1],
+        "date": row[2],
+    }
+4.2 For each page, bulk-collect eligible item codes
+
+Before inserting new lines on a page:
+
+identify lines that do not already exist
+
+identify which belong to parent invoices dated >= 2026-01-01
+
+collect item_code_365
+
+bulk load item cost once using _get_item_cost_map(...)
+
+Do not query item cost row-by-row inside the main line loop.
+
+4.3 Populate cost fields on insert
+
+When constructing DwInvoiceLine(...), obtain:
+
+invoice_type from invoice_header_map[invoice_no]["type"]
+
+invoice_date from invoice_header_map[invoice_no]["date"]
+
+Then:
+
+cost_fields = _build_cost_fields(
+    invoice_date=invoice_date,
+    item_code=line.get("item_code_365"),
+    quantity=quantity,
+    line_total_excl=line_total_excl,
+    item_cost_map=item_cost_map,
+)
+
+Add cost fields to the insert:
+
+invoice_line = DwInvoiceLine(
+    invoice_no_365=invoice_no,
+    line_number=line_number,
+    item_code_365=line.get("item_code_365"),
+    quantity=quantity,
+    price_excl=line.get("line_price_exclude_vat"),
+    price_incl=line.get("line_price_include_vat"),
+    discount_percent=line.get("line_discount_percentage"),
+    vat_code_365=line.get("line_vat_code_365"),
+    vat_percent=line.get("line_vat_percentage"),
+    line_total_excl=line_total_excl,
+    line_total_discount=line_total_discount,
+    line_total_vat=line_total_vat,
+    line_total_incl=line_total_incl,
+    attr_hash=attr_hash,
+    last_sync_at=utc_now_for_db(),
+    unit_cost_snapshot=cost_fields["unit_cost_snapshot"],
+    line_cost_total=cost_fields["line_cost_total"],
+    gross_profit=cost_fields["gross_profit"],
+    gross_margin_pct=cost_fields["gross_margin_pct"],
+    cost_source=cost_fields["cost_source"],
+    cost_snapshot_at=cost_fields["cost_snapshot_at"],
+)
+4.4 Required behavior
+
+2025 and older invoices: cost-related columns remain null
+
+2026+ invoices:
+
+populate cost/profit fields on new DW line insert if DwItem.cost_price exists
+
+otherwise leave null
+
+Existing lines are still skipped by current DW logic, and that is acceptable for now
+
+5) Add lightweight DW catch-up after operational invoice sync
+File: background_sync.py
+
+Current flow:
+
+_run_invoice_sync(...)
+
+calls sync_invoices_from_ps365(...)
+
+After that succeeds, add a DW catch-up step.
+
+5.1 Preferred behavior
+If import_date is provided
+
+Run DW catch-up for that exact date:
+
+sync_invoices_from_date(db.session, import_date, import_date, sync_trigger='operator', refresh_mv=False)
+
+To support this, update sync_invoices_from_date(...) in datawarehouse_sync.py to accept:
+
+def sync_invoices_from_date(session, date_from: str, date_to: str = None, sync_trigger: str = 'manual', refresh_mv: bool = True):
+
+Nightly cron keeps default refresh_mv=True.
+Operator-triggered path passes refresh_mv=False.
+
+Wrap the MV refresh block:
+
+if refresh_mv:
+    # existing refresh materialized view logic
+5.2 If only invoice_no is provided and import_date is blank
+
+Support a fallback that resolves invoice date from PS365, then runs DW catch-up for that date only.
+
+Add helper:
+
+def _resolve_invoice_date_from_ps365(invoice_no: str) -> str | None:
+    from ps365_client import call_ps365
+    from datetime import datetime
+
+    payload = {
+        "filter_define": {
+            "only_counted": "N",
+            "page_number": 1,
+            "page_size": 10,
+            "invoice_type": "all",
+            "invoice_number_selection": invoice_no,
+            "invoice_customer_code_selection": "",
+            "invoice_customer_name_selection": "",
+            "invoice_customer_email_selection": "",
+            "invoice_customer_phone_selection": "",
+            "from_date": "",
+            "to_date": "",
+        }
+    }
+
+    response = call_ps365("list_loyalty_invoices_header", payload)
+    invoices = response.get("list_invoices", []) or []
+    if not invoices:
+        return None
+
+    inv_date = invoices[0].get("invoice_date_utc0")
+    if not inv_date:
+        return None
+
+    if isinstance(inv_date, str):
+        return datetime.fromisoformat(inv_date.replace("Z", "+00:00")).date().isoformat()
+
+    return inv_date.date().isoformat() if hasattr(inv_date, "date") else str(inv_date)
+
+Then in _run_invoice_sync(...):
+
+if import_date exists, use it
+
+else if invoice_no exists, resolve the invoice date
+
+then run DW catch-up for that date only
+
+5.3 Status reporting
+
+Update progress text in background_sync.py:
+
+"Fetching invoices from PS365..."
+
+"Operational sync completed. Updating data warehouse..."
+
+"DW catch-up completed"
+
+"Completed"
+
+If DW catch-up fails:
+
+operational sync should still remain successful
+
+log DW catch-up error separately
+
+progress should indicate operational success but DW catch-up failure
+
+Do not block warehouse operations because of DW catch-up issues.
+
+6) Keep cron behavior intact
+
+Existing nightly DW cron should remain the same except:
+
+it keeps refresh_mv=True
+
+newly inserted 2026+ lines now receive cost/profit fields automatically
+
+it still skips already imported lines, which is fine for now
+
+So the cron remains the full reporting sync and MV refresh path.
+
+7) Important note about ordering monitoring
+
+Check whether ordering monitoring reads from:
+
+base DW tables
+
+or dw_sales_lines_mv
+
+If it reads base tables
+
+Operator-triggered DW catch-up without MV refresh will still help immediately.
+
+If it reads the materialized view
+
+Operator DW catch-up will not show until cron refreshes the MV.
+
+Preferred approach:
+
+recent/current ordering monitoring reads base DW tables
+
+nightly reporting continues to use MV
+
+8) Acceptance criteria
+
+Implementation is correct when all of the below are true:
+
+Existing function names remain unchanged.
+
+Existing DW behavior still skips already imported invoices and lines.
+
+New 2026+ DW invoice lines get:
+
+unit_cost_snapshot
+
+line_cost_total
+
+gross_profit
+
+gross_margin_pct
+
+cost_source
+
+cost_snapshot_at
+when DwItem.cost_price exists.
+
+2025 and older invoice lines remain with null cost fields.
+
+Nightly DW cron still runs independently and refreshes MV.
+
+Operator-triggered invoice sync also runs a narrow DW catch-up for the same date scope.
+
+Operator-triggered DW catch-up does not do a full MV refresh by default.
+
+If DW catch-up fails, operational sync result is still preserved.
+
+No separate backfill/backload utility is implemented now.
+
+9) Suggested implementation order
+
+Add DB columns and model fields
+
+Add cost helper functions in datawarehouse_sync.py
+
+Update sync_invoice_lines_from_date(...) to populate cost on new 2026+ lines
+
+Add refresh_mv=True optional flag to sync_invoices_from_date(...)
+
+Add DW catch-up call inside background_sync.py after successful operational sync
+
+Test both:
+
+manual operator-triggered sync
+
+nightly DW cron
+
+10) Minimal test cases
+Test A — 2026 invoice new line
+
+import a 2026 invoice into DW
+
+verify cost/profit fields are populated
+
+Test B — 2025 invoice new line
+
+import a 2025 invoice into DW
+
+verify cost/profit fields remain null
+
+Test C — operator-triggered sync with import_date
+
+verify operational sync runs
+
+verify DW catch-up runs same date
+
+verify no full MV refresh happens
+
+Test D — cron DW sync
+
+verify MV still refreshes
+
+verify normal DW flow still works
+
+If you want, I can also turn this into a shorter “message to Replit” version in your usual instruction style.

@@ -2178,6 +2178,13 @@ class DwInvoiceLine(db.Model):
     line_total_incl = db.Column(db.Numeric(18, 4), nullable=True)
     line_net_value = db.Column(db.Numeric(18, 4), nullable=True)
     
+    unit_cost_snapshot = db.Column(db.Numeric(18, 6), nullable=True)
+    line_cost_total = db.Column(db.Numeric(18, 2), nullable=True)
+    gross_profit = db.Column(db.Numeric(18, 2), nullable=True)
+    gross_margin_pct = db.Column(db.Numeric(12, 6), nullable=True)
+    cost_source = db.Column(db.String(50), nullable=True)
+    cost_snapshot_at = db.Column(db.DateTime, nullable=True)
+    
     attr_hash = db.Column(db.String(32), nullable=False)
     last_sync_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
     
