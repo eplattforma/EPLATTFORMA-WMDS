@@ -166,7 +166,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                 <select class="form-select form-select-sm" name="delivery_slot" style="width:130px; font-size:0.78rem;">
                     <option value="">Delivery Slot</option>
                     {% for s in all_delivery_slots %}
-                    <option value="{{ s.delivery_date }}" {% if filters.delivery_slot == s.delivery_date %}selected{% endif %}>{{ s.delivery_label }}</option>
+                    <option value="{{ s.delivery_date }}" {% if filters.delivery_slot == s.delivery_date %}selected{% endif %}><i class="fas fa-truck"></i> {{ s.delivery_label }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -253,7 +253,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </td>
                     <td>
                         {% if r.next_delivery %}
-                        <span class="badge" style="background-color:#22c55e;color:white;font-size:0.72rem;">{{ r.next_delivery }}</span>
+                        <span class="badge" style="background-color:#22c55e;color:white;font-size:0.72rem;"><i class="fas fa-truck me-1" style="font-size:0.65rem;"></i>{{ r.next_delivery }}</span>
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="value-col">
@@ -431,8 +431,13 @@ function openDrawer(idx) {
 
     document.getElementById('drawer-classification-badge').textContent = r.classification || '—';
     var delBadge = document.getElementById('drawer-delivery-badge');
-    delBadge.textContent = r.next_delivery || '—';
-    delBadge.style.display = r.next_delivery ? '' : 'none';
+    if (r.next_delivery) {
+        delBadge.innerHTML = '<i class="fas fa-truck me-1" style="font-size:0.65rem;"></i>' + r.next_delivery;
+        delBadge.style.display = '';
+    } else {
+        delBadge.textContent = '—';
+        delBadge.style.display = 'none';
+    }
 
     var commEl = document.getElementById('drawer-last-comm');
     if (r.last_comm) {
