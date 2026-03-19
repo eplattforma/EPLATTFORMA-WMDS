@@ -1886,6 +1886,7 @@ class DwItem(db.Model):
     vat_code_365 = db.Column(db.String(20), nullable=True)
     vat_percent = db.Column(db.Numeric(6, 2), nullable=True)
     cost_price = db.Column(db.Numeric(12, 4), nullable=True)
+    selling_price = db.Column(db.Numeric(12, 4), nullable=True)
 
     attr_hash = db.Column(db.String(32), nullable=False)
     last_sync_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
