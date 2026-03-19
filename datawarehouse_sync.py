@@ -1333,9 +1333,9 @@ def sync_invoice_headers_from_date(session: Session, date_from: str, date_to: st
             page += 1
             
         except Exception as e:
-            logger.error(f"Error on page {page}: {str(e)}", exc_info=True)
+            logger.error(f"Error on invoice headers page {page}: {str(e)}", exc_info=True)
             session.rollback()
-            break
+            raise RuntimeError(f"sync_invoice_headers_from_date failed on page {page}: {e}") from e
     
     logger.info(f"Invoice headers synced: {inserted} inserted, total {len(all_headers)}")
     return inserted, 0
@@ -1436,7 +1436,7 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
             page_lines_skipped = 0
             
             page_new_item_codes = set()
-            page_new_lines_info = []
+
             for inv in invoices:
                 invoice_no = None
                 if "invoice" in inv:
@@ -1597,9 +1597,9 @@ def sync_invoice_lines_from_date(session: Session, date_from: str, date_to: str 
             page += 1
             
         except Exception as e:
-            logger.error(f"Error on page {page}: {str(e)}", exc_info=True)
+            logger.error(f"Error on invoice lines page {page}: {str(e)}", exc_info=True)
             session.rollback()
-            break
+            raise RuntimeError(f"sync_invoice_lines_from_date failed on page {page}: {e}") from e
     
     logger.info(f"\n{'='*80}")
     logger.info(f"INVOICE LINES SYNC SUMMARY")
@@ -2136,9 +2136,9 @@ def sync_invoice_to_dw(session: Session, invoice_no_365: str, sync_trigger: str 
                 session.commit()
                 page += 1
             except Exception as e:
-                logger.error(f"Error on page {page}: {str(e)}", exc_info=True)
+                logger.error(f"Error on targeted invoice page {page}: {str(e)}", exc_info=True)
                 session.rollback()
-                break
+                raise RuntimeError(f"sync_invoice_to_dw failed for invoice {invoice_no_365} on page {page}: {e}") from e
 
         s_ins, s_upd = _sync_invoice_store_for_header(session, invoice_no_365)
         u_ins, u_upd = _sync_invoice_cashier_for_header(session, invoice_no_365)

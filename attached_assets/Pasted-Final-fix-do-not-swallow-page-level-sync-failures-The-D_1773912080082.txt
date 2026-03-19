@@ -1,0 +1,191 @@
+Final fix: do not swallow page-level sync failures
+
+The DW sync refactor is now in good shape overall, but there is still one important correctness issue:
+
+Problem
+
+Inside some page-processing loops, exceptions are handled like this:
+
+log error
+
+session.rollback()
+
+break
+
+This causes the function to stop processing further pages, but still return normally, which can make the parent sync look successful or partially successful without clearly failing.
+
+That is dangerous because we can end up with:
+
+partial data loaded
+
+sync status showing completed
+
+no hard failure propagated to background sync / UI / sync logs
+
+Required change
+Goal
+
+When a page fails, the sync must fail upward, not silently stop and continue as if it succeeded.
+
+Functions to change
+1) sync_invoice_headers_from_date()
+
+Current inner page exception block should not just break.
+
+Change
+
+Replace the page-level exception handling so that after rollback it raises.
+
+Desired pattern
+
+Instead of:
+
+except Exception as e:
+    logger.error(f"Error on page {page}: {str(e)}", exc_info=True)
+    session.rollback()
+    break
+
+use something like:
+
+except Exception as e:
+    logger.error(f"Error on invoice headers page {page}: {str(e)}", exc_info=True)
+    session.rollback()
+    raise RuntimeError(f"sync_invoice_headers_from_date failed on page {page}: {e}") from e
+2) sync_invoice_lines_from_date()
+
+Same fix.
+
+Change
+
+Do not break after rollback.
+Raise the exception so the caller knows the sync failed.
+
+Desired pattern
+except Exception as e:
+    logger.error(f"Error on invoice lines page {page}: {str(e)}", exc_info=True)
+    session.rollback()
+    raise RuntimeError(f"sync_invoice_lines_from_date failed on page {page}: {e}") from e
+3) sync_invoice_to_dw()
+
+Same issue in the targeted single-invoice line loop.
+
+Change
+
+If a page fails, rollback and raise.
+
+Desired pattern
+except Exception as e:
+    logger.error(f"Error on targeted invoice page {page}: {str(e)}", exc_info=True)
+    session.rollback()
+    raise RuntimeError(f"sync_invoice_to_dw failed for invoice {invoice_no_365} on page {page}: {e}") from e
+Why this matters
+
+With this change:
+
+sync_invoices_from_date() will properly fail if headers or lines fail
+
+sync_invoice_to_dw() will properly fail if targeted catch-up fails
+
+background_sync.py will correctly catch that failure and reflect it in status
+
+sync logs will no longer silently represent partial runs as successful
+
+Important rule
+
+Do not change the outer exception handling in:
+
+sync_invoices_from_date()
+
+sync_invoice_to_dw()
+
+background_sync.py
+
+Those outer handlers are already useful.
+
+We only want to make sure inner page-loop errors actually reach them.
+
+Minor cleanup
+
+While touching this code, also remove the unused variable still left in sync_invoice_lines_from_date():
+
+page_new_lines_info = []
+
+It is dead code.
+
+Acceptance criteria
+A. Header page failure propagates
+
+If one header page fails:
+
+function raises
+
+parent sync does not continue as completed
+
+B. Line page failure propagates
+
+If one invoice-lines page fails:
+
+function raises
+
+parent sync is marked failed / partially failed by the caller
+
+C. Targeted invoice page failure propagates
+
+If one targeted single-invoice catch-up page fails:
+
+sync_invoice_to_dw() raises
+
+background sync catches it and updates status correctly
+
+D. No silent partial success
+
+A page failure must no longer result in a normal-looking completed sync.
+
+Testing required
+Test 1: force failure in sync_invoice_headers_from_date()
+
+Simulate an exception during one page.
+
+Expected:
+
+rollback occurs
+
+function raises
+
+caller sees failure
+
+Test 2: force failure in sync_invoice_lines_from_date()
+
+Simulate an exception during one page.
+
+Expected:
+
+rollback occurs
+
+function raises
+
+sync_invoices_from_date() does not report success
+
+Test 3: force failure in sync_invoice_to_dw()
+
+Simulate an exception during targeted invoice line import.
+
+Expected:
+
+rollback occurs
+
+function raises
+
+background sync records DW catch-up failure properly
+
+Deliverables
+
+Please provide:
+
+exact functions changed
+
+confirmation that page-level break after rollback was replaced with raise
+
+confirmation that silent partial-success behavior is removed
+
+confirmation that page_new_lines_info was removed
