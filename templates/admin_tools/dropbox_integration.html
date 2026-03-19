@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}Dropbox Integration — Admin{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="d-flex align-items-center mb-4">
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm me-3">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <h4 class="mb-0"><i class="fab fa-dropbox me-2 text-primary"></i>Dropbox Integration</h4>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0"><i class="fas fa-plug me-2"></i>Connection</h6>
+                </div>
+                <div class="card-body">
+                    {% if status.connected %}
+                    <div class="d-flex align-items-center mb-3">
+                        <span class="badge bg-success px-3 py-2 me-2"><i class="fas fa-check-circle me-1"></i>Connected</span>
+                    </div>
+                    {% if status.email %}
+                    <div class="mb-2">
+                        <small class="text-muted">Account</small>
+                        <div class="fw-medium">{{ status.email }}</div>
+                    </div>
+                    {% endif %}
+                    {% if status.account_label %}
+                    <div class="mb-2">
+                        <small class="text-muted">Name</small>
+                        <div>{{ status.account_label }}</div>
+                    </div>
+                    {% endif %}
+                    {% if status.last_auth_at %}
+                    <div class="mb-2">
+                        <small class="text-muted">Connected since</small>
+                        <div>{{ status.last_auth_at.strftime('%d %b %Y %H:%M') }}</div>
+                    </div>
+                    {% endif %}
+                    {% if status.last_refresh_at %}
+                    <div class="mb-3">
+                        <small class="text-muted">Last token refresh</small>
+                        <div>{{ status.last_refresh_at.strftime('%d %b %Y %H:%M') }}</div>
+                    </div>
+                    {% endif %}
+                    {% elif status.status == 'auth_error' %}
+                    <div class="d-flex align-items-center mb-3">
+                        <span class="badge bg-warning text-dark px-3 py-2 me-2"><i class="fas fa-exclamation-triangle me-1"></i>Reconnect Required</span>
+                    </div>
+                    {% if status.last_error %}
+                    <div class="alert alert-warning py-2 small">{{ status.last_error }}</div>
+                    {% endif %}
+                    {% elif status.status == 'disconnected' %}
+                    <div class="d-flex align-items-center mb-3">
+                        <span class="badge bg-secondary px-3 py-2"><i class="fas fa-unlink me-1"></i>Disconnected</span>
+                    </div>
+                    {% else %}
+                    <div class="d-flex align-items-center mb-3">
+                        <span class="badge bg-secondary px-3 py-2"><i class="fas fa-times-circle me-1"></i>Not Connected</span>
+                    </div>
+                    {% endif %}
+
+                    {% if not status.configured %}
+                    <div class="alert alert-info py-2 small mb-3">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Set <code>DROPBOX_APP_KEY</code> and <code>DROPBOX_APP_SECRET</code> in environment secrets, then
+                        set <code>DROPBOX_REDIRECT_URI</code> to your callback URL.
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        {% if status.connected %}
+                        <a href="{{ url_for('dropbox_integration.dropbox_connect') }}"
+                           class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-sync me-1"></i>Reconnect
+                        </a>
+                        <form method="POST" action="{{ url_for('dropbox_integration.dropbox_disconnect') }}" class="d-inline"
+                              onsubmit="return confirm('Disconnect Dropbox? Sync history will be preserved.')">
+                            <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">
+                                <i class="fas fa-unlink me-1"></i>Disconnect
+                            </button>
+                        </form>
+                        {% elif status.configured %}
+                        <a href="{{ url_for('dropbox_integration.dropbox_connect') }}"
+                           class="btn btn-primary btn-sm">
+                            <i class="fab fa-dropbox me-1"></i>Connect Dropbox
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm mt-4">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0"><i class="fas fa-file me-2"></i>File Configuration</h6>
+                </div>
+                <div class="card-body">
+                    {% if status.file_path %}
+                    <div class="mb-2">
+                        <small class="text-muted">Configured file path</small>
+                        <div class="font-monospace small text-break">{{ status.file_path }}</div>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info py-2 small mb-2">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Set <code>DROPBOX_FILE_PATH</code> in environment secrets.
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        {% if status.connected and status.file_path %}
+                        <form method="POST" action="{{ url_for('dropbox_integration.dropbox_test') }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
+                            <button type="submit" class="btn btn-outline-info btn-sm">
+                                <i class="fas fa-stethoscope me-1"></i>Test Connection
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('dropbox_integration.dropbox_sync') }}" class="d-inline"
+                              onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerHTML='<i class=\'fas fa-spinner fa-spin me-1\'></i>Syncing…';">
+                            <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
+                            <button type="submit" class="btn btn-success btn-sm">
+                                <i class="fas fa-download me-1"></i>Sync Now
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Last Sync</h6>
+                    {% if status.last_sync.status %}
+                    {% set s = status.last_sync.status %}
+                    <span class="badge {% if s == 'success' %}bg-success{% elif s == 'running' %}bg-primary{% elif s == 'auth_error' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                        {{ s|upper }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    {% if status.last_sync.status %}
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <small class="text-muted d-block">Started</small>
+                            <span>{{ status.last_sync.started_at.strftime('%d %b %Y %H:%M') if status.last_sync.started_at else '—' }}</span>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">Finished</small>
+                            <span>{{ status.last_sync.finished_at.strftime('%d %b %Y %H:%M') if status.last_sync.finished_at else '—' }}</span>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">Rows imported</small>
+                            <span class="fw-medium">{{ '{:,}'.format(status.last_sync.rows_imported) }}</span>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">File revision</small>
+                            <span class="font-monospace small">{{ status.last_sync.file_revision or '—' }}</span>
+                        </div>
+                        {% if status.last_sync.file_modified_at %}
+                        <div class="col-6">
+                            <small class="text-muted d-block">File modified</small>
+                            <span>{{ status.last_sync.file_modified_at.strftime('%d %b %Y %H:%M') }}</span>
+                        </div>
+                        {% endif %}
+                        {% if status.last_sync.error_message %}
+                        <div class="col-12">
+                            <div class="alert alert-danger py-2 small mb-0 mt-1">
+                                <i class="fas fa-exclamation-circle me-1"></i>{{ status.last_sync.error_message }}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">No sync attempts yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if status.last_success.started_at and status.last_sync.status != 'success' %}
+            <div class="card border-0 shadow-sm mt-4">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0"><i class="fas fa-check-circle me-2 text-success"></i>Last Successful Sync</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <small class="text-muted d-block">Date</small>
+                            <span>{{ status.last_success.started_at.strftime('%d %b %Y %H:%M') }}</span>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted d-block">Rows imported</small>
+                            <span class="fw-medium">{{ '{:,}'.format(status.last_success.rows_imported) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="card border-0 shadow-sm mt-4">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0"><i class="fas fa-history me-2"></i>Sync History</h6>
+                </div>
+                <div class="card-body p-0">
+                    {% if status.sync_history %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Rows</th>
+                                    <th>Revision</th>
+                                    <th>Duration</th>
+                                    <th>Error</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for log in status.sync_history %}
+                                <tr>
+                                    <td class="small">{{ log.started_at.strftime('%d %b %H:%M') }}</td>
+                                    <td>
+                                        {% set ls = log.status %}
+                                        <span class="badge {% if ls == 'success' %}bg-success{% elif ls == 'running' %}bg-primary{% elif ls == 'auth_error' %}bg-warning text-dark{% else %}bg-danger{% endif %} badge-sm">
+                                            {{ ls }}
+                                        </span>
+                                    </td>
+                                    <td class="small">{{ '{:,}'.format(log.rows_imported) }}</td>
+                                    <td class="font-monospace small">{{ (log.file_revision or '—')[:8] }}</td>
+                                    <td class="small">
+                                        {% if log.finished_at and log.started_at %}
+                                        {{ ((log.finished_at - log.started_at).total_seconds()|int) }}s
+                                        {% else %}—{% endif %}
+                                    </td>
+                                    <td class="small text-danger text-truncate" style="max-width:200px;" title="{{ log.error_message or '' }}">
+                                        {{ log.error_message or '' }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-3 text-muted small">No sync history.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

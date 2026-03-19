@@ -3012,3 +3012,38 @@ class PostalCodeLookup(db.Model):
     urban_rural = db.Column(db.String(20), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: get_utc_now())
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: get_utc_now(), onupdate=lambda: get_utc_now())
+
+
+class ExternalAuthCredential(db.Model):
+    __tablename__ = 'external_auth_credentials'
+    id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(50), nullable=False, unique=True)
+    account_label = db.Column(db.String(255), nullable=True)
+    refresh_token = db.Column(db.Text, nullable=False)
+    access_token = db.Column(db.Text, nullable=True)
+    access_token_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    scope_text = db.Column(db.Text, nullable=True)
+    dropbox_account_id = db.Column(db.String(255), nullable=True)
+    dropbox_email = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='active')
+    last_auth_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_refresh_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: get_utc_now())
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: get_utc_now(), onupdate=lambda: get_utc_now())
+
+
+class ExternalFileSyncLog(db.Model):
+    __tablename__ = 'external_file_sync_log'
+    id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(50), nullable=False, index=True)
+    file_path = db.Column(db.Text, nullable=False)
+    file_name = db.Column(db.String(500), nullable=True)
+    file_revision = db.Column(db.String(255), nullable=True)
+    file_modified_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    status = db.Column(db.String(30), nullable=False)
+    rows_imported = db.Column(db.Integer, nullable=False, default=0)
+    started_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: get_utc_now())
+    finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.JSON, nullable=True)

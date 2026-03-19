@@ -212,7 +212,7 @@
                     </li>
                     {% if current_user.role == 'admin' %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['manage_users', 'admin_settings', 'admin_sorting_settings', 'datawarehouse.dw_menu'] or request.path == '/crm/admin/offers' %}active{% endif %}" 
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['manage_users', 'admin_settings', 'admin_sorting_settings', 'datawarehouse.dw_menu'] or request.path == '/crm/admin/offers' or (request.endpoint and request.endpoint.startswith('dropbox_integration.')) %}active{% endif %}" 
                            href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-cogs me-1"></i>Admin
                         </a>
@@ -246,6 +246,12 @@
                                 <a class="dropdown-item {% if request.endpoint == 'datawarehouse.dw_menu' %}active{% endif %}" 
                                    href="{{ url_for('datawarehouse.dw_menu') }}">
                                     <i class="fas fa-database me-2"></i>Sync PS365
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('dropbox_integration.') %}active{% endif %}" 
+                                   href="{{ url_for('dropbox_integration.dropbox_status') }}">
+                                    <i class="fab fa-dropbox me-2"></i>Dropbox Integration
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>

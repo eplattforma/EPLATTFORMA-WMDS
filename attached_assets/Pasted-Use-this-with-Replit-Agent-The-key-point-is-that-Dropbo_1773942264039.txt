@@ -1,0 +1,264 @@
+Use this with Replit Agent. The key point is that Dropbox access tokens are short-lived, and background access should use OAuth code flow with a refresh token. Dropbox returns a refresh token when the authorization request includes token_access_type=offline, and new access tokens should then be obtained via /oauth2/token using grant_type=refresh_token. Dropbox also recommends scoped apps with the least permissions needed.
+
+For Replit, keep the app key/secret in Secrets. Replit Secrets are encrypted and exposed to the app as environment variables. For recurring imports, Replit Scheduled Deployments are appropriate for periodic jobs and are explicitly meant for scheduled tasks rather than long-running web services.
+
+Paste this to Replit Agent:
+
+Build a stable Dropbox integration for our Flask + SQLAlchemy app so it can fetch one file from Dropbox without “losing connection” over time.
+
+Goal
+Replace any fragile/manual Dropbox connection with a proper OAuth + refresh-token integration.
+
+What to implement
+
+1) Dropbox auth design
+Implement Dropbox OAuth 2 code flow for a server-side Flask app.
+
+Important requirements:
+- Use a Dropbox scoped app
+- Request only the minimum scopes needed
+- Request offline access so we receive a refresh token
+- Do not rely on a manually pasted short-lived access token
+- Do not rely on browser session state as the “connection”
+
+Expected secrets / config
+Add support for:
+- DROPBOX_APP_KEY
+- DROPBOX_APP_SECRET
+- DROPBOX_REDIRECT_URI
+- DROPBOX_FILE_PATH
+
+Do NOT require DROPBOX_ACCESS_TOKEN as the main credential.
+
+Store the refresh token and auth metadata in our own database/settings, not in code.
+
+2) Content access choice
+When setting up the Dropbox app:
+- If the target file can live under the app folder, use App Folder access
+- If the target file must be read from an arbitrary user folder, use Full Dropbox access
+Prefer the narrower option whenever possible.
+
+3) New database tables
+Create SQLAlchemy models and migration for:
+
+A. external_auth_credentials
+Fields:
+- id
+- provider (unique enough for one Dropbox connection)
+- account_label nullable
+- refresh_token
+- access_token nullable
+- access_token_expires_at nullable
+- scope_text nullable
+- dropbox_account_id nullable
+- dropbox_email nullable
+- status default 'active'
+- last_auth_at nullable
+- last_refresh_at nullable
+- last_error nullable
+- created_at
+- updated_at
+
+B. external_file_sync_log
+Fields:
+- id
+- provider
+- file_path
+- file_name nullable
+- file_revision nullable
+- file_modified_at nullable
+- status  (success / auth_error / download_error / parse_error / config_error)
+- rows_imported default 0
+- started_at
+- finished_at nullable
+- error_message nullable
+- metadata_json nullable
+
+4) Flask service layer
+Create a new service module:
+services/dropbox_service.py
+
+Implement these functions:
+
+- get_dropbox_credentials()
+- build_dropbox_authorize_url(state_token)
+- exchange_code_for_tokens(code)
+- refresh_dropbox_access_token(force=False)
+- get_valid_dropbox_access_token()
+- get_dropbox_file_metadata(path)
+- download_dropbox_file_bytes(path)
+- sync_dropbox_file()
+- get_dropbox_status()
+
+Behavior:
+- Always use the refresh token flow when the access token is missing/expired
+- Cache the current access token + expiry in DB to avoid unnecessary refreshes
+- If a Dropbox API call returns 401, refresh once and retry once
+- If refresh fails, mark integration as auth_error and show reconnect required
+
+5) Dropbox auth routes
+Create admin routes in a blueprint such as:
+- GET /admin/integrations/dropbox
+- GET /admin/integrations/dropbox/connect
+- GET /admin/integrations/dropbox/callback
+- POST /admin/integrations/dropbox/sync
+- POST /admin/integrations/dropbox/disconnect
+
+Required route behavior
+
+A. /connect
+- generate secure state token
+- redirect user to Dropbox authorize URL
+- request offline access
+- preserve state for CSRF protection
+
+B. /callback
+- validate state
+- exchange code for access token + refresh token
+- store refresh token and token metadata in DB
+- optionally call current_account endpoint to capture account id/email
+- redirect back to integration status page with success message
+
+C. /sync
+- run sync_dropbox_file()
+- show result in admin UI
+
+D. /disconnect
+- deactivate stored credential
+- do not delete sync history
+- show integration as disconnected
+
+6) Dropbox API usage
+Implement the integration using direct HTTP requests or Dropbox SDK.
+Either approach is fine, but the service must be clean and testable.
+
+Use Dropbox file metadata and file download endpoints to:
+- check the file exists
+- capture revision / modified timestamp if available
+- download file content
+- process it in memory or via a temp file
+- import it into our DB
+
+Do not treat a local downloaded copy as the source of truth.
+The source of truth after sync should be our database.
+
+7) Import pipeline
+Implement sync_dropbox_file() so it:
+- validates required config exists
+- opens a sync log row with started_at
+- fetches metadata for DROPBOX_FILE_PATH
+- downloads the file
+- validates file type / headers depending on parser
+- imports/upserts into our business table(s)
+- updates sync log with:
+  - status
+  - rows_imported
+  - file_name
+  - file_revision
+  - file_modified_at
+  - any error details
+- commits safely
+- leaves previous successful imported data untouched if the new run fails before successful validation
+
+8) Admin UI
+Create an admin integration card/page for Dropbox showing:
+- connection status
+- connected Dropbox account email if available
+- configured file path
+- last successful sync datetime
+- last sync status
+- last rows imported
+- last file revision
+- last file modified timestamp
+- last error
+- buttons:
+  - Connect Dropbox
+  - Reconnect Dropbox
+  - Sync now
+  - Disconnect
+
+UI expectations:
+- clear green/orange/red status badges
+- human-readable error messages
+- visible audit/history table from external_file_sync_log
+
+9) Scheduling
+Prepare the sync so it can be triggered both:
+- manually from the admin UI
+- by a scheduled job / scheduled deployment later
+
+Create a callable command function, e.g.:
+- python -m jobs.dropbox_sync
+
+Add:
+jobs/dropbox_sync.py
+
+This job should:
+- initialize app context
+- call sync_dropbox_file()
+- exit with proper non-zero status on failure for monitoring
+
+10) Error handling
+Implement explicit handling for:
+- missing config
+- invalid redirect/callback state
+- revoked refresh token
+- expired/invalid access token
+- Dropbox file not found
+- network timeout / transient API error
+- parser validation failure
+- DB write failure
+
+Rules:
+- Retry only once after forced token refresh on 401
+- For transient HTTP errors, use short exponential backoff
+- Do not loop endlessly
+- Do not wipe previous imported data on failed sync
+- Always write a sync log row
+
+11) Logging
+Add structured logger entries for:
+- auth start
+- auth success/failure
+- token refresh success/failure
+- metadata fetch
+- download start/end
+- import start/end
+- rows imported
+- error type and message
+
+Do not log secrets or refresh tokens.
+
+12) Security
+Ensure:
+- secrets are read from environment
+- refresh token is never exposed in UI
+- callback validates state token
+- admin routes require login and admin permission
+- integration pages are not public
+
+13) Acceptance criteria
+The work is complete only when all of the below are true:
+- I can connect Dropbox once from the admin UI
+- the app stores a refresh token and does not depend on a short-lived token
+- after time passes, Sync now still works without reconnecting
+- if access token expires, the app refreshes automatically
+- if Dropbox authorization is revoked, the UI shows reconnect required
+- the file can be downloaded repeatedly from the configured path
+- every attempt writes a sync history row
+- the scheduled job can call the same sync logic without duplication
+
+14) Nice to have
+If straightforward, add:
+- “Test connection” button
+- “Browse file metadata” preview for the configured file path
+- checksum / revision comparison so unchanged files can optionally be skipped
+- support for multiple external providers later via a generic integration pattern
+
+Please implement this cleanly in our existing Flask/SQLAlchemy architecture, with migration, models, service, admin routes, template, and job entrypoint.
+
+One important implementation choice: if the file always lives inside the app’s own Dropbox app folder, tell Replit to use App Folder access; if it must read a file elsewhere in the user’s Dropbox, it will need Full Dropbox access. Dropbox documents both content-access models and recommends asking for the least access necessary.
+
+For the actual file read, Dropbox’s file download capability requires file-content read permission, and refresh handling is easier if Replit uses an SDK rather than hand-rolling everything.
+
+If you want, I can turn this into a second, more technical Replit brief with exact Flask file names, model classes, and route skeletons matching your app structure.
