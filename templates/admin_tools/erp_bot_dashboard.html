@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}ERP Export Bot{% endblock %}
+{% block content %}
+<div class="container-fluid mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3><i class="fas fa-robot me-2"></i>ERP Export Bot</h3>
+    <a href="{{ url_for('admin_tools') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>Back to Admin
+    </a>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  {% for category, message in messages %}
+  <div class="alert alert-{{ category }} alert-dismissible fade show">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+  {% endif %}
+  {% endwith %}
+
+  <div class="row mb-4">
+    <div class="col-md-4">
+      <div class="card border-0 shadow-sm">
+        <div class="card-header bg-primary text-white">
+          <h6 class="mb-0"><i class="fas fa-cog me-1"></i>Configuration Status</h6>
+        </div>
+        <div class="card-body" style="background:#fff; color:#212529;">
+          <table class="table table-sm mb-0">
+            <tr>
+              <td>ERP_BASE_URL</td>
+              <td class="text-end">
+                {% if config_status.base_url %}
+                <span class="badge bg-success">Set</span>
+                {% else %}
+                <span class="badge bg-danger">Missing</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <td>ERP_USERNAME</td>
+              <td class="text-end">
+                {% if config_status.username %}
+                <span class="badge bg-success">Set</span>
+                {% else %}
+                <span class="badge bg-danger">Missing</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <td>ERP_PASSWORD</td>
+              <td class="text-end">
+                {% if config_status.password %}
+                <span class="badge bg-success">Set</span>
+                {% else %}
+                <span class="badge bg-danger">Missing</span>
+                {% endif %}
+              </td>
+            </tr>
+          </table>
+          {% if not all_configured %}
+          <div class="alert alert-warning mt-3 mb-0 small">
+            <i class="fas fa-exclamation-triangle me-1"></i>
+            Set all ERP secrets before running exports.
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-8">
+      <div class="card border-0 shadow-sm">
+        <div class="card-header bg-success text-white">
+          <h6 class="mb-0"><i class="fas fa-play me-1"></i>Run Export</h6>
+        </div>
+        <div class="card-body" style="background:#fff; color:#212529;">
+          <form method="POST" action="{{ url_for('erp_bot.erp_bot_run') }}">
+            <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
+            <div class="row align-items-end">
+              <div class="col-md-6">
+                <label class="form-label fw-bold">Export Flow</label>
+                <select name="export_name" class="form-select" {% if not all_configured %}disabled{% endif %}>
+                  <option value="">-- Select export --</option>
+                  {% for flow in flows %}
+                  <option value="{{ flow.name }}">{{ flow.label }} — {{ flow.description }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <button type="submit" class="btn btn-success w-100" {% if not all_configured %}disabled{% endif %}>
+                  <i class="fas fa-rocket me-1"></i>Run Now
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <div class="mt-3">
+            <p class="text-muted small mb-1">
+              <strong>CLI usage:</strong>
+            </p>
+            <code class="small">python -m jobs.erp_export_job --export stock_position</code><br>
+            <code class="small">python -m jobs.erp_export_job --all</code><br>
+            <code class="small">python -m jobs.erp_export_job --list</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm">
+    <div class="card-header bg-dark text-white">
+      <h6 class="mb-0"><i class="fas fa-history me-1"></i>Recent Runs (last 30)</h6>
+    </div>
+    <div class="card-body p-0" style="background:#fff; color:#212529;">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>Export</th>
+              <th>Status</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>File</th>
+              <th>Triggered By</th>
+              <th>Error</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if recent_runs %}
+            {% for run in recent_runs %}
+            <tr>
+              <td>{{ run.id }}</td>
+              <td><span class="fw-bold">{{ run.export_name }}</span></td>
+              <td>
+                {% if run.status == 'success' %}
+                <span class="badge bg-success">Success</span>
+                {% elif run.status == 'running' %}
+                <span class="badge bg-info"><i class="fas fa-spinner fa-spin me-1"></i>Running</span>
+                {% elif run.status == 'partial' %}
+                <span class="badge bg-warning text-dark">Partial</span>
+                {% else %}
+                <span class="badge bg-danger">Failed</span>
+                {% endif %}
+              </td>
+              <td class="small">{{ run.started_at.strftime('%d/%m/%y %H:%M') if run.started_at else '-' }}</td>
+              <td class="small">
+                {% if run.duration_seconds is not none %}
+                {{ "%.1f"|format(run.duration_seconds) }}s
+                {% else %}
+                -
+                {% endif %}
+              </td>
+              <td class="small">
+                {% if run.file_name %}
+                <a href="{{ url_for('erp_bot.erp_bot_download', run_id=run.id) }}" title="{{ run.file_name }}">
+                  <i class="fas fa-download me-1"></i>{{ run.file_name[:30] }}{% if run.file_name|length > 30 %}...{% endif %}
+                </a>
+                {% if run.file_size %}
+                <br><span class="text-muted">{{ "%.1f"|format(run.file_size / 1024) }} KB</span>
+                {% endif %}
+                {% else %}
+                -
+                {% endif %}
+              </td>
+              <td class="small">
+                <span class="badge bg-secondary">{{ run.triggered_by }}</span>
+              </td>
+              <td class="small text-danger">
+                {% if run.error_message %}
+                {{ run.error_message[:60] }}{% if run.error_message|length > 60 %}...{% endif %}
+                {% endif %}
+              </td>
+              <td>
+                <a href="{{ url_for('erp_bot.erp_bot_run_detail', run_id=run.id) }}"
+                   class="btn btn-outline-primary btn-sm" title="View Details">
+                  <i class="fas fa-eye"></i>
+                </a>
+                {% if run.screenshot_path %}
+                <a href="{{ url_for('erp_bot.erp_bot_screenshot', run_id=run.id) }}"
+                   class="btn btn-outline-warning btn-sm" title="View Screenshot" target="_blank">
+                  <i class="fas fa-camera"></i>
+                </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+              <td colspan="9" class="text-center text-muted py-4">No export runs yet</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-secondary text-white">
+      <h6 class="mb-0"><i class="fas fa-info-circle me-1"></i>Available Export Flows</h6>
+    </div>
+    <div class="card-body" style="background:#fff; color:#212529;">
+      <table class="table table-sm mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Name</th>
+            <th>Label</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for flow in flows %}
+          <tr>
+            <td><code>{{ flow.name }}</code></td>
+            <td>{{ flow.label }}</td>
+            <td>{{ flow.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

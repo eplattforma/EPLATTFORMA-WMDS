@@ -3048,3 +3048,32 @@ class ExternalFileSyncLog(db.Model):
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
     error_message = db.Column(db.Text, nullable=True)
     metadata_json = db.Column(db.JSON, nullable=True)
+
+
+class BotRunLog(db.Model):
+    __tablename__ = 'bot_run_log'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    bot_name = db.Column(db.String(100), nullable=False, index=True)
+    export_name = db.Column(db.String(100), nullable=False, index=True)
+    started_at = db.Column(db.DateTime, nullable=False)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(30), nullable=False, default='running')
+    rows_processed = db.Column(db.Integer, nullable=True)
+    file_name = db.Column(db.String(500), nullable=True)
+    file_path = db.Column(db.Text, nullable=True)
+    file_size = db.Column(db.BigInteger, nullable=True)
+    screenshot_path = db.Column(db.Text, nullable=True)
+    error_step = db.Column(db.String(200), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    metadata_json = db.Column(db.JSON, nullable=True)
+    triggered_by = db.Column(db.String(50), nullable=False, default='manual')
+
+    def __repr__(self):
+        return f"<BotRunLog {self.id} {self.export_name} {self.status}>"
+
+    @property
+    def duration_seconds(self):
+        if self.started_at and self.finished_at:
+            return (self.finished_at - self.started_at).total_seconds()
+        return None

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}ERP Bot Run #{{ run.id }}{% endblock %}
+{% block content %}
+<div class="container-fluid mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>
+      <i class="fas fa-robot me-2"></i>Run #{{ run.id }} — {{ run.export_name }}
+      {% if run.status == 'success' %}
+      <span class="badge bg-success ms-2">Success</span>
+      {% elif run.status == 'running' %}
+      <span class="badge bg-info ms-2"><i class="fas fa-spinner fa-spin me-1"></i>Running</span>
+      {% elif run.status == 'partial' %}
+      <span class="badge bg-warning text-dark ms-2">Partial</span>
+      {% else %}
+      <span class="badge bg-danger ms-2">Failed</span>
+      {% endif %}
+    </h3>
+    <a href="{{ url_for('erp_bot.erp_bot_dashboard') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+    </a>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-dark text-white">
+          <h6 class="mb-0">Run Details</h6>
+        </div>
+        <div class="card-body" style="background:#fff; color:#212529;">
+          <table class="table table-sm mb-0">
+            <tr><td class="fw-bold">Bot Name</td><td>{{ run.bot_name }}</td></tr>
+            <tr><td class="fw-bold">Export Name</td><td><code>{{ run.export_name }}</code></td></tr>
+            <tr><td class="fw-bold">Triggered By</td><td><span class="badge bg-secondary">{{ run.triggered_by }}</span></td></tr>
+            <tr><td class="fw-bold">Started</td><td>{{ run.started_at.strftime('%d/%m/%Y %H:%M:%S') if run.started_at else '-' }}</td></tr>
+            <tr><td class="fw-bold">Finished</td><td>{{ run.finished_at.strftime('%d/%m/%Y %H:%M:%S') if run.finished_at else '-' }}</td></tr>
+            <tr>
+              <td class="fw-bold">Duration</td>
+              <td>
+                {% if run.duration_seconds is not none %}
+                {{ "%.1f"|format(run.duration_seconds) }} seconds
+                {% else %}
+                -
+                {% endif %}
+              </td>
+            </tr>
+            <tr><td class="fw-bold">Rows Processed</td><td>{{ run.rows_processed if run.rows_processed is not none else '-' }}</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-dark text-white">
+          <h6 class="mb-0">File / Output</h6>
+        </div>
+        <div class="card-body" style="background:#fff; color:#212529;">
+          {% if run.file_name %}
+          <table class="table table-sm mb-0">
+            <tr>
+              <td class="fw-bold">File Name</td>
+              <td>
+                <a href="{{ url_for('erp_bot.erp_bot_download', run_id=run.id) }}">
+                  <i class="fas fa-download me-1"></i>{{ run.file_name }}
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td class="fw-bold">File Size</td>
+              <td>{{ "{:,.0f}".format(run.file_size) }} bytes ({{ "%.1f"|format(run.file_size / 1024) }} KB)</td>
+            </tr>
+            <tr><td class="fw-bold">File Path</td><td class="small text-break">{{ run.file_path }}</td></tr>
+          </table>
+          {% else %}
+          <p class="text-muted mb-0">No file produced</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if run.error_message %}
+  <div class="card border-0 shadow-sm mb-4 border-danger">
+    <div class="card-header bg-danger text-white">
+      <h6 class="mb-0"><i class="fas fa-exclamation-triangle me-1"></i>Error Details</h6>
+    </div>
+    <div class="card-body" style="background:#fff; color:#212529;">
+      {% if run.error_step %}
+      <p class="mb-2"><strong>Failed at step:</strong> <code>{{ run.error_step }}</code></p>
+      {% endif %}
+      <pre class="bg-light p-3 rounded small text-danger mb-0" style="white-space:pre-wrap;">{{ run.error_message }}</pre>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if run.screenshot_path %}
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-warning text-dark">
+      <h6 class="mb-0"><i class="fas fa-camera me-1"></i>Failure Screenshot</h6>
+    </div>
+    <div class="card-body text-center" style="background:#fff;">
+      <img src="{{ url_for('erp_bot.erp_bot_screenshot', run_id=run.id) }}"
+           class="img-fluid border rounded" style="max-height:600px;" alt="Failure screenshot">
+    </div>
+  </div>
+  {% endif %}
+
+  {% if run.metadata_json %}
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-secondary text-white">
+      <h6 class="mb-0"><i class="fas fa-code me-1"></i>Metadata</h6>
+    </div>
+    <div class="card-body" style="background:#fff; color:#212529;">
+      <pre class="bg-light p-3 rounded small mb-0">{{ run.metadata_json | tojson(indent=2) }}</pre>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

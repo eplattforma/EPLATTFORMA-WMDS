@@ -70,3 +70,7 @@ Preferred communication style: Simple, everyday language.
 - **OneSignal**: For push notifications.
 - **Power BI**: For business intelligence reporting.
 - **Magento/BSS**: For customer pricing and abandoned cart data.
+- **Playwright**: Browser automation for ERP export bot.
+
+### ERP Export Bot
+Playwright-based unattended browser automation for ERP data exports. Framework: `services/erp_export_bot.py` (orchestration), `services/erp_export_flows/` (pluggable export flows). Admin UI: `/admin/erp-bot/`. CLI: `python -m jobs.erp_export_job --export <name>`. Model: `BotRunLog`. Auth state persisted in `data/erp_auth_state/`. Downloads to `data/erp_exports/`. Failure screenshots in `data/erp_screenshots/`. Secrets: `ERP_BASE_URL`, `ERP_USERNAME`, `ERP_PASSWORD`, `ERP_HEADLESS`. Adding new flows: create a class in `services/erp_export_flows/` extending `BaseExportFlow`, register in `__init__.py`.

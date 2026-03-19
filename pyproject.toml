@@ -34,4 +34,5 @@ dependencies = [
     "urllib3==2.6.3",
     "pdfminer-six>=20260107",
     "pymysql>=1.1.2",
+    "playwright>=1.58.0",
 ]

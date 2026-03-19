@@ -220,6 +220,9 @@ app.register_blueprint(magento_api_bp)
 from routes_crm_dashboard import crm_dashboard_bp
 app.register_blueprint(crm_dashboard_bp)
 
+from routes_erp_bot import erp_bot_bp
+app.register_blueprint(erp_bot_bp)
+
 # --- Helper function to create default payment terms ---
 import datetime as dt
 from decimal import Decimal

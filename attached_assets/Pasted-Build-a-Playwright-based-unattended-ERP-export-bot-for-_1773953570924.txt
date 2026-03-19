@@ -1,0 +1,249 @@
+Build a Playwright-based unattended ERP export bot for our Flask/Python environment.
+
+Goal
+We need a browser automation service that logs into our cloud ERP, performs a fixed sequence of clicks, exports one or more files, and runs on a regular schedule without manual intervention.
+
+Important
+This is not an “AI agent” that improvises.
+This must be a deterministic browser automation flow:
+- open ERP
+- log in
+- navigate to the correct pages
+- set filters
+- click export
+- wait for download
+- validate file
+- store/process/upload it
+- log outcome
+
+Architecture
+Use Python + Playwright.
+Keep it separate from web request handlers.
+Implement it as a service + scheduled job.
+
+Create these files:
+
+1) services/erp_export_bot.py
+Main orchestration service for ERP export flows
+
+2) jobs/erp_export_job.py
+CLI entrypoint for scheduled execution
+
+3) models for logging if not already available:
+- bot_run_log
+- bot_run_artifact (optional)
+
+4) admin page / route for:
+- Run now
+- View last runs
+- View screenshots/errors
+- View downloaded files / import results
+
+Core requirements
+
+1. Authentication
+Implement ERP login flow using Playwright.
+
+Support two modes:
+A. Fresh login with username/password
+B. Reuse saved authenticated browser state if still valid
+
+Persist auth state securely outside source code.
+If session expires, fall back to fresh login and refresh saved auth state.
+
+Secrets/config required
+- ERP_BASE_URL
+- ERP_USERNAME
+- ERP_PASSWORD
+- ERP_LOGIN_URL if different
+- ERP_EXPORT_DOWNLOAD_DIR
+- ERP_TIMEZONE
+- ERP_HEADLESS=true/false
+
+Optional
+- ERP_OTP_SECRET only if TOTP is required and allowed
+- ERP_BROWSER=chromium
+
+2. Browser behavior
+Use Chromium by default.
+Run headless in production.
+Allow headed mode for debugging.
+
+Set:
+- sensible navigation timeout
+- sensible action timeout
+- explicit waits
+- download acceptance enabled
+
+Do not rely on arbitrary sleep unless unavoidable.
+Prefer:
+- wait for selector
+- wait for URL
+- expect_download
+- wait for response if needed
+
+3. Export flow framework
+Design the code so we can support multiple export routines.
+
+Structure:
+- login()
+- ensure_authenticated()
+- run_export(export_name, params)
+- navigate_to_export_screen()
+- apply_filters()
+- trigger_export()
+- wait_for_download()
+- validate_download()
+- post_process_file()
+- record_run_result()
+
+Add support for named export jobs, for example:
+- stock_position
+- items_master
+- customer_master
+- sales_invoices
+- open_orders
+
+Even if only one is implemented first, keep structure reusable.
+
+4. Download handling
+When export button is clicked:
+- start waiting for download before clicking
+- capture suggested filename
+- save to a controlled directory
+- rename file with timestamp and export name
+- verify file exists and file size > 0
+- optionally validate extension (.xlsx, .csv, .txt, .zip)
+
+File name format example:
+{export_name}_{yyyy-mm-dd_HHMMSS}.{ext}
+
+5. Post-processing
+After download:
+- optionally upload to Dropbox or another storage target
+- or import directly into DB if this export feeds WMDS
+- keep the original file as an artifact if useful
+- record artifact path/name in run log
+
+6. Logging and audit
+Create persistent logging for every run.
+
+Fields:
+- id
+- bot_name
+- export_name
+- started_at
+- finished_at
+- status (running/success/partial/failed)
+- rows_processed nullable
+- file_name nullable
+- file_path nullable
+- file_size nullable
+- screenshot_path nullable
+- error_step nullable
+- error_message nullable
+- metadata_json nullable
+- triggered_by (manual/scheduled/system/user)
+
+Every run must create a log row.
+On failure, capture:
+- screenshot
+- current URL
+- page title if available
+- concise error message
+
+7. Screenshots and debugging artifacts
+On failure:
+- save screenshot to artifacts folder
+- optionally save page HTML snapshot
+- store paths in run log
+
+For debugging mode, optionally support:
+- trace
+- video
+but do not make those always-on in production
+
+8. Scheduling
+Create CLI job:
+python -m jobs.erp_export_job --export stock_position
+
+Also support:
+python -m jobs.erp_export_job --all
+
+This will be used by scheduler/cron later.
+
+Requirements:
+- proper app context
+- clear stdout summary
+- exit 0 on success
+- exit non-zero on failed run
+
+9. Admin controls
+Add admin page with:
+- Run Export Now button
+- export selector dropdown
+- last 20 runs table
+- status badges
+- link to screenshot on failure
+- file name / download info
+- error summary
+
+10. Reliability rules
+Implement these protections:
+- prevent concurrent runs of the same export
+- retry once on transient navigation/download failure
+- refresh login if session expired
+- fail fast on selector not found
+- use stable selectors wherever possible
+- avoid brittle text-only selectors if the ERP UI changes often
+
+11. Selector strategy
+Use strong selectors in this order when possible:
+- data-testid
+- name
+- id
+- role + accessible name
+- stable CSS
+Use XPath only if necessary.
+
+Keep selectors centralized in one config structure per export flow.
+
+12. Initial implementation workflow
+Please build the framework first and make it easy for me to plug in the exact ERP steps.
+
+I want:
+A. a generic reusable bot framework
+B. one sample export flow implemented end-to-end
+C. a clear place where we can add/adjust selectors and steps
+
+Suggested structure:
+services/
+  erp_export_bot.py
+  erp_export_flows/
+    __init__.py
+    base.py
+    stock_position.py
+
+13. Deliverables after implementation
+After building it, provide:
+- files created/changed
+- required secrets/env vars
+- admin route URL
+- CLI commands
+- how auth state is stored
+- where downloaded files are saved
+- how to add a new export flow
+- what exact selectors/placeholders still need my ERP-specific values
+
+14. Important design note
+Do not build this around a permanently open browser tab.
+Each scheduled run should:
+- start browser
+- authenticate or load session state
+- perform export
+- save files
+- log result
+- close browser cleanly
+
+15. If straightforward, add codegen/dev helper
+Add a dev-only helper script/instructions using Playwright codegen so we can capture selectors more quickly for the ERP flow.
