@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% block title %}Offer Intelligence Admin{% endblock %}
+{% block content %}
+<style>
+.oa-page { padding: 16px; }
+.oa-kpi-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+.oa-kpi { padding:6px 14px; border-radius:6px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); text-align:center; min-width:100px; }
+.oa-kpi .kl { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.5px; color:#adb5bd; }
+.oa-kpi .kv { font-size:1.1rem; font-weight:700; }
+.oa-tabs { display:flex; gap:4px; margin-bottom:10px; }
+.oa-tab { padding:5px 14px; border-radius:5px 5px 0 0; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.03); cursor:pointer; font-size:0.78rem; font-weight:600; color:#adb5bd; text-decoration:none; }
+.oa-tab.active { background:rgba(255,255,255,0.08); color:#fff; border-bottom-color:transparent; }
+.oa-tab:hover { color:#fff; }
+.oa-section { display:none; }
+.oa-section.active { display:block; }
+.oa-table { width:100%; font-size:0.75rem; border-collapse:collapse; }
+.oa-table th { position:sticky; top:0; background:#1e1e2e; padding:5px 8px; text-align:left; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.3px; color:#adb5bd; border-bottom:1px solid rgba(255,255,255,0.1); white-space:nowrap; cursor:pointer; }
+.oa-table th:hover { color:#fff; }
+.oa-table td { padding:4px 8px; border-bottom:1px solid rgba(255,255,255,0.04); vertical-align:middle; }
+.oa-table tr:hover { background:rgba(255,255,255,0.03); }
+.oa-badge { font-size:0.62rem; padding:2px 6px; border-radius:3px; font-weight:600; display:inline-block; }
+.oa-badge-danger { background:rgba(220,53,69,0.2); color:#ef4444; }
+.oa-badge-warning { background:rgba(255,193,7,0.2); color:#ffc107; }
+.oa-badge-success { background:rgba(34,197,94,0.2); color:#22c55e; }
+.oa-badge-info { background:rgba(13,202,240,0.2); color:#0dcaf0; }
+.oa-badge-muted { background:rgba(108,117,125,0.2); color:#adb5bd; }
+.oa-panel { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:10px 14px; margin-bottom:14px; }
+.oa-panel-title { font-size:0.75rem; font-weight:700; margin-bottom:8px; color:#e9ecef; }
+.oa-mini-table { width:100%; font-size:0.72rem; }
+.oa-mini-table td { padding:3px 6px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.oa-mini-table tr:hover { background:rgba(255,255,255,0.03); }
+.oa-dist { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.oa-dist-chip { padding:3px 8px; border-radius:4px; font-size:0.68rem; font-weight:600; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); }
+.oa-filter-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:10px; padding:8px 10px; background:rgba(255,255,255,0.03); border-radius:6px; border:1px solid rgba(255,255,255,0.08); }
+.oa-filter-bar input, .oa-filter-bar select { font-size:0.75rem; max-width:130px; }
+.oa-filter-bar .form-check-label { font-size:0.72rem; }
+.val-col { text-align:right; }
+.sort-arrow { font-size:0.55rem; margin-left:2px; }
+.oa-pager { display:flex; gap:6px; align-items:center; justify-content:center; margin-top:8px; font-size:0.78rem; }
+</style>
+
+<div class="oa-page">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0"><i class="fas fa-chart-bar me-2 text-primary"></i>Offer Intelligence Admin</h5>
+        <div class="d-flex gap-2">
+            <a href="/crm/admin/offers/export?tab={{ tab }}&{{ request.query_string.decode() }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>Export CSV</a>
+            <a href="/crm/admin/offers" class="btn btn-sm btn-outline-secondary"><i class="fas fa-redo me-1"></i></a>
+        </div>
+    </div>
+
+    <form method="get" action="/crm/admin/offers" class="oa-filter-bar">
+        <input type="text" class="form-control form-control-sm" name="q" value="{{ filters.q }}" placeholder="Search…" style="width:140px;">
+        <select class="form-select form-select-sm" name="classification" style="width:120px;">
+            <option value="">All Classes</option>
+            {% for c in all_classifications %}<option value="{{ c }}" {% if filters.classification == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select>
+        <select class="form-select form-select-sm" name="district" style="width:120px;">
+            <option value="">All Districts</option>
+            {% for d in all_districts %}<option value="{{ d }}" {% if filters.district == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+        </select>
+        <input type="text" class="form-control form-control-sm" name="supplier" value="{{ filters.supplier }}" placeholder="Supplier…" style="width:100px;">
+        <input type="text" class="form-control form-control-sm" name="category" value="{{ filters.category }}" placeholder="Category…" style="width:100px;">
+        <input type="text" class="form-control form-control-sm" name="brand" value="{{ filters.brand }}" placeholder="Brand…" style="width:100px;">
+        <select class="form-select form-select-sm" name="usage_band" style="width:100px;">
+            <option value="">Usage %</option>
+            <option value="0-20" {% if filters.usage_band == '0-20' %}selected{% endif %}>0–20%</option>
+            <option value="20-50" {% if filters.usage_band == '20-50' %}selected{% endif %}>20–50%</option>
+            <option value="50+" {% if filters.usage_band == '50+' %}selected{% endif %}>50%+</option>
+        </select>
+        <select class="form-select form-select-sm" name="sales_band" style="width:110px;">
+            <option value="">Sales Share</option>
+            <option value="0-20" {% if filters.sales_band == '0-20' %}selected{% endif %}>0–20%</option>
+            <option value="20-50" {% if filters.sales_band == '20-50' %}selected{% endif %}>20–50%</option>
+            <option value="50+" {% if filters.sales_band == '50+' %}selected{% endif %}>50%+</option>
+        </select>
+        <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="checkbox" name="high_dependency" value="1" id="fHighDep" {% if filters.high_dependency %}checked{% endif %}>
+            <label class="form-check-label" for="fHighDep">High Dep.</label>
+        </div>
+        <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="checkbox" name="unused_offers" value="1" id="fUnused" {% if filters.unused_offers %}checked{% endif %}>
+            <label class="form-check-label" for="fUnused">Unused</label>
+        </div>
+        <input type="hidden" name="tab" id="tabInput" value="{{ tab }}">
+        <button type="submit" class="btn btn-sm btn-primary py-0 px-2"><i class="fas fa-filter me-1"></i>Apply</button>
+        <a href="/crm/admin/offers" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="fas fa-times"></i></a>
+    </form>
+
+    <div class="oa-kpi-bar">
+        <div class="oa-kpi"><div class="kl">Customers</div><div class="kv" style="color:#20c997;">{{ overview.kpi.customers_with_offers }}</div></div>
+        <div class="oa-kpi"><div class="kl">SKU Lines</div><div class="kv" style="color:#0dcaf0;">{{ overview.kpi.total_active_sku_lines }}</div></div>
+        <div class="oa-kpi"><div class="kl">Avg Usage</div><div class="kv" style="color:#ffc107;">{{ overview.kpi.avg_usage_pct }}%</div></div>
+        <div class="oa-kpi"><div class="kl">Avg Sales Share</div><div class="kv" style="color:#6f42c1;">{{ overview.kpi.avg_sales_share_pct }}%</div></div>
+        <div class="oa-kpi"><div class="kl">Offer Sales 4w</div><div class="kv" style="color:#22c55e;">€{{ "{:,.0f}".format(overview.kpi.total_offer_sales_4w) }}</div></div>
+        <div class="oa-kpi"><div class="kl">High Dep.</div><div class="kv" style="color:#ef4444;">{{ overview.kpi.high_dependency }}</div></div>
+        <div class="oa-kpi"><div class="kl">Low Usage</div><div class="kv" style="color:#fd7e14;">{{ overview.kpi.low_usage }}</div></div>
+        <div class="oa-kpi"><div class="kl">Disc. Unused</div><div class="kv" style="color:#dc3545;">{{ overview.kpi.strong_discount_unused }}</div></div>
+    </div>
+
+    <div class="oa-tabs">
+        <a class="oa-tab {% if tab == 'overview' %}active{% endif %}" onclick="switchTab(event,'overview')">Overview</a>
+        <a class="oa-tab {% if tab == 'customers' %}active{% endif %}" onclick="switchTab(event,'customers')">Customers</a>
+        <a class="oa-tab {% if tab == 'rules' %}active{% endif %}" onclick="switchTab(event,'rules')">Rules</a>
+        <a class="oa-tab {% if tab == 'products' %}active{% endif %}" onclick="switchTab(event,'products')">Products</a>
+    </div>
+
+    <div id="sec-overview" class="oa-section {% if tab == 'overview' %}active{% endif %}">
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <div class="oa-panel">
+                    <div class="oa-panel-title"><i class="fas fa-chart-pie me-1"></i>Usage Distribution</div>
+                    <div class="oa-dist">
+                        <div class="oa-dist-chip" style="border-color:#ef4444;">0–10%: <strong>{{ overview.usage_distribution.u0_10 }}</strong></div>
+                        <div class="oa-dist-chip" style="border-color:#fd7e14;">10–30%: <strong>{{ overview.usage_distribution.u10_30 }}</strong></div>
+                        <div class="oa-dist-chip" style="border-color:#ffc107;">30–50%: <strong>{{ overview.usage_distribution.u30_50 }}</strong></div>
+                        <div class="oa-dist-chip" style="border-color:#22c55e;">50%+: <strong>{{ overview.usage_distribution.u50_plus }}</strong></div>
+                    </div>
+                    <div class="oa-panel-title mt-2"><i class="fas fa-chart-bar me-1"></i>Sales Share Distribution</div>
+                    <div class="oa-dist">
+                        <div class="oa-dist-chip" style="border-color:#22c55e;">0–20%: <strong>{{ overview.sales_distribution.s0_20 }}</strong></div>
+                        <div class="oa-dist-chip" style="border-color:#ffc107;">20–50%: <strong>{{ overview.sales_distribution.s20_50 }}</strong></div>
+                        <div class="oa-dist-chip" style="border-color:#ef4444;">50%+: <strong>{{ overview.sales_distribution.s50_plus }}</strong></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="oa-panel">
+                    <div class="oa-panel-title"><i class="fas fa-exclamation-triangle me-1 text-warning"></i>Needs Offer Review <span class="text-muted" style="font-size:0.65rem;">(many offers, low usage)</span></div>
+                    <table class="oa-mini-table">
+                        {% for r in overview.review_needed[:10] %}
+                        <tr>
+                            <td><strong>{{ r.customer_name or r.customer_code }}</strong></td>
+                            <td class="val-col">{{ r.active_offer_skus }} SKUs</td>
+                            <td class="val-col">{{ r.offer_usage_pct }}%</td>
+                        </tr>
+                        {% endfor %}
+                        {% if not overview.review_needed %}<tr><td class="text-muted">No data</td></tr>{% endif %}
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="oa-panel">
+                    <div class="oa-panel-title"><i class="fas fa-fire me-1 text-danger"></i>High Dependency <span class="text-muted" style="font-size:0.65rem;">(>50% sales on offer)</span></div>
+                    <table class="oa-mini-table">
+                        {% for r in overview.high_dependency[:10] %}
+                        <tr>
+                            <td><strong>{{ r.customer_name or r.customer_code }}</strong></td>
+                            <td class="val-col">{{ r.offer_sales_share_pct }}%</td>
+                            <td class="val-col">€{{ "{:,.0f}".format(r.offer_sales_4w) }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% if not overview.high_dependency %}<tr><td class="text-muted">No data</td></tr>{% endif %}
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="oa-panel">
+            <div class="oa-panel-title"><i class="fas fa-box-open me-1 text-info"></i>Widely Assigned but Weakly Used SKUs</div>
+            <table class="oa-mini-table">
+                <tr style="color:#adb5bd;font-size:0.65rem;"><td>Product</td><td>Supplier</td><td class="val-col">Offered To</td><td class="val-col">Bought By</td><td class="val-col">Usage %</td></tr>
+                {% for r in overview.weak_skus[:15] %}
+                <tr>
+                    <td>{{ r.product_name[:40] }}</td>
+                    <td>{{ r.supplier_name[:20] }}</td>
+                    <td class="val-col">{{ r.customers_with_offer }}</td>
+                    <td class="val-col">{{ r.customers_bought }}</td>
+                    <td class="val-col">
+                        <span class="oa-badge {% if r.usage_pct < 20 %}oa-badge-danger{% elif r.usage_pct < 50 %}oa-badge-warning{% else %}oa-badge-success{% endif %}">{{ r.usage_pct }}%</span>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not overview.weak_skus %}<tr><td class="text-muted" colspan="5">No data</td></tr>{% endif %}
+            </table>
+        </div>
+    </div>
+
+    <div id="sec-customers" class="oa-section {% if tab == 'customers' %}active{% endif %}">
+        <div style="overflow-x:auto; max-height:70vh; overflow-y:auto;">
+        <table class="oa-table">
+            <thead>
+                <tr>
+                    <th onclick="sortBy('customer_name')">Customer {% if sort == 'customer_name' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th>Class</th>
+                    <th>District</th>
+                    <th onclick="sortBy('active_offer_skus')" class="val-col">SKUs {% if sort == 'active_offer_skus' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th class="val-col">Bought</th>
+                    <th onclick="sortBy('offered_skus_not_bought')" class="val-col">Unused {% if sort == 'offered_skus_not_bought' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('offer_usage_pct')" class="val-col">Usage % {% if sort == 'offer_usage_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('offer_sales_4w')" class="val-col">Offer €4w {% if sort == 'offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th class="val-col">Total €4w</th>
+                    <th onclick="sortBy('offer_sales_share_pct')" class="val-col">Share % {% if sort == 'offer_sales_share_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('avg_discount_percent')" class="val-col">Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th>Top Rule</th>
+                    <th class="val-col">HDU</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in customers.rows %}
+                <tr>
+                    <td>
+                        <div class="fw-semibold">{{ r.customer_name }}</div>
+                        <span class="text-muted" style="font-size:0.68rem;">{{ r.customer_code_365 }}</span>
+                    </td>
+                    <td><span class="text-muted" style="font-size:0.68rem;">{{ r.classification }}</span></td>
+                    <td><span class="text-muted" style="font-size:0.68rem;">{{ r.district }}</span></td>
+                    <td class="val-col">{{ r.active_offer_skus }}</td>
+                    <td class="val-col">{{ r.offered_skus_bought_4w }}</td>
+                    <td class="val-col">{% if r.offered_skus_not_bought > 0 %}<span style="color:#ef4444;">{{ r.offered_skus_not_bought }}</span>{% else %}0{% endif %}</td>
+                    <td class="val-col">
+                        <span class="oa-badge {% if r.offer_usage_pct >= 50 %}oa-badge-success{% elif r.offer_usage_pct >= 20 %}oa-badge-warning{% else %}oa-badge-danger{% endif %}">{{ r.offer_usage_pct }}%</span>
+                    </td>
+                    <td class="val-col">€{{ "{:,.0f}".format(r.offer_sales_4w) }}</td>
+                    <td class="val-col">€{{ "{:,.0f}".format(r.total_customer_sales_4w) }}</td>
+                    <td class="val-col">
+                        <span class="oa-badge {% if r.offer_sales_share_pct >= 50 %}oa-badge-danger{% elif r.offer_sales_share_pct >= 20 %}oa-badge-warning{% else %}oa-badge-success{% endif %}">{{ r.offer_sales_share_pct }}%</span>
+                    </td>
+                    <td class="val-col">{{ r.avg_discount_percent }}%</td>
+                    <td><span style="font-size:0.68rem;">{{ r.top_rule_name[:25] }}</span></td>
+                    <td class="val-col">{% if r.high_discount_unused_skus > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_skus }}</span>{% else %}—{% endif %}</td>
+                    <td>
+                        {% if r.offer_usage_pct < 20 and r.active_offer_skus > 0 %}<span class="oa-badge oa-badge-danger">Low Usage</span>
+                        {% elif r.offer_sales_share_pct >= 50 %}<span class="oa-badge oa-badge-warning">High Dep.</span>
+                        {% elif r.offered_skus_bought_4w == 0 and r.active_offer_skus > 0 %}<span class="oa-badge oa-badge-muted">No Use</span>
+                        {% elif r.offer_usage_pct >= 50 %}<span class="oa-badge oa-badge-success">Strong</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not customers.rows %}<tr><td colspan="14" class="text-muted text-center py-3">No customers with offers found</td></tr>{% endif %}
+            </tbody>
+        </table>
+        </div>
+        {% if customers.total > customers.page_size %}
+        <div class="oa-pager">
+            {% if page > 1 %}<a href="?tab=customers&page={{ page - 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}&usage_band={{ filters.usage_band }}&sales_band={{ filters.sales_band }}{% if filters.high_dependency %}&high_dependency=1{% endif %}{% if filters.unused_offers %}&unused_offers=1{% endif %}" class="btn btn-sm btn-outline-secondary">&laquo; Prev</a>{% endif %}
+            <span class="text-muted">Page {{ page }} of {{ ((customers.total - 1) // customers.page_size) + 1 }} ({{ customers.total }} rows)</span>
+            {% if page * customers.page_size < customers.total %}<a href="?tab=customers&page={{ page + 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}&usage_band={{ filters.usage_band }}&sales_band={{ filters.sales_band }}{% if filters.high_dependency %}&high_dependency=1{% endif %}{% if filters.unused_offers %}&unused_offers=1{% endif %}" class="btn btn-sm btn-outline-secondary">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="sec-rules" class="oa-section {% if tab == 'rules' %}active{% endif %}">
+        <div style="overflow-x:auto; max-height:70vh; overflow-y:auto;">
+        <table class="oa-table">
+            <thead>
+                <tr>
+                    <th>Rule Code</th>
+                    <th>Rule Name</th>
+                    <th onclick="sortBy('customers_count')" class="val-col">Customers {% if sort == 'customers_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('active_offer_sku_lines')" class="val-col">Lines {% if sort == 'active_offer_sku_lines' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th class="val-col">SKUs</th>
+                    <th onclick="sortBy('avg_discount_percent')" class="val-col">Avg Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('total_offer_sales_4w')" class="val-col">Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('unused_lines_count')" class="val-col">Unused {% if sort == 'unused_lines_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th class="val-col">HDU</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rules %}
+                <tr>
+                    <td><span class="fw-semibold" style="font-size:0.72rem;">{{ r.rule_code }}</span></td>
+                    <td>{{ r.rule_name[:40] }}</td>
+                    <td class="val-col">{{ r.customers_count }}</td>
+                    <td class="val-col">{{ r.active_offer_sku_lines }}</td>
+                    <td class="val-col">{{ r.distinct_skus }}</td>
+                    <td class="val-col">{{ r.avg_discount_percent }}%</td>
+                    <td class="val-col">€{{ "{:,.0f}".format(r.total_offer_sales_4w) }}</td>
+                    <td class="val-col">{% if r.unused_lines_count > 0 %}<span style="color:#fd7e14;">{{ r.unused_lines_count }}</span>{% else %}0{% endif %}</td>
+                    <td class="val-col">{% if r.high_discount_unused_count > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_count }}</span>{% else %}0{% endif %}</td>
+                </tr>
+                {% endfor %}
+                {% if not rules %}<tr><td colspan="9" class="text-muted text-center py-3">No rules found</td></tr>{% endif %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <div id="sec-products" class="oa-section {% if tab == 'products' %}active{% endif %}">
+        <div style="overflow-x:auto; max-height:70vh; overflow-y:auto;">
+        <table class="oa-table">
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Supplier</th>
+                    <th>Category</th>
+                    <th onclick="sortBy('customers_with_offer')" class="val-col">Offered {% if sort == 'customers_with_offer' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th class="val-col">Bought</th>
+                    <th onclick="sortBy('customer_usage_pct')" class="val-col">Usage % {% if sort == 'customer_usage_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('total_offer_sales_4w')" class="val-col">Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('avg_discount_percent')" class="val-col">Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th class="val-col">HDU</th>
+                    <th>Top Rule</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in products.rows %}
+                <tr>
+                    <td><span class="fw-semibold" style="font-size:0.72rem;">{{ r.sku }}</span></td>
+                    <td style="max-width:200px;">{{ r.product_name[:40] }}</td>
+                    <td><span style="font-size:0.68rem;">{{ r.supplier_name[:20] }}</span></td>
+                    <td><span style="font-size:0.68rem;">{{ r.category_name[:20] }}</span></td>
+                    <td class="val-col">{{ r.customers_with_offer }}</td>
+                    <td class="val-col">{{ r.customers_bought_4w }}</td>
+                    <td class="val-col">
+                        <span class="oa-badge {% if r.customer_usage_pct >= 50 %}oa-badge-success{% elif r.customer_usage_pct >= 20 %}oa-badge-warning{% else %}oa-badge-danger{% endif %}">{{ r.customer_usage_pct }}%</span>
+                    </td>
+                    <td class="val-col">€{{ "{:,.0f}".format(r.total_offer_sales_4w) }}</td>
+                    <td class="val-col">{{ r.avg_discount_percent }}%</td>
+                    <td class="val-col">{% if r.high_discount_unused_count > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_count }}</span>{% else %}0{% endif %}</td>
+                    <td><span style="font-size:0.68rem;">{{ r.top_rule_name[:25] }}</span></td>
+                </tr>
+                {% endfor %}
+                {% if not products.rows %}<tr><td colspan="11" class="text-muted text-center py-3">No products found</td></tr>{% endif %}
+            </tbody>
+        </table>
+        </div>
+        {% if products.total > products.page_size %}
+        <div class="oa-pager">
+            {% if page > 1 %}<a href="?tab=products&page={{ page - 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}&usage_band={{ filters.usage_band }}&sales_band={{ filters.sales_band }}{% if filters.high_dependency %}&high_dependency=1{% endif %}{% if filters.unused_offers %}&unused_offers=1{% endif %}" class="btn btn-sm btn-outline-secondary">&laquo; Prev</a>{% endif %}
+            <span class="text-muted">Page {{ page }} of {{ ((products.total - 1) // products.page_size) + 1 }} ({{ products.total }} rows)</span>
+            {% if page * products.page_size < products.total %}<a href="?tab=products&page={{ page + 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}&usage_band={{ filters.usage_band }}&sales_band={{ filters.sales_band }}{% if filters.high_dependency %}&high_dependency=1{% endif %}{% if filters.unused_offers %}&unused_offers=1{% endif %}" class="btn btn-sm btn-outline-secondary">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function switchTab(e, name) {
+    document.querySelectorAll('.oa-tab').forEach(function(t){ t.classList.remove('active'); });
+    document.querySelectorAll('.oa-section').forEach(function(s){ s.classList.remove('active'); });
+    e.target.classList.add('active');
+    document.getElementById('sec-' + name).classList.add('active');
+    document.getElementById('tabInput').value = name;
+}
+
+function sortBy(col) {
+    var params = new URLSearchParams(window.location.search);
+    var currentSort = params.get('sort');
+    var currentDir = params.get('sort_dir') || 'desc';
+    var newDir = (currentSort === col && currentDir === 'desc') ? 'asc' : 'desc';
+    params.set('sort', col);
+    params.set('sort_dir', newDir);
+    params.set('tab', document.getElementById('tabInput').value);
+    params.set('page', '1');
+    window.location.search = params.toString();
+}
+
+</script>
+
+{% endblock %}

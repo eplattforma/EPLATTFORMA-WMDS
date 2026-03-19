@@ -1,0 +1,490 @@
+Paste this to Replit.
+
+Build request: create an Admin Offer Intelligence UI for overall offer review
+
+Objective
+
+Create a new admin page in CRM to review customer offers globally, not only per customer.
+
+This page is for management/commercial/admin users.
+It should show offer performance across:
+- all customers
+- all rules
+- all offered SKUs
+- customer dependency on offers
+- usage of offered assortment
+
+This is NOT a replacement for the customer drawer.
+It is a higher-level control panel for reviewing the offer program overall.
+
+==================================================
+1. NEW PAGE / ROUTE
+==================================================
+
+Create a new admin page:
+
+- GET /crm/admin/offers
+
+Optional JSON endpoints:
+- GET /crm/admin/offers/summary
+- GET /crm/admin/offers/customers
+- GET /crm/admin/offers/rules
+- GET /crm/admin/offers/products
+- GET /crm/admin/offers/export
+
+Use login_required.
+Restrict access to admin/commercial roles if role checks already exist in the app.
+
+==================================================
+2. MAIN BUSINESS QUESTIONS THIS PAGE MUST ANSWER
+==================================================
+
+The admin UI should help answer:
+
+1) How many customers currently have offers?
+2) How many active offer SKU lines exist?
+3) What is the average offer usage % across customers?
+4) What % of sales are on offer overall?
+5) Which customers are highly dependent on offers?
+6) Which customers have many offers but low usage?
+7) Which rules are most common?
+8) Which rules drive the highest offer sales?
+9) Which offered SKUs are widely assigned but rarely bought?
+10) Which offers should be reviewed for cleanup or redesign?
+
+==================================================
+3. PAGE STRUCTURE
+==================================================
+
+Create a page with 4 main tabs or sections:
+
+A) Overview
+B) Customers
+C) Rules
+D) Products / SKUs
+
+Optional later:
+E) Export / diagnostics
+
+==================================================
+4. OVERVIEW SECTION
+==================================================
+
+At the top show KPI cards.
+
+Required KPI cards:
+- Customers with Offers
+- Active Offer SKU Lines
+- Avg Offer Usage %
+- Avg Sales on Offer %
+- Total Offer Sales 4w
+- High Dependency Customers
+- Low Usage Customers
+- Strong Discount Unused Lines
+
+Definitions:
+- Customers with Offers = count of customers in crm_customer_offer_summary_current
+- Active Offer SKU Lines = count rows in crm_customer_offer_current where is_active = true
+- Avg Offer Usage % = avg(offer_usage_pct) across customers with offers
+- Avg Sales on Offer % = avg(offer_sales_share_pct) across customers with offers
+- Total Offer Sales 4w = sum(offer_sales_4w)
+- High Dependency Customers = count where offer_sales_share_pct >= threshold
+- Low Usage Customers = count where offer_usage_pct < threshold
+- Strong Discount Unused Lines = count where line_status = 'high_discount_unused'
+
+Also include a small distribution block or summary chips:
+- customers 0–10% usage
+- customers 10–30% usage
+- customers 30–50% usage
+- customers 50%+ usage
+
+And:
+- customers 0–20% sales on offer
+- customers 20–50% sales on offer
+- customers 50%+ sales on offer
+
+==================================================
+5. FILTER BAR
+==================================================
+
+Add a filter bar at the top of the page.
+
+Filters:
+- classification
+- district
+- area
+- rule_code / rule_name
+- supplier
+- category
+- brand
+- offer usage band
+- sales on offer band
+- minimum active offers
+- only customers with unused offers
+- only high dependency customers
+- search by customer code / customer name / SKU / rule
+
+Date basis:
+For now use fixed recent logic:
+- 4 weeks for usage / sales-on-offer metrics
+- 90 days where already available
+
+Do not overcomplicate with arbitrary date pickers yet unless easy.
+
+==================================================
+6. CUSTOMERS TAB
+==================================================
+
+This is the most important admin table.
+
+Show one row per customer.
+
+Columns:
+- customer_code_365
+- customer_name
+- classification
+- district
+- active_offer_skus
+- offered_skus_bought_4w
+- offered_skus_not_bought
+- offer_usage_pct
+- offer_sales_4w
+- total_customer_sales_4w
+- offer_sales_share_pct
+- avg_discount_percent
+- top_rule_name
+- high_discount_unused_skus
+
+Optional:
+- open_order_amount
+- value_4w
+- last_invoice_date
+
+Default sort:
+- offer_sales_share_pct desc
+or
+- active_offer_skus desc
+
+Support sorting by:
+- active_offer_skus
+- offer_usage_pct
+- offer_sales_share_pct
+- offer_sales_4w
+- offered_skus_not_bought
+- avg_discount_percent
+
+Row actions:
+- open customer offer drawer
+- open CRM customer view
+- create follow-up task
+
+Add interpretation badges:
+- Low Usage
+- High Dependency
+- No Recent Offer Use
+- Strong Engagement
+
+Suggested logic:
+- Low Usage = offer_usage_pct < 20
+- High Dependency = offer_sales_share_pct >= 50
+- No Recent Offer Use = offered_skus_bought_4w = 0 and active_offer_skus > 0
+- Strong Engagement = offer_usage_pct >= 50
+
+==================================================
+7. RULES TAB
+==================================================
+
+Show one row per offer rule.
+
+Purpose:
+Understand which rules are most used and how effective they are.
+
+Columns:
+- rule_code
+- rule_name
+- customers_count
+- active_offer_sku_lines
+- distinct_skus
+- avg_discount_percent
+- total_offer_sales_4w
+- avg_offer_usage_pct_across_customers
+- avg_sales_on_offer_pct_across_customers
+- unused_lines_count
+- high_discount_unused_count
+
+Definitions:
+- customers_count = distinct customers with this rule
+- active_offer_sku_lines = total rows with this rule
+- distinct_skus = distinct sku count under this rule
+- total_offer_sales_4w = sum sold_value_4w for lines under this rule
+- unused_lines_count = count line_status = 'unused'
+- high_discount_unused_count = count line_status = 'high_discount_unused'
+
+Allow sorting by:
+- customers_count
+- total_offer_sales_4w
+- avg_discount_percent
+- unused_lines_count
+
+Add click action:
+- open rule detail modal/panel with top customers and top SKUs under that rule
+
+==================================================
+8. PRODUCTS / SKUS TAB
+==================================================
+
+Show one row per offered SKU aggregated across customers.
+
+Purpose:
+See which products are widely offered, widely used, or widely ignored.
+
+Columns:
+- sku
+- item_code_365
+- product_name
+- supplier_name
+- category_name
+- brand_name
+- customers_with_offer
+- customers_bought_4w
+- customer_usage_pct
+- total_offer_sales_4w
+- avg_discount_percent
+- high_discount_unused_customer_count
+- top_rule_name
+
+Definitions:
+- customers_with_offer = distinct customers with active offer on SKU
+- customers_bought_4w = distinct customers with sold_qty_4w > 0
+- customer_usage_pct = customers_bought_4w / customers_with_offer * 100
+- high_discount_unused_customer_count = customers where this SKU is high_discount_unused
+
+This tab is very useful for spotting:
+- over-assigned SKUs
+- dead offers
+- good candidate SKUs for promotion expansion
+
+Default sort:
+- customers_with_offer desc
+
+Secondary useful sort:
+- customer_usage_pct asc to find widely unused offers
+
+==================================================
+9. OVERALL INTERPRETATION PANELS
+==================================================
+
+On the Overview tab, add 3 ranked panels:
+
+A) Customers needing offer review
+Top 20 customers where:
+- active_offer_skus high
+- offer_usage_pct low
+Sort by:
+- active_offer_skus desc, offer_usage_pct asc
+
+B) High dependency customers
+Top 20 customers by:
+- offer_sales_share_pct desc
+
+C) Widely assigned but weakly used SKUs
+Top 20 SKUs by:
+- customers_with_offer desc
+- customer_usage_pct asc
+
+These panels make the page actionable.
+
+==================================================
+10. NEW AGGREGATION / SERVICE LAYER
+==================================================
+
+Create or extend service:
+- services/crm_offer_admin.py
+
+Functions to add:
+
+- get_offer_admin_overview(filters)
+- get_offer_admin_customer_rows(filters, page, page_size, sort, sort_dir)
+- get_offer_admin_rule_rows(filters, page, page_size, sort, sort_dir)
+- get_offer_admin_product_rows(filters, page, page_size, sort, sort_dir)
+- get_offer_admin_distributions(filters)
+
+Keep the heavy aggregation out of the blueprint as much as possible.
+
+==================================================
+11. DATA SOURCES
+==================================================
+
+Use as primary sources:
+- crm_customer_offer_summary_current
+- crm_customer_offer_current
+
+Join to:
+- ps_customers
+- crm_customer_profile
+
+Optional joins:
+- open orders summary
+- existing sales summary if helpful
+
+Do NOT query raw import tables for page rendering.
+
+==================================================
+12. SQL / AGGREGATION GUIDELINES
+==================================================
+
+Use summary table for:
+- customer-level page
+- KPI cards
+- distributions
+
+Use current table for:
+- rules tab
+- product/SKU tab
+- rule/product aggregations
+
+Avoid N+1 queries.
+Build proper grouped queries.
+
+Add indexes if needed on:
+- crm_customer_offer_current(rule_code)
+- crm_customer_offer_current(sku)
+- crm_customer_offer_current(customer_code_365)
+- crm_customer_offer_current(supplier_name)
+- crm_customer_offer_current(category_name)
+- crm_customer_offer_summary_current(offer_usage_pct)
+- crm_customer_offer_summary_current(offer_sales_share_pct)
+
+==================================================
+13. UI / TEMPLATE REQUIREMENTS
+==================================================
+
+Create template:
+- templates/crm/admin_offers.html
+
+Layout:
+- page title
+- filter bar
+- KPI strip
+- tabs for Overview / Customers / Rules / Products
+- tables with sticky header if possible
+- export button
+
+Use same WMDS dark theme.
+Keep it compact and operational.
+
+Use clear labels:
+- Offers
+- Used %
+- Sales on Offer %
+- Offer Sales 4w
+- Unused
+- Top Rule
+- Dependency
+
+==================================================
+14. EXPORT FEATURE
+==================================================
+
+Add export support.
+
+At minimum:
+- export current filtered Customers tab to CSV
+- export current filtered Rules tab to CSV
+- export current filtered Products tab to CSV
+
+Route example:
+- GET /crm/admin/offers/export?tab=customers&...
+
+Return CSV.
+
+==================================================
+15. PERMISSION / ACCESS
+==================================================
+
+This page is admin/commercial only.
+
+If role checks exist, restrict to:
+- admin
+- manager
+- commercial manager
+or equivalent roles already used in app
+
+If no role system is ready, keep login_required and add TODO note for role restriction.
+
+==================================================
+16. SUGGESTED KPI THRESHOLDS
+==================================================
+
+Reuse or add settings:
+- crm_offer_low_usage_pct_threshold default 20
+- crm_offer_high_usage_pct_threshold default 50
+- crm_offer_high_dependency_sales_share_pct default 50
+
+Use these thresholds in:
+- overview counts
+- interpretation badges
+- ranked action panels
+
+==================================================
+17. OPTIONAL CHARTS
+==================================================
+
+If easy, add lightweight charts on Overview:
+- histogram of customer offer usage %
+- histogram of customer sales on offer %
+- top 10 rules by customer count
+- top 10 suppliers by offer sales 4w
+
+Do not overdo charts.
+Tables and ranked lists are more important.
+
+==================================================
+18. PAGE ACTIONS
+==================================================
+
+Add small action buttons:
+- Open customer offer drawer
+- Open customer CRM page
+- Export current tab
+- Refresh offers
+- Refresh page data
+
+If refresh offers button exists here, reuse the same locked refresh endpoint.
+
+==================================================
+19. ACCEPTANCE CRITERIA
+==================================================
+
+This admin UI is correct when it allows us to quickly see:
+
+1) total scale of the offer program
+2) which customers use offers well
+3) which customers have many offers but low usage
+4) which customers are highly dependent on offers
+5) which rules are most broadly assigned
+6) which SKUs are widely offered but weakly used
+7) current filtered data can be exported
+
+==================================================
+20. DELIVERABLES EXPECTED
+==================================================
+
+Please implement:
+1) new admin route
+2) new admin template
+3) service-layer aggregation functions
+4) filter bar
+5) KPI cards
+6) Customers tab
+7) Rules tab
+8) Products tab
+9) CSV export
+10) reuse existing customer offer drawer where appropriate
+
+When done, report back with:
+- route names added
+- service functions added
+- which queries use summary table vs current table
+- what filters are supported
+- what exports are supported

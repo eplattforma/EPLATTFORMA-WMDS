@@ -134,9 +134,15 @@
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('crm_dashboard.') and request.path != '/crm/review-ordering' %}active{% endif %}" 
+                                <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('crm_dashboard.') and request.path != '/crm/review-ordering' and request.path != '/crm/admin/offers' %}active{% endif %}" 
                                    href="{{ url_for('crm_dashboard.customer_slot_dashboard') }}">
                                     <i class="fas fa-bolt me-2"></i>EP SmartGrowth AI
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.path == '/crm/admin/offers' %}active{% endif %}" 
+                                   href="/crm/admin/offers">
+                                    <i class="fas fa-chart-bar me-2"></i>Offer Intelligence
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
