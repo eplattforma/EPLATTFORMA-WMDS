@@ -499,10 +499,10 @@ def _cost_import_processor(file_bytes, sync_log_id=None):
         cells = [(c.value, c.column - 1) for c in row if c.value]
         for val, col_idx in cells:
             cell_lower = str(val).strip().lower()
-            if item_code_col is None and any(kw in cell_lower for kw in ['item code', 'item_code', 'itemcode', 'item no', 'item_no']):
+            if item_code_col is None and any(kw == cell_lower for kw in ['item code', 'item_code', 'itemcode', 'item no', 'item_no']):
                 item_code_col = col_idx
                 header_row = row_idx
-            if cost_col is None and any(kw in cell_lower for kw in ['cost', 'cost price', 'cost_price', 'costprice', 'unit cost']):
+            if cost_col is None and cell_lower in ('cost', 'cost price', 'cost_price', 'costprice', 'unit cost'):
                 cost_col = col_idx
                 header_row = row_idx
         if item_code_col is not None and cost_col is not None:
@@ -523,6 +523,14 @@ def _cost_import_processor(file_bytes, sync_log_id=None):
     logger.info(f"{tag} Header at row {header_row}: item_code=col{item_code_col}, cost=col{cost_col}")
 
     data_start = header_row + 1
+
+    first_data = list(worksheet.iter_rows(min_row=data_start, max_row=data_start, values_only=True))
+    if first_data and first_data[0]:
+        first_code = str(first_data[0][item_code_col]).strip().lower() if first_data[0][item_code_col] else ''
+        if not first_code or first_code in ('', 'excl', 'incl', 'profit', 'mark up %', 'margin %'):
+            data_start += 1
+            logger.info(f"{tag} Skipping sub-header row, data starts at row {data_start}")
+
     rows_read = 0
     rows_matched = 0
     rows_updated = 0
@@ -557,7 +565,12 @@ def _cost_import_processor(file_bytes, sync_log_id=None):
             continue
 
         try:
-            cost_value = Decimal(str(cost_raw).strip())
+            cost_str = str(cost_raw).strip()
+            cost_str = cost_str.replace('€', '').replace('$', '').replace('£', '').replace(',', '').strip()
+            if not cost_str:
+                rows_skipped_blank_cost += 1
+                continue
+            cost_value = Decimal(cost_str)
         except (InvalidOperation, ValueError, TypeError):
             parse_errors += 1
             continue
