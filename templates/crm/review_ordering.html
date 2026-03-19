@@ -234,13 +234,13 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                     </td>
                     <td>
                         {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
-                        <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}" style="width:22px;height:22px;border-radius:3px;" alt="{{ r.classification }}" title="{{ r.classification }}">
+                        <img src="/admin/tools/crm-classification-image/{{ allowed_classifications[r.classification]['icon'] }}" style="width:33px;height:33px;border-radius:3px;" alt="{{ r.classification }}" title="{{ r.classification }}">
                         {% elif r.classification %}
                         <span class="badge bg-secondary" style="font-size:0.7rem;">{{ r.classification }}</span>
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td>
-                        <span class="badge-state state-{{ r.state }}" title="{% if r.state == 'follow_up' %}Follow Up{% elif r.state == 'waiting' %}Waiting{% elif r.state == 'ordered' %}Ordered{% elif r.state == 'close' %}Close{% endif %}">
+                        <span class="badge-state state-{{ r.state }}" title="{% if r.state == 'follow_up' %}Follow Up{% elif r.state == 'waiting' %}Waiting{% elif r.state == 'ordered' %}Ordered{% elif r.state == 'close' %}Close{% endif %}" style="font-size:1.5rem;">
                             {% if r.state == 'follow_up' %}<i class="fas fa-bell"></i>
                             {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end"></i>
                             {% elif r.state == 'ordered' %}<i class="fas fa-box"></i>
