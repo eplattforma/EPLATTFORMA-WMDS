@@ -4,7 +4,7 @@ Admin Tools routes for database operations and maintenance
 import subprocess
 import logging
 from datetime import datetime, timezone
-from flask import Blueprint, render_template, jsonify, request, Response, send_file
+from flask import Blueprint, render_template, jsonify, request, Response, send_file, redirect, url_for
 from flask_login import login_required, current_user
 from flask import current_app as app
 from app import db
@@ -117,55 +117,11 @@ def execute_database_clone():
         return jsonify({"error": str(e)}), 500
 
 
-@bp.route('/route-mapping-drift')
-@login_required
-def route_mapping_drift():
-    """Show route mapping drift report"""
-    if not is_admin():
-        return "Access denied", 403
-    
-    try:
-        # Use Flask's internal URL map to get all defined routes
-        url_map = app.url_map
-        routes = {}
-        
-        for rule in url_map.iter_rules():
-            if rule.endpoint == 'static':
-                continue
-            endpoint = rule.endpoint
-            methods = ','.join(rule.methods - {'HEAD', 'OPTIONS'})
-            route_str = str(rule)
-            
-            if endpoint not in routes:
-                routes[endpoint] = {'paths': set(), 'methods': set()}
-            routes[endpoint]['paths'].add(route_str)
-            routes[endpoint]['methods'].add(methods)
-        
-        drift_list = []
-        for endpoint, data in sorted(routes.items()):
-            if len(data['paths']) > 1:
-                drift_list.append({
-                    'endpoint': endpoint,
-                    'paths': sorted(data['paths']),
-                    'methods': sorted(data['methods'])
-                })
-        
-        return render_template('admin_tools/route_mapping_drift.html', drift_list=drift_list)
-        
-    except Exception as e:
-        logger.error(f"Error analyzing route drift: {e}")
-        return render_template('admin_tools/route_mapping_drift.html', drift_list=[], error=str(e))
-
 
 @bp.route('/postal-codes')
 @login_required
 def postal_codes_page():
-    """Show postal code import page"""
-    if not is_admin():
-        return "Access denied", 403
-    
-    count = PostalCodeLookup.query.count()
-    return render_template('admin_tools/postal_codes.html', current_count=count)
+    return redirect(url_for('admin_tools_custom.crm_classifications_settings'))
 
 
 @bp.route('/postal-codes/import', methods=['POST'])
@@ -361,7 +317,8 @@ def crm_classifications_settings():
     if not isinstance(close_anchor_time, str):
         close_anchor_time = str(close_anchor_time)
     
-    return render_template('admin_tools/crm_classifications.html', items=items, window_hours=window_hours, anchor_time=anchor_time, close_hours=close_hours, close_anchor_time=close_anchor_time)
+    postal_code_count = PostalCodeLookup.query.count()
+    return render_template('admin_tools/crm_classifications.html', items=items, window_hours=window_hours, anchor_time=anchor_time, close_hours=close_hours, close_anchor_time=close_anchor_time, postal_code_count=postal_code_count)
 
 
 @bp.post('/crm-classifications/save')
@@ -634,103 +591,6 @@ def crm_bulk_classify():
     return render_template('admin_tools/crm_bulk_classify.html')
 
 
-@bp.route('/magento-login-import')
-@login_required
-def magento_login_import_page():
-    if not is_admin():
-        return "Forbidden", 403
-    return render_template('admin_tools/magento_login_import.html')
-
-
-@bp.route('/preview-magento-login-csv', methods=['POST'])
-@login_required
-def preview_magento_login_csv():
-    if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    uploaded = request.files.get('file')
-    if not uploaded or not uploaded.filename:
-        return jsonify({"ok": False, "error": "No file uploaded"}), 400
-
-    import tempfile
-    tmp_path = None
-    try:
-        suffix = os.path.splitext(uploaded.filename)[1] or '.csv'
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            uploaded.save(tmp.name)
-            tmp_path = tmp.name
-        from services.import_magento_login_log import preview_csv
-        result = preview_csv(tmp_path)
-        return jsonify({"ok": True, "result": result})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-
-@bp.route('/import-magento-login-log-upload', methods=['POST'])
-@login_required
-def import_magento_login_log_upload():
-    if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    uploaded = request.files.get('file')
-    if not uploaded or not uploaded.filename:
-        return jsonify({"ok": False, "error": "No file uploaded"}), 400
-
-    import tempfile
-    suffix = os.path.splitext(uploaded.filename)[1] or '.csv'
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            uploaded.save(tmp.name)
-            tmp_path = tmp.name
-        from services.import_magento_login_log import import_magento_login_log_csv
-        res = import_magento_login_log_csv(tmp_path)
-        res['file'] = uploaded.filename
-        return jsonify({"ok": True, "result": res})
-    except ValueError as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-    except Exception as e:
-        logger.error("Magento login log upload error: %s", e, exc_info=True)
-        return jsonify({"ok": False, "error": "Import failed"}), 500
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-
-@bp.route('/import-magento-login-log', methods=['POST'])
-@login_required
-def import_magento_login_log_endpoint():
-    if not is_admin():
-        return jsonify({"ok": False, "error": "Forbidden"}), 403
-
-    filepath = ""
-    if request.is_json:
-        filepath = (request.json or {}).get("filepath", "")
-    else:
-        filepath = request.form.get("filepath", "")
-    if not filepath:
-        return jsonify({"ok": False, "error": "filepath is required"}), 400
-
-    try:
-        from services.import_magento_login_log import import_magento_login_log_csv
-        res = import_magento_login_log_csv(filepath)
-        return jsonify({"ok": True, "result": res})
-    except FileNotFoundError:
-        return jsonify({"ok": False, "error": f"File not found: {filepath}"}), 404
-    except ValueError as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-    except Exception as e:
-        logger.error("Magento login log import error: %s", e, exc_info=True)
-        return jsonify({"ok": False, "error": "Import failed"}), 500
 
 
 @bp.route('/magento-last-login-data')

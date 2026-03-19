@@ -114,6 +114,46 @@
                     <div id="resultBox" class="mt-3 d-none"></div>
                 </div>
             </div>
+
+            <div class="card mt-4">
+                <div class="card-body">
+                    <h5 class="mb-3"><i class="fas fa-map-pin me-2 text-primary"></i>Postal Code Lookup</h5>
+                    <p class="text-muted">Import postal codes to enable district and municipality lookups.</p>
+
+                    <div class="alert alert-info mb-3">
+                        <strong>Current Records:</strong> <span id="recordCount">{{ postal_code_count }}</span> postal codes loaded
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6 class="card-title"><i class="fas fa-upload me-2"></i>Import Excel File</h6>
+                                    <p class="small text-muted mb-3">Upload .xlsx with columns: Postcode, Municipality, District, Urban/Rural</p>
+                                    <div class="mb-3">
+                                        <input type="file" id="importFile" class="form-control form-control-sm" accept=".xlsx,.xls">
+                                    </div>
+                                    <button class="btn btn-primary btn-sm" onclick="importPostalCodes()">
+                                        <i class="fas fa-cloud-upload-alt me-1"></i>Import
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6 class="card-title"><i class="fas fa-trash me-2 text-danger"></i>Clear Data</h6>
+                                    <p class="small text-muted mb-3">Remove all postal code records and start fresh.</p>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="clearPostalCodes()">
+                                        Clear All Records
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="postalMessage"></div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -215,5 +255,55 @@ document.getElementById('classifyForm').addEventListener('submit', async functio
         btn.innerHTML = text;
     }
 });
+
+async function importPostalCodes() {
+    const fileInput = document.getElementById('importFile');
+    const msgDiv = document.getElementById('postalMessage');
+    if (!fileInput.files.length) {
+        msgDiv.innerHTML = '<div class="alert alert-warning">Please select a file</div>';
+        return;
+    }
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    try {
+        const res = await fetch('/admin/tools/postal-codes/import', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.ok) {
+            document.getElementById('recordCount').textContent =
+                (parseInt(document.getElementById('recordCount').textContent) + data.imported);
+            let msg = '<div class="alert alert-success"><i class="fas fa-check me-2"></i>' + data.message + '</div>';
+            if (data.errors && data.errors.length > 0) {
+                msg += '<div class="alert alert-warning mt-2"><strong>Errors:</strong><ul class="mb-0 mt-2">' +
+                    data.errors.map(function(e){ return '<li>' + e + '</li>'; }).join('') + '</ul></div>';
+            }
+            msgDiv.innerHTML = msg;
+            fileInput.value = '';
+        } else {
+            msgDiv.innerHTML = '<div class="alert alert-danger"><i class="fas fa-times me-2"></i>' + data.error + '</div>';
+        }
+    } catch(e) {
+        msgDiv.innerHTML = '<div class="alert alert-danger"><i class="fas fa-times me-2"></i>Error: ' + e + '</div>';
+    }
+}
+
+function clearPostalCodes() {
+    if (!confirm('Delete all postal code records? This cannot be undone.')) return;
+    fetch('/admin/tools/postal-codes/clear', { method: 'POST' })
+        .then(function(res){ return res.json(); })
+        .then(function(data){
+            if (data.ok) {
+                document.getElementById('recordCount').textContent = '0';
+                document.getElementById('postalMessage').innerHTML =
+                    '<div class="alert alert-success">Cleared ' + data.cleared + ' records</div>';
+            } else {
+                document.getElementById('postalMessage').innerHTML =
+                    '<div class="alert alert-danger">' + data.error + '</div>';
+            }
+        })
+        .catch(function(e){
+            document.getElementById('postalMessage').innerHTML =
+                '<div class="alert alert-danger">Error: ' + e + '</div>';
+        });
+}
 </script>
 {% endblock %}
