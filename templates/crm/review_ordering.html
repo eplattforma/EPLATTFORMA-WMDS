@@ -28,7 +28,7 @@
 .state-waiting { background: rgba(108,117,125,0.2); color: #adb5bd; }
 .state-follow_up { background: rgba(255,193,7,0.2); color: #ffc107; }
 .state-ordered { background: rgba(25,135,84,0.2); color: #22c55e; }
-.state-close { background: rgba(25,135,84,0.15); color: #6c757d; }
+.state-exclude { background: rgba(108,117,125,0.15); color: #6c757d; }
 tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .badge-cart { background-color: #fd7e14; }
 .kpi-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -80,7 +80,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div class="kpi-chip"><div class="kpi-label">Follow Up</div><div class="kpi-val" style="color:#ffc107;">{{ kpi.follow_up }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Waiting</div><div class="kpi-val" style="color:#adb5bd;">{{ kpi.waiting }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Ordered</div><div class="kpi-val" style="color:#22c55e;">{{ kpi.ordered }}</div></div>
-            <div class="kpi-chip"><div class="kpi-label">Close</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.close }}</div></div>
+            <div class="kpi-chip"><div class="kpi-label">Exclude</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.exclude }}</div></div>
             <div class="kpi-chip"><div class="kpi-label">Cart</div><div class="kpi-val" style="color:#fd7e14;">{{ kpi.has_cart }}</div></div>
             {% if offer_kpi and offer_kpi.kpi_offer_customers_with_offers > 0 %}
             <div style="width:1px; height:20px; background:rgba(255,255,255,0.15); margin:0 4px;"></div>
@@ -111,7 +111,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div>
                 <select class="form-select form-select-sm" name="state" style="width:110px; font-size:0.78rem;">
                     <option value="">All</option>
-                    {% for st in ['follow_up','waiting','ordered','close'] %}
+                    {% for st in ['follow_up','waiting','ordered','exclude'] %}
                     <option value="{{ st }}" {% if filters.state == st %}selected{% endif %}>{{ st | replace('_',' ') | title }}</option>
                     {% endfor %}
                 </select>
@@ -209,7 +209,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                             {% if r.state == 'follow_up' %}<i class="fas fa-bell me-1"></i>FOLLOW UP
                             {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end me-1"></i>WAITING
                             {% elif r.state == 'ordered' %}<i class="fas fa-box me-1"></i>ORDERED
-                            {% elif r.state == 'close' %}<i class="fas fa-check-circle me-1"></i>CLOSE{% endif %}
+                            {% elif r.state == 'exclude' %}<i class="fas fa-ban me-1"></i>EXCLUDE{% endif %}
                         </span>
                         <span class="state-grp-count" id="count-{{ r.state }}"></span>
                     </td>
@@ -231,11 +231,11 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td>
-                        <span class="badge-state state-{{ r.state }}" title="{% if r.state == 'follow_up' %}Follow Up{% elif r.state == 'waiting' %}Waiting{% elif r.state == 'ordered' %}Ordered{% elif r.state == 'close' %}Close{% endif %}" style="font-size:1.5rem;">
+                        <span class="badge-state state-{{ r.state }}" title="{% if r.state == 'follow_up' %}Follow Up{% elif r.state == 'waiting' %}Waiting{% elif r.state == 'ordered' %}Ordered{% elif r.state == 'exclude' %}Exclude{% endif %}" style="font-size:1.5rem;">
                             {% if r.state == 'follow_up' %}<i class="fas fa-bell"></i>
                             {% elif r.state == 'waiting' %}<i class="fas fa-hourglass-end"></i>
                             {% elif r.state == 'ordered' %}<i class="fas fa-box"></i>
-                            {% elif r.state == 'close' %}<i class="fas fa-check-circle"></i>{% endif %}
+                            {% elif r.state == 'exclude' %}<i class="fas fa-ban"></i>{% endif %}
                         </span>
                     </td>
                     <td style="max-width:200px;">
@@ -379,21 +379,10 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div class="d-flex gap-2 flex-wrap" id="drawer-actions"></div>
         </div>
 
-        <div class="drawer-section" id="drawer-close-section" style="display:none;">
-            <div class="drawer-section-title">Done Outcome</div>
-            <select class="form-select form-select-sm mb-2" id="drawer-outcome">
-                <option value="">Select reason…</option>
-                {% for reason in outcome_reasons %}
-                <option value="{{ reason }}">{{ reason | replace('_',' ') | title }}</option>
-                {% endfor %}
-            </select>
-            <button class="btn btn-sm btn-success w-100" onclick="markClose()"><i class="fas fa-check me-1"></i>Confirm Close</button>
-        </div>
-
         <div class="drawer-section mt-3" id="drawer-state-actions">
             <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-outline-warning flex-fill" id="btn-follow-up" onclick="markFollowUp()"><i class="fas fa-flag me-1"></i>Follow Up</button>
-                <button class="btn btn-sm btn-outline-success flex-fill" id="btn-mark-close" onclick="showCloseSection()"><i class="fas fa-check-circle me-1"></i>Close</button>
+                <button class="btn btn-sm btn-outline-secondary flex-fill" id="btn-mark-exclude" onclick="markExclude()"><i class="fas fa-ban me-1"></i>Exclude</button>
             </div>
         </div>
     </div>
@@ -407,9 +396,9 @@ var STATE_LABELS = {
     follow_up:'<i class="fas fa-bell" title="Follow Up"></i>',
     waiting:'<i class="fas fa-hourglass-end" title="Waiting"></i>',
     ordered:'<i class="fas fa-box" title="Ordered"></i>',
-    close:'<i class="fas fa-check-circle" title="Close"></i>'
+    exclude:'<i class="fas fa-ban" title="Exclude"></i>'
 };
-var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', close:'state-close'};
+var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', exclude:'state-exclude'};
 
 function openDrawer(idx) {
     var r = _rowsData[idx];
@@ -482,15 +471,11 @@ function openDrawer(idx) {
     var actionsDiv = document.getElementById('drawer-actions');
     actionsDiv.innerHTML = '';
 
-    document.getElementById('drawer-close-section').style.display = 'none';
-    document.getElementById('drawer-outcome').value = r.outcome_reason || '';
-
-    if (r.state === 'close') {
-        document.getElementById('btn-mark-close').style.display = 'none';
-        document.getElementById('btn-follow-up').textContent = '';
+    if (r.state === 'exclude') {
+        document.getElementById('btn-mark-exclude').style.display = 'none';
         document.getElementById('btn-follow-up').innerHTML = '<i class="fas fa-undo me-1"></i>Reopen';
     } else {
-        document.getElementById('btn-mark-close').style.display = '';
+        document.getElementById('btn-mark-exclude').style.display = '';
         document.getElementById('btn-follow-up').innerHTML = '<i class="fas fa-flag me-1"></i>Follow Up';
     }
 
@@ -572,20 +557,13 @@ async function saveFlags() {
     } catch(e) {}
 }
 
-function showCloseSection() {
-    document.getElementById('drawer-close-section').style.display = '';
-}
-
-async function markClose() {
+async function markExclude() {
     if (_currentIdx === null) return;
     var r = _rowsData[_currentIdx];
-    var outcome = document.getElementById('drawer-outcome').value;
-    if (!outcome) { alert('Please select an outcome reason.'); return; }
     var fd = new FormData();
     fd.append('customer_code_365', r.customer_code_365);
     fd.append('delivery_date', r.next_delivery_date || '');
-    fd.append('state', 'close');
-    fd.append('outcome_reason', outcome);
+    fd.append('state', 'exclude');
     try {
         var res = await fetch('/crm/review-ordering/update-state', {method:'POST', body:fd});
         var data = await res.json();

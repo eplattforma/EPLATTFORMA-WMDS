@@ -560,17 +560,12 @@ def customer_slot_dashboard():
     )
 
 
-REVIEW_STATE_ORDER = {"follow_up": 0, "waiting": 1, "ordered": 2, "close": 3}
-OUTCOME_REASONS = [
-    "ordered_normally", "ordered_after_follow_up", "cart_closed_to_order",
-    "cart_added_to_existing", "valid_skip", "financial_reason",
-    "bought_elsewhere", "customer_not_ready", "other",
-]
+REVIEW_STATE_ORDER = {"follow_up": 0, "waiting": 1, "ordered": 2, "exclude": 3}
 
 
 def _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window):
-    if review_rec and review_rec.review_state == "close":
-        return "close"
+    if review_rec and review_rec.review_state == "exclude":
+        return "exclude"
     if has_order:
         return "ordered"
     if review_rec and review_rec.manual_follow_up_flag:
@@ -867,7 +862,6 @@ def review_ordering():
             "mobile_number": r.mobile or r.sms_number or "",
             "assisted_ordering": assisted,
             "review_note": review_rec.review_note if review_rec else "",
-            "outcome_reason": review_rec.outcome_reason if review_rec else "",
             "last_comm": comm_map.get(r.customer_code_365),
             "msg_history": comm_list_map.get(r.customer_code_365, []),
         }
@@ -918,7 +912,7 @@ def review_ordering():
         r["r_invoice_days"] if r["r_invoice_days"] is not None else 9999,
     ))
 
-    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "close": 0, "has_cart": 0}
+    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "exclude": 0, "has_cart": 0}
     for row in open_window_rows:
         kpi[row["state"]] = kpi.get(row["state"], 0) + 1
         if row["has_cart"]:
@@ -954,7 +948,6 @@ def review_ordering():
         all_delivery_slots=all_delivery_slots,
         allowed_classifications=allowed_classifications,
         all_districts=all_districts_q,
-        outcome_reasons=OUTCOME_REASONS,
         filters={
             "q": search_q,
             "classification": classification or [],
@@ -982,14 +975,11 @@ def review_ordering_update_state():
     customer_code = request.form.get("customer_code_365", "").strip()
     delivery_date_str = request.form.get("delivery_date", "").strip()
     new_state = request.form.get("state", "").strip()
-    outcome_reason = request.form.get("outcome_reason", "").strip()
 
     if not customer_code or not delivery_date_str:
         return jsonify({"ok": False, "error": "Missing required fields"}), 400
-    if new_state not in ("follow_up", "close"):
+    if new_state not in ("follow_up", "exclude"):
         return jsonify({"ok": False, "error": "Invalid state"}), 400
-    if new_state == "close" and (not outcome_reason or outcome_reason not in OUTCOME_REASONS):
-        return jsonify({"ok": False, "error": "Valid outcome reason required for close state"}), 400
 
     try:
         delivery_date = date.fromisoformat(delivery_date_str)
@@ -1003,19 +993,16 @@ def review_ordering_update_state():
         review = CrmOrderingReview(customer_code_365=customer_code, delivery_date=delivery_date)
         db.session.add(review)
 
-    if new_state == "close":
-        review.review_state = "close"
+    if new_state == "exclude":
+        review.review_state = "exclude"
         review.manual_follow_up_flag = False
-        review.close_at = datetime.now(timezone.utc)
-        review.close_by = getattr(current_user, "username", None)
-        if outcome_reason and outcome_reason in OUTCOME_REASONS:
-            review.outcome_reason = outcome_reason
+        review.exclude_at = datetime.now(timezone.utc)
+        review.exclude_by = getattr(current_user, "username", None)
     elif new_state == "follow_up":
         review.review_state = "follow_up"
         review.manual_follow_up_flag = True
-        review.close_at = None
-        review.close_by = None
-        review.outcome_reason = None
+        review.exclude_at = None
+        review.exclude_by = None
 
     db.session.commit()
     return jsonify({"ok": True, "state": review.review_state})

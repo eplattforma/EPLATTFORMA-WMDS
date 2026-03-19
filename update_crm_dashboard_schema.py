@@ -69,12 +69,11 @@ def update_crm_dashboard_schema():
                 customer_code_365 VARCHAR(64) NOT NULL,
                 delivery_date DATE NOT NULL,
                 review_state VARCHAR(20) NOT NULL DEFAULT 'waiting',
-                outcome_reason VARCHAR(50) NULL,
                 manual_follow_up_flag BOOLEAN NOT NULL DEFAULT false,
                 cart_mode VARCHAR(20) NULL,
                 review_note TEXT NULL,
-                done_at TIMESTAMPTZ NULL,
-                done_by VARCHAR(100) NULL,
+                exclude_at TIMESTAMPTZ NULL,
+                exclude_by VARCHAR(100) NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 CONSTRAINT uq_crm_ordering_review_cust_date UNIQUE (customer_code_365, delivery_date)
             )

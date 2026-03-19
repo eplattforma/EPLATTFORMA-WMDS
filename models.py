@@ -2840,12 +2840,11 @@ class CrmOrderingReview(db.Model):
     customer_code_365 = db.Column(db.String(64), nullable=False, index=True)
     delivery_date = db.Column(db.Date, nullable=False)
     review_state = db.Column(db.String(20), nullable=False, default="waiting")
-    outcome_reason = db.Column(db.String(50), nullable=True)
     manual_follow_up_flag = db.Column(db.Boolean, nullable=False, default=False, server_default='false')
     cart_mode = db.Column(db.String(20), nullable=True)
     review_note = db.Column(db.Text, nullable=True)
-    close_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    close_by = db.Column(db.String(100), nullable=True)
+    exclude_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    exclude_by = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.utcnow())
 
     __table_args__ = (
