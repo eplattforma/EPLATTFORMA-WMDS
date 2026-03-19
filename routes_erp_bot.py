@@ -113,6 +113,39 @@ def erp_bot_screenshot(run_id):
     abort(404)
 
 
+@erp_bot_bp.route('/refresh-stock-positions', methods=['POST'])
+@login_required
+def erp_refresh_stock_positions():
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        return {'success': False, 'error': 'Access denied'}, 403
+
+    from services.erp_export_bot import check_concurrent_run, run_export_sync
+
+    if check_concurrent_run('stock_position'):
+        return {'success': False, 'error': 'Stock position export is already running'}, 409
+
+    try:
+        result = run_export_sync('stock_position', triggered_by=f'manual:{current_user.username}')
+
+        if result.get('status') == 'success':
+            post = result.get('post_process', {})
+            return {
+                'success': True,
+                'message': f"Imported {post.get('records_imported', 0):,} stock records from ERP",
+                'count': post.get('records_imported', 0),
+                'file_name': result.get('file_name'),
+                'file_size': result.get('file_size'),
+            }
+        else:
+            return {
+                'success': False,
+                'error': result.get('error_message', 'Export failed'),
+            }, 500
+    except Exception as e:
+        logger.error(f"ERP stock position refresh failed: {e}", exc_info=True)
+        return {'success': False, 'error': str(e)}, 500
+
+
 @erp_bot_bp.route('/download/<int:run_id>')
 @admin_required
 def erp_bot_download(run_id):

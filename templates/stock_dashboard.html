@@ -151,26 +151,35 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-lightbulb me-2"></i>Refresh Expiration Dates</h5>
+                <h5 class="modal-title"><i class="fas fa-sync me-2"></i>Update Stock Positions</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="mb-3"><strong>Before refreshing, please follow these steps:</strong></p>
-                <ol>
-                    <li class="mb-2">Export the <strong>Serials Report</strong> from Powersoft</li>
-                    <li class="mb-2">Place the file in Dropbox at:<br>
-                        <code>\EPLATTFORMA SHARED FILES\EPLATTFORMA BI\EPLATTFORMA NEW DW\DATA</code>
-                    </li>
-                    <li>File must be named: <strong>SerialsStockPositionReport1.xlsx</strong></li>
-                </ol>
+                <div class="d-grid gap-3">
+                    <div class="card border-primary">
+                        <div class="card-body text-center">
+                            <h6 class="card-title"><i class="fas fa-robot me-1 text-primary"></i> Update from ERP</h6>
+                            <p class="card-text text-muted small mb-3">Automatically exports the Serials Stock Position report from Powersoft365 and imports into the database.</p>
+                            <button id="erpRefreshBtn" type="button" class="btn btn-primary" onclick="refreshFromERP()">
+                                <i class="fas fa-download me-1"></i>Fetch from ERP
+                            </button>
+                        </div>
+                    </div>
+                    <div class="text-center text-muted small">— or —</div>
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <h6 class="card-title"><i class="fas fa-upload me-1"></i> Upload File</h6>
+                            <p class="card-text text-muted small mb-3">Upload a <code>SerialsStockPositionReport1.xlsx</code> file manually.</p>
+                            <button id="uploadModalBtn" type="button" class="btn btn-outline-secondary" onclick="document.getElementById('fileInput').click()">
+                                <i class="fas fa-file-excel me-1"></i>Choose File
+                            </button>
+                            <input type="file" id="fileInput" style="display: none;" accept=".xlsx,.xls" onchange="uploadFile(this)">
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button id="uploadModalBtn" type="button" class="btn btn-info" onclick="document.getElementById('fileInput').click()">
-                    <i class="fas fa-upload me-1"></i>Upload File
-                </button>
-                <input type="file" id="fileInput" style="display: none;" accept=".xlsx,.xls" onchange="uploadFile(this)">
-                <button type="button" class="btn btn-primary" onclick="proceedWithRefresh()">Continue</button>
             </div>
         </div>
     </div>
@@ -295,36 +304,42 @@ window.uploadFile = async function(input) {
     input.value = '';
 };
 
-window.proceedWithRefresh = async function() {
-    const modal = bootstrap.Modal.getInstance(document.getElementById('refreshInstructionsModal'));
-    modal.hide();
-    
-    const btn = document.getElementById('refreshBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Loading...';
-    
+window.refreshFromERP = async function() {
+    const erpBtn = document.getElementById('erpRefreshBtn');
+    const topBtn = document.getElementById('refreshBtn');
+    erpBtn.disabled = true;
+    erpBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Fetching from ERP...';
+    topBtn.disabled = true;
+    topBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Updating...';
+
     try {
-        const response = await fetch('{{ url_for("refresh_stock_position") }}', {
+        const response = await fetch('{{ url_for("erp_bot.erp_refresh_stock_positions") }}', {
             method: 'POST',
             headers: {
                 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
             }
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
-            alert(`✅ Successfully imported ${data.count.toLocaleString()} stock records`);
+            const modal = bootstrap.Modal.getInstance(document.getElementById('refreshInstructionsModal'));
+            if (modal) modal.hide();
+            alert(`✅ ${data.message}`);
             location.reload();
         } else {
             alert(`❌ Error: ${data.error}`);
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
+            erpBtn.disabled = false;
+            erpBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch from ERP';
+            topBtn.disabled = false;
+            topBtn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
         }
     } catch (error) {
         alert(`❌ Error: ${error.message}`);
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
+        erpBtn.disabled = false;
+        erpBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch from ERP';
+        topBtn.disabled = false;
+        topBtn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
     }
 };
 
