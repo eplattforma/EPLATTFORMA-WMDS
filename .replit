@@ -59,5 +59,7 @@ DROPBOX_REDIRECT_URI = "https://ep-picking-bro.replit.app/admin/integrations/dro
 DROPBOX_APP_KEY = "pggpk9f5gyrvco6"
 DROPBOX_APP_SECRET = "i1yrjq8qr0qdund"
 ERP_USERNAME = "HE353264.Eplattforma"
+ERP_PASSWORD = "123456ABC"
+ERP_HEADLESS = "false"
 
 [userenv.development]

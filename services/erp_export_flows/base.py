@@ -36,6 +36,13 @@ class BaseExportFlow(ABC):
     def validate_download(self, file_path: str) -> bool:
         pass
 
+    def get_download_result(self) -> dict:
+        return {
+            'file_path': getattr(self, '_downloaded_file', None),
+            'file_name': getattr(self, '_downloaded_name', None),
+            'file_size': getattr(self, '_downloaded_size', None),
+        }
+
     async def post_process(self, file_path: str, metadata: dict) -> dict:
         return {}
 

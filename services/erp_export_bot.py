@@ -101,7 +101,7 @@ async def _login(page, config: dict) -> bool:
 
     username_sel = '#ContentMasterMain_txtUserName'
     password_sel = '#ContentMasterMain_txtPassword'
-    submit_sel = 'input[name="ctl00$ContentMasterMain$btnLogin"]'
+    submit_sel = '#ContentMasterMain_btnLogin_CD'
 
     try:
         await page.wait_for_selector(username_sel, timeout=DEFAULT_ACTION_TIMEOUT)
@@ -109,7 +109,10 @@ async def _login(page, config: dict) -> bool:
         await page.fill(password_sel, password)
         await page.click(submit_sel)
         await page.wait_for_load_state('networkidle', timeout=DEFAULT_NAV_TIMEOUT)
-        logger.info(f"Login submitted, current URL: {page.url}")
+        await asyncio.sleep(2)
+        if 'restricted' not in page.url.lower():
+            raise RuntimeError(f"Login may have failed — landed on: {page.url}")
+        logger.info(f"Login successful, current URL: {page.url}")
     except Exception as e:
         logger.error(f"Login failed: {e}")
         raise
@@ -183,6 +186,7 @@ async def run_export(export_name: str, params: dict = None, triggered_by: str = 
             context_args = {
                 'accept_downloads': True,
                 'timezone_id': config['timezone'],
+                'viewport': {'width': 1920, 'height': 1080},
             }
             if _auth_state_valid():
                 context_args['storage_state'] = AUTH_STATE_FILE
@@ -199,26 +203,23 @@ async def run_export(export_name: str, params: dict = None, triggered_by: str = 
             await flow.navigate_to_export_screen()
             await flow.apply_filters(params)
 
-            download_trigger_name = await flow.trigger_export()
+            await flow.trigger_export()
 
-            ts = datetime.utcnow().strftime('%Y-%m-%d_%H%M%S')
-            final_name = f"{export_name}_{ts}"
+            dl = flow.get_download_result() if hasattr(flow, 'get_download_result') else {}
+            file_path = dl.get('file_path')
+            file_name = dl.get('file_name')
+            file_size = dl.get('file_size')
 
-            downloaded_files = []
-            downloads_dir = Path(download_path)
-            for f in sorted(downloads_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-                if f.is_file() and f.stat().st_mtime > (datetime.utcnow().timestamp() - 120):
-                    ext = f.suffix
-                    new_name = f"{final_name}{ext}"
-                    new_path = downloads_dir / new_name
-                    shutil.move(str(f), str(new_path))
-                    downloaded_files.append(str(new_path))
-                    break
-
-            if downloaded_files:
-                file_path = downloaded_files[0]
-                file_size = os.path.getsize(file_path)
-                file_name = os.path.basename(file_path)
+            if file_path and os.path.exists(file_path):
+                ts = datetime.utcnow().strftime('%Y-%m-%d_%H%M%S')
+                ext = os.path.splitext(file_path)[1]
+                final_name = f"{export_name}_{ts}{ext}"
+                final_path = os.path.join(download_path, final_name)
+                if file_path != final_path:
+                    shutil.move(file_path, final_path)
+                    file_path = final_path
+                    file_name = final_name
+                    file_size = os.path.getsize(file_path)
 
                 valid = flow.validate_download(file_path)
                 if not valid:
@@ -240,8 +241,8 @@ async def run_export(export_name: str, params: dict = None, triggered_by: str = 
                 })
             else:
                 result['status'] = 'success'
-                result['note'] = 'Export completed but no new file detected in download dir'
-                logger.warning(f"[bot:{run_id}] No downloaded file found after export")
+                result['note'] = 'Export completed but no downloaded file returned by flow'
+                logger.warning(f"[bot:{run_id}] No downloaded file returned by flow")
 
             await context.storage_state(path=AUTH_STATE_FILE)
             _save_auth_state_meta()
