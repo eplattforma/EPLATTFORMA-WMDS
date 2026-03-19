@@ -115,6 +115,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Pending orders sync scheduled: Every 30 minutes")
 
+            scheduler.add_job(
+                func=_run_dropbox_cost_import,
+                trigger=CronTrigger(hour=2, minute=0),
+                id='dropbox_cost_import',
+                name='Dropbox Cost Import',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Dropbox cost import scheduled: Daily at 2:00 AM")
+
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
                 scheduler.add_job(
@@ -502,6 +513,33 @@ def _run_ftp_price_master_sync():
         logger.info(f"FTP PRICE MASTER SYNC {'COMPLETED' if result.get('success') else 'FAILED'}: {result}")
     except Exception as e:
         logger.error(f"Error in FTP price master sync: {str(e)}", exc_info=True)
+
+
+def _run_dropbox_cost_import():
+    try:
+        from app import app
+        from services.dropbox_service import sync_dropbox_file, get_dropbox_status
+        logger.info("=" * 60)
+        logger.info("STARTING SCHEDULED DROPBOX COST IMPORT")
+        logger.info("=" * 60)
+        with app.app_context():
+            status = get_dropbox_status()
+            if not status.get('connected'):
+                logger.info("Dropbox not connected — skipping scheduled cost import")
+                return
+            log = sync_dropbox_file(skip_unchanged=True)
+            if log.status == 'success_no_change':
+                logger.info("DROPBOX COST IMPORT: File unchanged — no update needed")
+            else:
+                md = log.metadata_json or {}
+                logger.info(
+                    f"DROPBOX COST IMPORT COMPLETED: "
+                    f"{md.get('rows_read', 0)} read, "
+                    f"{md.get('rows_matched', 0)} matched, "
+                    f"{log.rows_imported} updated"
+                )
+    except Exception as e:
+        logger.error(f"Error in scheduled Dropbox cost import: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():
