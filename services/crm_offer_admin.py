@@ -809,7 +809,7 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
                COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.line_status = 'high_discount_unused') AS hdu_count,
                COALESCE(SUM(COALESCE(d.line_total, 0)), 0) AS total_product_sales
         FROM crm_customer_offer_current c
-        LEFT JOIN dw_sales_lines_mv d ON d.item_code_365 = c.item_code_365 AND d.invoice_date >= NOW() - INTERVAL '28 days'
+        LEFT JOIN dw_sales_lines_mv d ON d.item_code_365 = c.item_code_365 AND d.sale_date >= NOW() - INTERVAL '28 days'
         WHERE {w}
         GROUP BY c.sku, c.item_code_365, c.product_name, c.supplier_name, c.category_name, c.brand_name
         ORDER BY {sort_col} {direction} NULLS LAST
