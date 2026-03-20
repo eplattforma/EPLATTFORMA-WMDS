@@ -278,12 +278,7 @@ def get_offer_admin_rule_rows(filters=None, sort="customers_count", sort_dir="de
     where_clauses = []
     params = {}
     _apply_filters(filters, [], where_clauses, params)
-    if excluded:
-        exc_list = ", ".join(f"'{rc}'" for rc in excluded)
-        for i, cl in enumerate(where_clauses):
-            if "c.rule_code NOT IN" in cl:
-                where_clauses.pop(i)
-                break
+    where_clauses = [cl for cl in where_clauses if "c.rule_code NOT IN" not in cl]
     w = " AND ".join(where_clauses) if where_clauses else "1=1"
 
     allowed_sorts = {
@@ -647,12 +642,12 @@ def get_offer_admin_export(tab, filters=None, sort=None, sort_dir="desc"):
 def _apply_filters(filters, summary_clauses, current_clauses, params):
     excluded = get_excluded_rule_codes()
     if excluded:
-        exc_list = ", ".join(f"'{rc}'" for rc in excluded)
-        current_clauses.append(f"c.rule_code NOT IN ({exc_list})")
+        params["_excl_rules"] = list(excluded)
+        current_clauses.append("c.rule_code NOT IN (SELECT unnest(CAST(:_excl_rules AS text[])))")
         summary_clauses.append(
-            f"EXISTS (SELECT 1 FROM crm_customer_offer_current xex "
-            f"WHERE xex.customer_code_365 = s.customer_code_365 "
-            f"AND xex.is_active AND xex.rule_code NOT IN ({exc_list}))"
+            "EXISTS (SELECT 1 FROM crm_customer_offer_current xex "
+            "WHERE xex.customer_code_365 = s.customer_code_365 "
+            "AND xex.is_active AND xex.rule_code NOT IN (SELECT unnest(CAST(:_excl_rules AS text[]))))"
         )
     if not filters:
         return

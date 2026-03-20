@@ -1348,10 +1348,20 @@ def admin_offers_toggle_rule_exclusion():
         flash("No rule code provided", "danger")
         return redirect(url_for("crm_dashboard.admin_offers", tab="rules"))
     action, code = toggle_rule_exclusion(rule_code)
+    rebuild_ok = True
+    try:
+        from services.crm_price_offers import _rebuild_customer_offer_summary
+        _rebuild_customer_offer_summary()
+    except Exception as e:
+        rebuild_ok = False
+        logging.getLogger(__name__).warning(f"Summary rebuild after rule exclusion toggle failed: {e}")
     if action == "excluded":
-        flash(f"Rule {code} excluded from analysis", "warning")
+        msg = f"Rule {code} excluded from all dashboards"
     else:
-        flash(f"Rule {code} included back in analysis", "success")
+        msg = f"Rule {code} included back in all dashboards"
+    if not rebuild_ok:
+        msg += " (summary update pending next refresh)"
+    flash(msg, "warning" if action == "excluded" else "success")
     return redirect(url_for("crm_dashboard.admin_offers", tab="rules"))
 
 

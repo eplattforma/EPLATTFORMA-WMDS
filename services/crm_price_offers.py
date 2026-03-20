@@ -13,6 +13,24 @@ from app import db
 
 logger = logging.getLogger(__name__)
 
+
+def _get_excluded_rule_codes():
+    try:
+        from services.crm_offer_admin import get_excluded_rule_codes
+        return get_excluded_rule_codes()
+    except Exception:
+        return []
+
+
+def _excluded_rule_sql(alias="", param_name="excluded_rules"):
+    codes = _get_excluded_rule_codes()
+    if not codes:
+        return "", {}
+    codes_list = list(codes)
+    col = f"{alias}rule_code" if alias else "rule_code"
+    return f" AND {col} NOT IN (SELECT unnest(CAST(:{param_name} AS text[])))", {param_name: codes_list}
+
+
 FTP_HOST = "195.201.199.118"
 FTP_PORT = 21
 REMOTE_FILE = "customer_price_master.csv"
@@ -697,7 +715,9 @@ def _get_total_customer_sales_4w_bulk(customer_codes):
 def _rebuild_customer_offer_summary():
     db.session.execute(text("DELETE FROM crm_customer_offer_summary_current"))
 
-    db.session.execute(text("""
+    excl_sql, excl_params = _excluded_rule_sql()
+
+    db.session.execute(text(f"""
         INSERT INTO crm_customer_offer_summary_current (
             customer_code_365, snapshot_at, has_special_pricing,
             active_offer_skus, active_offer_rules,
@@ -737,11 +757,11 @@ def _rebuild_customer_offer_summary():
             COUNT(*) FILTER (WHERE line_status IN ('unused', 'high_discount_unused') AND margin_status != 'negative'),
             NOW()
         FROM crm_customer_offer_current
-        WHERE is_active = true AND customer_code_365 IS NOT NULL
+        WHERE is_active = true AND customer_code_365 IS NOT NULL{excl_sql}
         GROUP BY customer_code_365
-    """))
+    """), excl_params)
 
-    db.session.execute(text("""
+    db.session.execute(text(f"""
         UPDATE crm_customer_offer_summary_current s
         SET top_rule_name = ranked.rule_name
         FROM (
@@ -754,13 +774,13 @@ def _rebuild_customer_offer_summary():
                        ) AS rn
                 FROM crm_customer_offer_current
                 WHERE is_active = true AND customer_code_365 IS NOT NULL
-                  AND rule_code != '__NO_RULE__'
+                  AND rule_code != '__NO_RULE__'{excl_sql}
                 GROUP BY customer_code_365, rule_name
             ) sub
             WHERE rn = 1
         ) ranked
         WHERE s.customer_code_365 = ranked.customer_code_365
-    """))
+    """), excl_params)
 
     db.session.flush()
 
@@ -949,13 +969,16 @@ def get_customer_price_offer_summary(ps_customer_code=None, magento_customer_id=
         }
 
     rm = row._mapping
-    rules = db.session.execute(text("""
+    excl_sql, excl_params = _excluded_rule_sql()
+    rules_params = {"code": rm["customer_code_365"]}
+    rules_params.update(excl_params)
+    rules = db.session.execute(text(f"""
         SELECT rule_name, COUNT(*) AS cnt
         FROM crm_customer_offer_current
         WHERE customer_code_365 = :code AND is_active = true
-          AND rule_code != '__NO_RULE__'
+          AND rule_code != '__NO_RULE__'{excl_sql}
         GROUP BY rule_name ORDER BY cnt DESC LIMIT 5
-    """), {"code": rm["customer_code_365"]}).fetchall()
+    """), rules_params).fetchall()
 
     return {
         "has_special_pricing": rm["has_special_pricing"],
@@ -989,6 +1012,11 @@ def get_customer_price_offer_rows(ps_customer_code=None, magento_customer_id=Non
                                    rule_filter=None, search=None):
     where_clauses = ["is_active = true"]
     params = {}
+
+    excl_sql, excl_params = _excluded_rule_sql()
+    if excl_sql:
+        where_clauses.append(excl_sql.lstrip(" AND "))
+        params.update(excl_params)
 
     if ps_customer_code:
         where_clauses.append("customer_code_365 = :code")
@@ -1098,37 +1126,41 @@ def get_customer_offer_intelligence(customer_code_365):
             "generated_sentence": "Customer has no active special pricing.",
         }
 
-    opportunities = db.session.execute(text("""
+    excl_sql, excl_params = _excluded_rule_sql()
+    oi_params = {"code": customer_code_365}
+    oi_params.update(excl_params)
+
+    opportunities = db.session.execute(text(f"""
         SELECT sku, product_name, offer_price, discount_percent,
                gross_margin_percent, supplier_name, brand_name, margin_status
         FROM crm_customer_offer_current
         WHERE customer_code_365 = :code AND is_active = true
           AND line_status IN ('unused', 'high_discount_unused')
-          AND margin_status != 'negative'
+          AND margin_status != 'negative'{excl_sql}
         ORDER BY discount_percent DESC NULLS LAST
         LIMIT 20
-    """), {"code": customer_code_365}).fetchall()
+    """), oi_params).fetchall()
 
-    margin_risks = db.session.execute(text("""
+    margin_risks = db.session.execute(text(f"""
         SELECT sku, product_name, offer_price, cost,
                gross_profit, gross_margin_percent, rule_name, margin_status,
                sold_qty_4w, sold_value_4w, discount_percent
         FROM crm_customer_offer_current
         WHERE customer_code_365 = :code AND is_active = true
-          AND sold_qty_4w > 0
+          AND sold_qty_4w > 0{excl_sql}
         ORDER BY sold_value_4w DESC NULLS LAST
         LIMIT 20
-    """), {"code": customer_code_365}).fetchall()
+    """), oi_params).fetchall()
 
-    rules = db.session.execute(text("""
+    rules = db.session.execute(text(f"""
         SELECT rule_name, rule_code, COUNT(*) AS cnt,
                AVG(discount_percent) AS avg_disc
         FROM crm_customer_offer_current
         WHERE customer_code_365 = :code AND is_active = true
-          AND rule_code != '__NO_RULE__'
+          AND rule_code != '__NO_RULE__'{excl_sql}
         GROUP BY rule_name, rule_code
         ORDER BY cnt DESC
-    """), {"code": customer_code_365}).fetchall()
+    """), oi_params).fetchall()
 
     all_offers = get_customer_price_offer_rows(ps_customer_code=customer_code_365)
 
