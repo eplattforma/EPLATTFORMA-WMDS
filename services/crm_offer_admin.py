@@ -468,7 +468,7 @@ def get_offer_admin_product_by_rule_rows(filters=None, sort="customers_with_offe
     params["offset"] = offset
 
     count_row = db.session.execute(text(f"""
-        SELECT COUNT(DISTINCT c.sku, c.rule_code)
+        SELECT COUNT(DISTINCT (c.sku, c.rule_code))
         FROM crm_customer_offer_current c
         LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
         WHERE c.is_active = true AND c.rule_code != '__NO_RULE__' AND {w}
