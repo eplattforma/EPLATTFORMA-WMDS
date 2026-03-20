@@ -506,6 +506,7 @@ def _rebuild_from_batch(batch_id):
         product_name = r[3]
         rule_code = _normalize_rule_code(r[4])
         rule_name = _normalize_rule_name(r[5], rule_code)
+
         offer_price = r[8]
         snapshot_at = _parse_snapshot_at(r[9])
 
@@ -534,6 +535,9 @@ def _rebuild_from_batch(batch_id):
             })
         else:
             linked_item += 1
+
+        if not product_name and item_info and item_info.get("item_name"):
+            product_name = item_info["item_name"]
 
         brand_name = item_info["brand_name"] if item_info else None
         supplier_code = item_info["supplier_code"] if item_info else None
