@@ -412,7 +412,8 @@
                     <td style="max-width:200px; font-size:0.68rem;" title="{{ r.rule_codes }}">{{ r.rule_codes[:50] }}{% if r.rule_codes|length > 50 %}…{% endif %}</td>
                     <td>
                         {% for f in r.flags %}
-                            {% if f == 'offer_above_list' %}<span class="badge bg-warning text-dark" style="font-size:0.6rem;" title="Offer price exceeds the list selling price">Above List</span>
+                            {% if f == 'inactive_item' %}<span class="badge bg-dark" style="font-size:0.6rem;" title="Item is inactive in PS365">Inactive</span>
+                            {% elif f == 'offer_above_list' %}<span class="badge bg-warning text-dark" style="font-size:0.6rem;" title="Offer price exceeds the list selling price">Above List</span>
                             {% elif f == 'offer_below_cost' %}<span class="badge bg-danger" style="font-size:0.6rem;" title="Offer price is at or below cost — negative margin">Below Cost</span>
                             {% elif f == 'no_selling_price' %}<span class="badge bg-secondary" style="font-size:0.6rem;" title="No selling price found in PS365">No List</span>
                             {% elif f == 'no_cost_price' %}<span class="badge bg-secondary" style="font-size:0.6rem;" title="No cost price found in PS365">No Cost</span>

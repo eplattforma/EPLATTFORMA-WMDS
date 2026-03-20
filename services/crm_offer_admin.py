@@ -316,18 +316,21 @@ def get_offer_admin_price_review_rows(filters=None, sort="selling_price", sort_d
             COUNT(DISTINCT c.rule_code) FILTER (WHERE c.rule_code != '__NO_RULE__') AS rules_count,
             STRING_AGG(DISTINCT c.rule_code, ', ' ORDER BY c.rule_code) FILTER (WHERE c.rule_code != '__NO_RULE__') AS rule_codes,
             COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.sold_qty_4w > 0) AS cust_bought,
-            COALESCE(SUM(c.sold_value_4w), 0) AS total_sales_4w
+            COALESCE(SUM(c.sold_value_4w), 0) AS total_sales_4w,
+            COALESCE(i.active, true) AS item_active
         FROM crm_customer_offer_current c
         LEFT JOIN ps_items_dw i ON i.item_code_365 = c.item_code_365
         LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
         WHERE c.is_active = true AND c.item_code_365 IS NOT NULL AND {w}
-        GROUP BY c.item_code_365, c.sku, i.selling_price, i.cost_price
+        GROUP BY c.item_code_365, c.sku, i.selling_price, i.cost_price, i.active
         ORDER BY {sort_col} {direction} NULLS LAST
         LIMIT :limit OFFSET :offset
     """), params).fetchall()
 
-    def _flag(selling, cost, offer_price):
+    def _flag(selling, cost, offer_price, active=True):
         flags = []
+        if not active:
+            flags.append("inactive_item")
         if selling is not None and offer_price is not None:
             if float(offer_price) > float(selling):
                 flags.append("offer_above_list")
@@ -367,7 +370,8 @@ def get_offer_admin_price_review_rows(filters=None, sort="selling_price", sort_d
                 "rule_codes": r[18] or "",
                 "customers_bought_4w": r[19],
                 "total_offer_sales_4w": round(float(r[20]), 2) if r[20] else 0,
-                "flags": _flag(r[6], r[7], r[8]),
+                "item_active": bool(r[21]),
+                "flags": _flag(r[6], r[7], r[8], active=bool(r[21])),
             }
             for r in rows
         ],
