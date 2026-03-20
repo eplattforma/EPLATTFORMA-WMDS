@@ -138,10 +138,25 @@ async def _ensure_authenticated(context, page, config: dict) -> bool:
     return True
 
 
+def _ensure_playwright_browsers():
+    import subprocess
+    import glob
+    pattern = os.path.join(os.path.expanduser('~'), 'workspace', '.cache', 'ms-playwright', 'chromium-*', 'chrome-linux', 'chrome')
+    if not glob.glob(pattern):
+        logger.info("Chromium not found — installing via playwright install chromium")
+        try:
+            subprocess.run(['playwright', 'install', 'chromium'], check=True, timeout=120, capture_output=True)
+            logger.info("Chromium installed successfully")
+        except Exception as e:
+            logger.error(f"Failed to install Chromium: {e}")
+            raise RuntimeError(f"Chromium browser not available and auto-install failed: {e}")
+
+
 async def run_export(export_name: str, params: dict = None, triggered_by: str = 'manual') -> dict:
     from services.erp_export_flows import get_flow
 
     _ensure_dirs()
+    _ensure_playwright_browsers()
     config = _get_config()
     flow = get_flow(export_name)
 
