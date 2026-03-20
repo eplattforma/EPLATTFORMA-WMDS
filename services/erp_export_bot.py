@@ -200,10 +200,17 @@ async def run_export(export_name: str, params: dict = None, triggered_by: str = 
             os.makedirs(download_path, exist_ok=True)
 
             launch_args = {
-                'headless': config['headless'],
+                'headless': True,
+                'args': [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                ],
             }
 
             browser_type = getattr(pw, config['browser'], pw.chromium)
+            logger.info(f"Launching {config['browser']} headless=True")
             browser = await browser_type.launch(**launch_args)
 
             context_args = {
