@@ -806,7 +806,6 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
                AVG(c.gross_profit) FILTER (WHERE c.gross_profit IS NOT NULL) AS avg_gp,
                AVG(c.gross_margin_percent) FILTER (WHERE c.gross_margin_percent IS NOT NULL) AS avg_margin,
                COALESCE(SUM(c.sold_value_4w), 0) AS total_sales,
-               COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.line_status = 'high_discount_unused') AS hdu_count,
                COALESCE(MAX(ps.total_net), 0) AS total_product_sales
         FROM crm_customer_offer_current c
         LEFT JOIN (
@@ -842,7 +841,6 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
             "total_offer_sales_4w": round(offer_sales, 2),
             "total_product_sales_4w": round(total_product_sales, 2),
             "offer_penetration_pct": round(offer_penetration_pct, 1),
-            "high_discount_unused_customer_count": r[16] or 0,
         })
     
     return {
