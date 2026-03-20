@@ -141,12 +141,20 @@ async def _ensure_authenticated(context, page, config: dict) -> bool:
 def _ensure_playwright_browsers():
     import subprocess
     import glob
-    pattern = os.path.join(os.path.expanduser('~'), 'workspace', '.cache', 'ms-playwright', 'chromium-*', 'chrome-linux', 'chrome')
-    if not glob.glob(pattern):
-        logger.info("Chromium not found — installing via playwright install chromium")
+    cache_base = os.path.join(os.path.expanduser('~'), 'workspace', '.cache', 'ms-playwright')
+    patterns = [
+        os.path.join(cache_base, 'chromium-*', 'chrome-linux64', 'chrome'),
+        os.path.join(cache_base, 'chromium-*', 'chrome-linux', 'chrome'),
+    ]
+    found = any(glob.glob(p) for p in patterns)
+    if not found:
+        logger.info("Chromium not found — installing via python3 -m playwright install chromium")
         try:
-            subprocess.run(['playwright', 'install', 'chromium'], check=True, timeout=120, capture_output=True)
-            logger.info("Chromium installed successfully")
+            result = subprocess.run(
+                ['python3', '-m', 'playwright', 'install', 'chromium'],
+                check=True, timeout=180, capture_output=True, text=True,
+            )
+            logger.info(f"Chromium installed successfully: {result.stdout[-200:] if result.stdout else 'ok'}")
         except Exception as e:
             logger.error(f"Failed to install Chromium: {e}")
             raise RuntimeError(f"Chromium browser not available and auto-install failed: {e}")
