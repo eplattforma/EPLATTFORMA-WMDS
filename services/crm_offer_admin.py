@@ -306,10 +306,10 @@ def get_offer_admin_price_review_rows(filters=None, sort="selling_price", sort_d
             ROUND(AVG(c.discount_percent)::numeric, 1) AS avg_disc,
             MIN(c.discount_percent) AS min_disc,
             MAX(c.discount_percent) AS max_disc,
-            CASE WHEN i.cost_price > 0 AND MIN(c.offer_price) IS NOT NULL
+            CASE WHEN i.cost_price > 0 AND MIN(c.offer_price) IS NOT NULL AND MIN(c.offer_price) != 0
                  THEN ROUND(((MIN(c.offer_price) - i.cost_price) / MIN(c.offer_price) * 100)::numeric, 1)
                  ELSE NULL END AS min_margin,
-            CASE WHEN i.cost_price > 0 AND MAX(c.offer_price) IS NOT NULL
+            CASE WHEN i.cost_price > 0 AND MAX(c.offer_price) IS NOT NULL AND MAX(c.offer_price) != 0
                  THEN ROUND(((MAX(c.offer_price) - i.cost_price) / MAX(c.offer_price) * 100)::numeric, 1)
                  ELSE NULL END AS max_margin,
             COUNT(DISTINCT c.customer_code_365) AS cust_count,
