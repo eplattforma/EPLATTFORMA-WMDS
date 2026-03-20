@@ -861,7 +861,6 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
         "offer_sales_share_pct": "sales_share",
         "offered_products_count": "offered_count",
         "bought_products_count_4w": "bought_count",
-        "avg_discount_percent": "avg_disc",
         "customer_name": "p.company_name",
     }
     sort_col = allowed_sorts.get(sort, "offer_sales")
@@ -896,14 +895,24 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
                CASE WHEN COALESCE(MAX(s.total_customer_sales_4w), 0) > 0
                     THEN ROUND(SUM(c.sold_value_4w) * 100.0 / MAX(s.total_customer_sales_4w), 1)
                     ELSE 0 END AS sales_share,
-               COALESCE(AVG(c.discount_percent), 0) AS avg_disc,
-               AVG(c.gross_margin_percent) FILTER (WHERE c.gross_margin_percent IS NOT NULL) AS avg_margin,
-               MAX(c.last_sold_at) AS last_purchase
+               MAX(c.last_sold_at) AS last_purchase,
+               MAX(cm.margin_4w_pct) AS customer_margin_4w
         FROM crm_customer_offer_current c
         LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
         LEFT JOIN crm_customer_profile cp ON cp.customer_code_365 = c.customer_code_365
         LEFT JOIN postal_code_lookup pcl ON pcl.postcode = p.postal_code
         LEFT JOIN crm_customer_offer_summary_current s ON s.customer_code_365 = c.customer_code_365
+        LEFT JOIN (
+            SELECT sl.customer_code_365,
+                   CASE WHEN SUM(sl.net_excl) > 0
+                        THEN ROUND((SUM(sl.net_excl) - SUM(sl.qty * i.cost_price)) * 100.0 / SUM(sl.net_excl), 1)
+                        ELSE NULL END AS margin_4w_pct
+            FROM dw_sales_lines_v sl
+            JOIN ps_items_dw i ON i.item_code_365 = sl.item_code_365
+            WHERE sl.sale_date >= NOW() - INTERVAL '28 days'
+              AND i.cost_price IS NOT NULL AND i.cost_price > 0
+            GROUP BY sl.customer_code_365
+        ) cm ON cm.customer_code_365 = c.customer_code_365
         WHERE {base_where}{extra_w}
         GROUP BY c.customer_code_365, p.company_name, cp.classification, cp.district, pcl.district
         ORDER BY {sort_col} {direction} NULLS LAST
@@ -921,9 +930,8 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
                 "offer_sales_4w": round(float(r[7]), 2) if r[7] else 0,
                 "total_customer_sales_4w": round(float(r[8]), 2) if r[8] else 0,
                 "offer_sales_share_pct": round(float(r[9]), 1) if r[9] else 0,
-                "avg_discount_percent": round(float(r[10]), 1) if r[10] else 0,
-                "avg_offer_margin_percent": round(float(r[11]), 1) if r[11] else None,
-                "last_offer_purchase_date": str(r[12]) if r[12] else "",
+                "last_offer_purchase_date": str(r[10]) if r[10] else "",
+                "customer_margin_4w_pct": round(float(r[11]), 1) if r[11] else None,
             }
             for r in rows
         ],
