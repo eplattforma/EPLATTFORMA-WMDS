@@ -92,7 +92,6 @@
                 <th class="val-col">Offer €</th>
                 <th onclick="pSort('avg_discount_percent')" class="val-col">Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th class="val-col">Cost €</th>
-                <th class="val-col">GP €</th>
                 <th onclick="pSort('avg_gross_margin_percent')" class="val-col">Margin % {% if sort == 'avg_gross_margin_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th onclick="pSort('total_offer_sales_4w')" class="val-col">Offer Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th class="val-col">Offer Margin 4w</th>
@@ -115,7 +114,6 @@
                 <td class="val-col">€{{ "%.2f"|format(r.avg_offer_price) }}</td>
                 <td class="val-col">{{ r.avg_discount_percent }}%</td>
                 <td class="val-col">{% if r.avg_cost is not none %}€{{ "%.2f"|format(r.avg_cost) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                <td class="val-col">{% if r.avg_gross_profit is not none %}€{{ "%.2f"|format(r.avg_gross_profit) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td class="val-col">
                     {% if r.avg_gross_margin_percent is not none %}
                     <span class="{% if r.avg_gross_margin_percent < 0 %}margin-neg{% elif r.avg_gross_margin_percent < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.avg_gross_margin_percent }}%</span>
