@@ -392,7 +392,7 @@
             </thead>
             <tbody>
                 {% for r in price_review.rows %}
-                <tr {% if r.flags %}style="background:{% if 'offer_below_cost' in r.flags %}#fff0f0{% elif 'offer_above_list' in r.flags %}#fff8e6{% endif %};"{% endif %}>
+                <tr>
                     <td><span class="fw-semibold">{{ r.item_code_365 }}</span></td>
                     <td style="max-width:180px;" title="{{ r.product_name }}&#10;SKU: {{ r.sku }}&#10;Supplier: {{ r.supplier_name }}&#10;Category: {{ r.category_name }}&#10;Rules: {{ r.rule_names }}">{{ r.product_name[:35] }}</td>
                     <td class="val-col">{% if r.selling_price is not none %}€{{ "%.2f"|format(r.selling_price) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
