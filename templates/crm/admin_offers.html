@@ -99,6 +99,9 @@
         <div class="oa-kpi"><div class="kl">High Dep.</div><div class="kv" style="color:#ef4444;">{{ overview.kpi.high_dependency }}</div></div>
         <div class="oa-kpi"><div class="kl">Low Usage</div><div class="kv" style="color:#fd7e14;">{{ overview.kpi.low_usage }}</div></div>
         <div class="oa-kpi"><div class="kl">Disc. Unused</div><div class="kv" style="color:#dc3545;">{{ overview.kpi.strong_discount_unused }}</div></div>
+        {% if excluded_rules_count > 0 %}
+        <div class="oa-kpi" style="border-color:rgba(255,193,7,0.3);"><div class="kl">Excluded Rules</div><div class="kv" style="color:#ffc107;">{{ excluded_rules_count }}</div></div>
+        {% endif %}
     </div>
 
     <script>
@@ -268,11 +271,12 @@
                     <th onclick="sortBy('total_offer_sales_4w')" class="val-col">Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th onclick="sortBy('unused_lines_count')" class="val-col">Unused {% if sort == 'unused_lines_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th class="val-col">HDU</th>
+                    <th>Analysis</th>
                 </tr>
             </thead>
             <tbody>
                 {% for r in rules %}
-                <tr>
+                <tr {% if r.excluded %}style="opacity:0.45;"{% endif %}>
                     <td><a href="/crm/admin/offers/rule/{{ r.rule_code }}" class="fw-semibold" style="font-size:0.72rem; text-decoration:none;">{{ r.rule_code }}</a></td>
                     <td><a href="/crm/admin/offers/rule/{{ r.rule_code }}" style="text-decoration:none; color:inherit;">{{ r.rule_name[:40] }}</a></td>
                     <td class="val-col">{{ r.customers_count }}</td>
@@ -282,9 +286,19 @@
                     <td class="val-col">€{{ "{:,.0f}".format(r.total_offer_sales_4w) }}</td>
                     <td class="val-col">{% if r.unused_lines_count > 0 %}<span style="color:#fd7e14;">{{ r.unused_lines_count }}</span>{% else %}0{% endif %}</td>
                     <td class="val-col">{% if r.high_discount_unused_count > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_count }}</span>{% else %}0{% endif %}</td>
+                    <td class="val-col">
+                        <form method="post" action="/crm/admin/offers/rule/toggle-exclude" style="display:inline;">
+                            <input type="hidden" name="rule_code" value="{{ r.rule_code }}">
+                            {% if r.excluded %}
+                            <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2" style="font-size:0.62rem;" title="Include this rule back in analysis"><i class="fas fa-plus me-1"></i>Include</button>
+                            {% else %}
+                            <button type="submit" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:0.62rem;" title="Exclude this rule from analysis"><i class="fas fa-ban me-1"></i>Exclude</button>
+                            {% endif %}
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
-                {% if not rules %}<tr><td colspan="9" class="text-muted text-center py-3">No rules found</td></tr>{% endif %}
+                {% if not rules %}<tr><td colspan="10" class="text-muted text-center py-3">No rules found</td></tr>{% endif %}
             </tbody>
         </table>
         </div>

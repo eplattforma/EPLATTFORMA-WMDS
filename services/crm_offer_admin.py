@@ -1,8 +1,42 @@
+import json
 import logging
 from sqlalchemy import text
 from app import db
 
 logger = logging.getLogger(__name__)
+
+EXCLUDED_RULES_KEY = "crm_offer_excluded_rules"
+
+
+def get_excluded_rule_codes():
+    row = db.session.execute(
+        text("SELECT value FROM settings WHERE key = :k"),
+        {"k": EXCLUDED_RULES_KEY},
+    ).fetchone()
+    if row and row[0]:
+        try:
+            return set(json.loads(row[0]))
+        except (json.JSONDecodeError, TypeError):
+            return set()
+    return set()
+
+
+def toggle_rule_exclusion(rule_code):
+    excluded = get_excluded_rule_codes()
+    if rule_code in excluded:
+        excluded.discard(rule_code)
+        action = "included"
+    else:
+        excluded.add(rule_code)
+        action = "excluded"
+    val = json.dumps(sorted(excluded))
+    db.session.execute(
+        text("""INSERT INTO settings (key, value) VALUES (:k, :v)
+                ON CONFLICT (key) DO UPDATE SET value = :v"""),
+        {"k": EXCLUDED_RULES_KEY, "v": val},
+    )
+    db.session.commit()
+    return action, rule_code
 
 
 def get_offer_admin_overview(filters=None):
@@ -240,9 +274,16 @@ def get_offer_admin_customer_rows(filters=None, sort="offer_sales_share_pct", so
 
 
 def get_offer_admin_rule_rows(filters=None, sort="customers_count", sort_dir="desc"):
+    excluded = get_excluded_rule_codes()
     where_clauses = []
     params = {}
     _apply_filters(filters, [], where_clauses, params)
+    if excluded:
+        exc_list = ", ".join(f"'{rc}'" for rc in excluded)
+        for i, cl in enumerate(where_clauses):
+            if "c.rule_code NOT IN" in cl:
+                where_clauses.pop(i)
+                break
     w = " AND ".join(where_clauses) if where_clauses else "1=1"
 
     allowed_sorts = {
@@ -278,6 +319,7 @@ def get_offer_admin_rule_rows(filters=None, sort="customers_count", sort_dir="de
             "avg_discount_percent": round(float(r[5]), 1) if r[5] else 0,
             "total_offer_sales_4w": round(float(r[6]), 2) if r[6] else 0,
             "unused_lines_count": r[7], "high_discount_unused_count": r[8],
+            "excluded": (r[0] or "") in excluded,
         }
         for r in rows
     ]
@@ -603,6 +645,15 @@ def get_offer_admin_export(tab, filters=None, sort=None, sort_dir="desc"):
 
 
 def _apply_filters(filters, summary_clauses, current_clauses, params):
+    excluded = get_excluded_rule_codes()
+    if excluded:
+        exc_list = ", ".join(f"'{rc}'" for rc in excluded)
+        current_clauses.append(f"c.rule_code NOT IN ({exc_list})")
+        summary_clauses.append(
+            f"EXISTS (SELECT 1 FROM crm_customer_offer_current xex "
+            f"WHERE xex.customer_code_365 = s.customer_code_365 "
+            f"AND xex.is_active AND xex.rule_code NOT IN ({exc_list}))"
+        )
     if not filters:
         return
     q = (filters.get("q") or "").strip()

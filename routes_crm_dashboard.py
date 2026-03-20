@@ -1,6 +1,6 @@
 import json
 import logging
-from flask import Blueprint, request, render_template, jsonify
+from flask import Blueprint, request, render_template, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
 from sqlalchemy import func, and_, or_, case, text
 from datetime import date, datetime, timedelta, timezone
@@ -1295,6 +1295,9 @@ def admin_offers():
     products = get_offer_admin_product_by_rule_rows(filters, sort=sort or "customers_with_offer", sort_dir=sort_dir, page=page)
     price_review = get_offer_admin_price_review_rows(filters, sort=sort or "avg_discount_percent", sort_dir=sort_dir, page=page)
 
+    from services.crm_offer_admin import get_excluded_rule_codes
+    excluded_count = len(get_excluded_rule_codes())
+
     all_classifications = _get_all_classifications()
     all_districts = _get_all_districts()
 
@@ -1303,6 +1306,7 @@ def admin_offers():
         price_review=price_review,
         filters=filters, tab=tab, sort=sort, sort_dir=sort_dir, page=page,
         all_classifications=all_classifications, all_districts=all_districts,
+        excluded_rules_count=excluded_count,
     )
 
 
@@ -1333,6 +1337,22 @@ def admin_offers_export():
         fname += f"_{rule_code}"
     return Response(output.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={fname}.csv"})
+
+
+@crm_dashboard_bp.post("/admin/offers/rule/toggle-exclude")
+@login_required
+def admin_offers_toggle_rule_exclusion():
+    from services.crm_offer_admin import toggle_rule_exclusion
+    rule_code = request.form.get("rule_code", "").strip()
+    if not rule_code:
+        flash("No rule code provided", "danger")
+        return redirect(url_for("crm_dashboard.admin_offers", tab="rules"))
+    action, code = toggle_rule_exclusion(rule_code)
+    if action == "excluded":
+        flash(f"Rule {code} excluded from analysis", "warning")
+    else:
+        flash(f"Rule {code} included back in analysis", "success")
+    return redirect(url_for("crm_dashboard.admin_offers", tab="rules"))
 
 
 @crm_dashboard_bp.get("/admin/offers/rules/lookup")
