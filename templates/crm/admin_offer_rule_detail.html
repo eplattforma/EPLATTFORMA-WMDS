@@ -95,6 +95,8 @@
                 <th class="val-col">GP €</th>
                 <th onclick="pSort('avg_gross_margin_percent')" class="val-col">Margin % {% if sort == 'avg_gross_margin_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th onclick="pSort('total_offer_sales_4w')" class="val-col">Offer Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th class="val-col">Offer Margin 4w</th>
+                <th class="val-col">Margin %</th>
                 <th class="val-col">Total Sales 4w</th>
                 <th class="val-col">Offer %</th>
                 <th onclick="pSort('high_discount_unused_customer_count')" class="val-col">HDU {% if sort == 'high_discount_unused_customer_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
@@ -120,6 +122,14 @@
                     {% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="val-col">€{{ "{:,.0f}".format(r.total_offer_sales_4w) }}</td>
+                <td class="val-col">
+                    {% if r.total_offer_margin_4w is not none %}
+                    <span class="{% if r.total_offer_margin_4w < 0 %}margin-neg{% else %}margin-ok{% endif %}">€{{ "{:,.0f}".format(r.total_offer_margin_4w) }}</span>
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="val-col">
+                    <span class="{% if r.total_margin_pct < 0 %}margin-neg{% elif r.total_margin_pct < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.total_margin_pct }}%</span>
+                </td>
                 <td class="val-col">€{{ "{:,.0f}".format(r.total_product_sales_4w) }}</td>
                 <td class="val-col"><span style="color:#0dcaf0; font-weight:600;">{{ r.offer_penetration_pct }}%</span></td>
                 <td class="val-col">{% if r.high_discount_unused_customer_count > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_customer_count }}</span>{% else %}0{% endif %}</td>

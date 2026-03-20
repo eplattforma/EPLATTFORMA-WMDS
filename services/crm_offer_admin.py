@@ -806,6 +806,7 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
                AVG(c.gross_profit) FILTER (WHERE c.gross_profit IS NOT NULL) AS avg_gp,
                AVG(c.gross_margin_percent) FILTER (WHERE c.gross_margin_percent IS NOT NULL) AS avg_margin,
                COALESCE(SUM(c.sold_value_4w), 0) AS total_sales,
+               COALESCE(SUM(c.sold_value_4w) - SUM(c.sold_qty_4w * c.cost), 0) AS total_offer_margin,
                COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.line_status = 'high_discount_unused') AS hdu_count,
                COALESCE(MAX(ps.total_net), 0) AS total_product_sales
         FROM crm_customer_offer_current c
@@ -824,10 +825,11 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
     result_rows = []
     for r in rows:
         offer_sales = float(r[15]) if r[15] else 0
-        total_product_sales = float(r[17]) if r[17] else 0
+        total_offer_margin = float(r[16]) if r[16] else 0
+        total_product_sales = float(r[18]) if r[18] else 0
         
-        # Calculate offer penetration %
         offer_penetration_pct = (offer_sales / total_product_sales * 100) if total_product_sales > 0 else 0
+        total_margin_pct = (total_offer_margin / offer_sales * 100) if offer_sales > 0 else 0
         
         result_rows.append({
             "sku": r[0] or "", "item_code_365": r[1] or "", "product_name": r[2] or "",
@@ -841,9 +843,11 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
             "avg_gross_profit": round(float(r[13]), 2) if r[13] else None,
             "avg_gross_margin_percent": round(float(r[14]), 1) if r[14] else None,
             "total_offer_sales_4w": round(offer_sales, 2),
+            "total_offer_margin_4w": round(total_offer_margin, 2),
+            "total_margin_pct": round(total_margin_pct, 1),
             "total_product_sales_4w": round(total_product_sales, 2),
             "offer_penetration_pct": round(offer_penetration_pct, 1),
-            "high_discount_unused_customer_count": r[16] or 0,
+            "high_discount_unused_customer_count": r[17] or 0,
         })
     
     return {
