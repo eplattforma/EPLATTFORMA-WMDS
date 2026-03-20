@@ -205,7 +205,8 @@ def _build_item_map():
     with db.engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT item_code_365, item_name, brand_code_365,
-                   supplier_code_365, supplier_name, category_code_365
+                   supplier_code_365, supplier_name, category_code_365,
+                   selling_price, cost_price
             FROM ps_items_dw
         """)).fetchall()
     by_code = {}
@@ -220,6 +221,8 @@ def _build_item_map():
             "supplier_code": r[3],
             "supplier_name": r[4],
             "category_code": r[5],
+            "selling_price": r[6],
+            "cost_price": r[7],
         }
         if upper_code:
             by_code[upper_code] = info
@@ -431,9 +434,6 @@ def _rebuild_from_batch(batch_id):
         item_code_map, item_sku_map = _build_item_map()
         category_map = _build_category_map()
 
-        cost_column = _get_cost_column()
-        cost_map = _build_item_cost_map(cost_column)
-
         low_margin_pct = float(_get_setting("crm_offer_low_margin_pct_threshold", DEFAULT_LOW_MARGIN_PCT))
         strong_discount_pct = float(_get_setting("crm_offer_strong_discount_pct_threshold", DEFAULT_STRONG_DISCOUNT_PCT))
 
@@ -506,7 +506,6 @@ def _rebuild_from_batch(batch_id):
         product_name = r[3]
         rule_code = _normalize_rule_code(r[4])
         rule_name = _normalize_rule_name(r[5], rule_code)
-        origin_price = r[7]
         offer_price = r[8]
         snapshot_at = _parse_snapshot_at(r[9])
 
@@ -542,14 +541,20 @@ def _rebuild_from_batch(batch_id):
         cat_code = item_info["category_code"] if item_info else None
         cat_name = category_map.get(cat_code) if cat_code else None
 
-        cost = get_item_cost_from_row(item_code, cost_map)
+        origin_price = None
+        if item_info and item_info.get("selling_price") is not None:
+            origin_price = item_info["selling_price"]
+
+        cost = None
+        if item_info and item_info.get("cost_price") is not None:
+            cost = Decimal(str(item_info["cost_price"]))
         if item_info and cost is None:
             cost_missing_count += 1
             unresolved_rows.append({
                 "bid": batch_id, "sa": snapshot_at, "mid": magento_id, "em": email,
                 "cc": ps_code, "sku": sku_raw, "ic": item_code, "rc": rule_code,
                 "issue_type": "cost_missing",
-                "issue_detail": f"item_code={item_code}, cost_column={cost_column}",
+                "issue_detail": f"item_code={item_code}, source=ps_items_dw.cost_price",
             })
 
         disc_value = None
