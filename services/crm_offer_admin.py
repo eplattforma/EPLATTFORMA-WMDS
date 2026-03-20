@@ -447,6 +447,74 @@ def get_offer_admin_product_rows(filters=None, sort="customers_with_offer", sort
     }
 
 
+def get_offer_admin_product_by_rule_rows(filters=None, sort="customers_with_offer", sort_dir="desc", page=1, page_size=100):
+    """Get product performance broken down by rule."""
+    where_clauses = []
+    params = {}
+    _apply_filters(filters, [], where_clauses, params)
+    w = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    allowed_sorts = {
+        "customers_with_offer": "customers_with_offer",
+        "customer_usage_pct": "usage_pct",
+        "total_offer_sales_4w": "total_sales_4w",
+        "avg_discount_percent": "avg_disc",
+    }
+    sort_col = allowed_sorts.get(sort, "customers_with_offer")
+    direction = "DESC" if sort_dir == "desc" else "ASC"
+
+    offset = (page - 1) * page_size
+    params["limit"] = page_size
+    params["offset"] = offset
+
+    count_row = db.session.execute(text(f"""
+        SELECT COUNT(DISTINCT c.sku, c.rule_code)
+        FROM crm_customer_offer_current c
+        LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
+        WHERE c.is_active = true AND c.rule_code != '__NO_RULE__' AND {w}
+    """), params).fetchone()
+    total = count_row[0] if count_row else 0
+
+    rows = db.session.execute(text(f"""
+        SELECT c.sku, c.item_code_365, c.product_name, c.supplier_name, c.category_name, c.brand_name,
+               c.rule_code, c.rule_name,
+               COUNT(DISTINCT c.customer_code_365) AS customers_with_offer,
+               COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.sold_qty_4w > 0) AS customers_bought,
+               CASE WHEN COUNT(DISTINCT c.customer_code_365) > 0
+                    THEN ROUND(COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.sold_qty_4w > 0) * 100.0
+                         / COUNT(DISTINCT c.customer_code_365), 1)
+                    ELSE 0 END AS usage_pct,
+               COALESCE(SUM(c.sold_value_4w), 0) AS total_sales_4w,
+               COALESCE(AVG(c.discount_percent), 0) AS avg_disc,
+               COUNT(*) FILTER (WHERE c.line_status = 'high_discount_unused') AS hdu_count
+        FROM crm_customer_offer_current c
+        LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
+        WHERE c.is_active = true AND c.rule_code != '__NO_RULE__' AND {w}
+        GROUP BY c.sku, c.item_code_365, c.product_name, c.supplier_name, c.category_name, c.brand_name, c.rule_code, c.rule_name
+        ORDER BY {sort_col} {direction} NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """), params).fetchall()
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "rows": [
+            {
+                "sku": r[0] or "", "item_code_365": r[1] or "", "product_name": r[2] or "",
+                "supplier_name": r[3] or "", "category_name": r[4] or "", "brand_name": r[5] or "",
+                "rule_code": r[6] or "", "rule_name": r[7] or "",
+                "customers_with_offer": r[8], "customers_bought_4w": r[9],
+                "customer_usage_pct": round(float(r[10]), 1) if r[10] else 0,
+                "total_offer_sales_4w": round(float(r[11]), 2) if r[11] else 0,
+                "avg_discount_percent": round(float(r[12]), 1) if r[12] else 0,
+                "high_discount_unused_count": r[13],
+            }
+            for r in rows
+        ],
+    }
+
+
 def get_offer_admin_export(tab, filters=None, sort=None, sort_dir="desc"):
     if tab == "customers":
         data = get_offer_admin_customer_rows(filters, sort or "offer_sales_share_pct", sort_dir, page=1, page_size=10000)

@@ -289,13 +289,14 @@
                     <th>Product</th>
                     <th>Supplier</th>
                     <th>Category</th>
+                    <th style="font-size:0.68rem;">Rule Code</th>
+                    <th style="font-size:0.68rem;">Rule Name</th>
                     <th onclick="sortBy('customers_with_offer')" class="val-col">Offered {% if sort == 'customers_with_offer' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th class="val-col">Bought</th>
                     <th onclick="sortBy('customer_usage_pct')" class="val-col">Usage % {% if sort == 'customer_usage_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th onclick="sortBy('total_offer_sales_4w')" class="val-col">Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th onclick="sortBy('avg_discount_percent')" class="val-col">Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th class="val-col">HDU</th>
-                    <th>Top Rule</th>
                 </tr>
             </thead>
             <tbody>
@@ -305,6 +306,8 @@
                     <td style="max-width:200px;">{{ r.product_name[:40] }}</td>
                     <td><span style="font-size:0.68rem;">{{ r.supplier_name[:20] }}</span></td>
                     <td><span style="font-size:0.68rem;">{{ r.category_name[:20] }}</span></td>
+                    <td><a href="/crm/admin/offers/rule/{{ r.rule_code }}" style="font-size:0.68rem; text-decoration:none;">{{ r.rule_code }}</a></td>
+                    <td style="font-size:0.68rem;">{{ r.rule_name[:25] }}</td>
                     <td class="val-col">{{ r.customers_with_offer }}</td>
                     <td class="val-col">{{ r.customers_bought_4w }}</td>
                     <td class="val-col">
@@ -313,10 +316,9 @@
                     <td class="val-col">€{{ "{:,.0f}".format(r.total_offer_sales_4w) }}</td>
                     <td class="val-col">{{ r.avg_discount_percent }}%</td>
                     <td class="val-col">{% if r.high_discount_unused_count > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_count }}</span>{% else %}0{% endif %}</td>
-                    <td><span style="font-size:0.68rem;">{{ r.top_rule_name[:25] }}</span></td>
                 </tr>
                 {% endfor %}
-                {% if not products.rows %}<tr><td colspan="11" class="text-muted text-center py-3">No products found</td></tr>{% endif %}
+                {% if not products.rows %}<tr><td colspan="12" class="text-muted text-center py-3">No products found</td></tr>{% endif %}
             </tbody>
         </table>
         </div>
