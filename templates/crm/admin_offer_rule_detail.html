@@ -196,10 +196,10 @@
                 <td class="val-col">{% if r.customer_margin_4w_pct is not none %}<span class="{% if r.customer_margin_4w_pct < 0 %}margin-neg{% elif r.customer_margin_4w_pct < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.customer_margin_4w_pct }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td><span style="font-size:0.68rem;">{{ r.last_offer_purchase_date[:10] if r.last_offer_purchase_date else '—' }}</span></td>
                 <td>
-                    {% if r.offer_usage_pct == 0 %}<span class="ord-badge ord-badge-muted">No Use</span>
-                    {% elif r.offer_usage_pct < 20 %}<span class="ord-badge ord-badge-danger">Low</span>
-                    {% elif r.offer_sales_share_pct >= 50 %}<span class="ord-badge ord-badge-warning">High Dep.</span>
-                    {% elif r.offer_usage_pct >= 50 %}<span class="ord-badge ord-badge-success">Strong</span>
+                    {% set other_pct = (100 - r.offer_sales_share_pct)|round(1) %}
+                    <span style="font-size:0.65rem;">Other {{ other_pct }}%</span>
+                    {% if r.customer_margin_4w_pct is not none and r.customer_margin_4w_pct < 15 %}
+                    <br><span class="ord-badge {% if r.customer_margin_4w_pct < 0 %}ord-badge-danger{% else %}ord-badge-warning{% endif %}">Low Margin</span>
                     {% endif %}
                 </td>
             </tr>

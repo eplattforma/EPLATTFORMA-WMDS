@@ -233,10 +233,10 @@
                     <td class="val-col">{% if r.avg_offer_margin_4w is not none %}<span class="{% if r.avg_offer_margin_4w < 0 %}margin-neg{% elif r.avg_offer_margin_4w < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.avg_offer_margin_4w }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                     <td class="val-col">{% if r.customer_margin_4w_pct is not none %}<span class="{% if r.customer_margin_4w_pct < 0 %}margin-neg{% elif r.customer_margin_4w_pct < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.customer_margin_4w_pct }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                     <td>
-                        {% if r.offer_usage_pct < 20 and r.active_offer_skus > 0 %}<span class="oa-badge oa-badge-danger">Low Usage</span>
-                        {% elif r.offer_sales_share_pct >= 50 %}<span class="oa-badge oa-badge-warning">High Dep.</span>
-                        {% elif r.offered_skus_bought_4w == 0 and r.active_offer_skus > 0 %}<span class="oa-badge oa-badge-muted">No Use</span>
-                        {% elif r.offer_usage_pct >= 50 %}<span class="oa-badge oa-badge-success">Strong</span>
+                        {% set other_pct = (100 - r.offer_sales_share_pct)|round(1) %}
+                        <span style="font-size:0.65rem;">Other {{ other_pct }}%</span>
+                        {% if r.customer_margin_4w_pct is not none and r.customer_margin_4w_pct < 15 %}
+                        <br><span class="oa-badge {% if r.customer_margin_4w_pct < 0 %}oa-badge-danger{% else %}oa-badge-warning{% endif %}">Low Margin</span>
                         {% endif %}
                     </td>
                 </tr>
