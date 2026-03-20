@@ -127,15 +127,31 @@ class ItemCatalogueExportFlow(BaseExportFlow):
 
     async def navigate_to_export_screen(self):
         logger.info(f"Navigating to Item Catalogue: {REPORT_PAGE_URL}")
-        await self.page.goto(REPORT_PAGE_URL, wait_until='networkidle', timeout=30000)
-        await asyncio.sleep(2)
+        await self.page.goto(REPORT_PAGE_URL, wait_until='networkidle', timeout=60000)
+        await asyncio.sleep(3)
 
-        export_type = await self.page.query_selector(EXPORT_TYPE_INPUT)
-        if export_type:
-            value = await export_type.get_attribute('value') or ''
-            logger.info(f"Export type preset to: {value}")
+        for attempt in range(3):
+            export_type = await self.page.query_selector(EXPORT_TYPE_INPUT)
+            if export_type:
+                value = await export_type.get_attribute('value') or ''
+                logger.info(f"Export type preset to: {value}")
+                break
+            logger.warning(f"Export Type combo not found yet (attempt {attempt + 1}/3), waiting...")
+            await asyncio.sleep(5)
         else:
-            raise RuntimeError("Could not find Export Type combo on Item Catalogue page")
+            await self.page.reload(wait_until='networkidle', timeout=60000)
+            await asyncio.sleep(5)
+            export_type = await self.page.query_selector(EXPORT_TYPE_INPUT)
+            if not export_type:
+                page_title = await self.page.title()
+                page_url = self.page.url
+                logger.error(f"Page title: {page_title}, URL: {page_url}")
+                raise RuntimeError(
+                    f"Could not find Export Type combo on Item Catalogue page after retries. "
+                    f"Page may not have loaded correctly. URL: {page_url}"
+                )
+            value = await export_type.get_attribute('value') or ''
+            logger.info(f"Export type preset to: {value} (after reload)")
 
         logger.info(f"On catalogue page: {self.page.url}")
 
