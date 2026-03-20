@@ -386,7 +386,7 @@
                     <th onclick="sortBy('min_margin_percent')" class="val-col" style="cursor:pointer;">Min Margin {% if sort == 'min_margin_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th onclick="sortBy('customers_with_offer')" class="val-col" style="cursor:pointer;">Cust {% if sort == 'customers_with_offer' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th class="val-col">Bought</th>
-                    <th onclick="sortBy('rules_count')" class="val-col" style="cursor:pointer;">Rules {% if sort == 'rules_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('rules_count')" style="cursor:pointer;">Rule Codes {% if sort == 'rules_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th>Flags</th>
                 </tr>
             </thead>
@@ -409,7 +409,7 @@
                     </td>
                     <td class="val-col">{{ r.customers_with_offer }}</td>
                     <td class="val-col">{{ r.customers_bought_4w }}</td>
-                    <td class="val-col">{{ r.rules_count }}</td>
+                    <td style="max-width:200px; font-size:0.68rem;" title="{{ r.rule_codes }}">{{ r.rule_codes[:50] }}{% if r.rule_codes|length > 50 %}…{% endif %}</td>
                     <td>
                         {% for f in r.flags %}
                             {% if f == 'offer_above_list' %}<span class="badge bg-warning text-dark" style="font-size:0.6rem;" title="Offer price exceeds the list selling price">Above List</span>

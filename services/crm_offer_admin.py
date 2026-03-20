@@ -314,7 +314,7 @@ def get_offer_admin_price_review_rows(filters=None, sort="selling_price", sort_d
                  ELSE NULL END AS max_margin,
             COUNT(DISTINCT c.customer_code_365) AS cust_count,
             COUNT(DISTINCT c.rule_code) FILTER (WHERE c.rule_code != '__NO_RULE__') AS rules_count,
-            STRING_AGG(DISTINCT c.rule_name, ', ' ORDER BY c.rule_name) FILTER (WHERE c.rule_code != '__NO_RULE__') AS rule_names,
+            STRING_AGG(DISTINCT c.rule_code, ', ' ORDER BY c.rule_code) FILTER (WHERE c.rule_code != '__NO_RULE__') AS rule_codes,
             COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.sold_qty_4w > 0) AS cust_bought,
             COALESCE(SUM(c.sold_value_4w), 0) AS total_sales_4w
         FROM crm_customer_offer_current c
@@ -364,7 +364,7 @@ def get_offer_admin_price_review_rows(filters=None, sort="selling_price", sort_d
                 "max_margin_percent": round(float(r[15]), 1) if r[15] is not None else None,
                 "customers_with_offer": r[16],
                 "rules_count": r[17],
-                "rule_names": r[18] or "",
+                "rule_codes": r[18] or "",
                 "customers_bought_4w": r[19],
                 "total_offer_sales_4w": round(float(r[20]), 2) if r[20] else 0,
                 "flags": _flag(r[6], r[7], r[8]),
@@ -498,7 +498,7 @@ def get_offer_admin_export(tab, filters=None, sort=None, sort_dir="desc"):
                          r["avg_discount_percent"], r["min_discount_percent"], r["max_discount_percent"],
                          r["min_margin_percent"], r["max_margin_percent"],
                          r["customers_with_offer"], r["customers_bought_4w"],
-                         r["total_offer_sales_4w"], r["rules_count"], r["rule_names"],
+                         r["total_offer_sales_4w"], r["rules_count"], r["rule_codes"],
                          ", ".join(r["flags"])])
         return headers, rows
     return [], []
