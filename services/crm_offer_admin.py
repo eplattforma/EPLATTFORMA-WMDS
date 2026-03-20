@@ -823,7 +823,7 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
     result_rows = []
     for r in rows:
         offer_sales = float(r[15]) if r[15] else 0
-        total_product_sales = float(r[17]) if r[17] else 0
+        total_product_sales = float(r[16]) if r[16] else 0
         
         offer_penetration_pct = (offer_sales / total_product_sales * 100) if total_product_sales > 0 else 0
         
