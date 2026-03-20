@@ -159,9 +159,8 @@ def get_offer_admin_customer_rows(filters=None, sort="offer_sales_share_pct", so
         "offer_sales_share_pct": "s.offer_sales_share_pct",
         "offer_sales_4w": "s.offer_sales_4w",
         "offered_skus_not_bought": "s.offered_skus_not_bought",
-        "avg_discount_percent": "s.avg_discount_percent",
         "customer_name": "p.company_name",
-        "district": "cp.district",
+        "district": "COALESCE(cp.district, pcl.district)",
     }
     sort_col = allowed_sorts.get(sort, "s.offer_sales_share_pct")
     direction = "DESC" if sort_dir == "desc" else "ASC"
@@ -175,18 +174,32 @@ def get_offer_admin_customer_rows(filters=None, sort="offer_sales_share_pct", so
         FROM crm_customer_offer_summary_current s
         LEFT JOIN ps_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN crm_customer_profile cp ON cp.customer_code_365 = s.customer_code_365
+        LEFT JOIN postal_code_lookup pcl ON pcl.postcode = p.postal_code
         WHERE s.has_special_pricing = true AND {w}
     """), params).fetchone()
     total = count_row[0] if count_row else 0
 
     rows = db.session.execute(text(f"""
         SELECT s.customer_code_365, p.company_name, COALESCE(cp.classification, '') as classification,
-               COALESCE(cp.district, '') as district, s.active_offer_skus, s.offered_skus_bought_4w, s.offered_skus_not_bought,
+               COALESCE(cp.district, pcl.district, '') as district, s.active_offer_skus, s.offered_skus_bought_4w, s.offered_skus_not_bought,
                s.offer_usage_pct, s.offer_sales_4w, s.total_customer_sales_4w, s.offer_sales_share_pct,
-               s.avg_discount_percent, s.top_rule_name, s.high_discount_unused_skus
+               s.avg_gross_margin_percent,
+               cm.margin_4w_pct
         FROM crm_customer_offer_summary_current s
         LEFT JOIN ps_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN crm_customer_profile cp ON cp.customer_code_365 = s.customer_code_365
+        LEFT JOIN postal_code_lookup pcl ON pcl.postcode = p.postal_code
+        LEFT JOIN (
+            SELECT sl.customer_code_365,
+                   CASE WHEN SUM(sl.net_excl) > 0
+                        THEN ROUND((SUM(sl.net_excl) - SUM(sl.qty * i.cost_price)) * 100.0 / SUM(sl.net_excl), 1)
+                        ELSE NULL END AS margin_4w_pct
+            FROM dw_sales_lines_v sl
+            JOIN ps_items_dw i ON i.item_code_365 = sl.item_code_365
+            WHERE sl.sale_date >= NOW() - INTERVAL '28 days'
+              AND i.cost_price IS NOT NULL AND i.cost_price > 0
+            GROUP BY sl.customer_code_365
+        ) cm ON cm.customer_code_365 = s.customer_code_365
         WHERE s.has_special_pricing = true AND {w}
         ORDER BY {sort_col} {direction} NULLS LAST
         LIMIT :limit OFFSET :offset
@@ -205,8 +218,8 @@ def get_offer_admin_customer_rows(filters=None, sort="offer_sales_share_pct", so
                 "offer_sales_4w": round(float(r[8]), 2) if r[8] else 0,
                 "total_customer_sales_4w": round(float(r[9]), 2) if r[9] else 0,
                 "offer_sales_share_pct": round(float(r[10]), 1) if r[10] else 0,
-                "avg_discount_percent": round(float(r[11]), 1) if r[11] else 0,
-                "top_rule_name": r[12] or "", "high_discount_unused_skus": r[13] or 0,
+                "avg_offer_margin_4w": round(float(r[11]), 1) if r[11] else None,
+                "customer_margin_4w_pct": round(float(r[12]), 1) if r[12] else None,
             }
             for r in rows
         ],

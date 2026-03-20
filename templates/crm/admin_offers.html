@@ -24,6 +24,9 @@
 .oa-badge-success { background:rgba(34,197,94,0.2); color:#22c55e; }
 .oa-badge-info { background:rgba(13,202,240,0.2); color:#0dcaf0; }
 .oa-badge-muted { background:rgba(108,117,125,0.2); color:#adb5bd; }
+.margin-neg { color:#ef4444; font-weight:700; }
+.margin-low { color:#fd7e14; }
+.margin-ok { color:#22c55e; }
 .oa-panel { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:10px 14px; margin-bottom:14px; }
 .oa-panel-title { font-size:0.75rem; font-weight:700; margin-bottom:8px; color:#e9ecef; }
 .oa-mini-table { width:100%; font-size:0.72rem; }
@@ -202,9 +205,8 @@
                     <th onclick="sortBy('offer_sales_4w')" class="val-col">Offer €4w {% if sort == 'offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                     <th class="val-col">Total €4w</th>
                     <th onclick="sortBy('offer_sales_share_pct')" class="val-col">Share % {% if sort == 'offer_sales_share_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
-                    <th onclick="sortBy('avg_discount_percent')" class="val-col">Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
-                    <th>Top Rule</th>
-                    <th class="val-col">HDU</th>
+                    <th class="val-col">Offer Margin 4W</th>
+                    <th class="val-col">Total Margin 4W</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -228,9 +230,8 @@
                     <td class="val-col">
                         <span class="oa-badge {% if r.offer_sales_share_pct >= 50 %}oa-badge-danger{% elif r.offer_sales_share_pct >= 20 %}oa-badge-warning{% else %}oa-badge-success{% endif %}">{{ r.offer_sales_share_pct }}%</span>
                     </td>
-                    <td class="val-col">{{ r.avg_discount_percent }}%</td>
-                    <td><span style="font-size:0.68rem;">{{ r.top_rule_name[:25] }}</span></td>
-                    <td class="val-col">{% if r.high_discount_unused_skus > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_skus }}</span>{% else %}—{% endif %}</td>
+                    <td class="val-col">{% if r.avg_offer_margin_4w is not none %}<span class="{% if r.avg_offer_margin_4w < 0 %}margin-neg{% elif r.avg_offer_margin_4w < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.avg_offer_margin_4w }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                    <td class="val-col">{% if r.customer_margin_4w_pct is not none %}<span class="{% if r.customer_margin_4w_pct < 0 %}margin-neg{% elif r.customer_margin_4w_pct < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.customer_margin_4w_pct }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                     <td>
                         {% if r.offer_usage_pct < 20 and r.active_offer_skus > 0 %}<span class="oa-badge oa-badge-danger">Low Usage</span>
                         {% elif r.offer_sales_share_pct >= 50 %}<span class="oa-badge oa-badge-warning">High Dep.</span>
@@ -240,7 +241,7 @@
                     </td>
                 </tr>
                 {% endfor %}
-                {% if not customers.rows %}<tr><td colspan="14" class="text-muted text-center py-3">No customers with offers found</td></tr>{% endif %}
+                {% if not customers.rows %}<tr><td colspan="13" class="text-muted text-center py-3">No customers with offers found</td></tr>{% endif %}
             </tbody>
         </table>
         </div>
