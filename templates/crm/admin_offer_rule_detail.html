@@ -94,7 +94,9 @@
                 <th class="val-col">Cost €</th>
                 <th class="val-col">GP €</th>
                 <th onclick="pSort('avg_gross_margin_percent')" class="val-col">Margin % {% if sort == 'avg_gross_margin_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
-                <th onclick="pSort('total_offer_sales_4w')" class="val-col">Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th onclick="pSort('total_offer_sales_4w')" class="val-col">Offer Sales 4w {% if sort == 'total_offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th class="val-col">No-Disc Sales 4w</th>
+                <th class="val-col">Disc Impact %</th>
                 <th onclick="pSort('high_discount_unused_customer_count')" class="val-col">HDU {% if sort == 'high_discount_unused_customer_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
             </tr></thead>
             <tbody>
@@ -118,6 +120,8 @@
                     {% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="val-col">€{{ "{:,.0f}".format(r.total_offer_sales_4w) }}</td>
+                <td class="val-col">€{{ "{:,.0f}".format(r.normal_price_sales_4w) }}</td>
+                <td class="val-col"><span style="color:#fd7e14; font-weight:600;">{{ r.discount_impact_pct }}%</span></td>
                 <td class="val-col">{% if r.high_discount_unused_customer_count > 0 %}<span style="color:#dc3545;">{{ r.high_discount_unused_customer_count }}</span>{% else %}0{% endif %}</td>
             </tr>
             {% endfor %}

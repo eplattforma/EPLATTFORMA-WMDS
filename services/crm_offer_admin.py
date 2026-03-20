@@ -806,7 +806,8 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
                AVG(c.gross_profit) FILTER (WHERE c.gross_profit IS NOT NULL) AS avg_gp,
                AVG(c.gross_margin_percent) FILTER (WHERE c.gross_margin_percent IS NOT NULL) AS avg_margin,
                COALESCE(SUM(c.sold_value_4w), 0) AS total_sales,
-               COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.line_status = 'high_discount_unused') AS hdu_count
+               COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.line_status = 'high_discount_unused') AS hdu_count,
+               COALESCE(SUM(c.sold_qty_4w), 0) AS total_qty
         FROM crm_customer_offer_current c
         WHERE {w}
         GROUP BY c.sku, c.item_code_365, c.product_name, c.supplier_name, c.category_name, c.brand_name
@@ -814,25 +815,38 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
         LIMIT :limit OFFSET :offset
     """), params).fetchall()
 
+    result_rows = []
+    for r in rows:
+        total_qty = float(r[17]) if r[17] else 0
+        avg_origin = float(r[9]) if r[9] else 0
+        offer_sales = float(r[15]) if r[15] else 0
+        
+        # Calculate non-offer sales (what would have been sold at list price)
+        normal_price_sales = total_qty * avg_origin if avg_origin > 0 else 0
+        discount_revenue_impact = normal_price_sales - offer_sales
+        discount_impact_pct = (discount_revenue_impact / normal_price_sales * 100) if normal_price_sales > 0 else 0
+        
+        result_rows.append({
+            "sku": r[0] or "", "item_code_365": r[1] or "", "product_name": r[2] or "",
+            "supplier_name": r[3] or "", "category_name": r[4] or "", "brand_name": r[5] or "",
+            "customers_with_offer": r[6], "customers_bought_4w": r[7],
+            "customer_usage_pct": round(float(r[8]), 1) if r[8] else 0,
+            "avg_origin_price": round(float(r[9]), 2) if r[9] else 0,
+            "avg_offer_price": round(float(r[10]), 2) if r[10] else 0,
+            "avg_discount_percent": round(float(r[11]), 1) if r[11] else 0,
+            "avg_cost": round(float(r[12]), 2) if r[12] else None,
+            "avg_gross_profit": round(float(r[13]), 2) if r[13] else None,
+            "avg_gross_margin_percent": round(float(r[14]), 1) if r[14] else None,
+            "total_offer_sales_4w": round(offer_sales, 2),
+            "normal_price_sales_4w": round(normal_price_sales, 2),
+            "discount_revenue_impact": round(discount_revenue_impact, 2),
+            "discount_impact_pct": round(discount_impact_pct, 1),
+            "high_discount_unused_customer_count": r[16] or 0,
+        })
+    
     return {
         "total": total, "page": page, "page_size": page_size,
-        "rows": [
-            {
-                "sku": r[0] or "", "item_code_365": r[1] or "", "product_name": r[2] or "",
-                "supplier_name": r[3] or "", "category_name": r[4] or "", "brand_name": r[5] or "",
-                "customers_with_offer": r[6], "customers_bought_4w": r[7],
-                "customer_usage_pct": round(float(r[8]), 1) if r[8] else 0,
-                "avg_origin_price": round(float(r[9]), 2) if r[9] else 0,
-                "avg_offer_price": round(float(r[10]), 2) if r[10] else 0,
-                "avg_discount_percent": round(float(r[11]), 1) if r[11] else 0,
-                "avg_cost": round(float(r[12]), 2) if r[12] else None,
-                "avg_gross_profit": round(float(r[13]), 2) if r[13] else None,
-                "avg_gross_margin_percent": round(float(r[14]), 1) if r[14] else None,
-                "total_offer_sales_4w": round(float(r[15]), 2) if r[15] else 0,
-                "high_discount_unused_customer_count": r[16] or 0,
-            }
-            for r in rows
-        ],
+        "rows": result_rows,
     }
 
 
