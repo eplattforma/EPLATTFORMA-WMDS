@@ -110,9 +110,7 @@
             <thead><tr>
                 <th>SKU</th>
                 <th>Product</th>
-                <th>Supplier</th>
-                <th>Category</th>
-                <th onclick="pSort('customers_with_offer')" class="val-col">Offered {% if sort == 'customers_with_offer' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th onclick="pSort('customers_with_offer')" class="val-col">Cust {% if sort == 'customers_with_offer' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th class="val-col">Bought</th>
                 <th onclick="pSort('customer_usage_pct')" class="val-col">Usage % {% if sort == 'customer_usage_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th class="val-col">Normal €</th>
@@ -129,8 +127,6 @@
             <tr>
                 <td><span class="fw-semibold" style="font-size:0.7rem;">{{ r.sku }}</span></td>
                 <td style="max-width:180px;">{{ r.product_name[:35] }}</td>
-                <td><span style="font-size:0.68rem;">{{ r.supplier_name[:18] }}</span></td>
-                <td><span style="font-size:0.68rem;">{{ r.category_name[:18] }}</span></td>
                 <td class="val-col">{{ r.customers_with_offer }}</td>
                 <td class="val-col">{{ r.customers_bought_4w }}</td>
                 <td class="val-col">
