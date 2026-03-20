@@ -257,6 +257,123 @@ def get_offer_admin_rule_rows(filters=None, sort="customers_count", sort_dir="de
     ]
 
 
+def get_offer_admin_price_review_rows(filters=None, sort="selling_price", sort_dir="desc", page=1, page_size=100):
+    where_clauses = []
+    params = {}
+    _apply_filters(filters, [], where_clauses, params)
+    w = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    allowed_sorts = {
+        "selling_price": "i.selling_price",
+        "cost_price": "i.cost_price",
+        "min_offer_price": "min_offer",
+        "max_offer_price": "max_offer",
+        "avg_offer_price": "avg_offer",
+        "avg_discount_percent": "avg_disc",
+        "min_margin_percent": "min_margin",
+        "customers_with_offer": "cust_count",
+        "rules_count": "rules_count",
+        "product_name": "c.product_name",
+    }
+    sort_col = allowed_sorts.get(sort, "i.selling_price")
+    direction = "DESC" if sort_dir == "desc" else "ASC"
+
+    offset = (page - 1) * page_size
+    params["limit"] = page_size
+    params["offset"] = offset
+
+    count_row = db.session.execute(text(f"""
+        SELECT COUNT(DISTINCT c.item_code_365)
+        FROM crm_customer_offer_current c
+        LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
+        WHERE c.is_active = true AND c.item_code_365 IS NOT NULL AND {w}
+    """), params).fetchone()
+    total = count_row[0] if count_row else 0
+
+    rows = db.session.execute(text(f"""
+        SELECT
+            c.item_code_365,
+            c.sku,
+            MAX(c.product_name) AS product_name,
+            MAX(c.supplier_name) AS supplier_name,
+            MAX(c.category_name) AS category_name,
+            MAX(c.brand_name) AS brand_name,
+            i.selling_price,
+            i.cost_price,
+            MIN(c.offer_price) AS min_offer,
+            MAX(c.offer_price) AS max_offer,
+            ROUND(AVG(c.offer_price)::numeric, 2) AS avg_offer,
+            ROUND(AVG(c.discount_percent)::numeric, 1) AS avg_disc,
+            MIN(c.discount_percent) AS min_disc,
+            MAX(c.discount_percent) AS max_disc,
+            CASE WHEN i.cost_price > 0 AND MIN(c.offer_price) IS NOT NULL
+                 THEN ROUND(((MIN(c.offer_price) - i.cost_price) / MIN(c.offer_price) * 100)::numeric, 1)
+                 ELSE NULL END AS min_margin,
+            CASE WHEN i.cost_price > 0 AND MAX(c.offer_price) IS NOT NULL
+                 THEN ROUND(((MAX(c.offer_price) - i.cost_price) / MAX(c.offer_price) * 100)::numeric, 1)
+                 ELSE NULL END AS max_margin,
+            COUNT(DISTINCT c.customer_code_365) AS cust_count,
+            COUNT(DISTINCT c.rule_code) FILTER (WHERE c.rule_code != '__NO_RULE__') AS rules_count,
+            STRING_AGG(DISTINCT c.rule_name, ', ' ORDER BY c.rule_name) FILTER (WHERE c.rule_code != '__NO_RULE__') AS rule_names,
+            COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.sold_qty_4w > 0) AS cust_bought,
+            COALESCE(SUM(c.sold_value_4w), 0) AS total_sales_4w
+        FROM crm_customer_offer_current c
+        LEFT JOIN ps_items_dw i ON i.item_code_365 = c.item_code_365
+        LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
+        WHERE c.is_active = true AND c.item_code_365 IS NOT NULL AND {w}
+        GROUP BY c.item_code_365, c.sku, i.selling_price, i.cost_price
+        ORDER BY {sort_col} {direction} NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """), params).fetchall()
+
+    def _flag(selling, cost, offer_price):
+        flags = []
+        if selling is not None and offer_price is not None:
+            if float(offer_price) > float(selling):
+                flags.append("offer_above_list")
+        if cost is not None and offer_price is not None:
+            if float(offer_price) <= float(cost):
+                flags.append("offer_below_cost")
+        if selling is None:
+            flags.append("no_selling_price")
+        if cost is None:
+            flags.append("no_cost_price")
+        return flags
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "rows": [
+            {
+                "item_code_365": r[0] or "",
+                "sku": r[1] or "",
+                "product_name": r[2] or "",
+                "supplier_name": r[3] or "",
+                "category_name": r[4] or "",
+                "brand_name": r[5] or "",
+                "selling_price": round(float(r[6]), 2) if r[6] else None,
+                "cost_price": round(float(r[7]), 4) if r[7] else None,
+                "min_offer_price": round(float(r[8]), 2) if r[8] else None,
+                "max_offer_price": round(float(r[9]), 2) if r[9] else None,
+                "avg_offer_price": round(float(r[10]), 2) if r[10] else None,
+                "avg_discount_percent": round(float(r[11]), 1) if r[11] else 0,
+                "min_discount_percent": round(float(r[12]), 1) if r[12] else 0,
+                "max_discount_percent": round(float(r[13]), 1) if r[13] else 0,
+                "min_margin_percent": round(float(r[14]), 1) if r[14] is not None else None,
+                "max_margin_percent": round(float(r[15]), 1) if r[15] is not None else None,
+                "customers_with_offer": r[16],
+                "rules_count": r[17],
+                "rule_names": r[18] or "",
+                "customers_bought_4w": r[19],
+                "total_offer_sales_4w": round(float(r[20]), 2) if r[20] else 0,
+                "flags": _flag(r[6], r[7], r[8]),
+            }
+            for r in rows
+        ],
+    }
+
+
 def get_offer_admin_product_rows(filters=None, sort="customers_with_offer", sort_dir="desc", page=1, page_size=100):
     where_clauses = []
     params = {}
@@ -364,6 +481,25 @@ def get_offer_admin_export(tab, filters=None, sort=None, sort_dir="desc"):
                          r["customers_bought_4w"], r["customer_usage_pct"],
                          r["total_offer_sales_4w"], r["avg_discount_percent"],
                          r["high_discount_unused_count"], r["top_rule_name"]])
+        return headers, rows
+    elif tab == "price_review":
+        data = get_offer_admin_price_review_rows(filters, sort or "selling_price", sort_dir, page=1, page_size=10000)
+        headers = ["Item Code", "SKU", "Product Name", "Supplier", "Category",
+                    "Selling Price", "Cost Price", "Min Offer", "Max Offer", "Avg Offer",
+                    "Avg Disc %", "Min Disc %", "Max Disc %",
+                    "Min Margin %", "Max Margin %",
+                    "Customers", "Bought 4w", "Sales 4w", "Rules", "Rule Names", "Flags"]
+        rows = []
+        for r in data["rows"]:
+            rows.append([r["item_code_365"], r["sku"], r["product_name"], r["supplier_name"],
+                         r["category_name"],
+                         r["selling_price"], r["cost_price"],
+                         r["min_offer_price"], r["max_offer_price"], r["avg_offer_price"],
+                         r["avg_discount_percent"], r["min_discount_percent"], r["max_discount_percent"],
+                         r["min_margin_percent"], r["max_margin_percent"],
+                         r["customers_with_offer"], r["customers_bought_4w"],
+                         r["total_offer_sales_4w"], r["rules_count"], r["rule_names"],
+                         ", ".join(r["flags"])])
         return headers, rows
     return [], []
 

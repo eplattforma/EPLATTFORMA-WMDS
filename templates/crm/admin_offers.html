@@ -103,6 +103,9 @@
         <a class="oa-tab {% if tab == 'customers' %}active{% endif %}" onclick="switchTab(event,'customers')">Customers</a>
         <a class="oa-tab {% if tab == 'rules' %}active{% endif %}" onclick="switchTab(event,'rules')">Rules</a>
         <a class="oa-tab {% if tab == 'products' %}active{% endif %}" onclick="switchTab(event,'products')">Products</a>
+        <a class="oa-tab {% if tab == 'price_review' %}active{% endif %}" onclick="switchTab(event,'price_review')">
+            <i class="fas fa-balance-scale me-1"></i>Price Review
+        </a>
     </div>
 
     <div id="sec-overview" class="oa-section {% if tab == 'overview' %}active{% endif %}">
@@ -322,6 +325,111 @@
             {% if page > 1 %}<a href="?tab=products&page={{ page - 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}&usage_band={{ filters.usage_band }}&sales_band={{ filters.sales_band }}{% if filters.high_dependency %}&high_dependency=1{% endif %}{% if filters.unused_offers %}&unused_offers=1{% endif %}" class="btn btn-sm btn-outline-secondary">&laquo; Prev</a>{% endif %}
             <span class="text-muted">Page {{ page }} of {{ ((products.total - 1) // products.page_size) + 1 }} ({{ products.total }} rows)</span>
             {% if page * products.page_size < products.total %}<a href="?tab=products&page={{ page + 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}&usage_band={{ filters.usage_band }}&sales_band={{ filters.sales_band }}{% if filters.high_dependency %}&high_dependency=1{% endif %}{% if filters.unused_offers %}&unused_offers=1{% endif %}" class="btn btn-sm btn-outline-secondary">Next &raquo;</a>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="sec-price_review" class="oa-section {% if tab == 'price_review' %}active{% endif %}">
+        {% set ns = namespace(above_list=0, below_cost=0, no_sell=0, no_cost=0) %}
+        {% for r in price_review.rows %}
+            {% if 'offer_above_list' in r.flags %}{% set ns.above_list = ns.above_list + 1 %}{% endif %}
+            {% if 'offer_below_cost' in r.flags %}{% set ns.below_cost = ns.below_cost + 1 %}{% endif %}
+            {% if 'no_selling_price' in r.flags %}{% set ns.no_sell = ns.no_sell + 1 %}{% endif %}
+            {% if 'no_cost_price' in r.flags %}{% set ns.no_cost = ns.no_cost + 1 %}{% endif %}
+        {% endfor %}
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-3">
+                <div class="oa-kpi" style="border-left:3px solid #6366f1;">
+                    <div class="kl">Products in Offers</div>
+                    <div class="kv">{{ price_review.total }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="oa-kpi" style="border-left:3px solid #ef4444;">
+                    <div class="kl">Offer &gt; List Price</div>
+                    <div class="kv" style="color:#ef4444;">{{ ns.above_list }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="oa-kpi" style="border-left:3px solid #dc3545;">
+                    <div class="kl">Offer &le; Cost</div>
+                    <div class="kv" style="color:#dc3545;">{{ ns.below_cost }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="oa-kpi" style="border-left:3px solid #fd7e14;">
+                    <div class="kl">Missing Price Data</div>
+                    <div class="kv" style="color:#fd7e14;">{{ ns.no_sell + ns.no_cost }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-2 d-flex align-items-center gap-2">
+            <a href="?tab=price_review&sort=avg_discount_percent&sort_dir=desc&q={{ filters.q }}" class="btn btn-sm btn-outline-secondary">Highest Discount</a>
+            <a href="?tab=price_review&sort=min_margin_percent&sort_dir=asc&q={{ filters.q }}" class="btn btn-sm btn-outline-danger">Lowest Margin</a>
+            <a href="?tab=price_review&sort=customers_with_offer&sort_dir=desc&q={{ filters.q }}" class="btn btn-sm btn-outline-primary">Most Offered</a>
+            <a href="/admin/offers/export?tab=price_review&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}" class="btn btn-sm btn-outline-success ms-auto"><i class="fas fa-download me-1"></i>Export CSV</a>
+        </div>
+
+        <div style="overflow-x:auto; max-height:70vh; overflow-y:auto;">
+        <table class="oa-table" style="font-size:0.72rem;">
+            <thead>
+                <tr>
+                    <th>Item Code</th>
+                    <th>Product</th>
+                    <th onclick="sortBy('selling_price')" class="val-col" style="cursor:pointer;">List Price {% if sort == 'selling_price' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('cost_price')" class="val-col" style="cursor:pointer;">Cost {% if sort == 'cost_price' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('min_offer_price')" class="val-col" style="cursor:pointer;">Min Offer {% if sort == 'min_offer_price' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('max_offer_price')" class="val-col" style="cursor:pointer;">Max Offer {% if sort == 'max_offer_price' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('avg_discount_percent')" class="val-col" style="cursor:pointer;">Avg Disc % {% if sort == 'avg_discount_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('min_margin_percent')" class="val-col" style="cursor:pointer;">Min Margin {% if sort == 'min_margin_percent' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th onclick="sortBy('customers_with_offer')" class="val-col" style="cursor:pointer;">Cust {% if sort == 'customers_with_offer' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th class="val-col">Bought</th>
+                    <th onclick="sortBy('rules_count')" class="val-col" style="cursor:pointer;">Rules {% if sort == 'rules_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                    <th>Flags</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in price_review.rows %}
+                <tr {% if r.flags %}style="background:{% if 'offer_below_cost' in r.flags %}#fff0f0{% elif 'offer_above_list' in r.flags %}#fff8e6{% endif %};"{% endif %}>
+                    <td><span class="fw-semibold">{{ r.item_code_365 }}</span></td>
+                    <td style="max-width:180px;" title="{{ r.product_name }}&#10;SKU: {{ r.sku }}&#10;Supplier: {{ r.supplier_name }}&#10;Category: {{ r.category_name }}&#10;Rules: {{ r.rule_names }}">{{ r.product_name[:35] }}</td>
+                    <td class="val-col">{% if r.selling_price is not none %}€{{ "%.2f"|format(r.selling_price) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                    <td class="val-col">{% if r.cost_price is not none %}€{{ "%.2f"|format(r.cost_price) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                    <td class="val-col">{% if r.min_offer_price is not none %}€{{ "%.2f"|format(r.min_offer_price) }}{% else %}—{% endif %}</td>
+                    <td class="val-col">{% if r.max_offer_price is not none %}€{{ "%.2f"|format(r.max_offer_price) }}{% else %}—{% endif %}</td>
+                    <td class="val-col">
+                        <span class="oa-badge {% if r.avg_discount_percent < 0 %}oa-badge-danger{% elif r.avg_discount_percent >= 20 %}oa-badge-warning{% elif r.avg_discount_percent >= 5 %}oa-badge-success{% else %}oa-badge-info{% endif %}">{{ r.avg_discount_percent }}%</span>
+                    </td>
+                    <td class="val-col">
+                        {% if r.min_margin_percent is not none %}
+                        <span class="{% if r.min_margin_percent <= 0 %}text-danger fw-bold{% elif r.min_margin_percent < 10 %}text-warning{% else %}text-success{% endif %}">{{ r.min_margin_percent }}%</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td class="val-col">{{ r.customers_with_offer }}</td>
+                    <td class="val-col">{{ r.customers_bought_4w }}</td>
+                    <td class="val-col">{{ r.rules_count }}</td>
+                    <td>
+                        {% for f in r.flags %}
+                            {% if f == 'offer_above_list' %}<span class="badge bg-warning text-dark" style="font-size:0.6rem;" title="Offer price exceeds the list selling price">Above List</span>
+                            {% elif f == 'offer_below_cost' %}<span class="badge bg-danger" style="font-size:0.6rem;" title="Offer price is at or below cost — negative margin">Below Cost</span>
+                            {% elif f == 'no_selling_price' %}<span class="badge bg-secondary" style="font-size:0.6rem;" title="No selling price found in PS365">No List</span>
+                            {% elif f == 'no_cost_price' %}<span class="badge bg-secondary" style="font-size:0.6rem;" title="No cost price found in PS365">No Cost</span>
+                            {% endif %}
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not price_review.rows %}<tr><td colspan="12" class="text-muted text-center py-3">No products found</td></tr>{% endif %}
+            </tbody>
+        </table>
+        </div>
+        {% if price_review.total > price_review.page_size %}
+        <div class="oa-pager">
+            {% if page > 1 %}<a href="?tab=price_review&page={{ page - 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}" class="btn btn-sm btn-outline-secondary">&laquo; Prev</a>{% endif %}
+            <span class="text-muted">Page {{ page }} of {{ ((price_review.total - 1) // price_review.page_size) + 1 }} ({{ price_review.total }} rows)</span>
+            {% if page * price_review.page_size < price_review.total %}<a href="?tab=price_review&page={{ page + 1 }}&sort={{ sort }}&sort_dir={{ sort_dir }}&q={{ filters.q }}&classification={{ filters.classification }}&district={{ filters.district }}&supplier={{ filters.supplier }}&category={{ filters.category }}&brand={{ filters.brand }}" class="btn btn-sm btn-outline-secondary">Next &raquo;</a>{% endif %}
         </div>
         {% endif %}
     </div>

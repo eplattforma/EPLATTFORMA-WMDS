@@ -1282,7 +1282,7 @@ def api_price_offers_refresh():
 @crm_dashboard_bp.get("/admin/offers")
 @login_required
 def admin_offers():
-    from services.crm_offer_admin import get_offer_admin_overview, get_offer_admin_customer_rows, get_offer_admin_rule_rows, get_offer_admin_product_rows
+    from services.crm_offer_admin import get_offer_admin_overview, get_offer_admin_customer_rows, get_offer_admin_rule_rows, get_offer_admin_product_rows, get_offer_admin_price_review_rows
     filters = _parse_offer_admin_filters(request)
     tab = request.args.get("tab", "overview")
     sort = request.args.get("sort", "")
@@ -1293,12 +1293,14 @@ def admin_offers():
     customers = get_offer_admin_customer_rows(filters, sort=sort or "offer_sales_share_pct", sort_dir=sort_dir, page=page)
     rules = get_offer_admin_rule_rows(filters, sort=sort or "customers_count", sort_dir=sort_dir)
     products = get_offer_admin_product_rows(filters, sort=sort or "customers_with_offer", sort_dir=sort_dir, page=page)
+    price_review = get_offer_admin_price_review_rows(filters, sort=sort or "avg_discount_percent", sort_dir=sort_dir, page=page)
 
     all_classifications = _get_all_classifications()
     all_districts = _get_all_districts()
 
     return render_template("crm/admin_offers.html",
         overview=overview, customers=customers, rules=rules, products=products,
+        price_review=price_review,
         filters=filters, tab=tab, sort=sort, sort_dir=sort_dir, page=page,
         all_classifications=all_classifications, all_districts=all_districts,
     )
