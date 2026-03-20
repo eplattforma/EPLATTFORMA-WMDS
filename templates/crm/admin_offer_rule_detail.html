@@ -166,7 +166,8 @@
                 <th onclick="cSort('offer_sales_4w')" class="val-col">Offer €4w {% if sort == 'offer_sales_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th class="val-col">Total €4w</th>
                 <th onclick="cSort('offer_sales_share_pct')" class="val-col">Share % {% if sort == 'offer_sales_share_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
-                <th class="val-col">Margin 4W</th>
+                <th class="val-col">Offer Margin 4W</th>
+                <th class="val-col">Total Margin 4W</th>
                 <th>Last Buy</th>
                 <th>Status</th>
             </tr></thead>
@@ -191,6 +192,7 @@
                     {% elif r.offer_sales_share_pct >= 20 %}<span class="ord-badge ord-badge-warning">{{ r.offer_sales_share_pct }}%</span>
                     {% else %}{{ r.offer_sales_share_pct }}%{% endif %}
                 </td>
+                <td class="val-col">{% if r.avg_offer_margin_4w is not none %}<span class="{% if r.avg_offer_margin_4w < 0 %}margin-neg{% elif r.avg_offer_margin_4w < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.avg_offer_margin_4w }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td class="val-col">{% if r.customer_margin_4w_pct is not none %}<span class="{% if r.customer_margin_4w_pct < 0 %}margin-neg{% elif r.customer_margin_4w_pct < 15 %}margin-low{% else %}margin-ok{% endif %}">{{ r.customer_margin_4w_pct }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td><span style="font-size:0.68rem;">{{ r.last_offer_purchase_date[:10] if r.last_offer_purchase_date else '—' }}</span></td>
                 <td>
@@ -202,7 +204,7 @@
                 </td>
             </tr>
             {% endfor %}
-            {% if not customers.rows %}<tr><td colspan="12" class="text-muted text-center py-3">No customers found</td></tr>{% endif %}
+            {% if not customers.rows %}<tr><td colspan="13" class="text-muted text-center py-3">No customers found</td></tr>{% endif %}
             </tbody>
         </table>
         </div>

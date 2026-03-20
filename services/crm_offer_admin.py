@@ -183,12 +183,25 @@ def get_offer_admin_customer_rows(filters=None, sort="offer_sales_share_pct", so
         SELECT s.customer_code_365, p.company_name, COALESCE(cp.classification, '') as classification,
                COALESCE(cp.district, pcl.district, '') as district, s.active_offer_skus, s.offered_skus_bought_4w, s.offered_skus_not_bought,
                s.offer_usage_pct, s.offer_sales_4w, s.total_customer_sales_4w, s.offer_sales_share_pct,
-               s.avg_gross_margin_percent,
+               om.offer_margin_4w_pct,
                cm.margin_4w_pct
         FROM crm_customer_offer_summary_current s
         LEFT JOIN ps_customers p ON p.customer_code_365 = s.customer_code_365
         LEFT JOIN crm_customer_profile cp ON cp.customer_code_365 = s.customer_code_365
         LEFT JOIN postal_code_lookup pcl ON pcl.postcode = p.postal_code
+        LEFT JOIN (
+            SELECT sl.customer_code_365,
+                   CASE WHEN SUM(sl.net_excl) > 0
+                        THEN ROUND((SUM(sl.net_excl) - SUM(sl.qty * i.cost_price)) * 100.0 / SUM(sl.net_excl), 1)
+                        ELSE NULL END AS offer_margin_4w_pct
+            FROM dw_sales_lines_v sl
+            JOIN ps_items_dw i ON i.item_code_365 = sl.item_code_365
+            JOIN crm_customer_offer_current co ON co.customer_code_365 = sl.customer_code_365
+                 AND co.item_code_365 = sl.item_code_365 AND co.is_active = true
+            WHERE sl.sale_date >= NOW() - INTERVAL '28 days'
+              AND i.cost_price IS NOT NULL AND i.cost_price > 0
+            GROUP BY sl.customer_code_365
+        ) om ON om.customer_code_365 = s.customer_code_365
         LEFT JOIN (
             SELECT sl.customer_code_365,
                    CASE WHEN SUM(sl.net_excl) > 0
@@ -905,12 +918,26 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
                     THEN ROUND(SUM(c.sold_value_4w) * 100.0 / MAX(s.total_customer_sales_4w), 1)
                     ELSE 0 END AS sales_share,
                MAX(c.last_sold_at) AS last_purchase,
+               MAX(om.offer_margin_4w_pct) AS offer_margin_4w,
                MAX(cm.margin_4w_pct) AS customer_margin_4w
         FROM crm_customer_offer_current c
         LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
         LEFT JOIN crm_customer_profile cp ON cp.customer_code_365 = c.customer_code_365
         LEFT JOIN postal_code_lookup pcl ON pcl.postcode = p.postal_code
         LEFT JOIN crm_customer_offer_summary_current s ON s.customer_code_365 = c.customer_code_365
+        LEFT JOIN (
+            SELECT sl.customer_code_365,
+                   CASE WHEN SUM(sl.net_excl) > 0
+                        THEN ROUND((SUM(sl.net_excl) - SUM(sl.qty * i.cost_price)) * 100.0 / SUM(sl.net_excl), 1)
+                        ELSE NULL END AS offer_margin_4w_pct
+            FROM dw_sales_lines_v sl
+            JOIN ps_items_dw i ON i.item_code_365 = sl.item_code_365
+            JOIN crm_customer_offer_current co ON co.customer_code_365 = sl.customer_code_365
+                 AND co.item_code_365 = sl.item_code_365 AND co.is_active = true
+            WHERE sl.sale_date >= NOW() - INTERVAL '28 days'
+              AND i.cost_price IS NOT NULL AND i.cost_price > 0
+            GROUP BY sl.customer_code_365
+        ) om ON om.customer_code_365 = c.customer_code_365
         LEFT JOIN (
             SELECT sl.customer_code_365,
                    CASE WHEN SUM(sl.net_excl) > 0
@@ -940,7 +967,8 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
                 "total_customer_sales_4w": round(float(r[8]), 2) if r[8] else 0,
                 "offer_sales_share_pct": round(float(r[9]), 1) if r[9] else 0,
                 "last_offer_purchase_date": str(r[10]) if r[10] else "",
-                "customer_margin_4w_pct": round(float(r[11]), 1) if r[11] else None,
+                "avg_offer_margin_4w": round(float(r[11]), 1) if r[11] else None,
+                "customer_margin_4w_pct": round(float(r[12]), 1) if r[12] else None,
             }
             for r in rows
         ],
