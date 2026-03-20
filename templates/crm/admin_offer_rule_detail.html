@@ -154,6 +154,8 @@
         <table class="ord-table">
             <thead><tr>
                 <th onclick="cSort('customer_name')">Customer {% if sort == 'customer_name' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
+                <th>Class</th>
+                <th>District</th>
                 <th onclick="cSort('offered_products_count')" class="val-col">Offered {% if sort == 'offered_products_count' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th onclick="cSort('bought_products_count_4w')" class="val-col">Bought {% if sort == 'bought_products_count_4w' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
                 <th onclick="cSort('offer_usage_pct')" class="val-col">Usage % {% if sort == 'offer_usage_pct' %}<i class="fas fa-sort-{{ 'down' if sort_dir == 'desc' else 'up' }} sort-arrow"></i>{% endif %}</th>
@@ -172,6 +174,8 @@
                     <div class="fw-semibold">{{ r.customer_name }}</div>
                     <span class="text-muted" style="font-size:0.68rem;">{{ r.customer_code_365 }}</span>
                 </td>
+                <td><span class="text-muted" style="font-size:0.68rem;">{{ r.classification }}</span></td>
+                <td><span class="text-muted" style="font-size:0.68rem;">{{ r.district }}</span></td>
                 <td class="val-col">{{ r.offered_products_count }}</td>
                 <td class="val-col">{{ r.bought_products_count_4w }}</td>
                 <td class="val-col">

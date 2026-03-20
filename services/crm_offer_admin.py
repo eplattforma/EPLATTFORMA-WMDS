@@ -875,6 +875,7 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
         FROM crm_customer_offer_current c
         LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
         LEFT JOIN crm_customer_profile cp ON cp.customer_code_365 = c.customer_code_365
+        LEFT JOIN postal_code_lookup pcl ON pcl.postcode = p.postal_code
         LEFT JOIN crm_customer_offer_summary_current s ON s.customer_code_365 = c.customer_code_365
         WHERE {base_where}{extra_w}
     """
@@ -884,7 +885,7 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
     rows = db.session.execute(text(f"""
         SELECT c.customer_code_365, p.company_name,
                COALESCE(cp.classification, '') AS classification,
-               COALESCE(cp.district, '') AS district,
+               COALESCE(cp.district, pcl.district, '') AS district,
                COUNT(DISTINCT c.sku) AS offered_count,
                COUNT(DISTINCT c.sku) FILTER (WHERE c.sold_qty_4w > 0) AS bought_count,
                CASE WHEN COUNT(DISTINCT c.sku) > 0
@@ -901,9 +902,10 @@ def get_offer_rule_customer_rows(rule_code, filters=None, sort="offer_sales_4w",
         FROM crm_customer_offer_current c
         LEFT JOIN ps_customers p ON p.customer_code_365 = c.customer_code_365
         LEFT JOIN crm_customer_profile cp ON cp.customer_code_365 = c.customer_code_365
+        LEFT JOIN postal_code_lookup pcl ON pcl.postcode = p.postal_code
         LEFT JOIN crm_customer_offer_summary_current s ON s.customer_code_365 = c.customer_code_365
         WHERE {base_where}{extra_w}
-        GROUP BY c.customer_code_365, p.company_name, cp.classification, cp.district
+        GROUP BY c.customer_code_365, p.company_name, cp.classification, cp.district, pcl.district
         ORDER BY {sort_col} {direction} NULLS LAST
         LIMIT :limit OFFSET :offset
     """), params).fetchall()
