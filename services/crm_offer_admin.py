@@ -807,7 +807,7 @@ def get_offer_rule_product_rows(rule_code, filters=None, sort="customers_with_of
                AVG(c.gross_margin_percent) FILTER (WHERE c.gross_margin_percent IS NOT NULL) AS avg_margin,
                COALESCE(SUM(c.sold_value_4w), 0) AS total_sales,
                COUNT(DISTINCT c.customer_code_365) FILTER (WHERE c.line_status = 'high_discount_unused') AS hdu_count,
-               COALESCE(SUM(COALESCE(d.line_total, 0)), 0) AS total_product_sales
+               COALESCE(SUM(COALESCE(d.net_excl, 0)), 0) AS total_product_sales
         FROM crm_customer_offer_current c
         LEFT JOIN dw_sales_lines_mv d ON d.item_code_365 = c.item_code_365 AND d.sale_date >= NOW() - INTERVAL '28 days'
         WHERE {w}
