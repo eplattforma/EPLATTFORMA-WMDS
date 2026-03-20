@@ -138,14 +138,18 @@
         <form method="get" action="/crm/admin/offers/rule/{{ rule_code }}" class="ord-filter-bar">
             <input type="hidden" name="tab" value="customers">
             <input type="text" class="form-control form-control-sm" name="cq" value="{{ customer_filters.q }}" placeholder="Customer…" style="width:140px;">
-            <div class="form-check form-check-inline mb-0">
-                <input class="form-check-input" type="checkbox" name="zero_usage" value="1" id="fZero" {% if customer_filters.zero_usage %}checked{% endif %}>
-                <label class="form-check-label" for="fZero">Zero Usage</label>
-            </div>
-            <div class="form-check form-check-inline mb-0">
-                <input class="form-check-input" type="checkbox" name="high_dep" value="1" id="fHighD" {% if customer_filters.high_dependency %}checked{% endif %}>
-                <label class="form-check-label" for="fHighD">High Dep.</label>
-            </div>
+            <select name="classification" class="form-select form-select-sm" style="width:120px;">
+                <option value="">All Classes</option>
+                {% for cls in all_classifications %}
+                <option value="{{ cls }}" {% if customer_filters.classification == cls %}selected{% endif %}>{{ cls }}</option>
+                {% endfor %}
+            </select>
+            <select name="district" class="form-select form-select-sm" style="width:130px;">
+                <option value="">All Districts</option>
+                {% for d in all_districts %}
+                <option value="{{ d }}" {% if customer_filters.district == d %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+            </select>
             <button type="submit" class="btn btn-sm btn-primary py-0 px-2"><i class="fas fa-filter me-1"></i>Apply</button>
             <a href="/crm/admin/offers/rule/{{ rule_code }}?tab=customers" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="fas fa-times"></i></a>
         </form>

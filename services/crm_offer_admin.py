@@ -757,15 +757,11 @@ def _build_rule_detail_customer_filter(filters, params):
     district = (filters.get("district") or "").strip()
     if district:
         params["r_district"] = district
-        clauses.append("cp.district = :r_district")
+        clauses.append("COALESCE(cp.district, pcl.district) = :r_district")
     q = (filters.get("q") or "").strip()
     if q:
         params["r_cq"] = f"%{q}%"
         clauses.append("(c.customer_code_365 ILIKE :r_cq OR p.company_name ILIKE :r_cq)")
-    if filters.get("zero_usage"):
-        clauses.append("NOT EXISTS (SELECT 1 FROM crm_customer_offer_current x2 WHERE x2.rule_code = c.rule_code AND x2.customer_code_365 = c.customer_code_365 AND x2.is_active AND x2.sold_qty_4w > 0)")
-    if filters.get("high_dependency"):
-        clauses.append("s.offer_sales_share_pct >= 50")
     return clauses
 
 

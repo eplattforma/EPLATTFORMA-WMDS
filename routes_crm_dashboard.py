@@ -1377,8 +1377,6 @@ def admin_offer_rule_detail(rule_code):
         "q": request.args.get("cq", "").strip(),
         "classification": request.args.get("classification", "").strip(),
         "district": request.args.get("district", "").strip(),
-        "zero_usage": request.args.get("zero_usage") == "1",
-        "high_dependency": request.args.get("high_dep") == "1",
     }
 
     products = get_offer_rule_product_rows(rule_code, product_filters,
@@ -1426,7 +1424,13 @@ def _get_all_classifications():
 
 def _get_all_districts():
     try:
-        rows = db.session.execute(text("SELECT DISTINCT district FROM crm_customer_profile WHERE district IS NOT NULL AND district != '' ORDER BY district")).fetchall()
+        rows = db.session.execute(text("""
+            SELECT DISTINCT d FROM (
+                SELECT district AS d FROM crm_customer_profile WHERE district IS NOT NULL AND district != ''
+                UNION
+                SELECT district AS d FROM postal_code_lookup WHERE district IS NOT NULL AND district != ''
+            ) u ORDER BY d
+        """)).fetchall()
         return [r[0] for r in rows]
     except Exception:
         return []
