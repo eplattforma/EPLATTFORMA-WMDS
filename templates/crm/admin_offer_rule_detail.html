@@ -75,33 +75,8 @@
     <div id="sec-products" class="ord-section {% if tab == 'products' %}active{% endif %}">
         <form method="get" action="/crm/admin/offers/rule/{{ rule_code }}" class="ord-filter-bar">
             <input type="hidden" name="tab" value="products">
-            <input type="text" class="form-control form-control-sm" name="q" value="{{ product_filters.q }}" placeholder="SKU/Product…" style="width:130px;">
-            <input type="text" class="form-control form-control-sm" name="supplier" value="{{ product_filters.supplier }}" placeholder="Supplier…" style="width:100px;">
-            <input type="text" class="form-control form-control-sm" name="category" value="{{ product_filters.category }}" placeholder="Category…" style="width:100px;">
-            <input type="text" class="form-control form-control-sm" name="brand" value="{{ product_filters.brand }}" placeholder="Brand…" style="width:100px;">
-            <select class="form-select form-select-sm" name="line_status" style="width:110px;">
-                <option value="">All Status</option>
-                <option value="used" {% if product_filters.line_status == 'used' %}selected{% endif %}>Used</option>
-                <option value="unused" {% if product_filters.line_status == 'unused' %}selected{% endif %}>Unused</option>
-                <option value="high_discount_unused" {% if product_filters.line_status == 'high_discount_unused' %}selected{% endif %}>High Disc Unused</option>
-            </select>
-            <div class="form-check form-check-inline mb-0">
-                <input class="form-check-input" type="checkbox" name="low_margin" value="1" id="fLowM" {% if product_filters.low_margin %}checked{% endif %}>
-                <label class="form-check-label" for="fLowM">Low Margin</label>
-            </div>
-            <div class="form-check form-check-inline mb-0">
-                <input class="form-check-input" type="checkbox" name="negative_margin" value="1" id="fNegM" {% if product_filters.negative_margin %}checked{% endif %}>
-                <label class="form-check-label" for="fNegM">Neg. Margin</label>
-            </div>
-            <div class="form-check form-check-inline mb-0">
-                <input class="form-check-input" type="checkbox" name="missing_cost" value="1" id="fMissC" {% if product_filters.missing_cost %}checked{% endif %}>
-                <label class="form-check-label" for="fMissC">No Cost</label>
-            </div>
-            <div class="form-check form-check-inline mb-0">
-                <input class="form-check-input" type="checkbox" name="only_unused" value="1" id="fUnused" {% if product_filters.only_unused %}checked{% endif %}>
-                <label class="form-check-label" for="fUnused">Unused Only</label>
-            </div>
-            <button type="submit" class="btn btn-sm btn-primary py-0 px-2"><i class="fas fa-filter me-1"></i>Apply</button>
+            <input type="text" class="form-control form-control-sm" name="q" value="{{ product_filters.q }}" placeholder="Search SKU/Product…" style="width:200px;">
+            <button type="submit" class="btn btn-sm btn-primary py-0 px-2"><i class="fas fa-search me-1"></i>Search</button>
             <a href="/crm/admin/offers/rule/{{ rule_code }}?tab=products" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="fas fa-times"></i></a>
         </form>
 
