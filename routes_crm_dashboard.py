@@ -916,11 +916,14 @@ def review_ordering():
         r["r_invoice_days"] if r["r_invoice_days"] is not None else 9999,
     ))
 
-    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "exclude": 0, "has_cart": 0}
+    kpi = {"follow_up": 0, "waiting": 0, "ordered": 0, "exclude": 0, "has_cart": 0, "total_cart_value": 0, "total_orders": 0}
     for row in open_window_rows:
         kpi[row["state"]] = kpi.get(row["state"], 0) + 1
         if row["has_cart"]:
             kpi["has_cart"] += 1
+            kpi["total_cart_value"] += row.get("cart_amount", 0)
+        if row.get("open_order_count", 0) > 0:
+            kpi["total_orders"] += row["open_order_count"]
 
     ro_offer_kpi_map = {}
     for row in open_window_rows:
