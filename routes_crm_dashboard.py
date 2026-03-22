@@ -809,6 +809,21 @@ def review_ordering():
             r.customer_code_365, natural_del, active_overrides=cust_overrides
         )
 
+        # Recalculate window status based on effective delivery date if overridden
+        if override_rec:
+            effective_window_status = get_order_window_status(
+                r.customer_code_365,
+                r.order_window_start_day_365,
+                r.order_window_end_day_365,
+                r.order_window_start_hour_365,
+                effective_del,
+                close_hours_365=r.order_window_close_hour_365,
+                close_anchor=r.order_window_close_anchor_365,
+                close_anchor_time_str=close_anchor_time,
+                now_local=now_local,
+            )
+            window_is_open = effective_window_status["window_open"]
+        
         if override_rec:
             eff_open = order_window_open_at(effective_del, window_hours, anchor_time)
             if close_hours > 0:
