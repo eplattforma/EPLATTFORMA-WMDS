@@ -201,6 +201,7 @@ function toggleKpiFilter(filterType) {
         <div id="bulkToolbar" style="display:none; padding:8px 12px; background:rgba(13,110,253,0.1); border:1px solid rgba(13,110,253,0.3); border-radius:6px; margin-bottom:8px; align-items:center; gap:12px;">
             <span style="font-size:0.85rem;"><strong id="bulkCount">0</strong> selected</span>
             <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-paper-plane me-1"></i>Send MicroSMS</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="bulkExclude()"><i class="fas fa-ban me-1"></i>Exclude</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearBulkSelection()">Clear</button>
         </div>
     </form>
@@ -596,6 +597,38 @@ async function markExclude() {
         var data = await res.json();
         if (data.ok) { location.reload(); }
     } catch(e) { alert('Error'); }
+}
+
+async function bulkExclude() {
+    var checkboxes = document.querySelectorAll('.bulk-cb:checked');
+    if (checkboxes.length === 0) {
+        alert('No customers selected');
+        return;
+    }
+    if (!confirm('Exclude ' + checkboxes.length + ' customer(s) from this order review?')) {
+        return;
+    }
+    var exclusions = [];
+    for (var cb of checkboxes) {
+        var cc = cb.value;
+        var row = _rowsData.find(function(r) { return r.customer_code_365 === cc; });
+        if (row) {
+            exclusions.push({
+                customer_code_365: cc,
+                delivery_date: row.next_delivery_date || ''
+            });
+        }
+    }
+    try {
+        var res = await fetch('/crm/review-ordering/bulk-exclude', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({exclusions: exclusions})
+        });
+        var data = await res.json();
+        if (data.ok) { location.reload(); }
+        else { alert('Error: ' + (data.error || 'Unknown')); }
+    } catch(e) { alert('Error: ' + e.message); }
 }
 
 async function markFollowUp() {

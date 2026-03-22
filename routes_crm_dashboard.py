@@ -1018,6 +1018,50 @@ def review_ordering_update_state():
     return jsonify({"ok": True, "state": review.review_state})
 
 
+@crm_dashboard_bp.post("/review-ordering/bulk-exclude")
+@login_required
+def review_ordering_bulk_exclude():
+    data = request.get_json()
+    exclusions = data.get("exclusions", [])
+    
+    if not exclusions:
+        return jsonify({"ok": False, "error": "No exclusions provided"}), 400
+    
+    try:
+        count = 0
+        for excl in exclusions:
+            customer_code = excl.get("customer_code_365", "").strip()
+            delivery_date_str = excl.get("delivery_date", "").strip()
+            
+            if not customer_code or not delivery_date_str:
+                continue
+            
+            try:
+                delivery_date = date.fromisoformat(delivery_date_str)
+            except ValueError:
+                continue
+            
+            review = CrmOrderingReview.query.filter_by(
+                customer_code_365=customer_code, delivery_date=delivery_date
+            ).first()
+            if not review:
+                review = CrmOrderingReview(customer_code_365=customer_code, delivery_date=delivery_date)
+                db.session.add(review)
+            
+            review.review_state = "exclude"
+            review.manual_follow_up_flag = False
+            review.exclude_at = datetime.now(timezone.utc)
+            review.exclude_by = getattr(current_user, "username", None)
+            count += 1
+        
+        db.session.commit()
+        return jsonify({"ok": True, "count": count})
+    except Exception as e:
+        logger.error("Error bulk excluding customers: %s", e)
+        db.session.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @crm_dashboard_bp.post("/review-ordering/update-flags")
 @login_required
 def review_ordering_update_flags():
