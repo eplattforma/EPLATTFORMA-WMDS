@@ -1,0 +1,441 @@
+WMDS implementation brief: bulk temporary delivery date reassignment from CRM dashboard
+Goal
+
+Add a simple operational feature to the WMDS/CRM dashboard so planners can:
+
+filter customers using the existing CRM dashboard filters
+select customers one by one, or select all filtered
+assign a new one-off delivery date
+have ordering monitoring use that moved date for the next cycle only
+Important business rule
+
+Do not change the customer’s normal recurring delivery day or slot.
+
+This feature must only create a temporary override for the next delivery cycle.
+
+Example:
+
+customer normal next delivery = Wednesday 2026-04-08
+planner moves it to Tuesday 2026-04-07
+monitoring/order window must use Tuesday 2026-04-07
+after that cycle, customer returns to normal Wednesday pattern unless another override is created
+1) Data model
+
+Create a new table and SQLAlchemy model:
+
+Table name
+
+customer_delivery_date_override
+
+Purpose
+
+Stores one-off moved delivery dates for the next cycle only.
+
+Columns
+id bigserial primary key
+customer_code_365 varchar not null
+original_delivery_date date not null
+override_delivery_date date not null
+reason_code varchar(40) not null
+reason_notes text nullable
+is_active boolean not null default true
+created_at timestamptz not null default now()
+created_by varchar(80) nullable
+cleared_at timestamptz nullable
+cleared_by varchar(80) nullable
+Indexes / constraints
+
+Add:
+
+index on (customer_code_365, is_active)
+index on (original_delivery_date, is_active)
+partial unique index on (customer_code_365, original_delivery_date) where is_active = true
+
+This ensures only one active override exists per customer for the same original cycle.
+
+Foreign key
+
+If practical, link customer_code_365 to ps_customers.customer_code_365.
+If FK causes operational friction, keep it as plain indexed varchar and validate in app layer.
+
+SQLAlchemy model name
+
+CustomerDeliveryDateOverride
+
+2) Migration
+
+Add a Flask-Migrate/Alembic migration to create the table and indexes.
+
+Also register the model in models.py.
+
+3) Service logic
+
+Create a service module, preferably:
+
+services/crm_delivery_overrides.py
+
+Add these functions
+A. get_customer_normal_next_delivery_date(customer, as_of_dt, tz=ATHENS_TZ)
+
+Use the existing delivery-slot logic to calculate the normal next delivery date exactly as today.
+
+This must remain the source of truth for the base recurring schedule.
+
+B. get_active_delivery_override(customer_code, original_delivery_date)
+
+Return the active override row for that customer and that original cycle date.
+
+C. resolve_effective_next_delivery(customer, as_of_dt, tz=ATHENS_TZ)
+
+This is the main function.
+
+It should:
+
+calculate the customer’s normal next delivery date
+check if an active override exists for that exact original date
+if yes, return the override date as the effective next delivery date
+otherwise return the normal next delivery date
+
+Return a structured dict like:
+
+{
+    "normal_delivery_date": normal_date,
+    "effective_delivery_date": effective_date,
+    "delivery_source": "override" or "normal",
+    "override_id": override.id if override else None,
+    "reason_code": override.reason_code if override else None,
+    "reason_notes": override.reason_notes if override else None,
+}
+D. apply_delivery_override(customer_code, new_delivery_date, reason_code, reason_notes, created_by, as_of_dt)
+
+Logic:
+
+calculate the customer’s current normal next delivery date
+find any existing active override for that same customer_code + original_delivery_date
+if one exists, update it in place or deactivate old and create new
+save the override using:
+original_delivery_date = normal next delivery date
+override_delivery_date = selected moved date
+
+Important:
+
+this must apply to the next cycle only
+do not write anything into CustomerDeliverySlot
+do not alter base weekday flags
+E. clear_delivery_override_for_next_cycle(customer_code, as_of_dt, cleared_by)
+
+Find the active override for the customer’s current next normal cycle and mark it inactive.
+
+4) Update ordering window / monitoring logic
+
+Wherever the CRM queue or ordering review currently calculates:
+
+next delivery date
+ordering window open/close
+customer status based on delivery timing
+
+change it so it uses:
+
+effective_delivery_date from resolve_effective_next_delivery(...)
+
+not just the normal recurring weekday.
+
+Required behavior
+
+If a customer was moved from Wednesday to Tuesday, the ordering window must open based on Tuesday.
+
+5) Refactor CRM dashboard filters so bulk actions can reuse them
+
+This is important.
+
+The dashboard already has filters.
+The bulk action must use the same exact filtering logic.
+
+Refactor the current CRM dashboard query into shared helpers, for example inside the dashboard blueprint or a separate service:
+
+build_crm_dashboard_base_query()
+apply_crm_dashboard_filters(query, filters)
+get_filtered_customer_codes(filters)
+Why
+
+For “Select all filtered”, the backend must rerun the same filter query server-side and get all matching customer codes, not only the visible page.
+
+Do not trust only frontend row selection for select-all-filtered.
+
+6) New endpoints
+
+Inside the CRM dashboard blueprint, add:
+
+A. Bulk assign moved date
+
+POST /crm/api/delivery-overrides/bulk-assign
+
+Payload:
+
+{
+  "selection_mode": "selected" | "all_filtered",
+  "selected_customer_codes": ["77700001", "77700002"],
+  "filters": {
+    "...": "same filter payload the dashboard already uses"
+  },
+  "new_delivery_date": "2026-04-07",
+  "reason_code": "holiday_move",
+  "reason_notes": "Moved due to Easter delivery reschedule"
+}
+Backend behavior
+if selection_mode == "selected" use the provided customer codes
+if selection_mode == "all_filtered" ignore current page only and rerun the CRM filters server-side to get all matching customers
+for each customer, call apply_delivery_override(...)
+commit once at the end
+return:
+affected count
+created/updated count
+errors if any
+B. Bulk clear moved date
+
+POST /crm/api/delivery-overrides/bulk-clear
+
+Same selection logic:
+
+selected
+all_filtered
+
+For each customer:
+
+clear current next-cycle override
+Validation
+
+Reject when:
+
+new_delivery_date is missing
+new_delivery_date is in the past
+no customers matched
+invalid selection_mode
+7) CRM dashboard UI changes
+
+Add this to the existing CRM dashboard table.
+
+A. Checkbox column
+
+Add a checkbox as the first column.
+
+Support:
+
+row checkbox = select one customer
+header checkbox = select all visible rows on current page
+B. Select all filtered
+
+Add a button near the table actions:
+
+Select all filtered
+
+When clicked:
+
+switch selection mode to all_filtered
+show total filtered count
+do not depend on page-only rows
+
+For first version, keep this simple:
+
+no exclude-subset logic after select-all-filtered
+either user uses explicit row selection
+or user uses all filtered
+
+That is enough for now.
+
+C. Bulk action bar
+
+Show when at least one customer is selected or all-filtered mode is active.
+
+Show:
+
+12 selected
+or
+All 248 filtered customers selected
+
+Buttons:
+
+Assign new delivery date
+Clear moved date
+D. Assign modal
+
+Open a modal with:
+
+selected count summary
+date input: New delivery date
+reason dropdown
+notes textarea
+
+Reason dropdown values:
+
+holiday_move
+route_reschedule
+warehouse_closed
+customer_requested
+other
+
+Save button calls /crm/api/delivery-overrides/bulk-assign
+
+E. Clear modal
+
+Simple confirmation modal:
+
+“Clear moved delivery date for selected customers?”
+
+Calls /crm/api/delivery-overrides/bulk-clear
+
+8) Display changes in table and drawer
+In the CRM table
+
+Show the next delivery using the effective date.
+
+If override exists:
+
+show badge: Moved
+show the effective date as primary
+show original date in smaller muted text
+
+Example:
+
+Tue 07 Apr 2026
+muted subtext: Normal: Wed 08 Apr 2026
+badge: Moved
+In the right-side drawer / customer detail panel
+
+Add a section:
+
+Delivery schedule
+
+Normal next delivery date
+Effective next delivery date
+Status: Normal / Moved
+Reason
+Notes
+Changed by
+Changed at
+
+This will help operators understand why monitoring timing changed.
+
+9) Files likely to change
+
+Use current project structure, but roughly this scope:
+
+Backend
+models.py
+new migration file
+services/crm_delivery_overrides.py
+existing CRM delivery/order-window service
+CRM dashboard blueprint file
+any serializer/helper used by the dashboard table and drawer
+Frontend/template
+CRM dashboard template
+JS handling row selection, select-all-filtered mode, modal submit, refresh table after success
+10) Recommended implementation details
+A. Timezone
+
+Use the same business timezone already used in CRM order-window logic, likely ATHENS_TZ.
+
+B. Auditability
+
+Always save:
+
+created_by
+created_at
+cleared_by
+cleared_at
+C. Idempotent behavior
+
+If planner assigns the same customer again for the same original cycle:
+
+update the existing active override, or replace it cleanly
+do not create duplicate active rows
+D. Historical rows
+
+Do not delete old overrides.
+Keep inactive rows for history/audit.
+
+11) Acceptance criteria
+
+The implementation is complete only when all of these work:
+
+Scenario 1: single customer move
+planner selects one row
+assigns new delivery date
+customer shows Moved
+effective next delivery changes
+ordering window recalculates from the moved date
+Scenario 2: all filtered move
+planner filters customers by delivery day / district / classification
+clicks Select all filtered
+assigns new delivery date
+override is created for all matching customers, including across pagination
+Scenario 3: clear move
+planner clears moved date
+customer returns to normal next delivery date
+ordering window returns to normal logic
+Scenario 4: base schedule unchanged
+customer’s recurring delivery weekday/slot remains untouched
+only next cycle is affected
+Scenario 5: repeat edit
+planner changes the moved date again for same customer and same cycle
+system does not create duplicate active overrides
+12) Important non-goals
+
+Do not build a full holiday engine yet.
+
+Do not:
+
+modify recurring weekday fields
+introduce automatic holiday rules
+change route master schedule logic
+add complex exclusion logic after “select all filtered”
+
+This task is only about manual one-off moved delivery date assignment from the CRM dashboard.
+
+13) Suggested implementation order
+create model + migration
+add delivery override service
+update effective next delivery resolution
+refactor dashboard filters into shared helper
+add bulk assign/clear endpoints
+add table checkboxes + bulk bar + modal
+add moved-date badge and drawer details
+test end-to-end with one customer, then all filtered
+14) Pseudocode for main resolution logic
+def resolve_effective_next_delivery(customer, as_of_dt, tz=ATHENS_TZ):
+    normal_date = get_customer_normal_next_delivery_date(customer, as_of_dt, tz=tz)
+
+    override = CustomerDeliveryDateOverride.query.filter(
+        CustomerDeliveryDateOverride.customer_code_365 == customer.customer_code_365,
+        CustomerDeliveryDateOverride.original_delivery_date == normal_date,
+        CustomerDeliveryDateOverride.is_active.is_(True),
+    ).first()
+
+    if override:
+        effective_date = override.override_delivery_date
+        source = "override"
+    else:
+        effective_date = normal_date
+        source = "normal"
+
+    return {
+        "normal_delivery_date": normal_date,
+        "effective_delivery_date": effective_date,
+        "delivery_source": source,
+        "override_id": override.id if override else None,
+        "reason_code": override.reason_code if override else None,
+        "reason_notes": override.reason_notes if override else None,
+    }
+15) UI wording
+
+Use operator-friendly labels:
+
+Assign new delivery date
+Clear moved date
+badge: Moved
+drawer field: Normal next delivery
+drawer field: Moved next delivery
+
+Do not expose technical terms like exception/override in the main UI.
+
+Tell Replit to implement this in the existing Flask + SQLAlchemy WMDS codebase, reusing the current CRM dashboard filters and ordering-window logic rather than creating a separate screen.

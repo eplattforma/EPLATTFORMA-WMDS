@@ -1260,6 +1260,40 @@ class CustomerDeliverySlot(db.Model):
     def __repr__(self):
         return f"<CustomerDeliverySlot {self.customer_code_365}: {self.dow}-{self.week_code}>"
 
+
+class CustomerDeliveryDateOverride(db.Model):
+    __tablename__ = 'customer_delivery_date_override'
+    __table_args__ = (
+        db.Index('ix_cdd_override_customer_active', 'customer_code_365', 'is_active'),
+        db.Index('ix_cdd_override_orig_date_active', 'original_delivery_date', 'is_active'),
+        db.Index(
+            'uq_cdd_override_customer_orig_active',
+            'customer_code_365', 'original_delivery_date',
+            unique=True,
+            postgresql_where=db.text('is_active = true'),
+        ),
+    )
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    customer_code_365 = db.Column(
+        db.String(50),
+        db.ForeignKey('ps_customers.customer_code_365', ondelete='CASCADE'),
+        nullable=False,
+    )
+    original_delivery_date = db.Column(db.Date, nullable=False)
+    override_delivery_date = db.Column(db.Date, nullable=False)
+    reason_code = db.Column(db.String(40), nullable=False)
+    reason_notes = db.Column(db.Text, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    created_by = db.Column(db.String(80), nullable=True)
+    cleared_at = db.Column(UTCDateTime(), nullable=True)
+    cleared_by = db.Column(db.String(80), nullable=True)
+
+    def __repr__(self):
+        return f"<CustomerDeliveryDateOverride {self.customer_code_365}: {self.original_delivery_date} -> {self.override_delivery_date}>"
+
+
 # Customer Receipt Models
 class ReceiptSequence(db.Model):
     """Sequence table for generating unique receipt reference numbers"""

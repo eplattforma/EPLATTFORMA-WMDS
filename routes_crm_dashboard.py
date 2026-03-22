@@ -3,7 +3,7 @@ import logging
 from flask import Blueprint, request, render_template, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
 from sqlalchemy import func, and_, or_, case, text
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 
 from app import db
 from models import (
@@ -13,9 +13,15 @@ from models import (
     CustomerDeliverySlot, PostalCodeLookup,
     CRMCustomerOpenOrders, PSPendingOrderHeader,
     CrmOrderingReview, CRMCommunicationLog,
+    CustomerDeliveryDateOverride,
 )
 from services.crm_order_window import (
     get_customer_window_status, ATHENS_TZ,
+    order_window_open_at, order_window_close_at,
+)
+from services.crm_delivery_overrides import (
+    get_active_overrides_for_customers, resolve_effective_delivery,
+    apply_delivery_overrides, clear_delivery_overrides, REASON_CODES,
 )
 
 logger = logging.getLogger(__name__)
@@ -709,6 +715,8 @@ def review_ordering():
         ).all():
             review_recs.setdefault(rv.customer_code_365, {})[rv.delivery_date] = rv
 
+    active_overrides_map = get_active_overrides_for_customers(all_codes)
+
     all_districts_q = [x[0] for x in (
         db.session.query(func.coalesce(CrmCustomerProfile.district, PostalCodeLookup.district))
         .select_from(PSCustomer)
@@ -790,6 +798,27 @@ def review_ordering():
         if not window_status["window_open"]:
             continue
 
+        natural_del = window_status["next_delivery"]
+        cust_overrides = active_overrides_map.get(r.customer_code_365, [])
+        effective_del, override_rec = resolve_effective_delivery(
+            r.customer_code_365, natural_del, active_overrides=cust_overrides
+        ) if natural_del else (natural_del, None)
+
+        if override_rec:
+            eff_open = order_window_open_at(effective_del, window_hours, anchor_time)
+            if close_hours > 0:
+                eff_close = order_window_close_at(effective_del, close_hours, close_anchor_time)
+            else:
+                hh, mm = anchor_time.split(":")
+                eff_close = ATHENS_TZ.localize(
+                    datetime.combine(effective_del, dt_time(int(hh), int(mm)))
+                )
+        else:
+            eff_open = window_status.get("window_open_at")
+            eff_close = window_status.get("window_close_at")
+
+        next_del = effective_del
+
         has_cart = bool(r.has_abandoned_cart) if r.has_abandoned_cart is not None else False
         cart_amount = float(r.abandoned_cart_amount) if r.abandoned_cart_amount is not None else 0
         has_order = open_order_count > 0
@@ -806,7 +835,6 @@ def review_ordering():
         logged_in_during_window = False
         if last_login_at:
             r_login_days = (now_utc.date() - last_login_at.date()).days
-            # Flag if logged in within last 1-2 days (recent engagement) while window is open
             if r_login_days is not None and r_login_days <= 1 and window_status.get("window_open"):
                 logged_in_during_window = True
 
@@ -817,8 +845,6 @@ def review_ordering():
             else:
                 invoice_date_only = last_invoice_date
             r_invoice_days = (now_utc.date() - invoice_date_only).days
-
-        next_del = window_status["next_delivery"]
         if next_del:
             nd_iso = next_del.isoformat()
             if nd_iso not in all_delivery_slots_map:
@@ -830,18 +856,17 @@ def review_ordering():
                 }
 
         cust_reviews = review_recs.get(r.customer_code_365, {})
-        review_rec = cust_reviews.get(next_del) if next_del else None
+        review_rec = cust_reviews.get(natural_del) if natural_del else None
 
         state = _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window)
         cm = _cart_mode(has_order, has_cart)
 
-        # Check if delivery slot is closing in less than 6 hours
         slot_closing_soon = False
-        window_close = window_status.get("window_close_at")
-        if window_close:
-            hours_until_close = (window_close - now_local).total_seconds() / 3600
+        if eff_close:
+            hours_until_close = (eff_close - now_local).total_seconds() / 3600
             slot_closing_soon = hours_until_close < 6
         
+        has_override = override_rec is not None
         row = {
             "customer_code_365": r.customer_code_365,
             "customer_name": r.company_name or r.customer_code_365,
@@ -861,13 +886,20 @@ def review_ordering():
             "invoice_in_window": invoice_in_window,
             "next_delivery": next_del.strftime('%a %d-%b') if next_del else None,
             "next_delivery_date": next_del.isoformat() if next_del else None,
-            "window_close_at": window_status.get("window_close_at").isoformat() if window_status.get("window_close_at") else None,
+            "original_delivery_date": natural_del.isoformat() if natural_del else None,
+            "window_close_at": eff_close.isoformat() if eff_close else None,
             "slot_closing_soon": slot_closing_soon,
             "mobile_number": r.mobile or r.sms_number or "",
             "assisted_ordering": assisted,
             "review_note": review_rec.review_note if review_rec else "",
             "last_comm": comm_map.get(r.customer_code_365),
             "msg_history": comm_list_map.get(r.customer_code_365, []),
+            "has_override": has_override,
+            "override_reason": override_rec.reason_code if override_rec else None,
+            "override_notes": override_rec.reason_notes if override_rec else None,
+            "override_original_date": natural_del.strftime('%a %d-%b') if has_override and natural_del else None,
+            "override_created_by": override_rec.created_by if override_rec else None,
+            "override_created_at": override_rec.created_at.isoformat() if override_rec and override_rec.created_at else None,
         }
         ros = ro_offer_map.get(r.customer_code_365, {})
         row["has_special_pricing"] = ros.get("has_special_pricing", False)
@@ -947,6 +979,8 @@ def review_ordering():
     open_windows = sorted(open_windows_map.values(), key=lambda w: w["delivery_date"])
     all_delivery_slots = sorted(all_delivery_slots_map.values(), key=lambda w: w["delivery_date"])
 
+    override_count = sum(1 for row in open_window_rows if row.get("has_override"))
+
     return render_template(
         "crm/review_ordering.html",
         rows=open_window_rows,
@@ -957,6 +991,8 @@ def review_ordering():
         all_delivery_slots=all_delivery_slots,
         allowed_classifications=allowed_classifications,
         all_districts=all_districts_q,
+        override_count=override_count,
+        reason_codes=REASON_CODES,
         filters={
             "q": search_q,
             "classification": classification or [],
@@ -1059,6 +1095,92 @@ def review_ordering_bulk_exclude():
         return jsonify({"ok": True, "count": count})
     except Exception as e:
         logger.error("Error bulk excluding customers: %s", e)
+        db.session.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@crm_dashboard_bp.post("/api/delivery-overrides/bulk-assign")
+@login_required
+def bulk_assign_delivery_override():
+    data = request.get_json()
+    if not data:
+        return jsonify({"ok": False, "error": "No data provided"}), 400
+
+    override_date_str = data.get("override_delivery_date", "").strip()
+    reason_code = data.get("reason_code", "other").strip()
+    reason_notes = data.get("reason_notes", "").strip()
+
+    valid_reason_codes = {code for code, _ in REASON_CODES}
+    if reason_code not in valid_reason_codes:
+        reason_code = "other"
+
+    if not override_date_str:
+        return jsonify({"ok": False, "error": "Missing override delivery date"}), 400
+    try:
+        override_date = date.fromisoformat(override_date_str)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid override date format"}), 400
+
+    items = data.get("items", [])
+    if not items:
+        return jsonify({"ok": False, "error": "No customer items provided"}), 400
+
+    overrides_data = []
+    for item in items:
+        cc = item.get("customer_code_365", "").strip()
+        orig = item.get("original_delivery_date", "").strip()
+        if cc and orig:
+            overrides_data.append({
+                "customer_code_365": cc,
+                "original_delivery_date": orig,
+                "override_delivery_date": override_date_str,
+                "reason_code": reason_code,
+                "reason_notes": reason_notes,
+            })
+
+    if not overrides_data:
+        return jsonify({"ok": False, "error": "No valid items to override"}), 400
+
+    try:
+        username = getattr(current_user, "username", None)
+        result = apply_delivery_overrides(overrides_data, created_by=username)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        logger.error("Error bulk assigning delivery overrides: %s", e)
+        db.session.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@crm_dashboard_bp.post("/api/delivery-overrides/bulk-clear")
+@login_required
+def bulk_clear_delivery_override():
+    data = request.get_json()
+    if not data:
+        return jsonify({"ok": False, "error": "No data provided"}), 400
+
+    items = data.get("items", [])
+    if not items:
+        return jsonify({"ok": False, "error": "No items provided"}), 400
+
+    clear_data = []
+    for item in items:
+        cc = item.get("customer_code_365", "").strip()
+        orig = item.get("original_delivery_date", "").strip()
+        if cc and orig:
+            clear_data.append({
+                "customer_code_365": cc,
+                "original_delivery_date": orig,
+            })
+
+    if not clear_data:
+        return jsonify({"ok": False, "error": "No valid items to clear"}), 400
+
+    try:
+        username = getattr(current_user, "username", None)
+        result = clear_delivery_overrides(clear_data, cleared_by=username)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        logger.error("Error bulk clearing delivery overrides: %s", e)
         db.session.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500
 

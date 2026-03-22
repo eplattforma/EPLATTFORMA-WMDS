@@ -31,6 +31,7 @@
 .state-exclude { background: rgba(108,117,125,0.15); color: #6c757d; }
 tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .badge-cart { background-color: #fd7e14; }
+.badge-moved { background: rgba(13,110,253,0.2); color: #6ea8fe; font-size: 0.62rem; padding: 1px 5px; border-radius: 3px; margin-left: 4px; font-weight: 600; letter-spacing: 0.03em; cursor: help; }
 .kpi-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .kpi-chip { padding: 6px 12px; border-radius: 6px; text-align: center; border: 2px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.04); cursor: pointer; transition: all 0.2s ease; }
 .kpi-chip:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.3); }
@@ -202,6 +203,8 @@ function toggleKpiFilter(filterType) {
             <span style="font-size:0.85rem;"><strong id="bulkCount">0</strong> selected</span>
             <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-paper-plane me-1"></i>Send MicroSMS</button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="bulkExclude()"><i class="fas fa-ban me-1"></i>Exclude</button>
+            <button type="button" class="btn btn-sm btn-outline-info" onclick="openAssignModal()"><i class="fas fa-calendar-alt me-1"></i>Move Delivery</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" onclick="bulkClearOverride()"><i class="fas fa-undo me-1"></i>Clear Moved</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearBulkSelection()">Clear</button>
         </div>
     </form>
@@ -281,6 +284,9 @@ function toggleKpiFilter(filterType) {
                             {% endif %}
                             {{ r.next_delivery }}
                         </span>
+                        {% if r.has_override %}
+                        <span class="badge-moved" title="Moved from {{ r.override_original_date }} · {{ r.override_reason }}{% if r.override_notes %}: {{ r.override_notes }}{% endif %}"><i class="fas fa-exchange-alt me-1" style="font-size:0.55rem;"></i>Moved</span>
+                        {% endif %}
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td class="value-col">
@@ -402,6 +408,16 @@ function toggleKpiFilter(filterType) {
             <div id="drawer-action-log" style="font-size:0.75rem;max-height:200px;overflow-y:auto;"></div>
         </div>
 
+        <div class="drawer-section" id="drawer-override-section" style="display:none;">
+            <div class="drawer-section-title"><i class="fas fa-exchange-alt me-1" style="color:#6ea8fe;"></i>Delivery Date Override</div>
+            <div class="drawer-field"><span class="label">Original date</span><span class="val" id="drawer-override-orig">—</span></div>
+            <div class="drawer-field"><span class="label">Moved to</span><span class="val" id="drawer-override-new" style="color:#6ea8fe;font-weight:600;">—</span></div>
+            <div class="drawer-field"><span class="label">Reason</span><span class="val" id="drawer-override-reason">—</span></div>
+            <div class="drawer-field" id="drawer-override-notes-row"><span class="label">Notes</span><span class="val" id="drawer-override-notes">—</span></div>
+            <div class="drawer-field"><span class="label">By</span><span class="val" id="drawer-override-by">—</span></div>
+            <button class="btn btn-sm btn-outline-warning mt-2" onclick="clearSingleOverride()"><i class="fas fa-undo me-1"></i>Clear Override</button>
+        </div>
+
         <div class="drawer-section">
             <div class="drawer-section-title">Quick Actions</div>
             <div class="d-flex gap-2 flex-wrap" id="drawer-actions"></div>
@@ -411,6 +427,40 @@ function toggleKpiFilter(filterType) {
             <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-outline-warning flex-fill" id="btn-follow-up" onclick="markFollowUp()"><i class="fas fa-flag me-1"></i>Follow Up</button>
                 <button class="btn btn-sm btn-outline-secondary flex-fill" id="btn-mark-exclude" onclick="markExclude()"><i class="fas fa-ban me-1"></i>Exclude</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="assignOverrideModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content" style="background:#1e1e2e;border:1px solid rgba(255,255,255,0.15);">
+            <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                <h6 class="modal-title text-white"><i class="fas fa-calendar-alt me-2" style="color:#6ea8fe;"></i>Move Delivery Date</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:0.82rem;"><strong id="assignCount">0</strong> customer(s) selected</p>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">New delivery date</label>
+                    <input type="date" class="form-control form-control-sm" id="overrideDate" style="background:#2b2b3d;border-color:rgba(255,255,255,0.15);color:#eee;">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Reason</label>
+                    <select class="form-select form-select-sm" id="overrideReason" style="background:#2b2b3d;border-color:rgba(255,255,255,0.15);color:#eee;">
+                        {% for code, label in reason_codes %}
+                        <option value="{{ code }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted">Notes (optional)</label>
+                    <textarea class="form-control form-control-sm" id="overrideNotes" rows="2" style="background:#2b2b3d;border-color:rgba(255,255,255,0.15);color:#eee;font-size:0.82rem;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,0.1);">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-info" onclick="submitAssignOverride()"><i class="fas fa-check me-1"></i>Assign</button>
             </div>
         </div>
     </div>
@@ -507,6 +557,23 @@ function openDrawer(idx) {
         document.getElementById('btn-follow-up').innerHTML = '<i class="fas fa-flag me-1"></i>Follow Up';
     }
 
+    var overrideSection = document.getElementById('drawer-override-section');
+    if (r.has_override) {
+        overrideSection.style.display = '';
+        document.getElementById('drawer-override-orig').textContent = r.override_original_date || '—';
+        document.getElementById('drawer-override-new').textContent = r.next_delivery || '—';
+        var reasonLabels = {holiday:'Holiday / Bank Holiday',weather:'Weather disruption',logistics:'Logistics / Fleet issue',customer_request:'Customer request',route_change:'Route change',other:'Other'};
+        document.getElementById('drawer-override-reason').textContent = reasonLabels[r.override_reason] || r.override_reason || '—';
+        var notesRow = document.getElementById('drawer-override-notes-row');
+        if (r.override_notes) {
+            notesRow.style.display = '';
+            document.getElementById('drawer-override-notes').textContent = r.override_notes;
+        } else { notesRow.style.display = 'none'; }
+        document.getElementById('drawer-override-by').textContent = r.override_created_by || '—';
+    } else {
+        overrideSection.style.display = 'none';
+    }
+
     document.getElementById('detail-drawer').classList.add('open');
     document.getElementById('drawerOverlay').classList.add('show');
 }
@@ -574,7 +641,7 @@ async function saveFlags() {
     var r = _rowsData[_currentIdx];
     var fd = new FormData();
     fd.append('customer_code_365', r.customer_code_365);
-    fd.append('delivery_date', r.next_delivery_date || '');
+    fd.append('delivery_date', r.original_delivery_date || r.next_delivery_date || '');
     fd.append('review_note', document.getElementById('drawer-note').value);
     try {
         var res = await fetch('/crm/review-ordering/update-flags', {method:'POST', body:fd});
@@ -590,7 +657,7 @@ async function markExclude() {
     var r = _rowsData[_currentIdx];
     var fd = new FormData();
     fd.append('customer_code_365', r.customer_code_365);
-    fd.append('delivery_date', r.next_delivery_date || '');
+    fd.append('delivery_date', r.original_delivery_date || r.next_delivery_date || '');
     fd.append('state', 'exclude');
     try {
         var res = await fetch('/crm/review-ordering/update-state', {method:'POST', body:fd});
@@ -615,7 +682,7 @@ async function bulkExclude() {
         if (row) {
             exclusions.push({
                 customer_code_365: cc,
-                delivery_date: row.next_delivery_date || ''
+                delivery_date: row.original_delivery_date || row.next_delivery_date || ''
             });
         }
     }
@@ -631,12 +698,101 @@ async function bulkExclude() {
     } catch(e) { alert('Error: ' + e.message); }
 }
 
+function _getSelectedItems() {
+    var checkboxes = document.querySelectorAll('.bulk-cb:checked');
+    var items = [];
+    for (var cb of checkboxes) {
+        var cc = cb.value;
+        var row = _rowsData.find(function(r) { return r.customer_code_365 === cc; });
+        if (row) {
+            items.push({
+                customer_code_365: cc,
+                original_delivery_date: row.original_delivery_date || row.next_delivery_date || ''
+            });
+        }
+    }
+    return items;
+}
+
+function openAssignModal() {
+    var items = _getSelectedItems();
+    if (items.length === 0) { alert('No customers selected'); return; }
+    document.getElementById('assignCount').textContent = items.length;
+    document.getElementById('overrideDate').value = '';
+    document.getElementById('overrideReason').value = 'holiday';
+    document.getElementById('overrideNotes').value = '';
+    new bootstrap.Modal(document.getElementById('assignOverrideModal')).show();
+}
+
+async function submitAssignOverride() {
+    var items = _getSelectedItems();
+    var overrideDate = document.getElementById('overrideDate').value;
+    var reason = document.getElementById('overrideReason').value;
+    var notes = document.getElementById('overrideNotes').value;
+    if (!overrideDate) { alert('Please select a new delivery date'); return; }
+    try {
+        var res = await fetch('/crm/api/delivery-overrides/bulk-assign', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                override_delivery_date: overrideDate,
+                reason_code: reason,
+                reason_notes: notes,
+                items: items
+            })
+        });
+        var data = await res.json();
+        if (data.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('assignOverrideModal')).hide();
+            location.reload();
+        } else { alert('Error: ' + (data.error || 'Unknown')); }
+    } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function bulkClearOverride() {
+    var items = _getSelectedItems();
+    if (items.length === 0) { alert('No customers selected'); return; }
+    var movedItems = items.filter(function(item) {
+        var row = _rowsData.find(function(r) { return r.customer_code_365 === item.customer_code_365; });
+        return row && row.has_override;
+    });
+    if (movedItems.length === 0) { alert('None of the selected customers have moved delivery dates'); return; }
+    if (!confirm('Clear moved delivery date for ' + movedItems.length + ' customer(s)? They will revert to their original delivery dates.')) return;
+    try {
+        var res = await fetch('/crm/api/delivery-overrides/bulk-clear', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ items: movedItems })
+        });
+        var data = await res.json();
+        if (data.ok) { location.reload(); }
+        else { alert('Error: ' + (data.error || 'Unknown')); }
+    } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function clearSingleOverride() {
+    if (_currentIdx === null) return;
+    var r = _rowsData[_currentIdx];
+    if (!r.has_override) return;
+    if (!confirm('Clear delivery date override for ' + r.customer_name + '?')) return;
+    try {
+        var res = await fetch('/crm/api/delivery-overrides/bulk-clear', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ items: [{ customer_code_365: r.customer_code_365, original_delivery_date: r.original_delivery_date }] })
+        });
+        var data = await res.json();
+        if (data.ok) { location.reload(); }
+        else { alert('Error: ' + (data.error || 'Unknown')); }
+    } catch(e) { alert('Error: ' + e.message); }
+}
+
 async function markFollowUp() {
     if (_currentIdx === null) return;
     var r = _rowsData[_currentIdx];
     var fd = new FormData();
     fd.append('customer_code_365', r.customer_code_365);
-    fd.append('delivery_date', r.next_delivery_date || '');
+    fd.append('delivery_date', r.original_delivery_date || r.next_delivery_date || '');
     fd.append('state', 'follow_up');
     try {
         var res = await fetch('/crm/review-ordering/update-state', {method:'POST', body:fd});
