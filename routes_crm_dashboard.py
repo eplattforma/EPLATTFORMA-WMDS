@@ -667,6 +667,8 @@ def review_ordering():
     filter_assisted = request.args.get("assisted_only") == "1"
     filter_ordered = request.args.get("ordered", "")
     filter_has_cart = request.args.get("has_cart_only") == "1"
+    filter_has_cart_kpi = request.args.get("has_cart_kpi") == "1"
+    filter_offer_kpi = request.args.get("offer_kpi") == "1"
     logged_in_days = request.args.get("logged_in_days")
     filter_delivery_slot = request.args.get("delivery_slot", "")
 
@@ -889,6 +891,10 @@ def review_ordering():
             continue
         if filter_has_cart and not has_cart:
             continue
+        if filter_has_cart_kpi and not has_cart:
+            continue
+        if filter_offer_kpi and not row.get("has_special_pricing"):
+            continue
         if filter_delivery_slot and row.get("next_delivery_date") != filter_delivery_slot:
             continue
         if logged_in_days:
@@ -954,6 +960,8 @@ def review_ordering():
             "assisted_only": filter_assisted,
             "ordered": filter_ordered,
             "has_cart_only": filter_has_cart,
+            "has_cart_kpi": filter_has_cart_kpi,
+            "offer_kpi": filter_offer_kpi,
             "logged_in_days": logged_in_days or "",
             "delivery_slot": filter_delivery_slot,
         },
