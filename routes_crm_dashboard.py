@@ -679,6 +679,7 @@ def review_ordering():
     filter_offer_kpi = request.args.get("offer_kpi") == "1"
     logged_in_days = request.args.get("logged_in_days")
     filter_delivery_slot = request.args.get("delivery_slot", "")
+    show_all_customers = request.args.get("show_all") == "1"
 
     rows = q.order_by(PSCustomer.company_name).all()
 
@@ -795,14 +796,18 @@ def review_ordering():
             now_local=now_local,
         )
 
-        if not window_status["window_open"]:
+        window_is_open = window_status["window_open"]
+        if not window_is_open and not show_all_customers:
             continue
 
         natural_del = window_status["next_delivery"]
+        if not natural_del:
+            continue
+
         cust_overrides = active_overrides_map.get(r.customer_code_365, [])
         effective_del, override_rec = resolve_effective_delivery(
             r.customer_code_365, natural_del, active_overrides=cust_overrides
-        ) if natural_del else (natural_del, None)
+        )
 
         if override_rec:
             eff_open = order_window_open_at(effective_del, window_hours, anchor_time)
@@ -813,9 +818,18 @@ def review_ordering():
                 eff_close = ATHENS_TZ.localize(
                     datetime.combine(effective_del, dt_time(int(hh), int(mm)))
                 )
-        else:
+        elif window_is_open:
             eff_open = window_status.get("window_open_at")
             eff_close = window_status.get("window_close_at")
+        else:
+            eff_open = order_window_open_at(natural_del, window_hours, anchor_time)
+            if close_hours > 0:
+                eff_close = order_window_close_at(natural_del, close_hours, close_anchor_time)
+            else:
+                hh, mm = anchor_time.split(":")
+                eff_close = ATHENS_TZ.localize(
+                    datetime.combine(natural_del, dt_time(int(hh), int(mm)))
+                )
 
         next_del = effective_del
 
@@ -900,6 +914,7 @@ def review_ordering():
             "override_original_date": natural_del.strftime('%a %d-%b') if has_override and natural_del else None,
             "override_created_by": override_rec.created_by if override_rec else None,
             "override_created_at": override_rec.created_at.isoformat() if override_rec and override_rec.created_at else None,
+            "window_open": window_is_open,
         }
         ros = ro_offer_map.get(r.customer_code_365, {})
         row["has_special_pricing"] = ros.get("has_special_pricing", False)
@@ -968,6 +983,8 @@ def review_ordering():
 
     open_windows_map = {}
     for row in open_window_rows:
+        if not row.get("window_open"):
+            continue
         dd = row.get("next_delivery_date")
         wc = row.get("window_close_at")
         if dd and wc and dd not in open_windows_map:
@@ -993,6 +1010,7 @@ def review_ordering():
         all_districts=all_districts_q,
         override_count=override_count,
         reason_codes=REASON_CODES,
+        show_all=show_all_customers,
         filters={
             "q": search_q,
             "classification": classification or [],
@@ -1005,6 +1023,7 @@ def review_ordering():
             "offer_kpi": filter_offer_kpi,
             "logged_in_days": logged_in_days or "",
             "delivery_slot": filter_delivery_slot,
+            "show_all": show_all_customers,
         },
     )
 

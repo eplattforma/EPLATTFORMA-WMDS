@@ -87,6 +87,15 @@ function toggleKpiFilter(filterType) {
     }
     window.location.href = url.toString();
 }
+function toggleShowAll() {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('show_all') === '1') {
+        url.searchParams.delete('show_all');
+    } else {
+        url.searchParams.set('show_all', '1');
+    }
+    window.location.href = url.toString();
+}
 </script>
 {% endblock %}
 
@@ -103,6 +112,15 @@ function toggleKpiFilter(filterType) {
             <a href="/crm/dashboard" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:0.72rem;">
                 <i class="fas fa-arrow-left me-1"></i>CRM
             </a>
+            {% if show_all %}
+            <button class="btn btn-sm btn-info py-0 px-2" style="font-size:0.72rem;" title="Currently showing ALL customers with delivery slots. Click to show only open windows." onclick="toggleShowAll()">
+                <i class="fas fa-users me-1"></i>All Customers <i class="fas fa-toggle-on ms-1"></i>
+            </button>
+            {% else %}
+            <button class="btn btn-sm btn-outline-info py-0 px-2" style="font-size:0.72rem;" title="Show ALL customers with delivery slots (not just open windows). Useful for moving delivery dates." onclick="toggleShowAll()">
+                <i class="fas fa-users me-1"></i>All Customers <i class="fas fa-toggle-off ms-1"></i>
+            </button>
+            {% endif %}
         </div>
         <div class="kpi-bar">
             <div class="kpi-chip {% if filters.state == 'follow_up' %}active{% endif %}" onclick="toggleKpiFilter('follow_up')"><div class="kpi-label">Follow Up</div><div class="kpi-val" style="color:#ffc107;">{{ kpi.follow_up }}</div></div>
@@ -190,9 +208,12 @@ function toggleKpiFilter(filterType) {
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="assisted_only" value="1" id="assistedOnly" {% if filters.assisted_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="assistedOnly">Assisted</label></div>
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="has_cart_only" value="1" id="hasCartOnly" {% if filters.has_cart_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="hasCartOnly">Cart</label></div>
             </div>
+            {% if show_all %}
+            <input type="hidden" name="show_all" value="1">
+            {% endif %}
             <div>
                 <button type="submit" class="btn btn-sm btn-primary py-0 px-2" style="font-size:0.78rem;"><i class="fas fa-filter me-1"></i>Apply</button>
-                <a href="/crm/review-ordering" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:0.78rem;"><i class="fas fa-redo"></i></a>
+                <a href="/crm/review-ordering{% if show_all %}?show_all=1{% endif %}" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:0.78rem;"><i class="fas fa-redo"></i></a>
             </div>
         </div>
     </form>
@@ -276,6 +297,7 @@ function toggleKpiFilter(filterType) {
                     </td>
                     <td>
                         {% if r.next_delivery %}
+                        {% if r.window_open %}
                         <span class="badge" style="background-color:{% if r.slot_closing_soon %}#dc3545{% else %}#22c55e{% endif %};color:white;font-size:0.72rem;">
                             {% if r.slot_closing_soon %}
                             <i class="fas fa-exclamation-triangle me-1" style="font-size:0.65rem;"></i>
@@ -284,6 +306,11 @@ function toggleKpiFilter(filterType) {
                             {% endif %}
                             {{ r.next_delivery }}
                         </span>
+                        {% else %}
+                        <span class="badge" style="background-color:#495057;color:#adb5bd;font-size:0.72rem;" title="Ordering window closed">
+                            <i class="fas fa-clock me-1" style="font-size:0.65rem;"></i>{{ r.next_delivery }}
+                        </span>
+                        {% endif %}
                         {% if r.has_override %}
                         <span class="badge-moved" title="Moved from {{ r.override_original_date }} · {{ r.override_reason }}{% if r.override_notes %}: {{ r.override_notes }}{% endif %}"><i class="fas fa-exchange-alt me-1" style="font-size:0.55rem;"></i>Moved</span>
                         {% endif %}
