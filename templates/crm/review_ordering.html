@@ -62,6 +62,31 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
 .state-divider.collapsed .toggle-icon { transform: rotate(-90deg); }
 .state-grp-count { font-size: 0.72rem; color: rgba(255,255,255,0.3); margin-left: 6px; }
 </style>
+<script>
+function toggleKpiFilter(filterType) {
+    const url = new URL(window.location.href);
+    if (filterType === 'with_offers') {
+        if (url.searchParams.get('offer_kpi') === '1') {
+            url.searchParams.delete('offer_kpi');
+        } else {
+            url.searchParams.set('offer_kpi', '1');
+        }
+    } else if (filterType === 'has_cart') {
+        if (url.searchParams.get('has_cart_kpi') === '1') {
+            url.searchParams.delete('has_cart_kpi');
+        } else {
+            url.searchParams.set('has_cart_kpi', '1');
+        }
+    } else {
+        if (url.searchParams.get('state') === filterType) {
+            url.searchParams.delete('state');
+        } else {
+            url.searchParams.set('state', filterType);
+        }
+    }
+    window.location.href = url.toString();
+}
+</script>
 {% endblock %}
 
 {% block content %}
@@ -401,30 +426,6 @@ var STATE_LABELS = {
     exclude:'<i class="fas fa-ban" title="Exclude"></i>'
 };
 var STATE_CLASSES = {follow_up:'state-follow_up', waiting:'state-waiting', ordered:'state-ordered', exclude:'state-exclude'};
-
-function toggleKpiFilter(filterType) {
-    const url = new URL(window.location.href);
-    if (filterType === 'with_offers') {
-        if (url.searchParams.get('offer_kpi') === '1') {
-            url.searchParams.delete('offer_kpi');
-        } else {
-            url.searchParams.set('offer_kpi', '1');
-        }
-    } else if (filterType === 'has_cart') {
-        if (url.searchParams.get('has_cart_kpi') === '1') {
-            url.searchParams.delete('has_cart_kpi');
-        } else {
-            url.searchParams.set('has_cart_kpi', '1');
-        }
-    } else {
-        if (url.searchParams.get('state') === filterType) {
-            url.searchParams.delete('state');
-        } else {
-            url.searchParams.set('state', filterType);
-        }
-    }
-    window.location.href = url.toString();
-}
 
 function openDrawer(idx) {
     var r = _rowsData[idx];
