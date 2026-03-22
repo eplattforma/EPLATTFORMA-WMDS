@@ -169,6 +169,7 @@ def customer_slot_dashboard():
             ), 0).label("inv_cnt_90d"),
         )
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d6m)
+        .filter(~DwInvoiceHeader.invoice_type.like('%RETURN%'))
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
@@ -603,7 +604,7 @@ def review_ordering():
             ).label("last_invoice_date"),
         )
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d90)
-        .filter(~DwInvoiceHeader.invoice_type.like('CR%'))
+        .filter(~DwInvoiceHeader.invoice_type.like('%RETURN%'))
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
