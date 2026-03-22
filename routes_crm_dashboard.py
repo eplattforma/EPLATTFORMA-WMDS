@@ -603,6 +603,7 @@ def review_ordering():
             ).label("last_invoice_date"),
         )
         .filter(DwInvoiceHeader.invoice_date_utc0 >= d90)
+        .filter(~DwInvoiceHeader.invoice_type.like('CR%'))
         .group_by(DwInvoiceHeader.customer_code_365)
         .subquery()
     )
