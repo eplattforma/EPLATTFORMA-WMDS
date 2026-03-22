@@ -83,7 +83,7 @@ tr.state-row-follow_up { border-left: 3px solid #ffc107; }
             <div class="kpi-chip {% if filters.state == 'waiting' %}active{% endif %}" onclick="toggleKpiFilter('waiting')"><div class="kpi-label">Waiting</div><div class="kpi-val" style="color:#adb5bd;">{{ kpi.waiting }}</div></div>
             <div class="kpi-chip {% if filters.state == 'ordered' %}active{% endif %}" onclick="toggleKpiFilter('ordered')"><div class="kpi-label">Ordered</div><div class="kpi-val" style="color:#22c55e;">{{ kpi.ordered }}</div></div>
             <div class="kpi-chip {% if filters.state == 'exclude' %}active{% endif %}" onclick="toggleKpiFilter('exclude')"><div class="kpi-label">Exclude</div><div class="kpi-val" style="color:#6c757d;">{{ kpi.exclude }}</div></div>
-            <div class="kpi-chip {% if filters.has_cart_kpi %}active{% endif %}" onclick="toggleKpiFilter('has_cart')"><div class="kpi-label">Cart</div><div class="kpi-val" style="color:#fd7e14;">€{{ "{:,.0f}".format(kpi.total_cart_value) }}</div></div>
+            <div class="kpi-chip {% if filters.has_cart_kpi %}active{% endif %}" onclick="toggleKpiFilter('has_cart')"><div class="kpi-label">Cart</div><div class="kpi-val" style="color:#fd7e14;">€{{ "{:,.0f}".format(kpi.total_cart_value) }}<span style="font-size:0.7rem; color:rgba(255,255,255,0.6);">/{{ kpi.has_cart }}</span></div></div>
             <div class="kpi-chip" style="cursor: default;"><div class="kpi-label">Orders</div><div class="kpi-val" style="color:#20c997;">{{ kpi.total_orders }}</div></div>
             {% if offer_kpi and offer_kpi.kpi_offer_customers_with_offers > 0 %}
             <div style="width:1px; height:20px; background:rgba(255,255,255,0.15); margin:0 4px;"></div>
