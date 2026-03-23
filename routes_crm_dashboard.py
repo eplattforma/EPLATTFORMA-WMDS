@@ -680,6 +680,7 @@ def review_ordering():
     logged_in_days = request.args.get("logged_in_days")
     filter_delivery_slot = request.args.get("delivery_slot", "")
     show_all_customers = request.args.get("show_all") == "1"
+    filter_action_only = request.args.get("action_only") == "1"
 
     rows = q.order_by(PSCustomer.company_name).all()
 
@@ -875,6 +876,9 @@ def review_ordering():
         state = _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window)
         cm = _cart_mode(has_order, has_cart)
 
+        if filter_action_only and state not in ["follow_up", "waiting"]:
+            continue
+
         slot_closing_soon = False
         if eff_close:
             hours_until_close = (eff_close - now_local).total_seconds() / 3600
@@ -1024,6 +1028,7 @@ def review_ordering():
             "logged_in_days": logged_in_days or "",
             "delivery_slot": filter_delivery_slot,
             "show_all": show_all_customers,
+            "action_only": filter_action_only,
         },
     )
 
