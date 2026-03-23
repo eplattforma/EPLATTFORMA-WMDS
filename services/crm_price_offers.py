@@ -1165,10 +1165,10 @@ def get_customer_offer_intelligence(customer_code_365):
 
     rules = db.session.execute(text(f"""
         SELECT rule_name, rule_code, 
-               SUM(CASE WHEN is_active = true THEN 1 ELSE 0 END) AS cnt,
-               AVG(CASE WHEN is_active = true THEN discount_percent ELSE NULL END) AS avg_disc
+               SUM(CASE WHEN sold_qty_4w > 0 THEN 1 ELSE 0 END) AS cnt,
+               AVG(CASE WHEN sold_qty_4w > 0 THEN discount_percent ELSE NULL END) AS avg_disc
         FROM crm_customer_offer_current
-        WHERE customer_code_365 = :code
+        WHERE customer_code_365 = :code AND is_active = true
           AND rule_code != '__NO_RULE__'{excl_sql}
         GROUP BY rule_name, rule_code
         ORDER BY cnt DESC, rule_name
