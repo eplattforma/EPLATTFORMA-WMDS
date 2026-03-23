@@ -78,7 +78,7 @@ window.addEventListener('load', function() {
         html += kpiCard(fmtPct(usagePct), 'Usage', usagePct >= 50 ? '#22c55e' : usagePct >= 25 ? '#ffc107' : '#ef4444');
         html += kpiCard(fmtEur(summary.offer_sales_4w), 'Sales 4W', '#17a2b8');
         html += kpiCard(fmtEur(totalSales), 'Total Sales', '#a78bfa');
-        html += kpiCard(fmtPct(sharePct), 'Sales Share', sharePct >= 50 ? '#fd7e14' : '#22c55e');
+        html += kpiCard(fmtPct(sharePct), 'Offer Share', sharePct >= 50 ? '#fd7e14' : '#22c55e');
         html += '</div>';
 
         html += '<div class="offer-tabs">';
@@ -136,7 +136,7 @@ window.addEventListener('load', function() {
         h += '<div class="offer-summary-section">';
         h += sumRow('Offer sales (4w)', fmtEur(s.offer_sales_4w));
         h += sumRow('Total customer sales (4w)', fmtEur(s.total_customer_sales_4w));
-        h += sumRow('Sales share %', '<span style="color:' + (sharePct >= 50 ? '#fd7e14' : '#22c55e') + '">' + fmtPct(sharePct) + '</span>');
+        h += sumRow('Offer share %', '<span style="color:' + (sharePct >= 50 ? '#fd7e14' : '#22c55e') + '">' + fmtPct(sharePct) + '</span>');
         h += sumRow('Offer sales (90d)', fmtEur(s.offer_sales_90d));
         h += '</div>';
 
