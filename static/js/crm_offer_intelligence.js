@@ -7,7 +7,8 @@ window.addEventListener('load', function() {
         customerCode: '',
         customerName: '',
         customerMobile: '',
-        selectedOffers: {}
+        selectedOffers: {},
+        selectedOpportunities: {}
     };
 
     document.querySelectorAll('.offer-chip[data-customer]').forEach(function(chip) {
@@ -23,6 +24,7 @@ window.addEventListener('load', function() {
         _offerDrawerState.customerCode = customerCode;
         _offerDrawerState.customerName = customerName;
         _offerDrawerState.selectedOffers = {};
+        _offerDrawerState.selectedOpportunities = {};
 
         document.getElementById('offer-drawer-cust-name').textContent = customerName;
         document.getElementById('offer-drawer-cust-code').textContent = customerCode;
@@ -154,12 +156,25 @@ window.addEventListener('load', function() {
 
     function renderOpportunitiesTab(opps) {
         if (!opps.length) return '<div class="offer-empty-state"><i class="fas fa-check-circle"></i>No unused opportunities found</div>';
-        var h = '<div style="overflow-x:auto;">';
+        
+        _offerDrawerState.selectedOpportunities = {};
+        
+        var h = '<div class="offer-tab4-toolbar">';
+        h += '<div class="offer-search-bar"><input type="text" id="oppSearchInput" placeholder="Search product..." oninput="filterOppRows(this.value)"></div>';
+        h += '<span class="offer-selected-count" id="oppSelectedCount"></span>';
+        h += '<button class="offer-sms-btn" id="oppSmsBtn" disabled onclick="openOppSmsModal()"><i class="fas fa-sms"></i> Send SMS</button>';
+        h += '</div>';
+        
+        h += '<div style="overflow-x:auto;">';
         h += '<table class="all-offers-table"><thead><tr>';
+        h += '<th style="width:30px;"><input type="checkbox" class="opp-select-cb" id="oppSelectAll" onchange="toggleAllOppRows(this.checked)"></th>';
         h += '<th>Product</th><th class="text-end">Offer</th>';
-        h += '</tr></thead><tbody>';
-        opps.forEach(function(o) {
-            h += '<tr>';
+        h += '</tr></thead><tbody id="oppBody">';
+        opps.forEach(function(o, idx) {
+            var rowId = (o.sku || '') + '_' + idx;
+            h += '<tr class="opp-row" data-row-id="' + esc(rowId) + '" data-search="' + esc((o.sku || '') + ' ' + (o.product_name || '')).toLowerCase() + '"';
+            h += ' data-product="' + esc(o.product_name || o.sku || '') + '" data-price="' + (o.offer_price != null ? o.offer_price : '') + '">';
+            h += '<td><input type="checkbox" class="opp-select-cb" data-row-id="' + esc(rowId) + '" onchange="toggleOppRow(this)"></td>';
             h += '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
             h += '<td class="text-end">' + fmtEur2(o.offer_price) + '</td>';
             h += '</tr>';
@@ -431,6 +446,196 @@ window.addEventListener('load', function() {
             showSmsToast('Network error', 'error');
         });
     };
+
+    window.toggleOppRow = function(cb) {
+        var rowId = cb.getAttribute('data-row-id');
+        var tr = cb.closest('tr');
+        if (cb.checked) {
+            _offerDrawerState.selectedOpportunities[rowId] = {
+                product: tr.getAttribute('data-product'),
+                price: tr.getAttribute('data-price')
+            };
+        } else {
+            delete _offerDrawerState.selectedOpportunities[rowId];
+        }
+        updateOppSmsButtonState();
+    };
+
+    window.toggleAllOppRows = function(checked) {
+        var rows = document.querySelectorAll('#oppBody .opp-row');
+        rows.forEach(function(tr) {
+            if (tr.style.display === 'none') return;
+            var cb = tr.querySelector('.opp-select-cb');
+            if (cb) {
+                cb.checked = checked;
+                var rowId = cb.getAttribute('data-row-id');
+                if (checked) {
+                    _offerDrawerState.selectedOpportunities[rowId] = {
+                        product: tr.getAttribute('data-product'),
+                        price: tr.getAttribute('data-price')
+                    };
+                } else {
+                    delete _offerDrawerState.selectedOpportunities[rowId];
+                }
+            }
+        });
+        updateOppSmsButtonState();
+    };
+
+    function updateOppSmsButtonState() {
+        var count = Object.keys(_offerDrawerState.selectedOpportunities).length;
+        var btn = document.getElementById('oppSmsBtn');
+        var countEl = document.getElementById('oppSelectedCount');
+        if (btn) btn.disabled = count === 0;
+        if (countEl) countEl.textContent = count > 0 ? count + ' selected' : '';
+    }
+
+    window.filterOppRows = function(q) {
+        q = q.toLowerCase().trim();
+        document.querySelectorAll('#oppBody .opp-row').forEach(function(tr) {
+            tr.style.display = tr.getAttribute('data-search').indexOf(q) >= 0 ? '' : 'none';
+        });
+        document.getElementById('oppSelectAll').checked = false;
+        _offerDrawerState.selectedOpportunities = {};
+        updateOppSmsButtonState();
+    };
+
+    window.openOppSmsModal = function() {
+        var selected = _offerDrawerState.selectedOpportunities;
+        var count = Object.keys(selected).length;
+        if (count === 0) return;
+
+        var mobile = _offerDrawerState.customerMobile || '';
+        var custName = _offerDrawerState.customerName || '';
+
+        var lines = ['Special offers for you:'];
+        Object.keys(selected).forEach(function(key) {
+            var item = selected[key];
+            var priceStr = item.price ? '\u20AC' + parseFloat(item.price).toFixed(2) : '';
+            lines.push(item.product + (priceStr ? ' - ' + priceStr : ''));
+        });
+        lines.push('');
+        lines.push('Reply or contact us to place your order.');
+        var msgText = lines.join('\n');
+
+        var overlay = document.getElementById('oppSmsModalOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'oppSmsModalOverlay';
+            overlay.className = 'offer-sms-modal-overlay';
+            overlay.innerHTML = buildOppSmsModalHtml();
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) closeOppSmsModal();
+            });
+        }
+
+        document.getElementById('oppSmsModalCustName').textContent = custName;
+        document.getElementById('oppSmsModalProductCount').textContent = count + ' product' + (count > 1 ? 's' : '') + ' selected';
+        document.getElementById('oppSmsModalMobile').value = mobile;
+        document.getElementById('oppSmsModalMessage').value = msgText;
+        document.getElementById('oppSmsModalSendBtn').disabled = false;
+        document.getElementById('oppSmsModalSendBtn').innerHTML = '<i class="fas fa-paper-plane"></i> Send';
+
+        if (!mobile) {
+            document.getElementById('oppSmsModalMobileError').style.display = 'block';
+            document.getElementById('oppSmsModalMobileError').textContent = 'No mobile number on file for this customer';
+        } else {
+            document.getElementById('oppSmsModalMobileError').style.display = 'none';
+        }
+
+        updateOppSmsCharCount();
+        overlay.classList.add('show');
+
+        document.getElementById('oppSmsModalMessage').addEventListener('input', updateOppSmsCharCount);
+    };
+
+    function buildOppSmsModalHtml() {
+        return '<div class="offer-sms-modal">'
+            + '<div class="offer-sms-modal-header">'
+            + '<h5><i class="fas fa-sms" style="margin-right:6px;color:#6ea8fe;"></i>Send Offer SMS</h5>'
+            + '<div class="sms-modal-subtitle"><span id="oppSmsModalCustName"></span> &middot; <span id="oppSmsModalProductCount"></span></div>'
+            + '</div>'
+            + '<div class="offer-sms-modal-body">'
+            + '<div class="sms-field-group">'
+            + '<label>Mobile Number</label>'
+            + '<input type="text" id="oppSmsModalMobile" readonly>'
+            + '<div id="oppSmsModalMobileError" style="display:none;color:#ef4444;font-size:0.85rem;margin-top:4px;"></div>'
+            + '</div>'
+            + '<div class="sms-field-group">'
+            + '<label>Message <span id="oppSmsCharCount" style="float:right;font-size:0.85rem;color:#6b7280;"></span></label>'
+            + '<textarea id="oppSmsModalMessage" rows="5" class="sms-textarea"></textarea>'
+            + '</div>'
+            + '</div>'
+            + '<div class="offer-sms-modal-footer">'
+            + '<button class="btn-send" id="oppSmsModalSendBtn" onclick="sendOppSms()"><i class="fas fa-paper-plane"></i> Send</button>'
+            + '<button class="btn-cancel" onclick="closeOppSmsModal()">Cancel</button>'
+            + '</div>'
+            + '</div>';
+    }
+
+    window.closeOppSmsModal = function() {
+        var overlay = document.getElementById('oppSmsModalOverlay');
+        if (overlay) overlay.classList.remove('show');
+    };
+
+    window.sendOppSms = function() {
+        var mobile = (document.getElementById('oppSmsModalMobile').value || '').trim();
+        var message = (document.getElementById('oppSmsModalMessage').value || '').trim();
+        var sendBtn = document.getElementById('oppSmsModalSendBtn');
+
+        if (!mobile) {
+            document.getElementById('oppSmsModalMobileError').style.display = 'block';
+            document.getElementById('oppSmsModalMobileError').textContent = 'No mobile number available';
+            return;
+        }
+        if (!message) return;
+
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+        var selectedCount = Object.keys(_offerDrawerState.selectedOpportunities).length;
+
+        fetch('/crm/customer/' + _offerDrawerState.customerCode + '/offer-sms', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                mobile: mobile,
+                message: message,
+                customer_name: _offerDrawerState.customerName,
+                selected_count: selectedCount
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                closeOppSmsModal();
+                showSmsToast('SMS sent successfully', 'success');
+                _offerDrawerState.selectedOpportunities = {};
+                document.querySelectorAll('#oppBody .opp-select-cb').forEach(function(cb) { cb.checked = false; });
+                var selectAll = document.getElementById('oppSelectAll');
+                if (selectAll) selectAll.checked = false;
+                updateOppSmsButtonState();
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send';
+                showSmsToast(data.error || 'Failed to send SMS', 'error');
+            }
+        })
+        .catch(function(err) {
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send';
+            showSmsToast('Network error', 'error');
+        });
+    };
+
+    function updateOppSmsCharCount() {
+        var textarea = document.getElementById('oppSmsModalMessage');
+        var countEl = document.getElementById('oppSmsCharCount');
+        if (textarea && countEl) {
+            countEl.textContent = textarea.value.length + ' chars';
+        }
+    }
 
     function showSmsToast(msg, type) {
         var toast = document.createElement('div');
