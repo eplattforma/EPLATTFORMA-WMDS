@@ -125,30 +125,10 @@ window.addEventListener('load', function() {
 
     function renderSummaryTab(s, rulesBreakdown, sentence) {
         var h = '';
-        var usagePct = s.offer_usage_pct != null ? s.offer_usage_pct : s.offer_utilisation_pct;
-        var sharePct = s.offer_sales_share_pct || 0;
 
         if (sentence) {
             h += '<div class="offer-generated-sentence">' + esc(sentence) + '</div>';
         }
-
-        h += '<div class="offer-section-title">Sales Dependency</div>';
-        h += '<div class="offer-summary-section">';
-        h += sumRow('Offer sales (4w)', fmtEur(s.offer_sales_4w));
-        h += sumRow('Total customer sales (4w)', fmtEur(s.total_customer_sales_4w));
-        h += sumRow('Offer share %', '<span style="color:' + (sharePct >= 50 ? '#fd7e14' : '#22c55e') + '">' + fmtPct(sharePct) + '</span>');
-        h += sumRow('Offer sales (90d)', fmtEur(s.offer_sales_90d));
-        h += '</div>';
-
-        h += '<div class="offer-section-title">Pricing</div>';
-        h += '<div class="offer-summary-section">';
-        h += sumRow('Average discount', fmtPct(s.avg_discount_percent));
-        h += sumRow('Max discount', fmtPct(s.max_discount_percent));
-        if (s.top_rule_name) {
-            h += sumRow('Top rule', esc(s.top_rule_name));
-        }
-        h += sumRow('Margin risk SKUs', '<span style="color:' + ((s.margin_risk_skus || 0) > 0 ? '#ef4444' : '#22c55e') + '">' + (s.margin_risk_skus || 0) + '</span>');
-        h += '</div>';
 
         if (rulesBreakdown && rulesBreakdown.length > 0) {
             h += '<div class="offer-rules-section">';
