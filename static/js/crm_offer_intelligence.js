@@ -135,7 +135,8 @@ window.addEventListener('load', function() {
             h += '<div class="rules-title">Rules Breakdown</div>';
             h += '<table class="rules-table"><thead><tr><th>Rule</th><th class="text-end">SKUs</th><th class="text-end">Avg Disc</th></tr></thead><tbody>';
             rulesBreakdown.forEach(function(rule) {
-                h += '<tr>';
+                var isUnused = (rule.count || 0) === 0;
+                h += '<tr' + (isUnused ? ' style="background-color:#fee2e2;color:#991b1b;"' : '') + '>';
                 h += '<td>' + esc(rule.rule_name || rule.rule_code || '') + '</td>';
                 h += '<td class="text-end">' + rule.count + '</td>';
                 h += '<td class="text-end">' + fmtPct(rule.avg_discount) + '</td>';
