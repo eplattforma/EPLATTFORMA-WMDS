@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from flask import Blueprint, request, render_template, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
 from sqlalchemy import func, and_, or_, case, text
@@ -1458,6 +1459,53 @@ def api_offer_intelligence(customer_code_365):
     from services.crm_price_offers import get_customer_offer_intelligence
     data = get_customer_offer_intelligence(customer_code_365)
     return jsonify(data)
+
+
+@crm_dashboard_bp.route("/customer/<customer_code_365>/offer-sms", methods=["POST"])
+@login_required
+def api_offer_sms_send(customer_code_365):
+    from services.communications_service import send_microsms
+
+    payload = request.get_json(silent=True) or {}
+    message = (payload.get("message") or "").strip()
+
+    if not message:
+        return jsonify({"success": False, "error": "Message is empty"}), 400
+
+    cust = db.session.execute(text("""
+        SELECT COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile,
+               COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name
+        FROM ps_customers WHERE customer_code_365 = :code
+    """), {"code": customer_code_365}).fetchone()
+
+    if not cust or not cust[0]:
+        return jsonify({"success": False, "error": "No mobile number on file for this customer"}), 400
+
+    mobile = cust[0]
+    customer_name = cust[1]
+    username = current_user.username if current_user and hasattr(current_user, "username") else "system"
+    sender = os.environ.get("MICROSMS_SENDER", "EPLATTFORMA")
+
+    try:
+        result = send_microsms(
+            mobile_e164=mobile,
+            sender_title=sender,
+            message=message,
+            customer_code_365=customer_code_365,
+            customer_name=customer_name,
+            source_screen="offer_popup_screen_4",
+            context_type="customer",
+            context_id=customer_code_365,
+            username=username,
+        )
+        if result and result.get("ok"):
+            return jsonify({"success": True})
+        else:
+            err_msg = result.get("error", "SMS delivery failed") if result else "SMS delivery failed"
+            return jsonify({"success": False, "error": err_msg}), 502
+    except Exception as e:
+        logger.error("Offer SMS send failed for %s: %s", customer_code_365, e)
+        return jsonify({"success": False, "error": "Failed to send SMS"}), 500
 
 
 @crm_dashboard_bp.route("/price-offers/refresh", methods=["POST"])

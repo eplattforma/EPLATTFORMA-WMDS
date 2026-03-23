@@ -70,26 +70,26 @@
 
 .offer-kpi-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    padding: 14px 20px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    padding: 14px 16px;
     border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
 .offer-kpi-card {
     text-align: center;
-    padding: 8px 4px;
+    padding: 8px 2px;
     border-radius: 6px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
 }
 .offer-kpi-card .kpi-num {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 700;
     line-height: 1.2;
 }
 .offer-kpi-card .kpi-lbl {
-    font-size: 0.6rem;
+    font-size: 0.55rem;
     text-transform: uppercase;
     color: rgba(255,255,255,0.45);
     font-weight: 700;
@@ -98,25 +98,37 @@
 
 .offer-tabs {
     display: flex;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-    padding: 0 20px;
-    background: rgba(0,0,0,0.1);
+    gap: 2px;
+    border-bottom: 2px solid rgba(255,255,255,0.12);
+    padding: 0 16px;
+    background: rgba(0,0,0,0.15);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 .offer-tab-btn {
-    padding: 8px 14px;
-    font-size: 0.75rem;
+    padding: 10px 14px;
+    font-size: 0.78rem;
     font-weight: 600;
     color: rgba(255,255,255,0.5);
     background: none;
     border: none;
-    border-bottom: 2px solid transparent;
+    border-bottom: 3px solid transparent;
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    white-space: nowrap;
+    margin-bottom: -2px;
+    border-radius: 4px 4px 0 0;
+    letter-spacing: 0.2px;
 }
-.offer-tab-btn:hover { color: rgba(255,255,255,0.8); }
+.offer-tab-btn:hover {
+    color: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.05);
+}
 .offer-tab-btn.active {
-    color: #6ea8fe;
+    color: #7db8ff;
     border-bottom-color: #6ea8fe;
+    background: rgba(110,168,254,0.08);
+    font-weight: 700;
 }
 
 .offer-tab-content {
@@ -310,4 +322,210 @@
     display: inline-block; padding: 1px 6px; border-radius: 4px;
     font-size: 0.65rem; font-weight: 700;
     background: rgba(108,117,125,0.15); color: #6c757d;
+}
+
+.offer-tab4-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 8px;
+}
+.offer-tab4-toolbar .offer-search-bar {
+    flex: 1;
+    padding: 0;
+    margin: 0;
+}
+
+.offer-sms-btn {
+    padding: 6px 14px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, opacity 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #22c55e;
+    color: #fff;
+}
+.offer-sms-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background: #6c757d;
+}
+.offer-sms-btn:not(:disabled):hover {
+    background: #1ea34d;
+}
+
+.offer-select-cb {
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    accent-color: #6ea8fe;
+}
+
+.offer-sms-modal-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    z-index: 1080;
+    display: none;
+    background: rgba(0,0,0,0.55);
+    justify-content: center;
+    align-items: center;
+}
+.offer-sms-modal-overlay.show {
+    display: flex;
+}
+
+.offer-sms-modal {
+    background: #252538;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    width: 420px;
+    max-width: 95vw;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+
+.offer-sms-modal-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.offer-sms-modal-header h5 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #e8ecf1;
+}
+.offer-sms-modal-header .sms-modal-subtitle {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.5);
+    margin-top: 2px;
+}
+
+.offer-sms-modal-body {
+    padding: 16px 20px;
+}
+
+.sms-field-group {
+    margin-bottom: 14px;
+}
+.sms-field-group label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+}
+.sms-field-group input,
+.sms-field-group textarea {
+    width: 100%;
+    font-size: 0.82rem;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e8ecf1;
+    border-radius: 5px;
+    padding: 8px 10px;
+    resize: vertical;
+}
+.sms-field-group input:focus,
+.sms-field-group textarea:focus {
+    outline: none;
+    border-color: #6ea8fe;
+    box-shadow: 0 0 0 2px rgba(110,168,254,0.15);
+}
+.sms-field-group textarea {
+    min-height: 120px;
+    font-family: inherit;
+    line-height: 1.5;
+}
+.sms-field-group input[readonly] {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sms-meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.5);
+    margin-top: 4px;
+}
+.sms-meta-row .sms-warn {
+    color: #ffc107;
+    font-weight: 600;
+}
+
+.offer-sms-modal-footer {
+    padding: 12px 20px 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+.offer-sms-modal-footer .btn-cancel {
+    padding: 7px 16px;
+    font-size: 0.78rem;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 5px;
+    background: transparent;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.offer-sms-modal-footer .btn-cancel:hover {
+    background: rgba(255,255,255,0.06);
+}
+.offer-sms-modal-footer .btn-send {
+    padding: 7px 18px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 5px;
+    background: #22c55e;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.offer-sms-modal-footer .btn-send:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.offer-sms-modal-footer .btn-send:not(:disabled):hover {
+    background: #1ea34d;
+}
+
+.sms-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1100;
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    transition: opacity 0.3s, transform 0.3s;
+    opacity: 1;
+}
+.sms-toast.success { background: #22c55e; }
+.sms-toast.error { background: #ef4444; }
+.sms-toast.fade-out { opacity: 0; transform: translateY(-10px); }
+
+.offer-selected-count {
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.5);
+    font-weight: 600;
 }

@@ -3,6 +3,13 @@ window.addEventListener('load', function() {
     var offerOverlay = document.getElementById('offerDrawerOverlay');
     if (!offerDrawer) return;
 
+    var _offerDrawerState = {
+        customerCode: '',
+        customerName: '',
+        customerMobile: '',
+        selectedOffers: {}
+    };
+
     document.querySelectorAll('.offer-chip[data-customer]').forEach(function(chip) {
         chip.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -13,6 +20,10 @@ window.addEventListener('load', function() {
     });
 
     window.openOfferDrawer = function(customerCode, customerName) {
+        _offerDrawerState.customerCode = customerCode;
+        _offerDrawerState.customerName = customerName;
+        _offerDrawerState.selectedOffers = {};
+
         document.getElementById('offer-drawer-cust-name').textContent = customerName;
         document.getElementById('offer-drawer-cust-code').textContent = customerCode;
 
@@ -25,6 +36,8 @@ window.addEventListener('load', function() {
         fetch('/crm/customer/' + customerCode + '/offer-intelligence')
             .then(function(r) { return r.json(); })
             .then(function(data) {
+                _offerDrawerState.customerMobile = data.customer_mobile || '';
+                _offerDrawerState.customerName = data.customer_name || customerName;
                 renderOfferDrawerContent(data, customerCode);
             })
             .catch(function(err) {
@@ -59,18 +72,20 @@ window.addEventListener('load', function() {
 
         var usagePct = summary.offer_usage_pct != null ? summary.offer_usage_pct : summary.offer_utilisation_pct;
         var sharePct = summary.offer_sales_share_pct || 0;
+        var totalSales = summary.total_customer_sales_4w || 0;
         html += '<div class="offer-kpi-row">';
         html += kpiCard(summary.active_offer_skus || 0, 'SKUs', '#6ea8fe');
         html += kpiCard(fmtPct(usagePct), 'Usage', usagePct >= 50 ? '#22c55e' : usagePct >= 25 ? '#ffc107' : '#ef4444');
-        html += kpiCard(fmtEur(summary.offer_sales_4w), 'Sales 4w', '#17a2b8');
+        html += kpiCard(fmtEur(summary.offer_sales_4w), 'Sales 4W', '#17a2b8');
+        html += kpiCard(fmtEur(totalSales), 'Total Sales', '#a78bfa');
         html += kpiCard(fmtPct(sharePct), 'Sales Share', sharePct >= 50 ? '#fd7e14' : '#22c55e');
         html += '</div>';
 
         html += '<div class="offer-tabs">';
-        html += '<button class="offer-tab-btn active" onclick="switchOfferTab(this, \'summary\')">Summary</button>';
-        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'opportunities\')">Unused (' + opps.length + ')</button>';
-        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'margin\')">Sales Dep. (' + marginWatch.length + ')</button>';
-        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'all\')">All Offers (' + allOffers.length + ')</button>';
+        html += '<button class="offer-tab-btn active" onclick="switchOfferTab(this, \'summary\')">Offer Summary</button>';
+        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'opportunities\')">Unused Offers (' + opps.length + ')</button>';
+        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'margin\')">Offer-Driven Sales (' + marginWatch.length + ')</button>';
+        html += '<button class="offer-tab-btn" onclick="switchOfferTab(this, \'all\')">All Active Offers (' + allOffers.length + ')</button>';
         html += '</div>';
 
         html += '<div id="offer-tab-summary" class="offer-tab-content active">';
@@ -104,8 +119,9 @@ window.addEventListener('load', function() {
         return '<div class="offer-kpi-card"><div class="kpi-num" style="color:' + color + '">' + value + '</div><div class="kpi-lbl">' + label + '</div></div>';
     }
 
-    function fmtPct(v) { return v != null ? parseFloat(v).toFixed(1) + '%' : '—'; }
-    function fmtEur(v) { return v != null ? '€' + parseFloat(v).toLocaleString('en', {maximumFractionDigits:0}) : '—'; }
+    function fmtPct(v) { return v != null ? parseFloat(v).toFixed(1) + '%' : '\u2014'; }
+    function fmtEur(v) { return v != null ? '\u20AC' + parseFloat(v).toLocaleString('en', {maximumFractionDigits:0}) : '\u2014'; }
+    function fmtEur2(v) { return v != null ? '\u20AC' + parseFloat(v).toFixed(2) : '\u2014'; }
 
     function renderSummaryTab(s, rulesBreakdown, sentence) {
         var h = '';
@@ -159,17 +175,12 @@ window.addEventListener('load', function() {
         if (!opps.length) return '<div class="offer-empty-state"><i class="fas fa-check-circle"></i>No unused opportunities found</div>';
         var h = '<div style="overflow-x:auto;">';
         h += '<table class="all-offers-table"><thead><tr>';
-        h += '<th>SKU</th><th>Product</th><th class="text-end">Offer €</th><th class="text-end">Disc %</th><th class="text-end">Margin %</th><th>Supplier / Brand</th><th>Mention</th>';
+        h += '<th>Product</th><th class="text-end">Offer</th>';
         h += '</tr></thead><tbody>';
         opps.forEach(function(o) {
             h += '<tr>';
-            h += '<td style="font-weight:600;">' + esc(o.sku || '') + '</td>';
-            h += '<td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
-            h += '<td class="text-end">' + (o.offer_price != null ? '€' + parseFloat(o.offer_price).toFixed(2) : '—') + '</td>';
-            h += '<td class="text-end">' + fmtPct(o.discount_percent) + '</td>';
-            h += '<td class="text-end">' + (o.gross_margin_percent != null ? fmtPct(o.gross_margin_percent) : '—') + '</td>';
-            h += '<td style="font-size:0.72rem;">' + esc(o.supplier_name || o.brand_name || '—') + '</td>';
-            h += '<td><span class="badge-mention">Mention</span></td>';
+            h += '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
+            h += '<td class="text-end">' + fmtEur2(o.offer_price) + '</td>';
             h += '</tr>';
         });
         h += '</tbody></table></div>';
@@ -177,22 +188,22 @@ window.addEventListener('load', function() {
     }
 
     function renderMarginTab(items) {
-        if (!items.length) return '<div class="offer-empty-state"><i class="fas fa-chart-pie" style="color:#22c55e"></i>No high-dependency lines detected</div>';
+        if (!items.length) return '<div class="offer-empty-state"><i class="fas fa-chart-pie" style="color:#22c55e"></i>No offer-driven sales detected</div>';
+
+        var sorted = items.slice().sort(function(a, b) {
+            return (b.sold_value_4w || 0) - (a.sold_value_4w || 0);
+        });
+
         var h = '<div style="overflow-x:auto;">';
         h += '<table class="all-offers-table"><thead><tr>';
-        h += '<th>SKU</th><th>Product</th><th class="text-end">Offer €</th><th class="text-end">Sold 4w</th><th class="text-end">Value 4w</th><th class="text-end">Disc %</th><th>Rule</th><th>Status</th>';
+        h += '<th>Product</th><th class="text-end">Offer</th><th class="text-end">Sold 4W</th><th class="text-end">Value</th>';
         h += '</tr></thead><tbody>';
-        items.forEach(function(m) {
-            var statusBadge = m.margin_status === 'negative' ? '<span class="badge-risk-neg">Neg Margin</span>' : m.margin_status === 'low' ? '<span class="badge-risk-low">Low Margin</span>' : '<span class="badge-status-selling">OK</span>';
+        sorted.forEach(function(m) {
             h += '<tr>';
-            h += '<td style="font-weight:600;">' + esc(m.sku || '') + '</td>';
-            h += '<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(m.product_name || '') + '">' + esc(m.product_name || '') + '</td>';
-            h += '<td class="text-end">' + (m.offer_price != null ? '€' + parseFloat(m.offer_price).toFixed(2) : '—') + '</td>';
-            h += '<td class="text-end">' + (m.sold_qty_4w != null ? m.sold_qty_4w : '—') + '</td>';
-            h += '<td class="text-end">' + (m.sold_value_4w != null ? fmtEur(m.sold_value_4w) : '—') + '</td>';
-            h += '<td class="text-end">' + (m.discount_percent != null ? fmtPct(m.discount_percent) : '—') + '</td>';
-            h += '<td style="font-size:0.72rem;">' + esc(m.rule_name || '—') + '</td>';
-            h += '<td>' + statusBadge + '</td>';
+            h += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(m.product_name || '') + '">' + esc(m.product_name || '') + '</td>';
+            h += '<td class="text-end">' + fmtEur2(m.offer_price) + '</td>';
+            h += '<td class="text-end">' + (m.sold_qty_4w != null ? m.sold_qty_4w : '\u2014') + '</td>';
+            h += '<td class="text-end">' + (m.sold_value_4w != null ? fmtEur(m.sold_value_4w) : '\u2014') + '</td>';
             h += '</tr>';
         });
         h += '</tbody></table></div>';
@@ -201,48 +212,74 @@ window.addEventListener('load', function() {
 
     function renderAllOffersTab(offers) {
         if (!offers.length) return '<div class="offer-empty-state"><i class="fas fa-tag"></i>No offers found</div>';
-        var h = '<div class="offer-search-bar"><input type="text" id="offerSearchInput" placeholder="Search SKU or product..." oninput="filterOfferRows(this.value)"></div>';
+
+        _offerDrawerState.selectedOffers = {};
+
+        var h = '<div class="offer-tab4-toolbar">';
+        h += '<div class="offer-search-bar"><input type="text" id="offerSearchInput" placeholder="Search product..." oninput="filterOfferRows(this.value)"></div>';
+        h += '<span class="offer-selected-count" id="offerSelectedCount"></span>';
+        h += '<button class="offer-sms-btn" id="offerSmsBtn" disabled onclick="openOfferSmsModal()"><i class="fas fa-sms"></i> Send SMS</button>';
+        h += '</div>';
+
         h += '<div style="overflow-x:auto;">';
         h += '<table class="all-offers-table"><thead><tr>';
-        h += '<th>SKU</th><th>Product</th><th>Rule</th><th class="text-end">Normal €</th><th class="text-end">Offer €</th><th class="text-end">Disc %</th><th class="text-end">Cost €</th><th class="text-end">GP €</th><th class="text-end">Margin</th><th class="text-end">Sold 4w</th><th>Last Sold</th><th>Status</th>';
+        h += '<th style="width:30px;"><input type="checkbox" class="offer-select-cb" id="offerSelectAll" onchange="toggleAllOfferRows(this.checked)"></th>';
+        h += '<th>Product</th><th class="text-end">Offer Price</th>';
         h += '</tr></thead><tbody id="allOffersBody">';
-        offers.forEach(function(o) {
-            h += offerRow(o);
+        offers.forEach(function(o, idx) {
+            var rowId = (o.sku || '') + '_' + idx;
+            h += '<tr class="offer-row" data-row-id="' + esc(rowId) + '" data-search="' + esc((o.sku || '') + ' ' + (o.product_name || '')).toLowerCase() + '"';
+            h += ' data-product="' + esc(o.product_name || o.sku || '') + '" data-price="' + (o.offer_price != null ? o.offer_price : '') + '">';
+            h += '<td><input type="checkbox" class="offer-select-cb" data-row-id="' + esc(rowId) + '" onchange="toggleOfferRow(this)"></td>';
+            h += '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
+            h += '<td class="text-end">' + fmtEur2(o.offer_price) + '</td>';
+            h += '</tr>';
         });
         h += '</tbody></table></div>';
         return h;
     }
 
-    function offerRow(o) {
-        var mClass = '';
-        var gm = o.gross_margin_percent;
-        if (gm != null) {
-            mClass = gm < 0 ? 'margin-pct-bad' : gm < 12 ? 'margin-pct-warn' : 'margin-pct-good';
+    window.toggleOfferRow = function(cb) {
+        var rowId = cb.getAttribute('data-row-id');
+        var tr = cb.closest('tr');
+        if (cb.checked) {
+            _offerDrawerState.selectedOffers[rowId] = {
+                product: tr.getAttribute('data-product'),
+                price: tr.getAttribute('data-price')
+            };
+        } else {
+            delete _offerDrawerState.selectedOffers[rowId];
         }
-        var statusMap = {
-            'selling': '<span class="badge-status-selling">Selling</span>',
-            'unused': '<span class="badge-status-unused">Unused</span>',
-            'high_discount_unused': '<span class="badge-status-hdu">High Disc</span>',
-            'margin_risk': '<span class="badge-status-risk">Risk</span>',
-            'unknown': '<span class="badge-status-unknown">—</span>'
-        };
-        var statusBadge = statusMap[o.line_status] || '<span class="badge-status-unknown">' + esc(o.line_status || '—') + '</span>';
+        updateSmsButtonState();
+    };
 
-        var r = '<tr class="offer-row" data-search="' + esc((o.sku || '') + ' ' + (o.product_name || '')).toLowerCase() + '">';
-        r += '<td style="font-weight:600;">' + esc(o.sku || '') + '</td>';
-        r += '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';
-        r += '<td style="font-size:0.72rem;max-width:80px;overflow:hidden;text-overflow:ellipsis;" title="' + esc(o.rule_name || '') + '">' + esc(o.rule_name || '') + '</td>';
-        r += '<td class="text-end">' + (o.origin_price != null ? '€' + parseFloat(o.origin_price).toFixed(2) : '—') + '</td>';
-        r += '<td class="text-end">' + (o.offer_price != null ? '€' + parseFloat(o.offer_price).toFixed(2) : '—') + '</td>';
-        r += '<td class="text-end">' + fmtPct(o.discount_percent) + '</td>';
-        r += '<td class="text-end">' + (o.cost != null ? '€' + parseFloat(o.cost).toFixed(2) : '—') + '</td>';
-        r += '<td class="text-end">' + (o.gross_profit != null ? '€' + parseFloat(o.gross_profit).toFixed(2) : '—') + '</td>';
-        r += '<td class="text-end ' + mClass + '">' + (gm != null ? fmtPct(gm) : '—') + '</td>';
-        r += '<td class="text-end">' + (o.sold_qty_4w || 0) + '</td>';
-        r += '<td style="font-size:0.72rem;">' + (o.last_sold_at ? o.last_sold_at.substring(0, 10) : '—') + '</td>';
-        r += '<td>' + statusBadge + '</td>';
-        r += '</tr>';
-        return r;
+    window.toggleAllOfferRows = function(checked) {
+        var rows = document.querySelectorAll('#allOffersBody .offer-row');
+        rows.forEach(function(tr) {
+            if (tr.style.display === 'none') return;
+            var cb = tr.querySelector('.offer-select-cb');
+            if (cb) {
+                cb.checked = checked;
+                var rowId = cb.getAttribute('data-row-id');
+                if (checked) {
+                    _offerDrawerState.selectedOffers[rowId] = {
+                        product: tr.getAttribute('data-product'),
+                        price: tr.getAttribute('data-price')
+                    };
+                } else {
+                    delete _offerDrawerState.selectedOffers[rowId];
+                }
+            }
+        });
+        updateSmsButtonState();
+    };
+
+    function updateSmsButtonState() {
+        var count = Object.keys(_offerDrawerState.selectedOffers).length;
+        var btn = document.getElementById('offerSmsBtn');
+        var countEl = document.getElementById('offerSelectedCount');
+        if (btn) btn.disabled = count === 0;
+        if (countEl) countEl.textContent = count > 0 ? count + ' selected' : '';
     }
 
     window.filterOfferRows = function(q) {
@@ -251,6 +288,176 @@ window.addEventListener('load', function() {
             tr.style.display = tr.getAttribute('data-search').indexOf(q) >= 0 ? '' : 'none';
         });
     };
+
+    window.openOfferSmsModal = function() {
+        var selected = _offerDrawerState.selectedOffers;
+        var count = Object.keys(selected).length;
+        if (count === 0) return;
+
+        var mobile = _offerDrawerState.customerMobile || '';
+        var custName = _offerDrawerState.customerName || '';
+
+        var lines = ['Special offers for you:'];
+        Object.keys(selected).forEach(function(key) {
+            var item = selected[key];
+            var priceStr = item.price ? '\u20AC' + parseFloat(item.price).toFixed(2) : '';
+            lines.push(item.product + (priceStr ? ' - ' + priceStr : ''));
+        });
+        lines.push('');
+        lines.push('Reply or contact us to place your order.');
+        var msgText = lines.join('\n');
+
+        var overlay = document.getElementById('offerSmsModalOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'offerSmsModalOverlay';
+            overlay.className = 'offer-sms-modal-overlay';
+            overlay.innerHTML = buildSmsModalHtml();
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) closeOfferSmsModal();
+            });
+        }
+
+        document.getElementById('smsModalCustName').textContent = custName;
+        document.getElementById('smsModalProductCount').textContent = count + ' product' + (count > 1 ? 's' : '') + ' selected';
+        document.getElementById('smsModalMobile').value = mobile;
+        document.getElementById('smsModalMessage').value = msgText;
+        document.getElementById('smsModalSendBtn').disabled = false;
+        document.getElementById('smsModalSendBtn').innerHTML = '<i class="fas fa-paper-plane"></i> Send';
+
+        if (!mobile) {
+            document.getElementById('smsModalMobileError').style.display = 'block';
+            document.getElementById('smsModalMobileError').textContent = 'No mobile number on file for this customer';
+        } else {
+            document.getElementById('smsModalMobileError').style.display = 'none';
+        }
+
+        updateSmsCharCount();
+        overlay.classList.add('show');
+
+        document.getElementById('smsModalMessage').addEventListener('input', updateSmsCharCount);
+    };
+
+    function buildSmsModalHtml() {
+        return '<div class="offer-sms-modal">'
+            + '<div class="offer-sms-modal-header">'
+            + '<h5><i class="fas fa-sms" style="margin-right:6px;color:#6ea8fe;"></i>Send Offer SMS</h5>'
+            + '<div class="sms-modal-subtitle"><span id="smsModalCustName"></span> &middot; <span id="smsModalProductCount"></span></div>'
+            + '</div>'
+            + '<div class="offer-sms-modal-body">'
+            + '<div class="sms-field-group">'
+            + '<label>Mobile Number</label>'
+            + '<input type="text" id="smsModalMobile" readonly>'
+            + '<div id="smsModalMobileError" style="display:none;color:#ef4444;font-size:0.72rem;margin-top:3px;"></div>'
+            + '</div>'
+            + '<div class="sms-field-group">'
+            + '<label>Message</label>'
+            + '<textarea id="smsModalMessage" rows="6"></textarea>'
+            + '<div class="sms-meta-row">'
+            + '<span id="smsCharCount">0 characters</span>'
+            + '<span id="smsSegmentCount">1 SMS</span>'
+            + '</div>'
+            + '<div id="smsLengthWarn" style="display:none;color:#ffc107;font-size:0.72rem;margin-top:3px;font-weight:600;"></div>'
+            + '</div>'
+            + '</div>'
+            + '<div class="offer-sms-modal-footer">'
+            + '<button class="btn-cancel" onclick="closeOfferSmsModal()">Cancel</button>'
+            + '<button class="btn-send" id="smsModalSendBtn" onclick="sendOfferSms()"><i class="fas fa-paper-plane"></i> Send</button>'
+            + '</div>'
+            + '</div>';
+    }
+
+    function updateSmsCharCount() {
+        var ta = document.getElementById('smsModalMessage');
+        if (!ta) return;
+        var len = ta.value.length;
+        var segments = len <= 160 ? 1 : Math.ceil(len / 153);
+
+        var charEl = document.getElementById('smsCharCount');
+        var segEl = document.getElementById('smsSegmentCount');
+        var warnEl = document.getElementById('smsLengthWarn');
+        if (charEl) charEl.textContent = len + ' characters';
+        if (segEl) {
+            segEl.textContent = segments + ' SMS' + (segments > 1 ? ' parts' : '');
+            if (segments > 1) segEl.classList.add('sms-warn');
+            else segEl.classList.remove('sms-warn');
+        }
+        if (warnEl) {
+            if (segments > 3) {
+                warnEl.style.display = 'block';
+                warnEl.textContent = 'Long message \u2014 ' + segments + ' SMS parts will be sent';
+            } else {
+                warnEl.style.display = 'none';
+            }
+        }
+    }
+
+    window.closeOfferSmsModal = function() {
+        var overlay = document.getElementById('offerSmsModalOverlay');
+        if (overlay) overlay.classList.remove('show');
+    };
+
+    window.sendOfferSms = function() {
+        var mobile = (document.getElementById('smsModalMobile').value || '').trim();
+        var message = (document.getElementById('smsModalMessage').value || '').trim();
+        var sendBtn = document.getElementById('smsModalSendBtn');
+
+        if (!mobile) {
+            document.getElementById('smsModalMobileError').style.display = 'block';
+            document.getElementById('smsModalMobileError').textContent = 'No mobile number available';
+            return;
+        }
+        if (!message) return;
+
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+        var selectedCount = Object.keys(_offerDrawerState.selectedOffers).length;
+
+        fetch('/crm/customer/' + _offerDrawerState.customerCode + '/offer-sms', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                mobile: mobile,
+                message: message,
+                customer_name: _offerDrawerState.customerName,
+                selected_count: selectedCount
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                closeOfferSmsModal();
+                showSmsToast('SMS sent successfully', 'success');
+                _offerDrawerState.selectedOffers = {};
+                document.querySelectorAll('#allOffersBody .offer-select-cb').forEach(function(cb) { cb.checked = false; });
+                var selectAll = document.getElementById('offerSelectAll');
+                if (selectAll) selectAll.checked = false;
+                updateSmsButtonState();
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send';
+                showSmsToast(data.error || 'Failed to send SMS', 'error');
+            }
+        })
+        .catch(function(err) {
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send';
+            showSmsToast('Network error', 'error');
+        });
+    };
+
+    function showSmsToast(msg, type) {
+        var toast = document.createElement('div');
+        toast.className = 'sms-toast ' + type;
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(function() {
+            toast.classList.add('fade-out');
+            setTimeout(function() { toast.remove(); }, 400);
+        }, 3000);
+    }
 
     function esc(s) {
         var d = document.createElement('div');

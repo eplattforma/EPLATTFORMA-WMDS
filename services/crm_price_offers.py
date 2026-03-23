@@ -1116,6 +1116,15 @@ def _generate_sentence(summary):
 
 def get_customer_offer_intelligence(customer_code_365):
     summary = get_customer_price_offer_summary(ps_customer_code=customer_code_365)
+
+    cust_row = db.session.execute(text("""
+        SELECT COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile,
+               COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name
+        FROM ps_customers WHERE customer_code_365 = :code
+    """), {"code": customer_code_365}).fetchone()
+    customer_mobile = cust_row[0] if cust_row else ""
+    customer_name_resolved = cust_row[1] if cust_row else customer_code_365
+
     if not summary or not summary.get("has_special_pricing"):
         return {
             "summary": summary or {"has_special_pricing": False, "active_offer_skus": 0},
@@ -1124,6 +1133,8 @@ def get_customer_offer_intelligence(customer_code_365):
             "rules_breakdown": [],
             "all_offers": [],
             "generated_sentence": "Customer has no active special pricing.",
+            "customer_mobile": customer_mobile,
+            "customer_name": customer_name_resolved,
         }
 
     excl_sql, excl_params = _excluded_rule_sql()
@@ -1168,6 +1179,8 @@ def get_customer_offer_intelligence(customer_code_365):
 
     return {
         "summary": summary,
+        "customer_mobile": customer_mobile,
+        "customer_name": customer_name_resolved,
         "opportunities": [{
             "sku": r[0], "product_name": r[1],
             "offer_price": _safe_float(r[2]),
