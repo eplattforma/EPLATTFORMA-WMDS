@@ -281,6 +281,18 @@ window.addEventListener('load', function() {
         if (countEl) countEl.textContent = count > 0 ? count + ' selected' : '';
     }
 
+    function buildSmsMessage(selected) {
+        var lines = ['Special offers for you:'];
+        Object.keys(selected).forEach(function(key) {
+            var item = selected[key];
+            var priceStr = item.price ? '\u20AC' + parseFloat(item.price).toFixed(2) : '';
+            lines.push(item.product + (priceStr ? ' - ' + priceStr : ''));
+        });
+        lines.push('');
+        lines.push('Reply or contact us to place your order.');
+        return lines.join('\n');
+    }
+
     window.filterOfferRows = function(q) {
         q = q.toLowerCase().trim();
         document.querySelectorAll('#allOffersBody .offer-row').forEach(function(tr) {
@@ -563,13 +575,17 @@ window.addEventListener('load', function() {
             + '<div id="oppSmsModalMobileError" style="display:none;color:#ef4444;font-size:0.85rem;margin-top:4px;"></div>'
             + '</div>'
             + '<div class="sms-field-group">'
-            + '<label>Message <span id="oppSmsCharCount" style="float:right;font-size:0.85rem;color:#6b7280;"></span></label>'
-            + '<textarea id="oppSmsModalMessage" rows="5" class="sms-textarea"></textarea>'
+            + '<label>Message</label>'
+            + '<textarea id="oppSmsModalMessage" rows="6"></textarea>'
+            + '<div class="sms-meta-row">'
+            + '<span id="oppSmsCharCount">0 characters</span>'
+            + '<span id="oppSmsSegmentCount">1 SMS</span>'
+            + '</div>'
             + '</div>'
             + '</div>'
             + '<div class="offer-sms-modal-footer">'
-            + '<button class="btn-send" id="oppSmsModalSendBtn" onclick="sendOppSms()"><i class="fas fa-paper-plane"></i> Send</button>'
             + '<button class="btn-cancel" onclick="closeOppSmsModal()">Cancel</button>'
+            + '<button class="btn-send" id="oppSmsModalSendBtn" onclick="sendOppSms()"><i class="fas fa-paper-plane"></i> Send</button>'
             + '</div>'
             + '</div>';
     }
@@ -630,10 +646,16 @@ window.addEventListener('load', function() {
     };
 
     function updateOppSmsCharCount() {
-        var textarea = document.getElementById('oppSmsModalMessage');
-        var countEl = document.getElementById('oppSmsCharCount');
-        if (textarea && countEl) {
-            countEl.textContent = textarea.value.length + ' chars';
+        var ta = document.getElementById('oppSmsModalMessage');
+        if (!ta) return;
+        var len = ta.value.length;
+        var segments = len <= 160 ? 1 : Math.ceil(len / 153);
+
+        var charEl = document.getElementById('oppSmsCharCount');
+        var segEl = document.getElementById('oppSmsSegmentCount');
+        if (charEl) charEl.textContent = len + ' characters';
+        if (segEl) {
+            segEl.textContent = segments + ' SMS' + (segments > 1 ? ' parts' : '');
         }
     }
 
