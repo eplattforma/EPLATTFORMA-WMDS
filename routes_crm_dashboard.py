@@ -820,17 +820,14 @@ def review_ordering():
                 eff_close = ATHENS_TZ.localize(
                     datetime.combine(effective_del, dt_time(int(hh), int(mm)))
                 )
-        elif window_is_open:
-            eff_open = window_status.get("window_open_at")
-            eff_close = window_status.get("window_close_at")
         else:
-            eff_open = order_window_open_at(natural_del, window_hours, anchor_time)
+            eff_open = order_window_open_at(effective_del, window_hours, anchor_time)
             if close_hours > 0:
-                eff_close = order_window_close_at(natural_del, close_hours, close_anchor_time)
+                eff_close = order_window_close_at(effective_del, close_hours, close_anchor_time)
             else:
                 hh, mm = anchor_time.split(":")
                 eff_close = ATHENS_TZ.localize(
-                    datetime.combine(natural_del, dt_time(int(hh), int(mm)))
+                    datetime.combine(effective_del, dt_time(int(hh), int(mm)))
                 )
 
         next_del = effective_del
