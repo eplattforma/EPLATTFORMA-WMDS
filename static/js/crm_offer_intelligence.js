@@ -282,15 +282,33 @@ window.addEventListener('load', function() {
     }
 
     function buildSmsMessage(selected) {
-        var lines = ['Special offers for you:'];
+        var header = 'Special offers for you:';
+        var footer = '\nEPLATTFORMA 70000394 PLACE YOUR ORDER';
+        var maxLength = 920;
+        var lines = [header];
+        var totalCount = Object.keys(selected).length;
+        var addedCount = 0;
+        var omittedCount = 0;
+
         Object.keys(selected).forEach(function(key) {
             var item = selected[key];
             var priceStr = item.price ? '\u20AC' + parseFloat(item.price).toFixed(2) : '';
-            lines.push(item.product + (priceStr ? ' - ' + priceStr : ''));
+            var line = item.product + (priceStr ? ' - ' + priceStr : '');
+            var potentialMsg = lines.concat([line]).join('\n') + footer;
+            
+            if (potentialMsg.length <= maxLength) {
+                lines.push(line);
+                addedCount++;
+            } else {
+                omittedCount++;
+            }
         });
-        lines.push('');
-        lines.push('EPLATTFORMA 70000394 PLACE YOUR ORDER');
-        return lines.join('\n');
+
+        var msg = lines.join('\n') + footer;
+        if (omittedCount > 0) {
+            msg = lines.join('\n') + '\n... and ' + omittedCount + ' more' + footer;
+        }
+        return msg;
     }
 
     window.filterOfferRows = function(q) {
