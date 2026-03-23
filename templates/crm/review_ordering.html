@@ -207,7 +207,7 @@ function toggleShowAll() {
             <div class="d-flex align-items-center gap-2">
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="assisted_only" value="1" id="assistedOnly" {% if filters.assisted_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="assistedOnly">Assisted</label></div>
                 <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="has_cart_only" value="1" id="hasCartOnly" {% if filters.has_cart_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="hasCartOnly">Cart</label></div>
-                <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="action_only" value="1" id="actionOnly" {% if filters.action_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="actionOnly">Has Action</label></div>
+                <div class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="action_only" value="1" id="actionOnly" {% if filters.action_only %}checked{% endif %}><label class="form-check-label" style="font-size:0.75rem;" for="actionOnly">Has Messages</label></div>
             </div>
             {% if show_all %}
             <input type="hidden" name="show_all" value="1">

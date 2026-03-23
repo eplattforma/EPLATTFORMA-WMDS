@@ -876,7 +876,8 @@ def review_ordering():
         state = _compute_review_state(review_rec, has_order, has_cart, assisted, logged_in_during_window)
         cm = _cart_mode(has_order, has_cart)
 
-        if filter_action_only and state not in ["follow_up", "waiting"]:
+        has_messages = r.customer_code_365 in comm_map
+        if filter_action_only and not has_messages:
             continue
 
         slot_closing_soon = False
