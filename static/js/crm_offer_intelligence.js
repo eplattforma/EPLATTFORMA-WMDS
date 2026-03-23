@@ -308,15 +308,7 @@ window.addEventListener('load', function() {
         var mobile = _offerDrawerState.customerMobile || '';
         var custName = _offerDrawerState.customerName || '';
 
-        var lines = ['Special offers for you:'];
-        Object.keys(selected).forEach(function(key) {
-            var item = selected[key];
-            var priceStr = item.price ? '\u20AC' + parseFloat(item.price).toFixed(2) : '';
-            lines.push(item.product + (priceStr ? ' - ' + priceStr : ''));
-        });
-        lines.push('');
-        lines.push('Reply or contact us to place your order.');
-        var msgText = lines.join('\n');
+        var msgText = buildSmsMessage(selected);
 
         var overlay = document.getElementById('offerSmsModalOverlay');
         if (!overlay) {
@@ -520,15 +512,7 @@ window.addEventListener('load', function() {
         var mobile = _offerDrawerState.customerMobile || '';
         var custName = _offerDrawerState.customerName || '';
 
-        var lines = ['Special offers for you:'];
-        Object.keys(selected).forEach(function(key) {
-            var item = selected[key];
-            var priceStr = item.price ? '\u20AC' + parseFloat(item.price).toFixed(2) : '';
-            lines.push(item.product + (priceStr ? ' - ' + priceStr : ''));
-        });
-        lines.push('');
-        lines.push('Reply or contact us to place your order.');
-        var msgText = lines.join('\n');
+        var msgText = buildSmsMessage(selected);
 
         var overlay = document.getElementById('oppSmsModalOverlay');
         if (!overlay) {
