@@ -289,7 +289,7 @@ window.addEventListener('load', function() {
             lines.push(item.product + (priceStr ? ' - ' + priceStr : ''));
         });
         lines.push('');
-        lines.push('Contact EPLATTFORMA AT 70000394 TO PLACE YOUR ORDER');
+        lines.push('EPLATTFORMA 70000394 PLACE YOUR ORDER');
         return lines.join('\n');
     }
 
