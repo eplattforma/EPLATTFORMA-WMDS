@@ -1164,13 +1164,14 @@ def get_customer_offer_intelligence(customer_code_365):
     """), oi_params).fetchall()
 
     rules = db.session.execute(text(f"""
-        SELECT rule_name, rule_code, COUNT(*) AS cnt,
-               AVG(discount_percent) AS avg_disc
+        SELECT rule_name, rule_code, 
+               SUM(CASE WHEN is_active = true THEN 1 ELSE 0 END) AS cnt,
+               AVG(CASE WHEN is_active = true THEN discount_percent ELSE NULL END) AS avg_disc
         FROM crm_customer_offer_current
-        WHERE customer_code_365 = :code AND is_active = true
+        WHERE customer_code_365 = :code
           AND rule_code != '__NO_RULE__'{excl_sql}
         GROUP BY rule_name, rule_code
-        ORDER BY cnt DESC
+        ORDER BY cnt DESC, rule_name
     """), oi_params).fetchall()
 
     all_offers = get_customer_price_offer_rows(ps_customer_code=customer_code_365)
