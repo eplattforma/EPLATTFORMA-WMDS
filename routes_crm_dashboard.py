@@ -798,10 +798,6 @@ def review_ordering():
             now_local=now_local,
         )
 
-        window_is_open = window_status["window_open"]
-        if not window_is_open and not show_all_customers:
-            continue
-
         natural_del = window_status["next_delivery"]
         if not natural_del:
             continue
@@ -811,24 +807,18 @@ def review_ordering():
             r.customer_code_365, natural_del, active_overrides=cust_overrides
         )
 
-        if override_rec:
-            eff_open = order_window_open_at(effective_del, window_hours, anchor_time)
-            if close_hours > 0:
-                eff_close = order_window_close_at(effective_del, close_hours, close_anchor_time)
-            else:
-                hh, mm = anchor_time.split(":")
-                eff_close = ATHENS_TZ.localize(
-                    datetime.combine(effective_del, dt_time(int(hh), int(mm)))
-                )
+        eff_open = order_window_open_at(effective_del, window_hours, anchor_time)
+        if close_hours > 0:
+            eff_close = order_window_close_at(effective_del, close_hours, close_anchor_time)
         else:
-            eff_open = order_window_open_at(effective_del, window_hours, anchor_time)
-            if close_hours > 0:
-                eff_close = order_window_close_at(effective_del, close_hours, close_anchor_time)
-            else:
-                hh, mm = anchor_time.split(":")
-                eff_close = ATHENS_TZ.localize(
-                    datetime.combine(effective_del, dt_time(int(hh), int(mm)))
-                )
+            hh, mm = anchor_time.split(":")
+            eff_close = ATHENS_TZ.localize(
+                datetime.combine(effective_del, dt_time(int(hh), int(mm)))
+            )
+
+        window_is_open = eff_open <= now_local < eff_close
+        if not window_is_open and not show_all_customers:
+            continue
 
         next_del = effective_del
 
