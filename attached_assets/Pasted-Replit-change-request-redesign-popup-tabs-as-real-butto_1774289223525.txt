@@ -1,0 +1,160 @@
+Replit change request: redesign popup tabs as real buttons, no overflow, no horizontal scrolling
+
+The current tab implementation is not acceptable.
+
+Problems with current result
+the tabs extend beyond the popup width
+a horizontal scrollbar appears
+tabs are not clearly identified
+they do not look like strong navigation controls
+the UI feels cramped and unfinished
+Required change
+
+Redesign the top tab navigation of the customer offers popup so the tabs look like clear button-style navigation, fully visible inside the popup width.
+
+This must apply to all 4 popup screens:
+
+Offer Summary
+Unused Offers
+Offer-Driven Sales
+All Active Offers
+1) Replace the current scrollable tab strip completely
+Remove
+horizontal scrolling tab bar
+scrollbar under the tabs
+any overflow behavior where tabs go outside the popup width
+weak text-only tab look
+Important
+
+There should be no horizontal scrollbar at all for the tabs.
+
+2) Make the tabs look like real buttons
+
+Implement the tabs as button-like segmented navigation.
+
+Visual direction
+
+Each tab should look like a button, not just text with an underline.
+
+Inactive tab/button
+dark button background
+visible border or subtle outline
+strong readable label
+clear padding
+slightly rounded corners
+Active tab/button
+stronger filled background or accent background
+brighter text
+stronger border / glow / emphasis
+clearly selected state at first glance
+Hover state
+brighter background or border on hover
+pointer cursor
+obvious interactivity
+3) Fit all tabs inside the popup width
+
+The 4 tabs must always stay within the popup width cleanly.
+
+Preferred layout
+
+Use one of these approaches:
+
+Option A — 4 equal-width buttons in one row
+
+If the popup width allows it:
+
+4 equal-width buttons across the row
+each button centered
+text can wrap to 2 lines if needed
+Option B — 2 x 2 button grid
+
+If one-row layout is too tight:
+
+place tabs in 2 rows of 2 buttons
+this is preferred over any horizontal scrolling
+must still look neat and intentional
+Rule
+
+Do not allow tabs to overflow horizontally.
+If needed, wrap the labels inside the button rather than forcing one-line overflow.
+
+4) Improve label readability
+
+The labels must be easy to identify.
+
+Button label rules
+center the text
+allow 2-line wrap if needed
+use good padding
+use stronger font weight
+maintain clear contrast
+Suggested tab labels
+
+Use:
+
+Offer Summary
+Unused Offers (15)
+Offer-Driven Sales (15)
+All Active Offers (72)
+
+If needed for best fit, counts can appear on a second line in smaller text, for example:
+
+Unused Offers
+(15)
+
+and
+
+Offer-Driven Sales
+(15)
+
+This is better than overflow.
+
+5) Recommended structure
+
+A good implementation would be:
+
+container for tab buttons
+CSS grid or flex layout
+each tab is a full button element or button-styled tab trigger
+equal heights
+equal widths within row/grid
+rounded corners
+consistent spacing between buttons
+Recommended CSS behavior
+use display: grid
+prefer grid-template-columns: repeat(4, 1fr) on wider popup widths
+fall back to repeat(2, 1fr) when needed
+use gap
+use min-height so wrapped labels still look balanced
+use white-space: normal
+use text-align: center
+explicitly prevent overflow and hide the old scrollbar logic
+6) UX objective
+
+The user should instantly understand:
+
+these are the 4 popup sections
+which one is active
+each is clickable
+no content is hidden off-screen
+
+This should feel like strong navigation buttons, not a weak tab strip.
+
+7) Acceptance criteria
+
+The change is complete only when all of the below are true:
+
+no horizontal scrollbar appears under the tabs
+no tab extends outside the popup width
+tabs look like real buttons
+active tab is immediately obvious
+inactive tabs remain clearly readable
+long labels fit cleanly, including on 2 lines if necessary
+counts remain visible
+layout looks intentional and polished
+works across all 4 popup screens
+dark theme remains consistent with the popup
+8) Priority note
+
+This is a UI correction, not a minor tweak.
+Please replace the current tab treatment rather than trying to slightly adjust the existing scrollable strip.
