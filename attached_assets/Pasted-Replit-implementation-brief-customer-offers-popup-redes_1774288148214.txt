@@ -1,0 +1,401 @@
+Replit implementation brief: customer offers popup redesign
+
+We need to improve the customer offers popup across all 4 tabs. The goal is to make it cleaner, easier to scan, more commercially useful, and add SMS sending from the offers list.
+
+The popup currently has 4 tabs/screens. We want to standardize the structure and simplify each tab based on its operational purpose.
+
+Tabs to use
+
+Rename / present the tabs as:
+
+Offer Summary
+Unused Offers
+Offer-Driven Sales
+All Active Offers
+
+Counts can still be shown where applicable, for example:
+
+Unused Offers (15)
+Offer-Driven Sales (15)
+All Active Offers (72)
+1) Global changes across all 4 tabs
+A. Add a new KPI card on every tab
+
+Add a new KPI card to the top KPI strip on all 4 tabs.
+
+KPI details
+Label: Total Sales
+Example value for the shown customer: €519
+Placement
+
+Place it in the same KPI row as the current KPI cards:
+
+SKUs
+Usage
+Sales 4W
+Total Sales
+Sales Share
+
+Recommended position:
+
+after Sales 4W
+before Sales Share
+Data logic
+
+This KPI must show the customer’s total sales for the same analysis period already used in the popup.
+
+Important:
+
+this is not only offer sales
+this is not only used-offer sales
+it is the customer’s total sales for the same current/comparison period used by the popup metrics
+Backend requirement
+
+All 4 tabs should use the same shared header KPI dataset so the values remain identical across the popup.
+
+If total sales is not already included in the popup payload, add it to the service/API response that builds the top KPI section.
+
+B. Improve tab navigation visibility on all 4 tabs
+
+The tabs are currently too weak visually and do not stand out enough in the dark UI.
+
+Required changes
+
+Improve the top tab bar so it is more visible, clearer, and more obviously clickable.
+
+UI requirements
+Increase tab label visibility
+increase contrast against the dark background
+slightly increase font weight
+slightly increase font size if needed
+add better horizontal and vertical padding
+Make the active tab more obvious
+stronger active text color
+stronger underline / active indicator
+optionally subtle active tab background or pill-style emphasis
+active state should be immediately clear
+Add better hover behavior
+inactive tab text becomes brighter on hover
+subtle hover background or highlight
+pointer cursor
+Improve spacing
+more breathing room between tabs
+labels vertically centered
+avoid crowding between labels
+Keep the current dark style
+do not redesign the popup
+keep it consistent with the existing dark theme
+just make the tabs more polished and readable
+Responsive behavior
+
+On smaller widths:
+
+preserve readability
+do not crush labels too tightly
+allow horizontal scroll if needed instead of breaking layout
+2) Screen 1: Offer Summary
+Title
+
+Use the title:
+Offer Summary
+
+No major table redesign requested here apart from the global KPI changes and improved tab UI.
+
+Keep the current summary-style layout, but ensure it reflects the renamed tab and the new Total Sales KPI.
+
+3) Screen 2: Unused Offers
+Purpose
+
+This screen should be very simple and easy to scan. It should show unused offers cleanly, one row per product, without unnecessary columns.
+
+Table columns to keep
+
+Only keep:
+
+Product
+Offer
+Remove these columns
+
+Remove from screen 2:
+
+SKU
+Disc %
+Margin %
+Supplier
+Layout behavior
+make Product the main wide column
+make Offer the second column
+rows should be compact and clean
+product should stay on one line where possible
+if product text is too long:
+truncate with ellipsis
+show full value on hover tooltip
+Value formatting
+Offer should display as currency
+use euro formatting consistently
+Backend
+
+No major backend change is required unless the current frontend depends on a shared generic grid definition.
+If necessary, give screen 2 its own table column configuration so it can remain minimal.
+
+4) Screen 3: Offer-Driven Sales
+Purpose
+
+This screen should show which offer-linked products generated sales value.
+
+Table columns to keep
+
+Keep only:
+
+Product
+Offer
+Sold 4W
+Value
+Remove these columns
+
+Remove from screen 3:
+
+Disc %
+Rule
+Sorting
+
+Set the default sort to:
+
+Value descending
+highest value first
+Column meaning
+Product = product description
+Offer = offer amount/value for that product
+Sold 4W = quantity sold in last 4 weeks
+Value = total sales value generated in the same 4-week period
+UI behavior
+Product is the widest column
+rows remain compact
+keep product on one line where possible
+truncate long names with ellipsis and hover tooltip
+Offer and Value formatted as euro currency
+Sold 4W numeric and easy to compare visually
+Backend
+
+Ensure the dataset supports:
+
+product
+offer
+sold_4w
+value
+
+Sorting should default to value descending, either server-side or client-side on first load.
+
+5) Screen 4: All Active Offers + SMS sending
+Purpose
+
+This screen should become a selectable offer list for sending products and prices to the customer by SMS.
+
+Table columns to keep
+
+Keep only:
+
+Select (checkbox)
+Product
+Offer Price
+Remove all other columns
+
+Remove every other column from screen 4.
+
+Row selection
+
+Add row-level checkbox selection.
+
+Required behavior
+one checkbox per product row
+header checkbox for select all visible is preferred
+user can select any combination of rows
+selection remains stable while the popup/tab is open
+selection must be tied to row identity, not row position
+Add Send SMS action
+
+Add a Send SMS button in screen 4, above the table or top-right of the tab.
+
+Behavior
+disabled when no products are selected
+enabled once at least one row is selected
+clicking opens an SMS compose / preview modal for the current customer
+6) SMS compose modal requirements
+
+When user clicks Send SMS, open a modal containing:
+
+customer name
+customer mobile number
+number of selected products
+editable SMS preview textarea
+live character count
+live estimated SMS segments / parts
+buttons:
+Send
+Cancel
+SMS prefill logic
+
+Auto-generate the message from the selected products.
+
+Example format:
+
+Special offers for you:
+Product A - €3.90
+Product B - €5.25
+Product C - €2.10
+
+Optional footer if aligned with current messaging style:
+Reply or contact us to place your order.
+
+Important formatting rules
+include only product name + offer price
+keep format compact for SMS
+do not include SKU, rule, supplier, margin, discount %, or technical data
+prices must be formatted clearly in euro
+7) SMS sending integration
+
+Use the existing Microsat SMS integration already used in the system.
+
+Requirement
+
+Do not build a separate provider path if one already exists.
+
+Reuse the current SMS service/helper/module and call it from this popup flow.
+
+Pass through
+
+The SMS sending call should include:
+
+recipient mobile number
+SMS body text
+customer reference if supported
+current operator / username if available
+
+If current SMS sending is not yet exposed as a reusable service layer, create one and make this popup call that shared service.
+
+8) SMS validation and UX rules
+
+Before sending:
+
+require at least one selected product
+require a valid mobile number
+if no mobile exists, show a clear error and do not send
+trim empty lines / malformed message content
+disable the Send button while the request is in progress to prevent double-send
+SMS length handling
+
+Because selected offers may create long SMS text:
+
+show character count live
+show estimated SMS segments live
+do not hard-block long messages automatically
+clearly warn the operator when message length becomes large
+preserve line breaks if the provider supports them
+otherwise gracefully convert to a compact separator format
+9) Communication logging / CRM history
+
+After a successful SMS send, log it in the existing communication history / CRM messaging log.
+
+Store at least
+customer
+phone number used
+sent message body
+operator username
+timestamp
+source = offer_popup_screen_4
+selected item count
+
+If a communications log table already exists, reuse it. Do not create a separate isolated logging mechanism unless necessary.
+
+Post-send UX
+
+After successful send:
+
+show success toast / confirmation
+keep the popup open unless current UX pattern says otherwise
+optionally clear selection only after confirmed success
+10) Data model / API expectations
+
+The popup should ideally be backed by a shared payload structure with:
+
+shared header KPIs
+tab-specific datasets
+Shared header KPI dataset
+
+Should include at least:
+
+skus
+usage_pct
+sales_4w
+total_sales
+sales_share
+Screen 2 dataset
+
+Needs only:
+
+product
+offer
+Screen 3 dataset
+
+Needs only:
+
+product
+offer
+sold_4w
+value
+Screen 4 dataset
+
+Needs only:
+
+product
+offer_price
+stable row id for checkbox selection
+
+Do not force all tabs to render the same generic table structure if that makes the UI crowded. It is acceptable for each tab to have its own column definition while still consuming the same popup backend.
+
+11) Visual and UX goals
+
+Overall goals:
+
+cleaner popup
+less clutter
+more commercially useful
+easier to scan quickly
+better use of limited popup width
+stronger tab visibility
+SMS sending directly from offers list
+
+This popup should feel like an operational tool, not a dense analytics grid.
+
+12) Acceptance criteria
+Global
+all 4 tabs use the improved tab navigation style
+all 4 tabs show the new Total Sales KPI
+example shown customer displays €519 total sales
+KPI row remains aligned and readable
+Screen 1
+tab/title reads Offer Summary
+summary screen remains intact with new KPI and improved tab UI
+Screen 2
+only Product and Offer are visible
+SKU, Disc %, Margin %, Supplier removed
+table is compact and easy to scan
+Screen 3
+only Product, Offer, Sold 4W, Value are visible
+Disc % and Rule removed
+sorted by Value descending by default
+Screen 4
+only Select, Product, Offer Price are visible
+row checkboxes work correctly
+Send SMS button enabled only when rows are selected
+SMS modal opens with selected products prefilled
+Microsat SMS integration is reused
+send action validates mobile and selected items
+successful sends are logged in CRM/history
+UI quality
+long product names truncate neatly with tooltip
+no layout crowding in popup width
+dark theme remains consistent
+tabs are visibly clickable and active tab is obvious
+
+Paste this to Replit as the implementation brief.
