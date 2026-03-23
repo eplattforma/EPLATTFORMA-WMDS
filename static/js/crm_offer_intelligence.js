@@ -211,7 +211,8 @@ window.addEventListener('load', function() {
     }
 
     function renderAllOffersTab(offers) {
-        if (!offers.length) return '<div class="offer-empty-state"><i class="fas fa-tag"></i>No offers found</div>';
+        var activeOffers = offers.filter(function(o) { return o.line_status !== 'unknown'; });
+        if (!activeOffers.length) return '<div class="offer-empty-state"><i class="fas fa-tag"></i>No offers found</div>';
 
         _offerDrawerState.selectedOffers = {};
 
@@ -226,9 +227,11 @@ window.addEventListener('load', function() {
         h += '<th style="width:30px;"><input type="checkbox" class="offer-select-cb" id="offerSelectAll" onchange="toggleAllOfferRows(this.checked)"></th>';
         h += '<th>Product</th><th class="text-end">Offer Price</th>';
         h += '</tr></thead><tbody id="allOffersBody">';
-        offers.forEach(function(o, idx) {
+        activeOffers.forEach(function(o, idx) {
             var rowId = (o.sku || '') + '_' + idx;
-            h += '<tr class="offer-row" data-row-id="' + esc(rowId) + '" data-search="' + esc((o.sku || '') + ' ' + (o.product_name || '')).toLowerCase() + '"';
+            var isUnused = o.line_status === 'unused' || o.line_status === 'high_discount_unused';
+            var rowClass = isUnused ? 'offer-row offer-row-unused' : 'offer-row';
+            h += '<tr class="' + rowClass + '" data-row-id="' + esc(rowId) + '" data-search="' + esc((o.sku || '') + ' ' + (o.product_name || '')).toLowerCase() + '"';
             h += ' data-product="' + esc(o.product_name || o.sku || '') + '" data-price="' + (o.offer_price != null ? o.offer_price : '') + '">';
             h += '<td><input type="checkbox" class="offer-select-cb" data-row-id="' + esc(rowId) + '" onchange="toggleOfferRow(this)"></td>';
             h += '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(o.product_name || '') + '">' + esc(o.product_name || '') + '</td>';

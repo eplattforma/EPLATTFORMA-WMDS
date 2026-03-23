@@ -245,6 +245,16 @@
     border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .all-offers-table tr:hover { background: rgba(255,255,255,0.04); }
+.offer-row-unused {
+    background: rgba(239,68,68,0.15);
+}
+.offer-row-unused:hover {
+    background: rgba(239,68,68,0.25);
+}
+.offer-row-unused td {
+    color: #ef4444;
+    font-weight: 600;
+}
 
 .offer-empty-state {
     text-align: center;
