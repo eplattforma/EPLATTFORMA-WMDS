@@ -61,5 +61,12 @@ DROPBOX_APP_SECRET = "i1yrjq8qr0qdund"
 ERP_USERNAME = "HE353264.Eplattforma"
 ERP_PASSWORD = "123456ABC"
 ERP_HEADLESS = "false"
+EXPIRY_FTP_HOST = "195.201.199.118"
+EXPIRY_FTP_PORT = "21"
+EXPIRY_FTP_USERNAME = "expirationdates@eplattforma.com.cy"
+EXPIRY_FTP_REMOTE_DIR = "/"
+EXPIRY_FTP_USE_TLS = "false"
+EXPIRY_FTP_TIMEOUT = "30"
+EXPIRY_EXPORT_DIR = "/tmp"
 
 [userenv.development]
