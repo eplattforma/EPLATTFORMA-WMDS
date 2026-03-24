@@ -126,6 +126,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Dropbox cost import scheduled: Daily at 2:00 AM")
 
+            scheduler.add_job(
+                func=_run_expiry_ftp_upload,
+                trigger=CronTrigger(hour=7, minute=0),
+                id='expiry_ftp_upload',
+                name='Expiry Dates FTP Upload',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Expiry dates FTP upload scheduled: Daily at 7:00 AM")
+
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
                 scheduler.add_job(
@@ -538,6 +549,26 @@ def _run_dropbox_cost_import():
                 )
     except Exception as e:
         logger.error(f"Error in scheduled Dropbox cost import: {str(e)}", exc_info=True)
+
+
+def _run_expiry_ftp_upload():
+    try:
+        from app import app
+        from services.expiry_ftp_upload import run_expiry_dates_export_and_upload
+        logger.info("=" * 60)
+        logger.info("STARTING SCHEDULED EXPIRY DATES EXPORT AND FTP UPLOAD")
+        logger.info("=" * 60)
+        with app.app_context():
+            result = run_expiry_dates_export_and_upload()
+            logger.info(
+                "EXPIRY DATES EXPORT AND FTP UPLOAD COMPLETED: "
+                f"csv_export={result.get('csv_export')}, "
+                f"ftp_upload={result.get('ftp_upload')}"
+            )
+            if result.get('details'):
+                logger.info(f"Details: {result['details']}")
+    except Exception as e:
+        logger.error(f"Error in scheduled expiry FTP upload: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():
