@@ -215,6 +215,19 @@ class StockPositionExportFlow(BaseExportFlow):
             with app.app_context():
                 result = import_stock_positions_from_xlsx(file_path)
             logger.info(f"Post-process complete: {result}")
+            
+            # After successful stock position import, trigger expiry dates export and FTP upload
+            try:
+                logger.info("Triggering expiry dates export and FTP upload...")
+                with app.app_context():
+                    from services.expiry_ftp_upload import run_expiry_dates_export_and_upload
+                    expiry_result = run_expiry_dates_export_and_upload()
+                    logger.info(f"Expiry FTP upload result: {expiry_result}")
+                    result['expiry_ftp_upload'] = expiry_result
+            except Exception as e:
+                logger.error(f"Expiry FTP upload failed: {e}", exc_info=True)
+                result['expiry_ftp_upload_error'] = str(e)
+            
             return result
         except Exception as e:
             logger.error(f"Post-process failed: {e}", exc_info=True)
