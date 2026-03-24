@@ -420,6 +420,7 @@ async function checkPushStatus(live) {
     var url = live ? '/admin/communications/push/verify' : '/admin/communications/push/cached-status';
     var label = document.getElementById('pushStatusLabel');
     var btn = document.getElementById('btnPush');
+    if (!label || !btn) return;
     try {
         var fd = new FormData();
         fd.append('customer_code_365', _customerCode);
@@ -452,6 +453,7 @@ async function checkPushStatus(live) {
 
 async function recheckPush() {
     var label = document.getElementById('pushStatusLabel');
+    if (!label) return;
     label.className = 'badge bg-secondary';
     label.style.fontSize = '0.6rem';
     label.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Verifying…';
@@ -487,6 +489,7 @@ async function doSendPush() {
     }
 
     var btn = document.getElementById('btnPush');
+    if (!btn) return;
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
     try {
         var fd = new FormData();
