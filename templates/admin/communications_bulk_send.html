@@ -114,22 +114,25 @@
 <script>
 var _customerCodes = {{ customers | map(attribute='customer_code_365') | list | tojson }};
 
-{% if customers|length > 0 %}
-document.getElementById('bulkTemplate').addEventListener('change', function(){
-    if (!this.value) { document.getElementById('bulkPreview').value = ''; return; }
-    var fd = new FormData();
-    fd.append('customer_code_365', _customerCodes[0]);
-    fd.append('template_code', this.value);
-    fetch('/admin/communications/preview', {method:'POST', body:fd})
-        .then(function(r){ return r.json(); })
-        .then(function(data){
-            document.getElementById('bulkPreview').value = data.rendered_body || data.error || '';
-        });
-});
-{% endif %}
+var _bulkTplSelect = document.getElementById('bulkTemplate');
+if (_bulkTplSelect) {
+    _bulkTplSelect.addEventListener('change', function(){
+        if (!this.value) { document.getElementById('bulkPreview').value = ''; return; }
+        var fd = new FormData();
+        fd.append('customer_code_365', _customerCodes[0]);
+        fd.append('template_code', this.value);
+        fetch('/admin/communications/preview', {method:'POST', body:fd})
+            .then(function(r){ return r.json(); })
+            .then(function(data){
+                document.getElementById('bulkPreview').value = data.rendered_body || data.error || '';
+            });
+    });
+}
 
 async function executeBulkSend() {
-    var tpl = document.getElementById('bulkTemplate').value;
+    var tplEl = document.getElementById('bulkTemplate');
+    if (!tplEl) { alert('No templates available.'); return; }
+    var tpl = tplEl.value;
     if (!tpl) { alert('Please select a template.'); return; }
     if (!confirm('Send MicroSMS to ' + {{ valid_count }} + ' customers?')) return;
 
