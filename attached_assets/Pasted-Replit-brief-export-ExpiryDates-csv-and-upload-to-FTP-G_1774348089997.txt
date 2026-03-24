@@ -1,0 +1,277 @@
+Replit brief — export ExpiryDates.csv and upload to FTP
+Goal
+
+Extend the expiry-date update script so that after it:
+
+downloads the expiry source from PS365
+updates the database
+generates the Magento file ExpiryDates.csv
+
+it must also:
+
+upload that file to the FTP server
+FTP destination
+
+Use these values from config/secrets:
+
+host: 195.201.199.118
+username: expirationdates@eplattforma.com.cy
+password: from Replit Secrets
+port: default 21 unless configured otherwise
+Required secrets/config
+
+Add these secrets:
+
+EXPIRY_FTP_HOST=195.201.199.118
+EXPIRY_FTP_PORT=21
+EXPIRY_FTP_USERNAME=expirationdates@eplattforma.com.cy
+EXPIRY_FTP_PASSWORD=<<set in secrets>>
+EXPIRY_FTP_REMOTE_DIR=/
+EXPIRY_FTP_USE_TLS=false
+EXPIRY_FTP_TIMEOUT=30
+
+If the server supports FTPS, prefer:
+
+EXPIRY_FTP_USE_TLS=true
+
+If not, use normal FTP.
+
+Business rule for the export file
+
+The exported file must still follow the exact rule:
+
+filename exactly: ExpiryDates.csv
+columns exactly: SKU,expiry_date
+keep duplicates
+sort by:
+SKU ASC
+expiry_date DESC
+
+That ensures the earliest expiry date appears last for each SKU, so Magento keeps the first-expiring date.
+
+Upload rule
+
+After creating the local file, upload it to the FTP server with the exact remote filename:
+
+ExpiryDates.csv
+
+Do not change the filename.
+
+Important operational requirement
+
+Do the remote upload atomically to avoid Magento reading a half-uploaded file.
+
+Correct approach
+
+Upload first as a temporary file, for example:
+
+ExpiryDates.csv.tmp
+
+Then rename it on the FTP server to:
+
+ExpiryDates.csv
+
+So the sequence is:
+
+create local ExpiryDates.csv
+connect to FTP
+upload as ExpiryDates.csv.tmp
+if upload succeeds, rename remote temp file to ExpiryDates.csv
+close connection
+
+This avoids partial-import issues.
+
+Failure behavior
+
+Use this rule:
+
+if DB update fails → stop, do not export or upload
+if CSV export fails → stop, do not upload
+if FTP upload fails → log as error and mark job failed
+
+Do not roll back the DB import just because FTP failed.
+The DB update and the outbound file delivery are separate concerns.
+
+But the job result should clearly show:
+
+db_update = success
+csv_export = success/fail
+ftp_upload = success/fail
+Suggested function flow
+def run_expiry_dates_update():
+    # 1. download from PS365
+    # 2. import/update DB
+    # 3. export local ExpiryDates.csv
+    # 4. upload ExpiryDates.csv to FTP
+    pass
+Suggested implementation
+1) Local export function
+
+Keep the export as discussed before.
+
+def export_expiry_dates_for_magento(local_dir: str) -> str:
+    """
+    Build ExpiryDates.csv from DB and return the full local file path.
+    """
+
+It should return something like:
+
+/mnt/data/exports/ExpiryDates.csv
+
+or your configured export path.
+
+2) FTP upload function
+
+Add a dedicated uploader:
+
+import os
+from ftplib import FTP, FTP_TLS
+
+def upload_file_to_expiry_ftp(local_file_path: str) -> None:
+    host = os.environ["EXPIRY_FTP_HOST"]
+    port = int(os.environ.get("EXPIRY_FTP_PORT", "21"))
+    username = os.environ["EXPIRY_FTP_USERNAME"]
+    password = os.environ["EXPIRY_FTP_PASSWORD"]
+    remote_dir = os.environ.get("EXPIRY_FTP_REMOTE_DIR", "/")
+    use_tls = os.environ.get("EXPIRY_FTP_USE_TLS", "false").lower() == "true"
+    timeout = int(os.environ.get("EXPIRY_FTP_TIMEOUT", "30"))
+
+    final_name = "ExpiryDates.csv"
+    temp_name = final_name + ".tmp"
+
+    ftp = None
+    try:
+        if use_tls:
+            ftp = FTP_TLS()
+            ftp.connect(host, port, timeout=timeout)
+            ftp.login(username, password)
+            ftp.prot_p()
+        else:
+            ftp = FTP()
+            ftp.connect(host, port, timeout=timeout)
+            ftp.login(username, password)
+
+        ftp.set_pasv(True)
+
+        if remote_dir and remote_dir != "/":
+            ftp.cwd(remote_dir)
+
+        with open(local_file_path, "rb") as f:
+            ftp.storbinary(f"STOR {temp_name}", f)
+
+        # Replace old live file if it exists
+        try:
+            ftp.delete(final_name)
+        except Exception:
+            pass
+
+        ftp.rename(temp_name, final_name)
+
+    finally:
+        try:
+            if ftp is not None:
+                ftp.quit()
+        except Exception:
+            pass
+3) Main script flow
+
+Wire it into the existing expiry update job:
+
+def run_expiry_dates_update():
+    logger.info("Expiry update job started")
+
+    # existing steps
+    download_expiry_file_from_ps365()
+    import_expiry_file_into_db()
+
+    # new step 1: export local CSV
+    local_csv_path = export_expiry_dates_for_magento(
+        local_dir=os.environ.get("EXPIRY_EXPORT_DIR", "/tmp")
+    )
+    logger.info("Local Magento expiry export created: %s", local_csv_path)
+
+    # new step 2: upload to FTP
+    upload_file_to_expiry_ftp(local_csv_path)
+    logger.info("ExpiryDates.csv uploaded successfully to FTP")
+Recommended extra safeguards
+Validate before upload
+
+Before uploading, verify:
+
+file exists
+file size > 0
+header is exactly SKU,expiry_date
+
+Example:
+
+def validate_export_file(path: str) -> None:
+    if not os.path.exists(path):
+        raise RuntimeError(f"Export file not found: {path}")
+
+    if os.path.getsize(path) == 0:
+        raise RuntimeError(f"Export file is empty: {path}")
+
+    with open(path, "r", encoding="utf-8") as f:
+        first_line = f.readline().strip()
+
+    if first_line != "SKU,expiry_date":
+        raise RuntimeError(f"Unexpected CSV header: {first_line}")
+
+Run that before the FTP upload.
+
+Recommended logging
+
+Log these fields:
+
+total exported rows
+unique SKU count
+duplicate SKU row count
+local export path
+local file size
+FTP host
+remote directory
+upload success/failure
+temp upload name and final name
+
+Do not log the password.
+
+Optional retry logic
+
+FTP can fail intermittently, so add up to 3 retries for upload.
+
+Example rule:
+
+attempt 1
+if fails, wait 2 seconds
+attempt 2
+if fails, wait 5 seconds
+attempt 3
+then fail job
+Final acceptance test
+
+After implementation, test with a SKU that appears multiple times.
+
+For example, if the file contains:
+
+SKU,expiry_date
+ABC-0001,2999-12-31
+ABC-0001,2027-03-01
+ABC-0001,2026-08-15
+
+then after Magento import, ABC-0001 should end up with:
+
+2026-08-15
+
+because it is the last row for that SKU.
+
+Final instruction to Replit
+
+Do not create a separate manual export script.
+
+This must be part of the normal expiry-date update job:
+
+update DB
+create ExpiryDates.csv
+upload ExpiryDates.csv to FTP
+
+in one run.
