@@ -96,6 +96,25 @@ function toggleShowAll() {
     }
     window.location.href = url.toString();
 }
+function updateBulkCount() {
+    var checked = document.querySelectorAll('.bulk-cb:checked').length;
+    var bulkCountEl = document.getElementById('bulkCount');
+    var bulkToolbarEl = document.getElementById('bulkToolbar');
+    if (bulkCountEl) bulkCountEl.textContent = checked;
+    if (bulkToolbarEl) bulkToolbarEl.style.display = checked > 0 ? 'flex' : 'none';
+}
+function toggleSelectAll(el) {
+    document.querySelectorAll('.bulk-cb').forEach(function(cb){
+        if (cb.closest('tr').style.display !== 'none') cb.checked = el.checked;
+    });
+    updateBulkCount();
+}
+function clearBulkSelection() {
+    document.querySelectorAll('.bulk-cb').forEach(function(cb){ cb.checked = false; });
+    var selAll = document.getElementById('selectAllCb');
+    if (selAll) selAll.checked = false;
+    updateBulkCount();
+}
 </script>
 {% endblock %}
 
@@ -840,22 +859,6 @@ function toggleStateGroup(e, state) {
     });
 }
 
-function updateBulkCount() {
-    var checked = document.querySelectorAll('.bulk-cb:checked').length;
-    document.getElementById('bulkCount').textContent = checked;
-    document.getElementById('bulkToolbar').style.display = checked > 0 ? 'flex' : 'none';
-}
-function toggleSelectAll(el) {
-    document.querySelectorAll('.bulk-cb').forEach(function(cb){
-        if (cb.closest('tr').style.display !== 'none') cb.checked = el.checked;
-    });
-    updateBulkCount();
-}
-function clearBulkSelection() {
-    document.querySelectorAll('.bulk-cb').forEach(function(cb){ cb.checked = false; });
-    document.getElementById('selectAllCb').checked = false;
-    updateBulkCount();
-}
 (function(){
     document.querySelectorAll('.state-divider').forEach(function(div) {
         var state = div.dataset.state;
