@@ -128,14 +128,14 @@ def setup_scheduler(app):
 
             scheduler.add_job(
                 func=_run_expiry_ftp_upload,
-                trigger=CronTrigger(hour=7, minute=0),
+                trigger=CronTrigger(hour=21, minute=0),
                 id='expiry_ftp_upload',
                 name='Expiry Dates FTP Upload',
                 replace_existing=True,
                 max_instances=1,
                 misfire_grace_time=3600
             )
-            logger.info("✓ Expiry dates FTP upload scheduled: Daily at 7:00 AM")
+            logger.info("✓ Expiry dates FTP upload scheduled: Daily at 9:00 PM (21:00)")
 
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
