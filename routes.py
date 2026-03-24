@@ -4448,11 +4448,25 @@ def refresh_stock_position():
         
         db.session.commit()
         
-        return jsonify({
+        # Trigger expiry dates export and FTP upload after successful import
+        expiry_result = None
+        try:
+            logging.info("Triggering expiry dates export and FTP upload...")
+            from services.expiry_ftp_upload import run_expiry_dates_export_and_upload
+            expiry_result = run_expiry_dates_export_and_upload()
+            logging.info(f"Expiry FTP upload result: {expiry_result}")
+        except Exception as e:
+            logging.error(f"Expiry FTP upload failed (non-critical): {str(e)}")
+        
+        response_data = {
             'success': True,
             'message': f'Imported {len(records_to_insert)} stock records',
             'count': len(records_to_insert)
-        })
+        }
+        if expiry_result:
+            response_data['expiry_export'] = expiry_result
+        
+        return jsonify(response_data)
     
     except Exception as e:
         db.session.rollback()
