@@ -1,3 +1,11 @@
+window.updateBulkCount = function() {
+    var checked = document.querySelectorAll('.bulk-cb:checked').length;
+    var bulkCountEl = document.getElementById('bulkCount');
+    var bulkToolbarEl = document.getElementById('bulkToolbar');
+    if (bulkCountEl) bulkCountEl.textContent = checked;
+    if (bulkToolbarEl) bulkToolbarEl.style.display = checked > 0 ? 'flex' : 'none';
+};
+
 window.addEventListener('load', function() {
     var offerDrawer = document.getElementById('offerDrawer');
     var offerOverlay = document.getElementById('offerDrawerOverlay');
