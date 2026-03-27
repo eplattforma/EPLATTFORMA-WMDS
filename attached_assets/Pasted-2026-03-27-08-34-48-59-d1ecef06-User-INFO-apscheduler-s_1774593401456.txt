@@ -1,0 +1,120 @@
+2026-03-27 08:34:48.59
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:48.59
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:48.59
+d1ecef06
+User
+INFO:scheduler:✓ FTP price master sync scheduled: Daily at 6:00 AM
+2026-03-27 08:34:48.59
+d1ecef06
+User
+INFO:scheduler:✓ FTP login sync scheduled: Every 30 minutes (at :15 and :45)
+2026-03-27 08:34:54.15
+d1ecef06
+User
+INFO:root:Database tables created if they didn't exist
+2026-03-27 08:34:54.72
+d1ecef06
+User
+INFO:update_crm_dashboard_schema:CRM dashboard schema ensured (crm_customer_profile, crm_task, crm_interaction_log, crm_ordering_review)
+2026-03-27 08:34:55.91
+d1ecef06
+User
+INFO:scheduler:Setting up background scheduled jobs...
+2026-03-27 08:34:55.91
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.91
+d1ecef06
+User
+INFO:scheduler:✓ Customer sync scheduled: Daily at 4:00 AM
+2026-03-27 08:34:55.91
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.91
+d1ecef06
+User
+INFO:scheduler:✓ Incremental DW sync scheduled: Daily at 1:00 AM and 1:00 PM
+2026-03-27 08:34:55.91
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.91
+d1ecef06
+User
+INFO:scheduler:✓ Full DW sync scheduled: Daily at 3:00 AM
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:scheduler:✓ Balance fetch scheduled: Daily at 2:30 AM
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:scheduler:✓ Invoice sync scheduled: Daily at 6:00 PM (last 2 days)
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:scheduler:✓ Forecast run scheduled: Daily at 5:00 AM
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:scheduler:✓ Pending orders sync scheduled: Every 30 minutes
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-03-27 08:34:55.92
+d1ecef06
+User
+INFO:scheduler:✓ Expiry dates FTP upload scheduled: Daily at 9:00 PM (21:00)
+2026-03-27 08:35:03.04
+d1ecef06
+System
+system: received signal terminated
+2026-03-27 08:35:03.85
+d1ecef06
+User
+DEBUG:apscheduler.scheduler:Looking for jobs to run
+2026-03-27 08:35:03.85
+d1ecef06
+User
+INFO:apscheduler.scheduler:Scheduler has been shut down
+2026-03-27 08:35:03.85
+d1ecef06
+User
+DEBUG:apscheduler.scheduler:No jobs; waiting until a job is added
+2026-03-27 08:35:03.85
+d1ecef06
+User
+INFO:scheduler:Scheduler shut down successfully
+2026-03-27 08:35:06.17
+d1ecef06
+User
+Production config: 1 worker, 4 threads
