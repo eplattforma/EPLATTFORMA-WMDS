@@ -1,0 +1,100 @@
+2026-03-27 08:30:21.28
+d1ecef06
+User
+35.231.191.228 - - [27/Mar/2026:06:30:21 +0000] "POST /api/picker/invoice/IN10054221/arrived HTTP/1.1" 200 12 "https://ep-picking-bro.replit.app/picker/invoice/IN10054221/item" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Mobile Safari/537.36"
+2026-03-27 08:30:22.80
+d1ecef06
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (19): api.powersoft365.com:443
+2026-03-27 08:30:22.80
+d1ecef06
+User
+WARNING:urllib3.connectionpool:Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<HTTPSConnection(host='api.powersoft365.com', port=443) at 0x7ff2641e5bd0>, 'Connection to api.powersoft365.com timed out. (connect timeout=10)')': /list_pending_orders_header?display_all=true&token=14760.9EDE6CDE-2FC2-46AC-8069-444E2977765A.777.1001
+2026-03-27 08:30:32.81
+d1ecef06
+User
+DEBUG:urllib3.util.retry:Incremented Retry for (url='/list_pending_orders_header?display_all=true&token=14760.9EDE6CDE-2FC2-46AC-8069-444E2977765A.777.1001'): Retry(total=0, connect=None, read=None, redirect=None, status=None)
+2026-03-27 08:30:36.81
+d1ecef06
+User
+WARNING:urllib3.connectionpool:Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<HTTPSConnection(host='api.powersoft365.com', port=443) at 0x7ff263fb1d50>, 'Connection to api.powersoft365.com timed out. (connect timeout=10)')': /list_pending_orders_header?display_all=true&token=14760.9EDE6CDE-2FC2-46AC-8069-444E2977765A.777.1001
+2026-03-27 08:30:36.81
+d1ecef06
+User
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (20): api.powersoft365.com:443
+2026-03-27 08:30:46.88
+d1ecef06
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+2026-03-27 08:30:46.88
+d1ecef06
+User
+self.sock = sock = self._new_conn()
+2026-03-27 08:30:46.88
+d1ecef06
+User
+conn.connect()
+2026-03-27 08:30:46.88
+d1ecef06
+User
+response = self._make_request(
+2026-03-27 08:30:46.88
+d1ecef06
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+2026-03-27 08:30:46.88
+d1ecef06
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connection.py", line 759, in connect
+2026-03-27 08:30:46.88
+d1ecef06
+User
+TimeoutError: timed out
+2026-03-27 08:30:46.88
+d1ecef06
+User
+The above exception was the direct cause of the following exception:
+2026-03-27 08:30:46.88
+d1ecef06
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connection.py", line 204, in _new_conn
+2026-03-27 08:30:46.88
+d1ecef06
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+2026-03-27 08:30:46.88
+d1ecef06
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+2026-03-27 08:30:46.88
+d1ecef06
+User
+self._validate_conn(conn)
+2026-03-27 08:30:46.88
+d1ecef06
+User
+Traceback (most recent call last):
+2026-03-27 08:30:46.88
+d1ecef06
+User
+raise new_e
+2026-03-27 08:30:46.88
+d1ecef06
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-03-27 08:30:46.88
+d1ecef06
+User
+sock.connect(sa)
+2026-03-27 08:30:46.88
+d1ecef06
+User
+^^^^^^^^^^^^^^^^^^^
+2026-03-27 08:30:46.88
+d1ecef06
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/util/connection.py", line 73, in create_connection
+2026-03-27 08:30:50.66
+d1ecef06
+User
+35.231.191.228 - - [27/Mar/2026:06:

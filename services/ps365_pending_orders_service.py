@@ -179,7 +179,12 @@ def sync_pending_order_totals_from_ps365(triggered_by="system"):
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Pending orders sync failed: {e}", exc_info=True)
+        err_msg = str(e).lower()
+        is_timeout = any(p in err_msg for p in ('timed out', 'timeout', 'max retries exceeded', 'connectionerror'))
+        if is_timeout:
+            logger.warning(f"Pending orders sync skipped — PS365 unavailable: {str(e)[:150]}")
+        else:
+            logger.error(f"Pending orders sync failed: {e}", exc_info=True)
         try:
             log.status = "failed"
             log.finished_at = datetime.utcnow()

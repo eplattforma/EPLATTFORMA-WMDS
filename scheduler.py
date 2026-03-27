@@ -116,6 +116,17 @@ def setup_scheduler(app):
             logger.info("✓ Pending orders sync scheduled: Every 30 minutes")
 
             scheduler.add_job(
+                func=_retry_pending_payments,
+                trigger=CronTrigger(minute="*/5"),
+                id='retry_pending_payments',
+                name='Retry PENDING_RETRY Payments to PS365',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=300
+            )
+            logger.info("✓ PENDING_RETRY payment retry scheduled: Every 5 minutes")
+
+            scheduler.add_job(
                 func=_run_dropbox_cost_import,
                 trigger=CronTrigger(hour=2, minute=0),
                 id='dropbox_cost_import',
@@ -497,7 +508,61 @@ def _run_pending_orders_sync():
             finally:
                 release_sync_lock(JOB_NAME)
     except Exception as e:
-        logger.error(f"Error in scheduled pending orders sync: {str(e)}", exc_info=True)
+        err_msg = str(e).lower()
+        if any(p in err_msg for p in ('timed out', 'timeout', 'max retries exceeded', 'connectionerror')):
+            logger.warning(f"Pending orders sync skipped — PS365 temporarily unavailable: {str(e)[:150]}")
+        else:
+            logger.error(f"Error in scheduled pending orders sync: {str(e)}", exc_info=True)
+
+
+def _retry_pending_payments():
+    try:
+        from app import app, db
+        from models import PaymentEntry, RouteStop, RouteStopInvoice, Invoice, Shipment
+        from services.payments import commit_to_ps365
+
+        with app.app_context():
+            pending = PaymentEntry.query.filter_by(
+                ps_status='PENDING_RETRY',
+                is_active=True,
+            ).filter(
+                PaymentEntry.attempt_count < 10
+            ).order_by(PaymentEntry.created_at).limit(20).all()
+
+            if not pending:
+                return
+
+            logger.info(f"Retrying {len(pending)} PENDING_RETRY payment(s)")
+
+            for pe in pending:
+                try:
+                    stop = RouteStop.query.get(pe.route_stop_id)
+                    if not stop:
+                        continue
+                    rsis = RouteStopInvoice.query.filter_by(
+                        route_stop_id=pe.route_stop_id, is_active=True
+                    ).all()
+                    invoice_nos = [r.invoice_no for r in rsis]
+                    customer_code = stop.customer_code or ''
+                    if not customer_code and invoice_nos:
+                        inv = Invoice.query.get(invoice_nos[0])
+                        if inv:
+                            customer_code = inv.customer_code_365 or ''
+
+                    shipment = Shipment.query.get(stop.shipment_id)
+                    driver_username = shipment.driver_name if shipment else 'system'
+                    commit_to_ps365(pe, customer_code, invoice_nos, driver_username)
+                    db.session.commit()
+
+                    if pe.ps_status == 'SUCCESS':
+                        logger.info(f"Background retry SUCCESS for PaymentEntry {pe.id}")
+                    else:
+                        logger.info(f"Background retry still {pe.ps_status} for PaymentEntry {pe.id} (attempt {pe.attempt_count})")
+                except Exception as exc:
+                    db.session.rollback()
+                    logger.warning(f"Background retry error for PaymentEntry {pe.id}: {str(exc)[:120]}")
+    except Exception as e:
+        logger.error(f"Error in _retry_pending_payments: {str(e)}")
 
 
 def _run_ftp_login_sync():

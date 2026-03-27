@@ -52,8 +52,8 @@ def create_payment(stop_id):
 @login_required
 def retry_payment(pe_id):
     pe = PaymentEntry.query.get_or_404(pe_id)
-    if pe.ps_status not in ('FAILED', 'NEW'):
-        return jsonify({'error': 'Only FAILED or NEW payments can be retried'}), 400
+    if pe.ps_status not in ('FAILED', 'NEW', 'PENDING_RETRY'):
+        return jsonify({'error': 'Only FAILED, NEW, or PENDING_RETRY payments can be retried'}), 400
 
     stop, invoice_nos, customer_code = _get_stop_context(pe.route_stop_id)
 

@@ -10,6 +10,9 @@ from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
+logging.getLogger('urllib3').setLevel(logging.ERROR)
+logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
+logging.getLogger('urllib3.util.retry').setLevel(logging.ERROR)
 
 class Base(DeclarativeBase):
     pass

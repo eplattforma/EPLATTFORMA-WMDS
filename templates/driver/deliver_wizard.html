@@ -941,6 +941,9 @@ async function submitPaymentWizard() {
             renderPaymentSummary();
             refreshHeaderAndSteps();
             bootstrap.Modal.getInstance(document.getElementById('paymentWizardModal')).hide();
+            if (data.ps_status === 'PENDING_RETRY') {
+                scheduleAutoRetry(15);
+            }
         } else {
             alert(data.error || 'Payment failed');
             btn.style.display = 'block';
@@ -951,6 +954,31 @@ async function submitPaymentWizard() {
         btn.style.display = 'block';
         spinner.style.display = 'none';
     }
+}
+
+let _autoRetryTimer = null;
+function scheduleAutoRetry(delaySec) {
+    if (_autoRetryTimer) clearTimeout(_autoRetryTimer);
+    _autoRetryTimer = setTimeout(async () => {
+        _autoRetryTimer = null;
+        if (!activePayment || activePayment.ps_status !== 'PENDING_RETRY') return;
+        try {
+            const res = await fetch(`/api/payments/${activePayment.id}/retry`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (res.ok && data) {
+                activePayment = data;
+                syncCodFromPayment(data);
+                renderPaymentSummary();
+                refreshHeaderAndSteps();
+                if (data.ps_status === 'PENDING_RETRY') {
+                    scheduleAutoRetry(30);
+                }
+            }
+        } catch(e) {}
+    }, delaySec * 1000);
 }
 
 async function retryPayment() {
@@ -1028,6 +1056,13 @@ function renderPaymentSummary() {
         chip.textContent = 'SKIPPED';
         errRow.style.display = 'none';
         retryBtn.style.display = 'none';
+    } else if (pe.ps_status === 'PENDING_RETRY') {
+        chip.className = 'badge bg-warning text-dark ms-2';
+        chip.textContent = 'WILL RETRY';
+        errRow.style.display = 'block';
+        errMsg.textContent = pe.ps_error || 'PS365 temporarily unavailable — will retry automatically.';
+        retryBtn.style.display = 'block';
+        retryBtn.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Retry Now';
     } else if (pe.ps_status === 'FAILED') {
         chip.className = 'badge bg-danger ms-2';
         chip.textContent = 'FAILED';
@@ -1050,6 +1085,9 @@ async function loadExistingPayment() {
             activePayment = data;
             syncCodFromPayment(data);
             renderPaymentSummary();
+            if (data.ps_status === 'PENDING_RETRY') {
+                scheduleAutoRetry(10);
+            }
         }
     } catch(e) {}
     refreshHeaderAndSteps();
@@ -1292,6 +1330,8 @@ function refreshHeaderAndSteps() {
                 const st = activePayment.ps_status;
                 if (st === 'SUCCESS' || st === 'SKIPPED') {
                     payDone = true;
+                } else if (st === 'PENDING_RETRY') {
+                    payDone = true;
                 } else if (st === 'FAILED') {
                     payDone = false;
                     payBlocked = true;
@@ -1315,6 +1355,8 @@ function refreshHeaderAndSteps() {
             payBadge.textContent = `${ml}  ${amtStr}`;
             if (activePayment.ps_status === 'SUCCESS' || activePayment.ps_status === 'SKIPPED') {
                 payBadge.style.color = '#22c55e';
+            } else if (activePayment.ps_status === 'PENDING_RETRY') {
+                payBadge.style.color = '#f59e0b';
             } else if (activePayment.ps_status === 'FAILED') {
                 payBadge.style.color = '#ef4444';
             } else {
