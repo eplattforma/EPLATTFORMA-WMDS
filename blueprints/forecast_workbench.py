@@ -57,6 +57,12 @@ def suppliers():
     return render_template('forecast_workbench/suppliers.html')
 
 
+@forecast_bp.route('/help')
+@admin_or_warehouse_required
+def help_manual():
+    return render_template('forecast_workbench/help.html')
+
+
 @forecast_bp.route('/supplier/<supplier_code>')
 @admin_or_warehouse_required
 def supplier_detail(supplier_code):

@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+
+{% block title %}Help - Forecast & Replenishment{% endblock %}
+
+{% block head %}
+<style>
+    .help-section {
+        margin-bottom: 2rem;
+    }
+    .help-section h3 {
+        color: var(--bs-primary);
+        border-bottom: 2px solid var(--bs-primary);
+        padding-bottom: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    .concept-box {
+        background: rgba(13, 110, 253, 0.1);
+        border-left: 4px solid var(--bs-primary);
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-radius: 4px;
+    }
+    .code-box {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 1rem;
+        border-radius: 4px;
+        font-family: 'Monaco', 'Courier New', monospace;
+        font-size: 0.85rem;
+        overflow-x: auto;
+        margin-bottom: 1rem;
+    }
+    .demand-class-table {
+        width: 100%;
+        margin-bottom: 1rem;
+    }
+    .demand-class-table thead {
+        background: var(--bs-primary);
+        color: white;
+    }
+    .demand-class-table td {
+        padding: 0.75rem;
+    }
+    .demand-class-table tbody tr:nth-child(even) {
+        background: rgba(13, 110, 253, 0.05);
+    }
+    .workflow-step {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    .step-number {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        background: var(--bs-primary);
+        color: white;
+        border-radius: 50%;
+        font-weight: bold;
+        flex-shrink: 0;
+    }
+    .step-content {
+        flex-grow: 1;
+    }
+    .toc {
+        background: rgba(0,0,0,0.05);
+        padding: 1.5rem;
+        border-radius: 4px;
+        margin-bottom: 2rem;
+    }
+    .toc a {
+        display: block;
+        padding: 0.25rem 0;
+        color: var(--bs-primary);
+        text-decoration: none;
+    }
+    .toc a:hover {
+        text-decoration: underline;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-4">
+    <div class="d-flex align-items-center mb-4">
+        <i class="fas fa-question-circle text-primary me-3" style="font-size: 1.5rem;"></i>
+        <h2 class="mb-0">Forecast & Replenishment Manual</h2>
+    </div>
+
+    <!-- Table of Contents -->
+    <div class="toc">
+        <h5 class="mb-3">Quick Navigation</h5>
+        <a href="#overview">Overview</a>
+        <a href="#demand-classification">Demand Classification</a>
+        <a href="#forecast-methods">Forecast Methods</a>
+        <a href="#replenishment-calculation">Replenishment Calculation</a>
+        <a href="#workflow">Typical Workflow</a>
+        <a href="#supplier-mapping">Supplier Mapping</a>
+        <a href="#review-flags">Review Flags & Reasons</a>
+        <a href="#running-forecast">Running a Forecast</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div class="help-section" id="overview">
+        <h3><i class="fas fa-chart-bar me-2"></i>Overview</h3>
+        <p>The Forecast & Replenishment system automatically predicts demand and calculates optimal reorder quantities for your inventory. It analyzes 26 weeks of sales history to classify demand patterns and recommend purchase orders.</p>
+        <div class="concept-box">
+            <strong>Core Process:</strong>
+            <ol class="mb-0 mt-2">
+                <li>Analyze 26 weeks of historical sales</li>
+                <li>Classify demand pattern (smooth, erratic, intermittent, lumpy, new/sparse)</li>
+                <li>Select appropriate forecast method</li>
+                <li>Calculate target stock level</li>
+                <li>Fetch current inventory from PS365</li>
+                <li>Recommend purchase quantity</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- DEMAND CLASSIFICATION -->
+    <div class="help-section" id="demand-classification">
+        <h3><i class="fas fa-tag me-2"></i>Demand Classification</h3>
+        <p>Items are automatically classified based on two metrics from 26-week history:</p>
+        <ul>
+            <li><strong>ADI (Average Demand Interval):</strong> Average number of days between sales</li>
+            <li><strong>CV² (Coefficient of Variation Squared):</strong> Variability in demand quantities</li>
+        </ul>
+        
+        <table class="demand-class-table">
+            <thead>
+                <tr>
+                    <th>Class</th>
+                    <th>Description</th>
+                    <th>ADI</th>
+                    <th>CV²</th>
+                    <th>Use Case</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Smooth</strong></td>
+                    <td>Regular, predictable demand</td>
+                    <td>&lt; 1.32</td>
+                    <td>&lt; 0.49</td>
+                    <td>High-volume staple items</td>
+                </tr>
+                <tr>
+                    <td><strong>Erratic</strong></td>
+                    <td>Frequent sales, high variability</td>
+                    <td>&lt; 1.32</td>
+                    <td>≥ 0.49</td>
+                    <td>Popular items with variable quantity orders</td>
+                </tr>
+                <tr>
+                    <td><strong>Intermittent</strong></td>
+                    <td>Infrequent, consistent quantities</td>
+                    <td>≥ 1.32</td>
+                    <td>&lt; 0.49</td>
+                    <td>Specialty items with occasional demand</td>
+                </tr>
+                <tr>
+                    <td><strong>Lumpy</strong></td>
+                    <td>Infrequent, highly variable</td>
+                    <td>≥ 1.32</td>
+                    <td>≥ 0.49</td>
+                    <td>Project-based or custom orders</td>
+                </tr>
+                <tr>
+                    <td><strong>New/Sparse</strong></td>
+                    <td>Fewer than 6 weeks of sales</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>New products or items with minimal history</td>
+                </tr>
+                <tr>
+                    <td><strong>No Demand</strong></td>
+                    <td>Zero sales in 26 weeks</td>
+                    <td>∞</td>
+                    <td>—</td>
+                    <td>Inactive/obsolete items</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- FORECAST METHODS -->
+    <div class="help-section" id="forecast-methods">
+        <h3><i class="fas fa-cube me-2"></i>Forecast Methods</h3>
+        <p>The system uses different calculation methods based on demand class:</p>
+        
+        <h5 class="mt-4">MA8 (Moving Average of Last 8 Weeks)</h5>
+        <p class="text-muted">Used for: Smooth, Erratic demand</p>
+        <div class="code-box">
+            Average of the 8 most recent weeks of demand
+            Simple, stable forecast for predictable demand
+        </div>
+
+        <h5 class="mt-4">MEDIAN6 (Median of Last 6 Weeks)</h5>
+        <p class="text-muted">Used for: Intermittent, Lumpy demand</p>
+        <div class="code-box">
+            Middle value of the 6 most recent weeks
+            Robust to outliers — better for variable demand
+        </div>
+
+        <h5 class="mt-4">SEEDED (Seeded Analogue)</h5>
+        <p class="text-muted">Used for: New/Sparse demand</p>
+        <div class="code-box">
+            When history is too short, finds similar items from:
+            • Same supplier (preferred)
+            • Same brand
+            • Same item prefix
+            Uses their average demand as a proxy
+        </div>
+
+        <h5 class="mt-4">ZERO</h5>
+        <p class="text-muted">Used for: No Demand</p>
+        <p>No forecast generated. Item has zero sales history.</p>
+    </div>
+
+    <!-- REPLENISHMENT CALCULATION -->
+    <div class="help-section" id="replenishment-calculation">
+        <h3><i class="fas fa-calculator me-2"></i>Replenishment Calculation</h3>
+        
+        <h5>Target Stock Formula</h5>
+        <div class="code-box">
+            Target Stock = (Daily Forecast × Cover Days) + (Daily Forecast × Lead Time) + (Daily Forecast × Review Cycle) + Buffer Stock
+        </div>
+        
+        <h5 class="mt-3">Components Explained</h5>
+        <ul>
+            <li><strong>Daily Forecast:</strong> Weekly forecast ÷ 7</li>
+            <li><strong>Cover Days:</strong> Days of buffer inventory to hold (default: 7 days)</li>
+            <li><strong>Lead Time:</strong> Days to receive order from supplier (from Supplier Mapping)</li>
+            <li><strong>Review Cycle:</strong> Days between replenishment reviews (default: 1 day)</li>
+            <li><strong>Buffer Stock:</strong> Safety stock for demand variability (default: 1 day of forecast)</li>
+        </ul>
+
+        <h5 class="mt-3">Order Quantity Calculation</h5>
+        <div class="code-box">
+            Raw Order = max(0, Target Stock − Net Available)
+            where Net Available = On Hand + Incoming − Reserved
+        </div>
+        <p>Then rounded to the nearest Order Multiple (case quantity) and enforced to meet Minimum Order Quantity (MOQ).</p>
+    </div>
+
+    <!-- WORKFLOW -->
+    <div class="help-section" id="workflow">
+        <h3><i class="fas fa-tasks me-2"></i>Typical Workflow</h3>
+        
+        <div class="workflow-step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+                <strong>Set Supplier Parameters</strong><br>
+                Go to Admin Settings → Supplier Mapping and define:
+                <ul class="mb-0 mt-2">
+                    <li>Lead time in days (time to receive from supplier)</li>
+                    <li>Review cycle (how often to review stock)</li>
+                    <li>Order multiple (case quantity, if applicable)</li>
+                    <li>Minimum order quantity (MOQ)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="workflow-step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+                <strong>Run Forecast</strong><br>
+                Click "Run Forecast" on the Suppliers page. The system will:
+                <ul class="mb-0 mt-2">
+                    <li>Analyze 26 weeks of sales history for all active items</li>
+                    <li>Classify demand patterns</li>
+                    <li>Calculate forecasts</li>
+                    <li>Fetch current stock levels from PS365</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="workflow-step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+                <strong>Review Results</strong><br>
+                Check the Suppliers page to see:
+                <ul class="mb-0 mt-2">
+                    <li>Recommended order quantities</li>
+                    <li>Items flagged for manual review</li>
+                    <li>Current stock vs. target stock</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="workflow-step">
+            <div class="step-number">4</div>
+            <div class="step-content">
+                <strong>Investigate Review Flags</strong><br>
+                Items with flags (yellow badge) need attention. Common reasons:
+                <ul class="mb-0 mt-2">
+                    <li>Demand class change (erratic, new, lumpy)</li>
+                    <li>Missing supplier mapping</li>
+                    <li>Forecast changed significantly from last run</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="workflow-step">
+            <div class="step-number">5</div>
+            <div class="step-content">
+                <strong>Create Purchase Orders</strong><br>
+                Use recommended quantities to create POs in your procurement system (or export from this interface).
+            </div>
+        </div>
+    </div>
+
+    <!-- SUPPLIER MAPPING -->
+    <div class="help-section" id="supplier-mapping">
+        <h3><i class="fas fa-warehouse me-2"></i>Supplier Mapping</h3>
+        
+        <p>Each item needs a supplier to enable proper replenishment planning. The system uses this priority:</p>
+        <div class="concept-box">
+            <strong>Supplier Resolution (in order):</strong>
+            <ol class="mb-0">
+                <li><strong>Primary:</strong> Supplier Mapping (if configured for the item)</li>
+                <li><strong>Fallback:</strong> DwItem.supplier_code_365 (if mapping missing)</li>
+                <li><strong>Missing:</strong> Item marked for review; replenishment skipped</li>
+            </ol>
+        </div>
+
+        <h5 class="mt-3">Setting Up Supplier Mapping</h5>
+        <ol>
+            <li>Go to Admin → Supplier Mapping</li>
+            <li>Select item and assign supplier</li>
+            <li>Enter lead time (days to receive from supplier)</li>
+            <li>Enter review cycle (optional; default: 1 day)</li>
+            <li>Enter order multiple (case qty, or 1 for individual units)</li>
+            <li>Enter minimum order quantity (MOQ, if any)</li>
+            <li>Save</li>
+        </ol>
+
+        <p class="text-muted mt-3"><strong>Note:</strong> If using fallback (DwItem supplier), the system will log "fallback supplier used" in the review reason. Prefer explicit mapping for better control.</p>
+    </div>
+
+    <!-- REVIEW FLAGS -->
+    <div class="help-section" id="review-flags">
+        <h3><i class="fas fa-flag me-2"></i>Review Flags & Reasons</h3>
+        
+        <p>Items are flagged for manual review when unusual conditions are detected. Review flags are rebuilt fresh on every forecast run.</p>
+
+        <h5>Common Review Reasons</h5>
+        <ul>
+            <li><strong>Demand class:</strong> Item is erratic, lumpy, or new/sparse demand</li>
+            <li><strong>Trend (up/down):</strong> Demand increased or decreased by more than 10%</li>
+            <li><strong>Forecast changed:</strong> Weekly forecast changed by more than 20% from previous run</li>
+            <li><strong>Order rounding distortion:</strong> Rounding to order multiple caused >30% change</li>
+            <li><strong>Missing supplier mapping:</strong> No supplier found for the item</li>
+            <li><strong>Fallback supplier used:</strong> Using DwItem supplier instead of mapped supplier</li>
+            <li><strong>No demand but stock exists:</strong> Item has zero sales but inventory on hand</li>
+            <li><strong>Inactive item with recent sales:</strong> Item marked inactive but has recent demand</li>
+        </ul>
+
+        <p class="text-muted mt-3"><strong>Important:</strong> Review flags are <strong>not</strong> carried over between runs. They are rebuilt from scratch based on current data only.</p>
+    </div>
+
+    <!-- RUNNING A FORECAST -->
+    <div class="help-section" id="running-forecast">
+        <h3><i class="fas fa-play-circle me-2"></i>Running a Forecast</h3>
+
+        <h5>Manual Forecast Run</h5>
+        <ol>
+            <li>Go to Forecast Workbench → Suppliers</li>
+            <li>Click "Run Forecast" button (top right)</li>
+            <li>System will process all active items (takes 1–5 minutes depending on volume)</li>
+            <li>Status banner will show when complete</li>
+        </ol>
+
+        <h5>Automated Schedule</h5>
+        <p>Forecasts also run automatically:</p>
+        <ul>
+            <li><strong>Daily at 5:00 AM:</strong> Full forecast run for all items</li>
+        </ul>
+
+        <h5>What to Check After a Run</h5>
+        <ul>
+            <li>Last run timestamp (verify it completed)</li>
+            <li>Total items processed</li>
+            <li>Items with review flags (yellow badges)</li>
+            <li>Unmapped items (items without a supplier)</li>
+        </ul>
+    </div>
+
+    <!-- TROUBLESHOOTING -->
+    <div class="help-section" id="troubleshooting">
+        <h3><i class="fas fa-tools me-2"></i>Troubleshooting</h3>
+
+        <h5>Question: Why does an item have "SEEDED" forecast?</h5>
+        <p><strong>Answer:</strong> The item has fewer than 6 weeks of sales history. The system finds similar items (same supplier, brand, or prefix) and uses their demand as a proxy. Once the item has 6+ weeks of sales, it will be reclassified on the next run.</p>
+
+        <h5>Question: Why is the recommended order quantity 0?</h5>
+        <p><strong>Answer:</strong> Current stock (on hand + incoming − reserved) already exceeds the target stock level. No reorder is needed at this time. Check back after the next forecast run or when stock levels drop.</p>
+
+        <h5>Question: Why is an item flagged for review?</h5>
+        <p><strong>Answer:</strong> Check the review reason badge. Common causes are demand pattern changes, missing supplier info, or significant forecast shifts. Click the item to see details.</p>
+
+        <h5>Question: How often should I update supplier lead times?</h5>
+        <p><strong>Answer:</strong> Update immediately if your supplier's lead time changes. Lead time directly affects target stock calculations, so accuracy is critical.</p>
+
+        <h5>Question: Can I modify a single item's forecast?</h5>
+        <p><strong>Answer:</strong> Forecasts are recalculated on every run. To override for a specific item, you can manually adjust supplier mapping (lead time, MOQ, etc.) before the next run, or mark the item for special handling in your procurement process.</p>
+
+        <h5>Question: What if my supplier mapping differs from DwItem supplier?</h5>
+        <p><strong>Answer:</strong> The system prioritizes your supplier mapping. If mapped, it uses that supplier's code for stock fetches and planning. DwItem supplier is only used as a fallback if no mapping exists. This is intentional — mapping gives you full control.</p>
+    </div>
+
+    <hr class="my-4">
+    <p class="text-muted text-center">
+        <small>For additional support, contact your warehouse manager or system administrator.</small>
+    </p>
+</div>
+{% endblock %}
