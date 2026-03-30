@@ -251,47 +251,47 @@ function renderSuppliers(suppliers) {
         const cardClass = isUnmapped ? 'unmapped-card' : '';
 
         return `
-        <div class="card bg-dark supplier-card ${cardClass} mb-2" style="cursor: pointer;" onclick="window.location='{{ url_for("forecast_workbench.supplier_detail", supplier_code="__CODE__") }}'.replace('__CODE__', '${s.supplier_code}')">
-            <div class="card-body p-3">
-                <div class="row align-items-center g-3">
+        <div class="card bg-dark supplier-card ${cardClass} mb-1" style="cursor: pointer;" onclick="window.location='{{ url_for("forecast_workbench.supplier_detail", supplier_code="__CODE__") }}'.replace('__CODE__', '${s.supplier_code}')">
+            <div class="card-body p-2">
+                <div class="row align-items-center g-2">
                     <div class="col">
-                        <div class="d-flex align-items-start justify-content-between">
+                        <div class="d-flex align-items-center justify-content-between gap-2">
                             <div>
-                                <h6 class="card-title mb-1 ${isUnmapped ? 'text-warning' : ''}">
-                                    ${isUnmapped ? '<i class="fas fa-question-circle me-2"></i>' : '<i class="fas fa-industry me-2 text-muted"></i>'}
+                                <h6 class="card-title mb-0 ${isUnmapped ? 'text-warning' : ''}" style="font-size: 0.9rem;">
+                                    ${isUnmapped ? '<i class="fas fa-question-circle me-1"></i>' : '<i class="fas fa-industry me-1 text-muted"></i>'}
                                     ${escapeHtml(s.supplier_name || s.supplier_code)}
                                 </h6>
-                                ${!isUnmapped ? '<small class="text-muted">' + escapeHtml(s.supplier_code) + '</small>' : ''}
+                                ${!isUnmapped ? '<small class="text-muted" style="font-size: 0.75rem;">' + escapeHtml(s.supplier_code) + '</small>' : ''}
                             </div>
-                            ${s.review_count > 0 ? '<span class="badge bg-warning text-dark ms-3"><i class="fas fa-exclamation-triangle me-1"></i>' + s.review_count + ' Review</span>' : ''}
+                            ${s.review_count > 0 ? '<span class="badge bg-warning text-dark" style="font-size: 0.75rem;"><i class="fas fa-exclamation-triangle me-1"></i>' + s.review_count + '</span>' : ''}
                         </div>
                     </div>
                     
                     <div class="col-auto">
-                        <div class="d-flex gap-4">
+                        <div class="d-flex gap-3" style="font-size: 0.85rem;">
                             <div class="text-center">
-                                <div class="stat-value text-info">${s.active_skus || 0}</div>
-                                <div class="stat-label">SKUs</div>
+                                <div style="font-weight: 700; font-size: 1rem; color: #17a2b8; line-height: 1;">${s.active_skus || 0}</div>
+                                <div style="font-size: 0.65rem; color: #999; text-transform: uppercase;">SKUs</div>
                             </div>
                             <div class="text-center">
-                                <div class="stat-value text-success">${s.order_count || 0}</div>
-                                <div class="stat-label">To Order</div>
+                                <div style="font-weight: 700; font-size: 1rem; color: #28a745; line-height: 1;">${s.order_count || 0}</div>
+                                <div style="font-size: 0.65rem; color: #999; text-transform: uppercase;">To Order</div>
                             </div>
                             <div class="text-center">
-                                <div class="stat-value text-warning">${formatQty(s.total_order_qty)}</div>
-                                <div class="stat-label">Order Qty</div>
+                                <div style="font-weight: 700; font-size: 1rem; color: #ffc107; line-height: 1;">${formatQty(s.total_order_qty)}</div>
+                                <div style="font-size: 0.65rem; color: #999; text-transform: uppercase;">Qty</div>
                             </div>
                             <div class="text-center">
-                                <span class="badge badge-smooth" title="Smooth demand items">
+                                <span class="badge badge-smooth" style="font-size: 0.75rem;">
                                     <i class="fas fa-check-circle me-1"></i>${s.smooth_count || 0}
                                 </span>
-                                <div class="stat-label">Smooth</div>
+                                <div style="font-size: 0.65rem; color: #999; text-transform: uppercase;">Smooth</div>
                             </div>
                             <div class="text-center">
-                                <span class="badge badge-irregular" title="Irregular demand items (erratic/intermittent/lumpy)">
+                                <span class="badge badge-irregular" style="font-size: 0.75rem;">
                                     <i class="fas fa-random me-1"></i>${s.irregular_count || 0}
                                 </span>
-                                <div class="stat-label">Irregular</div>
+                                <div style="font-size: 0.65rem; color: #999; text-transform: uppercase;">Irregular</div>
                             </div>
                         </div>
                     </div>
