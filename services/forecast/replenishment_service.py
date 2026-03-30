@@ -88,11 +88,8 @@ def _resolve_supplier_context(item_code, supplier_map, dw_item):
     return context
 
 
-def _build_review_reasons(profile, result, supplier_context, dw_item, old_final, raw_order, rounded_order):
+def _build_review_reasons(profile, result, supplier_context, dw_item, old_final, raw_order, rounded_order, session=None):
     reasons = []
-
-    if profile.demand_class in ("erratic", "lumpy", "new_sparse"):
-        reasons.append(f"{profile.demand_class} demand class")
 
     if dw_item and not dw_item.active and profile.weeks_non_zero_26 > 0:
         reasons.append("inactive item with recent sales")
@@ -116,8 +113,6 @@ def _build_review_reasons(profile, result, supplier_context, dw_item, old_final,
 
     if not supplier_context["supplier_code"]:
         reasons.append("missing supplier mapping")
-    elif supplier_context["fallback_used"]:
-        reasons.append("fallback supplier used")
 
     if dw_item:
         if not dw_item.category_code_365 and not dw_item.brand_code_365:
@@ -127,6 +122,18 @@ def _build_review_reasons(profile, result, supplier_context, dw_item, old_final,
         on_hand = _to_float(result.on_hand_qty)
         if on_hand > 0:
             reasons.append("no demand but stock exists")
+
+    if profile.forecast_method == "SEEDED" and raw_order > 0:
+        seeded_threshold = 0.0
+        if session:
+            seeded_threshold = _safe_num(session, "forecast_seeded_review_min_qty", 0.0, float)
+        if seeded_threshold > 0 and raw_order >= seeded_threshold:
+            reasons.append(f"seeded forecast with significant order ({raw_order:.0f} units)")
+
+    if supplier_context.get("issues"):
+        if "fallback to DwItem.supplier_code_365" in supplier_context["issues"]:
+            if supplier_context.get("fallback_used") and not supplier_context.get("supplier_code"):
+                reasons.append("fallback supplier failed; no supplier available")
 
     return reasons
 
@@ -238,8 +245,9 @@ def compute_replenishment(session: Session, run_id=None):
         result.calculated_at = now
 
         old_final = _to_float(result.final_forecast_weekly_qty)
+        
         review_reasons = _build_review_reasons(
-            profile, result, supplier_context, dw_item, old_final, raw_order, rounded
+            profile, result, supplier_context, dw_item, old_final, raw_order, rounded, session
         )
 
         profile.review_flag = bool(review_reasons)

@@ -264,13 +264,6 @@ def compute_base_forecasts(session: Session, run_id=None):
             base_forecast = _compute_ma8(weekly_qtys)
             forecast_method = "MA8"
             forecast_confidence = "medium"
-            if not profile.review_flag:
-                profile.review_flag = True
-                reasons = (profile.review_reason or "").split("; ")
-                reasons = [r for r in reasons if r]
-                if "erratic demand class" not in reasons:
-                    reasons.append("erratic demand class")
-                profile.review_reason = "; ".join(reasons)
         elif demand_class in ("intermittent", "lumpy"):
             base_forecast = _compute_median6(weekly_qtys)
             forecast_method = "MEDIAN6"
@@ -281,24 +274,10 @@ def compute_base_forecasts(session: Session, run_id=None):
             )
             forecast_method = "SEEDED"
             seed_source = analogue_level
-            profile.review_flag = True
-            reasons = (profile.review_reason or "").split("; ")
-            reasons = [r for r in reasons if r]
-            if "new/sparse demand" not in reasons:
-                reasons.append("new/sparse demand")
-            profile.review_reason = "; ".join(reasons)
         elif demand_class == "no_demand":
             base_forecast = 0.0
             forecast_method = "ZERO"
             forecast_confidence = "none"
-            dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
-            if dw_item and dw_item.active:
-                profile.review_flag = True
-                reasons = (profile.review_reason or "").split("; ")
-                reasons = [r for r in reasons if r]
-                if "no demand but item active" not in reasons:
-                    reasons.append("no demand but item active")
-                profile.review_reason = "; ".join(reasons)
 
         profile.forecast_method = forecast_method
         profile.forecast_confidence = forecast_confidence

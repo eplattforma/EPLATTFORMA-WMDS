@@ -1,0 +1,244 @@
+Replit brief — Fix forecast review logic so review is exception-only
+
+The current forecasting implementation is flagging nearly all or all SKUs for review.
+I reviewed the live code and found the core problem:
+
+Root cause
+
+Review is currently being triggered too broadly in more than one place.
+
+Specifically:
+
+In services/forecast/base_forecast_service.py, review is being set for classes like:
+erratic
+new_sparse
+no_demand for active items
+In services/forecast/replenishment_service.py, review is being triggered again for:
+erratic
+lumpy
+new_sparse
+
+This makes review a default outcome instead of an exception.
+
+There is also a second issue:
+
+review state is not being cleanly reset before rebuilding it each run, so old review reasons can persist.
+Goal
+
+Change the review logic so that:
+
+review is exception-only
+common demand classes do not automatically trigger review
+review state is rebuilt from scratch every run
+only genuinely risky or incomplete cases are flagged
+Required changes
+1. Reset review state before rebuilding it
+
+Wherever review is evaluated and saved, do not append onto old values.
+
+Before building current-run review reasons, explicitly reset:
+
+profile.review_flag = False
+profile.review_reason = None
+
+Then rebuild the reasons list from scratch for the current run only.
+
+At the end:
+
+profile.review_flag = bool(review_reasons)
+profile.review_reason = "; ".join(review_reasons) if review_reasons else None
+
+This must happen deterministically on every run.
+
+2. Remove class-only review triggers
+In services/forecast/base_forecast_service.py
+
+Remove automatic review caused only by:
+
+erratic
+new_sparse
+
+Do not mark an item for review just because it belongs to those classes.
+
+Keep the demand class itself.
+Keep the forecast method itself.
+Only remove the automatic review behavior.
+
+Also review the handling of:
+
+no_demand
+
+This should not automatically trigger review merely because the item is active.
+
+Instead:
+
+only review if there is meaningful stock on hand / net available / target mismatch
+or if the business rule explicitly needs review because stock still exists
+
+So change:
+
+no_demand + active → not enough by itself
+no_demand + stock exists → valid review reason
+3. Remove broad class-based review in replenishment
+In services/forecast/replenishment_service.py
+
+Remove logic like:
+
+if profile.demand_class in ("erratic", "lumpy", "new_sparse"):
+    reasons.append(...)
+
+This is too broad and is the main reason review explodes across the catalog.
+
+Demand class should remain visible in the UI/reporting, but it should not force review by itself.
+
+4. Replace with exception-based review rules
+
+Rebuild review only from stronger conditions.
+
+Use reasons like these:
+
+Valid review triggers
+no demand but stock exists
+missing stock data
+missing supplier mapping and no safe fallback
+missing lead time
+seeded forecast with a significant recommended order
+replenishment could not compute safely
+invalid MOQ / order multiple data
+supplier fallback used only if it causes material planning risk
+final recommendation looks suspicious because of missing inputs
+Not valid as standalone review triggers
+erratic demand class
+lumpy demand class
+new_sparse demand class
+SEEDED method by itself
+fallback supplier used by itself if data is still usable
+5. Suggested review logic to implement
+
+Build a fresh list:
+
+review_reasons = []
+
+Then add only strong exception reasons, for example:
+
+if demand_class == "no_demand" and net_available_qty and net_available_qty > 0:
+    review_reasons.append("no demand but stock exists")
+
+if missing_stock_data:
+    review_reasons.append("missing stock data")
+
+if missing_lead_time:
+    review_reasons.append("missing lead time")
+
+if supplier_code is None:
+    review_reasons.append("missing supplier mapping")
+
+if forecast_method == "SEEDED" and recommended_order_qty and recommended_order_qty > seeded_review_threshold:
+    review_reasons.append("seeded forecast with significant order")
+
+if order_multiple_invalid or min_order_qty_invalid:
+    review_reasons.append("invalid supplier ordering parameters")
+
+Then deduplicate reasons before saving.
+
+6. Add a configurable threshold for SEEDED review
+
+A SEEDED forecast should not always trigger review.
+
+It should only trigger review when the order recommendation is material.
+
+Add a setting if needed, for example:
+
+forecast_seeded_review_min_qty
+
+If settings already exist for similar thresholds, reuse that pattern.
+
+If not, start with a simple safe default.
+
+Example:
+
+if forecast_method == "SEEDED" and recommended_order_qty > 0, that may still be too sensitive
+better to use a minimum quantity threshold or value threshold
+7. Preserve these behaviors
+
+Do not change:
+
+classification thresholds
+forecast method formulas
+seasonality logic
+replenishment target stock formula
+weekly sales builder
+
+This task is only about fixing review behavior.
+
+Files to update
+
+At minimum review and update:
+
+services/forecast/base_forecast_service.py
+services/forecast/replenishment_service.py
+
+If review state is persisted or reused elsewhere, update that code too.
+
+Expected end behavior
+
+After the fix:
+
+most normal items should not be under review
+review should highlight only true exceptions
+old reasons should disappear when no longer valid
+demand class remains visible, but no longer forces review
+
+A healthy result is something like:
+
+many smooth/erratic/lumpy/new_sparse items with no review
+only a smaller subset with review because of true planning risk
+Testing required
+
+Please test and report counts for:
+
+total SKUs processed
+total SKUs with review_flag = true
+review count by reason
+count by demand class
+count by forecast method
+
+Also test these specific scenarios:
+
+Case 1
+
+erratic item with complete stock/supplier data
+Expected: no review
+
+Case 2
+
+new_sparse / SEEDED item with small recommendation
+Expected: no review
+
+Case 3
+
+SEEDED item with significant recommendation
+Expected: review
+
+Case 4
+
+no_demand item with stock on hand
+Expected: review
+
+Case 5
+
+item previously reviewed, now conditions are normal
+Expected: old review reason cleared
+
+Return to me
+
+After implementation, report:
+
+exact logic removed
+exact new review rules added
+files changed
+before/after review counts
+
+Do not redesign forecasting.
+Do not change forecast mathematics.
+Only make review clean, exception-based, and trustworthy.
