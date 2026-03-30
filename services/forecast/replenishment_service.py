@@ -49,7 +49,46 @@ def _get_stock_for_item(item_code, stock_cache=None):
     return 0.0, 0.0, 0.0
 
 
-def _build_review_reasons(profile, result, supplier_map, dw_item, old_final, raw_order, rounded_order):
+def _resolve_supplier_context(item_code, supplier_map, dw_item):
+    """
+    Resolve supplier from one source of truth, prioritizing supplier_map then dw_item.
+    Returns dict with supplier_code and planning parameters.
+    """
+    context = {
+        "supplier_code": None,
+        "supplier_source": None,
+        "lead_time_days": 0.0,
+        "review_cycle_days": 1.0,
+        "min_order_qty": 0.0,
+        "order_multiple": 1.0,
+        "fallback_used": False,
+        "issues": [],
+    }
+    
+    if supplier_map:
+        context["supplier_code"] = supplier_map.supplier_code or None
+        context["supplier_source"] = "supplier_map"
+        context["lead_time_days"] = _to_float(supplier_map.lead_time_days)
+        context["review_cycle_days"] = _to_float(supplier_map.review_cycle_days) or 1.0
+        context["min_order_qty"] = _to_float(supplier_map.min_order_qty_override)
+        context["order_multiple"] = _to_float(supplier_map.order_multiple) or 1.0
+    
+    if not context["supplier_code"] and dw_item and dw_item.supplier_code_365:
+        context["supplier_code"] = dw_item.supplier_code_365
+        context["supplier_source"] = "dw_item"
+        context["fallback_used"] = True
+        context["issues"].append("fallback to DwItem.supplier_code_365")
+    
+    if not context["supplier_code"]:
+        context["issues"].append("no supplier source found")
+    
+    if context["issues"]:
+        logger.warning(f"Item {item_code}: {'; '.join(context['issues'])}")
+    
+    return context
+
+
+def _build_review_reasons(profile, result, supplier_context, dw_item, old_final, raw_order, rounded_order):
     reasons = []
 
     if profile.demand_class in ("erratic", "lumpy", "new_sparse"):
@@ -75,9 +114,10 @@ def _build_review_reasons(profile, result, supplier_map, dw_item, old_final, raw
         if distortion > 0.30:
             reasons.append(f"order rounding distortion {distortion:.0%}")
 
-    has_supplier = (dw_item and dw_item.supplier_code_365) or supplier_map
-    if not has_supplier:
+    if not supplier_context["supplier_code"]:
         reasons.append("missing supplier mapping")
+    elif supplier_context["fallback_used"]:
+        reasons.append("fallback supplier used")
 
     if dw_item:
         if not dw_item.category_code_365 and not dw_item.brand_code_365:
@@ -146,13 +186,10 @@ def compute_replenishment(session: Session, run_id=None):
             dw_item_cache[item_code] = session.query(DwItem).filter_by(item_code_365=item_code).first()
         dw_item = dw_item_cache[item_code]
 
-        lead_time = 0.0
-        review_cycle = default_review_cycle
-        if supplier_map:
-            if supplier_map.lead_time_days is not None:
-                lead_time = float(supplier_map.lead_time_days)
-            if supplier_map.review_cycle_days is not None:
-                review_cycle = float(supplier_map.review_cycle_days)
+        supplier_context = _resolve_supplier_context(item_code, supplier_map, dw_item)
+        
+        lead_time = supplier_context["lead_time_days"]
+        review_cycle = supplier_context["review_cycle_days"] or default_review_cycle
 
         result.cover_days = Decimal(str(cover_days))
         result.lead_time_days = Decimal(str(lead_time))
@@ -168,8 +205,7 @@ def compute_replenishment(session: Session, run_id=None):
         target_stock = final_daily * total_cover + buffer_stock
         result.target_stock_qty = Decimal(str(round(target_stock, 6)))
 
-        supplier_code = dw_item.supplier_code_365 if dw_item else None
-        stock_cache = _get_stock_cache(supplier_code) if supplier_code else {}
+        stock_cache = _get_stock_cache(supplier_context["supplier_code"]) if supplier_context["supplier_code"] else {}
         on_hand, incoming, reserved = _get_stock_for_item(item_code, stock_cache)
         result.on_hand_qty = Decimal(str(round(on_hand, 6)))
         result.incoming_qty = Decimal(str(round(incoming, 6)))
@@ -181,17 +217,12 @@ def compute_replenishment(session: Session, run_id=None):
         raw_order = max(0.0, target_stock - net_available)
         result.raw_recommended_order_qty = Decimal(str(round(raw_order, 6)))
 
-        order_multiple = 1.0
-        moq = 0.0
-
-        if supplier_map and supplier_map.order_multiple:
-            order_multiple = _to_float(supplier_map.order_multiple)
-        elif dw_item and dw_item.case_qty and dw_item.case_qty > 1:
+        order_multiple = supplier_context["order_multiple"]
+        if order_multiple <= 1 and dw_item and dw_item.case_qty and dw_item.case_qty > 1:
             order_multiple = float(dw_item.case_qty)
 
-        if supplier_map and supplier_map.min_order_qty_override:
-            moq = _to_float(supplier_map.min_order_qty_override)
-        elif dw_item and dw_item.min_order_qty and dw_item.min_order_qty > 0:
+        moq = supplier_context["min_order_qty"]
+        if moq <= 0 and dw_item and dw_item.min_order_qty and dw_item.min_order_qty > 0:
             moq = float(dw_item.min_order_qty)
 
         rounded = raw_order
@@ -208,12 +239,11 @@ def compute_replenishment(session: Session, run_id=None):
 
         old_final = _to_float(result.final_forecast_weekly_qty)
         review_reasons = _build_review_reasons(
-            profile, result, supplier_map, dw_item, old_final, raw_order, rounded
+            profile, result, supplier_context, dw_item, old_final, raw_order, rounded
         )
 
-        if review_reasons:
-            profile.review_flag = True
-            profile.review_reason = "; ".join(review_reasons)
+        profile.review_flag = bool(review_reasons)
+        profile.review_reason = "; ".join(review_reasons) if review_reasons else None
         profile.updated_at = now
 
         count += 1

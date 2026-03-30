@@ -65,7 +65,7 @@ def _forecast_method(demand_class: str) -> str:
         "erratic": "MA8",
         "intermittent": "MEDIAN6",
         "lumpy": "MEDIAN6",
-        "new_sparse": "AVG_NZ",
+        "new_sparse": "SEEDED",
         "no_demand": "ZERO",
     }
     return methods.get(demand_class, "ZERO")

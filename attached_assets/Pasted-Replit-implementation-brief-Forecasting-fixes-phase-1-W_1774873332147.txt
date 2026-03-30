@@ -1,0 +1,307 @@
+Replit implementation brief — Forecasting fixes phase 1
+
+Work only inside the live forecasting code under services/forecast/.
+
+Do not redesign the engine.
+Do not change the weekly sales builder structure.
+Do not change the overall run order.
+
+The goal of this phase is to make the existing forecasting engine more consistent, more deterministic, and safer operationally.
+
+Scope of this change
+
+Implement only these 3 fixes:
+
+Align new_sparse forecast method naming with actual behavior
+Use one supplier source of truth in replenishment
+Rebuild review flags/reasons from scratch on every run
+
+Do not expand beyond that in this phase.
+
+1. Fix new_sparse method inconsistency
+Problem
+
+classification_service.py labels new_sparse items with a forecast method like AVG_NZ, but base_forecast_service.py actually uses a seeded analogue forecast.
+
+This causes confusion in:
+
+stored profile data
+explainability
+debugging
+UI trust
+Required change
+
+Make the declared method match the actual calculation.
+
+Decision
+
+Keep the current seeded analogue logic in base_forecast_service.py.
+
+Change the method label from AVG_NZ to:
+
+SEEDED
+
+or if you prefer more explicit naming:
+
+SEEDED_ANALOGUE
+
+I recommend SEEDED because it is shorter and cleaner for UI.
+
+Files to update
+services/forecast/classification_service.py
+any forecast result / profile persistence code that stores forecast_method
+any enums/constants/helpers if they exist
+any UI serializer or API payload that exposes method labels
+Required logic
+
+Where demand class is new_sparse:
+
+forecast method must be stored as SEEDED
+never store AVG_NZ for that class unless the engine truly switches to that formula
+Acceptance criteria
+
+For any new_sparse item:
+
+classification output shows forecast_method = "SEEDED"
+forecast result also shows forecast_method = "SEEDED"
+there is no mismatch between profile and actual forecast engine
+2. Unify supplier source of truth in replenishment
+Problem
+
+Current replenishment appears to use:
+
+one source for stock fetching, likely DwItem.supplier_code_365
+another source for planning parameters, likely ForecastItemSupplierMap
+
+This can create wrong results if the two do not match.
+
+Required change
+
+Create one supplier-resolution step per item and use it consistently for:
+
+stock fetch
+lead time
+review cycle
+MOQ
+order multiple
+any supplier-based planning values
+Rule
+
+Resolve supplier in this priority order:
+
+Primary
+
+ForecastItemSupplierMap active/default mapping for the item
+
+Fallback
+
+DwItem.supplier_code_365
+
+If neither exists:
+
+mark item for review
+skip replenishment calculation or continue with safe defaults, depending on current system behavior
+log clearly
+Implementation detail
+
+Add a helper in replenishment_service.py, for example:
+
+_resolve_supplier_context(item_code_365)
+
+It should return a structured object/dict with:
+
+supplier_code
+source (supplier_map or dw_item)
+lead_time_days
+review_cycle_days
+min_order_qty
+order_multiple
+any other supplier planning fields already used
+
+Then all replenishment logic must use this resolved context only.
+
+Do not separately re-read supplier from another place later in the flow.
+
+Logging
+
+For each item where supplier resolution falls back or fails, log clearly:
+
+item code
+chosen supplier code
+source used
+whether fallback was used
+Acceptance criteria
+
+For a given item:
+
+the same supplier code is used for stock fetch and planning parameters
+no mixed-source supplier behavior remains
+fallback behavior is deterministic and logged
+3. Rebuild review flags and reasons from scratch every run
+Problem
+
+Review flags/reasons may accumulate stale text across runs.
+
+Examples:
+
+item was erratic last run, smooth this run
+old warning remains attached
+review status becomes noisy and unreliable
+Required change
+
+At the start of forecast evaluation for each item, reset review fields and rebuild them deterministically from current run state only.
+
+Rule
+
+Never append onto old persisted review text.
+
+Instead:
+
+start with empty list of review reasons
+evaluate current conditions
+build a fresh list
+set:
+review_flag = bool(reasons)
+review_reason = "; ".join(reasons) or equivalent structured format already used
+Suggested review triggers
+
+Keep your existing business triggers, but rebuild them cleanly. For example:
+
+new/sparse demand
+erratic demand
+lumpy demand
+no demand but active item
+missing supplier mapping
+missing stock data
+missing lead time
+fallback supplier used
+forecast confidence low
+any current replenishment exception already in logic
+
+Do not duplicate the same reason twice.
+
+Implementation detail
+
+In the forecast/replenishment flow, do something like:
+
+create review_reasons = []
+add current-run reasons only
+normalize/deduplicate
+save final values
+
+If review building happens in more than one service, centralize it in one helper to avoid drift.
+
+Example helper:
+
+_build_review_state(...)
+Acceptance criteria
+
+When an item changes condition between runs:
+
+old review text disappears
+only current valid reasons remain
+review_flag matches the rebuilt reasons exactly
+Additional implementation rules
+Keep these unchanged in this phase
+
+Do not change:
+
+weekly sales aggregation design
+26-week zero-filled series logic
+ADI / CV² classification thresholds
+MA8 for smooth/erratic
+MEDIAN6 for intermittent/lumpy
+seeded analogue formula itself
+seasonality calculation
+target stock formula structure
+Code quality requirements
+keep changes surgical
+avoid schema redesign unless absolutely necessary
+prefer helper methods over scattered inline fixes
+preserve existing DB models and run pipeline structure
+Recommended code changes by file
+services/forecast/classification_service.py
+replace AVG_NZ with SEEDED for new_sparse
+make sure persisted classification/profile output uses the same label
+services/forecast/base_forecast_service.py
+ensure final stored forecast method for new_sparse is also SEEDED
+if method is passed through from classification, validate consistency
+optional: add defensive assertion/log if class/method mismatch occurs
+services/forecast/replenishment_service.py
+add supplier resolution helper
+remove mixed supplier sourcing
+use resolved supplier context everywhere in calculation
+rebuild review state from scratch before saving
+services/forecast/run_service.py
+no major redesign
+only adjust if needed to pass clean per-run state or improve logging around these fixes
+Suggested internal helper contracts
+Supplier resolver
+
+Create a helper returning something like:
+
+{
+    "supplier_code": "1000015",
+    "supplier_source": "supplier_map",  # or "dw_item"
+    "lead_time_days": 2,
+    "review_cycle_days": 7,
+    "min_order_qty": 1,
+    "order_multiple": 1,
+    "fallback_used": False,
+    "issues": [],
+}
+Review state builder
+
+Create a helper returning:
+
+{
+    "review_flag": True,
+    "review_reason": "new/sparse demand; fallback supplier used",
+    "review_reasons": ["new/sparse demand", "fallback supplier used"],
+}
+
+If your models do not support review_reasons as structured JSON/list, still build it internally as a list first, then serialize.
+
+Testing required
+
+Ask Replit to test at least these cases:
+
+Case 1 — new_sparse item
+classification returns SEEDED
+base forecast result returns SEEDED
+no AVG_NZ appears anywhere
+Case 2 — supplier map exists and differs from DwItem supplier
+replenishment uses mapped supplier consistently
+stock fetch and lead time use same supplier
+Case 3 — supplier map missing, DwItem supplier exists
+fallback to DwItem.supplier_code_365
+item remains calculable if current logic allows
+review reason notes fallback if desired
+Case 4 — item changes from erratic to smooth between runs
+previous erratic review text is removed
+only current reasons remain
+Case 5 — no demand active item
+current run sets review reason correctly
+no duplicated stale reasons
+Expected result after this phase
+
+After these fixes:
+
+forecasting method labels will match actual logic
+replenishment will not mix supplier sources
+review flags will be clean and trustworthy
+UI explainability will become much easier later
+Final instruction to Replit
+
+Implement only the 3 fixes above, keep all other forecast mathematics unchanged, and return:
+
+files changed
+exact logic changed in each file
+any DB/model field assumptions
+test results for the 5 cases above
+
+After that, we will review phase 2:
+
+safety stock vs buffer stock
+bounded seasonality history
+better forecast explainability in UI
