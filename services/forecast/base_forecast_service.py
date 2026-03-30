@@ -80,7 +80,7 @@ def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
     if not non_zero:
         return 0.0, "none", None, "none"
 
-    first_week_sales = non_zero[0]
+    own_signal = sum(non_zero) / len(non_zero) if non_zero else 0.0
 
     dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
     supplier_code = dw_item.supplier_code_365 if dw_item else None
@@ -110,15 +110,19 @@ def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
             analogue_level = "prefix"
 
     if analogue_baseline is not None:
-        if analogue_level == "supplier":
-            forecast = 0.35 * first_week_sales + 0.65 * analogue_baseline
-        else:
-            forecast = 0.50 * first_week_sales + 0.50 * analogue_baseline
+        forecast = 0.70 * own_signal + 0.30 * analogue_baseline
     else:
-        forecast = first_week_sales * 0.50
+        forecast = own_signal * 0.70
         analogue_level = "none"
 
-    return forecast, analogue_level, analogue_item, "low"
+    seeded_cap = max(2.0, own_signal * 2.5)
+    capped_forecast = min(forecast, seeded_cap)
+    cap_applied = capped_forecast < forecast
+
+    if cap_applied:
+        logger.info(f"SEEDED cap applied for {item_code}: raw={forecast:.2f}, capped={capped_forecast:.2f}, own_signal={own_signal:.2f}")
+
+    return capped_forecast, analogue_level, analogue_item, "low", cap_applied
 
 
 def _get_group_baseline(session, group_type, group_code, exclude_item_code):
@@ -169,20 +173,31 @@ def _get_group_baseline(session, group_type, group_code, exclude_item_code):
     if not item_codes:
         return None
 
-    avg_row = (
-        session.query(
-            func.avg(FactSalesWeeklyItem.gross_qty).label("avg_weekly")
-        )
+    weeks_list = []
+    for i in range(8):
+        ws = current_monday - timedelta(weeks=(i + 1))
+        weeks_list.append(ws)
+
+    rows = (
+        session.query(FactSalesWeeklyItem.week_start, FactSalesWeeklyItem.gross_qty)
         .filter(
             FactSalesWeeklyItem.item_code_365.in_(item_codes),
             FactSalesWeeklyItem.week_start >= cutoff,
             FactSalesWeeklyItem.week_start < current_monday,
         )
-        .first()
+        .all()
     )
 
-    if avg_row and avg_row.avg_weekly:
-        return float(avg_row.avg_weekly)
+    existing = {r.week_start: _to_float(r.gross_qty) for r in rows}
+
+    total_qty = 0.0
+    for ws in weeks_list:
+        total_qty += existing.get(ws, 0.0)
+
+    avg_weekly = total_qty / len(weeks_list) if weeks_list else 0.0
+
+    if avg_weekly > 0:
+        return avg_weekly
     return None
 
 
@@ -269,11 +284,13 @@ def compute_base_forecasts(session: Session, run_id=None):
             forecast_method = "MEDIAN6"
             forecast_confidence = "medium"
         elif demand_class == "new_sparse":
-            base_forecast, analogue_level, analogue_item, forecast_confidence = _compute_seeded_forecast(
+            base_forecast, analogue_level, analogue_item, forecast_confidence, cap_applied = _compute_seeded_forecast(
                 session, item_code, weekly_qtys, profile
             )
             forecast_method = "SEEDED"
             seed_source = analogue_level
+            if cap_applied:
+                profile.seeded_cap_applied = True
         elif demand_class == "no_demand":
             base_forecast = 0.0
             forecast_method = "ZERO"

@@ -1,0 +1,284 @@
+Replit brief — Make SEEDED forecast conservative and stop extreme cases like SOD-0017
+
+We found a live forecasting issue in services/forecast/base_forecast_service.py for new_sparse / SEEDED items.
+
+Example:
+
+SOD-0017
+own recent sales signal = 1
+supplier baseline ≈ 12.54
+current formula gives 8.5
+
+This is too aggressive for a sparse/new item.
+
+The goal is to keep the existing forecasting architecture, but make SEEDED materially more conservative and safer.
+
+Required changes
+1. Fix the baseline logic so analogue baselines are zero-filled
+Problem
+
+Current analogue baseline logic appears to average only existing sales rows from fact_sales_weekly_item, which inflates the baseline by ignoring zero weeks.
+
+Required change
+
+For supplier / brand / prefix baselines used in SEEDED:
+
+use a fixed recent weekly window
+include missing weeks as zero
+calculate a true weekly average across the full window
+Recommendation
+
+Use an 8-week window initially for the seeded baseline.
+
+Expected behavior
+
+If a group sold only in some weeks, the baseline should reflect that sparse reality.
+
+2. Change SEEDED weights to make own signal dominant
+Problem
+
+Current supplier-seeded logic is too analogue-heavy:
+
+supplier case currently uses 0.35 own / 0.65 analogue
+that lets the baseline overpower the item’s own evidence
+Required change
+
+Use more conservative weighting.
+
+New weighting rule
+
+For all seeded sources, start with:
+
+0.70 × own_signal
+0.30 × analogue_baseline
+
+This should apply consistently unless there is a strong reason to differentiate.
+
+If you want to keep source-specific logic, it can still be conservative, for example:
+
+supplier: 0.70 / 0.30
+brand: 0.75 / 0.25
+prefix: 0.75 / 0.25
+
+But do not let analogue dominate.
+
+3. Use the correct own-sales seed
+Problem
+
+Current logic appears to use the most recent non-zero week while calling it first_week_sales.
+
+That is misleading and may be wrong for seeded logic.
+
+Required change
+
+Decide and implement one explicit rule.
+
+Recommended rule
+
+For new_sparse, use:
+
+own_signal = average of non-zero sales weeks in the last 8 weeks
+
+This is better than:
+
+oldest non-zero only
+most recent non-zero only
+
+because it is less noisy.
+
+If there are no non-zero weeks, use 0.
+
+This should be renamed clearly, for example:
+
+own_signal
+not first_week_sales
+4. Add a hard cap for SEEDED forecasts
+Problem
+
+Even with better weights, analogue logic can still overshoot.
+
+Required change
+
+Add a hard ceiling for SEEDED forecasts before seasonality.
+
+Recommended cap
+
+Cap the weekly seeded base forecast to:
+
+max(2.0, own_signal * 2.5)
+
+Then:
+
+seeded_base_forecast = min(raw_seeded_forecast, seeded_cap)
+Why
+
+This prevents a sparse/new item with very low evidence from jumping to extreme values.
+
+Example
+
+If own_signal = 1:
+
+cap = max(2.0, 2.5) = 2.5
+a raw seeded value of 8.5 becomes 2.5
+
+That is much safer.
+
+5. Flag capped SEEDED items for review
+
+If the cap is triggered:
+
+keep the capped value
+set review reason such as:
+seeded forecast capped
+this should be part of the rebuilt review logic, not appended indefinitely
+
+This gives planners visibility without allowing dangerous over-forecasting.
+
+6. Keep seasonality, but apply it after cap
+Required order
+
+For SEEDED items:
+
+compute own_signal
+compute analogue baseline
+compute raw seeded forecast
+apply seeded cap
+then apply seasonality adjustment
+store both:
+raw seeded base
+capped seeded base
+final forecast after seasonality
+Note
+
+Do not apply seasonality before the cap.
+
+Implementation details
+Update services/forecast/base_forecast_service.py
+A. Replace misleading variable names
+
+If the code currently uses something like:
+
+first_week_sales
+
+rename internally to:
+
+own_signal
+
+and compute it as:
+
+average of non-zero weeks in last 8 weeks
+B. Update seeded formula
+
+Replace current analogue-heavy seeded formula with conservative weighting:
+
+0.70 own_signal + 0.30 analogue_baseline
+C. Add cap
+
+Add:
+
+seeded_cap = max(2.0, own_signal * 2.5)
+capped_seeded_forecast = min(raw_seeded_forecast, seeded_cap)
+D. Persist explainability fields if possible
+
+Where possible, keep available for debugging/UI:
+
+own_signal
+analogue_baseline
+seed_source
+raw_seeded_forecast
+seeded_cap
+cap_applied
+
+If schema changes are too invasive, at least log them clearly.
+
+Update group baseline helper
+
+Wherever _get_group_baseline() or equivalent exists:
+
+rebuild it to use zero-filled weekly averages
+fixed lookback window
+same window for all groups used in seeded logic
+
+Do not average only existing fact rows.
+
+Update review integration
+
+If cap is applied:
+
+mark item for review with reason:
+seeded forecast capped
+
+But do not make all SEEDED items reviewed by default.
+Only capped or otherwise risky SEEDED items should be reviewed.
+
+What not to change in this task
+
+Do not change:
+
+classification thresholds
+smooth / erratic / intermittent / lumpy formulas
+overall run pipeline
+replenishment formula structure
+seasonality model except placement after cap
+
+This task is only to make SEEDED safer and realistic.
+
+Test cases required
+
+Please test and report these exact cases.
+
+Case 1 — SOD-0017 style case
+
+Input:
+
+own signal = 1
+analogue baseline ≈ 12.54
+
+Expected:
+
+raw seeded forecast much lower than before
+cap prevents extreme result
+final forecast no longer near 8.5
+Case 2 — sparse item with modest baseline
+
+Input:
+
+own signal = 2
+baseline = 4
+
+Expected:
+
+conservative forecast
+no extreme uplift
+Case 3 — sparse item with no analogue
+
+Expected:
+
+safe fallback using own signal only or very conservative default
+Case 4 — capped item
+
+Expected:
+
+review reason = seeded forecast capped
+Case 5 — uncapped SEEDED item
+
+Expected:
+
+no automatic review unless other true exception exists
+Expected outcome
+
+After this change:
+
+sparse/new items should no longer jump to unrealistic weekly forecasts
+analogue data will support the forecast, not dominate it
+extreme cases like SOD-0017 = 8.5 should be prevented
+review will capture suspicious capped cases only
+Return to me with
+files changed
+old vs new seeded formula
+old vs new baseline method
+old vs new result for SOD-0017
+whether cap was triggered
+sample debug output for one SEEDED item
+
+Keep the change surgical and production-safe.

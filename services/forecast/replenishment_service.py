@@ -123,12 +123,15 @@ def _build_review_reasons(profile, result, supplier_context, dw_item, old_final,
         if on_hand > 0:
             reasons.append("no demand but stock exists")
 
-    if profile.forecast_method == "SEEDED" and raw_order > 0:
-        seeded_threshold = 0.0
-        if session:
-            seeded_threshold = _safe_num(session, "forecast_seeded_review_min_qty", 0.0, float)
-        if seeded_threshold > 0 and raw_order >= seeded_threshold:
-            reasons.append(f"seeded forecast with significant order ({raw_order:.0f} units)")
+    if profile.forecast_method == "SEEDED":
+        if getattr(profile, "seeded_cap_applied", False):
+            reasons.append("seeded forecast capped")
+        elif raw_order > 0:
+            seeded_threshold = 0.0
+            if session:
+                seeded_threshold = _safe_num(session, "forecast_seeded_review_min_qty", 0.0, float)
+            if seeded_threshold > 0 and raw_order >= seeded_threshold:
+                reasons.append(f"seeded forecast with significant order ({raw_order:.0f} units)")
 
     if supplier_context.get("issues"):
         if "fallback to DwItem.supplier_code_365" in supplier_context["issues"]:
