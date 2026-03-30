@@ -21,6 +21,10 @@ def setup_scheduler(app):
     Call this from app.py after app context is created.
     """
     global scheduler
+
+    if os.environ.get("SCHEDULER_WORKER") == "0":
+        logger.info("Scheduler skipped — not the designated scheduler worker")
+        return
     
     try:
         scheduler = BackgroundScheduler(daemon=True)
