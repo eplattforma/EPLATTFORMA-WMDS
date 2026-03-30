@@ -309,9 +309,9 @@ def new_receipt_form_for_stop(route_stop_id):
         flash("No invoices found for this stop", "warning")
         return redirect(url_for("delivery_dashboard.dashboard"))
     
-    # Get customer from first invoice
+    # Get customer from first invoice (filter for active customers only)
     first_invoice = invoices[0]
-    customer = PSCustomer.query.filter_by(company_name=first_invoice.customer_name).first()
+    customer = PSCustomer.query.filter_by(company_name=first_invoice.customer_name, active=True).first()
     customer_code = customer.customer_code_365 if customer else None
     
     # Combine all invoice numbers
@@ -344,7 +344,7 @@ def new_receipt_form():
     elif invoice_no:
         invoice = Invoice.query.filter_by(invoice_no=invoice_no).first()
         if invoice and invoice.customer_name:
-            customer = PSCustomer.query.filter_by(company_name=invoice.customer_name).first()
+            customer = PSCustomer.query.filter_by(company_name=invoice.customer_name, active=True).first()
             if customer:
                 customer_code = customer.customer_code_365
     
