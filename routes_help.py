@@ -35,7 +35,8 @@ def admin_help_manage():
         'user_management',
         'troubleshooting',
         'status_definitions',
-        'time_tracking'
+        'time_tracking',
+        'forecast_and_replenishment'
     ]
     
     for section in sections:
