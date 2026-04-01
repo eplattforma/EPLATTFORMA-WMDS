@@ -353,10 +353,14 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+let _forecastRunning = false;
+
 function runForecast() {
     const btn = document.getElementById('btnRunForecast');
+    if (_forecastRunning) return;
     if (!confirm('Run the full forecast pipeline now? This may take a few minutes.')) return;
 
+    _forecastRunning = true;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting...';
 
@@ -375,12 +379,14 @@ function runForecast() {
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running...';
             pollForecastStatus();
         } else {
+            _forecastRunning = false;
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
             alert('Forecast run failed: ' + (data.message || 'Unknown error'));
         }
     })
     .catch(err => {
+        _forecastRunning = false;
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
         alert('Error: ' + err.message);
@@ -393,16 +399,23 @@ function pollForecastStatus() {
         .then(r => r.json())
         .then(data => {
             if (data.status === 'running') {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running...';
                 setTimeout(pollForecastStatus, 5000);
             } else if (data.status === 'completed') {
+                _forecastRunning = false;
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+                renderRunBanner(data);
                 loadSuppliers();
             } else if (data.status === 'failed') {
+                _forecastRunning = false;
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+                renderRunBanner(data);
                 alert('Forecast run failed: ' + (data.notes || 'Unknown error'));
             } else {
+                _forecastRunning = false;
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
             }

@@ -420,18 +420,21 @@ def api_run():
     from models import ForecastRun
     from timezone_utils import get_utc_now
     from datetime import datetime, timedelta
-    existing = ForecastRun.query.filter_by(status='running').first()
-    if existing:
-        now_naive = datetime.utcnow()
-        stale_cutoff = now_naive - timedelta(minutes=15)
-        if existing.started_at and existing.started_at < stale_cutoff:
-            logger.warning(f"Marking stale forecast run {existing.id} as failed (started {existing.started_at})")
-            existing.status = "failed"
-            existing.completed_at = get_utc_now()
-            existing.notes = "Marked as failed: exceeded 15-minute timeout"
-            db.session.commit()
-        else:
-            return jsonify({'status': 'already_running', 'run_id': existing.id})
+    now_naive = datetime.utcnow()
+    stale_cutoff = now_naive - timedelta(minutes=15)
+    stale_runs = ForecastRun.query.filter_by(status='running').filter(
+        ForecastRun.started_at < stale_cutoff
+    ).all()
+    for sr in stale_runs:
+        logger.warning(f"Marking stale forecast run {sr.id} as failed (started {sr.started_at})")
+        sr.status = "failed"
+        sr.completed_at = get_utc_now()
+        sr.notes = "Marked as failed: exceeded 15-minute timeout"
+    if stale_runs:
+        db.session.commit()
+    active = ForecastRun.query.filter_by(status='running').first()
+    if active:
+        return jsonify({'status': 'already_running', 'run_id': active.id})
 
     username = current_user.username
 
