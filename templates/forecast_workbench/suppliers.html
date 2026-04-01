@@ -169,7 +169,8 @@ function renderRunBanner(run) {
     else if (run.status === 'running') banner.classList.add('run-running');
 
     const ts = run.completed_at || run.started_at;
-    document.getElementById('runTimestamp').textContent = ts ? new Date(ts).toLocaleString() : '—';
+    const tsUtc = ts && !ts.endsWith('Z') ? ts + 'Z' : ts;
+    document.getElementById('runTimestamp').textContent = tsUtc ? new Date(tsUtc).toLocaleString() : '—';
 
     const statusEl = document.getElementById('runStatus');
     statusEl.textContent = (run.status || '').toUpperCase();
