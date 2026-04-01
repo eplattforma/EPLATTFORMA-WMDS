@@ -105,22 +105,33 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
         logger.error(f"Forecast run {run_id} failed: {e}")
         logger.error(traceback.format_exc())
         session.rollback()
-        failed_run = ForecastRun(
-            started_at=now,
-            completed_at=get_utc_now(),
-            status="failed",
-            notes=str(e)[:2000],
-            default_cover_days=Decimal(str(cover_days)),
-            horizon_days=horizon_days,
-            created_by=created_by,
-            created_at=now,
-        )
-        session.add(failed_run)
-        session.flush()
-        failed_run_id = failed_run.id
-        session.commit()
+        try:
+            stuck = session.get(ForecastRun, run_id)
+            if stuck:
+                stuck.status = "failed"
+                stuck.completed_at = get_utc_now()
+                stuck.notes = str(e)[:2000]
+                session.commit()
+                logger.info(f"Marked forecast run {run_id} as failed")
+            else:
+                failed_run = ForecastRun(
+                    started_at=now,
+                    completed_at=get_utc_now(),
+                    status="failed",
+                    notes=str(e)[:2000],
+                    default_cover_days=Decimal(str(cover_days)),
+                    horizon_days=horizon_days,
+                    created_by=created_by,
+                    created_at=now,
+                )
+                session.add(failed_run)
+                session.commit()
+                run_id = failed_run.id
+        except Exception as inner_e:
+            logger.error(f"Could not mark run {run_id} as failed: {inner_e}")
+            session.rollback()
         return {
-            "run_id": failed_run_id,
+            "run_id": run_id,
             "status": "failed",
             "error": str(e),
         }

@@ -7,7 +7,7 @@ from functools import wraps
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
-    flash, jsonify, Response, abort
+    flash, jsonify, Response, abort, current_app
 )
 from flask_login import login_required, current_user
 from sqlalchemy import func, case, and_, or_, text
@@ -418,9 +418,19 @@ def api_item_detail(item_code):
 def api_run():
     import threading
     from models import ForecastRun
+    from timezone_utils import get_utc_now
+    from datetime import timedelta
     existing = ForecastRun.query.filter_by(status='running').first()
     if existing:
-        return jsonify({'status': 'already_running', 'run_id': existing.id})
+        stale_cutoff = get_utc_now() - timedelta(minutes=15)
+        if existing.started_at and existing.started_at < stale_cutoff:
+            logger.warning(f"Marking stale forecast run {existing.id} as failed (started {existing.started_at})")
+            existing.status = "failed"
+            existing.completed_at = get_utc_now()
+            existing.notes = "Marked as failed: exceeded 15-minute timeout"
+            db.session.commit()
+        else:
+            return jsonify({'status': 'already_running', 'run_id': existing.id})
 
     username = current_user.username
 
