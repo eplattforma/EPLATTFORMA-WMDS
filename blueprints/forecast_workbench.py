@@ -452,9 +452,19 @@ def api_run():
 @admin_or_warehouse_required
 def api_run_status():
     from models import ForecastRun
+    from datetime import datetime, timedelta
+    from timezone_utils import get_utc_now
     run = ForecastRun.query.order_by(ForecastRun.id.desc()).first()
     if not run:
         return jsonify({'status': 'none'})
+    if run.status == 'running' and run.started_at:
+        stale_cutoff = datetime.utcnow() - timedelta(minutes=15)
+        if run.started_at < stale_cutoff:
+            logger.warning(f"Status poll: marking stale run {run.id} as failed")
+            run.status = "failed"
+            run.completed_at = get_utc_now()
+            run.notes = "Marked as failed: exceeded 15-minute timeout"
+            db.session.commit()
     return jsonify({
         'run_id': run.id,
         'status': run.status,
