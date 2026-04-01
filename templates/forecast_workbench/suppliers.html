@@ -184,8 +184,7 @@ function renderRunBanner(run) {
     if (run.sales_period_start && run.sales_period_end) {
         const start = new Date(run.sales_period_start).toLocaleDateString();
         const end = new Date(run.sales_period_end).toLocaleDateString();
-        validationHtml += `<strong>Sales Period:</strong> ${start} to ${end}<br>`;
-        validationHtml += `<strong>Total Qty:</strong> ${(run.sales_total_qty || 0).toLocaleString('en-US', {maximumFractionDigits: 0})} units`;
+        validationHtml += `<strong>Sales Period:</strong> ${start} to ${end}`;
         if (run.sales_total_value_ex_vat > 0) {
             validationHtml += ` | <strong>Total Value:</strong> €${(run.sales_total_value_ex_vat || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
         }
