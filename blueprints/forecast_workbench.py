@@ -419,10 +419,11 @@ def api_run():
     import threading
     from models import ForecastRun
     from timezone_utils import get_utc_now
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     existing = ForecastRun.query.filter_by(status='running').first()
     if existing:
-        stale_cutoff = get_utc_now() - timedelta(minutes=15)
+        now_naive = datetime.utcnow()
+        stale_cutoff = now_naive - timedelta(minutes=15)
         if existing.started_at and existing.started_at < stale_cutoff:
             logger.warning(f"Marking stale forecast run {existing.id} as failed (started {existing.started_at})")
             existing.status = "failed"
