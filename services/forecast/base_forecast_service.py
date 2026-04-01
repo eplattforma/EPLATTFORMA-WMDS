@@ -413,7 +413,7 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
         base_forecast = _compute_median6(weekly_qtys)
         forecast_method = "MEDIAN6"
     elif demand_class == "new_sparse":
-        base_forecast, analogue_level, analogue_item, confidence = _compute_seeded_forecast(
+        base_forecast, analogue_level, analogue_item, confidence, cap_applied = _compute_seeded_forecast(
             session, item_code, weekly_qtys, profile
         )
         forecast_method = "SEEDED"
@@ -421,6 +421,8 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
         profile.analogue_item_code = analogue_item
         profile.analogue_level = analogue_level
         profile.forecast_confidence = confidence
+        if cap_applied:
+            profile.seeded_cap_applied = True
     elif demand_class == "no_demand":
         base_forecast = 0.0
         forecast_method = "ZERO"
