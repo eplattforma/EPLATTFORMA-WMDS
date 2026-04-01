@@ -78,7 +78,7 @@ def _compute_median6(weekly_qtys):
 def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
     non_zero = [q for q in weekly_qtys[:8] if q > 0]
     if not non_zero:
-        return 0.0, "none", None, "none"
+        return 0.0, "none", None, "none", False
 
     own_signal = sum(non_zero) / len(non_zero) if non_zero else 0.0
 
