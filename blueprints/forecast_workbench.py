@@ -81,46 +81,71 @@ def supplier_detail(supplier_code):
 @forecast_bp.route('/api/suppliers')
 @admin_or_warehouse_required
 def api_suppliers():
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        db.session.execute(text("SET LOCAL statement_timeout = '15s'"))
+    except Exception:
+        pass
+
     last_run = ForecastRun.query.order_by(ForecastRun.started_at.desc()).first()
-
-    supplier_code_col = func.coalesce(DwItem.supplier_code_365, 'UNMAPPED')
-    supplier_name_col = func.coalesce(DwItem.supplier_name, 'Unmapped Items')
-
-    rows = (
-        db.session.query(
-            supplier_code_col.label('supplier_code'),
-            func.max(supplier_name_col).label('supplier_name'),
-            func.count(SkuForecastProfile.item_code_365).label('active_skus'),
-            func.sum(case((SkuForecastProfile.review_flag == True, 1), else_=0)).label('review_count'),
-            func.sum(case((SkuForecastResult.rounded_order_qty > 0, 1), else_=0)).label('order_count'),
-            func.coalesce(func.sum(SkuForecastResult.rounded_order_qty), 0).label('total_order_qty'),
-            func.sum(case((SkuForecastProfile.demand_class == 'smooth', 1), else_=0)).label('smooth_count'),
-            func.sum(case((SkuForecastProfile.demand_class.in_(['erratic', 'intermittent', 'lumpy']), 1), else_=0)).label('irregular_count'),
-        )
-        .join(DwItem, DwItem.item_code_365 == SkuForecastProfile.item_code_365)
-        .join(SkuForecastResult, SkuForecastResult.item_code_365 == SkuForecastProfile.item_code_365, isouter=True)
-        .group_by(supplier_code_col)
-        .all()
-    )
 
     from services.forecast.week_utils import get_completed_week_cutoff
     from datetime import timedelta
     completed_week_cutoff = get_completed_week_cutoff()
     sales_cutoff = completed_week_cutoff - timedelta(weeks=52)
-    sales_rows = (
-        db.session.query(
-            func.coalesce(DwItem.supplier_code_365, 'UNMAPPED').label('supplier_code'),
-            func.coalesce(func.sum(FactSalesWeeklyItem.sales_ex_vat), 0).label('total_sales'),
-        )
-        .join(DwItem, DwItem.item_code_365 == FactSalesWeeklyItem.item_code_365)
-        .filter(
-            FactSalesWeeklyItem.week_start >= sales_cutoff,
-            FactSalesWeeklyItem.week_start < completed_week_cutoff,
-        )
-        .group_by(func.coalesce(DwItem.supplier_code_365, 'UNMAPPED'))
-        .all()
-    )
-    sales_by_supplier = {r.supplier_code: float(r.total_sales or 0) for r in sales_rows}
+
+    sql = text("""
+        SELECT
+            COALESCE(d.supplier_code_365, 'UNMAPPED') AS supplier_code,
+            MAX(COALESCE(d.supplier_name, 'Unmapped Items')) AS supplier_name,
+            COUNT(p.item_code_365) AS active_skus,
+            SUM(CASE WHEN p.review_flag = TRUE THEN 1 ELSE 0 END) AS review_count,
+            SUM(CASE WHEN r.rounded_order_qty > 0 THEN 1 ELSE 0 END) AS order_count,
+            COALESCE(SUM(r.rounded_order_qty), 0) AS total_order_qty,
+            SUM(CASE WHEN p.demand_class = 'smooth' THEN 1 ELSE 0 END) AS smooth_count,
+            SUM(CASE WHEN p.demand_class IN ('erratic','intermittent','lumpy') THEN 1 ELSE 0 END) AS irregular_count,
+            COALESCE(s.total_sales, 0) AS total_sales
+        FROM sku_forecast_profile p
+        JOIN dw_item d ON d.item_code_365 = p.item_code_365
+        LEFT JOIN sku_forecast_result r ON r.item_code_365 = p.item_code_365
+        LEFT JOIN (
+            SELECT COALESCE(d2.supplier_code_365, 'UNMAPPED') AS supplier_code,
+                   SUM(f.sales_ex_vat) AS total_sales
+            FROM fact_sales_weekly_item f
+            JOIN dw_item d2 ON d2.item_code_365 = f.item_code_365
+            WHERE f.week_start >= :sales_cutoff AND f.week_start < :week_cutoff
+            GROUP BY COALESCE(d2.supplier_code_365, 'UNMAPPED')
+        ) s ON s.supplier_code = COALESCE(d.supplier_code_365, 'UNMAPPED')
+        GROUP BY COALESCE(d.supplier_code_365, 'UNMAPPED'), s.total_sales
+    """)
+
+    try:
+        rows = db.session.execute(sql, {
+            'sales_cutoff': sales_cutoff,
+            'week_cutoff': completed_week_cutoff,
+        }).fetchall()
+    except Exception as e:
+        logger.warning(f"Suppliers query failed (likely timeout during forecast run): {e}")
+        db.session.rollback()
+        sql_simple = text("""
+            SELECT
+                COALESCE(d.supplier_code_365, 'UNMAPPED') AS supplier_code,
+                MAX(COALESCE(d.supplier_name, 'Unmapped Items')) AS supplier_name,
+                COUNT(p.item_code_365) AS active_skus,
+                SUM(CASE WHEN p.review_flag = TRUE THEN 1 ELSE 0 END) AS review_count,
+                SUM(CASE WHEN r.rounded_order_qty > 0 THEN 1 ELSE 0 END) AS order_count,
+                COALESCE(SUM(r.rounded_order_qty), 0) AS total_order_qty,
+                SUM(CASE WHEN p.demand_class = 'smooth' THEN 1 ELSE 0 END) AS smooth_count,
+                SUM(CASE WHEN p.demand_class IN ('erratic','intermittent','lumpy') THEN 1 ELSE 0 END) AS irregular_count,
+                0 AS total_sales
+            FROM sku_forecast_profile p
+            JOIN dw_item d ON d.item_code_365 = p.item_code_365
+            LEFT JOIN sku_forecast_result r ON r.item_code_365 = p.item_code_365
+            GROUP BY COALESCE(d.supplier_code_365, 'UNMAPPED')
+        """)
+        rows = db.session.execute(sql_simple).fetchall()
 
     suppliers_list = []
     for row in rows:
@@ -130,10 +155,10 @@ def api_suppliers():
             'active_skus': row.active_skus or 0,
             'review_count': int(row.review_count or 0),
             'order_count': int(row.order_count or 0),
-            'total_order_qty': _float(row.total_order_qty),
+            'total_order_qty': float(row.total_order_qty or 0),
             'smooth_count': int(row.smooth_count or 0),
             'irregular_count': int(row.irregular_count or 0),
-            'total_sales': sales_by_supplier.get(row.supplier_code, 0),
+            'total_sales': float(row.total_sales or 0),
         })
 
     last_run_info = None
