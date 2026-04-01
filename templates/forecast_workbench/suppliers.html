@@ -187,7 +187,7 @@ function renderRunBanner(run) {
     if (run.sales_period_start && run.sales_period_end) {
         const start = new Date(run.sales_period_start).toLocaleDateString();
         const end = new Date(run.sales_period_end).toLocaleDateString();
-        tooltipHtml += `<div><strong>Sales Period Used:</strong> ${start} → ${end}</div>`;
+        tooltipHtml += `<div><strong>Sales Data (26 weeks):</strong> ${start} → ${end}</div>`;
         if (run.sales_total_value_ex_vat > 0) {
             tooltipHtml += `<div><strong>Total Sales Value:</strong> €${(run.sales_total_value_ex_vat || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>`;
         }

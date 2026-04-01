@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 def _capture_sales_validation_metadata(session: Session):
     """
     Capture the actual sales period used for forecasting.
+    The forecast engine uses 26 weeks of weekly sales data for its calculations.
     Returns tuple of (start_date, end_date, total_qty, total_value_ex_vat)
     """
     completed_week_cutoff = get_completed_week_cutoff()
-    # For 52 weeks back (standard)
-    cutoff = completed_week_cutoff - timedelta(weeks=52)
+    cutoff = completed_week_cutoff - timedelta(weeks=26)
 
     result = session.query(
         func.min(FactSalesWeeklyItem.week_start).label('start_date'),
