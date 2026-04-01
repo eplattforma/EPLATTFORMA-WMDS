@@ -103,6 +103,25 @@ def api_suppliers():
         .all()
     )
 
+    from services.forecast.week_utils import get_completed_week_cutoff
+    from datetime import timedelta
+    completed_week_cutoff = get_completed_week_cutoff()
+    sales_cutoff = completed_week_cutoff - timedelta(weeks=52)
+    sales_rows = (
+        db.session.query(
+            func.coalesce(DwItem.supplier_code_365, 'UNMAPPED').label('supplier_code'),
+            func.coalesce(func.sum(FactSalesWeeklyItem.sales_ex_vat), 0).label('total_sales'),
+        )
+        .join(DwItem, DwItem.item_code_365 == FactSalesWeeklyItem.item_code_365)
+        .filter(
+            FactSalesWeeklyItem.week_start >= sales_cutoff,
+            FactSalesWeeklyItem.week_start < completed_week_cutoff,
+        )
+        .group_by(func.coalesce(DwItem.supplier_code_365, 'UNMAPPED'))
+        .all()
+    )
+    sales_by_supplier = {r.supplier_code: float(r.total_sales or 0) for r in sales_rows}
+
     suppliers_list = []
     for row in rows:
         suppliers_list.append({
@@ -114,6 +133,7 @@ def api_suppliers():
             'total_order_qty': _float(row.total_order_qty),
             'smooth_count': int(row.smooth_count or 0),
             'irregular_count': int(row.irregular_count or 0),
+            'total_sales': sales_by_supplier.get(row.supplier_code, 0),
         })
 
     last_run_info = None
