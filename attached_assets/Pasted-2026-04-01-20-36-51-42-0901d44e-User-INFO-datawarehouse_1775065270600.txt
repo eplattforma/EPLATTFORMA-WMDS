@@ -1,0 +1,106 @@
+2026-04-01 20:36:51.42
+0901d44e
+User
+INFO:datawarehouse_sync:✅ FULL DATA WAREHOUSE SYNC COMPLETED SUCCESSFULLY
+2026-04-01 20:36:51.42
+0901d44e
+User
+================================================================================
+2026-04-01 20:36:51.42
+0901d44e
+User
+INFO:datawarehouse_sync:================================================================================
+2026-04-01 20:36:56.77
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 5000/36456 rows...
+2026-04-01 20:37:17.68
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 6000/36456 rows...
+2026-04-01 20:37:28.19
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 6500/36456 rows...
+2026-04-01 20:37:38.50
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 7000/36456 rows...
+2026-04-01 20:37:49.02
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 7500/36456 rows...
+2026-04-01 20:37:59.35
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 8000/36456 rows...
+2026-04-01 20:38:09.75
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 8500/36456 rows...
+2026-04-01 20:38:20.18
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 9000/36456 rows...
+2026-04-01 20:38:30.44
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 9500/36456 rows...
+2026-04-01 20:38:40.74
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 10000/36456 rows...
+2026-04-01 20:38:51.05
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 10500/36456 rows...
+2026-04-01 20:39:01.40
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 11000/36456 rows...
+2026-04-01 20:39:11.77
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 11500/36456 rows...
+2026-04-01 20:39:22.22
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 12000/36456 rows...
+2026-04-01 20:39:32.56
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 12500/36456 rows...
+2026-04-01 20:39:42.89
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 13000/36456 rows...
+2026-04-01 20:39:53.63
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 13500/36456 rows...
+2026-04-01 20:40:00.00
+0901d44e
+User
+DEBUG:apscheduler.scheduler:Looking for jobs to run
+2026-04-01 20:40:00.00
+0901d44e
+User
+INFO:apscheduler.executors.default:Running job "Retry PENDING_RETRY Payments to PS365 (trigger: cron[minute='*/5'], next run at: 2026-04-01 20:45:00 EEST)" (scheduled at 2026-04-01 20:40:00+03:00)
+2026-04-01 20:40:00.00
+0901d44e
+User
+DEBUG:apscheduler.scheduler:Next wakeup is due at 2026-04-01 20:45:00+03:00 (in 299.999167 seconds)
+2026-04-01 20:40:00.22
+0901d44e
+User
+INFO:apscheduler.executors.default:Job "Retry PENDING_RETRY Payments to PS365 (trigger: cron[minute='*/5'], next run at: 2026-04-01 20:45:00 EEST)" executed successfully
+2026-04-01 20:40:03.97
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 14000/36456 rows...
+2026-04-01 20:40:23.58
+0901d44e
+User
+INFO:services.forecast.weekly_sales_builder:Upserted 14500/36456 rows...
+Wrap
+Colors
