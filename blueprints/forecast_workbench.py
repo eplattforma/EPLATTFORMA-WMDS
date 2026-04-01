@@ -125,6 +125,10 @@ def api_suppliers():
             'status': last_run.status,
             'sku_count': last_run.sku_count,
             'notes': last_run.notes,
+            'sales_period_start': last_run.sales_period_start.isoformat() if last_run.sales_period_start else None,
+            'sales_period_end': last_run.sales_period_end.isoformat() if last_run.sales_period_end else None,
+            'sales_total_qty': float(last_run.sales_total_qty or 0),
+            'sales_total_value_ex_vat': float(last_run.sales_total_value_ex_vat or 0),
         }
 
     return jsonify({

@@ -7,27 +7,24 @@ from sqlalchemy.orm import Session
 
 from models import DwInvoiceHeader, DwInvoiceLine, FactSalesWeeklyItem
 from timezone_utils import get_utc_now
+from services.forecast.week_utils import monday_of, get_completed_week_cutoff
 
 logger = logging.getLogger(__name__)
 
 RETURN_TYPES = ["RETURN", "CREDIT_NOTE", "SALES_RETURN", "CREDIT", "REFUND"]
 
 
-def _monday_of(d: date) -> date:
-    return d - timedelta(days=d.weekday())
-
-
 def build_weekly_sales(session: Session, weeks_back: int = 52):
-    cutoff = _monday_of(date.today()) - timedelta(weeks=weeks_back)
+    cutoff = monday_of(date.today()) - timedelta(weeks=weeks_back)
     logger.info(f"Building weekly sales from {cutoff} (last {weeks_back} weeks)")
     _aggregate_and_upsert(session, cutoff)
 
 
 def update_weekly_sales(session: Session, since_date: date = None):
     if since_date is None:
-        since_date = _monday_of(date.today()) - timedelta(weeks=4)
+        since_date = monday_of(date.today()) - timedelta(weeks=4)
     else:
-        since_date = _monday_of(since_date)
+        since_date = monday_of(since_date)
 
     logger.info(f"Incremental weekly sales update from {since_date}")
     _aggregate_and_upsert(session, since_date)

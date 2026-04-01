@@ -14,6 +14,7 @@ from models import (
     SkuForecastProfile,
     extract_item_prefix,
 )
+from services.forecast.week_utils import get_completed_week_cutoff
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +26,14 @@ SMOOTHING_ALPHA = Decimal("0.5")
 
 
 def compute_seasonal_indices(session):
+    completed_week_cutoff = get_completed_week_cutoff()
     rows = (
         session.query(
             FactSalesWeeklyItem.week_start,
             FactSalesWeeklyItem.item_code_365,
             FactSalesWeeklyItem.gross_qty,
         )
+        .filter(FactSalesWeeklyItem.week_start < completed_week_cutoff)
         .all()
     )
 

@@ -8,27 +8,23 @@ from sqlalchemy.orm import Session
 
 from models import DwItem, FactSalesWeeklyItem, SkuForecastProfile
 from timezone_utils import get_utc_now
+from services.forecast.week_utils import get_completed_week_cutoff
 
 logger = logging.getLogger(__name__)
 
 WEEKS_WINDOW = 26
 
 
-def _monday_of(d: date) -> date:
-    return d - timedelta(days=d.weekday())
-
-
 def _get_weekly_gross_qtys(session: Session, item_code: str, num_weeks: int = WEEKS_WINDOW):
-    today = date.today()
-    current_week_start = _monday_of(today)
-    window_start = current_week_start - timedelta(weeks=num_weeks)
+    completed_week_cutoff = get_completed_week_cutoff()
+    window_start = completed_week_cutoff - timedelta(weeks=num_weeks)
 
     rows = (
         session.query(FactSalesWeeklyItem.week_start, FactSalesWeeklyItem.gross_qty)
         .filter(
             FactSalesWeeklyItem.item_code_365 == item_code,
             FactSalesWeeklyItem.week_start >= window_start,
-            FactSalesWeeklyItem.week_start < current_week_start,
+            FactSalesWeeklyItem.week_start < completed_week_cutoff,
         )
         .order_by(FactSalesWeeklyItem.week_start)
         .all()
@@ -38,7 +34,7 @@ def _get_weekly_gross_qtys(session: Session, item_code: str, num_weeks: int = WE
 
     result = []
     ws = window_start
-    while ws < current_week_start and len(result) < num_weeks:
+    while ws < completed_week_cutoff and len(result) < num_weeks:
         result.append(data_by_week.get(ws, 0.0))
         ws += timedelta(weeks=1)
 

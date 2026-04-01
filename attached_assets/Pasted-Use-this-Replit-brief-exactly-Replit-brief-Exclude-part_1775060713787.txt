@@ -1,0 +1,170 @@
+Use this Replit brief exactly.
+
+Replit brief — Exclude partial current week from forecasting and show validation info next to last forecast run
+
+We need two changes in the live forecasting module.
+
+1. Exclude the current incomplete week from forecasting history
+Problem
+
+Right now weekly sales can include the current week even if the week is incomplete, for example week 14 on a Tuesday.
+
+That distorts:
+
+weekly demand history
+classification
+MA8 / MEDIAN6 forecasts
+SEEDED own signal
+seasonality inputs
+
+A partial week must not be treated as a full week.
+
+Required change
+
+Use completed weeks only in all forecasting logic.
+
+Rule
+
+If today is inside week 14, then week 14 must be excluded.
+The latest usable week is week 13.
+
+Apply this consistently in:
+services/forecast/weekly_sales_builder.py
+services/forecast/classification_service.py
+services/forecast/base_forecast_service.py
+services/forecast/seasonality_service.py
+any helper that builds recent weekly series or baseline windows
+Implementation rule
+
+Determine:
+
+current_week_start = start of current week
+
+Then only include rows where:
+
+week_start < current_week_start
+
+Do not use the current incomplete week in:
+
+26-week history
+52-week build windows
+8-week seeded windows
+seasonality source windows
+Important
+
+Use the same week definition everywhere.
+Do not let one service include the current week while another excludes it.
+
+2. Show validation info next to “Last Forecast Run”
+
+We want users to be able to validate what sales history was actually used.
+
+Required UI addition
+
+Next to the existing Last Forecast Run information, show:
+
+Sales period used
+Total sales quantity in that period
+optionally total net sales value if easy to add and already available
+
+This should reflect the actual period used by the forecast build, not a guessed date range.
+
+What to display
+Minimum required
+
+Show clearly:
+
+Sales Period Used: from_date → to_date
+Total Sales Qty in Period: <number>
+Preferred if easy
+
+Also show:
+
+Total Sales Value in Period: <amount excl. VAT>
+Exact meaning
+
+This is for validation, so it must represent the actual weekly sales history window used for the forecast run.
+
+If the forecast builder uses:
+
+last 52 completed weeks
+
+then show the exact date range for those completed weeks.
+
+Example:
+
+Sales Period Used: 2025-04-01 to 2026-03-29
+Total Sales Qty in Period: 184,325
+Total Sales Value in Period: €428,540.20
+
+The exact dates should come from the real query/result used, not be hardcoded.
+
+Implementation details
+A. Persist run-level validation metadata
+
+In the forecast run record, store fields like:
+
+sales_period_start
+sales_period_end
+sales_total_qty
+sales_total_value_ex_vat (optional but preferred)
+
+If a JSON/meta field already exists on the forecast run model, store them there.
+If not, add columns only if needed and keep the schema minimal.
+
+B. Populate during run
+
+When the forecast run starts / weekly sales build completes, calculate and store:
+
+earliest week/date included
+latest week/date included
+total gross_qty in that build window
+optionally total sales excl. VAT
+
+This should be based on the same data actually used for the run.
+
+C. UI placement
+
+In the Forecast screen, near the existing Last Forecast Run block/card, add a validation section like:
+
+Sales Period Used
+Total Sales Qty
+Total Sales Value
+
+Keep it compact and easy to read.
+
+Acceptance criteria
+Partial-week logic
+
+If today is Tuesday in week 14:
+
+week 14 is excluded
+week 13 is the latest sales week used
+all forecasting services use the same rule
+Validation info
+
+After a forecast run, the UI shows:
+
+exact sales period used
+total sales quantity used in that period
+total sales value too if implemented
+
+The numbers must match the run inputs and help users validate the forecast.
+
+Files likely affected
+services/forecast/weekly_sales_builder.py
+services/forecast/classification_service.py
+services/forecast/base_forecast_service.py
+services/forecast/seasonality_service.py
+forecast run model / repository / persistence code
+forecast dashboard or forecast run summary template/API serializer
+Return to me with
+files changed
+how current week exclusion was implemented
+what exact sales period is now stored per run
+how total sales qty is calculated
+whether total sales value was also added
+screenshot or description of where it appears next to Last Forecast Run
+
+Do not redesign the forecast engine.
+Make this a controlled, validation-focused change only.

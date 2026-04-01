@@ -15,6 +15,7 @@ from models import (
     extract_item_prefix,
 )
 from timezone_utils import get_utc_now
+from services.forecast.week_utils import get_completed_week_cutoff
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +32,15 @@ def _to_float(v):
 
 
 def _get_recent_weekly_qtys(session: Session, item_code: str, n_weeks: int):
-    today = date.today()
-    current_monday = today - timedelta(days=today.weekday())
-    cutoff = current_monday - timedelta(weeks=n_weeks)
+    completed_week_cutoff = get_completed_week_cutoff()
+    cutoff = completed_week_cutoff - timedelta(weeks=n_weeks)
 
     rows = (
         session.query(FactSalesWeeklyItem.week_start, FactSalesWeeklyItem.gross_qty)
         .filter(
             FactSalesWeeklyItem.item_code_365 == item_code,
             FactSalesWeeklyItem.week_start >= cutoff,
-            FactSalesWeeklyItem.week_start < current_monday,
+            FactSalesWeeklyItem.week_start < completed_week_cutoff,
         )
         .order_by(desc(FactSalesWeeklyItem.week_start))
         .all()
@@ -126,9 +126,8 @@ def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
 
 
 def _get_group_baseline(session, group_type, group_code, exclude_item_code):
-    today = date.today()
-    current_monday = today - timedelta(days=today.weekday())
-    cutoff = current_monday - timedelta(weeks=8)
+    completed_week_cutoff = get_completed_week_cutoff()
+    cutoff = completed_week_cutoff - timedelta(weeks=8)
 
     if group_type == "supplier":
         item_codes_q = (
@@ -175,7 +174,7 @@ def _get_group_baseline(session, group_type, group_code, exclude_item_code):
 
     weeks_list = []
     for i in range(8):
-        ws = current_monday - timedelta(weeks=(i + 1))
+        ws = completed_week_cutoff - timedelta(weeks=(i + 1))
         weeks_list.append(ws)
 
     rows = (
@@ -183,7 +182,7 @@ def _get_group_baseline(session, group_type, group_code, exclude_item_code):
         .filter(
             FactSalesWeeklyItem.item_code_365.in_(item_codes),
             FactSalesWeeklyItem.week_start >= cutoff,
-            FactSalesWeeklyItem.week_start < current_monday,
+            FactSalesWeeklyItem.week_start < completed_week_cutoff,
         )
         .all()
     )

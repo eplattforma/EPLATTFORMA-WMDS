@@ -2811,6 +2811,10 @@ class ForecastRun(db.Model):
     sku_count = db.Column(db.Integer, nullable=True)
     created_by = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    sales_period_start = db.Column(db.Date, nullable=True)
+    sales_period_end = db.Column(db.Date, nullable=True)
+    sales_total_qty = db.Column(db.Numeric(18, 2), nullable=True)
+    sales_total_value_ex_vat = db.Column(db.Numeric(18, 2), nullable=True)
 
 
 class CrmAbandonedCartState(db.Model):
