@@ -133,7 +133,7 @@
 {% block scripts %}
 <script>
 let allSuppliers = [];
-let currentSort = 'sales';
+let currentSort = '';
 let currentDirection = 'desc';
 
 document.addEventListener('DOMContentLoaded', loadSuppliers);
@@ -147,7 +147,8 @@ function loadSuppliers() {
         .then(data => {
             allSuppliers = data.suppliers || [];
             renderRunBanner(data.last_run);
-            sortSuppliers(currentSort);
+            const salesBtn = document.querySelector('[data-sort="sales"]');
+            sortSuppliers('sales', salesBtn);
             document.getElementById('loadingSpinner').classList.add('d-none');
             document.getElementById('supplierGrid').classList.remove('d-none');
         })
