@@ -50,7 +50,7 @@ def _get_recent_weekly_qtys(session: Session, item_code: str, n_weeks: int):
 
     weeks = []
     for i in range(n_weeks):
-        ws = current_monday - timedelta(weeks=(i + 1))
+        ws = completed_week_cutoff - timedelta(weeks=(i + 1))
         weeks.append(existing.get(ws, 0.0))
 
     return weeks

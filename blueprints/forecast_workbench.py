@@ -104,13 +104,13 @@ def api_suppliers():
                 SUM(CASE WHEN p.demand_class IN ('erratic','intermittent','lumpy') THEN 1 ELSE 0 END) AS irregular_count,
                 COALESCE(s.total_sales, 0) AS total_sales
             FROM sku_forecast_profile p
-            JOIN dw_item d ON d.item_code_365 = p.item_code_365
+            JOIN ps_items_dw d ON d.item_code_365 = p.item_code_365
             LEFT JOIN sku_forecast_result r ON r.item_code_365 = p.item_code_365
             LEFT JOIN (
                 SELECT COALESCE(d2.supplier_code_365, 'UNMAPPED') AS supplier_code,
                        SUM(f.sales_ex_vat) AS total_sales
                 FROM fact_sales_weekly_item f
-                JOIN dw_item d2 ON d2.item_code_365 = f.item_code_365
+                JOIN ps_items_dw d2 ON d2.item_code_365 = f.item_code_365
                 WHERE f.week_start >= :sales_cutoff AND f.week_start < :week_cutoff
                 GROUP BY COALESCE(d2.supplier_code_365, 'UNMAPPED')
             ) s ON s.supplier_code = COALESCE(d.supplier_code_365, 'UNMAPPED')
@@ -137,7 +137,7 @@ def api_suppliers():
                     SUM(CASE WHEN p.demand_class IN ('erratic','intermittent','lumpy') THEN 1 ELSE 0 END) AS irregular_count,
                     0 AS total_sales
                 FROM sku_forecast_profile p
-                JOIN dw_item d ON d.item_code_365 = p.item_code_365
+                JOIN ps_items_dw d ON d.item_code_365 = p.item_code_365
                 LEFT JOIN sku_forecast_result r ON r.item_code_365 = p.item_code_365
                 GROUP BY COALESCE(d.supplier_code_365, 'UNMAPPED')
             """)
