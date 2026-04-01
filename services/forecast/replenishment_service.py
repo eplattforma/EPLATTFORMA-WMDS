@@ -170,7 +170,13 @@ def compute_replenishment(session: Session, run_id=None):
     for m in maps:
         supplier_map_cache[m.item_code_365] = m
 
+    profile_cache = {}
+    for profile in session.query(SkuForecastProfile).all():
+        profile_cache[profile.item_code_365] = profile
+    
     dw_item_cache = {}
+    for item in session.query(DwItem).all():
+        dw_item_cache[item.item_code_365] = item
 
     stock_cache_by_supplier = {}
     def _get_stock_cache(supplier_code):
@@ -186,15 +192,12 @@ def compute_replenishment(session: Session, run_id=None):
     for result in results:
         item_code = result.item_code_365
 
-        profile = session.query(SkuForecastProfile).filter_by(item_code_365=item_code).first()
+        profile = profile_cache.get(item_code)
         if not profile:
             continue
 
         supplier_map = supplier_map_cache.get(item_code)
-
-        if item_code not in dw_item_cache:
-            dw_item_cache[item_code] = session.query(DwItem).filter_by(item_code_365=item_code).first()
-        dw_item = dw_item_cache[item_code]
+        dw_item = dw_item_cache.get(item_code)
 
         supplier_context = _resolve_supplier_context(item_code, supplier_map, dw_item)
         

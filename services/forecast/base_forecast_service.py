@@ -257,11 +257,41 @@ def compute_base_forecasts(session: Session, run_id=None):
 
     now = get_utc_now()
     count = 0
+    
+    completed_week_cutoff = get_completed_week_cutoff()
+    cutoff = completed_week_cutoff - timedelta(weeks=26)
+    
+    all_weekly_sales = (
+        session.query(
+            FactSalesWeeklyItem.item_code_365,
+            FactSalesWeeklyItem.week_start,
+            FactSalesWeeklyItem.gross_qty,
+        )
+        .filter(
+            FactSalesWeeklyItem.week_start >= cutoff,
+            FactSalesWeeklyItem.week_start < completed_week_cutoff,
+        )
+        .all()
+    )
+    
+    sales_by_item = {}
+    for item_code, week_start, gross_qty in all_weekly_sales:
+        if item_code not in sales_by_item:
+            sales_by_item[item_code] = []
+        sales_by_item[item_code].append((week_start, float(gross_qty or 0)))
+    
+    for item_code in sales_by_item:
+        sales_by_item[item_code].sort(key=lambda x: x[0], reverse=True)
+        sales_by_item[item_code] = [qty for _, qty in sales_by_item[item_code]]
+    
+    old_results = {}
+    for result in session.query(SkuForecastResult).all():
+        old_results[result.item_code_365] = result
 
     for profile in profiles:
         item_code = profile.item_code_365
         demand_class = profile.demand_class
-        weekly_qtys = _get_recent_weekly_qtys(session, item_code, 26)
+        weekly_qtys = sales_by_item.get(item_code, [])
 
         base_forecast = 0.0
         forecast_method = "ZERO"
@@ -350,7 +380,7 @@ def compute_base_forecasts(session: Session, run_id=None):
         final_forecast = max(0.0, final_forecast)
         final_daily = final_forecast / 7.0
 
-        old_result = session.query(SkuForecastResult).filter_by(item_code_365=item_code).first()
+        old_result = old_results.get(item_code)
         old_final = _to_float(old_result.final_forecast_weekly_qty) if old_result else None
 
         forecast_change_pct = None

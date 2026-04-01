@@ -144,9 +144,36 @@ def classify_all_items(session: Session) -> int:
     logger.info(f"Classifying {len(items)} active items")
     count = 0
     now = get_utc_now()
+    
+    completed_week_cutoff = get_completed_week_cutoff()
+    window_start = completed_week_cutoff - timedelta(weeks=WEEKS_WINDOW)
+    
+    all_sales = (
+        session.query(
+            FactSalesWeeklyItem.item_code_365,
+            FactSalesWeeklyItem.week_start,
+            FactSalesWeeklyItem.gross_qty,
+        )
+        .filter(
+            FactSalesWeeklyItem.week_start >= window_start,
+            FactSalesWeeklyItem.week_start < completed_week_cutoff,
+        )
+        .all()
+    )
+    
+    sales_by_item = {}
+    for item_code, week_start, gross_qty in all_sales:
+        if item_code not in sales_by_item:
+            sales_by_item[item_code] = {}
+        sales_by_item[item_code][week_start] = float(gross_qty or 0)
 
     for (item_code,) in items:
-        weekly_qtys = _get_weekly_gross_qtys(session, item_code, WEEKS_WINDOW)
+        item_sales = sales_by_item.get(item_code, {})
+        weekly_qtys = []
+        ws = window_start
+        while ws < completed_week_cutoff and len(weekly_qtys) < WEEKS_WINDOW:
+            weekly_qtys.append(item_sales.get(ws, 0.0))
+            ws += timedelta(weeks=1)
         profile = _compute_profile(weekly_qtys)
 
         existing = session.get(SkuForecastProfile, item_code)
