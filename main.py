@@ -476,6 +476,13 @@ with app.app_context():
         logging.error(f"Error updating replenishment schema: {str(e)}")
 
     try:
+        from update_forecast_runs_schema import update_forecast_runs_schema
+        update_forecast_runs_schema()
+        logging.info("Forecast runs schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating forecast runs schema: {str(e)}")
+
+    try:
         from update_magento_login_log_schema import update_magento_login_log_schema
         update_magento_login_log_schema()
         logging.info("Magento login log schema updates completed")
