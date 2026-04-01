@@ -1,0 +1,64 @@
+2026-04-01 19:36:53.59
+0a2d91f9
+User
+34.26.8.8 - - [01/Apr/2026:16:36:53 +0000] "GET /forecast/suppliers HTTP/1.1" 200 31427 "https://ep-picking-bro.replit.app/admin/dashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-01 19:36:53.96
+0a2d91f9
+User
+34.26.8.8 - - [01/Apr/2026:16:36:53 +0000] "GET /static/ep-wmds-logo.png HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/forecast/suppliers" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-01 19:36:54.00
+0a2d91f9
+User
+34.138.110.253 - - [01/Apr/2026:16:36:53 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/forecast/suppliers" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+The above exception was the direct cause of the following exception:
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1963, in _exec_single_context
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+Traceback (most recent call last):
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 943, in do_execute
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+self.dialect.do_execute(
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+^
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+LINE 1: ...cast_runs.created_at AS forecast_runs_created_at, forecast_r...
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+ERROR:app:Exception on /forecast/api/suppliers [GET]
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+cursor.execute(statement, parameters)
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+psycopg2.errors.UndefinedColumn: column forecast_runs.sales_period_start does not exist
+2026-04-01 19:36:54.45
+0a2d91f9
+User
+Traceback (most recent call last):
+2026-04-01 19:36:54.53
+0a2d91f9
+User
+During handling of the above exception, another exception occurred:
+2026-04-01 19:36:54.53
+0a2d91f9
+User
+During handling of the above exception, another exception occurred:
