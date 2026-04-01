@@ -357,7 +357,7 @@ function runForecast() {
     if (!confirm('Run the full forecast pipeline now? This may take a few minutes.')) return;
 
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting...';
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
@@ -370,11 +370,12 @@ function runForecast() {
     })
     .then(r => r.json())
     .then(data => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
-        if (data.status === 'ok') {
-            loadSuppliers();
+        if (data.status === 'started' || data.status === 'already_running') {
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running...';
+            pollForecastStatus();
         } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
             alert('Forecast run failed: ' + (data.message || 'Unknown error'));
         }
     })
@@ -383,6 +384,31 @@ function runForecast() {
         btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
         alert('Error: ' + err.message);
     });
+}
+
+function pollForecastStatus() {
+    const btn = document.getElementById('btnRunForecast');
+    fetch('{{ url_for("forecast_workbench.api_run_status") }}')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'running') {
+                setTimeout(pollForecastStatus, 5000);
+            } else if (data.status === 'completed') {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+                loadSuppliers();
+            } else if (data.status === 'failed') {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+                alert('Forecast run failed: ' + (data.notes || 'Unknown error'));
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+            }
+        })
+        .catch(() => {
+            setTimeout(pollForecastStatus, 5000);
+        });
 }
 </script>
 {% endblock %}

@@ -416,16 +416,42 @@ def api_item_detail(item_code):
 @forecast_bp.route('/api/run', methods=['POST'])
 @admin_or_warehouse_required
 def api_run():
-    try:
-        from services.forecast.run_service import execute_forecast_run
-        result = execute_forecast_run(
-            session=db.session,
-            created_by=current_user.username,
-        )
-        return jsonify({'status': 'ok', 'run': result})
-    except Exception as e:
-        logger.exception("Forecast run failed")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    import threading
+    from models import ForecastRun
+    existing = ForecastRun.query.filter_by(status='running').first()
+    if existing:
+        return jsonify({'status': 'already_running', 'run_id': existing.id})
+
+    username = current_user.username
+
+    def _run_in_background(app, username):
+        with app.app_context():
+            try:
+                from services.forecast.run_service import execute_forecast_run
+                execute_forecast_run(session=db.session, created_by=username)
+            except Exception:
+                logger.exception("Background forecast run failed")
+
+    t = threading.Thread(target=_run_in_background, args=(current_app._get_current_object(), username), daemon=True)
+    t.start()
+    return jsonify({'status': 'started'})
+
+
+@forecast_bp.route('/api/run/status')
+@admin_or_warehouse_required
+def api_run_status():
+    from models import ForecastRun
+    run = ForecastRun.query.order_by(ForecastRun.id.desc()).first()
+    if not run:
+        return jsonify({'status': 'none'})
+    return jsonify({
+        'run_id': run.id,
+        'status': run.status,
+        'started_at': run.started_at.isoformat() if run.started_at else None,
+        'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+        'sku_count': run.sku_count,
+        'notes': run.notes,
+    })
 
 
 @forecast_bp.route('/api/seasonality/<item_code>')
