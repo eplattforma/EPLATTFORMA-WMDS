@@ -1,0 +1,183 @@
+I found the main blocking issue.
+
+The forecast is failing because the code expects new columns on forecast_runs, but your actual database does not have them yet.
+
+What is breaking
+ForecastRun now includes these fields in models.py:
+
+sales_period_start
+sales_period_end
+sales_total_qty
+sales_total_value_ex_vat
+
+Those are defined at models.py:2814-2817.
+
+The run then writes to them in services/forecast/run_service.py:69-75.
+
+But your logs already show the real DB error:
+
+psycopg2.errors.UndefinedColumn: column forecast_runs.sales_period_start does not exist
+
+So the forecast UI and the run itself can break as soon as SQLAlchemy reads or writes forecast_runs.
+
+Why it happens
+You do have a migration file for this:
+
+update_forecast_runs_schema.py
+
+and it adds exactly those 4 columns. But in your environment, that migration clearly did not run successfully before the forecast page or forecast run executed.
+
+Second issue I found
+Even after fixing the missing columns, your forecast can still be marked as failed too early.
+
+In blueprints/forecast_workbench.py:423-470, any run older than 15 minutes is automatically marked as stale/failed.
+
+But your own logs show the weekly sales build alone is long-running:
+
+36,456 rows to upsert
+batch size is only 50
+commit happens every batch in services/forecast/weekly_sales_builder.py:105-155
+
+That is slow enough that the whole forecast can easily cross 15 minutes.
+
+So you likely have two problems:
+
+Immediate schema mismatch on forecast_runs
+Timeout too aggressive for the actual run duration
+
+What I recommend Replit fix now
+
+1) Fix the DB schema first
+
+Run this SQL once on Postgres:
+
+ALTER TABLE forecast_runs ADD COLUMN IF NOT EXISTS sales_period_start DATE;
+ALTER TABLE forecast_runs ADD COLUMN IF NOT EXISTS sales_period_end DATE;
+ALTER TABLE forecast_runs ADD COLUMN IF NOT EXISTS sales_total_qty NUMERIC(18,2);
+ALTER TABLE forecast_runs ADD COLUMN IF NOT EXISTS sales_total_value_ex_vat NUMERIC(18,2);
+
+Then verify:
+
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = 'forecast_runs'
+ORDER BY ordinal_position;
+
+You should see all 4 new columns.
+
+2) Make startup fail loudly if the migration is missing
+
+Right now the code just logs migration errors and continues. That is dangerous.
+
+Tell Replit to change the forecast-runs migration startup so that if forecast_runs schema update fails, startup should log it clearly and stop the app, or at least disable the forecast module until fixed.
+
+At minimum, after update_forecast_runs_schema() add a verification step:
+
+from sqlalchemy import inspect
+
+insp = inspect(db.engine)
+cols = {c["name"] for c in insp.get_columns("forecast_runs")}
+required = {
+    "sales_period_start",
+    "sales_period_end",
+    "sales_total_qty",
+    "sales_total_value_ex_vat",
+}
+missing = required - cols
+if missing:
+    raise RuntimeError(f"forecast_runs is missing columns: {sorted(missing)}")
+3) Increase the stale timeout
+
+In blueprints/forecast_workbench.py, change the 15-minute timeout to at least 45 minutes for now.
+
+Change both places:
+
+stale_cutoff = now_naive - timedelta(minutes=45)
+
+and
+
+stale_cutoff = datetime.utcnow() - timedelta(minutes=45)
+4) Reduce weekly-sales commit overhead
+
+This is not the root error, but it is making the run much slower than necessary.
+
+In services/forecast/weekly_sales_builder.py:
+
+keep batch processing
+but do not session.commit() every 50 rows
+use larger batches like 500 or 1000
+flush() during progress, then one final commit() at the end
+
+Better pattern:
+
+batch_size = 500
+
+for i in range(0, len(rows), batch_size):
+    batch = rows[i:i + batch_size]
+    for r in batch:
+        ...
+        session.execute(...)
+        upserted += 1
+
+    session.flush()
+    logger.info(f"Upserted {upserted}/{len(rows)} rows...")
+
+and only once after all batches:
+
+session.commit()
+
+That should materially reduce runtime.
+
+One more logic bug I noticed
+Not the reason it fails to run, but it will distort SEEDED forecasts.
+
+In services/forecast/base_forecast_service.py, _get_group_baseline() builds:
+
+existing = {r.week_start: _to_float(r.gross_qty) for r in rows}
+
+That is wrong because there are many items per week. Using week_start as the dict key overwrites other items from the same week. So the analogue baseline is not aggregating the group correctly.
+
+That should be grouped/summed per week, not overwritten.
+
+Correct shape:
+
+existing = {}
+for r in rows:
+    existing[r.week_start] = existing.get(r.week_start, 0.0) + _to_float(r.gross_qty)
+
+So the immediate fix is schema + timeout, and then this baseline bug should also be corrected.
+
+Bottom line
+The most likely reason the forecast does not run or complete is:
+
+missing columns in forecast_runs, confirmed by your logs
+plus a 15-minute timeout that is too short for the current implementation
+
+Paste this to Replit as the priority brief:
+
+Urgent forecast fix
+
+1) Fix Postgres schema:
+Add these columns to forecast_runs if missing:
+- sales_period_start DATE
+- sales_period_end DATE
+- sales_total_qty NUMERIC(18,2)
+- sales_total_value_ex_vat NUMERIC(18,2)
+
+2) Add startup verification:
+After update_forecast_runs_schema(), inspect forecast_runs and raise an error if any of the 4 columns are still missing.
+
+3) Increase forecast stale timeout:
+In blueprints/forecast_workbench.py, change both stale timeout checks from 15 minutes to 45 minutes.
+
+4) Speed up weekly sales builder:
+In services/forecast/weekly_sales_builder.py:
+- increase batch_size from 50 to 500
+- replace per-batch commit() with flush()
+- keep a single final commit() at the end
+
+5) Fix seeded analogue baseline bug:
+In services/forecast/base_forecast_service.py, _get_group_baseline() currently builds a dict keyed only by week_start and overwrites rows from other items in the same week.
+Change it to SUM gross_qty per week_start instead of overwrite.
+
+After that, run the forecast again and check whether it reaches Step 2 after the weekly sales build.

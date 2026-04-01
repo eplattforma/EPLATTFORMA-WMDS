@@ -187,7 +187,9 @@ def _get_group_baseline(session, group_type, group_code, exclude_item_code):
         .all()
     )
 
-    existing = {r.week_start: _to_float(r.gross_qty) for r in rows}
+    existing = {}
+    for r in rows:
+        existing[r.week_start] = existing.get(r.week_start, 0.0) + _to_float(r.gross_qty)
 
     total_qty = 0.0
     for ws in weeks_list:

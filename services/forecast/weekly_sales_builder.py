@@ -102,7 +102,7 @@ def _aggregate_and_upsert(session: Session, cutoff: date):
 
     upserted = 0
     now = get_utc_now()
-    batch_size = 50
+    batch_size = 500
 
     for i in range(0, len(rows), batch_size):
         batch = rows[i:i + batch_size]
@@ -148,7 +148,7 @@ def _aggregate_and_upsert(session: Session, cutoff: date):
             )
             upserted += 1
 
-        session.commit()
+        session.flush()
         if upserted % 500 == 0:
             logger.info(f"Upserted {upserted}/{len(rows)} rows...")
 

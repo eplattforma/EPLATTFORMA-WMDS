@@ -24,6 +24,16 @@ def update_forecast_runs_schema():
                 ))
                 logger.info(f"✅ {col_name} column ensured on forecast_runs")
             conn.commit()
+        
+        from sqlalchemy import inspect
+        insp = inspect(db.engine)
+        existing_cols = {c["name"] for c in insp.get_columns("forecast_runs")}
+        required = {"sales_period_start", "sales_period_end", "sales_total_qty", "sales_total_value_ex_vat"}
+        missing = required - existing_cols
+        if missing:
+            raise RuntimeError(f"forecast_runs is missing columns: {sorted(missing)}")
+        
         logger.info("Forecast runs schema update completed successfully")
     except Exception as e:
         logger.error(f"Forecast runs schema update failed: {e}")
+        raise

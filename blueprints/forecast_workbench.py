@@ -421,7 +421,7 @@ def api_run():
     from timezone_utils import get_utc_now
     from datetime import datetime, timedelta
     now_naive = datetime.utcnow()
-    stale_cutoff = now_naive - timedelta(minutes=15)
+    stale_cutoff = now_naive - timedelta(minutes=45)
     stale_runs = ForecastRun.query.filter_by(status='running').filter(
         ForecastRun.started_at < stale_cutoff
     ).all()
@@ -461,7 +461,7 @@ def api_run_status():
     if not run:
         return jsonify({'status': 'none'})
     if run.status == 'running' and run.started_at:
-        stale_cutoff = datetime.utcnow() - timedelta(minutes=15)
+        stale_cutoff = datetime.utcnow() - timedelta(minutes=45)
         if run.started_at < stale_cutoff:
             logger.warning(f"Status poll: marking stale run {run.id} as failed")
             run.status = "failed"
