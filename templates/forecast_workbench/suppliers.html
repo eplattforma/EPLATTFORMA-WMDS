@@ -191,13 +191,13 @@ function renderRunBanner(run) {
         if (run.sales_total_value_ex_vat > 0) {
             tooltipHtml += `<div><strong>Total Sales Value:</strong> €${(run.sales_total_value_ex_vat || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>`;
         }
+    } else {
+        tooltipHtml = '<div class="text-muted">Sales period data will appear after the next completed run</div>';
     }
-    if (tooltipHtml) {
-        tooltip.innerHTML = tooltipHtml;
-        const tsEl = document.getElementById('runTimestamp');
-        tsEl.parentElement.addEventListener('mouseenter', () => tooltip.classList.remove('d-none'));
-        tsEl.parentElement.addEventListener('mouseleave', () => tooltip.classList.add('d-none'));
-    }
+    tooltip.innerHTML = tooltipHtml;
+    const tsEl = document.getElementById('runTimestamp');
+    tsEl.parentElement.addEventListener('mouseenter', () => tooltip.classList.remove('d-none'));
+    tsEl.parentElement.addEventListener('mouseleave', () => tooltip.classList.add('d-none'));
     
     document.getElementById('runNotes').textContent = run.notes || '';
 }
