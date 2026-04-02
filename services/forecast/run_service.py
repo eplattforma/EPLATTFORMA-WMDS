@@ -118,12 +118,18 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
         return hb
 
     try:
+        from datetime import datetime
         current_step = "weekly_sales"
         _heartbeat(run_id, current_step, "Building weekly sales")
         logger.info(f"[Run {run_id}] Step 1/5: Building weekly sales")
+        logger.info(f"[Run {run_id}] WEEKLY_SALES_STAGE_START: heartbeat timestamp = {datetime.utcnow().isoformat()}")
+        
         build_weekly_sales(session, weeks_back=52, progress_callback=_make_hb_callback(current_step))
+        
+        logger.info(f"[Run {run_id}] WEEKLY_SALES_STAGE_END: heartbeat timestamp = {datetime.utcnow().isoformat()}")
         session.flush()
         _heartbeat(run_id, current_step, "Weekly sales completed")
+        logger.info(f"[Run {run_id}] Weekly sales heartbeat recorded at {datetime.utcnow().isoformat()}")
 
         start_date, end_date, total_qty, total_value = _capture_sales_validation_metadata(session)
         run.sales_period_start = start_date

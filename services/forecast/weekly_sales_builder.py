@@ -31,6 +31,12 @@ def update_weekly_sales(session: Session, since_date: date = None):
 
 
 def _aggregate_and_upsert(session: Session, cutoff: date, progress_callback=None):
+    from datetime import datetime
+    logger.info("=" * 80)
+    logger.info("WEEKLY_SALES STAGE: STARTING aggregate_and_upsert")
+    logger.info(f"Cutoff date: {cutoff}")
+    logger.info("=" * 80)
+    
     is_return = case(
         *[(DwInvoiceHeader.invoice_type.ilike(f"%{rt}%"), True) for rt in RETURN_TYPES],
         else_=False,
@@ -77,6 +83,8 @@ def _aggregate_and_upsert(session: Session, cutoff: date, progress_callback=None
     customer_count_expr = func.count(distinct(DwInvoiceHeader.customer_code_365))
     week_start_expr = func.date_trunc('week', DwInvoiceHeader.invoice_date_utc0)
 
+    logger.info("[WEEKLY_SALES] Query execution starting...")
+    query_start = datetime.utcnow()
     rows = (
         session.query(
             week_start_expr.label("week_start"),
@@ -97,15 +105,21 @@ def _aggregate_and_upsert(session: Session, cutoff: date, progress_callback=None
         .group_by(week_start_expr, DwInvoiceLine.item_code_365)
         .all()
     )
-
-    logger.info(f"Aggregated {len(rows)} weekly-item rows, upserting in batches...")
+    query_end = datetime.utcnow()
+    query_time = (query_end - query_start).total_seconds()
+    
+    logger.info(f"[WEEKLY_SALES] Query finished in {query_time:.2f}s, got {len(rows)} rows")
+    logger.info(f"[WEEKLY_SALES] Starting upsert in batches of 500...")
 
     upserted = 0
     now = get_utc_now()
     batch_size = 500
 
-    for i in range(0, len(rows), batch_size):
+    for batch_idx, i in enumerate(range(0, len(rows), batch_size)):
         batch = rows[i:i + batch_size]
+        batch_start = datetime.utcnow()
+        logger.info(f"[WEEKLY_SALES] Batch {batch_idx+1} START: executing {len(batch)} inserts, cumulative {i+len(batch)}/{len(rows)}")
+        
         for r in batch:
             ws = r.week_start
             if isinstance(ws, str):
@@ -148,12 +162,23 @@ def _aggregate_and_upsert(session: Session, cutoff: date, progress_callback=None
             )
             upserted += 1
 
+        flush_start = datetime.utcnow()
+        logger.info(f"[WEEKLY_SALES] Batch {batch_idx+1}: flushing {len(batch)} rows to DB...")
         session.flush()
-        if upserted % 500 == 0:
-            logger.info(f"Upserted {upserted}/{len(rows)} rows...")
-            if progress_callback:
-                progress_callback(f"Upserted {upserted}/{len(rows)} weekly sales rows")
+        flush_end = datetime.utcnow()
+        flush_time = (flush_end - flush_start).total_seconds()
+        logger.info(f"[WEEKLY_SALES] Batch {batch_idx+1}: flush completed in {flush_time:.2f}s")
+        
+        if progress_callback:
+            progress_callback(f"Upserted {upserted}/{len(rows)} weekly sales rows")
 
+    logger.info("[WEEKLY_SALES] All batches complete, final flush...")
+    final_flush_start = datetime.utcnow()
     session.flush()
-    logger.info(f"Completed: upserted {upserted} weekly sales rows")
+    final_flush_end = datetime.utcnow()
+    final_flush_time = (final_flush_end - final_flush_start).total_seconds()
+    logger.info(f"[WEEKLY_SALES] Final flush completed in {final_flush_time:.2f}s")
+    logger.info("=" * 80)
+    logger.info(f"[WEEKLY_SALES] COMPLETED: upserted {upserted} rows total")
+    logger.info("=" * 80)
     return upserted
