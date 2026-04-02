@@ -420,8 +420,9 @@ def api_run():
     from models import ForecastRun
     from timezone_utils import get_utc_now
     from datetime import datetime, timedelta
+    TIMEOUT_MINUTES = 45
     now_naive = datetime.utcnow()
-    stale_cutoff = now_naive - timedelta(minutes=45)
+    stale_cutoff = now_naive - timedelta(minutes=TIMEOUT_MINUTES)
     stale_runs = ForecastRun.query.filter_by(status='running').filter(
         ForecastRun.started_at < stale_cutoff
     ).all()
@@ -429,7 +430,7 @@ def api_run():
         logger.warning(f"Marking stale forecast run {sr.id} as failed (started {sr.started_at})")
         sr.status = "failed"
         sr.completed_at = get_utc_now()
-        sr.notes = "Marked as failed: exceeded 15-minute timeout"
+        sr.notes = f"Marked as failed: exceeded {TIMEOUT_MINUTES}-minute timeout"
     if stale_runs:
         db.session.commit()
     active = ForecastRun.query.filter_by(status='running').first()
@@ -461,12 +462,13 @@ def api_run_status():
     if not run:
         return jsonify({'status': 'none'})
     if run.status == 'running' and run.started_at:
-        stale_cutoff = datetime.utcnow() - timedelta(minutes=45)
+        TIMEOUT_MINUTES = 45
+        stale_cutoff = datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES)
         if run.started_at < stale_cutoff:
             logger.warning(f"Status poll: marking stale run {run.id} as failed")
             run.status = "failed"
             run.completed_at = get_utc_now()
-            run.notes = "Marked as failed: exceeded 15-minute timeout"
+            run.notes = f"Marked as failed: exceeded {TIMEOUT_MINUTES}-minute timeout"
             db.session.commit()
     return jsonify({
         'run_id': run.id,

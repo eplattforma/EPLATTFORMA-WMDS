@@ -274,15 +274,20 @@ def compute_base_forecasts(session: Session, run_id=None):
         .all()
     )
     
-    sales_by_item = {}
+    existing_by_item = {}
     for item_code, week_start, gross_qty in all_weekly_sales:
-        if item_code not in sales_by_item:
-            sales_by_item[item_code] = []
-        sales_by_item[item_code].append((week_start, float(gross_qty or 0)))
+        if item_code not in existing_by_item:
+            existing_by_item[item_code] = {}
+        existing_by_item[item_code][week_start] = float(gross_qty or 0)
     
-    for item_code in sales_by_item:
-        sales_by_item[item_code].sort(key=lambda x: x[0], reverse=True)
-        sales_by_item[item_code] = [qty for _, qty in sales_by_item[item_code]]
+    sales_by_item = {}
+    for item_code in set(p.item_code_365 for p in profiles):
+        weekly_qtys = []
+        for i in range(26):
+            ws = completed_week_cutoff - timedelta(weeks=(i + 1))
+            qty = existing_by_item.get(item_code, {}).get(ws, 0.0)
+            weekly_qtys.append(qty)
+        sales_by_item[item_code] = weekly_qtys
     
     old_results = {}
     for result in session.query(SkuForecastResult).all():

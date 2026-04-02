@@ -1,0 +1,385 @@
+Yes — I checked the forecast code again, and I can now explain the timeout properly.
+
+The timeout is not just “the run is slow.”
+There is a real design bug in how the run is tracked.
+
+Why you got:
+
+Forecast run failed: Marked as failed: exceeded 15-minute timeout
+
+The actual problem
+
+In blueprints/forecast_workbench.py, the stale-run cutoff was changed to 45 minutes at:
+
+blueprints/forecast_workbench.py:424
+blueprints/forecast_workbench.py:464
+
+But the failure note is still hardcoded as:
+
+blueprints/forecast_workbench.py:432
+blueprints/forecast_workbench.py:469
+"Marked as failed: exceeded 15-minute timeout"
+
+So the message is misleading. It is still saying 15 minutes, even though the code is now using 45 minutes.
+
+More importantly: the timeout logic is still wrong
+
+The run is marked stale based only on started_at.
+
+That is a bug because the run can still be actively working.
+
+Here is why:
+
+1) The run row is created at the start
+
+In services/forecast/run_service.py:46-58, the run is inserted as status="running".
+
+2) Step 1 commits the transaction in the middle of the run
+
+In services/forecast/weekly_sales_builder.py:155:
+
+session.commit()
+
+That means the ForecastRun row becomes visible in the database before the whole forecast is finished.
+
+3) After that, steps 2–5 can continue for a long time with no heartbeat
+
+The later stages mostly do flush() but not periodic status updates to the run row.
+
+So from the UI/status endpoint point of view:
+
+the run started a long time ago
+it is still marked running
+there is no evidence of progress
+therefore the stale checker kills it
+4) The stale checker uses only age, not activity
+
+In blueprints/forecast_workbench.py:423-434 and :463-470, stale logic is:
+
+if status == running
+and started_at < now - 45 min
+mark failed
+
+There is no heartbeat, no current step, no last progress update.
+
+So a long but healthy run can be falsely failed.
+
+The most important bugs I found
+Critical 1 — false stale failure mechanism
+
+Root cause of your current issue
+
+The run timeout is based on started_at only, with no heartbeat/progress field.
+
+Effect
+
+A valid long-running forecast is marked failed.
+
+Fix
+
+Add fields such as:
+
+last_heartbeat_at
+current_step
+progress_note
+
+Then update heartbeat after each major step and every N items/batches.
+
+Stale logic should use last_heartbeat_at, not started_at.
+
+Critical 2 — wrong timeout message
+
+In blueprints/forecast_workbench.py:432 and :469, the note still says 15-minute timeout even though the cutoff is 45 minutes.
+
+Effect
+
+You are told the wrong reason.
+
+Fix
+
+Either update the text to 45 minutes, or better:
+
+TIMEOUT_MINUTES = 45
+run.notes = f"Marked as failed: exceeded {TIMEOUT_MINUTES}-minute timeout"
+Critical 3 — mid-run commit breaks run consistency
+
+In services/forecast/weekly_sales_builder.py:155, Step 1 commits the session.
+
+Why this is bad
+
+execute_forecast_run() looks like one logical run, but Step 1 is committing independently.
+
+So if later steps fail:
+
+weekly sales may already be committed
+run status may still end as failed
+the process is not atomic
+stale detection can see a partially-progressed run
+Fix
+
+Do not commit() inside build_weekly_sales().
+Let execute_forecast_run() control the transaction, or explicitly commit only heartbeat/run-state updates in a separate small transaction.
+
+Critical 4 — base forecast optimization introduced a correctness bug
+
+In services/forecast/base_forecast_service.py:264-285, weekly sales are preloaded into sales_by_item.
+
+But this new structure only stores existing weeks, then converts them to a simple descending list:
+
+sales_by_item[item_code] = [qty for _, qty in sales_by_item[item_code]]
+
+That means missing weeks are not zero-filled.
+
+This is a correctness bug.
+
+Why it matters
+
+The original helper _get_recent_weekly_qtys() at base_forecast_service.py:34-56 correctly fills missing weeks with zero.
+
+The optimized version does not.
+
+Effect
+
+Methods like:
+
+MA8
+MEDIAN6
+trend using last 2 weeks
+
+can become wrong, because they are using only existing sales rows instead of a true week-by-week time series.
+
+This can significantly overforecast intermittent items.
+
+Fix
+
+When preloading weekly sales, build a fixed 26-week vector per SKU, exactly like classification does.
+
+High 5 — seasonality lookup is still N+1 heavy
+
+In services/forecast/base_forecast_service.py:368-370, every item calls _get_seasonality_indexes().
+
+Inside that:
+
+choose_seasonality_source() queries DwItem and ForecastSeasonalityMonthly
+get_historical_embedded_index() queries monthly seasonality rows
+get_future_seasonal_index() queries again
+
+So seasonality is still being looked up item by item.
+
+Effect
+
+This can make Step 4 much slower than it needs to be.
+
+Fix
+
+Preload:
+
+DwItem for active items
+reliable seasonality availability by brand/prefix
+monthly index maps keyed by (level_type, level_code)
+
+Then compute seasonality in memory.
+
+High 6 — seeded forecast still does per-item DB work
+
+In services/forecast/base_forecast_service.py:78-125, _compute_seeded_forecast() still does:
+
+DwItem lookup per item
+analogue baseline queries per item
+
+And _get_group_baseline() itself queries again.
+
+Effect
+
+This is expensive for many new_sparse items.
+
+Fix
+
+Preload:
+
+DwItem into a dict
+eligible analogue groups by supplier / brand / prefix
+recent 8-week group totals
+
+Then compute seeded baselines in memory.
+
+High 7 — run status endpoint can report the wrong run
+
+In blueprints/forecast_workbench.py:460, status checks only:
+
+ForecastRun.query.order_by(ForecastRun.id.desc()).first()
+
+That is just “latest committed row.”
+
+Because of transaction timing, that may not reliably reflect the actual live background run state.
+
+Effect
+
+The UI can show stale or misleading status.
+
+Fix
+
+Use a committed heartbeat strategy and read the active run by:
+
+status='running'
+order_by(started_at desc)
+
+preferably with last_heartbeat_at.
+
+Medium 8 — seasonality date basis is inconsistent
+
+In services/forecast/seasonality_service.py:167 and :204, seasonality uses date.today().
+
+But the forecast itself uses completed-week logic via get_completed_week_cutoff().
+
+Effect
+
+Seasonality windows can drift from the sales cutoff logic, especially around week/month boundaries.
+
+Fix
+
+Base seasonality history and future horizon on the same forecast anchor date / completed-week cutoff.
+
+Medium 9 — forecast_default_cover_days is being used as horizon_days
+
+In services/forecast/base_forecast_service.py:219-223, _get_seasonality_indexes() loads:
+
+Setting.get(session, "forecast_default_cover_days", "7")
+
+into horizon_days.
+
+That is likely the wrong setting semantically.
+
+Effect
+
+Future seasonal weighting may use cover days instead of actual forecasting horizon.
+
+Fix
+
+Use a distinct setting, such as:
+
+forecast_horizon_days
+
+or pass the run’s actual horizon_days.
+
+Medium 10 — seeded_cap_applied may stay stuck true
+
+In compute_base_forecasts() and compute_single_base_forecast(), when cap is applied:
+
+profile.seeded_cap_applied = True
+
+But I do not see a corresponding reset to False when cap is not applied.
+
+Effect
+
+An item may keep an old “capped” flag from a prior run.
+
+Fix
+
+Always set it explicitly every run.
+
+Speed review after re-check
+
+The code is better than the original version in classification, because classify_all_items() now preloads all sales rows once. That part is good.
+
+But the full forecast is still not optimized overall, mainly because Step 4 is still heavy.
+
+Current speed quality by stage
+Good / improved
+classification_service.py — bulk preload is now much better
+Still weak
+base_forecast_service.py — biggest bottleneck
+seasonality_service.py — per-row existence checks, repeated lookups
+stale monitoring design — operationally wrong for long runs
+Why your timeout happens in practice
+
+Most likely this is the sequence:
+
+Forecast starts
+Run row created as running
+Step 1 weekly sales finishes and commits
+Run row is now visible in DB
+Steps 2–5 continue for a long time
+No heartbeat is written
+Status poll sees a running row older than 45 minutes
+It marks it failed
+Failure note still says “15-minute timeout”
+
+So the current timeout failure is not trustworthy as a signal that the run is genuinely stuck.
+
+It is very likely a false stale failure.
+
+What Replit should fix first
+
+Paste this as the priority brief:
+
+Forecast run audit — fix timeout, bugs, and performance
+
+1) Fix stale timeout design
+Add columns to forecast_runs:
+- last_heartbeat_at TIMESTAMP NULL
+- current_step VARCHAR(100) NULL
+- progress_note TEXT NULL
+
+2) Update execute_forecast_run to heartbeat
+In services/forecast/run_service.py:
+- set current_step before each stage
+- update last_heartbeat_at before and after each stage
+- during long loops, heartbeat every 500 items
+- commit heartbeat/run-state updates in small safe transactions so status polling can see progress
+
+3) Change stale logic
+In blueprints/forecast_workbench.py:
+- stale detection must use last_heartbeat_at, not started_at
+- only mark failed if last_heartbeat_at is older than timeout
+- define TIMEOUT_MINUTES = 45 in one constant
+- update the failure note text to match the actual timeout value
+
+4) Remove misleading timeout text
+Replace:
+"Marked as failed: exceeded 15-minute timeout"
+with dynamic text based on TIMEOUT_MINUTES
+
+5) Stop committing inside weekly_sales_builder
+In services/forecast/weekly_sales_builder.py:
+- remove session.commit() from _aggregate_and_upsert()
+- use flush() only
+- let run_service control final commit
+If heartbeat commits need to be visible, do them explicitly for run-status only, not via weekly sales helper.
+
+6) Fix correctness bug in base forecast preload
+In services/forecast/base_forecast_service.py:
+- current preload loses missing weeks and does not zero-fill
+- build a full fixed 26-week vector per item_code
+- ensure week positions match the same logic as _get_recent_weekly_qtys()
+
+7) Optimize seasonality lookups
+Preload:
+- DwItem for active items
+- reliable seasonality availability by brand/prefix
+- ForecastSeasonalityMonthly rows into dictionaries
+Do not query choose_seasonality_source / monthly indices per item.
+
+8) Optimize SEEDED analogue logic
+Preload:
+- DwItem cache
+- eligible analogue members by supplier/brand/prefix
+- 8-week aggregated weekly totals by group
+Do not query group baselines item-by-item.
+
+9) Fix horizon setting bug
+In _get_seasonality_indexes(), do not use forecast_default_cover_days as horizon_days.
+Use a real forecast_horizon_days setting or the run’s horizon_days.
+
+10) Reset seeded_cap_applied every run
+Always set profile.seeded_cap_applied = bool(cap_applied) so the flag does not remain stuck from older runs.
+My conclusion
+
+There are two separate things:
+
+Operational bug: the run is being falsely failed by stale logic
+Engineering issue: Step 4 is still heavier than it should be
+
+So the immediate timeout problem is real and fixable, and it is not only about raw speed.
+
+The fastest next step is to fix the stale-run design first, because otherwise even a healthy run can be killed.
