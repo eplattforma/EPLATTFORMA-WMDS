@@ -710,7 +710,6 @@
         const sup = data.supplier || {};
         const history = data.weekly_history || [];
 
-        const base8w = history.length > 0 ? (history.reduce((s, h) => s + (h.gross_qty || 0), 0) / Math.min(8, history.length)) : 0;
         const finalVsBase = res.base_forecast_weekly_qty ? ((res.final_forecast_weekly_qty - res.base_forecast_weekly_qty) / res.base_forecast_weekly_qty * 100) : 0;
 
         let html = `
@@ -733,10 +732,6 @@
         <!-- FORECAST SUMMARY CARDS -->
         <div class="section-title">Forecast Summary</div>
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
-            <div class="forecast-card">
-                <div class="card-value">${fmtNum(base8w, 1)}</div>
-                <div class="card-label">Recent 8W Avg</div>
-            </div>
             <div class="forecast-card">
                 <div class="card-value">${fmtNum(res.base_forecast_weekly_qty)}</div>
                 <div class="card-label">Base/Wk</div>
