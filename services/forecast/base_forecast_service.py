@@ -75,14 +75,14 @@ def _compute_median6(weekly_qtys):
     return sorted_vals[mid]
 
 
-def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
+def _compute_seeded_forecast(item_code, weekly_qtys, profile, dw_item_cache=None, group_baseline_cache=None):
     non_zero = [q for q in weekly_qtys[:8] if q > 0]
     if not non_zero:
         return 0.0, "none", None, "none", False
 
     own_signal = sum(non_zero) / len(non_zero) if non_zero else 0.0
 
-    dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
+    dw_item = dw_item_cache.get(item_code) if dw_item_cache else None
     supplier_code = dw_item.supplier_code_365 if dw_item else None
     brand_code = dw_item.brand_code_365 if dw_item else None
     item_prefix = extract_item_prefix(item_code)
@@ -91,23 +91,22 @@ def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
     analogue_level = "none"
     analogue_item = None
 
-    if supplier_code:
-        baseline = _get_group_baseline(session, "supplier", supplier_code, item_code)
-        if baseline is not None and baseline > 0:
-            analogue_baseline = baseline
-            analogue_level = "supplier"
-
-    if analogue_baseline is None and brand_code:
-        baseline = _get_group_baseline(session, "brand", brand_code, item_code)
-        if baseline is not None and baseline > 0:
-            analogue_baseline = baseline
-            analogue_level = "brand"
-
-    if analogue_baseline is None and item_prefix:
-        baseline = _get_group_baseline(session, "prefix", item_prefix, item_code)
-        if baseline is not None and baseline > 0:
-            analogue_baseline = baseline
-            analogue_level = "prefix"
+    if group_baseline_cache is not None:
+        if supplier_code and ("supplier", supplier_code) in group_baseline_cache:
+            baseline = group_baseline_cache[("supplier", supplier_code)]
+            if baseline is not None and baseline > 0:
+                analogue_baseline = baseline
+                analogue_level = "supplier"
+        if analogue_baseline is None and brand_code and ("brand", brand_code) in group_baseline_cache:
+            baseline = group_baseline_cache[("brand", brand_code)]
+            if baseline is not None and baseline > 0:
+                analogue_baseline = baseline
+                analogue_level = "brand"
+        if analogue_baseline is None and item_prefix and ("prefix", item_prefix) in group_baseline_cache:
+            baseline = group_baseline_cache[("prefix", item_prefix)]
+            if baseline is not None and baseline > 0:
+                analogue_baseline = baseline
+                analogue_level = "prefix"
 
     if analogue_baseline is not None:
         forecast = 0.70 * own_signal + 0.30 * analogue_baseline
@@ -125,81 +124,145 @@ def _compute_seeded_forecast(session, item_code, weekly_qtys, profile):
     return capped_forecast, analogue_level, analogue_item, "low", cap_applied
 
 
-def _get_group_baseline(session, group_type, group_code, exclude_item_code):
+def _preload_group_baselines(session, profiles, dw_item_cache):
     completed_week_cutoff = get_completed_week_cutoff()
-    cutoff = completed_week_cutoff - timedelta(weeks=8)
+    cutoff_8w = completed_week_cutoff - timedelta(weeks=8)
 
-    if group_type == "supplier":
-        item_codes_q = (
-            session.query(DwItem.item_code_365)
-            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365)
-            .filter(
-                DwItem.supplier_code_365 == group_code,
-                DwItem.active == True,
-                DwItem.item_code_365 != exclude_item_code,
-                SkuForecastProfile.demand_class.in_(["smooth", "erratic"]),
-                SkuForecastProfile.weeks_non_zero_26 >= 6,
-            )
-        )
-    elif group_type == "brand":
-        item_codes_q = (
-            session.query(DwItem.item_code_365)
-            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365)
-            .filter(
-                DwItem.brand_code_365 == group_code,
-                DwItem.active == True,
-                DwItem.item_code_365 != exclude_item_code,
-                SkuForecastProfile.demand_class.in_(["smooth", "erratic"]),
-                SkuForecastProfile.weeks_non_zero_26 >= 6,
-            )
-        )
-    elif group_type == "prefix":
-        item_codes_q = (
-            session.query(DwItem.item_code_365)
-            .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365)
-            .filter(
-                DwItem.item_code_365.like(group_code + "%"),
-                DwItem.active == True,
-                DwItem.item_code_365 != exclude_item_code,
-                SkuForecastProfile.demand_class.in_(["smooth", "erratic"]),
-                SkuForecastProfile.weeks_non_zero_26 >= 6,
-            )
-        )
-    else:
-        return None
+    eligible_profiles = {
+        p.item_code_365: p for p in profiles
+        if p.demand_class in ("smooth", "erratic")
+        and (p.weeks_non_zero_26 or 0) >= 6
+    }
 
-    item_codes = [r[0] for r in item_codes_q.limit(50).all()]
-    if not item_codes:
-        return None
+    supplier_groups = {}
+    brand_groups = {}
+    prefix_groups = {}
 
-    weeks_list = []
+    for item_code, dw_item in dw_item_cache.items():
+        if not dw_item.active or item_code not in eligible_profiles:
+            continue
+        if dw_item.supplier_code_365:
+            supplier_groups.setdefault(dw_item.supplier_code_365, []).append(item_code)
+        if dw_item.brand_code_365:
+            brand_groups.setdefault(dw_item.brand_code_365, []).append(item_code)
+        prefix = extract_item_prefix(item_code)
+        if prefix:
+            prefix_groups.setdefault(prefix, []).append(item_code)
+
+    all_eligible_items = list(eligible_profiles.keys())
+
+    sales_8w = {}
+    if all_eligible_items:
+        rows = (
+            session.query(
+                FactSalesWeeklyItem.item_code_365,
+                FactSalesWeeklyItem.week_start,
+                FactSalesWeeklyItem.gross_qty,
+            )
+            .filter(
+                FactSalesWeeklyItem.item_code_365.in_(all_eligible_items),
+                FactSalesWeeklyItem.week_start >= cutoff_8w,
+                FactSalesWeeklyItem.week_start < completed_week_cutoff,
+            )
+            .all()
+        )
+        for item_code, week_start, gross_qty in rows:
+            sales_8w.setdefault(item_code, {})
+            sales_8w[item_code][week_start] = _to_float(gross_qty)
+
+    weeks_list = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(8)]
+
+    def _calc_group_avg(member_items):
+        weekly_totals = {}
+        for ws in weeks_list:
+            total = 0.0
+            for ic in member_items[:50]:
+                total += sales_8w.get(ic, {}).get(ws, 0.0)
+            weekly_totals[ws] = total
+        total_qty = sum(weekly_totals.values())
+        avg = total_qty / 8.0
+        return avg if avg > 0 else None
+
+    cache = {}
+    for code, members in supplier_groups.items():
+        cache[("supplier", code)] = _calc_group_avg(members)
+    for code, members in brand_groups.items():
+        cache[("brand", code)] = _calc_group_avg(members)
+    for code, members in prefix_groups.items():
+        cache[("prefix", code)] = _calc_group_avg(members)
+
+    return cache
+
+
+def _get_seasonality_indexes_preloaded(item_code, dw_item_cache, seasonality_index_map, reliable_levels, horizon_days):
+    dw_item = dw_item_cache.get(item_code)
+    if not dw_item:
+        return 1.0, 1.0, "none", None, "none"
+
+    source = "none"
+    level_code = None
+    confidence = "none"
+
+    brand = dw_item.brand_code_365
+    if brand and ("brand", brand) in reliable_levels:
+        source = "brand"
+        level_code = brand
+        confidence = reliable_levels[("brand", brand)]
+
+    if source == "none":
+        prefix = extract_item_prefix(item_code)
+        if prefix and ("prefix", prefix) in reliable_levels:
+            source = "prefix"
+            level_code = prefix
+            confidence = reliable_levels[("prefix", prefix)]
+
+    if source == "none" or not level_code:
+        return 1.0, 1.0, "none", None, "none"
+
+    completed_week_cutoff = get_completed_week_cutoff()
+    from collections import defaultdict
+
+    week_dates = []
     for i in range(8):
-        ws = completed_week_cutoff - timedelta(weeks=(i + 1))
-        weeks_list.append(ws)
+        d = completed_week_cutoff - timedelta(weeks=i + 1)
+        week_dates.append(d)
 
-    rows = (
-        session.query(FactSalesWeeklyItem.week_start, FactSalesWeeklyItem.gross_qty)
-        .filter(
-            FactSalesWeeklyItem.item_code_365.in_(item_codes),
-            FactSalesWeeklyItem.week_start >= cutoff,
-            FactSalesWeeklyItem.week_start < completed_week_cutoff,
-        )
-        .all()
-    )
+    month_counts = defaultdict(int)
+    for d in week_dates:
+        month_counts[d.month] += 1
+    total_weeks = sum(month_counts.values())
 
-    existing = {}
-    for r in rows:
-        existing[r.week_start] = existing.get(r.week_start, 0.0) + _to_float(r.gross_qty)
+    if total_weeks > 0:
+        weighted_sum = Decimal("0")
+        for month_no, cnt in month_counts.items():
+            factor = seasonality_index_map.get((source, level_code, month_no), Decimal("1"))
+            weighted_sum += factor * Decimal(str(cnt))
+        hist_index = float(weighted_sum / Decimal(str(total_weeks)))
+    else:
+        hist_index = 1.0
 
-    total_qty = 0.0
-    for ws in weeks_list:
-        total_qty += existing.get(ws, 0.0)
+    from datetime import date as date_type
+    today = date_type.today()
+    month_days = defaultdict(int)
+    for i in range(horizon_days):
+        d = today + timedelta(days=i + 1)
+        month_days[d.month] += 1
 
-    avg_weekly = total_qty / len(weeks_list) if weeks_list else 0.0
+    if month_days and horizon_days > 0:
+        weighted_sum = Decimal("0")
+        for month_no, days in month_days.items():
+            factor = seasonality_index_map.get((source, level_code, month_no), Decimal("1"))
+            weighted_sum += factor * Decimal(str(days))
+        future_index = float(weighted_sum / Decimal(str(horizon_days)))
+    else:
+        future_index = 1.0
 
-    if avg_weekly > 0:
-        return avg_weekly
-    return None
+    if hist_index <= 0:
+        hist_index = 1.0
+    if future_index <= 0:
+        future_index = 1.0
+
+    return hist_index, future_index, source, level_code, confidence
 
 
 def _get_seasonality_indexes(session, item_code, profile):
@@ -218,7 +281,7 @@ def _get_seasonality_indexes(session, item_code, profile):
 
     horizon_days = 14
     try:
-        horizon_str = Setting.get(session, "forecast_default_cover_days", "7")
+        horizon_str = Setting.get(session, "forecast_horizon_days", "14")
         horizon_days = int(horizon_str)
     except (ValueError, TypeError):
         pass
@@ -241,11 +304,20 @@ def _safe_float(session, key, default):
         return default
 
 
-def compute_base_forecasts(session: Session, run_id=None):
+def compute_base_forecasts(session: Session, run_id=None, progress_callback=None):
+    from models import ForecastSeasonalityMonthly
+
     uplift_trigger = _safe_float(session, TREND_UPLIFT_TRIGGER_KEY, 1.15)
     down_trigger = _safe_float(session, TREND_DOWN_TRIGGER_KEY, 0.90)
     uplift_cap = _safe_float(session, TREND_UPLIFT_CAP_KEY, 1.25)
     down_floor = _safe_float(session, TREND_DOWN_FLOOR_KEY, 0.75)
+
+    horizon_days = 14
+    try:
+        horizon_str = Setting.get(session, "forecast_horizon_days", "14")
+        horizon_days = int(horizon_str)
+    except (ValueError, TypeError):
+        pass
 
     profiles = (
         session.query(SkuForecastProfile)
@@ -293,6 +365,22 @@ def compute_base_forecasts(session: Session, run_id=None):
     for result in session.query(SkuForecastResult).all():
         old_results[result.item_code_365] = result
 
+    dw_item_cache = {}
+    for item in session.query(DwItem).filter(DwItem.active == True).all():
+        dw_item_cache[item.item_code_365] = item
+    logger.info(f"Preloaded {len(dw_item_cache)} active DwItem rows")
+
+    seasonality_index_map = {}
+    reliable_levels = {}
+    for row in session.query(ForecastSeasonalityMonthly).all():
+        seasonality_index_map[(row.level_type, row.level_code, row.month_no)] = Decimal(str(row.smoothed_index))
+        if row.is_reliable:
+            reliable_levels[(row.level_type, row.level_code)] = row.confidence
+    logger.info(f"Preloaded {len(seasonality_index_map)} seasonality index rows, {len(reliable_levels)} reliable levels")
+
+    group_baseline_cache = _preload_group_baselines(session, profiles, dw_item_cache)
+    logger.info(f"Preloaded {len(group_baseline_cache)} group baselines")
+
     for profile in profiles:
         item_code = profile.item_code_365
         demand_class = profile.demand_class
@@ -321,12 +409,13 @@ def compute_base_forecasts(session: Session, run_id=None):
             forecast_confidence = "medium"
         elif demand_class == "new_sparse":
             base_forecast, analogue_level, analogue_item, forecast_confidence, cap_applied = _compute_seeded_forecast(
-                session, item_code, weekly_qtys, profile
+                item_code, weekly_qtys, profile,
+                dw_item_cache=dw_item_cache,
+                group_baseline_cache=group_baseline_cache,
             )
             forecast_method = "SEEDED"
             seed_source = analogue_level
-            if cap_applied:
-                profile.seeded_cap_applied = True
+            profile.seeded_cap_applied = cap_applied
         elif demand_class == "no_demand":
             base_forecast = 0.0
             forecast_method = "ZERO"
@@ -370,8 +459,8 @@ def compute_base_forecasts(session: Session, run_id=None):
         profile.trend_flag = trend_flag
         profile.trend_pct = Decimal(str(round(trend_pct, 6))) if trend_pct is not None else None
 
-        hist_index, future_index, seas_source, seas_level, seas_conf = _get_seasonality_indexes(
-            session, item_code, profile
+        hist_index, future_index, seas_source, seas_level, seas_conf = _get_seasonality_indexes_preloaded(
+            item_code, dw_item_cache, seasonality_index_map, reliable_levels, horizon_days
         )
         profile.seasonality_source = seas_source
         profile.seasonality_level_code = seas_level
@@ -415,6 +504,8 @@ def compute_base_forecasts(session: Session, run_id=None):
         if count % 500 == 0:
             session.flush()
             logger.info(f"Processed {count} forecasts...")
+            if progress_callback:
+                progress_callback(f"Processed {count}/{len(profiles)} base forecasts")
 
     session.flush()
     logger.info(f"Completed base forecasts for {count} items")
@@ -450,16 +541,22 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
         base_forecast = _compute_median6(weekly_qtys)
         forecast_method = "MEDIAN6"
     elif demand_class == "new_sparse":
+        single_dw_cache = {}
+        dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
+        if dw_item:
+            single_dw_cache[item_code] = dw_item
+        single_group_cache = _preload_group_baselines(session, [profile], single_dw_cache)
         base_forecast, analogue_level, analogue_item, confidence, cap_applied = _compute_seeded_forecast(
-            session, item_code, weekly_qtys, profile
+            item_code, weekly_qtys, profile,
+            dw_item_cache=single_dw_cache,
+            group_baseline_cache=single_group_cache,
         )
         forecast_method = "SEEDED"
         profile.seed_source = analogue_level
         profile.analogue_item_code = analogue_item
         profile.analogue_level = analogue_level
         profile.forecast_confidence = confidence
-        if cap_applied:
-            profile.seeded_cap_applied = True
+        profile.seeded_cap_applied = cap_applied
     elif demand_class == "no_demand":
         base_forecast = 0.0
         forecast_method = "ZERO"

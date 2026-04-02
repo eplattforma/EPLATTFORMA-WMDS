@@ -1,7 +1,3 @@
-"""
-Schema migration for ForecastRun validation metadata columns.
-Safe to run multiple times - uses ADD COLUMN IF NOT EXISTS.
-"""
 import logging
 from sqlalchemy import text
 from app import db
@@ -17,6 +13,9 @@ def update_forecast_runs_schema():
                 ("sales_period_end", "DATE"),
                 ("sales_total_qty", "NUMERIC(18,2)"),
                 ("sales_total_value_ex_vat", "NUMERIC(18,2)"),
+                ("last_heartbeat_at", "TIMESTAMP"),
+                ("current_step", "VARCHAR(100)"),
+                ("progress_note", "TEXT"),
             ]
             for col_name, col_type in cols:
                 conn.execute(text(
@@ -28,7 +27,11 @@ def update_forecast_runs_schema():
         from sqlalchemy import inspect
         insp = inspect(db.engine)
         existing_cols = {c["name"] for c in insp.get_columns("forecast_runs")}
-        required = {"sales_period_start", "sales_period_end", "sales_total_qty", "sales_total_value_ex_vat"}
+        required = {
+            "sales_period_start", "sales_period_end",
+            "sales_total_qty", "sales_total_value_ex_vat",
+            "last_heartbeat_at", "current_step", "progress_note",
+        }
         missing = required - existing_cols
         if missing:
             raise RuntimeError(f"forecast_runs is missing columns: {sorted(missing)}")

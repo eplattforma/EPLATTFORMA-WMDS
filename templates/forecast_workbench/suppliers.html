@@ -400,7 +400,11 @@ function pollForecastStatus() {
         .then(data => {
             if (data.status === 'running') {
                 btn.disabled = true;
-                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running...';
+                let stepLabel = data.current_step ? data.current_step.replace(/_/g, ' ') : 'running';
+                let noteLabel = data.progress_note || '';
+                let btnText = '<span class="spinner-border spinner-border-sm me-1"></span>' + stepLabel;
+                if (noteLabel) btnText += ' — ' + noteLabel;
+                btn.innerHTML = btnText;
                 setTimeout(pollForecastStatus, 5000);
             } else if (data.status === 'completed') {
                 _forecastRunning = false;

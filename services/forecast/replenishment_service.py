@@ -148,7 +148,7 @@ def _safe_num(session, key, default, cast=float):
         return default
 
 
-def compute_replenishment(session: Session, run_id=None):
+def compute_replenishment(session: Session, run_id=None, progress_callback=None):
     cover_days = _safe_num(session, "forecast_default_cover_days", 7, int)
     buffer_days = _safe_num(session, BUFFER_STOCK_DAYS_KEY, 1.0, float)
     default_review_cycle = _safe_num(session, "forecast_review_cycle_days", 1.0, float)
@@ -264,6 +264,8 @@ def compute_replenishment(session: Session, run_id=None):
         if count % 500 == 0:
             session.flush()
             logger.info(f"Processed replenishment for {count} items...")
+            if progress_callback:
+                progress_callback(f"Processed {count}/{len(results)} replenishment items")
 
     session.flush()
     logger.info(f"Completed replenishment for {count} items")

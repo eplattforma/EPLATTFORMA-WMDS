@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 RETURN_TYPES = ["RETURN", "CREDIT_NOTE", "SALES_RETURN", "CREDIT", "REFUND"]
 
 
-def build_weekly_sales(session: Session, weeks_back: int = 52):
+def build_weekly_sales(session: Session, weeks_back: int = 52, progress_callback=None):
     cutoff = monday_of(date.today()) - timedelta(weeks=weeks_back)
     logger.info(f"Building weekly sales from {cutoff} (last {weeks_back} weeks)")
-    _aggregate_and_upsert(session, cutoff)
+    _aggregate_and_upsert(session, cutoff, progress_callback=progress_callback)
 
 
 def update_weekly_sales(session: Session, since_date: date = None):
@@ -30,7 +30,7 @@ def update_weekly_sales(session: Session, since_date: date = None):
     _aggregate_and_upsert(session, since_date)
 
 
-def _aggregate_and_upsert(session: Session, cutoff: date):
+def _aggregate_and_upsert(session: Session, cutoff: date, progress_callback=None):
     is_return = case(
         *[(DwInvoiceHeader.invoice_type.ilike(f"%{rt}%"), True) for rt in RETURN_TYPES],
         else_=False,
@@ -151,7 +151,9 @@ def _aggregate_and_upsert(session: Session, cutoff: date):
         session.flush()
         if upserted % 500 == 0:
             logger.info(f"Upserted {upserted}/{len(rows)} rows...")
+            if progress_callback:
+                progress_callback(f"Upserted {upserted}/{len(rows)} weekly sales rows")
 
-    session.commit()
+    session.flush()
     logger.info(f"Completed: upserted {upserted} weekly sales rows")
     return upserted

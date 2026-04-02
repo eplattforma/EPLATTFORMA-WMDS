@@ -423,14 +423,14 @@ def api_run():
     TIMEOUT_MINUTES = 45
     now_naive = datetime.utcnow()
     stale_cutoff = now_naive - timedelta(minutes=TIMEOUT_MINUTES)
-    stale_runs = ForecastRun.query.filter_by(status='running').filter(
-        ForecastRun.started_at < stale_cutoff
-    ).all()
+    stale_runs = ForecastRun.query.filter_by(status='running').all()
     for sr in stale_runs:
-        logger.warning(f"Marking stale forecast run {sr.id} as failed (started {sr.started_at})")
-        sr.status = "failed"
-        sr.completed_at = get_utc_now()
-        sr.notes = f"Marked as failed: exceeded {TIMEOUT_MINUTES}-minute timeout"
+        reference_time = sr.last_heartbeat_at or sr.started_at
+        if reference_time and reference_time < stale_cutoff:
+            logger.warning(f"Marking stale forecast run {sr.id} as failed (last heartbeat {reference_time})")
+            sr.status = "failed"
+            sr.completed_at = get_utc_now()
+            sr.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
     if stale_runs:
         db.session.commit()
     active = ForecastRun.query.filter_by(status='running').first()
@@ -458,25 +458,30 @@ def api_run_status():
     from models import ForecastRun
     from datetime import datetime, timedelta
     from timezone_utils import get_utc_now
-    run = ForecastRun.query.order_by(ForecastRun.id.desc()).first()
+    TIMEOUT_MINUTES = 45
+    running = ForecastRun.query.filter_by(status="running").order_by(ForecastRun.started_at.desc()).first()
+    run = running or ForecastRun.query.order_by(ForecastRun.id.desc()).first()
     if not run:
         return jsonify({'status': 'none'})
-    if run.status == 'running' and run.started_at:
-        TIMEOUT_MINUTES = 45
+    if run.status == 'running':
+        reference_time = run.last_heartbeat_at or run.started_at
         stale_cutoff = datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES)
-        if run.started_at < stale_cutoff:
-            logger.warning(f"Status poll: marking stale run {run.id} as failed")
+        if reference_time and reference_time < stale_cutoff:
+            logger.warning(f"Status poll: marking stale run {run.id} as failed (last heartbeat {reference_time})")
             run.status = "failed"
             run.completed_at = get_utc_now()
-            run.notes = f"Marked as failed: exceeded {TIMEOUT_MINUTES}-minute timeout"
+            run.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
             db.session.commit()
     return jsonify({
         'run_id': run.id,
         'status': run.status,
-        'started_at': run.started_at.isoformat() if run.started_at else None,
-        'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+        'started_at': run.started_at.isoformat() + 'Z' if run.started_at else None,
+        'completed_at': run.completed_at.isoformat() + 'Z' if run.completed_at else None,
         'sku_count': run.sku_count,
         'notes': run.notes,
+        'current_step': run.current_step,
+        'progress_note': run.progress_note,
+        'last_heartbeat_at': run.last_heartbeat_at.isoformat() + 'Z' if run.last_heartbeat_at else None,
     })
 
 

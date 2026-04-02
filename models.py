@@ -2815,6 +2815,9 @@ class ForecastRun(db.Model):
     sales_period_end = db.Column(db.Date, nullable=True)
     sales_total_qty = db.Column(db.Numeric(18, 2), nullable=True)
     sales_total_value_ex_vat = db.Column(db.Numeric(18, 2), nullable=True)
+    last_heartbeat_at = db.Column(db.DateTime, nullable=True)
+    current_step = db.Column(db.String(100), nullable=True)
+    progress_note = db.Column(db.Text, nullable=True)
 
 
 class CrmAbandonedCartState(db.Model):

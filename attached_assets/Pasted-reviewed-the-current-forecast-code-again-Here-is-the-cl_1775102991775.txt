@@ -1,0 +1,577 @@
+reviewed the current forecast code again. Here is the clean status.
+
+What is fixed now
+
+The timeout message mismatch is fixed.
+In blueprints/forecast_workbench.py, the stale timeout logic now uses TIMEOUT_MINUTES = 45, and the failure note also says 45 minutes instead of 15.
+
+The base-forecast zero-fill bug is fixed.
+In services/forecast/base_forecast_service.py, weekly sales are now preloaded and rebuilt into a fixed 26-week vector per SKU, with missing weeks filled as 0.0. That fixes the earlier accuracy issue where intermittent items could be overstated because missing weeks were skipped.
+
+The sales-validation fields are present in the code.
+models.py includes:
+
+sales_period_start
+sales_period_end
+sales_total_qty
+sales_total_value_ex_vat
+
+And services/forecast/run_service.py writes to them after Step 1.
+
+The weekly-sales batch size was improved.
+In services/forecast/weekly_sales_builder.py, batch_size is now 500 instead of 50, and it flushes per batch. That is an improvement.
+
+Classification is optimized.
+services/forecast/classification_service.py now bulk-loads sales into an in-memory map instead of querying weekly sales one SKU at a time. That part looks materially better.
+
+Background execution with one-run-at-a-time is implemented at the UI/API level.
+In blueprints/forecast_workbench.py, the run starts in a background thread, and before starting it checks whether there is already a status='running' row. So the intended behavior is now “run in background, only one active run.”
+
+What is still not fixed
+
+The biggest operational bug is still there: false stale failure.
+The stale logic still decides failure from started_at only. There is still no:
+
+last_heartbeat_at
+current_step
+progress_note
+
+So a healthy long run can still be marked failed simply because it has been running for more than 45 minutes.
+
+This is the main reason your timeout problem is not truly solved yet.
+
+weekly_sales_builder.py still commits inside Step 1.
+Even though batch size improved, it still ends with session.commit() inside services/forecast/weekly_sales_builder.py.
+
+That means:
+
+Step 1 commits independently
+the run row becomes visible as running
+later steps may continue for a long time
+stale detection can see an old running row and kill it
+
+So this remains a real architectural flaw.
+
+Base forecast is still not fully optimized.
+The zero-fill correctness issue is fixed, but the heavy N+1 design is still there in important places:
+
+In services/forecast/base_forecast_service.py:
+
+_compute_seeded_forecast() still does per-item DB work
+seasonality selection still does per-item lookups
+old results are loaded with session.query(SkuForecastResult).all() instead of being restricted to what is needed
+analogue baseline logic is still query-heavy
+
+So Step 4 is still likely the slowest part.
+
+Seasonality is still not optimized.
+The earlier recommendation to preload seasonality rows into dictionaries has not been completed. The current design still does repeated item-level seasonality lookups.
+
+seeded_cap_applied still looks unsafe.
+I can still see code that sets:
+
+profile.seeded_cap_applied = True
+
+when cap is applied, but I do not see a guaranteed reset to False on runs where cap is not applied. So a prior capped state may remain stuck on a later run.
+
+Wrong horizon setting is still there.
+In services/forecast/base_forecast_service.py, _get_seasonality_indexes() still derives horizon_days from:
+
+forecast_default_cover_days
+
+That is probably semantically wrong. Cover days and forecast horizon are not the same setting.
+
+Run-status logic is still weak.
+/api/run/status still reads:
+
+ForecastRun.query.order_by(ForecastRun.id.desc()).first()
+
+That is just the latest row, not necessarily the best representation of the actual live run. It works in a basic way, but it is not robust.
+
+What this means in practice
+
+The earlier fixes improved two real things:
+
+accuracy of the weekly vector used in base forecast
+consistency of the timeout message
+
+They also improved one speed area:
+
+classification
+weekly-sales batch size
+
+But they did not solve the core reliability problem:
+the run can still be falsely failed while genuinely progressing.
+
+My bottom-line assessment
+
+Fixed:
+
+45-minute message mismatch
+26-week zero-fill correctness bug
+classification bulk preload
+batch size from 50 to 500
+background thread start with single-run guard
+sales period metadata fields in code and run capture
+
+Still remaining:
+
+no heartbeat-based stale detection
+stale detection still based on started_at
+Step 1 still commits internally
+Step 4 base forecast still too query-heavy
+seasonality still too query-heavy
+seeded_cap_applied likely not reset cleanly
+horizon uses cover-days setting
+status endpoint still simplistic
+
+Priority order now
+
+Add heartbeat tracking to forecast_runs
+Change stale detection to use heartbeat, not started_at
+Remove session.commit() from weekly_sales_builder.py
+Finish Step 4 optimization in base_forecast_service.py
+Fix seeded_cap_applied reset and horizon setting
+
+So the honest answer is: some important fixes were applied, but the timeout issue is not fully solved yet because the main stale-run design bug still remains.
+
+tell replit how to fix it
+
+Paste this to Replit exactly.
+
+Forecast run reliability fix — remove false timeouts and finish the remaining forecast issues
+
+Main problem:
+The forecast is still being marked failed based only on started_at, even when it is still actively running. We need heartbeat-based run tracking, safer transaction boundaries, and a few correctness/cleanup fixes.
+
+========================================
+1) Add heartbeat/progress columns to forecast_runs
+========================================
+
+Create a migration and add these columns to forecast_runs:
+
+- last_heartbeat_at TIMESTAMP NULL
+- current_step VARCHAR(100) NULL
+- progress_note TEXT NULL
+
+SQL:
+
+ALTER TABLE forecast_runs
+  ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP NULL,
+  ADD COLUMN IF NOT EXISTS current_step VARCHAR(100) NULL,
+  ADD COLUMN IF NOT EXISTS progress_note TEXT NULL;
+
+Update the SQLAlchemy model ForecastRun in models.py to include:
+
+last_heartbeat_at = db.Column(db.DateTime, nullable=True)
+current_step = db.Column(db.String(100), nullable=True)
+progress_note = db.Column(db.Text, nullable=True)
+
+========================================
+2) Add helper methods in run_service.py
+========================================
+
+In services/forecast/run_service.py add helpers so run status can be updated safely and consistently.
+
+Add something like:
+
+from datetime import datetime
+from sqlalchemy import text
+
+def _utcnow():
+    return datetime.utcnow()
+
+def _heartbeat(run_id, step=None, note=None):
+    payload = {
+        "id": run_id,
+        "hb": _utcnow(),
+        "step": step,
+        "note": note,
+    }
+    db.session.execute(text("""
+        UPDATE forecast_runs
+        SET last_heartbeat_at = :hb,
+            current_step = COALESCE(:step, current_step),
+            progress_note = COALESCE(:note, progress_note)
+        WHERE id = :id
+    """), payload)
+    db.session.commit()
+
+def _mark_run_finished(run_id, status, note=None, completed_at=None):
+    if completed_at is None:
+        completed_at = _utcnow()
+    db.session.execute(text("""
+        UPDATE forecast_runs
+        SET status = :status,
+            notes = COALESCE(:note, notes),
+            completed_at = :completed_at,
+            last_heartbeat_at = :completed_at
+        WHERE id = :id
+    """), {
+        "id": run_id,
+        "status": status,
+        "note": note,
+        "completed_at": completed_at,
+    })
+    db.session.commit()
+
+Do NOT rely only on in-memory ORM state for long-running run tracking. Use committed updates for heartbeat/status.
+
+========================================
+3) Initialize heartbeat when run starts
+========================================
+
+In execute_forecast_run():
+
+When creating the run row, also set:
+
+- status = "running"
+- started_at = utc now
+- last_heartbeat_at = utc now
+- current_step = "initializing"
+- progress_note = "Starting forecast run"
+
+Then commit once so the run exists.
+
+Example shape:
+
+run = ForecastRun(
+    status="running",
+    started_at=_utcnow(),
+    last_heartbeat_at=_utcnow(),
+    current_step="initializing",
+    progress_note="Starting forecast run",
+)
+db.session.add(run)
+db.session.commit()
+run_id = run.id
+
+========================================
+4) Heartbeat before and after every major stage
+========================================
+
+In execute_forecast_run(), explicitly heartbeat around each stage.
+
+Suggested steps:
+
+- weekly_sales
+- classification
+- seasonality
+- base_forecast
+- replenishment
+- finalizing
+
+Pattern:
+
+_heartbeat(run_id, "weekly_sales", "Building weekly sales")
+build_weekly_sales(...)
+_heartbeat(run_id, "weekly_sales", "Weekly sales completed")
+
+_heartbeat(run_id, "classification", "Classifying items")
+classify_all_items(...)
+_heartbeat(run_id, "classification", "Classification completed")
+
+...etc
+
+At the end:
+_mark_run_finished(run_id, "completed", "Forecast completed successfully")
+
+On exception:
+_mark_run_finished(run_id, "failed", f"Forecast failed: {str(e)}")
+
+========================================
+5) Add heartbeat during long loops
+========================================
+
+Long stages must heartbeat during processing, not only before/after the whole stage.
+
+Add optional callback parameter to long services:
+- build_weekly_sales(..., progress_callback=None)
+- classify_all_items(..., progress_callback=None) if needed
+- compute_base_forecasts(..., progress_callback=None)
+- compute_replenishment(..., progress_callback=None)
+- compute_seasonal_indices(..., progress_callback=None) if needed
+
+Call callback every N records/batches.
+
+Recommended frequency:
+- weekly_sales: every batch
+- base_forecast: every 500 items
+- replenishment: every 500 items
+- seasonality: every 100 rows or each logical block
+
+Example callback contract:
+progress_callback(note: str)
+
+In run_service:
+
+def hb(note):
+    _heartbeat(run_id, current_step_name, note)
+
+Then pass:
+build_weekly_sales(session, progress_callback=hb)
+
+========================================
+6) Fix stale detection in forecast_workbench.py
+========================================
+
+In blueprints/forecast_workbench.py, stale logic must use last_heartbeat_at, NOT started_at.
+
+Set:
+
+TIMEOUT_MINUTES = 45
+
+Replace stale detection logic with:
+
+reference_time = run.last_heartbeat_at or run.started_at
+stale_cutoff = datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES)
+
+if run.status == "running" and reference_time and reference_time < stale_cutoff:
+    run.status = "failed"
+    run.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
+    run.completed_at = datetime.utcnow()
+    db.session.commit()
+
+Do this in both places where stale running rows are checked.
+
+Do not say "exceeded 15-minute timeout" anywhere.
+
+========================================
+7) Remove the internal commit from weekly_sales_builder.py
+========================================
+
+In services/forecast/weekly_sales_builder.py, do NOT commit inside the builder.
+
+Current issue:
+Step 1 commits on its own, which makes the run partially visible and breaks the logical control of the whole forecast.
+
+Change:
+- keep batch flushes
+- remove per-stage commit from the builder
+- let the overall run orchestration decide final state
+- only heartbeat/status updates should commit separately
+
+Pattern inside weekly_sales_builder:
+- batch_size = 500 or 1000
+- execute upserts
+- session.flush()
+- call progress_callback after each batch
+- no session.commit() inside this helper
+
+At the end of the full forecast run, run_service can commit business data as needed.
+
+If one final commit already exists in run_service, keep transaction ownership there.
+
+========================================
+8) Fix seeded_cap_applied so it never remains stuck
+========================================
+
+In services/forecast/base_forecast_service.py, every run must explicitly set seeded_cap_applied to True or False.
+
+Bad:
+only setting True when cap happens
+
+Fix:
+before or during each item calculation, initialize:
+profile.seeded_cap_applied = False
+
+If cap is applied:
+profile.seeded_cap_applied = True
+
+Do the same in both:
+- compute_base_forecasts()
+- compute_single_base_forecast()
+
+========================================
+9) Fix horizon_days setting misuse
+========================================
+
+In services/forecast/base_forecast_service.py, do not use forecast_default_cover_days as seasonality horizon_days.
+
+Create/use a separate setting:
+- forecast_horizon_days
+
+Example:
+horizon_days = int(Setting.get(session, "forecast_horizon_days", "30"))
+
+If the run already has a real horizon_days parameter, prefer passing that explicitly into seasonality logic instead of re-reading a generic setting.
+
+========================================
+10) Tighten run status endpoint
+========================================
+
+In /api/run/status do not just read the latest row blindly.
+
+Preferred logic:
+- first look for status='running' ordered by started_at desc
+- if none, fall back to latest completed/failed run
+
+Example:
+running = ForecastRun.query.filter_by(status="running").order_by(ForecastRun.started_at.desc()).first()
+run = running or ForecastRun.query.order_by(ForecastRun.id.desc()).first()
+
+Return:
+- status
+- started_at
+- completed_at
+- current_step
+- progress_note
+- last_heartbeat_at
+- notes
+
+This gives the UI real progress visibility.
+
+========================================
+11) Finish base forecast optimization
+========================================
+
+In services/forecast/base_forecast_service.py, the zero-fill bug is fixed, but the stage is still too query-heavy.
+
+Implement these preload maps before looping items:
+
+A) dw_item_by_code
+Load all active DwItem rows once:
+dw_item_by_code[item_code_365] = row
+
+B) existing_result_by_code
+Load SkuForecastResult rows once:
+existing_result_by_code[item_code_365] = row
+
+C) recent_sales_by_item
+Keep the 26-week zero-filled vectors:
+recent_sales_by_item[item_code_365] = [26 week quantities]
+
+D) seasonality maps
+Preload ForecastSeasonalityMonthly into:
+seasonality_map[(level_type, level_code, month_no)] = seasonal_index
+
+Also preload reliability/availability summary by level_type+level_code so choose_seasonality_source does not query per item.
+
+E) analogue group maps for SEEDED
+Precompute group membership:
+- items_by_supplier[supplier_code]
+- items_by_brand[brand_code]
+- items_by_prefix[prefix]
+
+Precompute recent weekly totals for these groups in memory so _get_group_baseline does not query per item.
+
+Then rewrite item loop to use dictionary lookups instead of:
+- DwItem.query.filter_by(...).first()
+- SkuForecastResult.query.filter_by(...).first()
+- repeated seasonality DB lookups
+- repeated analogue baseline queries
+
+========================================
+12) Keep weekly vectors zero-filled everywhere
+========================================
+
+Any preloaded weekly sales structure used by:
+- MA8
+- MEDIAN6
+- intermittent/lumpy logic
+- trend logic
+must always be a fixed-length week-aligned vector with zero-filled missing weeks.
+
+Do not use only “weeks that exist in table”.
+Missing weeks must be represented as 0.0.
+
+========================================
+13) Add safe one-run-at-a-time guard at the start
+========================================
+
+Before starting a new background forecast:
+
+- check if any running run exists whose last_heartbeat_at is within timeout window
+- if yes, reject new start
+- if running row exists but stale, mark it failed first, then allow new run
+
+This is better than a plain status='running' check.
+
+Example rule:
+active if status='running' and (last_heartbeat_at or started_at) >= now - 45 min
+
+========================================
+14) Background thread requirements
+========================================
+
+Keep forecast running in a background thread, but make sure the thread opens its own application context and uses committed heartbeat updates.
+
+Pattern:
+def _runner(run_id):
+    with app.app_context():
+        execute_forecast_run(run_id=run_id)
+
+Do not rely on request context objects inside thread logic.
+
+========================================
+15) UI improvements for operator visibility
+========================================
+
+In the forecast UI show:
+- current_step
+- progress_note
+- started_at
+- last_heartbeat_at
+- timeout threshold
+- sales_period_start
+- sales_period_end
+- sales_total_qty
+- sales_total_value_ex_vat
+
+Text example:
+“Running — Base Forecast — Processed 4,500 / 12,980 items”
+“Last heartbeat: 2026-04-02 14:22:11 UTC”
+
+This will stop false panic when the run is healthy.
+
+========================================
+16) Verification checklist after changes
+========================================
+
+Please test these scenarios:
+
+A) Normal fast run
+- starts
+- heartbeats update
+- completes
+- status becomes completed
+
+B) Long healthy run > 45 min
+- heartbeats continue
+- run is NOT marked failed
+- UI shows progress
+
+C) Simulated stuck run
+- disable heartbeat updates temporarily
+- after 45 min stale checker marks failed with correct note
+
+D) Double start
+- second run is rejected while first healthy run is active
+
+E) Exception in base forecast
+- run status becomes failed
+- notes contain actual error
+- no fake timeout message
+
+F) seeded_cap_applied
+- capped item becomes True
+- same item on later uncapped run becomes False
+
+G) seasonality horizon
+- verify seasonality uses forecast_horizon_days or run horizon, not cover days
+
+========================================
+17) Short summary of what remains after this
+========================================
+
+Priority fixes:
+1. heartbeat columns + heartbeat writes
+2. stale detection based on heartbeat
+3. remove internal commit from weekly_sales_builder
+4. finish base_forecast preload optimization
+5. fix seeded_cap_applied reset
+6. separate forecast_horizon_days from cover days
+
+These are the changes needed to truly solve the false timeout problem and make forecast runs reliable.
+
+The most important part is items 1 through 7. Without those, the forecast can still be falsely killed even if it is working.
