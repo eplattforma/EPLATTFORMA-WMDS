@@ -441,6 +441,9 @@
     const supplierCode = {{ supplier_code | tojson }};
     let allItems = [];
     let historyChart = null;
+    let currentChartWeeks = 8;
+    let currentChartHistory = [];
+    let currentChartResult = {};
 
     function loadItems(params) {
         params = params || {};
@@ -761,7 +764,13 @@
         </div>
 
         <!-- RECENT SALES SECTION -->
-        <div class="section-title">Recent Sales (8 Weeks)</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <div class="section-title" style="margin: 0; flex: 1;">Sales History</div>
+            <div style="display: flex; gap: 0.3rem;">
+                <button id="btn8weeks" class="btn btn-sm btn-primary" onclick="toggleChartView(8)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">8 Weeks</button>
+                <button id="btn26weeks" class="btn btn-sm btn-outline-primary" onclick="toggleChartView(26)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">26 Weeks</button>
+            </div>
+        </div>
         <div style="position: relative; height: 200px; margin-bottom: 1rem;">
             <canvas id="historyChart"></canvas>
         </div>
@@ -825,10 +834,29 @@
             });
         });
 
+        // Store current data for chart toggling
+        currentChartHistory = history;
+        currentChartResult = res;
+        currentChartWeeks = 8;
+
         // Render chart after DOM is ready
         requestAnimationFrame(() => {
-            renderHistoryChart(history, res);
+            renderHistoryChart(8);
+            updateChartButtons();
         });
+    }
+
+    function toggleChartView(weeks) {
+        currentChartWeeks = weeks;
+        renderHistoryChart(weeks);
+        updateChartButtons();
+    }
+
+    function updateChartButtons() {
+        document.getElementById('btn8weeks').classList.toggle('btn-primary', currentChartWeeks === 8);
+        document.getElementById('btn8weeks').classList.toggle('btn-outline-primary', currentChartWeeks !== 8);
+        document.getElementById('btn26weeks').classList.toggle('btn-primary', currentChartWeeks === 26);
+        document.getElementById('btn26weeks').classList.toggle('btn-outline-primary', currentChartWeeks !== 26);
     }
 
     function explainDemand(prof) {
@@ -843,7 +871,10 @@
         return dc;
     }
 
-    function renderHistoryChart(history, res) {
+    function renderHistoryChart(weeks) {
+        // Use weeks parameter or fall back to current setting
+        const displayWeeks = weeks || currentChartWeeks;
+        
         // Ensure canvas element exists
         const canvasEl = document.getElementById('historyChart');
         if (!canvasEl) {
@@ -859,10 +890,11 @@
 
         if (historyChart) historyChart.destroy();
 
-        // Limit to last 8 weeks
-        const last8weeks = history.slice(-8);
-        const labels = last8weeks.map(h => h.week_start);
-        const grossData = last8weeks.map(h => h.gross_qty);
+        // Limit to requested weeks
+        const displayedHistory = currentChartHistory.slice(-displayWeeks);
+        const labels = displayedHistory.map(h => h.week_start);
+        const grossData = displayedHistory.map(h => h.gross_qty);
+        const res = currentChartResult;
         const finalFcst = res && res.final_forecast_weekly_qty ? res.final_forecast_weekly_qty : null;
 
         const datasets = [
