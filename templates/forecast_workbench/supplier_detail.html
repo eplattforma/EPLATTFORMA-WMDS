@@ -887,7 +887,10 @@
 
         // Limit to requested weeks
         const displayedHistory = currentChartHistory.slice(-displayWeeks);
-        const labels = displayedHistory.map(h => h.week_start);
+        const labels = displayedHistory.map(h => {
+            const date = new Date(h.week_start);
+            return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+        });
         const grossData = displayedHistory.map(h => h.gross_qty);
         const res = currentChartResult;
         const finalFcst = res && res.final_forecast_weekly_qty ? res.final_forecast_weekly_qty : null;
