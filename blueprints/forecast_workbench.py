@@ -469,9 +469,15 @@ def api_run():
         with app.app_context():
             try:
                 from services.forecast.run_service import execute_forecast_run
-                session = db.session()
+                from sqlalchemy.orm import sessionmaker
+                SessionLocal = sessionmaker(bind=db.engine)
+                session = SessionLocal()
                 try:
                     execute_forecast_run(session=session, created_by=username)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    raise
                 finally:
                     session.close()
             except Exception:
