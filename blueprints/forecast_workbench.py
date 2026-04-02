@@ -469,7 +469,11 @@ def api_run():
         with app.app_context():
             try:
                 from services.forecast.run_service import execute_forecast_run
-                execute_forecast_run(session=db.session, created_by=username)
+                session = db.session()
+                try:
+                    execute_forecast_run(session=session, created_by=username)
+                finally:
+                    session.close()
             except Exception:
                 logger.exception("Background forecast run failed")
 
