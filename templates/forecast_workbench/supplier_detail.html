@@ -321,7 +321,7 @@
                     <th>26w History</th>
                     <th class="num-col">Base/Wk</th>
                     <th class="num-col">Final/Wk</th>
-                    <th class="num-col">Chg%</th>
+                    <th class="num-col" title="% change from previous forecast run">Chg%</th>
                     <th class="num-col">On Hand</th>
                     <th class="num-col">Net Avail</th>
                     <th class="num-col">Cover</th>
@@ -693,7 +693,7 @@
             <tr><td colspan="2"><hr class="my-1"></td></tr>
             <tr><td class="text-muted">Final Forecast/Wk</td><td class="fw-bold">${fmtNum(res.final_forecast_weekly_qty)}</td></tr>
             <tr><td class="text-muted">Final Forecast/Day</td><td>${fmtNum(res.final_forecast_daily_qty, 2)}</td></tr>
-            <tr><td class="text-muted">Forecast Change %</td><td class="${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</td></tr>
+            <tr><td class="text-muted"><span title="Change from previous forecast run">Forecast Change %</span></td><td class="${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</td></tr>
         </table>
         <div class="mt-2 p-2 bg-dark border rounded small">
             <strong>Explanation:</strong>
