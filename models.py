@@ -2561,6 +2561,82 @@ class Ps365ReservedStock777(db.Model):
         return f"<Ps365ReservedStock777 {self.item_code_365}>"
 
 
+class Ps365Stock777Run(db.Model):
+    __tablename__ = "ps365_stock_777_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    status = db.Column(db.String(20), nullable=False, default="RUNNING")
+    trigger = db.Column(db.String(20), nullable=False, default="manual")
+    snapshot_date = db.Column(db.Date, nullable=False)
+    started_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    finished_at = db.Column(UTCDateTime(), nullable=True)
+    duration_seconds = db.Column(db.Integer, nullable=True)
+    items_found = db.Column(db.Integer, nullable=True, default=0)
+    items_saved = db.Column(db.Integer, nullable=True, default=0)
+    pages_fetched = db.Column(db.Integer, nullable=True, default=0)
+    error_message = db.Column(db.Text, nullable=True)
+
+    def __repr__(self):
+        return f"<Ps365Stock777Run {self.id} {self.status}>"
+
+
+class Ps365StockSnapshot777Daily(db.Model):
+    __tablename__ = "ps365_stock_snapshot_777_daily"
+
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_date = db.Column(db.Date, nullable=False, index=True)
+    snapshot_ts = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    store_code_365 = db.Column(db.String(16), nullable=False, default="777")
+    item_code_365 = db.Column(db.String(64), nullable=False, index=True)
+    item_name = db.Column(db.String(255), nullable=True)
+    supplier_code_365 = db.Column(db.String(50), nullable=True)
+    supplier_name = db.Column(db.String(255), nullable=True)
+    barcode = db.Column(db.String(100), nullable=True)
+    stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_reserved = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_on_transfer = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_ordered = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    available_qty = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=True)
+    is_available = db.Column(db.Boolean, nullable=False, default=False)
+    is_oos = db.Column(db.Boolean, nullable=False, default=True)
+    is_low_stock = db.Column(db.Boolean, nullable=False, default=False)
+    source_run_id = db.Column(db.Integer, db.ForeignKey("ps365_stock_777_runs.id"), nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_stock_snap_777_date_item", "snapshot_date", "item_code_365", unique=True),
+    )
+
+    def __repr__(self):
+        return f"<Ps365StockSnapshot777Daily {self.snapshot_date} {self.item_code_365}>"
+
+
+class Ps365Stock777Current(db.Model):
+    __tablename__ = "ps365_stock_777_current"
+
+    item_code_365 = db.Column(db.String(64), primary_key=True)
+    item_name = db.Column(db.String(255), nullable=True)
+    supplier_code_365 = db.Column(db.String(50), nullable=True)
+    supplier_name = db.Column(db.String(255), nullable=True)
+    barcode = db.Column(db.String(100), nullable=True)
+    store_code_365 = db.Column(db.String(16), nullable=False, default="777")
+    stock = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_reserved = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_on_transfer = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_ordered = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    available_qty = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=True)
+    is_available = db.Column(db.Boolean, nullable=False, default=False)
+    is_oos = db.Column(db.Boolean, nullable=False, default=True)
+    is_low_stock = db.Column(db.Boolean, nullable=False, default=False)
+    last_snapshot_date = db.Column(db.Date, nullable=True)
+    updated_at = db.Column(UTCDateTime(), nullable=False, default=get_utc_now)
+    source_run_id = db.Column(db.Integer, db.ForeignKey("ps365_stock_777_runs.id"), nullable=True)
+
+    def __repr__(self):
+        return f"<Ps365Stock777Current {self.item_code_365} avail={self.available_qty}>"
+
+
 class BankTransaction(db.Model):
     __tablename__ = 'bank_transactions'
     id = db.Column(db.Integer, primary_key=True)

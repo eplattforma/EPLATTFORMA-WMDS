@@ -152,6 +152,17 @@ def setup_scheduler(app):
             )
             logger.info("✓ Expiry dates FTP upload scheduled: Daily at 9:00 PM (21:00)")
 
+            scheduler.add_job(
+                func=_run_stock_777_sync,
+                trigger=CronTrigger(hour=5, minute=30),
+                id='stock_777_sync',
+                name='PS365 Stock 777 Daily Sync',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ Stock 777 sync scheduled: Daily at 5:30 AM")
+
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
                 scheduler.add_job(
@@ -638,6 +649,30 @@ def _run_expiry_ftp_upload():
                 logger.info(f"Details: {result['details']}")
     except Exception as e:
         logger.error(f"Error in scheduled expiry FTP upload: {str(e)}", exc_info=True)
+
+
+def _run_stock_777_sync():
+    try:
+        from app import app
+        from services.ps365_stock_777_service import sync_ps365_stock_777
+
+        with app.app_context():
+            logger.info("=" * 80)
+            logger.info("SCHEDULED PS365 STOCK 777 SYNC STARTED")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+
+            result = sync_ps365_stock_777(trigger="scheduled")
+
+            logger.info("=" * 80)
+            logger.info(
+                f"SCHEDULED PS365 STOCK 777 SYNC "
+                f"{'COMPLETED' if result.get('success') else 'FAILED'}"
+            )
+            logger.info(f"Result: {result}")
+            logger.info("=" * 80)
+    except Exception as e:
+        logger.error(f"Error in scheduled stock 777 sync: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():
