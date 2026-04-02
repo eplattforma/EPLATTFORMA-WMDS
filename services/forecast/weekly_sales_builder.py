@@ -1,11 +1,10 @@
 import logging
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, and_, case, distinct, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from models import DwInvoiceHeader, DwInvoiceLine, FactSalesWeeklyItem
 from timezone_utils import get_utc_now
 from services.forecast.week_utils import monday_of, get_completed_week_cutoff
 
@@ -31,154 +30,105 @@ def update_weekly_sales(session: Session, since_date: date = None):
 
 
 def _aggregate_and_upsert(session: Session, cutoff: date, progress_callback=None):
-    from datetime import datetime
-    logger.info("=" * 80)
-    logger.info("WEEKLY_SALES STAGE: STARTING aggregate_and_upsert")
+    logger.info("=" * 60)
+    logger.info("WEEKLY_SALES: Starting aggregate_and_upsert")
     logger.info(f"Cutoff date: {cutoff}")
-    logger.info("=" * 80)
-    
-    is_return = case(
-        *[(DwInvoiceHeader.invoice_type.ilike(f"%{rt}%"), True) for rt in RETURN_TYPES],
-        else_=False,
+    logger.info("=" * 60)
+
+    return_cases = " OR ".join(
+        f"h.invoice_type ILIKE '%{rt}%'" for rt in RETURN_TYPES
     )
 
-    gross_qty_expr = func.coalesce(
-        func.sum(
-            case(
-                (is_return, Decimal(0)),
-                else_=func.abs(DwInvoiceLine.quantity),
-            )
-        ),
-        Decimal(0),
-    )
+    agg_sql = text(f"""
+        SELECT
+            date_trunc('week', h.invoice_date_utc0)::date  AS week_start,
+            l.item_code_365,
+            COALESCE(SUM(CASE WHEN NOT ({return_cases}) THEN ABS(l.quantity) ELSE 0 END), 0)  AS gross_qty,
+            COALESCE(SUM(CASE WHEN ({return_cases}) THEN ABS(l.quantity) ELSE 0 END), 0)      AS return_qty,
+            COALESCE(SUM(CASE WHEN NOT ({return_cases}) THEN ABS(COALESCE(l.line_total_excl, 0)) ELSE 0 END), 0) AS sales_ex_vat,
+            COALESCE(SUM(ABS(COALESCE(l.line_total_discount, 0))), 0)                         AS discount_value,
+            COUNT(DISTINCT l.invoice_no_365)                                                   AS invoice_count,
+            COUNT(DISTINCT h.customer_code_365)                                                AS customer_count
+        FROM dw_invoice_line l
+        JOIN dw_invoice_header h ON l.invoice_no_365 = h.invoice_no_365
+        WHERE h.invoice_date_utc0 >= :cutoff
+          AND l.item_code_365 IS NOT NULL
+          AND l.item_code_365 != ''
+        GROUP BY date_trunc('week', h.invoice_date_utc0)::date, l.item_code_365
+    """)
 
-    return_qty_expr = func.coalesce(
-        func.sum(
-            case(
-                (is_return, func.abs(DwInvoiceLine.quantity)),
-                else_=Decimal(0),
-            )
-        ),
-        Decimal(0),
-    )
+    upsert_sql = text("""
+        INSERT INTO fact_sales_weekly_item
+            (week_start, item_code_365, gross_qty, return_qty, net_qty,
+             invoice_count, customer_count, sales_ex_vat, discount_value, updated_at)
+        VALUES
+            (:ws, :item, :gross, :ret, :net, :inv_cnt, :cust_cnt, :sales, :disc, :upd)
+        ON CONFLICT (week_start, item_code_365) DO UPDATE SET
+            gross_qty = EXCLUDED.gross_qty,
+            return_qty = EXCLUDED.return_qty,
+            net_qty = EXCLUDED.net_qty,
+            invoice_count = EXCLUDED.invoice_count,
+            customer_count = EXCLUDED.customer_count,
+            sales_ex_vat = EXCLUDED.sales_ex_vat,
+            discount_value = EXCLUDED.discount_value,
+            updated_at = EXCLUDED.updated_at
+    """)
 
-    sales_ex_vat_expr = func.coalesce(
-        func.sum(
-            case(
-                (is_return, Decimal(0)),
-                else_=func.abs(func.coalesce(DwInvoiceLine.line_total_excl, Decimal(0))),
-            )
-        ),
-        Decimal(0),
-    )
-
-    discount_expr = func.coalesce(
-        func.sum(
-            func.abs(func.coalesce(DwInvoiceLine.line_total_discount, Decimal(0)))
-        ),
-        Decimal(0),
-    )
-
-    invoice_count_expr = func.count(distinct(DwInvoiceLine.invoice_no_365))
-    customer_count_expr = func.count(distinct(DwInvoiceHeader.customer_code_365))
-    week_start_expr = func.date_trunc('week', DwInvoiceHeader.invoice_date_utc0)
-
-    logger.info("[WEEKLY_SALES] Query execution starting...")
     query_start = datetime.utcnow()
-    rows = (
-        session.query(
-            week_start_expr.label("week_start"),
-            DwInvoiceLine.item_code_365,
-            gross_qty_expr.label("gross_qty"),
-            return_qty_expr.label("return_qty"),
-            sales_ex_vat_expr.label("sales_ex_vat"),
-            discount_expr.label("discount_value"),
-            invoice_count_expr.label("invoice_count"),
-            customer_count_expr.label("customer_count"),
-        )
-        .join(DwInvoiceHeader, DwInvoiceLine.invoice_no_365 == DwInvoiceHeader.invoice_no_365)
-        .filter(
-            DwInvoiceHeader.invoice_date_utc0 >= cutoff,
-            DwInvoiceLine.item_code_365.isnot(None),
-            DwInvoiceLine.item_code_365 != "",
-        )
-        .group_by(week_start_expr, DwInvoiceLine.item_code_365)
-        .all()
-    )
-    query_end = datetime.utcnow()
-    query_time = (query_end - query_start).total_seconds()
-    
-    logger.info(f"[WEEKLY_SALES] Query finished in {query_time:.2f}s, got {len(rows)} rows")
-    logger.info(f"[WEEKLY_SALES] Starting upsert in batches of 500...")
+    logger.info("[WEEKLY_SALES] Running aggregate query via raw SQL...")
+
+    conn = session.connection()
+    result = conn.execute(agg_sql, {"cutoff": cutoff})
+
+    query_time = (datetime.utcnow() - query_start).total_seconds()
+    logger.info(f"[WEEKLY_SALES] Aggregate query finished in {query_time:.2f}s")
 
     upserted = 0
     now = get_utc_now()
     batch_size = 500
+    batch_params = []
 
-    for batch_idx, i in enumerate(range(0, len(rows), batch_size)):
-        batch = rows[i:i + batch_size]
-        batch_start = datetime.utcnow()
-        logger.info(f"[WEEKLY_SALES] Batch {batch_idx+1} START: executing {len(batch)} inserts, cumulative {i+len(batch)}/{len(rows)}")
-        
-        for r in batch:
-            ws = r.week_start
-            if isinstance(ws, str):
-                ws = date.fromisoformat(ws[:10])
-            elif hasattr(ws, 'date'):
-                ws = ws.date()
+    for row in result:
+        ws = row.week_start
+        if isinstance(ws, str):
+            ws = date.fromisoformat(ws[:10])
+        elif hasattr(ws, 'date'):
+            ws = ws.date()
 
-            gross = Decimal(str(r.gross_qty or 0))
-            ret = Decimal(str(r.return_qty or 0))
+        gross = Decimal(str(row.gross_qty or 0))
+        ret = Decimal(str(row.return_qty or 0))
 
-            session.execute(
-                text("""
-                    INSERT INTO fact_sales_weekly_item
-                        (week_start, item_code_365, gross_qty, return_qty, net_qty,
-                         invoice_count, customer_count, sales_ex_vat, discount_value, updated_at)
-                    VALUES
-                        (:ws, :item, :gross, :ret, :net, :inv_cnt, :cust_cnt, :sales, :disc, :upd)
-                    ON CONFLICT (week_start, item_code_365) DO UPDATE SET
-                        gross_qty = EXCLUDED.gross_qty,
-                        return_qty = EXCLUDED.return_qty,
-                        net_qty = EXCLUDED.net_qty,
-                        invoice_count = EXCLUDED.invoice_count,
-                        customer_count = EXCLUDED.customer_count,
-                        sales_ex_vat = EXCLUDED.sales_ex_vat,
-                        discount_value = EXCLUDED.discount_value,
-                        updated_at = EXCLUDED.updated_at
-                """),
-                {
-                    "ws": ws,
-                    "item": r.item_code_365,
-                    "gross": gross,
-                    "ret": ret,
-                    "net": gross - ret,
-                    "inv_cnt": r.invoice_count or 0,
-                    "cust_cnt": r.customer_count or 0,
-                    "sales": Decimal(str(r.sales_ex_vat or 0)),
-                    "disc": Decimal(str(r.discount_value or 0)),
-                    "upd": now,
-                },
-            )
-            upserted += 1
+        batch_params.append({
+            "ws": ws,
+            "item": row.item_code_365,
+            "gross": gross,
+            "ret": ret,
+            "net": gross - ret,
+            "inv_cnt": row.invoice_count or 0,
+            "cust_cnt": row.customer_count or 0,
+            "sales": Decimal(str(row.sales_ex_vat or 0)),
+            "disc": Decimal(str(row.discount_value or 0)),
+            "upd": now,
+        })
 
-        flush_start = datetime.utcnow()
-        logger.info(f"[WEEKLY_SALES] Batch {batch_idx+1}: flushing {len(batch)} rows to DB...")
+        if len(batch_params) >= batch_size:
+            for p in batch_params:
+                conn.execute(upsert_sql, p)
+            upserted += len(batch_params)
+            batch_params.clear()
+            session.flush()
+
+            if progress_callback:
+                progress_callback(f"Upserted {upserted} weekly sales rows")
+
+    if batch_params:
+        for p in batch_params:
+            conn.execute(upsert_sql, p)
+        upserted += len(batch_params)
+        batch_params.clear()
         session.flush()
-        flush_end = datetime.utcnow()
-        flush_time = (flush_end - flush_start).total_seconds()
-        logger.info(f"[WEEKLY_SALES] Batch {batch_idx+1}: flush completed in {flush_time:.2f}s")
-        
-        if progress_callback:
-            progress_callback(f"Upserted {upserted}/{len(rows)} weekly sales rows")
 
-    logger.info("[WEEKLY_SALES] All batches complete, final flush...")
-    final_flush_start = datetime.utcnow()
-    session.flush()
-    final_flush_end = datetime.utcnow()
-    final_flush_time = (final_flush_end - final_flush_start).total_seconds()
-    logger.info(f"[WEEKLY_SALES] Final flush completed in {final_flush_time:.2f}s")
-    logger.info("=" * 80)
+    logger.info("=" * 60)
     logger.info(f"[WEEKLY_SALES] COMPLETED: upserted {upserted} rows total")
-    logger.info("=" * 80)
+    logger.info("=" * 60)
     return upserted

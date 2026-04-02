@@ -15,7 +15,7 @@ keepalive = 5               # Keep connections alive longer for efficiency
 graceful_timeout = 30       # Allow graceful shutdown
 
 # Logging - enable for production debugging
-loglevel = "warning"        # Log warnings and errors
+loglevel = "info"           # Log info and above for debugging
 accesslog = "-"             # Log to stdout for Replit logs
 errorlog = "-"              # Log errors to stdout
 capture_output = True       # Capture print statements

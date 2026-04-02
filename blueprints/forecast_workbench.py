@@ -474,10 +474,6 @@ def api_run():
                 session = SessionLocal()
                 try:
                     execute_forecast_run(session=session, created_by=username)
-                    session.commit()
-                except Exception:
-                    session.rollback()
-                    raise
                 finally:
                     session.close()
             except Exception:
