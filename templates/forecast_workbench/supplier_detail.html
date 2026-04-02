@@ -859,8 +859,10 @@
 
         if (historyChart) historyChart.destroy();
 
-        const labels = history.map(h => h.week_start);
-        const grossData = history.map(h => h.gross_qty);
+        // Limit to last 8 weeks
+        const last8weeks = history.slice(-8);
+        const labels = last8weeks.map(h => h.week_start);
+        const grossData = last8weeks.map(h => h.gross_qty);
         const finalFcst = res && res.final_forecast_weekly_qty ? res.final_forecast_weekly_qty : null;
 
         const datasets = [
