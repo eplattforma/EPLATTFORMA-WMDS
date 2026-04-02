@@ -361,9 +361,11 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
             weekly_qtys.append(qty)
         sales_by_item[item_code] = weekly_qtys
     
+    active_codes = {p.item_code_365 for p in profiles}
     old_results = {}
-    for result in session.query(SkuForecastResult).all():
+    for result in session.query(SkuForecastResult).filter(SkuForecastResult.item_code_365.in_(active_codes)).all():
         old_results[result.item_code_365] = result
+    logger.info(f"Preloaded {len(old_results)} existing forecast results for {len(active_codes)} active items")
 
     dw_item_cache = {}
     for item in session.query(DwItem).filter(DwItem.active == True).all():

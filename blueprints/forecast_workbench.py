@@ -441,9 +441,11 @@ def api_run():
     from models import ForecastRun
     from timezone_utils import get_utc_now
     from datetime import datetime, timedelta
+    from sqlalchemy import text
     TIMEOUT_MINUTES = 45
     now_naive = datetime.utcnow()
     stale_cutoff = now_naive - timedelta(minutes=TIMEOUT_MINUTES)
+    
     stale_runs = ForecastRun.query.filter_by(status='running').all()
     for sr in stale_runs:
         reference_time = sr.last_heartbeat_at or sr.started_at
@@ -454,9 +456,12 @@ def api_run():
             sr.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
     if stale_runs:
         db.session.commit()
+    
     active = ForecastRun.query.filter_by(status='running').first()
     if active:
-        return jsonify({'status': 'already_running', 'run_id': active.id})
+        reference_time = active.last_heartbeat_at or active.started_at
+        if reference_time and reference_time >= stale_cutoff:
+            return jsonify({'status': 'already_running', 'run_id': active.id})
 
     username = current_user.username
 
