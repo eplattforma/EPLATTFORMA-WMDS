@@ -341,32 +341,97 @@
 <div class="drawer-backdrop" id="drawerBackdrop"></div>
 <div class="drawer-overlay" id="drawerPanel">
     <div class="drawer-header">
-        <h6 class="mb-0" id="drawerTitle">Item Detail</h6>
+        <div id="drawerTitleContent">
+            <h6 class="mb-0">Item Detail</h6>
+        </div>
         <button class="btn btn-sm btn-outline-secondary" id="drawerClose"><i class="fas fa-times"></i></button>
     </div>
     <div class="drawer-body">
-        <ul class="nav nav-tabs nav-fill mb-3" id="drawerTabs">
-            <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabSummary">Summary</a></li>
-            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabHistory">History</a></li>
-            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabDrivers">Drivers</a></li>
-            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabReplen">Replen</a></li>
-        </ul>
-        <div class="tab-content">
-            <div class="tab-pane fade show active" id="tabSummary">
-                <div id="drawerSummary"><p class="text-muted">Select an item</p></div>
-            </div>
-            <div class="tab-pane fade" id="tabHistory">
-                <canvas id="historyChart" height="200"></canvas>
-            </div>
-            <div class="tab-pane fade" id="tabDrivers">
-                <div id="drawerDrivers"></div>
-            </div>
-            <div class="tab-pane fade" id="tabReplen">
-                <div id="drawerReplen"></div>
-            </div>
+        <div id="drawerContent">
+            <p class="text-muted text-center mt-3">Select an item</p>
         </div>
     </div>
 </div>
+
+<style>
+    .forecast-card {
+        background: rgba(13, 110, 253, 0.08);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        border-radius: 0.375rem;
+        padding: 0.75rem;
+        text-align: center;
+    }
+    .forecast-card .card-value {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #0d6efd;
+        line-height: 1.1;
+    }
+    .forecast-card .card-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        color: var(--bs-secondary);
+        margin-top: 0.25rem;
+    }
+    .section-title {
+        font-size: 0.85rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--bs-secondary);
+        border-bottom: 2px solid var(--bs-border-color);
+        padding-bottom: 0.5rem;
+        margin: 1rem 0 0.75rem 0;
+    }
+    .drawer-table {
+        font-size: 0.78rem;
+    }
+    .drawer-table td {
+        padding: 0.35rem 0.4rem;
+        vertical-align: middle;
+    }
+    .drawer-table .label-col {
+        color: var(--bs-secondary);
+        width: 45%;
+        font-weight: 500;
+    }
+    .drawer-table .value-col {
+        font-weight: 600;
+        word-break: break-word;
+    }
+    .collapsible-section {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.375rem;
+        background: rgba(255,255,255,0.02);
+        margin-top: 1rem;
+    }
+    .collapsible-header {
+        padding: 0.6rem 0.75rem;
+        cursor: pointer;
+        user-select: none;
+        font-weight: 600;
+        font-size: 0.8rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .collapsible-header:hover {
+        background: rgba(255,255,255,0.04);
+    }
+    .collapsible-icon {
+        transition: transform 0.2s;
+    }
+    .collapsible-icon.collapsed {
+        transform: rotate(-90deg);
+    }
+    .collapsible-content {
+        padding: 0.75rem;
+        border-top: 1px solid var(--bs-border-color);
+        display: none;
+    }
+    .collapsible-content.show {
+        display: block;
+    }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -621,24 +686,13 @@
         drawer.classList.add('open');
         backdrop.classList.add('open');
 
-        document.getElementById('drawerTitle').textContent = itemCode;
-        document.getElementById('drawerSummary').innerHTML = '<p class="text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</p>';
-        document.getElementById('drawerDrivers').innerHTML = '';
-        document.getElementById('drawerReplen').innerHTML = '';
-
-        const firstTab = document.querySelector('#drawerTabs .nav-link');
-        if (firstTab) {
-            document.querySelectorAll('#drawerTabs .nav-link').forEach(t => t.classList.remove('active'));
-            firstTab.classList.add('active');
-            document.querySelectorAll('.tab-content .tab-pane').forEach(p => { p.classList.remove('show','active'); });
-            document.getElementById('tabSummary').classList.add('show','active');
-        }
+        document.getElementById('drawerContent').innerHTML = '<p class="text-muted text-center mt-3"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</p>';
 
         fetch(`{{ url_for('forecast_workbench.api_item_detail', item_code='__PLACEHOLDER__') }}`.replace('__PLACEHOLDER__', itemCode))
             .then(r => r.json())
             .then(data => renderDrawer(data))
             .catch(e => {
-                document.getElementById('drawerSummary').innerHTML = '<p class="text-danger">Error loading item</p>';
+                document.getElementById('drawerContent').innerHTML = '<p class="text-danger">Error loading item</p>';
             });
     }
 
@@ -651,78 +705,125 @@
         const prof = data.profile || {};
         const res = data.result || {};
         const sup = data.supplier || {};
+        const history = data.weekly_history || [];
 
-        document.getElementById('drawerTitle').textContent = data.item_code + ' - ' + (data.item_name || '');
+        const base8w = history.length > 0 ? (history.reduce((s, h) => s + (h.gross_qty || 0), 0) / Math.min(8, history.length)) : 0;
+        const finalVsBase = res.base_forecast_weekly_qty ? ((res.final_forecast_weekly_qty - res.base_forecast_weekly_qty) / res.base_forecast_weekly_qty * 100) : 0;
 
-        let summaryHtml = `
-        <table class="table table-sm table-borderless small mb-3">
-            <tr><td class="text-muted" style="width:40%">Item Code</td><td><code>${esc(data.item_code)}</code></td></tr>
-            <tr><td class="text-muted">Description</td><td>${esc(data.item_name || '-')}</td></tr>
-            <tr><td class="text-muted">Supplier</td><td>${esc(sup.supplier_name || 'Unmapped')} <small class="text-muted">${esc(sup.supplier_code || '')}</small></td></tr>
-            <tr><td class="text-muted">Category / Brand</td><td>${esc(data.category_name || '-')} / ${esc(data.brand_name || '-')}</td></tr>
-            <tr><td class="text-muted">Prefix</td><td>${esc(data.prefix || '-')}</td></tr>
-            <tr><td class="text-muted">Active</td><td>${data.active ? '<span class="text-success">Yes</span>' : '<span class="text-danger">No</span>'}</td></tr>
-            <tr><td class="text-muted">Season</td><td>${esc(data.season_code || '-')}</td></tr>
-            <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Demand Class</td><td>${prof.demand_class ? `<span class="badge-demand badge-${esc(prof.demand_class)}">${esc(prof.demand_class)}</span>` : '-'}</td></tr>
-            <tr><td class="text-muted">Forecast Method</td><td>${esc(prof.forecast_method || '-')}</td></tr>
-            <tr><td class="text-muted">Review</td><td>${prof.review_flag ? '<span class="badge bg-warning text-dark">Yes</span> ' + esc(prof.review_reason || '') : 'No'}</td></tr>
-            <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Final Forecast/Wk</td><td class="fw-bold">${fmtNum(res.final_forecast_weekly_qty)}</td></tr>
-            <tr><td class="text-muted">Rounded Order Qty</td><td class="fw-bold text-warning">${fmtNum(res.rounded_order_qty, 0)}</td></tr>
-        </table>`;
-        document.getElementById('drawerSummary').innerHTML = summaryHtml;
+        let html = `
+        <!-- HEADER -->
+        <div style="border-bottom: 2px solid var(--bs-border-color); padding-bottom: 0.75rem; margin-bottom: 1rem;">
+            <h6 style="margin: 0 0 0.5rem 0; font-weight: 700;">${esc(data.item_code)}</h6>
+            <div style="font-size: 0.8rem; color: var(--bs-secondary); line-height: 1.4;">
+                <div>${esc(data.item_name || '-')}</div>
+                <div>${esc(sup.supplier_name || 'Unmapped')} <small>${esc(sup.supplier_code || '')}</small></div>
+                <div>${esc(data.category_name || '-')} / ${esc(data.brand_name || '-')} ${data.prefix ? '·' + esc(data.prefix) : ''}</div>
+            </div>
+            <div style="margin-top: 0.4rem; font-size: 0.75rem;">
+                ${prof.demand_class ? `<span class="badge-demand badge-${esc(prof.demand_class)}">${esc(prof.demand_class)}</span>` : ''} 
+                ${prof.forecast_method ? `<span class="badge bg-secondary">${esc(prof.forecast_method)}</span>` : ''} 
+                ${prof.review_flag ? `<span class="badge bg-warning text-dark">Review</span>` : ''}
+                ${data.active ? '' : '<span class="badge bg-danger">Inactive</span>'}
+            </div>
+        </div>
 
-        let driversHtml = `
-        <table class="table table-sm table-borderless small">
-            <tr><td class="text-muted">Weeks Non-Zero (26)</td><td>${prof.weeks_non_zero_26 || 0}</td></tr>
-            <tr><td class="text-muted">Sales Frequency</td><td>${fmtNum(prof.sales_frequency_26)}</td></tr>
-            <tr><td class="text-muted">ADI</td><td>${fmtNum(prof.adi_26, 2)}</td></tr>
-            <tr><td class="text-muted">CV&sup2;</td><td>${fmtNum(prof.cv2_26, 2)}</td></tr>
-            <tr><td class="text-muted">Avg Non-Zero</td><td>${fmtNum(prof.avg_non_zero_26, 2)}</td></tr>
-            <tr><td class="text-muted">Std Non-Zero</td><td>${fmtNum(prof.std_non_zero_26, 2)}</td></tr>
-            <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Base Forecast/Wk</td><td>${fmtNum(res.base_forecast_weekly_qty)}</td></tr>
-            <tr><td class="text-muted">Trend Adjusted/Wk</td><td>${fmtNum(res.trend_adjusted_weekly_qty)}</td></tr>
-            <tr><td class="text-muted">Trend Flag</td><td>${prof.trend_flag || 'flat'} ${prof.trend_pct != null ? '(' + fmtPct(prof.trend_pct) + ')' : ''}</td></tr>
-            <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Hist Embedded Index</td><td>${fmtNum(res.hist_embedded_seasonal_index, 3)}</td></tr>
-            <tr><td class="text-muted">Future Seasonal Index</td><td>${fmtNum(res.future_seasonal_index, 3)}</td></tr>
-            <tr><td class="text-muted">Seasonality Source</td><td>${prof.seasonality_source || 'none'} (${prof.seasonality_confidence || 'none'})</td></tr>
-            <tr><td class="text-muted">Level Code</td><td>${prof.seasonality_level_code || '-'}</td></tr>
-            <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Final Forecast/Wk</td><td class="fw-bold">${fmtNum(res.final_forecast_weekly_qty)}</td></tr>
-            <tr><td class="text-muted">Final Forecast/Day</td><td>${fmtNum(res.final_forecast_daily_qty, 2)}</td></tr>
-            <tr><td class="text-muted"><span title="Change from previous forecast run">Forecast Change %</span></td><td class="${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</td></tr>
+        <!-- FORECAST SUMMARY CARDS -->
+        <div class="section-title">Forecast Summary</div>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
+            <div class="forecast-card">
+                <div class="card-value">${fmtNum(base8w, 1)}</div>
+                <div class="card-label">Recent 8W Avg</div>
+            </div>
+            <div class="forecast-card">
+                <div class="card-value">${fmtNum(res.base_forecast_weekly_qty)}</div>
+                <div class="card-label">Base/Wk</div>
+            </div>
+            <div class="forecast-card" style="grid-column: 1 / -1; background: rgba(25, 135, 84, 0.1); border-color: rgba(25, 135, 84, 0.3);">
+                <div class="card-value" style="color: #198754;">${fmtNum(res.final_forecast_weekly_qty)}</div>
+                <div class="card-label">Final/Wk</div>
+            </div>
+            <div class="forecast-card">
+                <div class="card-value ${finalVsBase > 0 ? 'text-positive' : finalVsBase < 0 ? 'text-negative' : ''}" style="color: ${finalVsBase > 0 ? '#198754' : finalVsBase < 0 ? '#dc3545' : '#0d6efd'};">${fmtPct(finalVsBase)}</div>
+                <div class="card-label">Final vs Base</div>
+            </div>
+            <div class="forecast-card">
+                <div class="card-value ${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</div>
+                <div class="card-label">Vs Prev Run</div>
+            </div>
+            <div class="forecast-card" style="background: rgba(255, 193, 7, 0.1); border-color: rgba(255, 193, 7, 0.3);">
+                <div class="card-value" style="color: #ffc107;">${fmtNum(res.rounded_order_qty, 0)}</div>
+                <div class="card-label">Sugg. Order</div>
+            </div>
+            ${res.on_hand_qty != null ? `<div class="forecast-card">
+                <div class="card-value">${fmtNum(res.on_hand_qty, 0)}</div>
+                <div class="card-label">On Hand</div>
+            </div>` : ''}
+        </div>
+
+        <!-- RECENT SALES SECTION -->
+        <div class="section-title">Recent Sales (8 Weeks)</div>
+        <canvas id="historyChart" height="150" style="margin-bottom: 1rem;"></canvas>
+
+        <!-- FORECAST DRIVERS SECTION -->
+        <div class="section-title">Forecast Drivers</div>
+        <table class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
+            <tr><td class="label-col">Demand Class</td><td class="value-col">${prof.demand_class ? `<span class="badge-demand badge-${esc(prof.demand_class)}">${esc(prof.demand_class)}</span>` : '-'}</td></tr>
+            <tr><td class="label-col">Forecast Method</td><td class="value-col">${esc(prof.forecast_method || '-')}</td></tr>
+            <tr><td class="label-col">Trend</td><td class="value-col">${prof.trend_flag || 'flat'} ${prof.trend_pct != null ? '(' + fmtPct(prof.trend_pct) + ')' : ''}</td></tr>
+            <tr><td class="label-col">Seasonality Source</td><td class="value-col">${prof.seasonality_source || 'none'}</td></tr>
+            <tr><td class="label-col">Seasonality Level</td><td class="value-col">${prof.seasonality_level_code || '-'}</td></tr>
+            <tr><td class="label-col">Current Month Factor</td><td class="value-col">${fmtNum(res.future_seasonal_index, 2)}</td></tr>
+            <tr><td class="label-col">Final vs Base</td><td class="value-col ${finalVsBase > 0 ? 'text-positive' : finalVsBase < 0 ? 'text-negative' : ''}">${fmtPct(finalVsBase)}</td></tr>
+            <tr><td class="label-col">Vs Previous Run</td><td class="value-col ${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</td></tr>
         </table>
-        <div class="mt-2 p-2 bg-dark border rounded small">
-            <strong>Explanation:</strong>
+        <div style="background: rgba(255,255,255,0.04); padding: 0.6rem; border-radius: 0.25rem; font-size: 0.75rem; color: var(--bs-secondary); margin-bottom: 1rem;">
             ${explainDemand(prof)}
-        </div>`;
-        document.getElementById('drawerDrivers').innerHTML = driversHtml;
+        </div>
 
-        let replenHtml = `
-        <table class="table table-sm table-borderless small">
-            <tr><td class="text-muted">On Hand</td><td class="fw-bold">${fmtNum(res.on_hand_qty, 0)}</td></tr>
-            <tr><td class="text-muted">Incoming</td><td>${fmtNum(res.incoming_qty, 0)}</td></tr>
-            <tr><td class="text-muted">Reserved</td><td>${fmtNum(res.reserved_qty, 0)}</td></tr>
-            <tr><td class="text-muted">Net Available</td><td class="fw-bold">${fmtNum(res.net_available_qty, 0)}</td></tr>
-            <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Cover Days</td><td>${fmtNum(res.cover_days, 0)}</td></tr>
-            <tr><td class="text-muted">Lead Time Days</td><td>${fmtNum(res.lead_time_days, 0)}</td></tr>
-            <tr><td class="text-muted">Review Cycle Days</td><td>${fmtNum(res.review_cycle_days, 0)}</td></tr>
-            <tr><td class="text-muted">Safety Stock</td><td>${fmtNum(res.safety_stock_qty, 0)}</td></tr>
-            <tr><td class="text-muted">Target Stock</td><td class="fw-bold">${fmtNum(res.target_stock_qty, 0)}</td></tr>
-            <tr><td colspan="2"><hr class="my-1"></td></tr>
-            <tr><td class="text-muted">Raw Order Qty</td><td>${fmtNum(res.raw_recommended_order_qty, 0)}</td></tr>
-            <tr><td class="text-muted">Case Qty</td><td>${data.case_qty || '-'}</td></tr>
-            <tr><td class="text-muted">MOQ</td><td>${data.min_order_qty || '-'}</td></tr>
-            <tr><td class="text-muted">Order Multiple</td><td>${sup.order_multiple || '-'}</td></tr>
-            <tr><td class="text-muted fw-bold">Rounded Order Qty</td><td class="fw-bold text-warning fs-5">${fmtNum(res.rounded_order_qty, 0)}</td></tr>
-        </table>`;
-        document.getElementById('drawerReplen').innerHTML = replenHtml;
+        <!-- REPLENISHMENT SECTION -->
+        <div class="section-title">Replenishment</div>
+        <table class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
+            <tr><td class="label-col">On Hand</td><td class="value-col">${fmtNum(res.on_hand_qty, 0)}</td></tr>
+            <tr><td class="label-col">Net Available</td><td class="value-col">${fmtNum(res.net_available_qty, 0)}</td></tr>
+            <tr><td class="label-col">Target Stock</td><td class="value-col">${fmtNum(res.target_stock_qty, 0)}</td></tr>
+            <tr><td class="label-col"><strong>Suggested Order</strong></td><td class="value-col fw-bold text-warning">${fmtNum(res.rounded_order_qty, 0)}</td></tr>
+            <tr><td class="label-col">MOQ</td><td class="value-col">${data.min_order_qty || '-'}</td></tr>
+            <tr><td class="label-col">Order Multiple</td><td class="value-col">${sup.order_multiple || '-'}</td></tr>
+        </table>
 
-        renderHistoryChart(data.weekly_history || [], res);
+        <!-- ADVANCED DIAGNOSTICS (COLLAPSED) -->
+        <div class="collapsible-section">
+            <div class="collapsible-header" onclick="this.nextElementSibling.classList.toggle('show'); this.querySelector('.collapsible-icon').classList.toggle('collapsed');">
+                <span>Advanced Diagnostics</span>
+                <i class="fas fa-chevron-down collapsible-icon"></i>
+            </div>
+            <div class="collapsible-content">
+                <table class="drawer-table" style="width: 100%;">
+                    <tr><td class="label-col">Weeks Non-Zero (26)</td><td class="value-col">${prof.weeks_non_zero_26 || 0}</td></tr>
+                    <tr><td class="label-col">Sales Frequency</td><td class="value-col">${fmtNum(prof.sales_frequency_26, 2)}</td></tr>
+                    <tr><td class="label-col">ADI</td><td class="value-col">${fmtNum(prof.adi_26, 2)}</td></tr>
+                    <tr><td class="label-col">CV²</td><td class="value-col">${fmtNum(prof.cv2_26, 2)}</td></tr>
+                    <tr><td class="label-col">Avg Non-Zero</td><td class="value-col">${fmtNum(prof.avg_non_zero_26, 2)}</td></tr>
+                    <tr><td class="label-col">Std Non-Zero</td><td class="value-col">${fmtNum(prof.std_non_zero_26, 2)}</td></tr>
+                    <tr><td class="label-col">Trend Adjusted/Wk</td><td class="value-col">${fmtNum(res.trend_adjusted_weekly_qty)}</td></tr>
+                    <tr><td class="label-col">Hist Embedded Index</td><td class="value-col">${fmtNum(res.hist_embedded_seasonal_index, 3)}</td></tr>
+                </table>
+            </div>
+        </div>
+        `;
+
+        document.getElementById('drawerTitleContent').innerHTML = `<h6 class="mb-0">${esc(data.item_code)}</h6>`;
+        document.getElementById('drawerContent').innerHTML = html;
+
+        // Add event listeners to drawer content
+        document.querySelectorAll('.collapsible-header').forEach(header => {
+            header.addEventListener('click', function() {
+                this.nextElementSibling.classList.toggle('show');
+                this.querySelector('.collapsible-icon').classList.toggle('collapsed');
+            });
+        });
+
+        renderHistoryChart(history, res);
     }
 
     function explainDemand(prof) {
@@ -747,23 +848,27 @@
 
         const datasets = [
             {
-                label: 'Gross Qty',
+                label: 'Actual Sales',
                 data: grossData,
-                backgroundColor: 'rgba(13,110,253,0.5)',
-                borderColor: 'rgba(13,110,253,0.8)',
-                borderWidth: 1,
+                backgroundColor: 'rgba(13,110,253,0.6)',
+                borderColor: 'rgba(13,110,253,1)',
+                borderWidth: 1.5,
                 type: 'bar',
+                barThickness: 'flex',
+                maxBarThickness: 12,
             }
         ];
 
         if (res && res.base_forecast_weekly_qty) {
             datasets.push({
-                label: 'MA8 Base',
+                label: 'MA8 Base Forecast',
                 data: Array(labels.length).fill(res.base_forecast_weekly_qty),
-                borderColor: 'rgba(255,193,7,0.7)',
-                borderWidth: 2,
-                borderDash: [4, 4],
+                borderColor: '#ffc107',
+                backgroundColor: 'transparent',
+                borderWidth: 2.5,
+                borderDash: [5, 3],
                 pointRadius: 0,
+                tension: 0,
                 type: 'line',
                 fill: false,
             });
@@ -773,9 +878,11 @@
             datasets.push({
                 label: 'Final Forecast',
                 data: Array(labels.length).fill(finalFcst),
-                borderColor: 'rgba(25,135,84,0.9)',
-                borderWidth: 2,
+                borderColor: '#28a745',
+                backgroundColor: 'transparent',
+                borderWidth: 2.5,
                 pointRadius: 0,
+                tension: 0,
                 type: 'line',
                 fill: false,
             });
@@ -787,16 +894,47 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { labels: { font: { size: 10 }, color: '#adb5bd' } } },
+                indexAxis: 'x',
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: {
+                            font: { size: 11, weight: '500' },
+                            color: '#e9ecef',
+                            padding: 12,
+                            usePointStyle: true,
+                            pointStyle: 'rect'
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        titleFont: { size: 11, weight: '600' },
+                        bodyFont: { size: 10 },
+                        padding: 8,
+                        cornerRadius: 4,
+                        displayColors: true
+                    }
+                },
                 scales: {
                     x: {
-                        ticks: { font: { size: 8 }, color: '#6c757d', maxRotation: 45 },
-                        grid: { color: 'rgba(255,255,255,0.05)' }
+                        stacked: false,
+                        ticks: {
+                            font: { size: 9 },
+                            color: '#adb5bd',
+                            maxRotation: 45,
+                            minRotation: 0
+                        },
+                        grid: { color: 'rgba(255,255,255,0.08)', drawBorder: false }
                     },
                     y: {
+                        stacked: false,
                         beginAtZero: true,
-                        ticks: { font: { size: 10 }, color: '#6c757d' },
-                        grid: { color: 'rgba(255,255,255,0.05)' }
+                        ticks: {
+                            font: { size: 10, weight: '500' },
+                            color: '#adb5bd',
+                            callback: function(v) { return Number(v).toFixed(0); }
+                        },
+                        grid: { color: 'rgba(255,255,255,0.08)', drawBorder: false }
                     }
                 }
             }
