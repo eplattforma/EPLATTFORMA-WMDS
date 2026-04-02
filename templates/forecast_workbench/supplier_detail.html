@@ -762,7 +762,9 @@
 
         <!-- RECENT SALES SECTION -->
         <div class="section-title">Recent Sales (8 Weeks)</div>
-        <canvas id="historyChart" height="150" style="margin-bottom: 1rem;"></canvas>
+        <div style="position: relative; height: 200px; margin-bottom: 1rem;">
+            <canvas id="historyChart"></canvas>
+        </div>
 
         <!-- FORECAST DRIVERS SECTION -->
         <div class="section-title">Forecast Drivers</div>
@@ -823,7 +825,10 @@
             });
         });
 
-        renderHistoryChart(history, res);
+        // Render chart after DOM is ready
+        requestAnimationFrame(() => {
+            renderHistoryChart(history, res);
+        });
     }
 
     function explainDemand(prof) {
@@ -839,7 +844,19 @@
     }
 
     function renderHistoryChart(history, res) {
-        const ctx = document.getElementById('historyChart').getContext('2d');
+        // Ensure canvas element exists
+        const canvasEl = document.getElementById('historyChart');
+        if (!canvasEl) {
+            console.warn('Chart canvas element not found');
+            return;
+        }
+
+        const ctx = canvasEl.getContext('2d');
+        if (!ctx) {
+            console.warn('Failed to get canvas 2d context');
+            return;
+        }
+
         if (historyChart) historyChart.destroy();
 
         const labels = history.map(h => h.week_start);
