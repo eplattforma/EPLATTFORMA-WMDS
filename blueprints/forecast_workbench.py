@@ -85,10 +85,24 @@ def api_suppliers():
     logger = logging.getLogger(__name__)
 
     try:
+        from datetime import datetime, timedelta
+        from timezone_utils import get_utc_now
+        TIMEOUT_MINUTES = 45
+
+        running_run = ForecastRun.query.filter_by(status="running").order_by(ForecastRun.started_at.desc()).first()
+        if running_run:
+            reference_time = running_run.last_heartbeat_at or running_run.started_at
+            stale_cutoff = datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES)
+            if reference_time and reference_time < stale_cutoff:
+                logger.warning(f"api_suppliers: marking stale run {running_run.id} as failed")
+                running_run.status = "failed"
+                running_run.completed_at = get_utc_now()
+                running_run.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
+                db.session.commit()
+
         last_run = ForecastRun.query.order_by(ForecastRun.started_at.desc()).first()
 
         from services.forecast.week_utils import get_completed_week_cutoff
-        from datetime import timedelta
         completed_week_cutoff = get_completed_week_cutoff()
         sales_cutoff = completed_week_cutoff - timedelta(weeks=52)
 
@@ -171,9 +185,16 @@ def api_suppliers():
                 'sales_total_qty': float(getattr(last_run, 'sales_total_qty', 0) or 0),
                 'sales_total_value_ex_vat': float(getattr(last_run, 'sales_total_value_ex_vat', 0) or 0),
             }
-            if last_run_info['sales_period_start']:
+            if not last_run_info['sales_period_start']:
+                last_completed = ForecastRun.query.filter_by(status="completed").order_by(ForecastRun.id.desc()).first()
+                if last_completed:
+                    last_run_info['sales_period_start'] = getattr(last_completed, 'sales_period_start', None)
+                    last_run_info['sales_period_end'] = getattr(last_completed, 'sales_period_end', None)
+                    last_run_info['sales_total_qty'] = float(getattr(last_completed, 'sales_total_qty', 0) or 0)
+                    last_run_info['sales_total_value_ex_vat'] = float(getattr(last_completed, 'sales_total_value_ex_vat', 0) or 0)
+            if last_run_info['sales_period_start'] and hasattr(last_run_info['sales_period_start'], 'isoformat'):
                 last_run_info['sales_period_start'] = last_run_info['sales_period_start'].isoformat()
-            if last_run_info['sales_period_end']:
+            if last_run_info['sales_period_end'] and hasattr(last_run_info['sales_period_end'], 'isoformat'):
                 last_run_info['sales_period_end'] = last_run_info['sales_period_end'].isoformat()
 
         return jsonify({
@@ -472,6 +493,17 @@ def api_run_status():
             run.completed_at = get_utc_now()
             run.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
             db.session.commit()
+    sales_period_start = getattr(run, 'sales_period_start', None)
+    sales_period_end = getattr(run, 'sales_period_end', None)
+    sales_total_qty = float(getattr(run, 'sales_total_qty', 0) or 0)
+    sales_total_value_ex_vat = float(getattr(run, 'sales_total_value_ex_vat', 0) or 0)
+    if not sales_period_start:
+        last_completed = ForecastRun.query.filter_by(status="completed").order_by(ForecastRun.id.desc()).first()
+        if last_completed:
+            sales_period_start = getattr(last_completed, 'sales_period_start', None)
+            sales_period_end = getattr(last_completed, 'sales_period_end', None)
+            sales_total_qty = float(getattr(last_completed, 'sales_total_qty', 0) or 0)
+            sales_total_value_ex_vat = float(getattr(last_completed, 'sales_total_value_ex_vat', 0) or 0)
     return jsonify({
         'run_id': run.id,
         'status': run.status,
@@ -482,6 +514,10 @@ def api_run_status():
         'current_step': run.current_step,
         'progress_note': run.progress_note,
         'last_heartbeat_at': run.last_heartbeat_at.isoformat() + 'Z' if run.last_heartbeat_at else None,
+        'sales_period_start': sales_period_start.isoformat() if sales_period_start else None,
+        'sales_period_end': sales_period_end.isoformat() if sales_period_end else None,
+        'sales_total_qty': sales_total_qty,
+        'sales_total_value_ex_vat': sales_total_value_ex_vat,
     })
 
 
