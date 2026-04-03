@@ -222,8 +222,8 @@
                         <div class="card-header bg-dark text-white">
                             <h5 class="mb-0"><i class="fas fa-ban me-2"></i>OOS Tracking — Season Exclusions</h5>
                         </div>
-                        <div class="card-body text-dark">
-                            <p class="text-body-secondary mb-3">
+                        <div class="card-body">
+                            <p class="text-light mb-3">
                                 Select seasons to <strong>exclude</strong> from the daily OOS (Out of Stock) snapshot for Store 777.
                                 Items assigned to any of the selected seasons will not appear in OOS records.
                             </p>
@@ -237,7 +237,7 @@
                                                value="{{ season.season_code_365 }}"
                                                id="oos_season_{{ season.season_code_365 }}"
                                                {% if season.season_code_365 in oos_excluded_seasons %}checked{% endif %}>
-                                        <label class="form-check-label" for="oos_season_{{ season.season_code_365 }}">
+                                        <label class="form-check-label text-light" for="oos_season_{{ season.season_code_365 }}">
                                             {{ season.season_code_365 }}; {{ season.season_name }}
                                         </label>
                                     </div>
