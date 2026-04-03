@@ -1100,6 +1100,28 @@ def sync_ps365_customers():
     
     return redirect(url_for('import_excel'))
 
+@app.route('/admin/sync-oos', methods=['GET', 'POST'])
+@login_required
+def sync_ps365_oos():
+    """Trigger PS365 OOS sync from admin interface"""
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        flash('Access denied. Admin privileges required.', 'danger')
+        return redirect(url_for('index'))
+
+    try:
+        from services.ps365_stock_777_service import sync_ps365_stock_777
+        result = sync_ps365_stock_777(trigger='manual_admin')
+
+        if result.get('success'):
+            flash(f'✅ OOS sync completed! {result.get("oos_items_saved", 0)} OOS items loaded.', 'success')
+        else:
+            flash(f'❌ OOS sync failed: {result.get("error", "Unknown error")}', 'danger')
+    except Exception as e:
+        app.logger.error(f"OOS sync error: {str(e)}")
+        flash(f'❌ OOS sync error: {str(e)}', 'danger')
+
+    return redirect(url_for('import_excel'))
+
 @app.route('/admin/import-invoices', methods=['GET'])
 @login_required
 def import_invoices_page():
