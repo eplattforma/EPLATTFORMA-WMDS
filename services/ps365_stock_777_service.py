@@ -98,6 +98,7 @@ def _load_dw_item_meta(item_codes: List[str]) -> Dict[str, Dict[str, Any]]:
                 DwItem.barcode,
                 DwItem.active,
                 DwItem.item_name,
+                DwItem.season_code_365,
             )
             .filter(DwItem.item_code_365.in_(chunk))
             .all()
@@ -109,8 +110,20 @@ def _load_dw_item_meta(item_codes: List[str]) -> Dict[str, Dict[str, Any]]:
                 "barcode": r.barcode,
                 "is_active": r.active,
                 "item_name": r.item_name,
+                "season_code_365": r.season_code_365,
             }
     return meta
+
+
+def _get_excluded_seasons() -> set:
+    import json
+    from models import Setting
+    raw = Setting.get(db.session, 'oos_excluded_seasons', '[]')
+    try:
+        seasons = json.loads(raw)
+        return set(seasons) if isinstance(seasons, list) else set()
+    except (json.JSONDecodeError, TypeError):
+        return set()
 
 
 def sync_ps365_stock_777(snapshot_date: Optional[date] = None, trigger: str = "manual") -> dict:
@@ -157,14 +170,23 @@ def sync_ps365_stock_777(snapshot_date: Optional[date] = None, trigger: str = "m
 
         item_codes = [it["item_code_365"] for it in api_items]
         dw_meta = _load_dw_item_meta(item_codes)
+        excluded_seasons = _get_excluded_seasons()
+        if excluded_seasons:
+            logger.info(f"[Stock777] Excluding seasons: {excluded_seasons}")
 
         oos_rows = []
+        excluded_count = 0
         for it in api_items:
             code = it["item_code_365"]
             meta = dw_meta.get(code, {})
 
             is_active = meta.get("is_active")
             if not is_active:
+                continue
+
+            season = meta.get("season_code_365") or ""
+            if season in excluded_seasons:
+                excluded_count += 1
                 continue
 
             stock_val = it["stock"]
@@ -211,9 +233,10 @@ def sync_ps365_stock_777(snapshot_date: Optional[date] = None, trigger: str = "m
         run.pages_fetched = pages_fetched
         db.session.commit()
 
+        excl_msg = f", {excluded_count} season-excluded" if excluded_count else ""
         logger.info(
             f"[Stock777] Run #{run_id} completed: {len(oos_rows)} OOS items saved "
-            f"(from {len(api_items)} total), {pages_fetched} pages, {run.duration_seconds}s"
+            f"(from {len(api_items)} total{excl_msg}), {pages_fetched} pages, {run.duration_seconds}s"
         )
         return {
             "success": True,

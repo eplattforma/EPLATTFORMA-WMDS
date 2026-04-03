@@ -12,7 +12,7 @@ import re
 from sqlalchemy import func, text
 
 from app import app, db
-from models import User, Invoice, InvoiceItem, PickingException, Setting, Shift, IdlePeriod, ActivityLog, BatchPickingSession, BatchSessionInvoice, StockPosition, WmsPackingProfile, WmsPallet, WmsPalletOrder
+from models import User, Invoice, InvoiceItem, PickingException, Setting, Shift, IdlePeriod, ActivityLog, BatchPickingSession, BatchSessionInvoice, StockPosition, WmsPackingProfile, WmsPallet, WmsPalletOrder, DwSeason
 from utils import create_user
 from utils.invoice_utils import recalculate_invoice_totals
 from utils.shift_tracking import (
@@ -1791,6 +1791,10 @@ def admin_settings():
         save_setting('bank_iban', request.form.get('bank_iban', '').strip())
         save_setting('bank_bic', request.form.get('bank_bic', '').strip())
         save_setting('bank_beneficiary', request.form.get('bank_beneficiary', '').strip())
+
+        import json
+        excluded_seasons = request.form.getlist('oos_excluded_seasons')
+        save_setting('oos_excluded_seasons', json.dumps(excluded_seasons))
         
         db.session.commit()
         flash('Settings updated successfully', 'success')
@@ -1830,6 +1834,14 @@ def admin_settings():
     # Get current alert settings for display
     from time_alerts import get_alert_settings
     alert_settings = get_alert_settings()
+
+    import json
+    all_seasons = DwSeason.query.order_by(DwSeason.season_code_365).all()
+    oos_excluded_raw = Setting.get(db.session, 'oos_excluded_seasons', '[]')
+    try:
+        oos_excluded_seasons = json.loads(oos_excluded_raw)
+    except (json.JSONDecodeError, TypeError):
+        oos_excluded_seasons = []
     
     return render_template('admin_settings.html', 
                          confirm_picking=confirm_picking, 
@@ -1849,7 +1861,9 @@ def admin_settings():
                          bank_account_no=bank_account_no,
                          bank_iban=bank_iban,
                          bank_bic=bank_bic,
-                         bank_beneficiary=bank_beneficiary)
+                         bank_beneficiary=bank_beneficiary,
+                         all_seasons=all_seasons,
+                         oos_excluded_seasons=oos_excluded_seasons)
 
 @app.route('/admin/discrepancy-config', methods=['GET', 'POST'])
 @login_required

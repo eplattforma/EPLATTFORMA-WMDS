@@ -215,6 +215,45 @@
                     </button>
                 </div>
             </div>
+            <!-- OOS Season Exclusions -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header bg-dark text-white">
+                            <h5 class="mb-0"><i class="fas fa-ban me-2"></i>OOS Tracking — Season Exclusions</h5>
+                        </div>
+                        <div class="card-body text-dark">
+                            <p class="text-body-secondary mb-3">
+                                Select seasons to <strong>exclude</strong> from the daily OOS (Out of Stock) snapshot for Store 777.
+                                Items assigned to any of the selected seasons will not appear in OOS records.
+                            </p>
+                            {% if all_seasons %}
+                            <div class="row">
+                                {% for season in all_seasons %}
+                                <div class="col-md-4 col-lg-3 mb-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="oos_excluded_seasons"
+                                               value="{{ season.season_code_365 }}"
+                                               id="oos_season_{{ season.season_code_365 }}"
+                                               {% if season.season_code_365 in oos_excluded_seasons %}checked{% endif %}>
+                                        <label class="form-check-label" for="oos_season_{{ season.season_code_365 }}">
+                                            {{ season.season_code_365 }}; {{ season.season_name }}
+                                        </label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-info mb-0">
+                                <i class="fas fa-info-circle me-2"></i>No seasons found in the data warehouse. Run a DW sync first to populate season data.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Time Tracking Alerts Section -->
             <div class="row mb-4">
                 <div class="col-12">
