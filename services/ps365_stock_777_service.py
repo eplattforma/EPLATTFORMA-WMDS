@@ -1,7 +1,5 @@
-import os
 import logging
-import time
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, List, Optional
 
@@ -9,8 +7,7 @@ from sqlalchemy import text
 from app import app, db
 from models import (
     Ps365Stock777Run,
-    Ps365StockSnapshot777Daily,
-    Ps365Stock777Current,
+    Ps365Oos777Daily,
     DwItem,
 )
 from timezone_utils import get_utc_now
@@ -21,7 +18,6 @@ logger = logging.getLogger(__name__)
 STORE_CODE = "777"
 PAGE_SIZE = 100
 MAX_PAGES = 500
-LOW_STOCK_THRESHOLD = 5
 
 
 def _dec(v) -> Decimal:
@@ -78,8 +74,6 @@ def _fetch_all_stock_items_777() -> tuple[List[Dict[str, Any]], int, bool]:
                 "item_name": r.get("item_name") or "",
                 "stock": _dec(r.get("stock")),
                 "stock_reserved": _dec(r.get("stock_reserved")),
-                "stock_on_transfer": _dec(r.get("stock_on_transfer")),
-                "stock_ordered": _dec(r.get("stock_ordered")),
             }
 
         if len(rows) < PAGE_SIZE:
@@ -117,19 +111,6 @@ def _load_dw_item_meta(item_codes: List[str]) -> Dict[str, Dict[str, Any]]:
                 "item_name": r.item_name,
             }
     return meta
-
-
-def _compute_flags(stock_val: Decimal, reserved_val: Decimal) -> dict:
-    available = max(stock_val - reserved_val, Decimal("0"))
-    is_available = available > 0
-    is_oos = available <= 0 and stock_val <= 0
-    is_low_stock = Decimal("0") < available <= Decimal(str(LOW_STOCK_THRESHOLD))
-    return {
-        "available_qty": available,
-        "is_available": is_available,
-        "is_oos": is_oos,
-        "is_low_stock": is_low_stock,
-    }
 
 
 def sync_ps365_stock_777(snapshot_date: Optional[date] = None, trigger: str = "manual") -> dict:
@@ -171,42 +152,35 @@ def sync_ps365_stock_777(snapshot_date: Optional[date] = None, trigger: str = "m
             run.items_saved = 0
             run.pages_fetched = pages_fetched
             db.session.commit()
-            logger.info(f"[Stock777] Run #{run_id} completed with 0 items")
+            logger.info(f"[Stock777] Run #{run_id} completed with 0 items from API")
             return {"success": True, "run_id": run_id, "items_saved": 0}
 
         item_codes = [it["item_code_365"] for it in api_items]
         dw_meta = _load_dw_item_meta(item_codes)
 
-        db.session.execute(
-            text("DELETE FROM ps365_stock_snapshot_777_daily WHERE snapshot_date = :d"),
-            {"d": snap_date},
-        )
-
-        db.session.execute(
-            text("DELETE FROM ps365_stock_777_current"),
-        )
-
-        snapshot_rows = []
-        current_rows = []
-
+        oos_rows = []
         for it in api_items:
             code = it["item_code_365"]
             meta = dw_meta.get(code, {})
+
+            is_active = meta.get("is_active")
+            if not is_active:
+                continue
+
+            stock_val = it["stock"]
+            reserved_val = it["stock_reserved"]
+            available_qty = max(stock_val - reserved_val, Decimal("0"))
+
+            if available_qty > 0:
+                continue
 
             item_name = meta.get("item_name") or it.get("item_name") or ""
             supplier_code = meta.get("supplier_code_365")
             supplier_name = meta.get("supplier_name")
             barcode = meta.get("barcode")
-            is_active = meta.get("is_active")
 
-            stock_val = it["stock"]
-            reserved_val = it["stock_reserved"]
-            flags = _compute_flags(stock_val, reserved_val)
-
-            snap_row = {
+            oos_rows.append({
                 "snapshot_date": snap_date,
-                "snapshot_ts": now,
-                "store_code_365": STORE_CODE,
                 "item_code_365": code,
                 "item_name": item_name,
                 "supplier_code_365": supplier_code,
@@ -214,62 +188,38 @@ def sync_ps365_stock_777(snapshot_date: Optional[date] = None, trigger: str = "m
                 "barcode": barcode,
                 "stock": stock_val,
                 "stock_reserved": reserved_val,
-                "stock_on_transfer": it["stock_on_transfer"],
-                "stock_ordered": it["stock_ordered"],
-                "available_qty": flags["available_qty"],
-                "is_active": is_active,
-                "is_available": flags["is_available"],
-                "is_oos": flags["is_oos"],
-                "is_low_stock": flags["is_low_stock"],
+                "available_qty": available_qty,
+                "detected_at": now,
                 "source_run_id": run_id,
-            }
-            snapshot_rows.append(snap_row)
+            })
 
-            cur_row = {
-                "item_code_365": code,
-                "item_name": item_name,
-                "supplier_code_365": supplier_code,
-                "supplier_name": supplier_name,
-                "barcode": barcode,
-                "store_code_365": STORE_CODE,
-                "stock": stock_val,
-                "stock_reserved": reserved_val,
-                "stock_on_transfer": it["stock_on_transfer"],
-                "stock_ordered": it["stock_ordered"],
-                "available_qty": flags["available_qty"],
-                "is_active": is_active,
-                "is_available": flags["is_available"],
-                "is_oos": flags["is_oos"],
-                "is_low_stock": flags["is_low_stock"],
-                "last_snapshot_date": snap_date,
-                "updated_at": now,
-                "source_run_id": run_id,
-            }
-            current_rows.append(cur_row)
+        db.session.execute(
+            text("DELETE FROM ps365_oos_777_daily WHERE snapshot_date = :d"),
+            {"d": snap_date},
+        )
 
         batch = 500
-        for i in range(0, len(snapshot_rows), batch):
-            db.session.bulk_insert_mappings(Ps365StockSnapshot777Daily, snapshot_rows[i : i + batch])
-        for i in range(0, len(current_rows), batch):
-            db.session.bulk_insert_mappings(Ps365Stock777Current, current_rows[i : i + batch])
+        for i in range(0, len(oos_rows), batch):
+            db.session.bulk_insert_mappings(Ps365Oos777Daily, oos_rows[i : i + batch])
 
         fin = get_utc_now()
         run.status = "COMPLETED"
         run.finished_at = fin
         run.duration_seconds = int((fin - run.started_at).total_seconds())
         run.items_found = len(api_items)
-        run.items_saved = len(snapshot_rows)
+        run.items_saved = len(oos_rows)
         run.pages_fetched = pages_fetched
         db.session.commit()
 
         logger.info(
-            f"[Stock777] Run #{run_id} completed: {len(snapshot_rows)} items saved, "
-            f"{pages_fetched} pages, {run.duration_seconds}s"
+            f"[Stock777] Run #{run_id} completed: {len(oos_rows)} OOS items saved "
+            f"(from {len(api_items)} total), {pages_fetched} pages, {run.duration_seconds}s"
         )
         return {
             "success": True,
             "run_id": run_id,
-            "items_saved": len(snapshot_rows),
+            "items_total": len(api_items),
+            "oos_items_saved": len(oos_rows),
             "pages_fetched": pages_fetched,
             "duration_seconds": run.duration_seconds,
         }

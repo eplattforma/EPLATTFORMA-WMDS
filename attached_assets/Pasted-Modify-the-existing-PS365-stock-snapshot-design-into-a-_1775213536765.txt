@@ -1,0 +1,118 @@
+Modify the existing PS365 stock snapshot design into a simpler OOS-only daily snapshot for store 777.
+
+Goal:
+We do NOT want to store all stock rows for 2000+ items every day.
+We only want to store items that are:
+- active
+- out of stock
+- from store 777 only
+
+This data will be used for:
+- sales review
+- forecast anomaly protection
+- OOS analysis
+
+Please change the previous implementation as follows:
+
+1) Keep the sync job and PS365 source logic
+- keep using the existing store 777 stock pull
+- keep the daily scheduler
+- keep the run log table if already built
+- keep the service/module structure if already built
+
+2) Replace the full daily snapshot behavior
+If you created a table like:
+- ps365_stock_snapshot_777_daily
+or similar full snapshot table
+
+Do NOT keep inserting all items into it daily.
+
+Instead:
+- either stop using that table for daily inserts
+- or retire it entirely if it is not needed elsewhere
+
+3) Create / switch to a lightweight table
+Use a table like:
+
+ps365_oos_777_daily
+
+Suggested fields:
+- snapshot_date DATE NOT NULL
+- item_code_365 VARCHAR NOT NULL
+- item_name VARCHAR NULL
+- supplier_code_365 VARCHAR NULL
+- supplier_name VARCHAR NULL
+- barcode VARCHAR NULL
+- stock NUMERIC NULL
+- stock_reserved NUMERIC NULL
+- available_qty NUMERIC NULL
+- detected_at TIMESTAMP NOT NULL DEFAULT now()
+
+Unique key:
+- (snapshot_date, item_code_365)
+
+4) Filter before insert
+In the daily sync logic:
+- fetch stock for store 777
+- keep only active items
+- compute available_qty
+- insert only items where available_qty <= 0
+
+Do NOT insert in-stock items.
+
+5) Simplify current-state table logic
+If you created a current-state table like:
+- ps365_stock_777_current
+or similar
+
+We no longer need a full current-state copy of every item for this use case.
+
+Options:
+A. remove it if nothing else depends on it
+B. keep it only if already used elsewhere, but do not make it the main output of this job
+
+Preferred outcome:
+Main output of the daily run should be only ps365_oos_777_daily
+
+6) Keep the run log table
+If you already created a run log table, keep it.
+It is still useful to track:
+- started_at
+- completed_at
+- status
+- rows_loaded
+- error_message
+
+But rows_loaded now means:
+- number of OOS active items inserted for that date
+
+7) Add a simple cleanup rule if needed
+If there is any old full snapshot data already loaded:
+- leave historical data alone unless cleanup is requested
+- but stop adding new full snapshots
+- optionally add a one-time archive/cleanup script later if table size matters
+
+8) Add derived reporting use
+We need to be able to answer:
+- which items were OOS on a given date
+- how many OOS days an item had
+- whether low sales periods may have been caused by OOS
+
+So keep snapshot_date and item_code as the primary grain.
+
+9) Define available_qty clearly
+Use the same business rule consistently, for example:
+available_qty = max(stock - stock_reserved, 0)
+
+Then OOS means:
+available_qty <= 0
+
+10) Keep it store-specific
+This job must use store 777 only.
+No other stores should be included.
+
+11) Expected result
+The daily table should stay small because it stores only exceptions (active OOS items), not the whole stock universe.
+
+Summary:
+Please modify the previously built full stock snapshot solution into an exception-based daily OOS snapshot solution for store 777 only.
