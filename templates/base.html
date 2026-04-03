@@ -249,6 +249,12 @@
                                 </a>
                             </li>
                             <li>
+                                <a class="dropdown-item {% if request.endpoint == 'sync_ps365_oos' %}active{% endif %}" 
+                                   href="{{ url_for('sync_ps365_oos') }}">
+                                    <i class="fas fa-box-open me-2"></i>Load OOS
+                                </a>
+                            </li>
+                            <li>
                                 <a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('dropbox_integration.') %}active{% endif %}" 
                                    href="{{ url_for('dropbox_integration.dropbox_status') }}">
                                     <i class="fab fa-dropbox me-2"></i>Dropbox Cost Import
