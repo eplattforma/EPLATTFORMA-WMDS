@@ -1120,7 +1120,7 @@ def sync_ps365_oos():
         app.logger.error(f"OOS sync error: {str(e)}")
         flash(f'❌ OOS sync error: {str(e)}', 'danger')
 
-    return redirect(url_for('import_excel'))
+    return redirect(url_for('datawarehouse.dw_menu'))
 
 @app.route('/admin/import-invoices', methods=['GET'])
 @login_required

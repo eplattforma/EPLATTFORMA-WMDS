@@ -131,11 +131,23 @@ def dw_menu():
             .back-link { margin-top: 20px; }
             .back-link a { color: #0066cc; text-decoration: none; }
             .back-link a:hover { text-decoration: underline; }
+            .alert { padding: 12px 20px; border-radius: 5px; margin-bottom: 15px; }
+            .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+            .alert-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            .alert-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>Data Warehouse Management</h1>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
             <p>Select an operation to manage PS365 data synchronization:</p>
             
             <div class="menu-option">
@@ -249,6 +261,18 @@ def dw_menu():
                     <h3>Database Settings</h3>
                     <p>Manage scheduled tasks and database configuration.</p>
                 </a>
+            </div>
+
+            <div class="menu-option" style="display:flex; align-items:center; justify-content:space-between;">
+                <div style="flex:1;">
+                    <h3>Load OOS Items (Store 777)</h3>
+                    <p>Fetch current stock from PS365, identify out-of-stock active items and save them to the OOS table.</p>
+                </div>
+                <form method="post" action="/admin/sync-oos" style="margin-left:15px;">
+                    <button type="submit" style="padding:10px 18px; background:#e67e22; color:#fff; border:none; border-radius:5px; cursor:pointer; white-space:nowrap; font-size:0.9em;">
+                        <b>&#x25B6; Load OOS Now</b>
+                    </button>
+                </form>
             </div>
             
             <div class="back-link">
