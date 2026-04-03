@@ -30,6 +30,16 @@ def database_clone_page():
     return render_template('admin_tools/database_clone.html')
 
 
+@bp.route('/ps365-oos')
+@login_required
+def ps365_oos_page():
+    """Show PS365 OOS sync tool page"""
+    if not is_admin():
+        return "Access denied", 403
+
+    return render_template('admin_tools/ps365_oos.html')
+
+
 @bp.route('/database-clone/execute', methods=['POST'])
 @login_required
 def execute_database_clone():
@@ -115,6 +125,33 @@ def execute_database_clone():
     except Exception as e:
         logger.error(f"Error cloning database: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route('/ps365-oos/load', methods=['POST'])
+@login_required
+def load_ps365_oos():
+    """Run the PS365 OOS sync once"""
+    if not is_admin():
+        return jsonify({"error": "Access denied"}), 403
+
+    try:
+        from services.ps365_stock_777_service import sync_ps365_stock_777
+
+        result = sync_ps365_stock_777(trigger='manual_admin')
+        if result.get('success'):
+            return jsonify({
+                "success": True,
+                "message": "OOS data loaded successfully",
+                "result": result,
+            })
+        return jsonify({
+            "success": False,
+            "error": result.get('error', 'OOS load failed'),
+            "result": result,
+        }), 500
+    except Exception as e:
+        logger.error(f"Error loading PS365 OOS: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 

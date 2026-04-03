@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}PS365 OOS Load - Admin Tools{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-box-open me-2"></i>PS365 OOS Load</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        Run the daily Store 777 OOS sync once and load the current OOS records.
+                    </div>
+                    <div id="oos-status" class="alert d-none"></div>
+                    <div class="text-center">
+                        <button id="btn-oos-load" class="btn btn-primary btn-lg">
+                            <i class="fas fa-play me-2"></i>Load OOS Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById("btn-oos-load").onclick = async () => {
+    const statusDiv = document.getElementById("oos-status");
+    const btn = document.getElementById("btn-oos-load");
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Running...';
+        statusDiv.classList.add("d-none");
+
+        const res = await fetch("{{ url_for('admin_tools_custom.load_ps365_oos') }}", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"}
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            statusDiv.className = "alert alert-success";
+            statusDiv.innerHTML = `<strong>Done:</strong> ${data.message} (${data.result.oos_items_saved} OOS items)`;
+        } else {
+            throw new Error(data.error || "Load failed");
+        }
+        statusDiv.classList.remove("d-none");
+    } catch (err) {
+        statusDiv.className = "alert alert-danger";
+        statusDiv.textContent = err.message;
+        statusDiv.classList.remove("d-none");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play me-2"></i>Load OOS Now';
+    }
+};
+</script>
+{% endblock %}
