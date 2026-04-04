@@ -163,6 +163,18 @@ def setup_scheduler(app):
             )
             logger.info("✓ Stock 777 sync scheduled: Daily at 5:30 AM")
 
+            if is_production:
+                scheduler.add_job(
+                    func=_run_stock_777_sync,
+                    trigger=CronTrigger(hour=5, minute=30),
+                    id='stock_777_sync_production',
+                    name='PS365 Stock 777 Daily Sync (Production)',
+                    replace_existing=True,
+                    max_instances=1,
+                    misfire_grace_time=3600
+                )
+                logger.info("✓ Stock 777 production sync scheduled: Daily at 5:30 AM")
+
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
                 scheduler.add_job(
