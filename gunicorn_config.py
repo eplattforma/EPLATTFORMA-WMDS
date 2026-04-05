@@ -28,9 +28,6 @@ sendfile = True             # Use sendfile for static files
 tcp_nodelay = True          # Disable Nagle's algorithm for faster responses
 
 def post_fork(server, worker):
-    if worker.age == 1:
-        os.environ["SCHEDULER_WORKER"] = "1"
-    else:
-        os.environ["SCHEDULER_WORKER"] = "0"
+    os.environ["GUNICORN_WORKER_AGE"] = str(worker.age)
 
 print(f"Production config: {workers} workers, {threads} threads/worker, {timeout}s timeout, preload disabled")

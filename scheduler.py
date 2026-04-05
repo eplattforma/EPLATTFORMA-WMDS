@@ -22,8 +22,9 @@ def setup_scheduler(app):
     """
     global scheduler
 
-    if os.environ.get("SCHEDULER_WORKER") == "0":
-        logger.info("Scheduler skipped — not the designated scheduler worker")
+    worker_age = os.environ.get("GUNICORN_WORKER_AGE", "")
+    if worker_age and worker_age != "1":
+        logger.info(f"Scheduler skipped — not the designated scheduler worker (age={worker_age})")
         return
     
     try:
