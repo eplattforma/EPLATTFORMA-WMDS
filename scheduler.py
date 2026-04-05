@@ -154,26 +154,29 @@ def setup_scheduler(app):
 
             scheduler.add_job(
                 func=_run_stock_777_sync,
-                trigger=CronTrigger(hour=5, minute=30),
+                trigger=CronTrigger(hour=7, minute=30),
                 id='stock_777_sync',
                 name='PS365 Stock 777 Daily Sync',
                 replace_existing=True,
                 max_instances=1,
                 misfire_grace_time=3600
             )
-            logger.info("✓ Stock 777 sync scheduled: Daily at 5:30 AM")
+            logger.info("✓ Stock 777 sync scheduled: Daily at 7:30 AM")
 
             if is_production:
                 scheduler.add_job(
                     func=_run_stock_777_sync,
-                    trigger=CronTrigger(hour=5, minute=30),
+                    trigger=CronTrigger(hour=7, minute=30),
                     id='stock_777_sync_production',
                     name='PS365 Stock 777 Daily Sync (Production)',
                     replace_existing=True,
                     max_instances=1,
                     misfire_grace_time=3600
                 )
-                logger.info("✓ Stock 777 production sync scheduled: Daily at 5:30 AM")
+            logger.info("✓ Stock 777 production sync scheduled: Daily at 7:30 AM")
+
+            if is_production:
+                _run_stock_777_catch_up_on_startup()
 
             is_deployed = os.environ.get("REPLIT_DEPLOYMENT") == "1"
             if is_deployed:
@@ -685,6 +688,26 @@ def _run_stock_777_sync():
             logger.info("=" * 80)
     except Exception as e:
         logger.error(f"Error in scheduled stock 777 sync: {str(e)}", exc_info=True)
+
+
+def _run_stock_777_catch_up_on_startup():
+    try:
+        from app import app, db
+        from sqlalchemy import text
+        from datetime import date
+        with app.app_context():
+            latest_run = db.session.execute(text("""
+                SELECT MAX(run_date)
+                FROM ps365_stock_777_runs
+                WHERE run_date = CURRENT_DATE
+            """)).scalar()
+            if latest_run == date.today():
+                logger.info("Stock 777 catch-up skipped: already ran today")
+                return
+            logger.info("Stock 777 catch-up triggered on startup")
+            _run_stock_777_sync()
+    except Exception as e:
+        logger.error(f"Error in stock 777 catch-up on startup: {str(e)}", exc_info=True)
 
 
 def list_scheduled_jobs():
