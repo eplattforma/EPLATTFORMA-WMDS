@@ -714,16 +714,31 @@ def list_scheduled_jobs():
     """Get list of all scheduled jobs."""
     global scheduler
     
-    if not scheduler:
-        return []
+    if scheduler:
+        jobs = []
+        for job in scheduler.get_jobs():
+            jobs.append({
+                'id': job.id,
+                'name': job.name,
+                'trigger': str(job.trigger),
+                'next_run': job.next_run_time.isoformat() if job.next_run_time else None
+            })
+        return jobs
     
-    jobs = []
-    for job in scheduler.get_jobs():
-        jobs.append({
-            'id': job.id,
-            'name': job.name,
-            'trigger': str(job.trigger),
-            'next_run': job.next_run_time.isoformat() if job.next_run_time else None
-        })
+    is_production = os.environ.get("REPLIT_ENVIRONMENT") == "production" or os.environ.get("REPLIT_DEPLOYMENT") == "1"
+    if is_production or os.environ.get("ENABLE_BACKGROUND_JOBS") == "true":
+        return [
+            {'id': 'full_dw_sync', 'name': 'Full Data Warehouse Sync', 'trigger': 'Daily at 3:00 AM', 'next_run': None},
+            {'id': 'incremental_dw_sync', 'name': 'Incremental Data Warehouse Sync', 'trigger': 'Daily at 1:00 AM and 1:00 PM', 'next_run': None},
+            {'id': 'customer_sync', 'name': 'Customer Sync from PS365', 'trigger': 'Daily at 4:00 AM', 'next_run': None},
+            {'id': 'invoice_sync', 'name': 'Invoice Sync from PS365', 'trigger': 'Daily at 6:00 PM', 'next_run': None},
+            {'id': 'balance_fetch', 'name': 'Customer Balance Fetch from PS365', 'trigger': 'Daily at 2:30 AM', 'next_run': None},
+            {'id': 'nightly_forecast', 'name': 'Nightly Forecast Run', 'trigger': 'Daily at 5:00 AM', 'next_run': None},
+            {'id': 'pending_orders', 'name': 'PS365 Pending Orders Sync', 'trigger': 'Every 30 minutes', 'next_run': None},
+            {'id': 'payment_retry', 'name': 'Retry PENDING_RETRY Payments to PS365', 'trigger': 'Every 5 minutes', 'next_run': None},
+            {'id': 'dropbox_cost_import', 'name': 'Dropbox Cost Import', 'trigger': 'Daily at 2:00 AM', 'next_run': None},
+            {'id': 'expiry_ftp_upload', 'name': 'Expiry Dates FTP Upload', 'trigger': 'Daily at 9:00 PM', 'next_run': None},
+            {'id': 'stock_777_sync_production', 'name': 'PS365 Stock 777 Daily Sync', 'trigger': 'Daily at 6:32 PM', 'next_run': None},
+        ]
     
-    return jobs
+    return []
