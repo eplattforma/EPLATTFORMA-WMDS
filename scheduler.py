@@ -156,25 +156,25 @@ def setup_scheduler(app):
             if is_production:
                 scheduler.add_job(
                     func=_run_stock_777_sync,
-                    trigger=CronTrigger(hour=19, minute=5),
+                    trigger=CronTrigger(hour=23, minute=30),
                     id='stock_777_sync_production',
                     name='PS365 Stock 777 Daily Sync (Production)',
                     replace_existing=True,
                     max_instances=1,
                     misfire_grace_time=3600
                 )
-                logger.info("✓ Stock 777 production sync scheduled: Daily at 7:05 PM")
+                logger.info("✓ Stock 777 production sync scheduled: Daily at 11:30 PM")
             else:
                 scheduler.add_job(
                     func=_run_stock_777_sync,
-                    trigger=CronTrigger(hour=19, minute=5),
+                    trigger=CronTrigger(hour=23, minute=30),
                     id='stock_777_sync',
                     name='PS365 Stock 777 Daily Sync',
                     replace_existing=True,
                     max_instances=1,
                     misfire_grace_time=3600
                 )
-                logger.info("✓ Stock 777 sync scheduled: Daily at 7:05 PM")
+                logger.info("✓ Stock 777 sync scheduled: Daily at 11:30 PM")
 
             if is_production:
                 _run_stock_777_catch_up_on_startup()
@@ -738,7 +738,7 @@ def list_scheduled_jobs():
             {'id': 'payment_retry', 'name': 'Retry PENDING_RETRY Payments to PS365', 'trigger': 'Every 5 minutes', 'next_run': None},
             {'id': 'dropbox_cost_import', 'name': 'Dropbox Cost Import', 'trigger': 'Daily at 2:00 AM', 'next_run': None},
             {'id': 'expiry_ftp_upload', 'name': 'Expiry Dates FTP Upload', 'trigger': 'Daily at 9:00 PM', 'next_run': None},
-            {'id': 'stock_777_sync_production', 'name': 'PS365 Stock 777 Daily Sync', 'trigger': 'Daily at 7:05 PM', 'next_run': None},
+            {'id': 'stock_777_sync_production', 'name': 'PS365 Stock 777 Daily Sync', 'trigger': 'Daily at 11:30 PM', 'next_run': None},
         ]
     
     return []
