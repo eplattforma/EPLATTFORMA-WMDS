@@ -152,17 +152,6 @@ def setup_scheduler(app):
             )
             logger.info("✓ Expiry dates FTP upload scheduled: Daily at 9:00 PM (21:00)")
 
-            scheduler.add_job(
-                func=_run_stock_777_sync,
-                trigger=CronTrigger(hour=18, minute=25),
-                id='stock_777_sync',
-                name='PS365 Stock 777 Daily Sync',
-                replace_existing=True,
-                max_instances=1,
-                misfire_grace_time=3600
-            )
-            logger.info("✓ Stock 777 sync scheduled: Daily at 6:25 PM")
-
             if is_production:
                 scheduler.add_job(
                     func=_run_stock_777_sync,
@@ -174,6 +163,17 @@ def setup_scheduler(app):
                     misfire_grace_time=3600
                 )
                 logger.info("✓ Stock 777 production sync scheduled: Daily at 6:25 PM")
+            else:
+                scheduler.add_job(
+                    func=_run_stock_777_sync,
+                    trigger=CronTrigger(hour=18, minute=25),
+                    id='stock_777_sync',
+                    name='PS365 Stock 777 Daily Sync',
+                    replace_existing=True,
+                    max_instances=1,
+                    misfire_grace_time=3600
+                )
+                logger.info("✓ Stock 777 sync scheduled: Daily at 6:25 PM")
 
             if is_production:
                 _run_stock_777_catch_up_on_startup()
