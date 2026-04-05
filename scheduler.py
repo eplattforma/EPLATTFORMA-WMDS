@@ -154,26 +154,26 @@ def setup_scheduler(app):
 
             scheduler.add_job(
                 func=_run_stock_777_sync,
-                trigger=CronTrigger(hour=7, minute=30),
+                trigger=CronTrigger(hour="7,18", minute=0),
                 id='stock_777_sync',
                 name='PS365 Stock 777 Daily Sync',
                 replace_existing=True,
                 max_instances=1,
                 misfire_grace_time=3600
             )
-            logger.info("✓ Stock 777 sync scheduled: Daily at 7:30 AM")
+            logger.info("✓ Stock 777 sync scheduled: Daily at 7:00 AM and 6:00 PM")
 
             if is_production:
                 scheduler.add_job(
                     func=_run_stock_777_sync,
-                    trigger=CronTrigger(hour=7, minute=30),
+                    trigger=CronTrigger(hour="7,18", minute=0),
                     id='stock_777_sync_production',
                     name='PS365 Stock 777 Daily Sync (Production)',
                     replace_existing=True,
                     max_instances=1,
                     misfire_grace_time=3600
                 )
-            logger.info("✓ Stock 777 production sync scheduled: Daily at 7:30 AM")
+                logger.info("✓ Stock 777 production sync scheduled: Daily at 7:00 AM and 6:00 PM")
 
             if is_production:
                 _run_stock_777_catch_up_on_startup()
@@ -697,9 +697,9 @@ def _run_stock_777_catch_up_on_startup():
         from datetime import date
         with app.app_context():
             latest_run = db.session.execute(text("""
-                SELECT MAX(run_date)
+                SELECT MAX(created_at)
                 FROM ps365_stock_777_runs
-                WHERE run_date = CURRENT_DATE
+                WHERE created_at::date = CURRENT_DATE
             """)).scalar()
             if latest_run == date.today():
                 logger.info("Stock 777 catch-up skipped: already ran today")
