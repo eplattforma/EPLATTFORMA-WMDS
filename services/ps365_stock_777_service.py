@@ -222,7 +222,20 @@ def sync_ps365_stock_777(snapshot_date: Optional[date] = None, trigger: str = "m
 
         batch = 500
         for i in range(0, len(oos_rows), batch):
-            db.session.bulk_insert_mappings(Ps365Oos777Daily, oos_rows[i : i + batch])
+            chunk = oos_rows[i : i + batch]
+            for row in chunk:
+                db.session.execute(
+                    text(
+                        """
+                        INSERT INTO ps365_oos_777_daily
+                        (snapshot_date, item_code_365, item_name, supplier_code_365, supplier_name, barcode, stock, stock_reserved, available_qty, detected_at, source_run_id)
+                        VALUES
+                        (:snapshot_date, :item_code_365, :item_name, :supplier_code_365, :supplier_name, :barcode, :stock, :stock_reserved, :available_qty, :detected_at, :source_run_id)
+                        ON CONFLICT (snapshot_date, item_code_365) DO NOTHING
+                        """
+                    ),
+                    row,
+                )
 
         fin = get_utc_now()
         run.status = "COMPLETED"
