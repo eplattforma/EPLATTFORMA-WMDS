@@ -694,14 +694,13 @@ def _run_stock_777_catch_up_on_startup():
     try:
         from app import app, db
         from sqlalchemy import text
-        from datetime import date
         with app.app_context():
             latest_run = db.session.execute(text("""
-                SELECT MAX(created_at)
+                SELECT MAX(started_at)
                 FROM ps365_stock_777_runs
-                WHERE created_at::date = CURRENT_DATE
+                WHERE started_at::date = CURRENT_DATE
             """)).scalar()
-            if latest_run == date.today():
+            if latest_run:
                 logger.info("Stock 777 catch-up skipped: already ran today")
                 return
             logger.info("Stock 777 catch-up triggered on startup")
