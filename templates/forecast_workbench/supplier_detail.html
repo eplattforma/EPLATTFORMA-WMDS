@@ -329,7 +329,6 @@
                     <th>Method</th>
                     <th class="num-col">Base/Wk</th>
                     <th class="num-col">Final/Wk</th>
-                    <th class="num-col" title="% change from previous forecast run">Chg%</th>
                     <th class="num-col">On Hand</th>
                     <th class="num-col">Net Avail</th>
                     <th class="num-col">Cover</th>
@@ -595,7 +594,6 @@
             ? `<span class="badge badge-seasonality-prefix">Prefix</span>`
             : '<span class="badge badge-seasonality-none">-</span>';
         const activeBadge = it.active ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-danger"></i>';
-        const chgPct = it.forecast_change_pct != null ? fmtPct(it.forecast_change_pct) : '-';
         const sparkline = buildSparklinePlaceholder(it.item_code);
 
         return `<tr class="item-row" data-item-code="${esc(it.item_code)}">
@@ -610,7 +608,6 @@
             <td><small>${esc(it.forecast_method || '-')}</small></td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
-            <td class="num-col ${chgClass(it.forecast_change_pct)}">${chgPct}</td>
             <td class="num-col">${fmtNum(it.on_hand_qty)}</td>
             <td class="num-col">${fmtNum(it.net_available_qty)}</td>
             <td class="num-col">${fmtNum(it.cover_days, 0)}</td>
