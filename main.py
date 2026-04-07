@@ -1,20 +1,87 @@
 import os
 os.environ['TZ'] = 'Europe/Athens'
 import logging
+logging.basicConfig(level=logging.INFO)
+logging.warning("PHASE 1: top of main.py")
+print("PHASE 1: top of main.py", flush=True)
 
-from app import app
-logging.warning("STARTUP FILE HIT: main.py")
-logging.warning(f"DATABASE_URL present: {bool(os.getenv('DATABASE_URL'))}")
-logging.warning(f"SQLALCHEMY_DATABASE_URI present: {bool(app.config.get('SQLALCHEMY_DATABASE_URI'))}")
+try:
+    from app import app, db, is_production, run_deferred_db_init
+    logging.warning("PHASE 2: imported app, db")
+    print("PHASE 2: imported app, db", flush=True)
+except Exception:
+    logging.exception("FAILED DURING: from app import app, db")
+    raise
+
 db_uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
 if db_uri and '@' in db_uri:
     left, right = db_uri.split('@', 1)
     db_uri = left.split('://', 1)[0] + '://***:***@' + right
+logging.warning(f"DATABASE_URL present: {bool(os.getenv('DATABASE_URL'))}")
 logging.warning(f"DB URI: {db_uri}")
 
-# --- Defaults for NEW customers (override in Replit Secrets) ---
-DEFAULT_TERMS_CODE = os.getenv("DEFAULT_TERMS_CODE", "POD")      # e.g., "POD", "COD" or "NET30"
-DEFAULT_DUE_DAYS = int(os.getenv("DEFAULT_DUE_DAYS", "0"))       # 0 = POD/COD
+from sqlalchemy import text as _sa_text
+
+_db_available = False
+with app.app_context():
+    try:
+        result = db.session.execute(_sa_text("SELECT 1")).scalar()
+        logging.warning(f"DB smoke test result: {result}")
+        print(f"DB smoke test result: {result}", flush=True)
+        _db_available = True
+    except Exception:
+        logging.exception("DB SMOKE TEST FAILED - DB is unreachable, app will start without DB-dependent init")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+if _db_available:
+    logging.warning("PHASE 3: DB smoke test passed")
+    print("PHASE 3: DB smoke test passed", flush=True)
+
+    try:
+        from update_forecast_ordering_schema import update_forecast_ordering_schema
+        logging.warning("Running forecast ordering schema updater...")
+        update_forecast_ordering_schema()
+        logging.warning("Forecast ordering schema updater completed")
+        print("Forecast ordering schema updater completed", flush=True)
+    except Exception:
+        logging.exception("Forecast ordering schema updater failed (non-fatal)")
+
+    try:
+        with app.app_context():
+            with db.engine.connect() as conn:
+                cols = conn.execute(_sa_text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'sku_forecast_profile'
+                      AND column_name IN (
+                        'target_weeks_of_stock',
+                        'target_weeks_updated_at',
+                        'target_weeks_updated_by',
+                        'seeded_cap_applied'
+                      )
+                    ORDER BY column_name
+                """)).fetchall()
+                logging.warning(f"sku_forecast_profile forecast columns found: {[r[0] for r in cols]}")
+                tbl = conn.execute(_sa_text("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_name = 'sku_ordering_snapshot'
+                """)).fetchall()
+                logging.warning(f"sku_ordering_snapshot table found: {bool(tbl)}")
+    except Exception:
+        logging.exception("Schema verification failed (non-fatal)")
+
+    logging.warning("PHASE 4: schema updater and verification done")
+    print("PHASE 4: schema updater and verification done", flush=True)
+else:
+    logging.warning("PHASE 3-4: SKIPPED (DB unavailable)")
+    print("PHASE 3-4: SKIPPED (DB unavailable)", flush=True)
+
+DEFAULT_TERMS_CODE = os.getenv("DEFAULT_TERMS_CODE", "POD")
+DEFAULT_DUE_DAYS = int(os.getenv("DEFAULT_DUE_DAYS", "0"))
 DEFAULT_IS_CREDIT = os.getenv("DEFAULT_IS_CREDIT", "false").lower() in ("1","true","yes","y")
 
 DEFAULT_ALLOW_CASH = os.getenv("DEFAULT_ALLOW_CASH", "true").lower() in ("1","true","yes","y")
@@ -22,24 +89,19 @@ DEFAULT_ALLOW_CARD_POS = os.getenv("DEFAULT_ALLOW_CARD_POS", "true").lower() in 
 DEFAULT_ALLOW_BANK_TRANSFER = os.getenv("DEFAULT_ALLOW_BANK_TRANSFER", "true").lower() in ("1","true","yes","y")
 DEFAULT_ALLOW_CHEQUE = os.getenv("DEFAULT_ALLOW_CHEQUE", "false").lower() in ("1","true","yes","y")
 
-DEFAULT_CHEQUE_DAYS_ALLOWED = os.getenv("DEFAULT_CHEQUE_DAYS_ALLOWED")  # "0","15","30" or None
-DEFAULT_CREDIT_LIMIT = os.getenv("DEFAULT_CREDIT_LIMIT")                # "0" or None
+DEFAULT_CHEQUE_DAYS_ALLOWED = os.getenv("DEFAULT_CHEQUE_DAYS_ALLOWED")
+DEFAULT_CREDIT_LIMIT = os.getenv("DEFAULT_CREDIT_LIMIT")
 import routes  # noqa: F401
 import routes_ai_analysis  # noqa: F401
 import routes_operations  # noqa: F401
 import routes_daily_reports  # noqa: F401
-import routes_oi  # noqa: F401  # Operational Intelligence routes
-import routes_time_analysis  # noqa: F401  # Time Analysis dashboard
+import routes_oi  # noqa: F401
+import routes_time_analysis  # noqa: F401
 import pytz
 from timezone_utils import get_utc_now
 from datetime import datetime, timezone, timedelta
 import flask_login
 
-# Import is_production from app
-from app import is_production
-
-# Apply performance optimizations
-# Note: Don't override SQLALCHEMY_ENGINE_OPTIONS here - it's already set in app.py with production optimizations
 app.config.update({
     'DEBUG': not is_production,
     'SESSION_COOKIE_HTTPONLY': True,
@@ -48,51 +110,35 @@ app.config.update({
     'JSONIFY_PRETTYPRINT_REGULAR': False,
 })
 
-# Add template filter for timezone conversion
 @app.template_filter('local_time')
 def local_time_filter(dt, format_str='%d/%m/%y %H:%M'):
-    """Display datetime in Athens timezone"""
     if dt is None:
         return 'N/A'
-    
     athens_tz = pytz.timezone('Europe/Athens')
-    
-    # Handle naive datetimes safely - assume UTC if no timezone
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    
-    # Database stores times in UTC
     athens_dt = dt.astimezone(athens_tz)
     return athens_dt.strftime(format_str)
 
-# Add current time filter for real-time display
 @app.template_filter('current_athens_time')
 def current_athens_time_filter(placeholder, format_str='%d/%m/%y %H:%M:%S'):
-    """Get current time in Athens timezone"""
     athens_tz = pytz.timezone('Europe/Athens')
     utc_now = get_utc_now()
     athens_now = utc_now.astimezone(athens_tz)
     return athens_now.strftime(format_str)
 
-# Add template filter for status display
 @app.template_filter('status_badge')
 def status_badge_filter(status_value):
-    """Display status as a styled badge"""
     from order_status_constants import get_status_info, get_status_badge_class, get_status_icon
-    
     status_info = get_status_info(status_value)
     if not status_info:
         return f'<span class="badge bg-secondary">Unknown Status</span>'
-    
     badge_class = get_status_badge_class(status_value)
     icon = get_status_icon(status_value)
     label = status_info['label']
-    
     return f'<span class="badge {badge_class}"><i class="{icon} me-1"></i>{label}</span>'
+
 from update_schema_skipped_items import update_database_schema
-from update_forecast_ordering_schema import update_forecast_ordering_schema
-import logging
-from update_forecast_ordering_schema import update_forecast_ordering_schema
 from routes_batch import batch_bp
 from routes_help import help_bp
 from routes_delivery_issues import delivery_issues_bp
@@ -104,112 +150,74 @@ from routes_driver_api import driver_api_bp
 from routes_receipts import bp as receipts_bp
 from routes_find_invoice import bp as find_invoice_bp
 
-logging.basicConfig(level=logging.INFO)
-
-# Register the batch picking blueprint
 app.register_blueprint(batch_bp, url_prefix='')
-
-# Register the delivery issues blueprint
 app.register_blueprint(delivery_issues_bp, url_prefix='')
-
-# Register the route management blueprints
 app.register_blueprint(routes_bp, url_prefix='/routes')
 app.register_blueprint(route_invoices_bp, url_prefix='/route-invoices')
-
-# Register the delivery dashboard blueprint
 app.register_blueprint(delivery_dashboard_bp, url_prefix='')
-
-# Register the PS365 customer sync API blueprint
 app.register_blueprint(bp_powersoft)
-
-
-# Register the help documentation blueprint
 app.register_blueprint(help_bp, url_prefix='')
-
-# Register the driver API blueprint
 app.register_blueprint(driver_api_bp)
-
-# Register the receipts blueprint
 app.register_blueprint(receipts_bp)
-
-# Register the find invoice/route blueprint
 app.register_blueprint(find_invoice_bp)
 
-# Register the payment terms blueprint
 from routes_payment_terms import bp as payment_terms_bp
 app.register_blueprint(payment_terms_bp)
 
-# Register the driver app blueprint
 from routes_driver import driver_bp
 app.register_blueprint(driver_bp)
 
 from routes_payments import payments_bp
 app.register_blueprint(payments_bp)
 
-# Register the warehouse intake blueprint
 from routes_warehouse_intake import warehouse_bp
 app.register_blueprint(warehouse_bp)
 
-# Register the PO receiving blueprint
 from routes_po_receiving import po_receiving_bp
 app.register_blueprint(po_receiving_bp)
 
-# Register the item scanner blueprint
 from routes_item_scanner import item_scanner_bp
 app.register_blueprint(item_scanner_bp)
 
-# Register the OI Time Estimator (ETC) admin blueprint
 from routes_oi_time_admin import oi_time_admin_bp
 app.register_blueprint(oi_time_admin_bp)
 
-# Register the OI Reports blueprint
 from routes_oi_reports import oi_reports_bp
 app.register_blueprint(oi_reports_bp)
 
-# Register the Pallets blueprint
 from routes_pallets import bp as pallets_bp
 app.register_blueprint(pallets_bp, url_prefix='/routes')
 
-# Register the Admin Tools blueprint
 try:
     from routes_admin_tools import bp as admin_tools_bp
     app.register_blueprint(admin_tools_bp)
 except ValueError:
     logging.info("Admin Tools blueprint already registered")
 
-# Register the Reconciliation blueprint
 from routes_reconciliation import reconciliation_bp
 app.register_blueprint(reconciliation_bp)
 
-# Register the Customer Analytics blueprint
 from routes_customer_analytics import customer_analytics_bp
 app.register_blueprint(customer_analytics_bp)
 
-# Register the Pricing Analytics blueprint
 from routes_pricing_analytics import pricing_bp
 app.register_blueprint(pricing_bp)
 
-# Register the Peer Analytics blueprint
 from blueprints.peer_analytics import peer_bp
 app.register_blueprint(peer_bp)
 
-# Register the Category Manager blueprint
 from blueprints.category_manager import catmgr_bp
 app.register_blueprint(catmgr_bp)
 
-# Register the Customer Reporting Groups blueprint
 from routes_customer_reporting_groups import crg_bp
 app.register_blueprint(crg_bp)
 
-# Register the Customer Benchmark blueprint
 from routes_customer_benchmark import benchmark_bp
 app.register_blueprint(benchmark_bp)
 
-# Register the AI Feedback blueprint
 from routes_ai_feedback import ai_feedback_bp
 app.register_blueprint(ai_feedback_bp)
 
-# Register the SMS blueprint
 from blueprints.sms import sms_bp
 app.register_blueprint(sms_bp)
 
@@ -218,36 +226,6 @@ app.register_blueprint(communications_bp)
 
 from blueprints.replenishment_mvp import replenishment_bp
 app.register_blueprint(replenishment_bp)
-
-try:
-    logging.warning("Running forecast ordering schema updater...")
-    update_forecast_ordering_schema()
-    logging.warning("Forecast ordering schema updater completed")
-    from sqlalchemy import text
-    with app.app_context():
-        with app.db.engine.begin() as conn:
-            cols = conn.execute(text("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'sku_forecast_profile'
-                  AND column_name IN (
-                    'target_weeks_of_stock',
-                    'target_weeks_updated_at',
-                    'target_weeks_updated_by',
-                    'seeded_cap_applied'
-                  )
-                ORDER BY column_name
-            """)).fetchall()
-            logging.warning(f"sku_forecast_profile forecast columns found: {[r[0] for r in cols]}")
-            tbl = conn.execute(text("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_name = 'sku_ordering_snapshot'
-            """)).fetchall()
-            logging.warning(f"sku_ordering_snapshot table found: {bool(tbl)}")
-except Exception:
-    logging.exception("Forecast ordering schema updater failed")
-    raise
 
 from blueprints.forecast_workbench import forecast_bp
 app.register_blueprint(forecast_bp)
@@ -264,26 +242,27 @@ app.register_blueprint(crm_dashboard_bp)
 from routes_erp_bot import erp_bot_bp
 app.register_blueprint(erp_bot_bp)
 
-# --- Helper function to create default payment terms ---
+logging.warning("PHASE 5: all blueprints registered")
+print("PHASE 5: all blueprints registered", flush=True)
+
 import datetime as dt
 from decimal import Decimal
 
 def _default_terms_values_for(code: str):
-    """Generate default payment terms values for a new customer"""
     credit_limit_val = None
     if DEFAULT_CREDIT_LIMIT not in (None, "", "None"):
         try:
             credit_limit_val = Decimal(DEFAULT_CREDIT_LIMIT)
         except:
             credit_limit_val = None
-    
+
     cheque_days_val = None
     if DEFAULT_CHEQUE_DAYS_ALLOWED not in (None, "", "None"):
         try:
             cheque_days_val = int(DEFAULT_CHEQUE_DAYS_ALLOWED)
         except:
             cheque_days_val = None
-    
+
     return {
         "customer_code": code,
         "terms_code": DEFAULT_TERMS_CODE,
@@ -299,29 +278,18 @@ def _default_terms_values_for(code: str):
         "notes_for_driver": None,
     }
 
-# --- Auto-create default terms using SQLAlchemy event ---
 from sqlalchemy import event
 from sqlalchemy.sql import text
 from models import PaymentCustomer, CreditTerms
 
 @event.listens_for(PaymentCustomer, "after_insert")
 def _create_default_terms_after_customer_insert(mapper, connection, target: PaymentCustomer):
-    """
-    Create a default active credit_terms row for the new customer
-    IF there isn't already an active row (valid_to IS NULL).
-    Uses a single SQL statement safe for SQLite/Postgres.
-    
-    NOTE: This is disabled during bulk sync operations to prevent timeouts.
-    Use the "Reconcile Missing Terms" button to backfill after bulk imports.
-    """
-    # Skip auto-creation during bulk operations (PS365 sync)
-    # The reconcile endpoint can be used to backfill afterward
     import threading
     skip_auto_create = getattr(threading.current_thread(), 'skip_auto_payment_terms', False)
-    
+
     if skip_auto_create:
         return
-    
+
     sql = text("""
         INSERT INTO credit_terms (
             customer_code, terms_code, due_days, is_credit,
@@ -341,86 +309,67 @@ def _create_default_terms_after_customer_insert(mapper, connection, target: Paym
     params["customer_code"] = target.code
     connection.execute(sql, params)
 
-# Run schema updates for both development and production
-with app.app_context():
-    # Update schema for skip and collect functionality
+if _db_available:
+  with app.app_context():
     try:
         update_database_schema()
     except Exception as e:
         logging.error(f"Error updating skip schema: {str(e)}")
-    
-    # Update schema for batch picking
+
     try:
         from update_batch_picking_schema import update_database_schema as update_batch_schema
         update_batch_schema()
     except Exception as e:
         logging.error(f"Error updating batch schema: {str(e)}")
-        
-    # Update schema to add batch_number field
+
     try:
         from update_batch_number_schema import update_database_schema as update_batch_number_schema
         update_batch_number_schema()
-        logging.info("Batch number schema updates completed")
     except Exception as e:
         logging.error(f"Error updating batch number schema: {str(e)}")
-        
-    # Update schema to add unit_types field
+
     try:
         from update_unit_types_schema import update_unit_types_schema
         update_unit_types_schema()
-        logging.info("Unit types schema updates completed")
     except Exception as e:
         logging.error(f"Error updating unit types schema: {str(e)}")
-        
-    # Update schema for item time tracking AI features
+
     try:
         from update_item_tracking_schema import update_item_tracking_schema
         update_item_tracking_schema()
-        logging.info("Item tracking schema updates completed")
     except Exception as e:
         logging.error(f"Error updating item tracking schema: {str(e)}")
-    
-    # Update invoice status timestamp schema
+
     try:
         from update_invoice_status_timestamp import add_status_timestamp_column
         add_status_timestamp_column()
-        logging.info("Invoice status timestamp schema updates completed")
     except Exception as e:
         logging.error(f"Error updating invoice status timestamp schema: {str(e)}")
-    
-    # Update RouteStop schema for contact fields
+
     try:
         from update_route_stop_schema import update_route_stop_schema
         update_route_stop_schema()
-        logging.info("RouteStop schema updates completed")
     except Exception as e:
         logging.error(f"Error updating RouteStop schema: {str(e)}")
-    
-    # Update Shipment settlement schema
+
     try:
         from update_shipment_settlement_schema import update_shipment_settlement_schema
         update_shipment_settlement_schema()
-        logging.info("Shipment settlement schema updates completed")
     except Exception as e:
         logging.error(f"Error updating Shipment settlement schema: {str(e)}")
-    
-    # Update Warehouse Intake schema (post-delivery cases, reroute, route history)
+
     try:
         from update_warehouse_intake_schema import update_warehouse_intake_schema
         update_warehouse_intake_schema()
-        logging.info("Warehouse intake schema updates completed")
     except Exception as e:
         logging.error(f"Error updating warehouse intake schema: {str(e)}")
-    
-    # Update schema for Operational Intelligence (OI) module
+
     try:
         from update_oi_schema import update_oi_schema
         update_oi_schema()
-        logging.info("OI schema updates completed")
     except Exception as e:
         logging.error(f"Error updating OI schema: {str(e)}")
-    
-    # Add supplier columns to ps_items_dw
+
     try:
         from sqlalchemy import text as sa_text
         from app import db as appdb
@@ -431,60 +380,48 @@ with app.app_context():
                 pass
         appdb.session.execute(sa_text("CREATE INDEX IF NOT EXISTS ix_ps_items_dw_supplier_code ON ps_items_dw (supplier_code_365)"))
         appdb.session.commit()
-        logging.info("Supplier columns schema update completed")
     except Exception as e:
         logging.error(f"Error updating supplier columns: {str(e)}")
-    
-    # Update WmsPackingProfile schema for pack_mode fields
+
     try:
         from update_packing_profile_schema import update_packing_profile_schema
         update_packing_profile_schema()
-        logging.info("WmsPackingProfile schema updates completed")
     except Exception as e:
         logging.error(f"Error updating WmsPackingProfile schema: {str(e)}")
-    
-    # Update route reconciliation schema
+
     try:
         from update_route_reconciliation_schema import update_route_reconciliation_schema
         update_route_reconciliation_schema()
-        logging.info("Route reconciliation schema updates completed")
     except Exception as e:
         logging.error(f"Error updating route reconciliation schema: {str(e)}")
-    
-    # Update discrepancy verification schema (warehouse verification + credit notes)
+
     try:
         from update_discrepancy_verification_schema import update_discrepancy_verification_schema
         update_discrepancy_verification_schema()
-        logging.info("Discrepancy verification schema updates completed")
     except Exception as e:
         logging.error(f"Error updating discrepancy verification schema: {str(e)}")
-    
-    # Update COD receipts locking schema (doc_type, status, locking, printing, voiding)
+
     try:
         from update_cod_receipts_locking_schema import update_cod_receipts_locking_schema
         update_cod_receipts_locking_schema()
-        logging.info("COD receipts locking schema updates completed")
     except Exception as e:
         logging.error(f"Error updating COD receipts locking schema: {str(e)}")
-    
+
     try:
         from update_payment_entries_schema import update_payment_entries_schema
         update_payment_entries_schema()
-        logging.info("Payment entries schema updates completed")
     except Exception as e:
         logging.error(f"Error updating payment entries schema: {str(e)}")
 
     try:
         from update_bank_transactions_schema import update_bank_transactions_schema
         update_bank_transactions_schema()
-        logging.info("Bank transactions schema updates completed")
     except Exception as e:
         logging.error(f"Error updating bank transactions schema: {str(e)}")
 
     try:
         from update_sms_schema import update_sms_schema
         update_sms_schema()
-        logging.info("SMS schema updates completed")
     except Exception as e:
         logging.error(f"Error updating SMS schema: {str(e)}")
 
@@ -512,63 +449,45 @@ with app.app_context():
     try:
         from update_replenishment_schema import update_replenishment_schema
         update_replenishment_schema()
-        logging.info("Replenishment schema updates completed")
     except Exception as e:
         logging.error(f"Error updating replenishment schema: {str(e)}")
 
     try:
         from update_forecast_runs_schema import update_forecast_runs_schema
         update_forecast_runs_schema()
-        logging.info("Forecast runs schema updates completed")
     except Exception as e:
         logging.error(f"Error updating forecast runs schema: {str(e)}")
 
     try:
         from update_magento_login_log_schema import update_magento_login_log_schema
         update_magento_login_log_schema()
-        logging.info("Magento login log schema updates completed")
     except Exception as e:
         logging.error(f"Error updating Magento login log schema: {e}")
 
     try:
         from update_magento_last_login_current_schema import update_magento_last_login_current_schema
         update_magento_last_login_current_schema()
-        logging.info("Magento last login current schema updates completed")
     except Exception as e:
         logging.error(f"Error updating Magento last login current schema: {e}")
 
     try:
         from update_crm_offer_schema import ensure_crm_offer_schema
         ensure_crm_offer_schema()
-        logging.info("CRM offer intelligence schema updates completed")
     except Exception as e:
         logging.error(f"Error updating CRM offer schema: {e}")
 
-    try:
-        update_forecast_ordering_schema()
-        logging.info("Forecast ordering schema updates completed")
-    except Exception as e:
-        logging.error(f"Error updating forecast ordering schema: {e}")
-
-    # Initialize remaining tables
-    from app import db
     db.create_all()
-    
-    # Update to new order status system
+
     try:
         from update_order_status_system import update_order_status_system
         update_order_status_system()
-        logging.info("Order status system migration completed")
     except Exception as e:
         logging.error(f"Error updating order status system: {str(e)}")
-    
-    # Initialize settings if they don't exist
+
     try:
         from models import Setting
-        # Check if skip_reasons setting exists
         skip_reasons = Setting.query.filter_by(key='skip_reasons').first()
         if not skip_reasons:
-            # Create default skip reasons
             import json
             default_reasons = ["Out of Stock", "Damaged", "Location Empty", "Other"]
             new_setting = Setting()
@@ -576,18 +495,38 @@ with app.app_context():
             new_setting.value = json.dumps(default_reasons)
             db.session.add(new_setting)
             db.session.commit()
-            logging.info("Default skip reasons initialized")
     except Exception as e:
         logging.error(f"Error initializing settings: {str(e)}")
-        db.session.rollback()
+        try:
+            db.session.rollback()
+        except:
+            pass
 
-# Add download route for project export
+    try:
+        run_deferred_db_init()
+    except Exception as e:
+        logging.error(f"Error in deferred DB init: {str(e)}")
+
+logging.warning("PHASE 6: all schema updates and DB init done")
+print("PHASE 6: all schema updates and DB init done", flush=True)
+
+@app.route('/debug/forecast-schema')
+def debug_forecast_schema():
+    with db.engine.connect() as conn:
+        cols = conn.execute(_sa_text("""
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_name IN ('sku_forecast_profile', 'sku_ordering_snapshot')
+            ORDER BY table_name, column_name
+        """)).fetchall()
+    from flask import jsonify
+    return jsonify([{"table": r[0], "column": r[1]} for r in cols])
+
 from flask import send_file, abort, flash, redirect, url_for, render_template_string, request
 import os as os_module
 
 @app.route('/download-project-export')
 def download_project_export():
-    """Download the project export zip file"""
     file_path = '/home/runner/workspace/warehouse-system-export.zip'
     if os_module.path.exists(file_path):
         return send_file(file_path, as_attachment=True, download_name='warehouse-system-export.zip')
@@ -597,12 +536,11 @@ def download_project_export():
 @app.route('/admin/maintenance/dedup-cod', methods=['GET', 'POST'])
 @flask_login.login_required
 def admin_dedup_cod():
-    """Admin maintenance: find and remove exact duplicate COD receipts from double-submit."""
     if flask_login.current_user.role != 'admin':
         abort(403)
     from app import db
     from sqlalchemy import text
-    
+
     find_sql = text("""
         SELECT c1.id, c1.route_id, c1.route_stop_id, c1.invoice_nos::text,
                c1.received_amount, c1.payment_method, c1.created_at,
@@ -618,7 +556,7 @@ def admin_dedup_cod():
             AND ABS(EXTRACT(EPOCH FROM (c1.created_at - c2.created_at))) < 5
         ORDER BY c1.id
     """)
-    
+
     if request.method == 'POST':
         result = db.session.execute(find_sql)
         dup_ids = [row[0] for row in result]
@@ -635,7 +573,7 @@ def admin_dedup_cod():
         else:
             flash("No duplicates found", "info")
         return redirect(url_for('admin_dedup_cod'))
-    
+
     result = db.session.execute(find_sql)
     duplicates = [dict(row._mapping) for row in result]
     return render_template_string("""
@@ -665,6 +603,9 @@ def admin_dedup_cod():
     </div>
     {% endblock %}
     """, duplicates=duplicates)
+
+logging.warning("PHASE 7: main.py fully loaded")
+print("PHASE 7: main.py fully loaded", flush=True)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

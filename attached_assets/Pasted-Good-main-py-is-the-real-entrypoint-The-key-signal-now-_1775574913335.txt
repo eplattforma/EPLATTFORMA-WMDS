@@ -1,0 +1,237 @@
+Good. main.py is the real entrypoint.
+
+The key signal now is this:
+
+the new log lines still do not appear after restart
+
+That usually means one of only two things:
+
+the process is crashing before it reaches your new logging lines, or
+the process you restarted is not actually the one serving the app
+
+So stop making broad changes and do this as a controlled isolation test.
+
+1) Move the first log to line 1 of main.py
+
+Put this at the absolute top of main.py, before any app imports:
+
+import logging
+logging.warning("STARTUP FILE HIT: main.py TOP OF FILE")
+print("STARTUP FILE HIT: main.py TOP OF FILE")
+
+This must be the first executable lines.
+
+Why
+
+If even this does not appear, then either:
+
+this file is not actually being executed by the runner, or
+Python is failing before output is shown because another module is being invoked instead.
+2) Add a second marker after each startup phase
+
+In main.py, add markers like this:
+
+import logging
+logging.warning("PHASE 1: top of main.py")
+print("PHASE 1: top of main.py")
+
+from app import app, db
+
+logging.warning("PHASE 2: imported app, db")
+print("PHASE 2: imported app, db")
+
+from update_forecast_ordering_schema import update_forecast_ordering_schema
+
+logging.warning("PHASE 3: imported schema updater")
+print("PHASE 3: imported schema updater")
+
+update_forecast_ordering_schema()
+
+logging.warning("PHASE 4: schema updater finished")
+print("PHASE 4: schema updater finished")
+
+Then only after that continue with blueprint imports/registration.
+
+Goal
+
+We need to know the exact phase where startup dies.
+
+3) Temporarily disable all forecast-related imports from app.py
+
+This is important.
+
+Even if main.py is correct, the crash may be happening during:
+
+from app import app, db
+
+because app.py itself may import blueprints or forecast modules too early.
+
+Tell Replit to inspect app.py and temporarily comment out any of these if present:
+
+forecast blueprint imports
+forecast workbench imports
+ordering refresh imports
+any code importing services.forecast.*
+any code importing SkuOrderingSnapshot
+any register_blueprint(...) for forecast modules inside app.py
+
+We need from app import app, db to become as lightweight as possible.
+
+Important
+
+No forecast-related module should be imported inside app.py until after the schema updater has run in main.py.
+
+4) Confirm whether the crash happens during from app import app, db
+
+Tell Replit to wrap just that import:
+
+import logging
+logging.warning("PHASE 1: top of main.py")
+print("PHASE 1: top of main.py")
+
+try:
+    from app import app, db
+    logging.warning("PHASE 2: imported app, db")
+    print("PHASE 2: imported app, db")
+except Exception:
+    logging.exception("FAILED DURING: from app import app, db")
+    raise
+
+If it fails there, the schema updater in main.py is still too late, and the fix is to remove forecast imports from app.py.
+
+5) If app.py imports forecast code, move those imports into main.py
+
+Refactor like this:
+
+In app.py
+
+Keep only:
+
+Flask app creation
+config
+db init
+login manager init
+generic extensions
+
+Do not import/register forecast blueprints there.
+
+In main.py
+
+After schema updater succeeds, do:
+
+from blueprints.forecast_workbench import forecast_bp
+app.register_blueprint(forecast_bp)
+
+and the same for any other forecast/order blueprints.
+
+This guarantees schema first, then forecast imports.
+
+6) Print the exact run command / process target
+
+Have Replit inspect:
+
+.replit
+replit.nix if relevant
+run command
+any gunicorn command
+any workflow config
+
+They must confirm exactly what command starts the app.
+
+Example things to check:
+
+python main.py
+gunicorn main:app
+gunicorn app:app
+flask run
+workflow runner target
+Why
+
+If the runner starts app:app directly, then main.py will never execute, even if it is the nominal startup file.
+
+That would explain why your new main.py logs do not appear.
+
+This is now one of the most likely explanations.
+
+7) If runner uses app:app, move schema updater into app.py before blueprint imports
+
+If Replit discovers the process starts with something like:
+
+gunicorn app:app
+
+then your main.py fix will never help.
+
+In that case the correct sequence is:
+
+keep app.py minimal
+run schema updater in app.py immediately after app/db init
+only then import/register forecast blueprints
+
+But only do this if the run command proves app.py is the actual executed module.
+
+8) Search for import-time DB queries
+
+Tell Replit to search for any top-level ORM calls:
+
+rg -n "\.query\.|\.all\(\)|\.first\(\)|\.count\(\)|db\.session|session\.query" .
+
+Then inspect forecast-related files for queries outside functions/classes.
+
+Anything like this at module scope must be moved inside functions:
+
+rows = SkuForecastProfile.query.all()
+latest = db.session.query(...).first()
+Why
+
+Import-time queries can crash before startup logging or schema patching finishes.
+
+9) Temporarily hard-disable forecast blueprint registration to prove startup
+
+In the actual executed module, comment out all forecast-related blueprint registrations and restart.
+
+Expected result:
+
+app should start
+top-of-file logs should appear
+schema updater logs should appear
+
+If app starts with forecast disabled, then the crash is definitely inside forecast imports or forecast blueprint registration.
+
+That narrows the fault sharply.
+
+10) Add a minimal standalone schema test in main.py
+
+Before any forecast import, add:
+
+from sqlalchemy import text
+
+with app.app_context():
+    with db.engine.begin() as conn:
+        result = conn.execute(text("SELECT 1")).scalar()
+        logging.warning(f"DB smoke test result: {result}")
+        print(f"DB smoke test result: {result}")
+
+If this fails, the problem is basic DB connection/init, not the forecast schema itself.
+
+If this passes, then the crash is later in forecast imports.
+
+11) Most likely next diagnosis
+
+Based on what you reported, the most likely remaining issue is:
+
+the runtime command is not actually executing main.py, or
+from app import app, db is importing forecast modules too early and crashing before your new schema code runs.
+
+Those are now the first two things Replit should prove or rule out.
+
+12) What I need back from Replit
+
+Tell them to return only these exact outputs:
+
+the actual run command / process target
+whether STARTUP FILE HIT: main.py TOP OF FILE appears
+whether PHASE 2: imported app, db appears
+the full stack trace if phase 2 fails
+whether app starts when forecast blueprints are commented out
+
+Once you have those five answers, I can tell you the exact next fix.
