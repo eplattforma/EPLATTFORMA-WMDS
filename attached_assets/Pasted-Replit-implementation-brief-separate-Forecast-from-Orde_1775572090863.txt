@@ -1,0 +1,707 @@
+Replit implementation brief — separate Forecast from Ordering, keep OOS-aware forecasting, add per-item Weeks of Stock
+Objective
+
+Refactor the current forecast pipeline so that:
+
+Forecast run only computes demand forecast
+weekly sales
+seasonality
+classification
+OOS-aware base/final forecast
+forecast metadata
+Ordering refresh becomes a separate process
+fetch latest stock / reserved / incoming
+use latest stored forecast
+compute target stock and suggested order
+can be run manually on demand
+Add a persistent per-item target weeks of stock parameter
+default 4.0
+editable by user
+remains unchanged until user changes it again
+Preserve and improve the current OOS adjustment logic in forecasting.
+1) Database / model changes
+1.1 Add fields to SkuForecastProfile
+
+File: models.py
+
+Inside class SkuForecastProfile(db.Model):, add:
+
+    target_weeks_of_stock = db.Column(db.Numeric(12, 4), nullable=False, default=4)
+    target_weeks_updated_at = db.Column(db.DateTime, nullable=True)
+    target_weeks_updated_by = db.Column(db.String(100), nullable=True)
+
+These fields belong on the forecast profile, not on the result, because this is a persistent planning parameter per item.
+
+1.2 Create a new table for ordering snapshots
+
+Also in models.py, add a new model:
+
+class SkuOrderingSnapshot(db.Model):
+    __tablename__ = "sku_ordering_snapshot"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    item_code_365 = db.Column(db.String(64), nullable=False, index=True)
+    snapshot_type = db.Column(db.String(20), nullable=False, default="manual")  # manual / supplier / nightly
+    snapshot_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    created_by = db.Column(db.String(100), nullable=True)
+
+    forecast_run_id = db.Column(db.BigInteger, nullable=True)
+    forecast_calculated_at = db.Column(db.DateTime, nullable=True)
+
+    target_weeks_of_stock = db.Column(db.Numeric(12, 4), nullable=False, default=4)
+    lead_time_days = db.Column(db.Numeric(12, 4), nullable=False, default=0)
+    review_cycle_days = db.Column(db.Numeric(12, 4), nullable=False, default=1)
+    buffer_days = db.Column(db.Numeric(12, 4), nullable=False, default=0)
+
+    base_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    trend_adjusted_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    final_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    final_forecast_daily_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+
+    on_hand_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    incoming_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    reserved_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    net_available_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+
+    target_stock_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    raw_recommended_order_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    rounded_order_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+
+    supplier_code = db.Column(db.String(50), nullable=True)
+    order_multiple = db.Column(db.Numeric(12, 4), nullable=True)
+    min_order_qty = db.Column(db.Numeric(12, 4), nullable=True)
+
+    explanation_json = db.Column(db.JSON, nullable=True)
+
+Add useful indexes too:
+
+    __table_args__ = (
+        db.Index('ix_sku_ordering_snapshot_item_time', 'item_code_365', 'snapshot_at'),
+    )
+1.3 Migration script
+
+Create a new file, for example:
+
+migrations/add_target_weeks_and_ordering_snapshot.py
+
+Use raw SQL similar to:
+
+from app import app, db
+from sqlalchemy import text
+
+def run():
+    with app.app_context():
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                ALTER TABLE sku_forecast_profile
+                ADD COLUMN IF NOT EXISTS target_weeks_of_stock numeric(12,4) NOT NULL DEFAULT 4
+            """))
+            conn.execute(text("""
+                ALTER TABLE sku_forecast_profile
+                ADD COLUMN IF NOT EXISTS target_weeks_updated_at timestamp null
+            """))
+            conn.execute(text("""
+                ALTER TABLE sku_forecast_profile
+                ADD COLUMN IF NOT EXISTS target_weeks_updated_by varchar(100) null
+            """))
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sku_ordering_snapshot (
+                    id bigserial primary key,
+                    item_code_365 varchar(64) not null,
+                    snapshot_type varchar(20) not null default 'manual',
+                    snapshot_at timestamp not null default now(),
+                    created_by varchar(100) null,
+                    forecast_run_id bigint null,
+                    forecast_calculated_at timestamp null,
+                    target_weeks_of_stock numeric(12,4) not null default 4,
+                    lead_time_days numeric(12,4) not null default 0,
+                    review_cycle_days numeric(12,4) not null default 1,
+                    buffer_days numeric(12,4) not null default 0,
+                    base_forecast_weekly_qty numeric(18,6) not null default 0,
+                    trend_adjusted_weekly_qty numeric(18,6) not null default 0,
+                    final_forecast_weekly_qty numeric(18,6) not null default 0,
+                    final_forecast_daily_qty numeric(18,6) not null default 0,
+                    on_hand_qty numeric(18,6) not null default 0,
+                    incoming_qty numeric(18,6) not null default 0,
+                    reserved_qty numeric(18,6) not null default 0,
+                    net_available_qty numeric(18,6) not null default 0,
+                    target_stock_qty numeric(18,6) not null default 0,
+                    raw_recommended_order_qty numeric(18,6) not null default 0,
+                    rounded_order_qty numeric(18,6) not null default 0,
+                    supplier_code varchar(50) null,
+                    order_multiple numeric(12,4) null,
+                    min_order_qty numeric(12,4) null,
+                    explanation_json jsonb null
+                )
+            """))
+
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_sku_ordering_snapshot_item_time
+                ON sku_ordering_snapshot (item_code_365, snapshot_at)
+            """))
+
+if __name__ == "__main__":
+    run()
+
+Run it once.
+
+2) Make forecast run forecast-only
+2.1 Update services/forecast/run_service.py
+
+Current file imports compute_replenishment and still runs it.
+
+Change imports
+
+Remove:
+
+from services.forecast.replenishment_service import compute_replenishment
+Update step count
+
+Current log says Step 1/5 … Step 5/5.
+Change pipeline to 4 steps only:
+
+weekly_sales
+seasonality
+classification
+base_forecast
+finalizing
+Remove replenishment block entirely
+
+Delete this whole block:
+
+        current_step = "replenishment"
+        _heartbeat(run_id, current_step, "Computing replenishment")
+        logger.info(f"[Run {run_id}] Step 5/5: Computing replenishment")
+        compute_replenishment(session, run_id=run_id, progress_callback=_make_hb_callback(current_step))
+        session.commit()
+        session.expire_all()
+        _heartbeat(run_id, current_step, "Replenishment completed")
+Result
+
+execute_forecast_run() must finish immediately after compute_base_forecasts(...).
+
+That is the core separation.
+
+3) Keep OOS-aware forecasting, but tighten it
+
+You already have OOS-aware logic in:
+
+services/forecast/classification_service.py
+services/forecast/base_forecast_service.py
+services/forecast/oos_demand_service.py
+
+Keep it, but improve it.
+
+3.1 Add method-specific minimum clean weeks
+
+In services/forecast/base_forecast_service.py, add helper:
+
+def _min_clean_weeks_for_method(demand_class: str) -> int:
+    if demand_class in ("smooth", "erratic"):
+        return 8
+    if demand_class in ("intermittent", "lumpy"):
+        return 6
+    if demand_class == "new_sparse":
+        return 4
+    return 0
+
+Then in compute_base_forecasts(), replace the current generic len(clean_qtys) >= 4 logic with method-specific logic.
+
+Current block:
+
+        if item_oos_weeks and weekly_qtys:
+            week_starts_for_item = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(len(weekly_qtys))]
+            clean_qtys = [q for q, ws in zip(weekly_qtys, week_starts_for_item) if ws not in item_oos_weeks]
+            if len(clean_qtys) >= 4:
+                forecast_qtys = clean_qtys
+                oos_was_applied = True
+            else:
+                forecast_qtys = weekly_qtys
+                oos_was_applied = False
+
+Replace with:
+
+        required_clean_weeks = _min_clean_weeks_for_method(demand_class)
+
+        if item_oos_weeks and weekly_qtys:
+            week_starts_for_item = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(len(weekly_qtys))]
+            clean_qtys = [q for q, ws in zip(weekly_qtys, week_starts_for_item) if ws not in item_oos_weeks]
+
+            if len(clean_qtys) >= required_clean_weeks:
+                forecast_qtys = clean_qtys
+                oos_was_applied = True
+            else:
+                forecast_qtys = weekly_qtys
+                oos_was_applied = False
+        else:
+            forecast_qtys = weekly_qtys
+            oos_was_applied = False
+3.2 Suppress trend if recent weeks are OOS-impacted
+
+Trend should not be calculated from old “clean” weeks pretending to be recent.
+
+Add helper in base_forecast_service.py:
+
+def _recent_trend_allowed(recent_calendar_week_starts, item_oos_weeks):
+    recent_two = recent_calendar_week_starts[:2]
+    if not recent_two:
+        return False
+    return all(ws not in item_oos_weeks for ws in recent_two)
+
+Then before the if demand_class == "smooth" and base_forecast > 0: block, define:
+
+        recent_calendar_week_starts = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(len(weekly_qtys))]
+        allow_trend = _recent_trend_allowed(recent_calendar_week_starts, item_oos_weeks)
+
+Then change:
+
+        if demand_class == "smooth" and base_forecast > 0:
+
+to:
+
+        if demand_class == "smooth" and base_forecast > 0 and allow_trend:
+
+If not allowed, keep trend_flag = "flat" and append a review reason.
+
+3.3 Make review reason clearer for OOS items
+
+In compute_base_forecasts() or right after classification, append to profile.review_reason when:
+
+OOS adjustment applied
+recent trend suppressed because of OOS
+too few clean weeks for method
+
+Example logic:
+
+        review_notes = []
+
+        if oos_was_applied:
+            review_notes.append("OOS-adjusted history used")
+
+        if item_oos_weeks and not oos_was_applied:
+            review_notes.append("Too few clean weeks for OOS-adjusted forecast")
+
+        if demand_class == "smooth" and base_forecast > 0 and not allow_trend and item_oos_weeks:
+            review_notes.append("Trend suppressed due to recent OOS weeks")
+
+Then merge with existing profile.review_reason.
+
+Do not overwrite valid previous reason blindly.
+
+3.4 Fix date consistency in oos_demand_service.py
+
+Current bulk_get_oos_total_days() uses date.today() directly.
+Change it to use get_completed_week_cutoff() for consistency.
+
+Replace:
+
+    today = date.today()
+    window_start = today - timedelta(days=num_weeks * 7)
+
+with:
+
+    completed_week_cutoff = get_completed_week_cutoff()
+    today = completed_week_cutoff - timedelta(days=1)
+    window_start = completed_week_cutoff - timedelta(weeks=num_weeks)
+
+This keeps OOS windows aligned with the completed-week forecast logic.
+
+4) Keep SkuForecastResult as forecast output only in practice
+
+Do not drop columns now. That would be more invasive.
+But stop updating stock/order fields during forecast run.
+
+That means after the refactor:
+
+compute_base_forecasts() continues to update:
+base_forecast_weekly_qty
+trend_adjusted_weekly_qty
+hist_embedded_seasonal_index
+future_seasonal_index
+final_forecast_weekly_qty
+final_forecast_daily_qty
+forecast_change_pct
+calculated_at
+run_id
+It must not touch:
+cover_days
+lead_time_days
+review_cycle_days
+target_stock_qty
+on_hand_qty
+incoming_qty
+reserved_qty
+rounded_order_qty
+etc.
+
+That separation is enough for now.
+
+5) Build a new separate ordering refresh service
+
+Create new file:
+
+services/forecast/ordering_refresh_service.py
+
+This service should replace the use of services/forecast/replenishment_service.py inside the forecast pipeline.
+
+Use the same supplier / stock logic patterns already present in:
+
+services/forecast/replenishment_service.py
+blueprints/replenishment_mvp.py
+services/replenishment_mvp/planner.py
+
+Do not duplicate weird business rules in two places if avoidable. Extract shared helper logic where possible.
+
+5.1 Core function
+
+Add:
+
+def refresh_ordering_snapshot(session, item_codes=None, supplier_code=None, created_by=None, snapshot_type="manual"):
+    ...
+
+Behavior:
+
+Load latest SkuForecastResult
+Load latest SkuForecastProfile
+Load ForecastItemSupplierMap
+Load DwItem
+Fetch latest stock from PS365
+Compute ordering math
+Save one row per item into sku_ordering_snapshot
+5.2 Use per-item target_weeks_of_stock
+
+For each item:
+
+target_weeks = float(profile.target_weeks_of_stock or 4)
+weekly_forecast = float(result.final_forecast_weekly_qty or 0)
+daily_forecast = float(result.final_forecast_daily_qty or 0)
+lead_time = ...
+review_cycle = ...
+buffer_days = float(Setting.get(session, "forecast_buffer_stock_days", "1"))
+
+Use formula:
+
+base_target_stock = weekly_forecast * target_weeks
+lead_time_cover = daily_forecast * lead_time
+review_cycle_cover = daily_forecast * review_cycle
+buffer_stock = daily_forecast * buffer_days
+
+target_stock = base_target_stock + lead_time_cover + review_cycle_cover + buffer_stock
+net_available = on_hand + incoming - reserved
+raw_needed = max(0, target_stock - net_available)
+
+Then apply rounding:
+
+rounded = _ceil_to_multiple(raw_needed, order_multiple)
+rounded = _enforce_moq(rounded, min_order_qty)
+
+Save both raw and rounded quantities.
+
+5.3 Save explanation JSON
+
+Each ordering snapshot row should save a small JSON payload like:
+
+{
+    "formula_version": "weeks_of_stock_v1",
+    "base_target_stock": ...,
+    "lead_time_cover": ...,
+    "review_cycle_cover": ...,
+    "buffer_stock": ...,
+    "net_available": ...,
+    "oos_adjusted": bool(profile.oos_adjusted),
+    "oos_weeks_26": profile.oos_weeks_26,
+    "forecast_method": profile.forecast_method,
+    "forecast_confidence": profile.forecast_confidence,
+}
+
+This is useful for debugging and UI.
+
+6) Do not use compute_replenishment() in the forecast flow anymore
+
+Current file:
+services/forecast/replenishment_service.py
+
+Leave it for now if other screens still depend on it, but do not call it from execute_forecast_run().
+
+Later, once new ordering snapshots are stable, phase out old compute_replenishment() usage.
+
+7) Add API endpoint to refresh ordering manually
+
+File: blueprints/forecast_workbench.py
+
+Add a new POST route:
+
+@forecast_bp.route('/api/ordering/refresh', methods=['POST'])
+@admin_or_warehouse_required
+def api_refresh_ordering():
+    from services.forecast.ordering_refresh_service import refresh_ordering_snapshot
+
+    supplier_code = request.json.get('supplier_code') if request.is_json else request.form.get('supplier_code')
+    username = current_user.username
+
+    result = refresh_ordering_snapshot(
+        session=db.session,
+        supplier_code=supplier_code,
+        created_by=username,
+        snapshot_type="manual",
+    )
+    db.session.commit()
+    return jsonify({"status": "ok", **result})
+
+Return something like:
+
+{
+    "status": "ok",
+    "snapshot_count": 384,
+    "supplier_code": "10000001",
+    "created_at": "..."
+}
+8) Add API endpoint to update per-item weeks of stock
+
+Still in blueprints/forecast_workbench.py, add:
+
+@forecast_bp.route('/api/item/<item_code>/target-weeks', methods=['POST'])
+@admin_or_warehouse_required
+def api_update_target_weeks(item_code):
+    data = request.get_json(silent=True) or request.form
+    val = data.get('target_weeks_of_stock')
+
+    try:
+        target_weeks = float(val)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid target_weeks_of_stock"}), 400
+
+    if target_weeks < 0:
+        return jsonify({"error": "target_weeks_of_stock must be >= 0"}), 400
+
+    profile = SkuForecastProfile.query.get(item_code)
+    if not profile:
+        profile = SkuForecastProfile(item_code_365=item_code)
+        db.session.add(profile)
+
+    profile.target_weeks_of_stock = Decimal(str(round(target_weeks, 4)))
+    profile.target_weeks_updated_at = get_utc_now()
+    profile.target_weeks_updated_by = current_user.username
+
+    db.session.commit()
+    return jsonify({
+        "status": "ok",
+        "item_code": item_code,
+        "target_weeks_of_stock": float(profile.target_weeks_of_stock)
+    })
+
+This must persist permanently until changed again.
+
+9) Update the workbench item API to expose target weeks and latest ordering snapshot
+
+Current /api/items in blueprints/forecast_workbench.py joins SkuForecastResult and uses old order fields.
+
+Update it so it also pulls the latest row from sku_ordering_snapshot.
+
+Simplest approach first:
+
+add a subquery that finds max(snapshot_at) per item_code_365
+join to latest ordering snapshot
+
+Expose fields:
+
+target_weeks_of_stock
+latest_ordering_snapshot_at
+on_hand_qty
+incoming_qty
+reserved_qty
+net_available_qty
+target_stock_qty
+rounded_order_qty
+
+And keep forecast fields from SkuForecastResult.
+
+10) Update the workbench UI
+10.1 In supplier detail grid
+
+Template: templates/forecast_workbench/supplier_detail.html
+
+Add columns:
+
+Target Weeks
+Weekly Forecast
+Daily Forecast
+OOS Adj
+OOS Weeks 26W
+Stock
+Incoming
+Reserved
+Net Avail
+Target Stock
+Suggested Order
+Last Ordering Refresh
+
+Important:
+
+Suggested Order should come from latest sku_ordering_snapshot, not from sku_forecast_result.rounded_order_qty
+Target Weeks should be editable inline or through modal
+10.2 Add manual button
+
+Add a button at supplier level:
+
+Refresh Ordering for This Supplier
+
+This should call /forecast-workbench/api/ordering/refresh with supplier_code.
+
+Do not attach this to the forecast run button.
+
+10.3 Keep forecast run button separate
+
+Current /api/run should remain forecast-only.
+
+Button labels should become explicit:
+
+Run Forecast
+Refresh Ordering
+
+Do not mix them.
+
+10.4 Add inline editing for Target Weeks
+
+In item detail modal or row actions:
+
+show current target_weeks_of_stock
+allow edit
+save to /api/item/<item_code>/target-weeks
+
+Default remains 4.0.
+
+11) Update debug endpoint
+
+Current api_debug() still shows replenishment params from old logic.
+
+Update it so it shows two sections clearly:
+
+Forecast
+weekly history
+OOS weeks
+clean history used
+forecast method
+trend
+seasonality
+final weekly/daily forecast
+Ordering
+target weeks of stock
+lead time
+review cycle
+buffer days
+latest stock
+latest reserved
+latest incoming
+latest target stock
+latest suggested order
+latest snapshot time
+
+If there is no ordering snapshot yet, return "ordering_snapshot": null.
+
+12) Make existing supplier/order counts use latest ordering snapshot, not SkuForecastResult
+
+In blueprints/forecast_workbench.py, current supplier summary SQL uses:
+
+SUM(CASE WHEN r.rounded_order_qty > 0 THEN 1 ELSE 0 END) AS order_count
+COALESCE(SUM(r.rounded_order_qty), 0) AS total_order_qty
+
+That is no longer correct.
+
+Replace with latest ordering snapshot logic.
+Either:
+
+use a latest-snapshot CTE/subquery
+or temporarily drop supplier order KPIs until latest ordering snapshot join is in place
+
+Do not continue reading order quantities from sku_forecast_result.
+
+13) Scheduler behavior
+
+If there is any scheduled job calling execute_forecast_run(), leave it in place.
+
+But after this refactor:
+
+scheduled job = forecast only
+stock refresh / ordering = manual or separate scheduled job if needed later
+
+Do not refresh stock as part of forecast schedule.
+
+14) Backward compatibility and safe rollout
+Phase A
+
+Implement database changes and stop forecast run from calling replenishment.
+
+Phase B
+
+Create new ordering snapshot service and endpoint.
+
+Phase C
+
+Update UI to read order metrics from latest ordering snapshot.
+
+Phase D
+
+Optionally remove old result-level order fields from screens.
+
+Do not try to delete old columns yet.
+
+15) Specific files to modify
+Must change
+models.py
+services/forecast/run_service.py
+services/forecast/base_forecast_service.py
+services/forecast/oos_demand_service.py
+blueprints/forecast_workbench.py
+templates/forecast_workbench/supplier_detail.html
+New files
+services/forecast/ordering_refresh_service.py
+migrations/add_target_weeks_and_ordering_snapshot.py
+Likely update later
+any JS used by forecast workbench page
+any supplier summary SQL that still reads order qty from sku_forecast_result
+16) Acceptance criteria
+
+Implementation is correct only if all of the following are true:
+
+Clicking Run Forecast does not fetch live stock and does not compute suggested order.
+forecast_runs.current_step ends at base_forecast then completed.
+SkuForecastProfile.target_weeks_of_stock exists and defaults to 4.0.
+Editing target weeks on an item persists and remains after next forecast run.
+Clicking Refresh Ordering fetches latest stock and writes rows to sku_ordering_snapshot.
+Suggested order in UI comes from latest ordering snapshot, not sku_forecast_result.
+OOS adjustment still affects classification and forecasting.
+Trend is suppressed when recent calendar weeks are OOS-impacted.
+Forecast screens still show weekly forecast, trend, seasonality, confidence, OOS markers.
+Ordering can be refreshed repeatedly without rerunning forecast.
+17) Small cleanup you should also do
+
+In services/forecast/base_forecast_service.py, this line is suspicious:
+
+profile.seeded_cap_applied = cap_applied
+
+I do not see seeded_cap_applied defined on SkuForecastProfile in models.py.
+
+Either:
+
+add this field properly to the model and DB, or
+remove this assignment
+
+Do not leave undeclared ORM attributes pretending to be persisted.
+
+18) Final formula to use for ordering
+
+Use this formula exactly:
+
+base_target_stock = weekly_forecast * target_weeks_of_stock
+lead_time_cover = daily_forecast * lead_time_days
+review_cycle_cover = daily_forecast * review_cycle_days
+buffer_stock = daily_forecast * buffer_days
+
+target_stock_qty = base_target_stock + lead_time_cover + review_cycle_cover + buffer_stock
+net_available_qty = on_hand_qty + incoming_qty - reserved_qty
+raw_recommended_order_qty = max(0, target_stock_qty - net_available_qty)
+rounded_order_qty = ceil_to_multiple_then_apply_moq(raw_recommended_order_qty)
+
+This is the formula to expose in the UI and debug output.
