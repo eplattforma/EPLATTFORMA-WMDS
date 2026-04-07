@@ -92,18 +92,18 @@ def bulk_get_oos_weeks(session: Session, num_weeks: int = 26,
 
 
 def bulk_get_oos_total_days(session: Session, num_weeks: int = 8):
-    completed_week_cutoff = get_completed_week_cutoff()
-    window_start = completed_week_cutoff - timedelta(weeks=num_weeks)
+    today = date.today()
+    window_start = today - timedelta(days=num_weeks * 7)
 
     rows = session.execute(
         text("""
             SELECT item_code_365, COUNT(*) as oos_days
             FROM ps365_oos_777_daily
             WHERE snapshot_date >= :start
-              AND snapshot_date < :end
+              AND snapshot_date <= :today
             GROUP BY item_code_365
         """),
-        {"start": window_start, "end": completed_week_cutoff},
+        {"start": window_start, "today": today},
     ).fetchall()
 
     return {item_code: oos_days for item_code, oos_days in rows}
