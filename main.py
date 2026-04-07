@@ -82,6 +82,7 @@ def status_badge_filter(status_value):
     return f'<span class="badge {badge_class}"><i class="{icon} me-1"></i>{label}</span>'
 from update_schema_skipped_items import update_database_schema
 import logging
+from update_forecast_ordering_schema import update_forecast_ordering_schema
 from routes_batch import batch_bp
 from routes_help import help_bp
 from routes_delivery_issues import delivery_issues_bp
@@ -502,6 +503,12 @@ with app.app_context():
         logging.info("CRM offer intelligence schema updates completed")
     except Exception as e:
         logging.error(f"Error updating CRM offer schema: {e}")
+
+    try:
+        update_forecast_ordering_schema()
+        logging.info("Forecast ordering schema updates completed")
+    except Exception as e:
+        logging.error(f"Error updating forecast ordering schema: {e}")
 
     # Initialize remaining tables
     from app import db

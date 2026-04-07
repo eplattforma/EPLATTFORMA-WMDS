@@ -1,0 +1,254 @@
+❌ Critical problems (this is why DB / app breaks)
+❌ 1. Missing schema guard / migration (MAIN ISSUE)
+
+You added:
+
+new columns to sku_forecast_profile
+new table sku_ordering_snapshot
+
+BUT:
+
+➡️ There is NO startup schema updater
+➡️ And no safe migration logic
+
+Result
+
+On existing DB:
+
+Postgres does NOT have new columns
+Code tries to read/write them
+→ UndefinedColumn or ORM errors
+→ App fails to start or crashes during queries
+❌ 2. Model != DB mismatch (confirmed)
+
+You now have in code:
+
+profile.target_weeks_of_stock
+
+But DB likely does NOT have that column.
+
+Same for:
+
+profile.target_weeks_updated_at
+profile.target_weeks_updated_by
+
+And possibly:
+
+seeded_cap_applied
+
+➡️ This is the exact cause of “db not starting”
+
+❌ 3. SkuOrderingSnapshot creation relies on create_all()
+
+You are relying on:
+
+db.create_all()
+
+That only works if:
+
+DB is empty OR
+table does not exist
+
+BUT:
+
+It does NOT handle indexes properly in all cases
+It does NOT fix partial schemas
+It does NOT guarantee consistency
+❌ 4. Forecast UI / queries still mix old fields
+
+I see parts still referencing:
+
+SkuForecastResult.rounded_order_qty
+SkuForecastResult.target_stock_qty
+
+➡️ These should NOT be used anymore for ordering
+
+This creates:
+
+inconsistent UI
+wrong numbers
+confusion
+❌ 5. Ordering refresh may crash on missing forecast rows
+
+In ordering service:
+
+It assumes forecast exists for all items
+No fallback if missing
+
+➡️ Potential crash or partial results
+
+❌ 6. Trend + OOS improvements NOT implemented
+
+Your code still:
+
+uses generic >=4 clean weeks
+allows trend even when recent weeks are OOS
+
+➡️ This part of my instructions was NOT applied yet
+
+(Not breaking, but important)
+
+🔥 Root cause of your current failure
+This is the exact issue:
+
+You deployed code with new model fields but did not update the DB schema safely
+
+So Postgres is missing columns → ORM breaks → app “does not start”.
+
+✅ FIX — DO THIS FIRST (MANDATORY)
+Add schema updater (same pattern as your existing ones)
+
+Create file:
+
+update_forecast_ordering_schema.py
+
+Paste exactly:
+
+import logging
+from sqlalchemy import text
+from app import app, db
+
+def update_forecast_ordering_schema():
+    with app.app_context():
+        with db.engine.begin() as conn:
+
+            # ---------- PROFILE FIELDS ----------
+
+            def add_column_if_missing(table, column, ddl):
+                result = conn.execute(text(f"""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name='{table}'
+                      AND column_name='{column}'
+                """))
+                if not result.fetchone():
+                    conn.execute(text(ddl))
+                    logging.info(f"Added {table}.{column}")
+
+            add_column_if_missing(
+                "sku_forecast_profile",
+                "target_weeks_of_stock",
+                "ALTER TABLE sku_forecast_profile ADD COLUMN target_weeks_of_stock numeric(12,4) NOT NULL DEFAULT 4"
+            )
+
+            add_column_if_missing(
+                "sku_forecast_profile",
+                "target_weeks_updated_at",
+                "ALTER TABLE sku_forecast_profile ADD COLUMN target_weeks_updated_at timestamp null"
+            )
+
+            add_column_if_missing(
+                "sku_forecast_profile",
+                "target_weeks_updated_by",
+                "ALTER TABLE sku_forecast_profile ADD COLUMN target_weeks_updated_by varchar(100) null"
+            )
+
+            add_column_if_missing(
+                "sku_forecast_profile",
+                "seeded_cap_applied",
+                "ALTER TABLE sku_forecast_profile ADD COLUMN seeded_cap_applied boolean NOT NULL DEFAULT false"
+            )
+
+            # ---------- ORDERING SNAPSHOT TABLE ----------
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sku_ordering_snapshot (
+                    id bigserial primary key,
+                    item_code_365 varchar(64) not null,
+                    snapshot_type varchar(20) not null default 'manual',
+                    snapshot_at timestamp not null default now(),
+                    created_by varchar(100) null,
+
+                    forecast_run_id bigint null,
+                    forecast_calculated_at timestamp null,
+
+                    target_weeks_of_stock numeric(12,4) not null default 4,
+                    lead_time_days numeric(12,4) not null default 0,
+                    review_cycle_days numeric(12,4) not null default 1,
+                    buffer_days numeric(12,4) not null default 0,
+
+                    base_forecast_weekly_qty numeric(18,6) not null default 0,
+                    trend_adjusted_weekly_qty numeric(18,6) not null default 0,
+                    final_forecast_weekly_qty numeric(18,6) not null default 0,
+                    final_forecast_daily_qty numeric(18,6) not null default 0,
+
+                    on_hand_qty numeric(18,6) not null default 0,
+                    incoming_qty numeric(18,6) not null default 0,
+                    reserved_qty numeric(18,6) not null default 0,
+                    net_available_qty numeric(18,6) not null default 0,
+
+                    target_stock_qty numeric(18,6) not null default 0,
+                    raw_recommended_order_qty numeric(18,6) not null default 0,
+                    rounded_order_qty numeric(18,6) not null default 0,
+
+                    supplier_code varchar(50) null,
+                    order_multiple numeric(12,4) null,
+                    min_order_qty numeric(12,4) null,
+
+                    explanation_json jsonb null
+                )
+            """))
+
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_sku_ordering_snapshot_item_time
+                ON sku_ordering_snapshot (item_code_365, snapshot_at)
+            """))
+
+            logging.info("Forecast ordering schema update completed")
+Then register it in main.py
+
+Add:
+
+try:
+    from update_forecast_ordering_schema import update_forecast_ordering_schema
+    update_forecast_ordering_schema()
+except Exception as e:
+    logging.error(f"Error updating forecast ordering schema: {e}")
+Restart app
+
+This should immediately fix:
+
+DB startup failure
+missing column errors
+ordering snapshot creation issues
+⚠️ Next fixes (after DB is stable)
+1. Fix UI to use ordering snapshot
+
+Replace all usage of:
+
+SkuForecastResult.rounded_order_qty
+
+with:
+
+👉 latest SkuOrderingSnapshot
+
+2. Guard ordering service
+
+Add:
+
+if not forecast_result:
+    continue
+3. Apply OOS improvements (important later)
+method-specific minimum weeks
+suppress trend when recent OOS
+4. Clean this bug
+
+You currently set:
+
+profile.seeded_cap_applied = cap_applied
+
+Make sure:
+
+column exists (we added it)
+OR
+remove it
+🎯 Final assessment
+
+You are very close now.
+
+Architecture status
+
+✅ Correct direction
+✅ Clean separation started
+⚠️ DB migration missing (main issue)
+⚠️ UI still mixed
