@@ -339,7 +339,7 @@
                 </tr>
             </thead>
             <tbody id="forecastBody">
-                <tr><td colspan="22" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
+                <tr><td colspan="18" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -467,7 +467,7 @@
             })
             .catch(e => {
                 document.getElementById('forecastBody').innerHTML =
-                    '<tr><td colspan="22" class="text-center text-danger py-4">Error loading data</td></tr>';
+                    '<tr><td colspan="18" class="text-center text-danger py-4">Error loading data</td></tr>';
             });
     }
 
@@ -556,7 +556,7 @@
         const grouped = document.getElementById('groupByCategory').checked;
 
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="22" class="text-center text-muted py-4">No items match filters</td></tr>';
+            body.innerHTML = '<tr><td colspan="18" class="text-center text-muted py-4">No items match filters</td></tr>';
             return;
         }
 
@@ -568,7 +568,7 @@
                 const group = (it.category_name || it.category_code || 'Uncategorized') + ' / ' + (it.brand_name || it.brand_code || 'No Brand');
                 if (group !== lastGroup) {
                     lastGroup = group;
-                    html += `<tr class="group-header"><td colspan="22"><i class="fas fa-layer-group me-1"></i>${esc(group)}</td></tr>`;
+                    html += `<tr class="group-header"><td colspan="18"><i class="fas fa-layer-group me-1"></i>${esc(group)}</td></tr>`;
                 }
             }
             html += buildRow(it);
@@ -605,7 +605,7 @@
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
             <td>${seasonBadge}</td>
-            <td><small>${esc(it.forecast_method || '-')}</small></td>
+            <td><small>${esc(it.forecast_method || '-')}</small>${it.oos_weeks_26 > 0 ? ' <span class="badge bg-danger" style="font-size:0.55rem;vertical-align:middle" title="' + it.oos_weeks_26 + ' OOS week(s) in last 26w' + (it.oos_adjusted ? ' — forecast adjusted' : '') + '">OOS</span>' : ''}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
             <td class="num-col">${fmtNum(it.on_hand_qty)}</td>
@@ -783,9 +783,11 @@
             <tr><td class="label-col">Current Month Factor</td><td class="value-col">${fmtNum(res.future_seasonal_index, 2)}</td></tr>
             <tr><td class="label-col">Final vs Base</td><td class="value-col ${finalVsBase > 0 ? 'text-positive' : finalVsBase < 0 ? 'text-negative' : ''}">${fmtPct(finalVsBase)}</td></tr>
             <tr><td class="label-col">Vs Previous Run</td><td class="value-col ${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</td></tr>
+            ${(prof.oos_weeks_26 || 0) > 0 ? `<tr><td class="label-col">OOS Weeks (26w)</td><td class="value-col"><span class="badge bg-danger">${prof.oos_weeks_26}</span>${prof.oos_adjusted ? ' <span class="badge bg-info text-dark" style="font-size:0.65rem">Forecast adjusted</span>' : ''}</td></tr>` : ''}
         </table>
         <div style="background: rgba(255,255,255,0.04); padding: 0.6rem; border-radius: 0.25rem; font-size: 0.75rem; color: var(--bs-secondary); margin-bottom: 1rem;">
             ${explainDemand(prof)}
+            ${(prof.oos_weeks_26 || 0) > 0 ? '<br><strong style="color:#dc3545">⚠ OOS Impact:</strong> This item was out of stock for ' + prof.oos_weeks_26 + ' week(s) in the last 26 weeks.' + (prof.oos_adjusted ? ' The forecast excludes OOS-impacted weeks to avoid underestimating demand.' : ' Not enough clean weeks to adjust the forecast.') : ''}
         </div>
 
         <!-- REPLENISHMENT SECTION -->
@@ -815,6 +817,8 @@
                     <tr><td class="label-col">Std Non-Zero</td><td class="value-col">${fmtNum(prof.std_non_zero_26, 2)}</td></tr>
                     <tr><td class="label-col">Trend Adjusted/Wk</td><td class="value-col">${fmtNum(res.trend_adjusted_weekly_qty)}</td></tr>
                     <tr><td class="label-col">Hist Embedded Index</td><td class="value-col">${fmtNum(res.hist_embedded_seasonal_index, 3)}</td></tr>
+                    <tr><td class="label-col">OOS Weeks (26w)</td><td class="value-col">${(prof.oos_weeks_26 || 0) > 0 ? '<span class="badge bg-danger">' + prof.oos_weeks_26 + '</span>' : '0'}</td></tr>
+                    <tr><td class="label-col">OOS Adjusted</td><td class="value-col">${prof.oos_adjusted ? '<span class="badge bg-info text-dark">Yes</span>' : 'No'}</td></tr>
                 </table>
             </div>
         </div>
@@ -869,10 +873,8 @@
     }
 
     function renderHistoryChart(weeks) {
-        // Use weeks parameter or fall back to current setting
         const displayWeeks = weeks || currentChartWeeks;
         
-        // Ensure canvas element exists
         const canvasEl = document.getElementById('historyChart');
         if (!canvasEl) {
             console.warn('Chart canvas element not found');
@@ -886,23 +888,37 @@
         }
 
         if (historyChart) historyChart.destroy();
+        const existingLegend = canvasEl.parentElement.querySelector('.oos-chart-legend');
+        if (existingLegend) existingLegend.remove();
 
-        // Limit to requested weeks
         const displayedHistory = currentChartHistory.slice(-displayWeeks);
         const labels = displayedHistory.map(h => {
             const date = new Date(h.week_start);
             return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
         });
         const grossData = displayedHistory.map(h => h.gross_qty);
+        const oosDays = displayedHistory.map(h => h.oos_days || 0);
+        const hasOos = oosDays.some(d => d > 0);
         const res = currentChartResult;
         const finalFcst = res && res.final_forecast_weekly_qty ? res.final_forecast_weekly_qty : null;
+
+        const barColors = grossData.map((_, i) => {
+            if (oosDays[i] >= 3) return 'rgba(220, 53, 69, 0.7)';
+            if (oosDays[i] > 0) return 'rgba(255, 193, 7, 0.7)';
+            return 'rgba(13,110,253,0.6)';
+        });
+        const barBorders = grossData.map((_, i) => {
+            if (oosDays[i] >= 3) return 'rgba(220, 53, 69, 1)';
+            if (oosDays[i] > 0) return 'rgba(255, 193, 7, 1)';
+            return 'rgba(13,110,253,1)';
+        });
 
         const datasets = [
             {
                 label: 'Actual Sales',
                 data: grossData,
-                backgroundColor: 'rgba(13,110,253,0.6)',
-                borderColor: 'rgba(13,110,253,1)',
+                backgroundColor: barColors,
+                borderColor: barBorders,
                 borderWidth: 1.5,
                 type: 'bar',
                 barThickness: 'flex',
@@ -939,9 +955,28 @@
             });
         }
 
+        const oosBackgroundPlugin = {
+            id: 'oosBackground',
+            beforeDraw(chart) {
+                const { ctx, chartArea, scales } = chart;
+                if (!chartArea) return;
+                const xScale = scales.x;
+                oosDays.forEach((days, i) => {
+                    if (days <= 0) return;
+                    const x0 = xScale.getPixelForValue(i) - (xScale.getPixelForValue(1) - xScale.getPixelForValue(0)) / 2;
+                    const x1 = xScale.getPixelForValue(i) + (xScale.getPixelForValue(1) - xScale.getPixelForValue(0)) / 2;
+                    ctx.save();
+                    ctx.fillStyle = days >= 3 ? 'rgba(220, 53, 69, 0.08)' : 'rgba(255, 193, 7, 0.06)';
+                    ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
+                    ctx.restore();
+                });
+            }
+        };
+
         historyChart = new Chart(ctx, {
             type: 'bar',
             data: { labels, datasets },
+            plugins: hasOos ? [oosBackgroundPlugin] : [],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -963,7 +998,17 @@
                         bodyFont: { size: 10 },
                         padding: 8,
                         cornerRadius: 4,
-                        displayColors: true
+                        displayColors: true,
+                        callbacks: {
+                            afterBody: function(context) {
+                                const idx = context[0].dataIndex;
+                                const days = oosDays[idx];
+                                if (days > 0) {
+                                    return ['OOS: ' + days + ' day(s) this week' + (days >= 3 ? ' (forecast excluded)' : '')];
+                                }
+                                return [];
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -990,6 +1035,19 @@
                 }
             }
         });
+
+        if (hasOos) {
+            const legendEl = canvasEl.parentElement;
+            let oosLegend = legendEl.querySelector('.oos-chart-legend');
+            if (!oosLegend) {
+                oosLegend = document.createElement('div');
+                oosLegend.className = 'oos-chart-legend';
+                oosLegend.style.cssText = 'font-size:0.7rem; color:#adb5bd; margin-top:0.3rem; display:flex; gap:0.75rem;';
+                oosLegend.innerHTML = '<span><span style="display:inline-block;width:10px;height:10px;background:rgba(255,193,7,0.7);border-radius:2px;margin-right:3px;vertical-align:middle"></span>Partial OOS (1-2 days)</span>' +
+                    '<span><span style="display:inline-block;width:10px;height:10px;background:rgba(220,53,69,0.7);border-radius:2px;margin-right:3px;vertical-align:middle"></span>OOS 3+ days (excluded from forecast)</span>';
+                legendEl.appendChild(oosLegend);
+            }
+        }
     }
 
     const savedViewPresets = {

@@ -179,6 +179,26 @@ with app.app_context():
             logging.warning(f"Could not add cheque_payment_type_code_365 column: {str(e)}")
 
         try:
+            from sqlalchemy import text as _sa_text
+            with db.engine.connect() as conn:
+                for col_name, col_def in [
+                    ('oos_weeks_26', 'INTEGER NOT NULL DEFAULT 0'),
+                    ('oos_adjusted', 'BOOLEAN NOT NULL DEFAULT FALSE'),
+                ]:
+                    result = conn.execute(_sa_text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name='sku_forecast_profile' AND column_name=:col"
+                    ), {"col": col_name})
+                    if not result.fetchone():
+                        conn.execute(_sa_text(
+                            f"ALTER TABLE sku_forecast_profile ADD COLUMN {col_name} {col_def}"
+                        ))
+                        logging.info(f"Added {col_name} column to sku_forecast_profile")
+                conn.commit()
+        except Exception as e:
+            logging.warning(f"Could not add OOS columns to sku_forecast_profile: {str(e)}")
+
+        try:
             _sync_classification_images_to_db()
         except Exception as e:
             logging.warning(f"Could not sync classification images: {str(e)}")

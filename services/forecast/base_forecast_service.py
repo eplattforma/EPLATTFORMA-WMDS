@@ -383,10 +383,32 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
     group_baseline_cache = _preload_group_baselines(session, profiles, dw_item_cache)
     logger.info(f"Preloaded {len(group_baseline_cache)} group baselines")
 
+    try:
+        from services.forecast.oos_demand_service import bulk_get_oos_weeks, OOS_THRESHOLD_DAYS
+        oos_map = bulk_get_oos_weeks(session, 26, OOS_THRESHOLD_DAYS)
+        logger.info(f"OOS data loaded for base forecast: {len(oos_map)} items with OOS weeks")
+    except Exception as e:
+        logger.warning(f"Could not load OOS data for base forecast: {e}")
+        oos_map = {}
+
     for profile in profiles:
         item_code = profile.item_code_365
         demand_class = profile.demand_class
         weekly_qtys = sales_by_item.get(item_code, [])
+
+        item_oos_weeks = oos_map.get(item_code, set())
+        if item_oos_weeks and weekly_qtys:
+            week_starts_for_item = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(len(weekly_qtys))]
+            clean_qtys = [q for q, ws in zip(weekly_qtys, week_starts_for_item) if ws not in item_oos_weeks]
+            if len(clean_qtys) >= 4:
+                forecast_qtys = clean_qtys
+                oos_was_applied = True
+            else:
+                forecast_qtys = weekly_qtys
+                oos_was_applied = False
+        else:
+            forecast_qtys = weekly_qtys
+            oos_was_applied = False
 
         base_forecast = 0.0
         forecast_method = "ZERO"
@@ -398,20 +420,20 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         analogue_level = None
 
         if demand_class == "smooth":
-            base_forecast = _compute_ma8(weekly_qtys)
+            base_forecast = _compute_ma8(forecast_qtys)
             forecast_method = "MA8"
             forecast_confidence = "high"
         elif demand_class == "erratic":
-            base_forecast = _compute_ma8(weekly_qtys)
+            base_forecast = _compute_ma8(forecast_qtys)
             forecast_method = "MA8"
             forecast_confidence = "medium"
         elif demand_class in ("intermittent", "lumpy"):
-            base_forecast = _compute_median6(weekly_qtys)
+            base_forecast = _compute_median6(forecast_qtys)
             forecast_method = "MEDIAN6"
             forecast_confidence = "medium"
         elif demand_class == "new_sparse":
             base_forecast, analogue_level, analogue_item, forecast_confidence, cap_applied = _compute_seeded_forecast(
-                item_code, weekly_qtys, profile,
+                item_code, forecast_qtys, profile,
                 dw_item_cache=dw_item_cache,
                 group_baseline_cache=group_baseline_cache,
             )
@@ -423,6 +445,9 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
             forecast_method = "ZERO"
             forecast_confidence = "none"
 
+        if oos_was_applied:
+            forecast_method = forecast_method + "+OOS"
+
         profile.forecast_method = forecast_method
         profile.forecast_confidence = forecast_confidence
         profile.seed_source = seed_source
@@ -432,7 +457,7 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         trend_adjusted = base_forecast
 
         if demand_class == "smooth" and base_forecast > 0:
-            last2 = weekly_qtys[:2]
+            last2 = forecast_qtys[:2]
             avg_last2 = sum(last2) / len(last2) if last2 else 0.0
 
             if avg_last2 > base_forecast * uplift_trigger:

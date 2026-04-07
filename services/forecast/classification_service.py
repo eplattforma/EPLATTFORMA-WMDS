@@ -167,14 +167,40 @@ def classify_all_items(session: Session) -> int:
             sales_by_item[item_code] = {}
         sales_by_item[item_code][week_start] = float(gross_qty or 0)
 
+    try:
+        from services.forecast.oos_demand_service import bulk_get_oos_weeks, OOS_THRESHOLD_DAYS
+        oos_map = bulk_get_oos_weeks(session, WEEKS_WINDOW, OOS_THRESHOLD_DAYS)
+        logger.info(f"OOS data loaded: {len(oos_map)} items with OOS-impacted weeks")
+    except Exception as e:
+        logger.warning(f"Could not load OOS data for classification: {e}")
+        oos_map = {}
+
     for (item_code,) in items:
         item_sales = sales_by_item.get(item_code, {})
         weekly_qtys = []
+        week_starts = []
         ws = window_start
         while ws < completed_week_cutoff and len(weekly_qtys) < WEEKS_WINDOW:
             weekly_qtys.append(item_sales.get(ws, 0.0))
+            week_starts.append(ws)
             ws += timedelta(weeks=1)
-        profile = _compute_profile(weekly_qtys)
+
+        item_oos_weeks = oos_map.get(item_code, set())
+        oos_count = sum(1 for w in week_starts if w in item_oos_weeks)
+
+        if item_oos_weeks:
+            clean_qtys = [q for q, w in zip(weekly_qtys, week_starts) if w not in item_oos_weeks]
+            if len(clean_qtys) >= 4:
+                profile = _compute_profile(clean_qtys)
+                profile["oos_adjusted"] = True
+            else:
+                profile = _compute_profile(weekly_qtys)
+                profile["oos_adjusted"] = False
+        else:
+            profile = _compute_profile(weekly_qtys)
+            profile["oos_adjusted"] = False
+
+        profile["oos_weeks_26"] = oos_count
 
         existing = session.get(SkuForecastProfile, item_code)
         if existing:

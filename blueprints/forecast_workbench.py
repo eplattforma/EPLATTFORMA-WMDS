@@ -314,6 +314,8 @@ def api_items():
             'reserved_qty': _float(res.reserved_qty) if res else 0,
             'forecast_confidence': prof.forecast_confidence if prof else None,
             'seed_source': prof.seed_source if prof else None,
+            'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0 if prof else 0,
+            'oos_adjusted': getattr(prof, 'oos_adjusted', False) or False if prof else False,
         })
 
     return jsonify({'items': items, 'count': len(items)})
@@ -333,7 +335,9 @@ def api_item_detail(item_code):
     brand_obj = DwBrand.query.get(dw.brand_code_365) if dw.brand_code_365 else None
 
     weekly_history = []
+    oos_by_week = {}
     if prof:
+        from datetime import date, timedelta
         weeks = (
             FactSalesWeeklyItem.query
             .filter_by(item_code_365=item_code)
@@ -341,13 +345,33 @@ def api_item_detail(item_code):
             .limit(26)
             .all()
         )
-        for w in reversed(weeks):
+        sales_by_week = {}
+        for w in weeks:
+            sales_by_week[w.week_start.isoformat()] = w
+
+        try:
+            from services.forecast.oos_demand_service import get_oos_days_by_week
+            oos_weekly = get_oos_days_by_week(db.session, item_code, 26)
+            oos_by_week = {w["week_start"].isoformat(): w["oos_days"] for w in oos_weekly}
+        except Exception:
+            oos_by_week = {}
+
+        today = date.today()
+        current_monday = today - timedelta(days=today.weekday())
+        all_week_starts = []
+        for i in range(26):
+            ws = current_monday - timedelta(weeks=25 - i)
+            all_week_starts.append(ws.isoformat())
+
+        for ws_iso in all_week_starts:
+            w = sales_by_week.get(ws_iso)
             weekly_history.append({
-                'week_start': w.week_start.isoformat(),
-                'gross_qty': _float(w.gross_qty),
-                'net_qty': _float(w.net_qty),
-                'invoice_count': w.invoice_count,
-                'customer_count': w.customer_count,
+                'week_start': ws_iso,
+                'gross_qty': _float(w.gross_qty) if w else 0,
+                'net_qty': _float(w.net_qty) if w else 0,
+                'invoice_count': w.invoice_count if w else 0,
+                'customer_count': w.customer_count if w else 0,
+                'oos_days': oos_by_week.get(ws_iso, 0),
             })
 
     seasonality = []
@@ -403,6 +427,8 @@ def api_item_detail(item_code):
             'seasonality_confidence': prof.seasonality_confidence if prof else 'none',
             'review_flag': prof.review_flag if prof else False,
             'review_reason': prof.review_reason if prof else None,
+            'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0,
+            'oos_adjusted': getattr(prof, 'oos_adjusted', False) or False,
         } if prof else None,
         'result': {
             'base_forecast_weekly_qty': _float(res.base_forecast_weekly_qty),

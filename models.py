@@ -2811,6 +2811,8 @@ class SkuForecastProfile(db.Model):
     seed_source = db.Column(db.String(20), nullable=True)
     analogue_item_code = db.Column(db.String(64), nullable=True)
     analogue_level = db.Column(db.String(20), nullable=True)
+    oos_weeks_26 = db.Column(db.Integer, nullable=False, default=0)
+    oos_adjusted = db.Column(db.Boolean, nullable=False, default=False)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
