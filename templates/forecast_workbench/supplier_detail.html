@@ -55,11 +55,30 @@
         z-index: 2;
         border-bottom: 2px solid var(--bs-border-color);
         padding: 0.35rem 0.4rem;
+        text-align: left;
     }
     .forecast-table td {
         padding: 0.3rem 0.4rem;
         white-space: nowrap;
         vertical-align: middle;
+        text-align: left;
+    }
+    .forecast-table .num-col {
+        text-align: right;
+    }
+    .forecast-table th:first-child,
+    .forecast-table td:first-child {
+        padding-left: 0.15rem;
+        padding-right: 0.2rem;
+        width: 18px;
+    }
+    .forecast-table th:nth-child(3),
+    .forecast-table td:nth-child(3),
+    .forecast-table th:nth-child(4),
+    .forecast-table td:nth-child(4),
+    .forecast-table th:nth-child(5),
+    .forecast-table td:nth-child(5) {
+        padding-left: 0.25rem;
     }
     .forecast-table tr:hover {
         background: rgba(255,255,255,0.04);
