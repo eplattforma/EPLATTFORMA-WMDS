@@ -72,14 +72,6 @@
         padding-right: 0.2rem;
         width: 18px;
     }
-    .forecast-table th:nth-child(3),
-    .forecast-table td:nth-child(3),
-    .forecast-table th:nth-child(4),
-    .forecast-table td:nth-child(4),
-    .forecast-table th:nth-child(5),
-    .forecast-table td:nth-child(5) {
-        padding-left: 0.25rem;
-    }
     .forecast-table tr:hover {
         background: rgba(255,255,255,0.04);
     }
@@ -329,15 +321,12 @@
                     <th style="width:20px"></th>
                     <th>Item Code</th>
                     <th>Description</th>
-                    <th>Prefix</th>
-                    <th>Cat</th>
                     <th>Brand</th>
                     <th>Act</th>
                     <th>Demand</th>
                     <th>Trend</th>
                     <th>Season</th>
                     <th>Method</th>
-                    <th>26w History</th>
                     <th class="num-col">Base/Wk</th>
                     <th class="num-col">Final/Wk</th>
                     <th class="num-col" title="% change from previous forecast run">Chg%</th>
@@ -613,15 +602,12 @@
             <td>${reviewDot}</td>
             <td><code class="small">${esc(it.item_code)}</code></td>
             <td class="text-truncate" style="max-width:200px" title="${esc(it.item_name || '')}">${esc(it.item_name || '')}</td>
-            <td><small class="text-muted">${esc(it.prefix || '')}</small></td>
-            <td><small>${esc(it.category_name || it.category_code || '')}</small></td>
             <td><small>${esc(it.brand_name || it.brand_code || '')}</small></td>
             <td>${activeBadge}</td>
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
             <td>${seasonBadge}</td>
             <td><small>${esc(it.forecast_method || '-')}</small></td>
-            <td>${sparkline}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
             <td class="num-col ${chgClass(it.forecast_change_pct)}">${chgPct}</td>
