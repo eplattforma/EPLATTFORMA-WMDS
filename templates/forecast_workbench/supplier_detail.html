@@ -930,6 +930,14 @@
             return 'rgba(13,110,253,1)';
         });
 
+        const maxGross = Math.max(...grossData, 1);
+        const oosMarkerHeight = Math.max(maxGross * 0.04, 0.3);
+        const oosMarkerData = grossData.map((qty, i) => {
+            if (oosDays[i] > 0 && qty === 0) return oosMarkerHeight;
+            return null;
+        });
+        const hasOosMarkers = oosMarkerData.some(v => v !== null);
+
         const datasets = [
             {
                 label: 'Actual Sales',
@@ -942,6 +950,19 @@
                 maxBarThickness: 12,
             }
         ];
+
+        if (hasOosMarkers) {
+            datasets.push({
+                label: 'OOS (zero sales)',
+                data: oosMarkerData,
+                backgroundColor: 'rgba(220, 53, 69, 0.9)',
+                borderColor: 'rgba(220, 53, 69, 1)',
+                borderWidth: 1,
+                type: 'bar',
+                barThickness: 'flex',
+                maxBarThickness: 12,
+            });
+        }
 
         if (res && res.base_forecast_weekly_qty) {
             datasets.push({
