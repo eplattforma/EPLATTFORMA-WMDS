@@ -1,6 +1,7 @@
 import os
 import logging
 import atexit
+import threading
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
@@ -145,14 +146,17 @@ with app.app_context():
         from blueprints.cypost_api import cypost_bp
         app.register_blueprint(cypost_bp)
 
-        if not is_production:
-            db.create_all()
-            logging.info("Database tables created if they didn't exist")
-            
-            try:
-                _sync_classification_images_to_db()
-            except Exception as e:
-                logging.warning(f"Could not sync classification images: {str(e)}")
+        def _post_startup_setup():
+            if not is_production:
+                try:
+                    db.create_all()
+                    logging.info("Database tables created if they didn't exist")
+                except Exception as e:
+                    logging.warning(f"Could not create tables during startup: {str(e)}")
+                try:
+                    _sync_classification_images_to_db()
+                except Exception as e:
+                    logging.warning(f"Could not sync classification images: {str(e)}")
 
         # Only initialize default users and settings in development
         if not is_production:
@@ -256,6 +260,7 @@ with app.app_context():
             logging.info("Seeded oi_time_params_v1_revision = 1")
         
         db.session.commit()
+        threading.Thread(target=_post_startup_setup, daemon=True).start()
         
     except Exception as e:
         logging.error(f"Error during database initialization: {str(e)}")
