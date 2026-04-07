@@ -1,0 +1,308 @@
+1) Find the real startup file and wire the schema updater there
+
+Search the whole project for where the app actually starts. Check for files like:
+
+main.py
+app.py
+wsgi.py
+run.py
+gunicorn entrypoint
+.replit
+
+I need you to confirm which file is the true entrypoint. Add this log line at the very top of each possible startup file:
+
+import logging
+logging.warning("STARTUP FILE HIT: main.py")
+
+Change the text per file, for example:
+
+logging.warning("STARTUP FILE HIT: app.py")
+logging.warning("STARTUP FILE HIT: wsgi.py")
+
+Then restart and see which one appears in the logs.
+
+Important
+
+The schema updater must run in the actual startup path, before any route import or service import that queries forecast models.
+
+2) Run the schema updater before importing blueprints that use forecast models
+
+In the real startup file, move the schema updater so it runs immediately after app/db initialization and before importing forecast blueprints or services.
+
+Use this pattern:
+
+import logging
+
+from app import app, db
+
+try:
+    from update_forecast_ordering_schema import update_forecast_ordering_schema
+    logging.warning("Running forecast ordering schema updater...")
+    update_forecast_ordering_schema()
+    logging.warning("Forecast ordering schema updater completed")
+except Exception as e:
+    logging.exception("Forecast ordering schema updater failed")
+    raise
+
+Do not hide the failure with only logging.error. Use logging.exception(...); raise so we see the real cause.
+
+3) Temporarily stop importing the forecast workbench blueprint
+
+If startup still fails, comment out the forecast blueprint registration temporarily.
+
+Search for the blueprint registration, probably something like:
+
+app.register_blueprint(forecast_bp)
+
+Temporarily comment it out and restart.
+
+Why
+
+If the app starts after removing the blueprint, then a forecast route/query is touching a missing column during import time. That confirms the schema is still not being applied early enough.
+
+4) Add a one-time schema verification log after updater runs
+
+Right after update_forecast_ordering_schema(), run a verification query and print the results.
+
+Add:
+
+from sqlalchemy import text
+
+with app.app_context():
+    with db.engine.begin() as conn:
+        cols = conn.execute(text("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'sku_forecast_profile'
+              AND column_name IN (
+                'target_weeks_of_stock',
+                'target_weeks_updated_at',
+                'target_weeks_updated_by',
+                'seeded_cap_applied'
+              )
+            ORDER BY column_name
+        """)).fetchall()
+
+        logging.warning(f"sku_forecast_profile forecast columns found: {[r[0] for r in cols]}")
+
+        tbl = conn.execute(text("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_name = 'sku_ordering_snapshot'
+        """)).fetchall()
+
+        logging.warning(f"sku_ordering_snapshot table found: {bool(tbl)}")
+Expected log
+
+You must see all four columns and the table.
+
+If you do not see them, the updater is not running against the same DB the app uses.
+
+5) Confirm the app is using the expected database URL
+
+Log the DB connection target on startup:
+
+import os
+logging.warning(f"DATABASE_URL present: {bool(os.getenv('DATABASE_URL'))}")
+logging.warning(f"SQLALCHEMY_DATABASE_URI present: {bool(app.config.get('SQLALCHEMY_DATABASE_URI'))}")
+logging.warning(f"DB URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
+
+Mask password if needed, but print enough to confirm:
+
+host
+db name
+driver
+Why
+
+A very common issue is:
+
+updater runs on one DB
+app queries a different DB
+6) Do not rely on CREATE TABLE IF NOT EXISTS alone if the table was partially created
+
+If sku_ordering_snapshot was created earlier with the wrong structure, CREATE TABLE IF NOT EXISTS will not fix it.
+
+Add column-by-column guards for that table too.
+
+Update update_forecast_ordering_schema.py to include this helper:
+
+import logging
+from sqlalchemy import text
+from app import app, db
+
+def _column_exists(conn, table_name, column_name):
+    result = conn.execute(text(f"""
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = :table_name
+          AND column_name = :column_name
+        LIMIT 1
+    """), {"table_name": table_name, "column_name": column_name})
+    return result.fetchone() is not None
+
+def _add_column_if_missing(conn, table_name, column_name, ddl):
+    if not _column_exists(conn, table_name, column_name):
+        conn.execute(text(ddl))
+        logging.warning(f"Added {table_name}.{column_name}")
+
+Then after CREATE TABLE IF NOT EXISTS sku_ordering_snapshot (...), add:
+
+_add_column_if_missing(conn, "sku_ordering_snapshot", "snapshot_type",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN snapshot_type varchar(20) NOT NULL DEFAULT 'manual'")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "snapshot_at",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN snapshot_at timestamp NOT NULL DEFAULT now()")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "created_by",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN created_by varchar(100) null")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "forecast_run_id",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN forecast_run_id bigint null")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "forecast_calculated_at",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN forecast_calculated_at timestamp null")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "target_weeks_of_stock",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN target_weeks_of_stock numeric(12,4) NOT NULL DEFAULT 4")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "lead_time_days",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN lead_time_days numeric(12,4) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "review_cycle_days",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN review_cycle_days numeric(12,4) NOT NULL DEFAULT 1")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "buffer_days",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN buffer_days numeric(12,4) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "base_forecast_weekly_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN base_forecast_weekly_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "trend_adjusted_weekly_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN trend_adjusted_weekly_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "final_forecast_weekly_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN final_forecast_weekly_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "final_forecast_daily_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN final_forecast_daily_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "on_hand_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN on_hand_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "incoming_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN incoming_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "reserved_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN reserved_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "net_available_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN net_available_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "target_stock_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN target_stock_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "raw_recommended_order_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN raw_recommended_order_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "rounded_order_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN rounded_order_qty numeric(18,6) NOT NULL DEFAULT 0")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "supplier_code",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN supplier_code varchar(50) null")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "order_multiple",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN order_multiple numeric(12,4) null")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "min_order_qty",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN min_order_qty numeric(12,4) null")
+_add_column_if_missing(conn, "sku_ordering_snapshot", "explanation_json",
+    "ALTER TABLE sku_ordering_snapshot ADD COLUMN explanation_json jsonb null")
+
+And ensure index creation remains:
+
+conn.execute(text("""
+    CREATE INDEX IF NOT EXISTS ix_sku_ordering_snapshot_item_time
+    ON sku_ordering_snapshot (item_code_365, snapshot_at)
+"""))
+7) Add a safe fallback so model code does not crash before schema exists
+
+Temporarily guard any import-time forecast query.
+
+Search for any code that runs queries during import, such as:
+
+top-level querysets
+top-level .all(), .count(), .first()
+code inside module global scope
+
+Move all such queries inside functions/routes only.
+
+This is critical
+
+No DB query should happen at import time in:
+
+forecast blueprints
+ordering service
+workbench helpers
+8) Temporarily remove use of the new fields from list pages until schema is verified
+
+If the workbench page or API is doing something like:
+
+SkuForecastProfile.target_weeks_of_stock
+SkuOrderingSnapshot.rounded_order_qty
+
+before startup is stable, temporarily comment those out.
+
+Use only old fields for one restart, just to confirm startup is stable.
+
+Then re-enable step by step.
+
+9) Add a direct test route to verify schema from the running app
+
+Create a temporary route:
+
+from sqlalchemy import text
+from flask import jsonify
+
+@app.route("/debug/forecast-schema")
+def debug_forecast_schema():
+    with db.engine.begin() as conn:
+        cols = conn.execute(text("""
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_name IN ('sku_forecast_profile', 'sku_ordering_snapshot')
+            ORDER BY table_name, column_name
+        """)).fetchall()
+
+    return jsonify([{"table": r[0], "column": r[1]} for r in cols])
+
+Open that route after startup.
+
+If the route works, the schema exists in the running app’s DB.
+
+10) If startup still fails, print the exact exception and stop hiding it
+
+Replace any broad startup handler like:
+
+except Exception as e:
+    logging.error(f"Error updating forecast ordering schema: {e}")
+
+with:
+
+except Exception:
+    logging.exception("Error updating forecast ordering schema")
+    raise
+
+And do the same for blueprint imports if necessary.
+
+I need the exact stack trace, not the short message.
+
+11) Very likely final root cause
+
+Tell Replit this explicitly:
+
+The most likely issue is one of these three:
+
+the schema updater is in the wrong startup file,
+it runs too late, after forecast modules already query the DB,
+it is running against a different database than the app uses.
+
+That is where they need to focus.
+
+12) Minimal emergency recovery plan
+
+If they need the app up immediately:
+
+comment out forecast blueprint registration
+comment out ordering snapshot imports/usages
+start app
+run schema updater successfully
+verify columns/table through logs or /debug/forecast-schema
+re-enable forecast blueprint
+re-enable ordering snapshot logic
+
+Tell Replit not to “guess and retry”. They need to prove, in logs, all four of these:
+
+which startup file is actually running
+that schema updater runs before forecast imports
+that the target columns/table exist after updater
+that the app and updater point to the same DB
+
+Once they send you the exact stack trace or those four log outputs, I can pinpoint the remaining fault.

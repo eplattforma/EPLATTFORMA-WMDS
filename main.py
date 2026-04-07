@@ -1,7 +1,16 @@
 import os
 os.environ['TZ'] = 'Europe/Athens'
+import logging
 
 from app import app
+logging.warning("STARTUP FILE HIT: main.py")
+logging.warning(f"DATABASE_URL present: {bool(os.getenv('DATABASE_URL'))}")
+logging.warning(f"SQLALCHEMY_DATABASE_URI present: {bool(app.config.get('SQLALCHEMY_DATABASE_URI'))}")
+db_uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+if db_uri and '@' in db_uri:
+    left, right = db_uri.split('@', 1)
+    db_uri = left.split('://', 1)[0] + '://***:***@' + right
+logging.warning(f"DB URI: {db_uri}")
 
 # --- Defaults for NEW customers (override in Replit Secrets) ---
 DEFAULT_TERMS_CODE = os.getenv("DEFAULT_TERMS_CODE", "POD")      # e.g., "POD", "COD" or "NET30"
@@ -81,6 +90,7 @@ def status_badge_filter(status_value):
     
     return f'<span class="badge {badge_class}"><i class="{icon} me-1"></i>{label}</span>'
 from update_schema_skipped_items import update_database_schema
+from update_forecast_ordering_schema import update_forecast_ordering_schema
 import logging
 from update_forecast_ordering_schema import update_forecast_ordering_schema
 from routes_batch import batch_bp
@@ -208,6 +218,36 @@ app.register_blueprint(communications_bp)
 
 from blueprints.replenishment_mvp import replenishment_bp
 app.register_blueprint(replenishment_bp)
+
+try:
+    logging.warning("Running forecast ordering schema updater...")
+    update_forecast_ordering_schema()
+    logging.warning("Forecast ordering schema updater completed")
+    from sqlalchemy import text
+    with app.app_context():
+        with app.db.engine.begin() as conn:
+            cols = conn.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'sku_forecast_profile'
+                  AND column_name IN (
+                    'target_weeks_of_stock',
+                    'target_weeks_updated_at',
+                    'target_weeks_updated_by',
+                    'seeded_cap_applied'
+                  )
+                ORDER BY column_name
+            """)).fetchall()
+            logging.warning(f"sku_forecast_profile forecast columns found: {[r[0] for r in cols]}")
+            tbl = conn.execute(text("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_name = 'sku_ordering_snapshot'
+            """)).fetchall()
+            logging.warning(f"sku_ordering_snapshot table found: {bool(tbl)}")
+except Exception:
+    logging.exception("Forecast ordering schema updater failed")
+    raise
 
 from blueprints.forecast_workbench import forecast_bp
 app.register_blueprint(forecast_bp)
