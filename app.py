@@ -145,14 +145,14 @@ with app.app_context():
         from blueprints.cypost_api import cypost_bp
         app.register_blueprint(cypost_bp)
 
-        # Create all tables that don't yet exist
-        db.create_all()
-        logging.info("Database tables created if they didn't exist")
-        
-        try:
-            _sync_classification_images_to_db()
-        except Exception as e:
-            logging.warning(f"Could not sync classification images: {str(e)}")
+        if not is_production:
+            db.create_all()
+            logging.info("Database tables created if they didn't exist")
+            
+            try:
+                _sync_classification_images_to_db()
+            except Exception as e:
+                logging.warning(f"Could not sync classification images: {str(e)}")
 
         # Only initialize default users and settings in development
         if not is_production:
