@@ -267,6 +267,12 @@ def api_items():
 
     rows = q.order_by(DwItem.category_code_365, DwItem.brand_code_365, DwItem.item_code_365).all()
 
+    try:
+        from services.forecast.oos_demand_service import bulk_get_oos_total_days
+        oos_8w_map = bulk_get_oos_total_days(db.session, num_weeks=8)
+    except Exception:
+        oos_8w_map = {}
+
     items = []
     for dw, prof, res, smap, cat_name, brand_name in rows:
         item_prefix = extract_item_prefix(dw.item_code_365)
@@ -316,6 +322,7 @@ def api_items():
             'seed_source': prof.seed_source if prof else None,
             'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0 if prof else 0,
             'oos_adjusted': getattr(prof, 'oos_adjusted', False) or False if prof else False,
+            'oos_days_8w': oos_8w_map.get(dw.item_code_365, 0),
         })
 
     return jsonify({'items': items, 'count': len(items)})
