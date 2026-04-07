@@ -13,11 +13,12 @@ from flask_login import login_required, current_user
 from sqlalchemy import func, case, and_, or_, text
 
 from app import db
+from timezone_utils import get_utc_now
 from models import (
     DwItem, DwItemCategory, DwBrand, DwSeason,
     ForecastItemSupplierMap, FactSalesWeeklyItem,
     ForecastSeasonalityMonthly, SkuForecastProfile,
-    SkuForecastResult, ForecastRun, Setting,
+    SkuForecastResult, SkuOrderingSnapshot, ForecastRun, Setting,
     extract_item_prefix,
 )
 
@@ -112,14 +113,18 @@ def api_suppliers():
                 MAX(COALESCE(d.supplier_name, 'Unmapped Items')) AS supplier_name,
                 COUNT(p.item_code_365) AS active_skus,
                 SUM(CASE WHEN p.review_flag = TRUE THEN 1 ELSE 0 END) AS review_count,
-                SUM(CASE WHEN r.rounded_order_qty > 0 THEN 1 ELSE 0 END) AS order_count,
-                COALESCE(SUM(r.rounded_order_qty), 0) AS total_order_qty,
+                SUM(CASE WHEN os.rounded_order_qty > 0 THEN 1 ELSE 0 END) AS order_count,
+                COALESCE(SUM(os.rounded_order_qty), 0) AS total_order_qty,
                 SUM(CASE WHEN p.demand_class = 'smooth' THEN 1 ELSE 0 END) AS smooth_count,
                 SUM(CASE WHEN p.demand_class IN ('erratic','intermittent','lumpy') THEN 1 ELSE 0 END) AS irregular_count,
                 COALESCE(s.total_sales, 0) AS total_sales
             FROM sku_forecast_profile p
             JOIN ps_items_dw d ON d.item_code_365 = p.item_code_365
-            LEFT JOIN sku_forecast_result r ON r.item_code_365 = p.item_code_365
+            LEFT JOIN LATERAL (
+                SELECT rounded_order_qty FROM sku_ordering_snapshot oss
+                WHERE oss.item_code_365 = p.item_code_365
+                ORDER BY oss.snapshot_at DESC LIMIT 1
+            ) os ON TRUE
             LEFT JOIN (
                 SELECT COALESCE(d2.supplier_code_365, 'UNMAPPED') AS supplier_code,
                        SUM(f.sales_ex_vat) AS total_sales
@@ -145,14 +150,18 @@ def api_suppliers():
                     MAX(COALESCE(d.supplier_name, 'Unmapped Items')) AS supplier_name,
                     COUNT(p.item_code_365) AS active_skus,
                     SUM(CASE WHEN p.review_flag = TRUE THEN 1 ELSE 0 END) AS review_count,
-                    SUM(CASE WHEN r.rounded_order_qty > 0 THEN 1 ELSE 0 END) AS order_count,
-                    COALESCE(SUM(r.rounded_order_qty), 0) AS total_order_qty,
+                    SUM(CASE WHEN os.rounded_order_qty > 0 THEN 1 ELSE 0 END) AS order_count,
+                    COALESCE(SUM(os.rounded_order_qty), 0) AS total_order_qty,
                     SUM(CASE WHEN p.demand_class = 'smooth' THEN 1 ELSE 0 END) AS smooth_count,
                     SUM(CASE WHEN p.demand_class IN ('erratic','intermittent','lumpy') THEN 1 ELSE 0 END) AS irregular_count,
                     0 AS total_sales
                 FROM sku_forecast_profile p
                 JOIN ps_items_dw d ON d.item_code_365 = p.item_code_365
-                LEFT JOIN sku_forecast_result r ON r.item_code_365 = p.item_code_365
+                LEFT JOIN LATERAL (
+                    SELECT rounded_order_qty FROM sku_ordering_snapshot oss
+                    WHERE oss.item_code_365 = p.item_code_365
+                    ORDER BY oss.snapshot_at DESC LIMIT 1
+                ) os ON TRUE
                 GROUP BY COALESCE(d.supplier_code_365, 'UNMAPPED')
             """)
             rows = db.session.execute(sql_simple).fetchall()
@@ -252,8 +261,7 @@ def api_items():
         q = q.filter(SkuForecastProfile.seasonality_source == seasonality_source)
     if review_only == '1':
         q = q.filter(SkuForecastProfile.review_flag == True)
-    if order_only == '1':
-        q = q.filter(SkuForecastResult.rounded_order_qty > 0)
+    filter_order_only = order_only == '1'
     if active == '1':
         q = q.filter(DwItem.active == True)
     elif active == '0':
@@ -273,9 +281,19 @@ def api_items():
     except Exception:
         oos_8w_map = {}
 
+    item_codes_in_result = [r[0].item_code_365 for r in rows]
+    try:
+        from services.forecast.ordering_refresh_service import get_latest_snapshots
+        snap_map = get_latest_snapshots(db.session, item_codes=item_codes_in_result)
+    except Exception:
+        snap_map = {}
+
     items = []
     for dw, prof, res, smap, cat_name, brand_name in rows:
         item_prefix = extract_item_prefix(dw.item_code_365)
+        snap = snap_map.get(dw.item_code_365)
+        if filter_order_only and (not snap or _float(snap.rounded_order_qty) <= 0):
+            continue
         items.append({
             'item_code': dw.item_code_365,
             'item_name': dw.item_name,
@@ -306,18 +324,18 @@ def api_items():
             'final_forecast_weekly': _float(res.final_forecast_weekly_qty) if res else 0,
             'final_forecast_daily': _float(res.final_forecast_daily_qty) if res else 0,
             'forecast_change_pct': _float(res.forecast_change_pct) if res else None,
-            'on_hand_qty': _float(res.on_hand_qty) if res else 0,
-            'net_available_qty': _float(res.net_available_qty) if res else 0,
-            'cover_days': _float(res.cover_days) if res else 0,
-            'raw_order_qty': _float(res.raw_recommended_order_qty) if res else 0,
-            'rounded_order_qty': _float(res.rounded_order_qty) if res else 0,
-            'target_stock_qty': _float(res.target_stock_qty) if res else 0,
-            'buffer_stock_qty': _float(res.buffer_stock_qty) if res and hasattr(res, 'buffer_stock_qty') else (_float(res.safety_stock_qty) if res else 0),
-            'safety_stock_qty': _float(res.safety_stock_qty) if res else 0,
-            'lead_time_days': _float(res.lead_time_days) if res else 0,
-            'review_cycle_days': _float(res.review_cycle_days) if res else 0,
-            'incoming_qty': _float(res.incoming_qty) if res else 0,
-            'reserved_qty': _float(res.reserved_qty) if res else 0,
+            'target_weeks_of_stock': _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0,
+            'on_hand_qty': _float(snap.on_hand_qty) if snap else 0,
+            'net_available_qty': _float(snap.net_available_qty) if snap else 0,
+            'raw_order_qty': _float(snap.raw_recommended_order_qty) if snap else 0,
+            'rounded_order_qty': _float(snap.rounded_order_qty) if snap else 0,
+            'target_stock_qty': _float(snap.target_stock_qty) if snap else 0,
+            'buffer_stock_qty': _float(snap.buffer_days) if snap else 0,
+            'lead_time_days': _float(snap.lead_time_days) if snap else 0,
+            'review_cycle_days': _float(snap.review_cycle_days) if snap else 0,
+            'incoming_qty': _float(snap.incoming_qty) if snap else 0,
+            'reserved_qty': _float(snap.reserved_qty) if snap else 0,
+            'ordering_snapshot_at': snap.snapshot_at.isoformat() + 'Z' if snap and snap.snapshot_at else None,
             'forecast_confidence': prof.forecast_confidence if prof else None,
             'seed_source': prof.seed_source if prof else None,
             'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0 if prof else 0,
@@ -436,6 +454,8 @@ def api_item_detail(item_code):
             'review_reason': prof.review_reason if prof else None,
             'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0,
             'oos_adjusted': getattr(prof, 'oos_adjusted', False) or False,
+            'target_weeks_of_stock': _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0,
+            'forecast_confidence': prof.forecast_confidence if prof else None,
         } if prof else None,
         'result': {
             'base_forecast_weekly_qty': _float(res.base_forecast_weekly_qty),
@@ -444,18 +464,6 @@ def api_item_detail(item_code):
             'future_seasonal_index': _float(res.future_seasonal_index),
             'final_forecast_weekly_qty': _float(res.final_forecast_weekly_qty),
             'final_forecast_daily_qty': _float(res.final_forecast_daily_qty),
-            'cover_days': _float(res.cover_days),
-            'lead_time_days': _float(res.lead_time_days),
-            'review_cycle_days': _float(res.review_cycle_days),
-            'buffer_stock_qty': _float(res.buffer_stock_qty) if hasattr(res, 'buffer_stock_qty') else _float(res.safety_stock_qty),
-            'safety_stock_qty': _float(res.safety_stock_qty),
-            'target_stock_qty': _float(res.target_stock_qty),
-            'on_hand_qty': _float(res.on_hand_qty),
-            'incoming_qty': _float(res.incoming_qty),
-            'reserved_qty': _float(res.reserved_qty),
-            'net_available_qty': _float(res.net_available_qty),
-            'raw_recommended_order_qty': _float(res.raw_recommended_order_qty),
-            'rounded_order_qty': _float(res.rounded_order_qty),
             'forecast_change_pct': _float(res.forecast_change_pct),
             'calculated_at': res.calculated_at.isoformat() if res.calculated_at else None,
             'run_id': res.run_id,
@@ -463,6 +471,26 @@ def api_item_detail(item_code):
         'weekly_history': weekly_history,
         'seasonality': seasonality,
     }
+
+    latest_snap = (
+        db.session.query(SkuOrderingSnapshot)
+        .filter_by(item_code_365=item_code)
+        .order_by(SkuOrderingSnapshot.snapshot_at.desc())
+        .first()
+    )
+    if latest_snap:
+        result['ordering_snapshot_at'] = latest_snap.snapshot_at.isoformat() + 'Z' if latest_snap.snapshot_at else None
+        result['result']['on_hand_qty'] = _float(latest_snap.on_hand_qty)
+        result['result']['net_available_qty'] = _float(latest_snap.net_available_qty)
+        result['result']['target_stock_qty'] = _float(latest_snap.target_stock_qty)
+        result['result']['raw_recommended_order_qty'] = _float(latest_snap.raw_recommended_order_qty)
+        result['result']['rounded_order_qty'] = _float(latest_snap.rounded_order_qty)
+    elif result.get('result'):
+        result['result']['on_hand_qty'] = 0
+        result['result']['net_available_qty'] = 0
+        result['result']['target_stock_qty'] = 0
+        result['result']['raw_recommended_order_qty'] = 0
+        result['result']['rounded_order_qty'] = 0
 
     return jsonify(result)
 
@@ -565,6 +593,89 @@ def api_run_status():
     })
 
 
+@forecast_bp.route('/api/ordering/refresh', methods=['POST'])
+@admin_or_warehouse_required
+def api_ordering_refresh():
+    import threading
+    supplier = request.json.get('supplier_code') if request.is_json else request.form.get('supplier_code')
+    username = current_user.username
+
+    def _run_ordering(app, username, supplier_code):
+        with app.app_context():
+            try:
+                from services.forecast.ordering_refresh_service import refresh_ordering_snapshot
+                from sqlalchemy.orm import sessionmaker
+                SessionLocal = sessionmaker(bind=db.engine)
+                session = SessionLocal()
+                try:
+                    refresh_ordering_snapshot(
+                        session=session,
+                        supplier_code=supplier_code,
+                        created_by=username,
+                    )
+                    session.commit()
+                finally:
+                    session.close()
+            except Exception:
+                logger.exception("Background ordering refresh failed")
+
+    t = threading.Thread(
+        target=_run_ordering,
+        args=(current_app._get_current_object(), username, supplier),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({'status': 'started', 'supplier_code': supplier})
+
+
+@forecast_bp.route('/api/item/<item_code>/target-weeks', methods=['POST'])
+@admin_or_warehouse_required
+def api_set_target_weeks(item_code):
+    prof = SkuForecastProfile.query.get(item_code)
+    if not prof:
+        return jsonify({'error': 'Profile not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    target_weeks = data.get('target_weeks_of_stock')
+    if target_weeks is None:
+        return jsonify({'error': 'target_weeks_of_stock is required'}), 400
+
+    try:
+        target_weeks = float(target_weeks)
+        if target_weeks < 0 or target_weeks > 52:
+            return jsonify({'error': 'target_weeks_of_stock must be between 0 and 52'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid value for target_weeks_of_stock'}), 400
+
+    prof.target_weeks_of_stock = Decimal(str(round(target_weeks, 4)))
+    prof.target_weeks_updated_at = get_utc_now()
+    prof.target_weeks_updated_by = current_user.username
+    db.session.commit()
+
+    return jsonify({
+        'status': 'ok',
+        'item_code': item_code,
+        'target_weeks_of_stock': float(prof.target_weeks_of_stock),
+    })
+
+
+@forecast_bp.route('/api/ordering/status')
+@admin_or_warehouse_required
+def api_ordering_status():
+    latest = (
+        db.session.query(SkuOrderingSnapshot)
+        .order_by(SkuOrderingSnapshot.snapshot_at.desc())
+        .first()
+    )
+    if not latest:
+        return jsonify({'status': 'none'})
+    return jsonify({
+        'status': 'completed',
+        'snapshot_at': latest.snapshot_at.isoformat() + 'Z' if latest.snapshot_at else None,
+        'created_by': latest.created_by,
+    })
+
+
 @forecast_bp.route('/api/seasonality/<item_code>')
 @admin_or_warehouse_required
 def api_seasonality(item_code):
@@ -616,6 +727,13 @@ def api_export_supplier(supplier_code):
 
     rows = q.all()
 
+    item_codes = [dw.item_code_365 for dw, _, _ in rows]
+    try:
+        from services.forecast.ordering_refresh_service import get_latest_snapshots
+        snap_map = get_latest_snapshots(db.session, item_codes=item_codes)
+    except Exception:
+        snap_map = {}
+
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
@@ -623,12 +741,13 @@ def api_export_supplier(supplier_code):
         'Demand Class', 'Forecast Method', 'Trend Flag',
         'Seasonality Source', 'Review Flag', 'Review Reason',
         'Base Forecast/Wk', 'Final Forecast/Wk', 'Final Forecast/Day',
-        'Forecast Change %',
-        'On Hand', 'Net Available', 'Cover Days',
+        'Forecast Change %', 'Target Weeks',
+        'On Hand', 'Net Available',
         'Case Qty', 'MOQ', 'Raw Order Qty', 'Rounded Order Qty',
     ])
 
     for dw, prof, res in rows:
+        snap = snap_map.get(dw.item_code_365)
         writer.writerow([
             dw.item_code_365,
             dw.item_name,
@@ -646,13 +765,13 @@ def api_export_supplier(supplier_code):
             _float(res.final_forecast_weekly_qty) if res else 0,
             _float(res.final_forecast_daily_qty) if res else 0,
             _float(res.forecast_change_pct) if res else '',
-            _float(res.on_hand_qty) if res else 0,
-            _float(res.net_available_qty) if res else 0,
-            _float(res.cover_days) if res else 0,
+            _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0,
+            _float(snap.on_hand_qty) if snap else 0,
+            _float(snap.net_available_qty) if snap else 0,
             dw.case_qty or '',
             dw.min_order_qty or '',
-            _float(res.raw_recommended_order_qty) if res else 0,
-            _float(res.rounded_order_qty) if res else 0,
+            _float(snap.raw_recommended_order_qty) if snap else 0,
+            _float(snap.rounded_order_qty) if snap else 0,
         ])
 
     filename = f"forecast_export_{supplier_code}_{date.today().isoformat()}.csv"
@@ -854,6 +973,15 @@ def api_debug(item_code):
     if smap and smap.review_cycle_days is not None:
         review_cycle = float(smap.review_cycle_days)
 
+    target_weeks = _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0
+
+    latest_snap = (
+        db.session.query(SkuOrderingSnapshot)
+        .filter_by(item_code_365=item_code)
+        .order_by(SkuOrderingSnapshot.snapshot_at.desc())
+        .first()
+    )
+
     debug = {
         'item_code': item_code,
         'item_name': dw.item_name,
@@ -889,6 +1017,9 @@ def api_debug(item_code):
             'cv2_26': _float(prof.cv2_26) if prof else None,
             'seasonality_source': prof.seasonality_source if prof else None,
             'seasonality_confidence': prof.seasonality_confidence if prof else None,
+            'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0 if prof else 0,
+            'oos_adjusted': getattr(prof, 'oos_adjusted', False) or False if prof else False,
+            'target_weeks_of_stock': target_weeks,
         } if prof else None,
         'stored_result': {
             'base_forecast_weekly_qty': _float(res.base_forecast_weekly_qty),
@@ -897,31 +1028,37 @@ def api_debug(item_code):
             'final_forecast_daily_qty': _float(res.final_forecast_daily_qty),
             'hist_embedded_seasonal_index': _float(res.hist_embedded_seasonal_index),
             'future_seasonal_index': _float(res.future_seasonal_index),
-            'cover_days': _float(res.cover_days),
-            'lead_time_days': _float(res.lead_time_days),
-            'review_cycle_days': _float(res.review_cycle_days),
-            'buffer_stock_qty': _float(res.buffer_stock_qty) if hasattr(res, 'buffer_stock_qty') else _float(res.safety_stock_qty),
-            'safety_stock_qty': _float(res.safety_stock_qty),
-            'target_stock_qty': _float(res.target_stock_qty),
-            'on_hand_qty': _float(res.on_hand_qty),
-            'incoming_qty': _float(res.incoming_qty),
-            'reserved_qty': _float(res.reserved_qty),
-            'net_available_qty': _float(res.net_available_qty),
-            'raw_recommended_order_qty': _float(res.raw_recommended_order_qty),
-            'rounded_order_qty': _float(res.rounded_order_qty),
             'forecast_change_pct': _float(res.forecast_change_pct),
         } if res else None,
-        'replenishment_params': {
-            'cover_days': cover_days,
+        'ordering_snapshot': {
+            'snapshot_at': latest_snap.snapshot_at.isoformat() + 'Z' if latest_snap and latest_snap.snapshot_at else None,
+            'created_by': latest_snap.created_by if latest_snap else None,
+            'target_weeks_of_stock': _float(latest_snap.target_weeks_of_stock) if latest_snap else target_weeks,
+            'lead_time_days': _float(latest_snap.lead_time_days) if latest_snap else lead_time,
+            'review_cycle_days': _float(latest_snap.review_cycle_days) if latest_snap else review_cycle,
+            'buffer_days': _float(latest_snap.buffer_days) if latest_snap else buffer_days,
+            'target_stock_qty': _float(latest_snap.target_stock_qty) if latest_snap else 0,
+            'on_hand_qty': _float(latest_snap.on_hand_qty) if latest_snap else 0,
+            'incoming_qty': _float(latest_snap.incoming_qty) if latest_snap else 0,
+            'reserved_qty': _float(latest_snap.reserved_qty) if latest_snap else 0,
+            'net_available_qty': _float(latest_snap.net_available_qty) if latest_snap else 0,
+            'raw_recommended_order_qty': _float(latest_snap.raw_recommended_order_qty) if latest_snap else 0,
+            'rounded_order_qty': _float(latest_snap.rounded_order_qty) if latest_snap else 0,
+            'explanation': latest_snap.explanation_json if latest_snap else None,
+        },
+        'ordering_params': {
+            'target_weeks_of_stock': target_weeks,
             'lead_time_days': lead_time,
             'review_cycle_days': review_cycle,
             'buffer_days': buffer_days,
-            'total_cover_days': cover_days + lead_time + review_cycle,
         },
         'formulas': {
             'daily_forecast': 'final_forecast_weekly_qty / 7',
+            'base_target_stock': f'weekly_forecast × {target_weeks} target weeks',
+            'lead_time_cover': f'daily_forecast × {lead_time} LT days',
+            'review_cycle_cover': f'daily_forecast × {review_cycle} RC days',
             'buffer_stock': f'daily_forecast × {buffer_days} buffer days',
-            'target_stock': f'daily_forecast × (cover {cover_days} + LT {lead_time} + RC {review_cycle}) + buffer',
+            'target_stock': 'base_target + lead_time_cover + review_cycle_cover + buffer',
             'net_available': 'on_hand + incoming - reserved',
             'raw_order': 'max(0, target_stock - net_available)',
             'rounded_order': 'ceil_to_case_qty, enforce MOQ',

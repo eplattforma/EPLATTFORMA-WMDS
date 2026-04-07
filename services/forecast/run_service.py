@@ -14,7 +14,6 @@ from services.forecast.weekly_sales_builder import build_weekly_sales, update_we
 from services.forecast.seasonality_service import compute_seasonal_indices
 from services.forecast.classification_service import classify_all_items
 from services.forecast.base_forecast_service import compute_base_forecasts
-from services.forecast.replenishment_service import compute_replenishment
 from services.forecast.week_utils import get_completed_week_cutoff
 
 logger = logging.getLogger(__name__)
@@ -120,7 +119,7 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
     try:
         current_step = "weekly_sales"
         _heartbeat(run_id, current_step, "Building weekly sales")
-        logger.info(f"[Run {run_id}] Step 1/5: Building weekly sales")
+        logger.info(f"[Run {run_id}] Step 1/4: Building weekly sales")
 
         build_weekly_sales(session, weeks_back=52, progress_callback=_make_hb_callback(current_step))
 
@@ -141,7 +140,7 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
 
         current_step = "seasonality"
         _heartbeat(run_id, current_step, "Computing seasonal indices")
-        logger.info(f"[Run {run_id}] Step 2/5: Computing seasonal indices")
+        logger.info(f"[Run {run_id}] Step 2/4: Computing seasonal indices")
         compute_seasonal_indices(session)
         session.commit()
         session.expire_all()
@@ -149,7 +148,7 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
 
         current_step = "classification"
         _heartbeat(run_id, current_step, "Classifying items")
-        logger.info(f"[Run {run_id}] Step 3/5: Classifying all items")
+        logger.info(f"[Run {run_id}] Step 3/4: Classifying all items")
         sku_count = classify_all_items(session)
         session.commit()
         session.expire_all()
@@ -157,19 +156,11 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
 
         current_step = "base_forecast"
         _heartbeat(run_id, current_step, "Computing base forecasts")
-        logger.info(f"[Run {run_id}] Step 4/5: Computing base forecasts")
+        logger.info(f"[Run {run_id}] Step 4/4: Computing base forecasts")
         compute_base_forecasts(session, run_id=run_id, progress_callback=_make_hb_callback(current_step))
         session.commit()
         session.expire_all()
         _heartbeat(run_id, current_step, "Base forecasts completed")
-
-        current_step = "replenishment"
-        _heartbeat(run_id, current_step, "Computing replenishment")
-        logger.info(f"[Run {run_id}] Step 5/5: Computing replenishment")
-        compute_replenishment(session, run_id=run_id, progress_callback=_make_hb_callback(current_step))
-        session.commit()
-        session.expire_all()
-        _heartbeat(run_id, current_step, "Replenishment completed")
 
         current_step = "finalizing"
         _heartbeat(run_id, current_step, "Finalizing forecast run")

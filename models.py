@@ -2813,7 +2813,52 @@ class SkuForecastProfile(db.Model):
     analogue_level = db.Column(db.String(20), nullable=True)
     oos_weeks_26 = db.Column(db.Integer, nullable=False, default=0)
     oos_adjusted = db.Column(db.Boolean, nullable=False, default=False)
+    target_weeks_of_stock = db.Column(db.Numeric(12, 4), nullable=False, default=4)
+    target_weeks_updated_at = db.Column(db.DateTime, nullable=True)
+    target_weeks_updated_by = db.Column(db.String(100), nullable=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class SkuOrderingSnapshot(db.Model):
+    __tablename__ = "sku_ordering_snapshot"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    item_code_365 = db.Column(db.String(64), nullable=False, index=True)
+    snapshot_type = db.Column(db.String(20), nullable=False, default="manual")
+    snapshot_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    created_by = db.Column(db.String(100), nullable=True)
+
+    forecast_run_id = db.Column(db.BigInteger, nullable=True)
+    forecast_calculated_at = db.Column(db.DateTime, nullable=True)
+
+    target_weeks_of_stock = db.Column(db.Numeric(12, 4), nullable=False, default=4)
+    lead_time_days = db.Column(db.Numeric(12, 4), nullable=False, default=0)
+    review_cycle_days = db.Column(db.Numeric(12, 4), nullable=False, default=1)
+    buffer_days = db.Column(db.Numeric(12, 4), nullable=False, default=0)
+
+    base_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    trend_adjusted_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    final_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    final_forecast_daily_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+
+    on_hand_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    incoming_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    reserved_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    net_available_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+
+    target_stock_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    raw_recommended_order_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+    rounded_order_qty = db.Column(db.Numeric(18, 6), nullable=False, default=0)
+
+    supplier_code = db.Column(db.String(50), nullable=True)
+    order_multiple = db.Column(db.Numeric(12, 4), nullable=True)
+    min_order_qty = db.Column(db.Numeric(12, 4), nullable=True)
+
+    explanation_json = db.Column(db.JSON, nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_sku_ordering_snapshot_item_time', 'item_code_365', 'snapshot_at'),
+    )
 
 
 class SkuForecastResult(db.Model):

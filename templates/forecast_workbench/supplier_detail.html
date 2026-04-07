@@ -330,9 +330,9 @@
                     <th class="num-col" title="OOS days in the 8-week forecast window (max 56)">OOS 8w</th>
                     <th class="num-col">Base/Wk</th>
                     <th class="num-col">Final/Wk</th>
+                    <th class="num-col" title="Target weeks of stock">Tgt Wks</th>
                     <th class="num-col">On Hand</th>
                     <th class="num-col">Net Avail</th>
-                    <th class="num-col">Cover</th>
                     <th class="num-col">MOQ</th>
                     <th class="num-col">Case</th>
                     <th class="num-col">Raw Ord</th>
@@ -340,7 +340,7 @@
                 </tr>
             </thead>
             <tbody id="forecastBody">
-                <tr><td colspan="19" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
+                <tr><td colspan="20" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -468,7 +468,7 @@
             })
             .catch(e => {
                 document.getElementById('forecastBody').innerHTML =
-                    '<tr><td colspan="19" class="text-center text-danger py-4">Error loading data</td></tr>';
+                    '<tr><td colspan="20" class="text-center text-danger py-4">Error loading data</td></tr>';
             });
     }
 
@@ -557,7 +557,7 @@
         const grouped = document.getElementById('groupByCategory').checked;
 
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="19" class="text-center text-muted py-4">No items match filters</td></tr>';
+            body.innerHTML = '<tr><td colspan="20" class="text-center text-muted py-4">No items match filters</td></tr>';
             return;
         }
 
@@ -569,7 +569,7 @@
                 const group = (it.category_name || it.category_code || 'Uncategorized') + ' / ' + (it.brand_name || it.brand_code || 'No Brand');
                 if (group !== lastGroup) {
                     lastGroup = group;
-                    html += `<tr class="group-header"><td colspan="19"><i class="fas fa-layer-group me-1"></i>${esc(group)}</td></tr>`;
+                    html += `<tr class="group-header"><td colspan="20"><i class="fas fa-layer-group me-1"></i>${esc(group)}</td></tr>`;
                 }
             }
             html += buildRow(it);
@@ -610,9 +610,12 @@
             <td class="num-col">${formatOosDays8w(it.oos_days_8w || 0)}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
+            <td class="num-col">
+                <span class="target-weeks-display" data-item="${esc(it.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666;" title="Click to edit target weeks"
+                      onclick="editTargetWeeks(this, '${esc(it.item_code)}', ${it.target_weeks_of_stock || 4})">${fmtNum(it.target_weeks_of_stock || 4, 1)}</span>
+            </td>
             <td class="num-col">${fmtNum(it.on_hand_qty)}</td>
             <td class="num-col">${fmtNum(it.net_available_qty)}</td>
-            <td class="num-col">${fmtNum(it.cover_days, 0)}</td>
             <td class="num-col">${it.min_order_qty || '-'}</td>
             <td class="num-col">${it.case_qty || '-'}</td>
             <td class="num-col">${fmtNum(it.raw_order_qty)}</td>
@@ -807,15 +810,20 @@
             ${(prof.oos_weeks_26 || 0) > 0 ? '<br><strong style="color:#dc3545">⚠ OOS Impact:</strong> This item was out of stock for ' + prof.oos_weeks_26 + ' week(s) in the last 26 weeks.' + (prof.oos_adjusted ? ' The forecast excludes OOS-impacted weeks to avoid underestimating demand.' : ' Not enough clean weeks to adjust the forecast.') : ''}
         </div>
 
-        <!-- REPLENISHMENT SECTION -->
-        <div class="section-title">Replenishment</div>
+        <!-- ORDERING SECTION -->
+        <div class="section-title">Ordering</div>
         <table class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
+            <tr><td class="label-col">Target Weeks</td><td class="value-col">
+                <span class="target-weeks-drawer" data-item="${esc(data.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666;"
+                      onclick="editTargetWeeks(this, '${esc(data.item_code)}', ${prof.target_weeks_of_stock || 4})">${fmtNum(prof.target_weeks_of_stock || 4, 1)}</span>
+            </td></tr>
             <tr><td class="label-col">On Hand</td><td class="value-col">${fmtNum(res.on_hand_qty, 0)}</td></tr>
             <tr><td class="label-col">Net Available</td><td class="value-col">${fmtNum(res.net_available_qty, 0)}</td></tr>
             <tr><td class="label-col">Target Stock</td><td class="value-col">${fmtNum(res.target_stock_qty, 0)}</td></tr>
             <tr><td class="label-col"><strong>Suggested Order</strong></td><td class="value-col fw-bold text-warning">${fmtNum(res.rounded_order_qty, 0)}</td></tr>
             <tr><td class="label-col">MOQ</td><td class="value-col">${data.min_order_qty || '-'}</td></tr>
             <tr><td class="label-col">Order Multiple</td><td class="value-col">${sup.order_multiple || '-'}</td></tr>
+            ${data.ordering_snapshot_at ? `<tr><td class="label-col">Snapshot</td><td class="value-col"><small class="text-muted">${new Date(data.ordering_snapshot_at).toLocaleDateString()}</small></td></tr>` : ''}
         </table>
 
         <!-- ADVANCED DIAGNOSTICS (COLLAPSED) -->
@@ -1147,5 +1155,55 @@
 
     loadItems();
 })();
+
+function editTargetWeeks(el, itemCode, currentVal) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = currentVal;
+    input.min = '0';
+    input.max = '52';
+    input.step = '0.5';
+    input.style.cssText = 'width: 50px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #555; border-radius: 3px;';
+    el.replaceWith(input);
+    input.focus();
+    input.select();
+
+    function save() {
+        const newVal = parseFloat(input.value);
+        if (isNaN(newVal) || newVal < 0 || newVal > 52) {
+            input.replaceWith(el);
+            return;
+        }
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        fetch(`{{ url_for('forecast_workbench.api_set_target_weeks', item_code='__PH__') }}`.replace('__PH__', itemCode), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({target_weeks_of_stock: newVal}),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                el.textContent = newVal.toFixed(1);
+                input.replaceWith(el);
+                document.querySelectorAll(`[data-item="${itemCode}"].target-weeks-display, [data-item="${itemCode}"].target-weeks-drawer`).forEach(span => {
+                    span.textContent = newVal.toFixed(1);
+                    span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
+                });
+            } else {
+                alert(data.error || 'Failed to save');
+                input.replaceWith(el);
+            }
+        })
+        .catch(() => {
+            input.replaceWith(el);
+        });
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') { input.replaceWith(el); }
+    });
+}
 </script>
 {% endblock %}

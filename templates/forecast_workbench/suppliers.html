@@ -69,6 +69,9 @@
             <button id="btnRunForecast" class="btn btn-primary btn-sm" onclick="runForecast()">
                 <i class="fas fa-play me-1"></i>Run Forecast
             </button>
+            <button id="btnRefreshOrdering" class="btn btn-outline-warning btn-sm" onclick="refreshOrdering()">
+                <i class="fas fa-shopping-cart me-1"></i>Refresh Ordering
+            </button>
         </div>
     </div>
 
@@ -391,6 +394,40 @@ function runForecast() {
         _forecastRunning = false;
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+        alert('Error: ' + err.message);
+    });
+}
+
+function refreshOrdering() {
+    const btn = document.getElementById('btnRefreshOrdering');
+    if (!confirm('Refresh ordering data for all suppliers? This fetches live stock and recalculates orders.')) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refreshing...';
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+    fetch('{{ url_for("forecast_workbench.api_ordering_refresh") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify({}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'started') {
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
+                loadSuppliers();
+            }, 10000);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
+            alert('Ordering refresh failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
         alert('Error: ' + err.message);
     });
 }

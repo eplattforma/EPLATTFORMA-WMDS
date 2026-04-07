@@ -304,6 +304,25 @@ def _safe_float(session, key, default):
         return default
 
 
+def _min_clean_weeks_for_method(demand_class: str) -> int:
+    if demand_class in ("smooth", "erratic"):
+        return 8
+    if demand_class in ("intermittent", "lumpy"):
+        return 6
+    if demand_class == "new_sparse":
+        return 4
+    return 0
+
+
+def _recent_trend_allowed(recent_calendar_week_starts, item_oos_weeks):
+    if not item_oos_weeks:
+        return True
+    recent_two = recent_calendar_week_starts[:2]
+    if not recent_two:
+        return False
+    return all(ws not in item_oos_weeks for ws in recent_two)
+
+
 def compute_base_forecasts(session: Session, run_id=None, progress_callback=None):
     from models import ForecastSeasonalityMonthly
 
@@ -397,10 +416,13 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         weekly_qtys = sales_by_item.get(item_code, [])
 
         item_oos_weeks = oos_map.get(item_code, set())
+        week_starts_for_item = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(len(weekly_qtys))]
+        required_clean_weeks = _min_clean_weeks_for_method(demand_class)
+
         if item_oos_weeks and weekly_qtys:
-            week_starts_for_item = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(len(weekly_qtys))]
             clean_qtys = [q for q, ws in zip(weekly_qtys, week_starts_for_item) if ws not in item_oos_weeks]
-            if len(clean_qtys) >= 4:
+
+            if len(clean_qtys) >= required_clean_weeks:
                 forecast_qtys = clean_qtys
                 oos_was_applied = True
             else:
@@ -409,6 +431,11 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         else:
             forecast_qtys = weekly_qtys
             oos_was_applied = False
+
+        profile.oos_weeks_26 = len(item_oos_weeks)
+        profile.oos_adjusted = oos_was_applied
+
+        allow_trend = _recent_trend_allowed(week_starts_for_item, item_oos_weeks)
 
         base_forecast = 0.0
         forecast_method = "ZERO"
@@ -439,7 +466,6 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
             )
             forecast_method = "SEEDED"
             seed_source = analogue_level
-            profile.seeded_cap_applied = cap_applied
         elif demand_class == "no_demand":
             base_forecast = 0.0
             forecast_method = "ZERO"
@@ -456,7 +482,7 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
 
         trend_adjusted = base_forecast
 
-        if demand_class == "smooth" and base_forecast > 0:
+        if demand_class == "smooth" and base_forecast > 0 and allow_trend:
             last2 = forecast_qtys[:2]
             avg_last2 = sum(last2) / len(last2) if last2 else 0.0
 
@@ -485,6 +511,14 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
 
         profile.trend_flag = trend_flag
         profile.trend_pct = Decimal(str(round(trend_pct, 6))) if trend_pct is not None else None
+
+        review_notes = []
+        if oos_was_applied:
+            review_notes.append("OOS-adjusted history used")
+        if item_oos_weeks and not oos_was_applied and required_clean_weeks > 0:
+            review_notes.append("Too few clean weeks for OOS-adjusted forecast")
+        if demand_class == "smooth" and base_forecast > 0 and not allow_trend and item_oos_weeks:
+            review_notes.append("Trend suppressed due to recent OOS weeks")
 
         hist_index, future_index, seas_source, seas_level, seas_conf = _get_seasonality_indexes_preloaded(
             item_code, dw_item_cache, seasonality_index_map, reliable_levels, horizon_days
@@ -524,6 +558,15 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
 
         if old_result is None:
             session.add(result)
+
+        if review_notes:
+            existing = profile.review_reason or ""
+            existing_parts = [r.strip() for r in existing.split(";") if r.strip()] if existing else []
+            for note in review_notes:
+                if note not in existing_parts:
+                    existing_parts.append(note)
+            profile.review_reason = "; ".join(existing_parts) if existing_parts else None
+            profile.review_flag = True
 
         profile.updated_at = now
         count += 1
@@ -583,7 +626,6 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
         profile.analogue_item_code = analogue_item
         profile.analogue_level = analogue_level
         profile.forecast_confidence = confidence
-        profile.seeded_cap_applied = cap_applied
     elif demand_class == "no_demand":
         base_forecast = 0.0
         forecast_method = "ZERO"
