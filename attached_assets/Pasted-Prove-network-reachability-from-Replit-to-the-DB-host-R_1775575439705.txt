@@ -1,0 +1,64 @@
+Prove network reachability from Replit to the DB host
+Run from the Replit shell:
+python - <<'PY'
+import socket
+host = "helium"
+port = 5432
+s = socket.socket()
+s.settimeout(5)
+try:
+    s.connect((host, port))
+    print("TCP CONNECT OK")
+except Exception as e:
+    print("TCP CONNECT FAILED:", e)
+finally:
+    s.close()
+PY
+
+Then also:
+
+getent hosts helium || nslookup helium || ping -c 1 helium
+
+I want the exact output.
+
+If hostname helium does not resolve correctly
+Check the DB connection string in Replit secrets and confirm:
+host
+port
+database name
+username
+
+If helium is only an internal hostname on your server network, replace it with the actual reachable private/public IP or proper DNS name.
+
+Check PostgreSQL on the DB server itself
+On the server hosting PostgreSQL, verify:
+sudo systemctl status postgresql
+ss -ltnp | grep 5432
+
+Postgres must be listening on the correct interface, not just localhost.
+
+Also inspect:
+
+postgresql.conf → listen_addresses
+pg_hba.conf → allow the Replit source host/user/db
+firewall / security group / hosting firewall rules
+Test direct DB login from a machine that should reach it
+From another host on the same network as Replit path, or from the DB server itself:
+psql -h <host> -p 5432 -U <user> -d <database>
+
+This confirms whether Postgres is up versus just blocked.
+
+Keep the app in degraded mode
+Do not undo the startup fixes. They are correct. The app should stay bootable even when DB is unavailable.
+Once DB is reachable, restart once
+After connectivity is restored:
+restart the app
+confirm schema updater runs
+confirm sku_ordering_snapshot exists
+then test forecast/order flows
+
+Send Replit this exact message:
+
+The startup/code issue is resolved. The remaining problem is infrastructure connectivity to PostgreSQL. Please stop changing application logic and diagnose the DB path from the Replit runtime to helium:5432. I need exact outputs for DNS resolution and raw TCP connect, then PostgreSQL listener/firewall checks on the DB server. Once connectivity is restored, restart the app and verify the schema updater completes.
+
+When you get the shell outputs or server-side Postgres checks, paste them here.
