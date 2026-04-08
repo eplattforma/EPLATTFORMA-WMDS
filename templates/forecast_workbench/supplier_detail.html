@@ -1190,28 +1190,25 @@ function editTargetWeeks(el, itemCode, currentVal) {
                     span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
                 });
                 const ord = data.updated_ordering;
-                console.log('[TargetWeeks] Response for', itemCode, ':', JSON.stringify(data));
+
+                const item = allItems.find(i => i.item_code === itemCode);
+                if (item) {
+                    item.target_weeks_of_stock = newVal;
+                    if (ord) {
+                        item.on_hand_qty = ord.on_hand_qty;
+                        item.net_available_qty = ord.net_available_qty;
+                        item.target_stock_qty = ord.target_stock_qty;
+                        item.raw_order_qty = ord.raw_order_qty;
+                        item.rounded_order_qty = ord.rounded_order_qty;
+                        item.ordering_snapshot_at = ord.ordering_snapshot_at;
+                    }
+                }
+
+                applyFilters();
 
                 if (ord) {
-                    const row = document.querySelector(`tr.item-row[data-item-code="${itemCode}"]`);
-                    console.log('[TargetWeeks] Found row:', !!row, 'order:', ord.rounded_order_qty);
-                    if (row) {
-                        const cells = row.querySelectorAll('td');
-                        console.log('[TargetWeeks] Cell count:', cells.length);
-                        if (cells.length >= 19) {
-                            cells[13].textContent = fmtNum(ord.on_hand_qty);
-                            cells[14].textContent = fmtNum(ord.net_available_qty);
-                            cells[17].textContent = fmtNum(ord.raw_order_qty);
-                            cells[18].textContent = fmtNum(ord.rounded_order_qty);
-                            cells[18].className = 'num-col fw-bold' + (ord.rounded_order_qty > 0 ? ' text-warning' : '');
-                        }
-                        row.style.transition = 'background-color 0.5s';
-                        row.style.backgroundColor = 'rgba(255,193,7,0.15)';
-                        setTimeout(() => { row.style.backgroundColor = ''; }, 1500);
-                    }
-
                     const drawer = document.getElementById('drawerPanel');
-                    if (drawer) {
+                    if (drawer && drawer.classList.contains('open')) {
                         const drawerCells = drawer.querySelectorAll('.drawer-table td.value-col');
                         drawerCells.forEach((td) => {
                             const label = td.previousElementSibling;
@@ -1223,21 +1220,6 @@ function editTargetWeeks(el, itemCode, currentVal) {
                             if (lt === 'Suggested Order') td.innerHTML = '<strong>' + fmtNum(ord.rounded_order_qty, 0) + '</strong>';
                         });
                     }
-
-                    const item = allItems.find(i => i.item_code === itemCode);
-                    if (item) {
-                        item.target_weeks_of_stock = newVal;
-                        item.on_hand_qty = ord.on_hand_qty;
-                        item.net_available_qty = ord.net_available_qty;
-                        item.target_stock_qty = ord.target_stock_qty;
-                        item.raw_order_qty = ord.raw_order_qty;
-                        item.rounded_order_qty = ord.rounded_order_qty;
-                    }
-
-                    updateKPIs(allItems);
-                } else {
-                    console.warn('[TargetWeeks] No updated_ordering in response, reloading table');
-                    loadItems();
                 }
             } else {
                 alert(data.error || 'Failed to save');
