@@ -1189,26 +1189,7 @@ function editTargetWeeks(el, itemCode, currentVal) {
                     span.textContent = newVal.toFixed(1);
                     span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
                 });
-                if (data.updated_ordering) {
-                    const ord = data.updated_ordering;
-                    const row = document.querySelector(`tr[data-item-code="${itemCode}"]`);
-                    if (row) {
-                        const cells = row.querySelectorAll('td');
-                        const item = window._itemDataCache && window._itemDataCache[itemCode];
-                        if (item) {
-                            item.on_hand_qty = ord.on_hand_qty;
-                            item.net_available_qty = ord.net_available_qty;
-                            item.reserved_qty = ord.reserved_qty;
-                            item.incoming_qty = ord.incoming_qty;
-                            item.target_stock_qty = ord.target_stock_qty;
-                            item.raw_order_qty = ord.raw_order_qty;
-                            item.rounded_order_qty = ord.rounded_order_qty;
-                            item.target_weeks_of_stock = newVal;
-                            item.ordering_snapshot_at = ord.ordering_snapshot_at;
-                        }
-                    }
-                    loadItems();
-                }
+                loadItems();
             } else {
                 alert(data.error || 'Failed to save');
                 input.replaceWith(el);
