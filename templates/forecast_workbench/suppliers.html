@@ -66,9 +66,26 @@
             <a href="{{ url_for('forecast_workbench.help_manual') }}" class="btn btn-outline-secondary btn-sm" title="View manual">
                 <i class="fas fa-question-circle me-1"></i>Help
             </a>
-            <button id="btnRunForecast" class="btn btn-primary btn-sm" onclick="runForecast()">
-                <i class="fas fa-play me-1"></i>Run Forecast
-            </button>
+            <div class="btn-group" id="forecastRunGroup">
+                <button id="btnRunForecast" class="btn btn-primary btn-sm" onclick="runForecast('incremental')">
+                    <i class="fas fa-play me-1"></i>Fast Refresh
+                </button>
+                <button type="button" class="btn btn-primary btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                    <span class="visually-hidden">More options</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark">
+                    <li><a class="dropdown-item" href="#" onclick="runForecast('incremental'); return false;">
+                        <i class="fas fa-bolt me-2 text-success"></i>Fast Refresh <span class="text-muted ms-1">(8 weeks)</span>
+                    </a></li>
+                    <li><a class="dropdown-item" href="#" onclick="runForecast('full_26'); return false;">
+                        <i class="fas fa-history me-2 text-warning"></i>Rebuild Forecast History <span class="text-muted ms-1">(26 weeks)</span>
+                    </a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="runForecast('full_52'); return false;">
+                        <i class="fas fa-database me-2 text-danger"></i>Full Historical Rebuild <span class="text-muted ms-1">(52 weeks)</span>
+                    </a></li>
+                </ul>
+            </div>
             <button id="btnRefreshOrdering" class="btn btn-outline-warning btn-sm" onclick="refreshOrdering()">
                 <i class="fas fa-shopping-cart me-1"></i>Refresh Ordering
             </button>
@@ -360,13 +377,24 @@ function escapeHtml(str) {
 
 let _forecastRunning = false;
 
-function runForecast() {
+const MODE_LABELS = {
+    'incremental': 'Fast Refresh (8 weeks)',
+    'full_26': 'Rebuild Forecast History (26 weeks)',
+    'full_52': 'Full Historical Rebuild (52 weeks)'
+};
+
+function runForecast(mode) {
+    mode = mode || 'incremental';
     const btn = document.getElementById('btnRunForecast');
+    const splitBtn = btn.nextElementSibling;
     if (_forecastRunning) return;
-    if (!confirm('Run the full forecast pipeline now? This may take a few minutes.')) return;
+
+    const label = MODE_LABELS[mode] || mode;
+    if (!confirm('Run forecast: ' + label + '?\nThis may take a few minutes.')) return;
 
     _forecastRunning = true;
     btn.disabled = true;
+    if (splitBtn) splitBtn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting...';
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -377,6 +405,7 @@ function runForecast() {
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken,
         },
+        body: JSON.stringify({mode: mode}),
     })
     .then(r => r.json())
     .then(data => {
@@ -386,14 +415,16 @@ function runForecast() {
         } else {
             _forecastRunning = false;
             btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+            if (splitBtn) splitBtn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play me-1"></i>Fast Refresh';
             alert('Forecast run failed: ' + (data.message || 'Unknown error'));
         }
     })
     .catch(err => {
         _forecastRunning = false;
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+        if (splitBtn) splitBtn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play me-1"></i>Fast Refresh';
         alert('Error: ' + err.message);
     });
 }
@@ -451,6 +482,15 @@ function pollOrderingStatus() {
         });
 }
 
+function _resetForecastBtn() {
+    const btn = document.getElementById('btnRunForecast');
+    const splitBtn = btn.nextElementSibling;
+    _forecastRunning = false;
+    btn.disabled = false;
+    if (splitBtn) splitBtn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-play me-1"></i>Fast Refresh';
+}
+
 function pollForecastStatus() {
     const btn = document.getElementById('btnRunForecast');
     fetch('{{ url_for("forecast_workbench.api_run_status") }}')
@@ -465,21 +505,15 @@ function pollForecastStatus() {
                 btn.innerHTML = btnText;
                 setTimeout(pollForecastStatus, 5000);
             } else if (data.status === 'completed') {
-                _forecastRunning = false;
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+                _resetForecastBtn();
                 renderRunBanner(data);
                 loadSuppliers();
             } else if (data.status === 'failed') {
-                _forecastRunning = false;
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+                _resetForecastBtn();
                 renderRunBanner(data);
                 alert('Forecast run failed: ' + (data.notes || 'Unknown error'));
             } else {
-                _forecastRunning = false;
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-play me-1"></i>Run Forecast';
+                _resetForecastBtn();
             }
         })
         .catch(() => {

@@ -124,12 +124,19 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
         logger.info(f"[Run {run_id}] Step 1/4: Building weekly sales (mode={mode})")
 
         t0 = time.time()
-        sales_rows = build_weekly_sales(session, weeks_back=52, mode=mode, progress_callback=_make_hb_callback(current_step))
+        sales_result = build_weekly_sales(session, weeks_back=52, mode=mode, progress_callback=_make_hb_callback(current_step))
+        sales_rows = sales_result["upserted"] if isinstance(sales_result, dict) else sales_result
+        effective_mode = sales_result.get("mode", mode) if isinstance(sales_result, dict) else mode
+        auto_switched = sales_result.get("auto_switched", False) if isinstance(sales_result, dict) else False
         step_timings["weekly_sales"] = time.time() - t0
+
+        if auto_switched:
+            mode = effective_mode
+            logger.warning(f"[Run {run_id}] Weekly sales auto-switched to {effective_mode}")
 
         session.commit()
         session.expire_all()
-        logger.info(f"[Run {run_id}] weekly_sales completed in {step_timings['weekly_sales']:.2f}s; upserted={sales_rows}")
+        logger.info(f"[Run {run_id}] weekly_sales completed in {step_timings['weekly_sales']:.2f}s; upserted={sales_rows}, effective_mode={effective_mode}")
         _heartbeat(run_id, current_step, f"Weekly sales completed ({sales_rows} rows, {step_timings['weekly_sales']:.1f}s)")
 
         start_date, end_date, total_qty, total_value = _capture_sales_validation_metadata(session)

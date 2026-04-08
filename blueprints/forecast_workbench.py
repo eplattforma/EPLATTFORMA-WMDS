@@ -527,7 +527,7 @@ def api_run():
     username = current_user.username
     body = request.get_json(silent=True) or {}
     mode = body.get('mode', 'incremental')
-    if mode not in ('incremental', 'full_rebuild'):
+    if mode not in ('incremental', 'full_26', 'full_52', 'full_rebuild'):
         mode = 'incremental'
 
     def _run_in_background(app, username, mode):
@@ -556,7 +556,7 @@ def api_refresh_weekly_sales():
 
     body = request.get_json(silent=True) or {}
     mode = body.get('mode', 'incremental')
-    if mode not in ('incremental', 'full_rebuild'):
+    if mode not in ('incremental', 'full_26', 'full_52', 'full_rebuild'):
         mode = 'incremental'
 
     username = current_user.username
@@ -569,8 +569,9 @@ def api_refresh_weekly_sales():
                 SessionLocal = sessionmaker(bind=db.engine)
                 session = SessionLocal()
                 try:
-                    rows = build_weekly_sales(session, weeks_back=52, mode=mode)
+                    result = build_weekly_sales(session, weeks_back=52, mode=mode)
                     session.commit()
+                    rows = result["upserted"] if isinstance(result, dict) else result
                     logger.info(f"[Admin] Weekly sales refresh completed: mode={mode}, rows={rows}, by={username}")
                 finally:
                     session.close()
