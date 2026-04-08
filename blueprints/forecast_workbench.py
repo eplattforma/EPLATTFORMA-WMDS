@@ -525,7 +525,8 @@ def api_run():
             return jsonify({'status': 'already_running', 'run_id': active.id})
 
     username = current_user.username
-    mode = request.json.get('mode', 'incremental') if request.is_json else 'incremental'
+    body = request.get_json(silent=True) or {}
+    mode = body.get('mode', 'incremental')
     if mode not in ('incremental', 'full_rebuild'):
         mode = 'incremental'
 
@@ -553,7 +554,8 @@ def api_run():
 def api_refresh_weekly_sales():
     import threading
 
-    mode = request.json.get('mode', 'incremental') if request.is_json else 'incremental'
+    body = request.get_json(silent=True) or {}
+    mode = body.get('mode', 'incremental')
     if mode not in ('incremental', 'full_rebuild'):
         mode = 'incremental'
 
