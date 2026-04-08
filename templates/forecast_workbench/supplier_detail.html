@@ -796,10 +796,14 @@
         </div>
 
         <div class="section-title">Seasonality</div>
-        <div id="seasonalitySummary" style="font-size: 0.8rem; color: var(--bs-secondary); margin-bottom: 0.4rem;"></div>
-        <div style="position: relative; height: 180px; margin-bottom: 1rem;">
-            <canvas id="seasonalityChart"></canvas>
-        </div>
+        <table class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
+            <tr><td class="label-col">Jan</td><td class="value-col"><span id="seasonFactorJan">-</span></td><td class="label-col">Jul</td><td class="value-col"><span id="seasonFactorJul">-</span></td></tr>
+            <tr><td class="label-col">Feb</td><td class="value-col"><span id="seasonFactorFeb">-</span></td><td class="label-col">Aug</td><td class="value-col"><span id="seasonFactorAug">-</span></td></tr>
+            <tr><td class="label-col">Mar</td><td class="value-col"><span id="seasonFactorMar">-</span></td><td class="label-col">Sep</td><td class="value-col"><span id="seasonFactorSep">-</span></td></tr>
+            <tr><td class="label-col">Apr</td><td class="value-col"><span id="seasonFactorApr">-</span></td><td class="label-col">Oct</td><td class="value-col"><span id="seasonFactorOct">-</span></td></tr>
+            <tr><td class="label-col">May</td><td class="value-col"><span id="seasonFactorMay">-</span></td><td class="label-col">Nov</td><td class="value-col"><span id="seasonFactorNov">-</span></td></tr>
+            <tr><td class="label-col">Jun</td><td class="value-col"><span id="seasonFactorJun">-</span></td><td class="label-col">Dec</td><td class="value-col"><span id="seasonFactorDec">-</span></td></tr>
+        </table>
 
         <!-- FORECAST DRIVERS SECTION -->
         <div class="section-title">Forecast Drivers</div>
@@ -1107,55 +1111,15 @@
     }
 
     function renderSeasonalityChart() {
-        const canvasEl = document.getElementById('seasonalityChart');
-        if (!canvasEl || !currentChartResult) return;
-        if (seasonalityChart) seasonalityChart.destroy();
-
-        const histIndex = Number(currentChartResult.hist_embedded_seasonal_index || 1);
-        const futureIndex = Number(currentChartResult.future_seasonal_index || 1);
-        const ratio = histIndex > 0 ? futureIndex / histIndex : 1;
-        const summaryEl = document.getElementById('seasonalitySummary');
-        if (summaryEl) {
-            summaryEl.textContent = `Historical factor ${histIndex.toFixed(2)} • Future factor ${futureIndex.toFixed(2)} • Ratio ${ratio.toFixed(2)}`;
-        }
-
-        seasonalityChart = new Chart(canvasEl.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: ['Historical', 'Future'],
-                datasets: [{
-                    label: 'Seasonality Factor',
-                    data: [histIndex, futureIndex],
-                    backgroundColor: ['rgba(13,110,253,0.55)', 'rgba(25,135,84,0.55)'],
-                    borderColor: ['#0d6efd', '#198754'],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function(ctx) {
-                                return `Factor: ${Number(ctx.raw).toFixed(2)}`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        suggestedMax: Math.max(histIndex, futureIndex, 1.2),
-                        ticks: {
-                            callback: function(value) {
-                                return Number(value).toFixed(2);
-                            }
-                        }
-                    }
-                }
-            }
+        if (!currentChartResult) return;
+        const monthFactors = currentChartResult.month_factors || currentChartResult.monthly_factors || currentChartResult.seasonality_months || {};
+        const months = [
+            ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
+            ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
+        ];
+        months.forEach(([name, monthNo]) => {
+            const el = document.getElementById(`seasonFactor${name}`);
+            if (el) el.textContent = Number(monthFactors[monthNo] ?? monthFactors[String(monthNo)] ?? 1).toFixed(2);
         });
     }
 
