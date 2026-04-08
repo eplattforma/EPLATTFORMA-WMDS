@@ -60,25 +60,27 @@ def compute_seasonal_indices(session, force=False):
 
     t0 = time.time()
     completed_week_cutoff = get_completed_week_cutoff()
-    rows = (
-        session.query(
-            FactSalesWeeklyItem.week_start,
-            FactSalesWeeklyItem.item_code_365,
-            FactSalesWeeklyItem.gross_qty,
+    with session.no_autoflush:
+        rows = (
+            session.query(
+                FactSalesWeeklyItem.week_start,
+                FactSalesWeeklyItem.item_code_365,
+                FactSalesWeeklyItem.gross_qty,
+            )
+            .filter(FactSalesWeeklyItem.week_start < completed_week_cutoff)
+            .all()
         )
-        .filter(FactSalesWeeklyItem.week_start < completed_week_cutoff)
-        .all()
-    )
 
     if not rows:
         logger.info("No weekly sales data found for seasonality computation")
         return 0
 
-    item_brand_map = dict(
-        session.query(DwItem.item_code_365, DwItem.brand_code_365)
-        .filter(DwItem.brand_code_365.isnot(None))
-        .all()
-    )
+    with session.no_autoflush:
+        item_brand_map = dict(
+            session.query(DwItem.item_code_365, DwItem.brand_code_365)
+            .filter(DwItem.brand_code_365.isnot(None))
+            .all()
+        )
 
     prefix_monthly = defaultdict(lambda: defaultdict(Decimal))
     brand_monthly = defaultdict(lambda: defaultdict(Decimal))
@@ -176,7 +178,6 @@ def _write_indices_bulk(session, level_type, monthly_data):
         for i in range(0, len(all_params), 500):
             chunk = all_params[i:i+500]
             conn.execute(upsert_sql, chunk)
-        session.flush()
 
     return len(all_params)
 
