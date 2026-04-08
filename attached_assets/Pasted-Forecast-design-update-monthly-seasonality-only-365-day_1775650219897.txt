@@ -1,0 +1,409 @@
+Forecast design update — monthly seasonality only, 365-day history, and correct treatment of no data / ambiguity
+
+Implement the forecast logic with the following rules.
+Do not add weekly seasonality.
+Keep the system simple, stable, and explainable.
+
+1) Seasonality model — monthly only
+Keep only monthly seasonality
+
+Do not add week-of-year seasonality.
+
+Seasonality must be calculated only at monthly level using 12 months:
+
+Jan
+Feb
+Mar
+Apr
+May
+Jun
+Jul
+Aug
+Sep
+Oct
+Nov
+Dec
+Data window
+
+Use only the last 365 days of sales data available in the system.
+
+Do not depend on older history for now.
+
+Aggregation logic
+
+Monthly seasonality should be computed from the weekly sales fact table / prepared sales data, but only for the last 365 days.
+
+For each grouping level:
+
+aggregate demand by month
+compute monthly demand totals
+compute average monthly demand
+compute index = month demand / average monthly demand
+
+Then apply smoothing and caps as today.
+
+Smoothing / capping
+
+Keep the current smoothing and caps unless specifically changed later:
+
+smooth toward 1.00
+cap within the existing allowed range
+Reliability
+
+Keep seasonality only if the grouping has enough data.
+
+2) Seasonality grouping hierarchy
+
+Use seasonality at grouped level, not SKU level.
+
+Preferred grouping order
+
+Use this order:
+
+Brand
+Supplier
+Flat
+Definitions
+Brand = preferred seasonality source when available and reliable
+Supplier = fallback if brand is missing / ambiguous / weak
+Flat = no seasonality; all months = 1.00
+Ambiguity rule
+
+If brand is ambiguous, weak, blank, or not trustworthy, use supplier.
+
+If supplier is also weak, blank, or ambiguous, use flat.
+
+Flat means
+Jan..Dec all equal 1.00
+no seasonal uplift or reduction
+Important
+
+Do not use prefix as the main fallback now.
+Use:
+
+brand → supplier → flat
+
+If prefix logic already exists in code, it can remain temporarily for backward compatibility, but the intended rule must now become:
+
+brand first
+supplier second
+flat third
+3) History window — use last 365 days
+Standard source period
+
+The whole forecast preparation should be based on the last 365 days of sales data available in the system.
+
+This should apply to:
+
+weekly sales preparation
+monthly seasonality
+support history used by classification
+forecast inputs where relevant
+Run modes
+
+Support these two practical run modes:
+
+A. Fast Refresh
+refresh recent weeks only
+normal daily/manual run
+B. Rebuild Last 365 Days
+rebuild full last-365-day history window
+use when data may be missing or after history load
+
+Do not expose “52 weeks” as the main business wording anymore.
+Use 365 days in the UI and logs.
+
+4) Distinguish “no sales” from “missing history”
+
+This is critical.
+
+Right now, missing weekly rows can look like zero demand.
+That is not acceptable.
+
+New rule
+
+The system must distinguish clearly between:
+
+A. True No Data / No Sales
+
+The item has valid historical coverage, but sales are genuinely zero.
+
+B. History Incomplete / Not Loaded
+
+The system does not have enough historical rows loaded to make a valid judgment.
+
+These are not the same.
+
+5) How to treat no data
+Case 1 — history is complete, but sales are zero
+
+If the required 365-day history (or required forecast window) is present and the item has no sales:
+
+classify as no_demand
+forecast method = ZERO
+weekly forecast = 0
+daily forecast = 0
+confidence = none
+
+This is valid.
+
+Case 2 — history is incomplete or not loaded
+
+If the required history coverage is not present:
+
+Do not silently treat the item as zero demand.
+
+Instead mark it as something like:
+
+history_incomplete = true
+review_reason = "History not fully loaded"
+or forecast_method = "INSUFFICIENT_HISTORY"
+Behavior
+
+In this case, do one of these:
+
+Preferred
+
+Use analogue fallback:
+
+supplier or brand baseline if strong enough
+If analogue is not reliable
+
+Return flat/neutral safe fallback with clear flag:
+
+forecast = 0 or minimal baseline
+but mark as history_incomplete
+
+The important thing is:
+
+user must see this is not real “no demand”
+it is “cannot conclude because history is incomplete”
+6) How to classify with limited or no data
+
+Use this classification behavior.
+
+A. Complete history + zero sales
+demand_class = no_demand
+forecast_method = ZERO
+B. Small amount of sales, but some valid history exists
+classify as new_sparse
+use seeded / analogue forecast
+C. Missing history
+do not force no_demand
+mark as history_incomplete
+use analogue source if available:
+brand first
+supplier second
+flat fallback third
+7) Analogue / ambiguity fallback logic
+
+When item-level evidence is weak, sparse, or history is incomplete, use this fallback hierarchy:
+
+For demand baseline
+Brand baseline
+Supplier baseline
+Flat baseline
+For seasonality
+Brand monthly seasonality
+Supplier monthly seasonality
+Flat seasonality (1.00 each month)
+Flat baseline
+
+If both brand and supplier are weak or ambiguous:
+
+baseline = neutral / safe
+seasonality = 1.00
+mark confidence lower
+8) What “flat” should mean
+
+Flat should be an explicit supported mode, not an accidental default.
+
+Flat seasonality
+
+For all months:
+
+Jan = 1.00
+Feb = 1.00
+...
+Dec = 1.00
+Flat demand analogue
+
+If no usable analogue exists:
+
+no seasonal adjustment
+no aggressive seeded uplift
+low confidence
+flagged for review if important
+9) Completeness check before forecast
+
+Before normal forecast execution, check if history coverage is sufficient.
+
+Required check
+
+For the last 365 days:
+
+do we have sales history coverage loaded?
+do we have weekly facts across the expected completed-week window?
+If incomplete
+
+Either:
+
+Option A — preferred
+
+Auto-switch to Rebuild Last 365 Days
+
+Option B
+
+Warn the user clearly:
+
+“History incomplete — rebuild last 365 days first”
+
+Do not continue silently as if all zeroes are real.
+
+10) UI / response fields to expose
+
+Expose these fields so the behavior is transparent:
+
+history_window_start
+history_window_end
+history_complete (true/false)
+history_missing_reason
+demand_class
+forecast_method
+forecast_confidence
+seasonality_source (brand / supplier / flat)
+seasonality_level_code
+baseline_source (brand / supplier / flat)
+review_reason
+
+For items with no sales:
+
+clearly show whether this is:
+true no demand
+or insufficient history
+11) Seasonality graph requirements
+
+Add a graph for the monthly seasonality in the item drawer / forecast UI.
+
+Graph rules
+line chart only
+X-axis = Jan to Dec
+Y-axis = monthly seasonality index
+main line = smoothed_index
+horizontal reference line at 1.00
+Also show
+source: brand / supplier / flat
+level code
+confidence / reliable flag
+Flat case
+
+If seasonality source is flat, show:
+
+straight line at 1.00
+label: “Flat seasonality fallback”
+12) Supplier instead of prefix
+
+If the current implementation still uses prefix fallback, change the intended business logic to:
+
+brand
+supplier
+flat
+
+If prefix remains in code temporarily, it should not be the preferred business fallback anymore.
+
+13) Forecast output behavior summary
+
+Implement the following outcome rules:
+
+When history is complete and sales are zero
+no_demand
+ZERO
+forecast = 0
+When history is sparse but valid
+new_sparse
+seeded forecast
+baseline from brand, else supplier, else flat
+When history is incomplete
+not no_demand
+mark history_incomplete
+attempt analogue fallback:
+brand
+supplier
+flat
+lower confidence
+clear review reason
+14) Logging requirements
+
+For every forecast run, log:
+
+mode used (fast_refresh or rebuild_365)
+history window start/end
+whether history was complete
+number of weekly sales rows written
+whether seasonality used brand/supplier/flat
+counts of items by:
+no_demand
+new_sparse
+history_incomplete
+normal classes
+
+This is required for validation.
+
+15) Acceptance criteria
+
+This change is correct only if all of these are true:
+
+Seasonality is monthly only
+History window is based on last 365 days
+Missing history is not silently treated as zero demand
+Forecast distinguishes:
+no_demand
+new_sparse
+history_incomplete
+Fallback hierarchy is:
+brand
+supplier
+flat
+Flat seasonality is supported explicitly as 1.00 for all months
+UI shows monthly seasonality graph and source
+Logs clearly report history completeness and fallback source used
+16) Priority order for implementation
+
+Do these in this order:
+
+First
+
+Implement history completeness detection for the 365-day window.
+
+Second
+
+Change fallback hierarchy to:
+
+brand
+supplier
+flat
+Third
+
+Implement correct treatment of:
+
+true no demand
+sparse history
+incomplete history
+Fourth
+
+Use monthly seasonality only from the 365-day window.
+
+Fifth
+
+Expose the graph and source/confidence in the UI.
+
+17) Final business rule summary
+
+Keep it simple:
+
+Monthly seasonality only
+365 days of data
+Brand first
+Supplier second
+Flat if ambiguous
+Do not confuse missing history with no demand
