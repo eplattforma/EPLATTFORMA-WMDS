@@ -1,9 +1,10 @@
 import logging
+import time
 from datetime import date, timedelta
 from decimal import Decimal
 from collections import defaultdict
 
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, text
 
 from app import db
 from models import (
@@ -25,7 +26,39 @@ SEASONAL_CAP_MAX = Decimal("1.15")
 SMOOTHING_ALPHA = Decimal("0.5")
 
 
-def compute_seasonal_indices(session):
+def should_recompute_seasonality(session):
+    completed_week_cutoff = get_completed_week_cutoff()
+
+    latest_seasonality_update = session.query(
+        func.max(ForecastSeasonalityMonthly.updated_at)
+    ).scalar()
+
+    if latest_seasonality_update is None:
+        logger.info("[seasonality] No existing indices found — recompute needed")
+        return True
+
+    latest_sales_update = session.query(
+        func.max(FactSalesWeeklyItem.updated_at)
+    ).scalar()
+
+    if latest_sales_update is None:
+        logger.info("[seasonality] No sales data — skip")
+        return False
+
+    if latest_sales_update > latest_seasonality_update:
+        logger.info(f"[seasonality] Sales data refreshed since last seasonality (sales_upd={latest_sales_update}, seas_upd={latest_seasonality_update}) — recompute needed")
+        return True
+
+    logger.info(f"[seasonality] No new sales data since last seasonality computation (sales_upd={latest_sales_update}, seas_upd={latest_seasonality_update}) — skip")
+    return False
+
+
+def compute_seasonal_indices(session, force=False):
+    if not force and not should_recompute_seasonality(session):
+        logger.info("[seasonality] Skipped — no new data")
+        return 0
+
+    t0 = time.time()
     completed_week_cutoff = get_completed_week_cutoff()
     rows = (
         session.query(
@@ -39,7 +72,7 @@ def compute_seasonal_indices(session):
 
     if not rows:
         logger.info("No weekly sales data found for seasonality computation")
-        return
+        return 0
 
     item_brand_map = dict(
         session.query(DwItem.item_code_365, DwItem.brand_code_365)
@@ -62,15 +95,36 @@ def compute_seasonal_indices(session):
         if brand:
             brand_monthly[brand][month_no] += qty
 
-    _write_indices(session, "prefix", prefix_monthly)
-    _write_indices(session, "brand", brand_monthly)
+    prefix_count = _write_indices_bulk(session, "prefix", prefix_monthly)
+    brand_count = _write_indices_bulk(session, "brand", brand_monthly)
+    total_written = prefix_count + brand_count
 
     session.flush()
-    logger.info("Seasonal indices computed for %d prefixes, %d brands",
-                len(prefix_monthly), len(brand_monthly))
+    elapsed = time.time() - t0
+    logger.info(f"[seasonality] completed in {elapsed:.2f}s; prefixes={len(prefix_monthly)} brands={len(brand_monthly)} rows_written={total_written}")
+    return total_written
 
 
-def _write_indices(session, level_type, monthly_data):
+def _write_indices_bulk(session, level_type, monthly_data):
+    upsert_sql = text("""
+        INSERT INTO forecast_seasonality_monthly
+            (level_type, level_code, month_no, raw_index, smoothed_index,
+             sample_months, sample_qty, confidence, is_reliable, updated_at)
+        VALUES
+            (:level_type, :level_code, :month_no, :raw_index, :smoothed_index,
+             :sample_months, :sample_qty, :confidence, :is_reliable, now())
+        ON CONFLICT (level_type, level_code, month_no) DO UPDATE SET
+            raw_index      = EXCLUDED.raw_index,
+            smoothed_index = EXCLUDED.smoothed_index,
+            sample_months  = EXCLUDED.sample_months,
+            sample_qty     = EXCLUDED.sample_qty,
+            confidence     = EXCLUDED.confidence,
+            is_reliable    = EXCLUDED.is_reliable,
+            updated_at     = EXCLUDED.updated_at
+    """)
+
+    all_params = []
+
     for level_code, month_dict in monthly_data.items():
         months_with_data = [m for m in range(1, 13) if month_dict.get(m, Decimal("0")) > 0]
         total_qty = sum(month_dict.values())
@@ -84,6 +138,16 @@ def _write_indices(session, level_type, monthly_data):
         if avg_monthly <= 0:
             continue
 
+        if sample_months >= MIN_MONTHS_FOR_MEDIUM and total_qty >= MIN_QTY_FOR_MEDIUM:
+            confidence = "medium"
+            is_reliable = True
+        elif sample_months >= 3:
+            confidence = "low"
+            is_reliable = False
+        else:
+            confidence = "none"
+            is_reliable = False
+
         for month_no in range(1, 13):
             month_demand = month_dict.get(month_no, Decimal("0"))
             raw_index = month_demand / avg_monthly if avg_monthly > 0 else Decimal("1")
@@ -95,41 +159,26 @@ def _write_indices(session, level_type, monthly_data):
             elif smoothed > SEASONAL_CAP_MAX:
                 smoothed = SEASONAL_CAP_MAX
 
-            if sample_months >= MIN_MONTHS_FOR_MEDIUM and total_qty >= MIN_QTY_FOR_MEDIUM:
-                confidence = "medium"
-                is_reliable = True
-            elif sample_months >= 3:
-                confidence = "low"
-                is_reliable = False
-            else:
-                confidence = "none"
-                is_reliable = False
+            all_params.append({
+                "level_type": level_type,
+                "level_code": level_code,
+                "month_no": month_no,
+                "raw_index": float(raw_index),
+                "smoothed_index": float(smoothed),
+                "sample_months": sample_months,
+                "sample_qty": float(total_qty),
+                "confidence": confidence,
+                "is_reliable": is_reliable,
+            })
 
-            existing = (
-                session.query(ForecastSeasonalityMonthly)
-                .filter_by(level_type=level_type, level_code=level_code, month_no=month_no)
-                .first()
-            )
+    if all_params:
+        conn = session.connection()
+        for i in range(0, len(all_params), 500):
+            chunk = all_params[i:i+500]
+            conn.execute(upsert_sql, chunk)
+        session.flush()
 
-            if existing:
-                existing.raw_index = raw_index
-                existing.smoothed_index = smoothed
-                existing.sample_months = sample_months
-                existing.sample_qty = total_qty
-                existing.confidence = confidence
-                existing.is_reliable = is_reliable
-            else:
-                session.add(ForecastSeasonalityMonthly(
-                    level_type=level_type,
-                    level_code=level_code,
-                    month_no=month_no,
-                    raw_index=raw_index,
-                    smoothed_index=smoothed,
-                    sample_months=sample_months,
-                    sample_qty=total_qty,
-                    confidence=confidence,
-                    is_reliable=is_reliable,
-                ))
+    return len(all_params)
 
 
 def choose_seasonality_source(session, item_code_365):

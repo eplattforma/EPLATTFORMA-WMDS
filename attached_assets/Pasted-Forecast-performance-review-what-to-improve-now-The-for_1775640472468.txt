@@ -1,0 +1,293 @@
+Forecast performance review — what to improve now
+
+The forecast run is still too heavy for what it should be doing.
+Forecast itself should remain DB-only and should not call PS365.
+PS365 calls must stay only inside the separate ordering refresh flow.
+
+I reviewed the current structure and the main slowdown is not the forecast formulas.
+The slowdown is the amount of database ETL work being done every time the forecast runs.
+
+1) Confirm and preserve this separation
+Forecast run must do only:
+weekly sales preparation
+seasonality
+classification
+base/final forecast
+Ordering refresh must do only:
+latest stock / reserved / incoming
+order target calculation
+suggested order snapshot
+Important rule
+
+Do not add any PS365 API call into the forecast pipeline.
+
+2) Biggest bottleneck: weekly sales builder is too chatty
+
+Current issue:
+
+weekly sales are aggregated in SQL
+then results are upserted row-by-row from Python into fact_sales_weekly_item
+
+This is inefficient.
+
+What to change
+
+Rewrite the weekly sales build so that Postgres does the whole operation in SQL:
+
+INSERT INTO ... SELECT ...
+ON CONFLICT (...) DO UPDATE
+Target
+
+Replace Python row-loop upserts with one SQL statement.
+
+Why
+
+This will remove thousands of DB round-trips.
+
+3) Do not rebuild 52 weeks every normal forecast run
+
+Right now the system is reprocessing a large historical window every run.
+
+That is unnecessary for normal use.
+
+Change the design
+Normal forecast run:
+refresh only recent weeks, for example last 6–8 weeks
+use existing weekly fact table for older history
+Admin repair / rebuild:
+separate action to rebuild full 52 weeks if needed
+Implementation rule
+
+Introduce two modes:
+
+incremental = normal run
+full_rebuild = admin-only maintenance action
+
+Do not use full rebuild for every manual forecast run.
+
+4) Seasonality should not be recomputed every time unless sales changed
+
+Current seasonality processing is another heavy full-table step.
+
+Change it like this
+
+Seasonality should run only when one of these is true:
+
+weekly sales were refreshed
+a new completed week became available
+admin explicitly triggers rebuild
+Practical improvement
+
+Add a lightweight check:
+
+find latest completed week in fact_sales_weekly_item
+compare with latest already-used seasonality period / last seasonal calculation marker
+skip seasonality if nothing new changed
+
+If no new week exists, do not recompute seasonality.
+
+5) Split “data preparation” from “forecast calculation”
+
+Currently one run appears to do too much.
+
+Refactor into two layers
+A. Data preparation
+refresh weekly sales facts
+refresh seasonality support data
+refresh OOS weekly markers if needed
+B. Forecast calculation
+classification
+OOS-adjusted history selection
+trend
+final forecast result
+Goal
+
+When the data is already fresh, forecasting should be able to run without redoing all preparation.
+
+6) Add timings per step and log row counts
+
+I need visibility into where the time actually goes.
+
+Add timing logs for each step
+
+For every forecast run, log:
+
+start/end time
+duration seconds
+rows processed / affected
+Specifically log:
+weekly sales build duration
+number of weekly sales rows aggregated
+number of fact rows inserted/updated
+seasonality duration
+number of seasonal indices written
+classification duration
+number of items classified
+base forecast duration
+number of items forecasted
+Example log format
+logger.info("[Run %s] weekly_sales completed in %.2fs; aggregated=%s upserted=%s", run_id, elapsed, agg_rows, upsert_rows)
+
+Without this, performance tuning is guesswork.
+
+7) Optimize weekly sales builder first
+
+This is the highest-priority code change.
+
+Required improvement
+
+In services/forecast/weekly_sales_builder.py:
+
+Current bad pattern
+fetch aggregate rows
+loop in Python
+execute many upserts
+Replace with
+
+A single SQL statement like:
+
+INSERT INTO fact_sales_weekly_item (week_start, item_code_365, qty_sold, revenue_ex_vat, updated_at)
+SELECT
+    date_trunc('week', h.sale_date)::date AS week_start,
+    l.item_code_365,
+    SUM(l.qty) AS qty_sold,
+    SUM(l.net_excl) AS revenue_ex_vat,
+    now() AS updated_at
+FROM dw_invoice_line l
+JOIN dw_invoice_header h
+  ON h.invoice_no = l.invoice_no
+WHERE ...
+GROUP BY 1, 2
+ON CONFLICT (week_start, item_code_365)
+DO UPDATE SET
+    qty_sold = EXCLUDED.qty_sold,
+    revenue_ex_vat = EXCLUDED.revenue_ex_vat,
+    updated_at = now();
+
+Adjust column names to match the actual schema.
+
+Also add indexes if missing
+
+Need indexes on source tables for this query to be fast.
+
+Check and add if missing:
+
+dw_invoice_header(invoice_no)
+dw_invoice_header(sale_date)
+dw_invoice_line(invoice_no)
+dw_invoice_line(item_code_365)
+
+And on fact table:
+
+unique or primary key on (week_start, item_code_365)
+8) Use incremental sales refresh for normal runs
+
+In the forecast run service:
+
+Change logic
+
+Normal forecast run should call something like:
+
+build_weekly_sales(mode="incremental", since_weeks=8)
+
+Admin rebuild action can call:
+
+build_weekly_sales(mode="full_rebuild", since_weeks=52)
+Important
+
+Do not force full historical recomputation on every forecast button click.
+
+9) OOS logic is fine conceptually, but avoid recomputing more than needed
+
+Keep OOS-aware forecasting, but make it efficient.
+
+Improve this
+build OOS weekly map once
+reuse it in classification and forecast
+do not run repetitive per-item queries
+
+If current code already bulk-loads OOS weeks, keep that pattern.
+
+10) Make forecast run skip unnecessary stages
+
+If data hasn’t changed, skip work.
+
+Add skip logic
+Skip weekly sales if:
+no new invoice data since last sales build
+Skip seasonality if:
+no new completed week
+no weekly sales refresh happened
+Skip full classification if:
+item set unchanged and only a small recent sales delta exists
+otherwise at least allow future optimization path
+
+For now, the minimum acceptable skip logic is weekly sales + seasonality.
+
+11) Add admin controls explicitly
+
+I want three separate actions in the UI or API:
+
+A. Refresh Weekly Sales
+incremental by default
+optional full rebuild
+B. Recompute Seasonality
+admin only
+C. Run Forecast
+should use already-prepared data when available
+
+This will help operational control and debugging.
+
+12) Validate that forecast is not touching live stock tables
+
+Review all forecast services and confirm they do not:
+
+call PS365
+fetch live stock
+compute suggested order
+write ordering snapshot
+
+If any of these still happen inside the forecast path, remove them.
+
+13) Acceptance criteria for the improvement
+
+This work is only complete if all of these are true:
+
+Forecast run makes zero PS365 calls
+Weekly sales builder no longer performs row-by-row upserts
+Normal forecast run does incremental sales refresh, not full 52-week rebuild
+Seasonality skips when there is no new completed week
+Logs clearly show duration and row counts per stage
+Ordering refresh remains the only process that touches live stock / PO / reserved quantities
+Forecast runtime is materially reduced
+14) What I want implemented first
+
+Priority order:
+
+First
+
+Rewrite weekly_sales_builder to use one SQL upsert instead of Python row loops.
+
+Second
+
+Change normal forecast runs to incremental weekly sales refresh only.
+
+Third
+
+Add timing and row-count logs to every forecast stage.
+
+Fourth
+
+Skip seasonality if no new completed week or no sales refresh occurred.
+
+15) Deliverables I want back from you
+
+Please return:
+
+the exact files changed
+before/after explanation of the weekly sales builder
+sample timing logs from one forecast run
+confirmation whether any forecast path still touches PS365
+confirmation whether seasonality now skips when unchanged
+
+Do not work on UI polishing yet. Focus only on forecast runtime and separation from ordering.

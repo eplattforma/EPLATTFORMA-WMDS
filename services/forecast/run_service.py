@@ -1,4 +1,5 @@
 import logging
+import time
 import traceback
 from decimal import Decimal
 from datetime import date, datetime, timedelta
@@ -90,7 +91,7 @@ def _capture_sales_validation_metadata(session: Session):
     return None, None, Decimal('0'), Decimal('0')
 
 
-def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizon_days=14):
+def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizon_days=14, mode="incremental"):
     now = get_utc_now()
     now_naive = _utcnow()
     run = ForecastRun(
@@ -107,9 +108,10 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
     session.add(run)
     session.commit()
     run_id = run.id
-    logger.info(f"Forecast run {run_id} started by {created_by}")
+    logger.info(f"[Run {run_id}] Forecast run started by {created_by}, mode={mode}")
 
     current_step = "initializing"
+    step_timings = {}
 
     def _make_hb_callback(step_name):
         def hb(note):
@@ -118,15 +120,17 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
 
     try:
         current_step = "weekly_sales"
-        _heartbeat(run_id, current_step, "Building weekly sales")
-        logger.info(f"[Run {run_id}] Step 1/4: Building weekly sales")
+        _heartbeat(run_id, current_step, f"Building weekly sales ({mode})")
+        logger.info(f"[Run {run_id}] Step 1/4: Building weekly sales (mode={mode})")
 
-        build_weekly_sales(session, weeks_back=52, progress_callback=_make_hb_callback(current_step))
+        t0 = time.time()
+        sales_rows = build_weekly_sales(session, weeks_back=52, mode=mode, progress_callback=_make_hb_callback(current_step))
+        step_timings["weekly_sales"] = time.time() - t0
 
         session.commit()
         session.expire_all()
-        logger.info(f"[Run {run_id}] Weekly sales committed and session cleared")
-        _heartbeat(run_id, current_step, "Weekly sales completed")
+        logger.info(f"[Run {run_id}] weekly_sales completed in {step_timings['weekly_sales']:.2f}s; upserted={sales_rows}")
+        _heartbeat(run_id, current_step, f"Weekly sales completed ({sales_rows} rows, {step_timings['weekly_sales']:.1f}s)")
 
         start_date, end_date, total_qty, total_value = _capture_sales_validation_metadata(session)
         run = session.get(ForecastRun, run_id)
@@ -141,46 +145,71 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
         current_step = "seasonality"
         _heartbeat(run_id, current_step, "Computing seasonal indices")
         logger.info(f"[Run {run_id}] Step 2/4: Computing seasonal indices")
-        compute_seasonal_indices(session)
+
+        t0 = time.time()
+        seas_rows = compute_seasonal_indices(session)
+        step_timings["seasonality"] = time.time() - t0
+
         session.commit()
         session.expire_all()
-        _heartbeat(run_id, current_step, "Seasonality completed")
+        logger.info(f"[Run {run_id}] seasonality completed in {step_timings['seasonality']:.2f}s; rows_written={seas_rows}")
+        _heartbeat(run_id, current_step, f"Seasonality completed ({seas_rows} rows, {step_timings['seasonality']:.1f}s)")
 
         current_step = "classification"
         _heartbeat(run_id, current_step, "Classifying items")
         logger.info(f"[Run {run_id}] Step 3/4: Classifying all items")
+
+        t0 = time.time()
         sku_count = classify_all_items(session)
+        step_timings["classification"] = time.time() - t0
+
         session.commit()
         session.expire_all()
-        _heartbeat(run_id, current_step, f"Classification completed ({sku_count} items)")
+        logger.info(f"[Run {run_id}] classification completed in {step_timings['classification']:.2f}s; items={sku_count}")
+        _heartbeat(run_id, current_step, f"Classification completed ({sku_count} items, {step_timings['classification']:.1f}s)")
 
         current_step = "base_forecast"
         _heartbeat(run_id, current_step, "Computing base forecasts")
         logger.info(f"[Run {run_id}] Step 4/4: Computing base forecasts")
-        compute_base_forecasts(session, run_id=run_id, progress_callback=_make_hb_callback(current_step))
+
+        t0 = time.time()
+        forecast_count = compute_base_forecasts(session, run_id=run_id, progress_callback=_make_hb_callback(current_step))
+        step_timings["base_forecast"] = time.time() - t0
+
         session.commit()
         session.expire_all()
-        _heartbeat(run_id, current_step, "Base forecasts completed")
+        logger.info(f"[Run {run_id}] base_forecast completed in {step_timings['base_forecast']:.2f}s; items={forecast_count}")
+        _heartbeat(run_id, current_step, f"Base forecasts completed ({forecast_count} items, {step_timings['base_forecast']:.1f}s)")
 
         current_step = "finalizing"
         _heartbeat(run_id, current_step, "Finalizing forecast run")
+
+        total_time = sum(step_timings.values())
 
         run = session.get(ForecastRun, run_id)
         run.completed_at = get_utc_now()
         run.status = "completed"
         run.sku_count = sku_count
         run.current_step = "completed"
-        run.progress_note = "Forecast completed successfully"
+        run.progress_note = f"Forecast completed in {total_time:.1f}s"
         run.last_heartbeat_at = _utcnow()
         session.commit()
 
-        logger.info(f"Forecast run {run_id} completed successfully ({sku_count} SKUs)")
+        logger.info("=" * 70)
+        logger.info(f"[Run {run_id}] FORECAST RUN COMPLETED ({mode} mode)")
+        logger.info(f"[Run {run_id}] Total: {total_time:.2f}s | SKUs: {sku_count}")
+        for step_name, elapsed in step_timings.items():
+            logger.info(f"[Run {run_id}]   {step_name}: {elapsed:.2f}s")
+        logger.info("=" * 70)
+
         return {
             "run_id": run_id,
             "status": "completed",
             "sku_count": sku_count,
             "started_at": str(run.started_at),
             "completed_at": str(run.completed_at),
+            "mode": mode,
+            "step_timings": {k: round(v, 2) for k, v in step_timings.items()},
         }
 
     except Exception as e:

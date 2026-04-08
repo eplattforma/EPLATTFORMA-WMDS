@@ -506,7 +506,7 @@ def api_run():
     TIMEOUT_MINUTES = 45
     now_naive = datetime.utcnow()
     stale_cutoff = now_naive - timedelta(minutes=TIMEOUT_MINUTES)
-    
+
     stale_runs = ForecastRun.query.filter_by(status='running').all()
     for sr in stale_runs:
         reference_time = sr.last_heartbeat_at or sr.started_at
@@ -517,7 +517,7 @@ def api_run():
             sr.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
     if stale_runs:
         db.session.commit()
-    
+
     active = ForecastRun.query.filter_by(status='running').first()
     if active:
         reference_time = active.last_heartbeat_at or active.started_at
@@ -525,8 +525,11 @@ def api_run():
             return jsonify({'status': 'already_running', 'run_id': active.id})
 
     username = current_user.username
+    mode = request.json.get('mode', 'incremental') if request.is_json else 'incremental'
+    if mode not in ('incremental', 'full_rebuild'):
+        mode = 'incremental'
 
-    def _run_in_background(app, username):
+    def _run_in_background(app, username, mode):
         with app.app_context():
             try:
                 from services.forecast.run_service import execute_forecast_run
@@ -534,13 +537,73 @@ def api_run():
                 SessionLocal = sessionmaker(bind=db.engine)
                 session = SessionLocal()
                 try:
-                    execute_forecast_run(session=session, created_by=username)
+                    execute_forecast_run(session=session, created_by=username, mode=mode)
                 finally:
                     session.close()
             except Exception:
                 logger.exception("Background forecast run failed")
 
-    t = threading.Thread(target=_run_in_background, args=(current_app._get_current_object(), username), daemon=True)
+    t = threading.Thread(target=_run_in_background, args=(current_app._get_current_object(), username, mode), daemon=True)
+    t.start()
+    return jsonify({'status': 'started', 'mode': mode})
+
+
+@forecast_bp.route('/api/refresh-weekly-sales', methods=['POST'])
+@admin_or_warehouse_required
+def api_refresh_weekly_sales():
+    import threading
+
+    mode = request.json.get('mode', 'incremental') if request.is_json else 'incremental'
+    if mode not in ('incremental', 'full_rebuild'):
+        mode = 'incremental'
+
+    username = current_user.username
+
+    def _run(app, username, mode):
+        with app.app_context():
+            try:
+                from services.forecast.weekly_sales_builder import build_weekly_sales
+                from sqlalchemy.orm import sessionmaker
+                SessionLocal = sessionmaker(bind=db.engine)
+                session = SessionLocal()
+                try:
+                    rows = build_weekly_sales(session, weeks_back=52, mode=mode)
+                    session.commit()
+                    logger.info(f"[Admin] Weekly sales refresh completed: mode={mode}, rows={rows}, by={username}")
+                finally:
+                    session.close()
+            except Exception:
+                logger.exception("Weekly sales refresh failed")
+
+    t = threading.Thread(target=_run, args=(current_app._get_current_object(), username, mode), daemon=True)
+    t.start()
+    return jsonify({'status': 'started', 'mode': mode})
+
+
+@forecast_bp.route('/api/recompute-seasonality', methods=['POST'])
+@admin_or_warehouse_required
+def api_recompute_seasonality():
+    import threading
+
+    username = current_user.username
+
+    def _run(app, username):
+        with app.app_context():
+            try:
+                from services.forecast.seasonality_service import compute_seasonal_indices
+                from sqlalchemy.orm import sessionmaker
+                SessionLocal = sessionmaker(bind=db.engine)
+                session = SessionLocal()
+                try:
+                    rows = compute_seasonal_indices(session, force=True)
+                    session.commit()
+                    logger.info(f"[Admin] Seasonality recompute completed: rows={rows}, by={username}")
+                finally:
+                    session.close()
+            except Exception:
+                logger.exception("Seasonality recompute failed")
+
+    t = threading.Thread(target=_run, args=(current_app._get_current_object(), username), daemon=True)
     t.start()
     return jsonify({'status': 'started'})
 
