@@ -1156,93 +1156,73 @@
     loadItems();
 })();
 
-function saveTargetWeeks(el, itemCode, newVal) {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    fetch(`{{ url_for('forecast_workbench.api_set_target_weeks', item_code='__PH__') }}`.replace('__PH__', itemCode), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-        body: JSON.stringify({target_weeks_of_stock: newVal}),
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.status === 'ok') {
-            document.querySelectorAll(`[data-item="${itemCode}"].target-weeks-display, [data-item="${itemCode}"].target-weeks-drawer`).forEach(span => {
-                span.textContent = newVal.toFixed(1);
-                span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
-            });
-            if (data.updated_ordering) {
-                loadItems();
-            }
-        } else {
-            el.textContent = '?';
-            alert(data.error || 'Failed to save');
-        }
-    })
-    .catch(() => {
-        el.textContent = '?';
-    });
-}
-
 function editTargetWeeks(el, itemCode, currentVal) {
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:inline-flex; align-items:center; gap:3px; white-space:nowrap;';
-
-    const btnMinus = document.createElement('button');
-    btnMinus.textContent = '\u2212';
-    btnMinus.className = 'btn btn-outline-secondary btn-sm px-1 py-0';
-    btnMinus.style.cssText = 'font-size:0.65rem; line-height:1.2; min-width:18px;';
-    btnMinus.title = 'Decrease by 0.5';
-
     const input = document.createElement('input');
     input.type = 'number';
     input.value = currentVal;
     input.min = '0';
     input.max = '52';
     input.step = '0.5';
-    input.style.cssText = 'width: 50px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #555; border-radius: 3px; text-align:center;';
-
-    const btnPlus = document.createElement('button');
-    btnPlus.textContent = '+';
-    btnPlus.className = 'btn btn-outline-secondary btn-sm px-1 py-0';
-    btnPlus.style.cssText = 'font-size:0.65rem; line-height:1.2; min-width:18px;';
-    btnPlus.title = 'Increase by 0.5';
-
-    wrapper.appendChild(btnMinus);
-    wrapper.appendChild(input);
-    wrapper.appendChild(btnPlus);
-    el.replaceWith(wrapper);
+    input.style.cssText = 'width: 50px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #555; border-radius: 3px;';
+    el.replaceWith(input);
     input.focus();
     input.select();
-
-    btnMinus.addEventListener('mousedown', function(e) {
-        e.preventDefault();
-        const v = Math.round((parseFloat(input.value) - 0.5) * 10) / 10;
-        if (v >= 0) input.value = v;
-    });
-    btnPlus.addEventListener('mousedown', function(e) {
-        e.preventDefault();
-        const v = Math.round((parseFloat(input.value) + 0.5) * 10) / 10;
-        if (v <= 52) input.value = v;
-    });
 
     function save() {
         const newVal = parseFloat(input.value);
         if (isNaN(newVal) || newVal < 0 || newVal > 52) {
-            wrapper.replaceWith(el);
+            input.replaceWith(el);
             return;
         }
-        wrapper.replaceWith(el);
-        el.textContent = '...';
-        saveTargetWeeks(el, itemCode, newVal);
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        fetch(`{{ url_for('forecast_workbench.api_set_target_weeks', item_code='__PH__') }}`.replace('__PH__', itemCode), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({target_weeks_of_stock: newVal}),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                el.textContent = newVal.toFixed(1);
+                input.replaceWith(el);
+                document.querySelectorAll(`[data-item="${itemCode}"].target-weeks-display, [data-item="${itemCode}"].target-weeks-drawer`).forEach(span => {
+                    span.textContent = newVal.toFixed(1);
+                    span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
+                });
+                if (data.updated_ordering) {
+                    const ord = data.updated_ordering;
+                    const row = document.querySelector(`tr[data-item-code="${itemCode}"]`);
+                    if (row) {
+                        const cells = row.querySelectorAll('td');
+                        const item = window._itemDataCache && window._itemDataCache[itemCode];
+                        if (item) {
+                            item.on_hand_qty = ord.on_hand_qty;
+                            item.net_available_qty = ord.net_available_qty;
+                            item.reserved_qty = ord.reserved_qty;
+                            item.incoming_qty = ord.incoming_qty;
+                            item.target_stock_qty = ord.target_stock_qty;
+                            item.raw_order_qty = ord.raw_order_qty;
+                            item.rounded_order_qty = ord.rounded_order_qty;
+                            item.target_weeks_of_stock = newVal;
+                            item.ordering_snapshot_at = ord.ordering_snapshot_at;
+                        }
+                    }
+                    loadItems();
+                }
+            } else {
+                alert(data.error || 'Failed to save');
+                input.replaceWith(el);
+            }
+        })
+        .catch(() => {
+            input.replaceWith(el);
+        });
     }
 
-    input.addEventListener('blur', function(e) {
-        if (e.relatedTarget === btnMinus || e.relatedTarget === btnPlus) return;
-        save();
-    });
+    input.addEventListener('blur', save);
     input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); save(); }
-        if (e.key === 'Escape') { wrapper.replaceWith(el); }
+        if (e.key === 'Escape') { input.replaceWith(el); }
     });
 }
 </script>
