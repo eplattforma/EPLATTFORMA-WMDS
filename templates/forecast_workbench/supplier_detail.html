@@ -769,8 +769,8 @@
         </div>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
             <div class="forecast-card">
-                <div class="card-value ${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</div>
-                <div class="card-label">Vs Prev Run</div>
+                <div class="card-value">${fmtNum(prof.target_weeks_of_stock || 4, 1)}</div>
+                <div class="card-label">Tgt Wks</div>
             </div>
             <div class="forecast-card" style="background: rgba(255, 193, 7, 0.1); border-color: rgba(255, 193, 7, 0.3);">
                 <div class="card-value" style="color: #ffc107;">${fmtNum(res.rounded_order_qty, 0)}</div>
