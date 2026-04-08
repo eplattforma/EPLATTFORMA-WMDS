@@ -611,8 +611,14 @@
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
             <td class="num-col">
-                <span class="target-weeks-display" data-item="${esc(it.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666;" title="Click to edit target weeks"
-                      onclick="editTargetWeeks(this, '${esc(it.item_code)}', ${it.target_weeks_of_stock || 4})">${fmtNum(it.target_weeks_of_stock || 4, 1)}</span>
+                <div class="d-flex align-items-center justify-content-center gap-1" style="white-space:nowrap;">
+                    <button class="btn btn-outline-secondary btn-sm px-1 py-0" style="font-size:0.65rem; line-height:1.2; min-width:18px;"
+                            onclick="stepTargetWeeks('${esc(it.item_code)}', ${it.target_weeks_of_stock || 4}, -0.5)" title="Decrease by 0.5 weeks">&minus;</button>
+                    <span class="target-weeks-display" data-item="${esc(it.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666; min-width:28px; text-align:center;" title="Click to edit"
+                          onclick="editTargetWeeks(this, '${esc(it.item_code)}', ${it.target_weeks_of_stock || 4})">${fmtNum(it.target_weeks_of_stock || 4, 1)}</span>
+                    <button class="btn btn-outline-secondary btn-sm px-1 py-0" style="font-size:0.65rem; line-height:1.2; min-width:18px;"
+                            onclick="stepTargetWeeks('${esc(it.item_code)}', ${it.target_weeks_of_stock || 4}, 0.5)" title="Increase by 0.5 weeks">+</button>
+                </div>
             </td>
             <td class="num-col">${fmtNum(it.on_hand_qty)}</td>
             <td class="num-col">${fmtNum(it.net_available_qty)}</td>
@@ -1156,6 +1162,42 @@
     loadItems();
 })();
 
+function stepTargetWeeks(itemCode, currentVal, delta) {
+    const newVal = Math.round((currentVal + delta) * 10) / 10;
+    if (newVal < 0 || newVal > 52) return;
+    const el = document.querySelector(`[data-item="${itemCode}"].target-weeks-display`);
+    if (!el) return;
+    el.textContent = '...';
+    saveTargetWeeks(el, itemCode, newVal);
+}
+
+function saveTargetWeeks(el, itemCode, newVal) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    fetch(`{{ url_for('forecast_workbench.api_set_target_weeks', item_code='__PH__') }}`.replace('__PH__', itemCode), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify({target_weeks_of_stock: newVal}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            document.querySelectorAll(`[data-item="${itemCode}"].target-weeks-display, [data-item="${itemCode}"].target-weeks-drawer`).forEach(span => {
+                span.textContent = newVal.toFixed(1);
+                span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
+            });
+            if (data.updated_ordering) {
+                loadItems();
+            }
+        } else {
+            el.textContent = '?';
+            alert(data.error || 'Failed to save');
+        }
+    })
+    .catch(() => {
+        el.textContent = '?';
+    });
+}
+
 function editTargetWeeks(el, itemCode, currentVal) {
     const input = document.createElement('input');
     input.type = 'number';
@@ -1174,49 +1216,9 @@ function editTargetWeeks(el, itemCode, currentVal) {
             input.replaceWith(el);
             return;
         }
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-        fetch(`{{ url_for('forecast_workbench.api_set_target_weeks', item_code='__PH__') }}`.replace('__PH__', itemCode), {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-            body: JSON.stringify({target_weeks_of_stock: newVal}),
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.status === 'ok') {
-                el.textContent = newVal.toFixed(1);
-                input.replaceWith(el);
-                document.querySelectorAll(`[data-item="${itemCode}"].target-weeks-display, [data-item="${itemCode}"].target-weeks-drawer`).forEach(span => {
-                    span.textContent = newVal.toFixed(1);
-                    span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
-                });
-                if (data.updated_ordering) {
-                    const ord = data.updated_ordering;
-                    const row = document.querySelector(`tr[data-item-code="${itemCode}"]`);
-                    if (row) {
-                        const cells = row.querySelectorAll('td');
-                        const item = window._itemDataCache && window._itemDataCache[itemCode];
-                        if (item) {
-                            item.on_hand_qty = ord.on_hand_qty;
-                            item.net_available_qty = ord.net_available_qty;
-                            item.reserved_qty = ord.reserved_qty;
-                            item.incoming_qty = ord.incoming_qty;
-                            item.target_stock_qty = ord.target_stock_qty;
-                            item.raw_order_qty = ord.raw_order_qty;
-                            item.rounded_order_qty = ord.rounded_order_qty;
-                            item.target_weeks_of_stock = newVal;
-                            item.ordering_snapshot_at = ord.ordering_snapshot_at;
-                        }
-                    }
-                    loadItems();
-                }
-            } else {
-                alert(data.error || 'Failed to save');
-                input.replaceWith(el);
-            }
-        })
-        .catch(() => {
-            input.replaceWith(el);
-        });
+        input.replaceWith(el);
+        el.textContent = '...';
+        saveTargetWeeks(el, itemCode, newVal);
     }
 
     input.addEventListener('blur', save);
