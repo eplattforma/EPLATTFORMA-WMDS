@@ -1153,58 +1153,60 @@
         if (e.key === 'Escape') closeDrawer();
     });
 
+    window.editTargetWeeks = function(el, itemCode, currentVal) {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = currentVal;
+        input.min = '0';
+        input.max = '52';
+        input.step = '0.5';
+        input.style.cssText = 'width: 50px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #555; border-radius: 3px;';
+        el.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let saving = false;
+        function save() {
+            if (saving) return;
+            saving = true;
+            const newVal = parseFloat(input.value);
+            if (isNaN(newVal) || newVal < 0 || newVal > 52) {
+                input.replaceWith(el);
+                return;
+            }
+            input.disabled = true;
+            input.style.opacity = '0.5';
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            fetch(`{{ url_for('forecast_workbench.api_set_target_weeks', item_code='__PH__') }}`.replace('__PH__', itemCode), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+                body: JSON.stringify({target_weeks_of_stock: newVal}),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    el.textContent = newVal.toFixed(1);
+                    el.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
+                    input.replaceWith(el);
+                    loadItems();
+                } else {
+                    alert(data.error || 'Failed to save');
+                    input.replaceWith(el);
+                }
+            })
+            .catch(() => {
+                input.replaceWith(el);
+            });
+        }
+
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            if (e.key === 'Escape') { input.replaceWith(el); }
+        });
+    };
+
     loadItems();
 })();
-
-function editTargetWeeks(el, itemCode, currentVal) {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.value = currentVal;
-    input.min = '0';
-    input.max = '52';
-    input.step = '0.5';
-    input.style.cssText = 'width: 50px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #555; border-radius: 3px;';
-    el.replaceWith(input);
-    input.focus();
-    input.select();
-
-    function save() {
-        const newVal = parseFloat(input.value);
-        if (isNaN(newVal) || newVal < 0 || newVal > 52) {
-            input.replaceWith(el);
-            return;
-        }
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-        fetch(`{{ url_for('forecast_workbench.api_set_target_weeks', item_code='__PH__') }}`.replace('__PH__', itemCode), {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-            body: JSON.stringify({target_weeks_of_stock: newVal}),
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.status === 'ok') {
-                el.textContent = newVal.toFixed(1);
-                input.replaceWith(el);
-                document.querySelectorAll(`[data-item="${itemCode}"].target-weeks-display, [data-item="${itemCode}"].target-weeks-drawer`).forEach(span => {
-                    span.textContent = newVal.toFixed(1);
-                    span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
-                });
-                loadItems();
-            } else {
-                alert(data.error || 'Failed to save');
-                input.replaceWith(el);
-            }
-        })
-        .catch(() => {
-            input.replaceWith(el);
-        });
-    }
-
-    input.addEventListener('blur', save);
-    input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') { e.preventDefault(); save(); }
-        if (e.key === 'Escape') { input.replaceWith(el); }
-    });
-}
 </script>
 {% endblock %}
