@@ -745,11 +745,43 @@ def api_set_target_weeks(item_code):
     prof.target_weeks_updated_by = current_user.username
     db.session.commit()
 
-    return jsonify({
+    snap_data = None
+    try:
+        from services.forecast.ordering_refresh_service import refresh_ordering_snapshot
+        result = refresh_ordering_snapshot(
+            session=db.session,
+            item_codes=[item_code],
+            created_by=current_user.username,
+        )
+        db.session.commit()
+
+        from services.forecast.ordering_refresh_service import get_latest_snapshots
+        snap_map = get_latest_snapshots(db.session, item_codes=[item_code])
+        snap = snap_map.get(item_code)
+        if snap:
+            snap_data = {
+                'on_hand_qty': _float(snap.on_hand_qty),
+                'net_available_qty': _float(snap.net_available_qty),
+                'reserved_qty': _float(snap.reserved_qty),
+                'incoming_qty': _float(snap.incoming_qty),
+                'target_stock_qty': _float(snap.target_stock_qty),
+                'raw_order_qty': _float(snap.raw_recommended_order_qty),
+                'rounded_order_qty': _float(snap.rounded_order_qty),
+                'lead_time_days': _float(snap.lead_time_days),
+                'review_cycle_days': _float(snap.review_cycle_days),
+                'ordering_snapshot_at': snap.snapshot_at.isoformat() + 'Z' if snap.snapshot_at else None,
+            }
+    except Exception:
+        logger.exception(f"Failed to recalculate ordering for {item_code} after target_weeks change")
+
+    resp = {
         'status': 'ok',
         'item_code': item_code,
         'target_weeks_of_stock': float(prof.target_weeks_of_stock),
-    })
+    }
+    if snap_data:
+        resp['updated_ordering'] = snap_data
+    return jsonify(resp)
 
 
 @forecast_bp.route('/api/ordering/status')
