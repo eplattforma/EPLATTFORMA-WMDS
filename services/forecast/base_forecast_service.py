@@ -77,9 +77,6 @@ def _compute_median6(weekly_qtys):
 
 def _compute_seeded_forecast(item_code, weekly_qtys, profile, dw_item_cache=None, group_baseline_cache=None):
     non_zero = [q for q in weekly_qtys[:8] if q > 0]
-    if not non_zero:
-        return 0.0, "none", None, "none", False
-
     own_signal = sum(non_zero) / len(non_zero) if non_zero else 0.0
 
     dw_item = dw_item_cache.get(item_code) if dw_item_cache else None
@@ -92,29 +89,31 @@ def _compute_seeded_forecast(item_code, weekly_qtys, profile, dw_item_cache=None
     analogue_item = None
 
     if group_baseline_cache is not None:
-        if supplier_code and ("supplier", supplier_code) in group_baseline_cache:
-            baseline = group_baseline_cache[("supplier", supplier_code)]
-            if baseline is not None and baseline > 0:
-                analogue_baseline = baseline
-                analogue_level = "supplier"
-        if analogue_baseline is None and brand_code and ("brand", brand_code) in group_baseline_cache:
+        if brand_code and ("brand", brand_code) in group_baseline_cache:
             baseline = group_baseline_cache[("brand", brand_code)]
             if baseline is not None and baseline > 0:
                 analogue_baseline = baseline
                 analogue_level = "brand"
-        if analogue_baseline is None and item_prefix and ("prefix", item_prefix) in group_baseline_cache:
-            baseline = group_baseline_cache[("prefix", item_prefix)]
+        if analogue_baseline is None and supplier_code and ("supplier", supplier_code) in group_baseline_cache:
+            baseline = group_baseline_cache[("supplier", supplier_code)]
             if baseline is not None and baseline > 0:
                 analogue_baseline = baseline
-                analogue_level = "prefix"
+                analogue_level = "supplier"
 
-    if analogue_baseline is not None:
+    if own_signal > 0 and analogue_baseline is not None:
         forecast = 0.70 * own_signal + 0.30 * analogue_baseline
-    else:
+    elif own_signal > 0:
         forecast = own_signal * 0.70
         analogue_level = "none"
+    elif analogue_baseline is not None:
+        forecast = analogue_baseline
+    else:
+        return 0.0, "none", None, "none", False
 
-    seeded_cap = max(2.0, own_signal * 2.5)
+    if own_signal > 0:
+        seeded_cap = max(2.0, own_signal * 2.5)
+    else:
+        seeded_cap = max(2.0, forecast * 2.5)
     capped_forecast = min(forecast, seeded_cap)
     cap_applied = capped_forecast < forecast
 
@@ -210,11 +209,11 @@ def _get_seasonality_indexes_preloaded(item_code, dw_item_cache, seasonality_ind
         confidence = reliable_levels[("brand", brand)]
 
     if source == "none":
-        prefix = extract_item_prefix(item_code)
-        if prefix and ("prefix", prefix) in reliable_levels:
-            source = "prefix"
-            level_code = prefix
-            confidence = reliable_levels[("prefix", prefix)]
+        supplier = dw_item.supplier_code_365
+        if supplier and ("supplier", supplier) in reliable_levels:
+            source = "supplier"
+            level_code = supplier
+            confidence = reliable_levels[("supplier", supplier)]
 
     if source == "none" or not level_code:
         return 1.0, 1.0, "none", None, "none"
@@ -446,7 +445,18 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         analogue_item = None
         analogue_level = None
 
-        if demand_class == "smooth":
+        is_incomplete = getattr(profile, 'history_incomplete', False)
+
+        if is_incomplete:
+            base_forecast, analogue_level, analogue_item, forecast_confidence, cap_applied = _compute_seeded_forecast(
+                item_code, forecast_qtys, profile,
+                dw_item_cache=dw_item_cache,
+                group_baseline_cache=group_baseline_cache,
+            )
+            forecast_method = "INSUFFICIENT_HISTORY"
+            seed_source = analogue_level
+            profile.baseline_source = analogue_level
+        elif demand_class == "smooth":
             base_forecast = _compute_ma8(forecast_qtys)
             forecast_method = "MA8"
             forecast_confidence = "high"
@@ -601,7 +611,26 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
     trend_flag = "flat"
     trend_pct = None
 
-    if demand_class == "smooth":
+    is_incomplete = getattr(profile, 'history_incomplete', False)
+
+    if is_incomplete:
+        single_dw_cache = {}
+        dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
+        if dw_item:
+            single_dw_cache[item_code] = dw_item
+        single_group_cache = _preload_group_baselines(session, [profile], single_dw_cache)
+        base_forecast, analogue_level, analogue_item, confidence, cap_applied = _compute_seeded_forecast(
+            item_code, weekly_qtys, profile,
+            dw_item_cache=single_dw_cache,
+            group_baseline_cache=single_group_cache,
+        )
+        forecast_method = "INSUFFICIENT_HISTORY"
+        profile.seed_source = analogue_level
+        profile.analogue_item_code = analogue_item
+        profile.analogue_level = analogue_level
+        profile.forecast_confidence = confidence
+        profile.baseline_source = analogue_level
+    elif demand_class == "smooth":
         base_forecast = _compute_ma8(weekly_qtys)
         forecast_method = "MA8"
     elif demand_class == "erratic":

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, text
 
-from models import ForecastRun, FactSalesWeeklyItem
+from models import ForecastRun, FactSalesWeeklyItem, SkuForecastProfile, ForecastSeasonalityMonthly
 from app import db
 from timezone_utils import get_utc_now
 
@@ -160,6 +160,15 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
         session.commit()
         session.expire_all()
         logger.info(f"[Run {run_id}] seasonality completed in {step_timings['seasonality']:.2f}s; rows_written={seas_rows}")
+
+        try:
+            seas_brand = session.query(func.count(func.distinct(ForecastSeasonalityMonthly.level_code))).filter_by(level_type='brand', is_reliable=True).scalar() or 0
+            seas_supplier = session.query(func.count(func.distinct(ForecastSeasonalityMonthly.level_code))).filter_by(level_type='supplier', is_reliable=True).scalar() or 0
+            seas_prefix = session.query(func.count(func.distinct(ForecastSeasonalityMonthly.level_code))).filter_by(level_type='prefix', is_reliable=True).scalar() or 0
+            logger.info(f"[Run {run_id}] Seasonality reliable sources: brand={seas_brand}, supplier={seas_supplier}, prefix={seas_prefix}")
+        except Exception as e:
+            logger.warning(f"[Run {run_id}] Could not log seasonality source counts: {e}")
+
         _heartbeat(run_id, current_step, f"Seasonality completed ({seas_rows} rows, {step_timings['seasonality']:.1f}s)")
 
         current_step = "classification"
@@ -173,6 +182,18 @@ def execute_forecast_run(session: Session, created_by=None, cover_days=7, horizo
         session.commit()
         session.expire_all()
         logger.info(f"[Run {run_id}] classification completed in {step_timings['classification']:.2f}s; items={sku_count}")
+
+        try:
+            class_counts = dict(
+                session.query(SkuForecastProfile.demand_class, func.count(SkuForecastProfile.item_code_365))
+                .group_by(SkuForecastProfile.demand_class)
+                .all()
+            )
+            incomplete_count = session.query(func.count(SkuForecastProfile.item_code_365)).filter(SkuForecastProfile.history_incomplete == True).scalar() or 0
+            logger.info(f"[Run {run_id}] Classification breakdown: {class_counts}, history_incomplete={incomplete_count}")
+        except Exception as e:
+            logger.warning(f"[Run {run_id}] Could not log classification counts: {e}")
+
         _heartbeat(run_id, current_step, f"Classification completed ({sku_count} items, {step_timings['classification']:.1f}s)")
 
         current_step = "base_forecast"

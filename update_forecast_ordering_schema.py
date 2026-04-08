@@ -78,4 +78,16 @@ def update_forecast_ordering_schema():
                 ON sku_ordering_snapshot (item_code_365, snapshot_at)
             """))
 
+            add_column_if_missing(
+                "sku_forecast_profile",
+                "history_incomplete",
+                "ALTER TABLE sku_forecast_profile ADD COLUMN history_incomplete boolean NOT NULL DEFAULT false",
+            )
+
+            add_column_if_missing(
+                "sku_forecast_profile",
+                "baseline_source",
+                "ALTER TABLE sku_forecast_profile ADD COLUMN baseline_source varchar(20) null",
+            )
+
             logging.info("Forecast ordering schema update completed")

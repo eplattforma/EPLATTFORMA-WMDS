@@ -13,6 +13,8 @@ from services.forecast.week_utils import get_completed_week_cutoff
 logger = logging.getLogger(__name__)
 
 WEEKS_WINDOW = 26
+HISTORY_WINDOW_DAYS = 365
+MIN_HISTORY_COVERAGE_WEEKS = 20
 
 
 def _get_weekly_gross_qtys(session: Session, item_code: str, num_weeks: int = WEEKS_WINDOW):
@@ -167,6 +169,13 @@ def classify_all_items(session: Session) -> int:
             sales_by_item[item_code] = {}
         sales_by_item[item_code][week_start] = float(gross_qty or 0)
 
+    all_items_with_any_row = set(sales_by_item.keys())
+    total_distinct_weeks = set()
+    for item_sales in sales_by_item.values():
+        total_distinct_weeks.update(item_sales.keys())
+    global_week_count = len(total_distinct_weeks)
+    logger.info(f"Global weekly coverage: {global_week_count} distinct weeks in {WEEKS_WINDOW}-week window")
+
     try:
         from services.forecast.oos_demand_service import bulk_get_oos_weeks, OOS_THRESHOLD_DAYS
         oos_map = bulk_get_oos_weeks(session, WEEKS_WINDOW, OOS_THRESHOLD_DAYS)
@@ -174,6 +183,8 @@ def classify_all_items(session: Session) -> int:
     except Exception as e:
         logger.warning(f"Could not load OOS data for classification: {e}")
         oos_map = {}
+
+    stats = {"no_demand": 0, "new_sparse": 0, "history_incomplete": 0, "smooth": 0, "erratic": 0, "intermittent": 0, "lumpy": 0}
 
     for (item_code,) in items:
         item_sales = sales_by_item.get(item_code, {})
@@ -184,6 +195,12 @@ def classify_all_items(session: Session) -> int:
             weekly_qtys.append(item_sales.get(ws, 0.0))
             week_starts.append(ws)
             ws += timedelta(weeks=1)
+
+        item_distinct_weeks = len(item_sales)
+        item_has_some_sales = any(q > 0 for q in item_sales.values()) if item_sales else False
+        is_history_incomplete = (global_week_count >= MIN_HISTORY_COVERAGE_WEEKS and
+                                 item_distinct_weeks < MIN_HISTORY_COVERAGE_WEEKS and
+                                 item_has_some_sales)
 
         item_oos_weeks = oos_map.get(item_code, set())
         oos_count = sum(1 for w in week_starts if w in item_oos_weeks)
@@ -202,6 +219,18 @@ def classify_all_items(session: Session) -> int:
 
         profile["oos_weeks_26"] = oos_count
 
+        if is_history_incomplete and profile["demand_class"] == "no_demand":
+            profile["history_incomplete"] = True
+            profile["forecast_method"] = "INSUFFICIENT_HISTORY"
+            profile["review_reason"] = "History not fully loaded"
+            profile["review_flag"] = True
+            stats["history_incomplete"] += 1
+        else:
+            profile["history_incomplete"] = False
+            dc = profile["demand_class"]
+            if dc in stats:
+                stats[dc] += 1
+
         existing = session.get(SkuForecastProfile, item_code)
         if existing:
             for k, v in profile.items():
@@ -218,4 +247,5 @@ def classify_all_items(session: Session) -> int:
 
     session.flush()
     logger.info(f"Classification complete: {count} items processed")
+    logger.info(f"Classification breakdown: {stats}")
     return count

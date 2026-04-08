@@ -105,7 +105,8 @@
     .badge-trend-down { color: #dc3545; }
     .badge-trend-flat { color: #6c757d; }
     .badge-seasonality-brand { background: #6f42c1; color: #fff; font-size: 0.65rem; }
-    .badge-seasonality-prefix { background: #20c997; color: #000; font-size: 0.65rem; }
+    .badge-seasonality-supplier { background: #20c997; color: #000; font-size: 0.65rem; }
+    .badge-seasonality-prefix { background: #17a2b8; color: #fff; font-size: 0.65rem; }
     .badge-seasonality-none { background: transparent; color: #6c757d; font-size: 0.65rem; }
     .review-dot {
         display: inline-block;
@@ -256,7 +257,7 @@
                 <select class="form-select form-select-sm" id="filterSeasonality">
                     <option value="">All</option>
                     <option value="brand">Brand</option>
-                    <option value="prefix">Prefix</option>
+                    <option value="supplier">Supplier</option>
                     <option value="none">None</option>
                 </select>
             </div>
@@ -591,6 +592,8 @@
             : '<i class="fas fa-arrow-right badge-trend-flat" title="Flat"></i>';
         const seasonBadge = it.seasonality_source === 'brand'
             ? `<span class="badge badge-seasonality-brand">Brand</span>`
+            : it.seasonality_source === 'supplier'
+            ? `<span class="badge badge-seasonality-supplier">Supplier</span>`
             : it.seasonality_source === 'prefix'
             ? `<span class="badge badge-seasonality-prefix">Prefix</span>`
             : '<span class="badge badge-seasonality-none">-</span>';
@@ -795,14 +798,10 @@
         </div>
 
         <div class="section-title">Seasonality</div>
-        <table class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
-            <tr><td class="label-col">Jan</td><td class="value-col"><span id="seasonFactorJan">Loading...</span></td><td class="label-col">Jul</td><td class="value-col"><span id="seasonFactorJul">Loading...</span></td></tr>
-            <tr><td class="label-col">Feb</td><td class="value-col"><span id="seasonFactorFeb">Loading...</span></td><td class="label-col">Aug</td><td class="value-col"><span id="seasonFactorAug">Loading...</span></td></tr>
-            <tr><td class="label-col">Mar</td><td class="value-col"><span id="seasonFactorMar">Loading...</span></td><td class="label-col">Sep</td><td class="value-col"><span id="seasonFactorSep">Loading...</span></td></tr>
-            <tr><td class="label-col">Apr</td><td class="value-col"><span id="seasonFactorApr">Loading...</span></td><td class="label-col">Oct</td><td class="value-col"><span id="seasonFactorOct">Loading...</span></td></tr>
-            <tr><td class="label-col">May</td><td class="value-col"><span id="seasonFactorMay">Loading...</span></td><td class="label-col">Nov</td><td class="value-col"><span id="seasonFactorNov">Loading...</span></td></tr>
-            <tr><td class="label-col">Jun</td><td class="value-col"><span id="seasonFactorJun">Loading...</span></td><td class="label-col">Dec</td><td class="value-col"><span id="seasonFactorDec">Loading...</span></td></tr>
-        </table>
+        <div style="position:relative; height:160px; margin-bottom:0.5rem;">
+            <canvas id="seasonalityLineChart"></canvas>
+        </div>
+        <div id="seasonalityMeta" style="font-size:0.75rem; color:#6c757d; margin-bottom:1rem; text-align:center;"></div>
 
         <!-- FORECAST DRIVERS SECTION -->
         <div class="section-title">Forecast Drivers</div>
@@ -879,18 +878,8 @@
         const seasonalityTargetItem = data.item_code;
         fetch(`{{ url_for('forecast_workbench.api_seasonality', item_code='__ITEM__') }}`.replace('__ITEM__', seasonalityTargetItem))
             .then(r => r.json())
-            .then(data => {
-                const rows = data.seasonality || [];
-                const monthMap = {};
-                rows.forEach(row => { monthMap[row.month_no] = row.smoothed_index; });
-                const months = [
-                    ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
-                    ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
-                ];
-                months.forEach(([name, monthNo]) => {
-                    const el = document.getElementById(`seasonFactor${name}`);
-                    if (el) el.textContent = Number(monthMap[monthNo] ?? 1).toFixed(2);
-                });
+            .then(seasData => {
+                renderSeasonalityLineChart(seasData);
             });
 
         // Render chart after DOM is ready
@@ -1124,25 +1113,95 @@
         }
     }
 
+    let seasonalityChart = null;
+
+    function renderSeasonalityLineChart(seasData) {
+        const canvas = document.getElementById('seasonalityLineChart');
+        const metaEl = document.getElementById('seasonalityMeta');
+        if (!canvas || !metaEl) return;
+
+        if (seasonalityChart) { seasonalityChart.destroy(); seasonalityChart = null; }
+
+        const source = seasData.source || 'none';
+        const levelCode = seasData.level_code || '';
+        const confidence = seasData.confidence || 'none';
+        const indices = seasData.indices || [];
+
+        const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        let values;
+        if (source === 'none' || source === 'flat' || indices.length === 0) {
+            values = labels.map(() => 1.0);
+            metaEl.textContent = 'Flat (no seasonal pattern detected)';
+        } else {
+            const indexMap = {};
+            indices.forEach(r => { indexMap[r.month_no] = r.smoothed_index; });
+            values = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => Number(indexMap[m] ?? 1));
+            metaEl.textContent = `Source: ${source} (${levelCode}) \u00B7 Confidence: ${confidence}`;
+        }
+
+        const ctx = canvas.getContext('2d');
+        seasonalityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Seasonal Index',
+                        data: values,
+                        borderColor: 'rgba(13,110,253,0.9)',
+                        backgroundColor: 'rgba(13,110,253,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointBackgroundColor: 'rgba(13,110,253,1)',
+                        borderWidth: 2,
+                    },
+                    {
+                        label: 'Baseline (1.00)',
+                        data: labels.map(() => 1.0),
+                        borderColor: 'rgba(108,117,125,0.5)',
+                        borderWidth: 1,
+                        borderDash: [4, 4],
+                        pointRadius: 0,
+                        fill: false,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        filter: function(item) { return item.datasetIndex === 0; },
+                        callbacks: {
+                            label: function(c) { return 'Index: ' + c.parsed.y.toFixed(3); }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        min: 0.75,
+                        max: 1.25,
+                        ticks: { stepSize: 0.05, font: { size: 10 } },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    },
+                    x: {
+                        ticks: { font: { size: 10 } },
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
+    }
+
     function renderSeasonalityChart() {
         if (!currentChartResult) return;
         const itemCode = currentChartResult.item_code || currentChartResult.item_code_365;
         if (!itemCode) return;
         fetch(`{{ url_for('forecast_workbench.api_seasonality', item_code='__ITEM__') }}`.replace('__ITEM__', itemCode))
             .then(r => r.json())
-            .then(data => {
-                const rows = data.seasonality || [];
-                const monthMap = {};
-                rows.forEach(row => { monthMap[row.month_no] = row.smoothed_index; });
-                const months = [
-                    ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
-                    ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
-                ];
-                months.forEach(([name, monthNo]) => {
-                    const el = document.getElementById(`seasonFactor${name}`);
-                    if (el) el.textContent = Number(monthMap[monthNo] ?? 1).toFixed(2);
-                });
-            });
+            .then(seasData => { renderSeasonalityLineChart(seasData); });
     }
 
     const savedViewPresets = {

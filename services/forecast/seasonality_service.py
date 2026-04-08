@@ -25,6 +25,8 @@ SEASONAL_CAP_MIN = Decimal("0.85")
 SEASONAL_CAP_MAX = Decimal("1.15")
 SMOOTHING_ALPHA = Decimal("0.5")
 
+HISTORY_WINDOW_DAYS = 365
+
 
 def should_recompute_seasonality(session):
     completed_week_cutoff = get_completed_week_cutoff()
@@ -60,6 +62,8 @@ def compute_seasonal_indices(session, force=False):
 
     t0 = time.time()
     completed_week_cutoff = get_completed_week_cutoff()
+    window_start = completed_week_cutoff - timedelta(days=HISTORY_WINDOW_DAYS)
+
     with session.no_autoflush:
         rows = (
             session.query(
@@ -67,12 +71,15 @@ def compute_seasonal_indices(session, force=False):
                 FactSalesWeeklyItem.item_code_365,
                 FactSalesWeeklyItem.gross_qty,
             )
-            .filter(FactSalesWeeklyItem.week_start < completed_week_cutoff)
+            .filter(
+                FactSalesWeeklyItem.week_start >= window_start,
+                FactSalesWeeklyItem.week_start < completed_week_cutoff,
+            )
             .all()
         )
 
     if not rows:
-        logger.info("No weekly sales data found for seasonality computation")
+        logger.info("No weekly sales data found for seasonality computation (365-day window)")
         return 0
 
     with session.no_autoflush:
@@ -81,29 +88,44 @@ def compute_seasonal_indices(session, force=False):
             .filter(DwItem.brand_code_365.isnot(None))
             .all()
         )
+        item_supplier_map = dict(
+            session.query(DwItem.item_code_365, DwItem.supplier_code_365)
+            .filter(DwItem.supplier_code_365.isnot(None))
+            .all()
+        )
 
-    prefix_monthly = defaultdict(lambda: defaultdict(Decimal))
     brand_monthly = defaultdict(lambda: defaultdict(Decimal))
+    supplier_monthly = defaultdict(lambda: defaultdict(Decimal))
+    prefix_monthly = defaultdict(lambda: defaultdict(Decimal))
 
     for week_start, item_code, gross_qty in rows:
         month_no = week_start.month
         qty = Decimal(str(gross_qty)) if gross_qty else Decimal("0")
 
-        prefix = extract_item_prefix(item_code)
-        if prefix:
-            prefix_monthly[prefix][month_no] += qty
-
         brand = item_brand_map.get(item_code)
         if brand:
             brand_monthly[brand][month_no] += qty
 
-    prefix_count = _write_indices_bulk(session, "prefix", prefix_monthly)
+        supplier = item_supplier_map.get(item_code)
+        if supplier:
+            supplier_monthly[supplier][month_no] += qty
+
+        prefix = extract_item_prefix(item_code)
+        if prefix:
+            prefix_monthly[prefix][month_no] += qty
+
     brand_count = _write_indices_bulk(session, "brand", brand_monthly)
-    total_written = prefix_count + brand_count
+    supplier_count = _write_indices_bulk(session, "supplier", supplier_monthly)
+    prefix_count = _write_indices_bulk(session, "prefix", prefix_monthly)
+    total_written = brand_count + supplier_count + prefix_count
 
     session.flush()
     elapsed = time.time() - t0
-    logger.info(f"[seasonality] completed in {elapsed:.2f}s; prefixes={len(prefix_monthly)} brands={len(brand_monthly)} rows_written={total_written}")
+    logger.info(
+        f"[seasonality] completed in {elapsed:.2f}s; "
+        f"brands={len(brand_monthly)} suppliers={len(supplier_monthly)} prefixes={len(prefix_monthly)} "
+        f"rows_written={total_written} (window={HISTORY_WINDOW_DAYS} days)"
+    )
     return total_written
 
 
@@ -185,7 +207,7 @@ def _write_indices_bulk(session, level_type, monthly_data):
 def choose_seasonality_source(session, item_code_365):
     item = session.query(DwItem).filter_by(item_code_365=item_code_365).first()
     if not item:
-        return ("none", None, "none")
+        return ("flat", None, "none")
 
     brand = item.brand_code_365
     if brand:
@@ -197,21 +219,21 @@ def choose_seasonality_source(session, item_code_365):
         if reliable:
             return ("brand", brand, reliable.confidence)
 
-    prefix = extract_item_prefix(item_code_365)
-    if prefix:
+    supplier = item.supplier_code_365
+    if supplier:
         reliable = (
             session.query(ForecastSeasonalityMonthly)
-            .filter_by(level_type="prefix", level_code=prefix, is_reliable=True)
+            .filter_by(level_type="supplier", level_code=supplier, is_reliable=True)
             .first()
         )
         if reliable:
-            return ("prefix", prefix, reliable.confidence)
+            return ("supplier", supplier, reliable.confidence)
 
-    return ("none", None, "none")
+    return ("flat", None, "none")
 
 
 def get_historical_embedded_index(session, item_code, weeks_used, source, level_code):
-    if source == "none" or not level_code:
+    if source == "flat" or source == "none" or not level_code:
         return Decimal("1")
 
     today = date.today()
@@ -248,7 +270,7 @@ def get_historical_embedded_index(session, item_code, weeks_used, source, level_
 
 
 def get_future_seasonal_index(session, item_code, horizon_days, source, level_code):
-    if source == "none" or not level_code or horizon_days <= 0:
+    if source == "flat" or source == "none" or not level_code or horizon_days <= 0:
         return Decimal("1")
 
     today = date.today()

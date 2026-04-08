@@ -2813,6 +2813,8 @@ class SkuForecastProfile(db.Model):
     analogue_level = db.Column(db.String(20), nullable=True)
     oos_weeks_26 = db.Column(db.Integer, nullable=False, default=0)
     oos_adjusted = db.Column(db.Boolean, nullable=False, default=False)
+    history_incomplete = db.Column(db.Boolean, nullable=False, default=False)
+    baseline_source = db.Column(db.String(20), nullable=True)
     target_weeks_of_stock = db.Column(db.Numeric(12, 4), nullable=False, default=4)
     target_weeks_updated_at = db.Column(db.DateTime, nullable=True)
     target_weeks_updated_by = db.Column(db.String(100), nullable=True)

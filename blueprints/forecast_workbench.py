@@ -341,6 +341,8 @@ def api_items():
             'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0 if prof else 0,
             'oos_adjusted': getattr(prof, 'oos_adjusted', False) or False if prof else False,
             'oos_days_8w': oos_8w_map.get(dw.item_code_365, 0),
+            'history_incomplete': getattr(prof, 'history_incomplete', False) or False if prof else False,
+            'baseline_source': getattr(prof, 'baseline_source', None) if prof else None,
         })
 
     return jsonify({'items': items, 'count': len(items)})
@@ -456,6 +458,8 @@ def api_item_detail(item_code):
             'oos_adjusted': getattr(prof, 'oos_adjusted', False) or False,
             'target_weeks_of_stock': _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0,
             'forecast_confidence': prof.forecast_confidence if prof else None,
+            'history_incomplete': getattr(prof, 'history_incomplete', False) or False,
+            'baseline_source': getattr(prof, 'baseline_source', None),
         } if prof else None,
         'result': {
             'base_forecast_weekly_qty': _float(res.base_forecast_weekly_qty),

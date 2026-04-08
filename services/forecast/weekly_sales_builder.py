@@ -14,14 +14,14 @@ logger = logging.getLogger(__name__)
 RETURN_TYPES = ["RETURN", "CREDIT_NOTE", "SALES_RETURN", "CREDIT", "REFUND"]
 
 
-VALID_MODES = ("incremental", "full_26", "full_52", "full_rebuild")
+VALID_MODES = ("incremental", "full_26", "full_52", "full_rebuild", "rebuild_365")
 
 MIN_COVERAGE_WEEKS = 20
 COVERAGE_CHECK_WINDOW = 26
 
 
 def build_weekly_sales(session: Session, weeks_back: int = 52, mode: str = "incremental", progress_callback=None):
-    if mode == "full_rebuild":
+    if mode == "full_rebuild" or mode == "rebuild_365":
         mode = "full_52"
     if mode not in VALID_MODES:
         mode = "incremental"
