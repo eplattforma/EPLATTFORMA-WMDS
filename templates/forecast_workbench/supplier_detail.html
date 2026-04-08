@@ -796,6 +796,7 @@
         </div>
 
         <div class="section-title">Seasonality</div>
+        <div id="seasonalitySummary" style="font-size: 0.8rem; color: var(--bs-secondary); margin-bottom: 0.4rem;"></div>
         <div style="position: relative; height: 180px; margin-bottom: 1rem;">
             <canvas id="seasonalityChart"></canvas>
         </div>
@@ -1112,6 +1113,11 @@
 
         const histIndex = Number(currentChartResult.hist_embedded_seasonal_index || 1);
         const futureIndex = Number(currentChartResult.future_seasonal_index || 1);
+        const ratio = histIndex > 0 ? futureIndex / histIndex : 1;
+        const summaryEl = document.getElementById('seasonalitySummary');
+        if (summaryEl) {
+            summaryEl.textContent = `Historical factor ${histIndex.toFixed(2)} • Future factor ${futureIndex.toFixed(2)} • Ratio ${ratio.toFixed(2)}`;
+        }
 
         seasonalityChart = new Chart(canvasEl.getContext('2d'), {
             type: 'bar',
