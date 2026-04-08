@@ -745,112 +745,22 @@ def api_set_target_weeks(item_code):
     prof.target_weeks_updated_by = current_user.username
     db.session.commit()
 
-    snap_data = None
     try:
-        from services.forecast.ordering_refresh_service import get_latest_snapshots
-        import math
-        old_snap_map = get_latest_snapshots(db.session, item_codes=[item_code])
-        old_snap = old_snap_map.get(item_code)
-
-        if old_snap and old_snap.final_forecast_weekly_qty is not None:
-            final_weekly = _float(old_snap.final_forecast_weekly_qty)
-            final_daily = _float(old_snap.final_forecast_daily_qty)
-            on_hand = _float(old_snap.on_hand_qty)
-            incoming = _float(old_snap.incoming_qty)
-            reserved = _float(old_snap.reserved_qty)
-            net_available = on_hand + incoming - reserved
-            lead_time = _float(old_snap.lead_time_days)
-            review_cycle = _float(old_snap.review_cycle_days)
-            buffer_days_val = _float(old_snap.buffer_days)
-
-            base_target_stock = final_weekly * target_weeks
-            lead_time_cover = final_daily * lead_time
-            review_cycle_cover = final_daily * review_cycle
-            buffer_stock = final_daily * buffer_days_val
-            target_stock = base_target_stock + lead_time_cover + review_cycle_cover + buffer_stock
-            raw_order = max(0.0, target_stock - net_available)
-
-            order_multiple = _float(old_snap.order_multiple) if old_snap.order_multiple else 1.0
-            moq = _float(old_snap.min_order_qty) if old_snap.min_order_qty else 0.0
-
-            rounded = raw_order
-            if raw_order > 0:
-                if order_multiple > 1:
-                    rounded = math.ceil(raw_order / order_multiple) * order_multiple
-                if moq > 0:
-                    rounded = max(rounded, moq)
-
-            now = get_utc_now()
-            new_snap = SkuOrderingSnapshot(
-                item_code_365=item_code,
-                snapshot_type='target_weeks_edit',
-                snapshot_at=now,
-                created_by=current_user.username,
-                forecast_run_id=old_snap.forecast_run_id,
-                forecast_calculated_at=old_snap.forecast_calculated_at,
-                target_weeks_of_stock=Decimal(str(round(target_weeks, 4))),
-                lead_time_days=old_snap.lead_time_days,
-                review_cycle_days=old_snap.review_cycle_days,
-                buffer_days=old_snap.buffer_days,
-                base_forecast_weekly_qty=old_snap.base_forecast_weekly_qty,
-                trend_adjusted_weekly_qty=old_snap.trend_adjusted_weekly_qty,
-                final_forecast_weekly_qty=old_snap.final_forecast_weekly_qty,
-                final_forecast_daily_qty=old_snap.final_forecast_daily_qty,
-                on_hand_qty=old_snap.on_hand_qty,
-                incoming_qty=old_snap.incoming_qty,
-                reserved_qty=old_snap.reserved_qty,
-                net_available_qty=Decimal(str(round(net_available, 6))),
-                target_stock_qty=Decimal(str(round(target_stock, 6))),
-                raw_recommended_order_qty=Decimal(str(round(raw_order, 6))),
-                rounded_order_qty=Decimal(str(round(rounded, 6))),
-                supplier_code=old_snap.supplier_code,
-                order_multiple=old_snap.order_multiple,
-                min_order_qty=old_snap.min_order_qty,
-                explanation_json={
-                    'target_weeks_of_stock': target_weeks,
-                    'base_target_stock': round(base_target_stock, 4),
-                    'lead_time_cover': round(lead_time_cover, 4),
-                    'review_cycle_cover': round(review_cycle_cover, 4),
-                    'buffer_stock': round(buffer_stock, 4),
-                    'buffer_days': buffer_days_val,
-                    'target_stock': round(target_stock, 4),
-                    'on_hand': on_hand,
-                    'incoming': incoming,
-                    'reserved': reserved,
-                    'net_available': round(net_available, 4),
-                    'raw_order': round(raw_order, 4),
-                    'order_multiple': order_multiple,
-                    'min_order_qty': moq,
-                    'rounded_order': round(rounded, 4),
-                    'recalc_source': 'target_weeks_edit',
-                },
-            )
-            db.session.add(new_snap)
-            db.session.commit()
-
-            snap_data = {
-                'on_hand_qty': on_hand,
-                'net_available_qty': round(net_available, 2),
-                'reserved_qty': reserved,
-                'incoming_qty': incoming,
-                'target_stock_qty': round(target_stock, 2),
-                'raw_order_qty': round(raw_order, 2),
-                'rounded_order_qty': round(rounded, 2),
-                'lead_time_days': lead_time,
-                'review_cycle_days': review_cycle,
-                'ordering_snapshot_at': now.isoformat() + 'Z',
-            }
+        from services.forecast.ordering_refresh_service import refresh_ordering_snapshot
+        refresh_ordering_snapshot(
+            session=db.session,
+            item_codes=[item_code],
+            created_by=current_user.username,
+        )
+        db.session.commit()
     except Exception:
         logger.exception(f"Failed to recalculate ordering for {item_code} after target_weeks change")
 
-    resp = {
+    return jsonify({
         'status': 'ok',
         'item_code': item_code,
         'target_weeks_of_stock': float(prof.target_weeks_of_stock),
-    }
-    if snap_data:
-        resp['updated_ordering'] = snap_data
-    return jsonify(resp)
+    })
 
 
 @forecast_bp.route('/api/ordering/status')

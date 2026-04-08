@@ -1189,38 +1189,7 @@ function editTargetWeeks(el, itemCode, currentVal) {
                     span.textContent = newVal.toFixed(1);
                     span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
                 });
-                const ord = data.updated_ordering;
-
-                const item = allItems.find(i => i.item_code === itemCode);
-                if (item) {
-                    item.target_weeks_of_stock = newVal;
-                    if (ord) {
-                        item.on_hand_qty = ord.on_hand_qty;
-                        item.net_available_qty = ord.net_available_qty;
-                        item.target_stock_qty = ord.target_stock_qty;
-                        item.raw_order_qty = ord.raw_order_qty;
-                        item.rounded_order_qty = ord.rounded_order_qty;
-                        item.ordering_snapshot_at = ord.ordering_snapshot_at;
-                    }
-                }
-
-                applyFilters();
-
-                if (ord) {
-                    const drawer = document.getElementById('drawerPanel');
-                    if (drawer && drawer.classList.contains('open')) {
-                        const drawerCells = drawer.querySelectorAll('.drawer-table td.value-col');
-                        drawerCells.forEach((td) => {
-                            const label = td.previousElementSibling;
-                            if (!label) return;
-                            const lt = label.textContent.trim();
-                            if (lt === 'On Hand') td.textContent = fmtNum(ord.on_hand_qty, 0);
-                            if (lt === 'Net Available') td.textContent = fmtNum(ord.net_available_qty, 0);
-                            if (lt === 'Target Stock') td.textContent = fmtNum(ord.target_stock_qty, 0);
-                            if (lt === 'Suggested Order') td.innerHTML = '<strong>' + fmtNum(ord.rounded_order_qty, 0) + '</strong>';
-                        });
-                    }
-                }
+                loadItems();
             } else {
                 alert(data.error || 'Failed to save');
                 input.replaceWith(el);
