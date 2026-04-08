@@ -449,6 +449,7 @@
     const supplierCode = {{ supplier_code | tojson }};
     let allItems = [];
     let historyChart = null;
+    let seasonalityChart = null;
     let currentChartWeeks = 8;
     let currentChartHistory = [];
     let currentChartResult = {};
@@ -875,6 +876,7 @@
         // Render chart after DOM is ready
         requestAnimationFrame(() => {
             renderHistoryChart(8);
+            renderSeasonalityChart();
             updateChartButtons();
         });
     }
@@ -1101,6 +1103,54 @@
                 legendEl.appendChild(oosLegend);
             }
         }
+    }
+
+    function renderSeasonalityChart() {
+        const canvasEl = document.getElementById('seasonalityChart');
+        if (!canvasEl || !currentChartResult) return;
+        if (seasonalityChart) seasonalityChart.destroy();
+
+        const histIndex = Number(currentChartResult.hist_embedded_seasonal_index || 1);
+        const futureIndex = Number(currentChartResult.future_seasonal_index || 1);
+
+        seasonalityChart = new Chart(canvasEl.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: ['Historical', 'Future'],
+                datasets: [{
+                    label: 'Seasonality Factor',
+                    data: [histIndex, futureIndex],
+                    backgroundColor: ['rgba(13,110,253,0.55)', 'rgba(25,135,84,0.55)'],
+                    borderColor: ['#0d6efd', '#198754'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return `Factor: ${Number(ctx.raw).toFixed(2)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        suggestedMax: Math.max(histIndex, futureIndex, 1.2),
+                        ticks: {
+                            callback: function(value) {
+                                return Number(value).toFixed(2);
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     const savedViewPresets = {
