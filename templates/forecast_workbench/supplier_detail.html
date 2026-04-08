@@ -753,12 +753,12 @@
 
         <!-- FORECAST SUMMARY CARDS -->
         <div class="section-title">Forecast Summary</div>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
             <div class="forecast-card">
                 <div class="card-value">${fmtNum(res.base_forecast_weekly_qty)}</div>
                 <div class="card-label">Base/Wk</div>
             </div>
-            <div class="forecast-card" style="grid-column: 1 / -1; background: rgba(25, 135, 84, 0.1); border-color: rgba(25, 135, 84, 0.3);">
+            <div class="forecast-card" style="background: rgba(25, 135, 84, 0.1); border-color: rgba(25, 135, 84, 0.3);">
                 <div class="card-value" style="color: #198754;">${fmtNum(res.final_forecast_weekly_qty)}</div>
                 <div class="card-label">Final/Wk</div>
             </div>
@@ -766,6 +766,8 @@
                 <div class="card-value ${finalVsBase > 0 ? 'text-positive' : finalVsBase < 0 ? 'text-negative' : ''}" style="color: ${finalVsBase > 0 ? '#198754' : finalVsBase < 0 ? '#dc3545' : '#0d6efd'};">${fmtPct(finalVsBase)}</div>
                 <div class="card-label">Final vs Base</div>
             </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
             <div class="forecast-card">
                 <div class="card-value ${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</div>
                 <div class="card-label">Vs Prev Run</div>
