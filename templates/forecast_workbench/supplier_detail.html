@@ -1128,6 +1128,7 @@
         const indices = seasData.indices || [];
 
         const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const currentMonthIndex = new Date().getMonth();
         let values;
         if (source === 'none' || source === 'flat' || indices.length === 0) {
             values = labels.map(() => 1.0);
@@ -1193,6 +1194,18 @@
                 }
             }
         });
+
+        const marker = document.createElement('div');
+        marker.style.position = 'absolute';
+        marker.style.top = '0';
+        marker.style.bottom = '0';
+        marker.style.left = `${((currentMonthIndex + 0.5) / 12) * 100}%`;
+        marker.style.width = '0';
+        marker.style.borderLeft = '2px solid rgba(220,53,69,0.8)';
+        marker.style.pointerEvents = 'none';
+        marker.title = 'Current month';
+        canvas.parentElement.style.position = 'relative';
+        canvas.parentElement.appendChild(marker);
     }
 
     function renderSeasonalityChart() {
