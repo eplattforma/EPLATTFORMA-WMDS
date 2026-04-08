@@ -593,12 +593,72 @@ def api_run_status():
     })
 
 
+def _get_ordering_job_status():
+    try:
+        row = db.session.execute(text(
+            "SELECT status, started_at, completed_at, progress, error_message, snapshot_count "
+            "FROM ordering_refresh_jobs ORDER BY id DESC LIMIT 1"
+        )).fetchone()
+        if row:
+            return {
+                'status': row[0],
+                'started_at': row[1].isoformat() + 'Z' if row[1] else None,
+                'completed_at': row[2].isoformat() + 'Z' if row[2] else None,
+                'progress': row[3],
+                'error': row[4],
+                'snapshot_count': row[5],
+            }
+    except Exception:
+        db.session.rollback()
+    return None
+
+def _ensure_ordering_jobs_table():
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS ordering_refresh_jobs (
+                id SERIAL PRIMARY KEY,
+                status VARCHAR(20) NOT NULL DEFAULT 'running',
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                progress TEXT,
+                error_message TEXT,
+                snapshot_count INTEGER
+            )
+        """))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
 @forecast_bp.route('/api/ordering/refresh', methods=['POST'])
 @admin_or_warehouse_required
 def api_ordering_refresh():
     import threading
+
+    _ensure_ordering_jobs_table()
+
+    existing = _get_ordering_job_status()
+    if existing and existing['status'] == 'running':
+        from datetime import datetime
+        started = datetime.fromisoformat(existing['started_at'].replace('Z', '+00:00')) if existing['started_at'] else None
+        stale_minutes = 15
+        if started and (get_utc_now().replace(tzinfo=None) - started.replace(tzinfo=None)).total_seconds() > stale_minutes * 60:
+            db.session.execute(text(
+                "UPDATE ordering_refresh_jobs SET status = 'failed', completed_at = :now, "
+                "error_message = 'Timed out after 15 minutes' "
+                "WHERE id = (SELECT MAX(id) FROM ordering_refresh_jobs) AND status = 'running'"
+            ))
+            db.session.commit()
+        else:
+            return jsonify({'status': 'already_running', 'started_at': existing['started_at'], 'progress': existing['progress']})
+
     supplier = request.json.get('supplier_code') if request.is_json else request.form.get('supplier_code')
     username = current_user.username
+
+    now = get_utc_now()
+    db.session.execute(text(
+        "INSERT INTO ordering_refresh_jobs (status, started_at, progress) VALUES ('running', :now, 'Starting...')"
+    ), {'now': now})
+    db.session.commit()
 
     def _run_ordering(app, username, supplier_code):
         with app.app_context():
@@ -607,17 +667,50 @@ def api_ordering_refresh():
                 from sqlalchemy.orm import sessionmaker
                 SessionLocal = sessionmaker(bind=db.engine)
                 session = SessionLocal()
+                progress_session = SessionLocal()
                 try:
-                    refresh_ordering_snapshot(
+                    def _progress(msg):
+                        try:
+                            progress_session.execute(text(
+                                "UPDATE ordering_refresh_jobs SET progress = :msg "
+                                "WHERE id = (SELECT MAX(id) FROM ordering_refresh_jobs)"
+                            ), {'msg': msg[:500]})
+                            progress_session.commit()
+                        except Exception:
+                            progress_session.rollback()
+
+                    result = refresh_ordering_snapshot(
                         session=session,
                         supplier_code=supplier_code,
                         created_by=username,
+                        progress_callback=_progress,
                     )
+                    session.commit()
+
+                    snap_count = result.get('snapshot_count', 0)
+                    session.execute(text(
+                        "UPDATE ordering_refresh_jobs SET status = 'completed', completed_at = :now, "
+                        "progress = :msg, snapshot_count = :cnt "
+                        "WHERE id = (SELECT MAX(id) FROM ordering_refresh_jobs)"
+                    ), {'now': get_utc_now(), 'msg': f"Done — {snap_count} items refreshed", 'cnt': snap_count})
                     session.commit()
                 finally:
                     session.close()
-            except Exception:
+                    progress_session.close()
+            except Exception as e:
                 logger.exception("Background ordering refresh failed")
+                try:
+                    from sqlalchemy.orm import sessionmaker as sm2
+                    s2 = sm2(bind=db.engine)()
+                    s2.execute(text(
+                        "UPDATE ordering_refresh_jobs SET status = 'failed', completed_at = :now, "
+                        "error_message = :err, progress = :msg "
+                        "WHERE id = (SELECT MAX(id) FROM ordering_refresh_jobs)"
+                    ), {'now': get_utc_now(), 'err': str(e)[:2000], 'msg': f"Failed: {str(e)[:100]}"})
+                    s2.commit()
+                    s2.close()
+                except Exception:
+                    pass
 
     t = threading.Thread(
         target=_run_ordering,
@@ -662,18 +755,34 @@ def api_set_target_weeks(item_code):
 @forecast_bp.route('/api/ordering/status')
 @admin_or_warehouse_required
 def api_ordering_status():
+    _ensure_ordering_jobs_table()
+    job = _get_ordering_job_status()
+
+    if job and job['status'] == 'running':
+        return jsonify({
+            'status': 'running',
+            'started_at': job['started_at'],
+            'progress': job['progress'],
+        })
+
     latest = (
         db.session.query(SkuOrderingSnapshot)
         .order_by(SkuOrderingSnapshot.snapshot_at.desc())
         .first()
     )
-    if not latest:
-        return jsonify({'status': 'none'})
-    return jsonify({
-        'status': 'completed',
-        'snapshot_at': latest.snapshot_at.isoformat() + 'Z' if latest.snapshot_at else None,
-        'created_by': latest.created_by,
-    })
+    resp = {
+        'status': 'completed' if latest else 'none',
+        'snapshot_at': latest.snapshot_at.isoformat() + 'Z' if latest and latest.snapshot_at else None,
+        'created_by': latest.created_by if latest else None,
+    }
+    if job:
+        if job['completed_at']:
+            resp['last_refresh_at'] = job['completed_at']
+        if job['error']:
+            resp['last_error'] = job['error']
+        if job['snapshot_count'] is not None:
+            resp['snapshot_count'] = job['snapshot_count']
+    return jsonify(resp)
 
 
 @forecast_bp.route('/api/seasonality/<item_code>')

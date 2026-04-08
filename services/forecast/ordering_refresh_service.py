@@ -132,6 +132,8 @@ def refresh_ordering_snapshot(
     def _get_stock_cache(sup_code):
         if sup_code not in stock_cache_by_supplier:
             try:
+                if progress_callback:
+                    progress_callback(f"Fetching stock from PS365 for supplier {sup_code}...")
                 from services.replenishment_mvp.ps365_client import fetch_supplier_stock
                 stock_cache_by_supplier[sup_code] = fetch_supplier_stock(sup_code)
             except Exception as e:

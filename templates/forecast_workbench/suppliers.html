@@ -413,12 +413,8 @@ function refreshOrdering() {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.status === 'started') {
-            setTimeout(() => {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
-                loadSuppliers();
-            }, 10000);
+        if (data.status === 'started' || data.status === 'already_running') {
+            pollOrderingStatus();
         } else {
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
@@ -430,6 +426,29 @@ function refreshOrdering() {
         btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
         alert('Error: ' + err.message);
     });
+}
+
+function pollOrderingStatus() {
+    const btn = document.getElementById('btnRefreshOrdering');
+    fetch('{{ url_for("forecast_workbench.api_ordering_status") }}')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'running') {
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (data.progress || 'Refreshing...');
+                setTimeout(pollOrderingStatus, 3000);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
+                if (data.last_error) {
+                    alert('Ordering refresh failed: ' + data.last_error);
+                } else {
+                    loadSuppliers();
+                }
+            }
+        })
+        .catch(() => {
+            setTimeout(pollOrderingStatus, 5000);
+        });
 }
 
 function pollForecastStatus() {
