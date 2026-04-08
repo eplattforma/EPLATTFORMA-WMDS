@@ -796,12 +796,12 @@
 
         <div class="section-title">Seasonality</div>
         <table class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
-            <tr><td class="label-col">Jan</td><td class="value-col"><span id="seasonFactorJan">-</span></td><td class="label-col">Jul</td><td class="value-col"><span id="seasonFactorJul">-</span></td></tr>
-            <tr><td class="label-col">Feb</td><td class="value-col"><span id="seasonFactorFeb">-</span></td><td class="label-col">Aug</td><td class="value-col"><span id="seasonFactorAug">-</span></td></tr>
-            <tr><td class="label-col">Mar</td><td class="value-col"><span id="seasonFactorMar">-</span></td><td class="label-col">Sep</td><td class="value-col"><span id="seasonFactorSep">-</span></td></tr>
-            <tr><td class="label-col">Apr</td><td class="value-col"><span id="seasonFactorApr">-</span></td><td class="label-col">Oct</td><td class="value-col"><span id="seasonFactorOct">-</span></td></tr>
-            <tr><td class="label-col">May</td><td class="value-col"><span id="seasonFactorMay">-</span></td><td class="label-col">Nov</td><td class="value-col"><span id="seasonFactorNov">-</span></td></tr>
-            <tr><td class="label-col">Jun</td><td class="value-col"><span id="seasonFactorJun">-</span></td><td class="label-col">Dec</td><td class="value-col"><span id="seasonFactorDec">-</span></td></tr>
+            <tr><td class="label-col">Jan</td><td class="value-col"><span id="seasonFactorJan">Loading...</span></td><td class="label-col">Jul</td><td class="value-col"><span id="seasonFactorJul">Loading...</span></td></tr>
+            <tr><td class="label-col">Feb</td><td class="value-col"><span id="seasonFactorFeb">Loading...</span></td><td class="label-col">Aug</td><td class="value-col"><span id="seasonFactorAug">Loading...</span></td></tr>
+            <tr><td class="label-col">Mar</td><td class="value-col"><span id="seasonFactorMar">Loading...</span></td><td class="label-col">Sep</td><td class="value-col"><span id="seasonFactorSep">Loading...</span></td></tr>
+            <tr><td class="label-col">Apr</td><td class="value-col"><span id="seasonFactorApr">Loading...</span></td><td class="label-col">Oct</td><td class="value-col"><span id="seasonFactorOct">Loading...</span></td></tr>
+            <tr><td class="label-col">May</td><td class="value-col"><span id="seasonFactorMay">Loading...</span></td><td class="label-col">Nov</td><td class="value-col"><span id="seasonFactorNov">Loading...</span></td></tr>
+            <tr><td class="label-col">Jun</td><td class="value-col"><span id="seasonFactorJun">Loading...</span></td><td class="label-col">Dec</td><td class="value-col"><span id="seasonFactorDec">Loading...</span></td></tr>
         </table>
 
         <!-- FORECAST DRIVERS SECTION -->
@@ -876,6 +876,22 @@
         currentChartHistory = history;
         currentChartResult = res;
         currentChartWeeks = 8;
+        const seasonalityTargetItem = data.item_code;
+        fetch(`{{ url_for('forecast_workbench.api_seasonality', item_code='__ITEM__') }}`.replace('__ITEM__', seasonalityTargetItem))
+            .then(r => r.json())
+            .then(data => {
+                const rows = data.seasonality || [];
+                const monthMap = {};
+                rows.forEach(row => { monthMap[row.month_no] = row.smoothed_index; });
+                const months = [
+                    ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
+                    ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
+                ];
+                months.forEach(([name, monthNo]) => {
+                    const el = document.getElementById(`seasonFactor${name}`);
+                    if (el) el.textContent = Number(monthMap[monthNo] ?? 1).toFixed(2);
+                });
+            });
 
         // Render chart after DOM is ready
         requestAnimationFrame(() => {
@@ -1110,15 +1126,23 @@
 
     function renderSeasonalityChart() {
         if (!currentChartResult) return;
-        const monthFactors = currentChartResult.month_factors || currentChartResult.monthly_factors || currentChartResult.seasonality_months || {};
-        const months = [
-            ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
-            ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
-        ];
-        months.forEach(([name, monthNo]) => {
-            const el = document.getElementById(`seasonFactor${name}`);
-            if (el) el.textContent = Number(monthFactors[monthNo] ?? monthFactors[String(monthNo)] ?? 1).toFixed(2);
-        });
+        const itemCode = currentChartResult.item_code || currentChartResult.item_code_365;
+        if (!itemCode) return;
+        fetch(`{{ url_for('forecast_workbench.api_seasonality', item_code='__ITEM__') }}`.replace('__ITEM__', itemCode))
+            .then(r => r.json())
+            .then(data => {
+                const rows = data.seasonality || [];
+                const monthMap = {};
+                rows.forEach(row => { monthMap[row.month_no] = row.smoothed_index; });
+                const months = [
+                    ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
+                    ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
+                ];
+                months.forEach(([name, monthNo]) => {
+                    const el = document.getElementById(`seasonFactor${name}`);
+                    if (el) el.textContent = Number(monthMap[monthNo] ?? 1).toFixed(2);
+                });
+            });
     }
 
     const savedViewPresets = {
