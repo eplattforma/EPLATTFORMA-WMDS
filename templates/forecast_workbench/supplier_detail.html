@@ -1189,7 +1189,30 @@ function editTargetWeeks(el, itemCode, currentVal) {
                     span.textContent = newVal.toFixed(1);
                     span.setAttribute('onclick', `editTargetWeeks(this, '${itemCode}', ${newVal})`);
                 });
-                loadItems();
+                if (data.updated_ordering) {
+                    const ord = data.updated_ordering;
+                    const row = document.querySelector(`tr[data-item-code="${itemCode}"]`);
+                    if (row) {
+                        const cells = row.querySelectorAll('td');
+                        cells[13].textContent = fmtNum(ord.on_hand_qty);
+                        cells[14].textContent = fmtNum(ord.net_available_qty);
+                        cells[17].textContent = fmtNum(ord.raw_order_qty);
+                        cells[18].textContent = fmtNum(ord.rounded_order_qty);
+                        cells[18].className = 'num-col fw-bold' + (ord.rounded_order_qty > 0 ? ' text-warning' : '');
+                        row.style.transition = 'background-color 0.5s';
+                        row.style.backgroundColor = 'rgba(255,193,7,0.15)';
+                        setTimeout(() => { row.style.backgroundColor = ''; }, 1500);
+                    }
+                    const item = allItems.find(i => i.item_code === itemCode);
+                    if (item) {
+                        item.target_weeks_of_stock = newVal;
+                        item.on_hand_qty = ord.on_hand_qty;
+                        item.net_available_qty = ord.net_available_qty;
+                        item.target_stock_qty = ord.target_stock_qty;
+                        item.raw_order_qty = ord.raw_order_qty;
+                        item.rounded_order_qty = ord.rounded_order_qty;
+                    }
+                }
             } else {
                 alert(data.error || 'Failed to save');
                 input.replaceWith(el);
