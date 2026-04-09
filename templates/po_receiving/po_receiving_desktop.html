@@ -316,10 +316,7 @@ input[type=number] { -moz-appearance: textfield; }
                         <th>Supplier Code</th>
                         <th>Barcode</th>
                         <th class="text-end">Ordered</th>
-                        <th style="width:75px">Recv Qty</th>
-                        <th style="width:90px">Unit</th>
-                        <th style="width:60px">Conv</th>
-                        <th class="text-end">System Qty</th>
+                        <th style="width:120px">Qty Received</th>
                         <th style="width:120px">Expiry</th>
                         <th class="text-center">Diff</th>
                         <th>Status</th>
@@ -345,7 +342,6 @@ input[type=number] { -moz-appearance: textfield; }
             <div class="summary-row"><span class="label">Variance</span><span class="value" id="sumVariance">0</span></div>
             <hr style="margin:0.4rem 0">
             <div class="summary-row"><span class="label text-danger">Missing Expiry</span><span class="value text-danger" id="sumMissingExpiry">0</span></div>
-            <div class="summary-row"><span class="label text-warning">Missing Conv.</span><span class="value text-warning" id="sumMissingConv">0</span></div>
         </div>
 
         <div class="summary-card">
@@ -401,7 +397,7 @@ input[type=number] { -moz-appearance: textfield; }
 
         let totalOrdered = 0, totalReceived = 0;
         let enteredCount = 0, readyCount = 0, errorCount = 0;
-        let missingExpiry = 0, missingConv = 0;
+        let missingExpiry = 0;
 
         poLines.forEach(line => {
             const ls = computeLineStatus(line);
@@ -413,9 +409,8 @@ input[type=number] { -moz-appearance: textfield; }
             if (line.total_received > 0) enteredCount++;
 
             if (ls.status === 'ready' || ls.status === 'partial' || ls.status === 'over_received') readyCount++;
-            if (ls.status === 'missing_expiry' || ls.status === 'missing_conversion') errorCount++;
+            if (ls.status === 'missing_expiry') errorCount++;
             if (ls.status === 'missing_expiry') missingExpiry++;
-            if (ls.status === 'missing_conversion') missingConv++;
 
             if (!matchesFilter(ls.status)) return;
 
@@ -438,24 +433,8 @@ input[type=number] { -moz-appearance: textfield; }
                 <td class="text-end">${line.line_quantity}</td>
                 <td>
                     <input type="number" class="form-control form-control-sm" min="0" step="1"
-                        id="inp_qty_${line.id}" placeholder="Qty"
+                        id="inp_qty_${line.id}" placeholder="Qty Received"
                         onkeydown="if(event.key==='Enter'){event.preventDefault();saveLine(${line.id});}">
-                </td>
-                <td>
-                    <select class="form-select form-select-sm" id="inp_unit_${line.id}" onchange="onUnitChange(${line.id})">
-                        <option value="unit">Unit</option>
-                        <option value="pack">Pack</option>
-                        <option value="box" ${line.unit_type.toUpperCase() === 'BOX' || line.unit_type.toUpperCase() === 'CASE' ? 'selected' : ''}>Box</option>
-                        <option value="virtual_pack" ${line.unit_type.toUpperCase() === 'VPACK' ? 'selected' : ''}>V-Pack</option>
-                    </select>
-                </td>
-                <td>
-                    <input type="number" class="form-control form-control-sm text-center" min="0.01" step="1"
-                        id="inp_conv_${line.id}" value="${line.pieces_per_unit > 1 ? line.pieces_per_unit : 1}"
-                        onchange="updateConversionDisplay(${line.id})">
-                </td>
-                <td class="text-end fw-bold"><span id="sys_qty_${line.id}">${line.total_received || '—'}</span>
-                    <div class="conversion-display" id="conv_display_${line.id}"></div>
                 </td>
                 <td>
                     <input type="date" class="form-control form-control-sm" id="inp_expiry_${line.id}"
@@ -480,7 +459,6 @@ input[type=number] { -moz-appearance: textfield; }
         document.getElementById('sumTotalReceived').textContent = totalReceived.toFixed(0);
         document.getElementById('sumVariance').textContent = (totalReceived - totalOrdered).toFixed(0);
         document.getElementById('sumMissingExpiry').textContent = missingExpiry;
-        document.getElementById('sumMissingConv').textContent = missingConv;
     }
 
     function computeLineStatus(line) {
@@ -488,9 +466,6 @@ input[type=number] { -moz-appearance: textfield; }
         let issues = [];
         if (line.item_has_expiration_date && !line.expiry_date) {
             return {status: 'missing_expiry', issues: ['Missing expiry date']};
-        }
-        if (!line.conversion_factor || line.conversion_factor <= 0) {
-            return {status: 'missing_conversion', issues: ['Invalid conversion factor']};
         }
         if (!line.line_id_365) return {status: 'no_ps365_line', issues: ['No PS365 line ID']};
         if (line.line_quantity > 0 && line.total_received > line.line_quantity) {
@@ -507,7 +482,7 @@ input[type=number] { -moz-appearance: textfield; }
             case 'ready': return 'row-ready';
             case 'partial': return 'row-warning';
             case 'over_received': return 'row-warning';
-            case 'missing_expiry': case 'missing_conversion': return 'row-error';
+            case 'missing_expiry': return 'row-error';
             case 'no_ps365_line': return 'row-info';
             case 'not_entered': return 'row-not-entered';
             default: return '';
@@ -520,7 +495,6 @@ input[type=number] { -moz-appearance: textfield; }
             case 'partial': return '<span class="status-badge status-partial">Partial</span>';
             case 'over_received': return '<span class="status-badge" style="background:var(--bs-warning);color:#000">Over</span>';
             case 'missing_expiry': return '<span class="status-badge status-error">No Expiry</span>';
-            case 'missing_conversion': return '<span class="status-badge status-error">No Conv</span>';
             case 'no_ps365_line': return '<span class="status-badge status-info">No PS365</span>';
             case 'not_entered': return '<span class="status-badge status-not-entered">—</span>';
             default: return '';
@@ -530,7 +504,7 @@ input[type=number] { -moz-appearance: textfield; }
     function matchesFilter(status) {
         if (currentFilter === 'all') return true;
         if (currentFilter === 'ready') return status === 'ready';
-        if (currentFilter === 'error') return status === 'missing_expiry' || status === 'missing_conversion';
+        if (currentFilter === 'error') return status === 'missing_expiry';
         if (currentFilter === 'warning') return status === 'partial' || status === 'over_received' || status === 'no_ps365_line';
         if (currentFilter === 'not_entered') return status === 'not_entered';
         return true;
@@ -548,8 +522,6 @@ input[type=number] { -moz-appearance: textfield; }
         if (!line) return;
 
         const qtyEl = document.getElementById(`inp_qty_${poLineId}`);
-        const unitEl = document.getElementById(`inp_unit_${poLineId}`);
-        const convEl = document.getElementById(`inp_conv_${poLineId}`);
         const expiryEl = document.getElementById(`inp_expiry_${poLineId}`);
 
         const inputQty = parseFloat(qtyEl.value);
@@ -564,8 +536,6 @@ input[type=number] { -moz-appearance: textfield; }
             session_id: SESSION_ID,
             po_line_id: poLineId,
             input_qty: inputQty,
-            input_unit_type: unitEl.value,
-            conversion_factor: parseFloat(convEl.value) || 1,
             expiry_date: expiryEl.value || null,
             lot_note: '',
         };
@@ -580,9 +550,7 @@ input[type=number] { -moz-appearance: textfield; }
             if (data.ok) {
                 line.total_received += data.line.qty_received;
                 line.expiry_date = data.line.expiry_date;
-                line.conversion_factor = data.line.conversion_factor;
                 line.input_qty = data.line.input_qty;
-                line.input_unit_type = data.line.input_unit_type;
                 qtyEl.value = '';
                 expiryEl.value = '';
                 renderTable();
@@ -591,34 +559,6 @@ input[type=number] { -moz-appearance: textfield; }
             }
         } catch(e) {
             alert('Network error: ' + e.message);
-        }
-    };
-
-    window.onUnitChange = function(poLineId) {
-        const line = poLines.find(l => l.id === poLineId);
-        const unit = document.getElementById(`inp_unit_${poLineId}`).value;
-        const convEl = document.getElementById(`inp_conv_${poLineId}`);
-
-        if (unit === 'unit') {
-            convEl.value = 1;
-        } else if (line && line.pieces_per_unit > 1) {
-            convEl.value = line.pieces_per_unit;
-        }
-        updateConversionDisplay(poLineId);
-    };
-
-    window.updateConversionDisplay = function(poLineId) {
-        const qtyEl = document.getElementById(`inp_qty_${poLineId}`);
-        const convEl = document.getElementById(`inp_conv_${poLineId}`);
-        const unitEl = document.getElementById(`inp_unit_${poLineId}`);
-        const displayEl = document.getElementById(`conv_display_${poLineId}`);
-
-        const qty = parseFloat(qtyEl.value) || 0;
-        const conv = parseFloat(convEl.value) || 1;
-        if (qty > 0 && conv !== 1) {
-            displayEl.textContent = `${qty} ${unitEl.value} × ${conv} = ${(qty * conv).toFixed(0)}`;
-        } else {
-            displayEl.textContent = '';
         }
     };
 
@@ -661,7 +601,7 @@ input[type=number] { -moz-appearance: textfield; }
 
     window.sendToPS365 = async function() {
         const hasErrors = Object.values(lineStatuses).some(s =>
-            s.status === 'missing_expiry' || s.status === 'missing_conversion'
+            s.status === 'missing_expiry'
         );
         const hasEntries = Object.values(lineStatuses).some(s => s.status !== 'not_entered');
 
@@ -865,8 +805,6 @@ input[type=number] { -moz-appearance: textfield; }
                     total_received: 0,
                         expiry_date: null,
                         input_qty: null,
-                        input_unit_type: 'unit',
-                        conversion_factor: 1,
                     shelf_locations: data.line.shelf_locations || [],
                     image_path: imagePath,
                 });
