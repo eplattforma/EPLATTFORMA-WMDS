@@ -1,0 +1,964 @@
+{% extends "base.html" %}
+{% block title %}Desktop Receiving - {{ po.code_365 or po.shopping_cart_code }}{% endblock %}
+
+{% block head %}
+<style>
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
+
+.desktop-header {
+    background: var(--bs-dark);
+    border-bottom: 2px solid var(--bs-primary);
+    padding: 0.75rem 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 1020;
+}
+.desktop-header .badge-mode {
+    background: var(--bs-primary);
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    vertical-align: middle;
+}
+.desktop-body {
+    display: flex;
+    gap: 0;
+    height: calc(100vh - 140px);
+    overflow: hidden;
+}
+.desktop-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.75rem;
+}
+.desktop-sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--bs-dark);
+    border-left: 1px solid var(--bs-border-color);
+    overflow-y: auto;
+    padding: 0.75rem;
+}
+.search-container {
+    position: relative;
+    margin-bottom: 0.75rem;
+}
+.search-results-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bs-dark);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0 0 6px 6px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 1050;
+    display: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.search-result-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bs-border-color);
+    transition: background 0.15s;
+}
+.search-result-item:hover, .search-result-item.active {
+    background: var(--bs-primary);
+    color: #fff;
+}
+.search-result-item img {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    border-radius: 4px;
+    background: #fff;
+    flex-shrink: 0;
+}
+.search-result-item .sr-details {
+    flex: 1;
+    min-width: 0;
+}
+.search-result-item .sr-code {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+.search-result-item .sr-name {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.search-result-item .sr-meta {
+    font-size: 0.7rem;
+    opacity: 0.6;
+}
+.search-result-item .badge-on-po {
+    background: var(--bs-success);
+    font-size: 0.65rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.rcv-table {
+    width: 100%;
+    font-size: 0.8rem;
+}
+.rcv-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bs-dark);
+    z-index: 10;
+    padding: 0.4rem 0.35rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    border-bottom: 2px solid var(--bs-primary);
+}
+.rcv-table tbody td {
+    padding: 0.3rem 0.35rem;
+    vertical-align: middle;
+}
+.rcv-table tbody tr {
+    border-bottom: 1px solid var(--bs-border-color);
+}
+.rcv-table tbody tr:hover {
+    background: rgba(var(--bs-primary-rgb), 0.08);
+}
+.rcv-table tbody tr.row-ready { border-left: 3px solid var(--bs-success); }
+.rcv-table tbody tr.row-warning { border-left: 3px solid var(--bs-warning); }
+.rcv-table tbody tr.row-error { border-left: 3px solid var(--bs-danger); }
+.rcv-table tbody tr.row-info { border-left: 3px solid var(--bs-secondary); }
+.rcv-table tbody tr.row-not-entered { opacity: 0.6; }
+
+.rcv-table .img-thumb {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+}
+.rcv-table .cell-code {
+    font-family: monospace;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+.rcv-table .cell-name {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rcv-table input.form-control-sm {
+    padding: 0.15rem 0.3rem;
+    font-size: 0.8rem;
+    height: auto;
+}
+.rcv-table select.form-select-sm {
+    padding: 0.15rem 0.3rem;
+    font-size: 0.8rem;
+    height: auto;
+}
+.rcv-table .conversion-display {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    white-space: nowrap;
+}
+
+.status-badge {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+.status-ready { background: var(--bs-success); color: #fff; }
+.status-partial { background: #0d6efd; color: #fff; }
+.status-over { background: var(--bs-warning); color: #000; }
+.status-error { background: var(--bs-danger); color: #fff; }
+.status-info { background: var(--bs-secondary); color: #fff; }
+.status-not-entered { background: var(--bs-secondary); color: #fff; opacity: 0.5; }
+
+.summary-card {
+    background: rgba(var(--bs-primary-rgb), 0.1);
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.summary-card h6 {
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    padding: 0.15rem 0;
+}
+.summary-row .label { opacity: 0.7; }
+.summary-row .value { font-weight: 600; }
+
+.lot-row {
+    background: rgba(var(--bs-primary-rgb), 0.05);
+    font-size: 0.75rem;
+}
+.lot-row td { padding: 0.2rem 0.35rem; }
+
+.btn-icon-sm {
+    padding: 0.15rem 0.35rem;
+    font-size: 0.7rem;
+    line-height: 1;
+}
+
+.filter-bar {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+.filter-bar .btn {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+}
+.filter-bar .btn.active {
+    box-shadow: 0 0 0 2px var(--bs-primary);
+}
+
+.img-preview-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.8);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.img-preview-overlay img {
+    max-width: 80%;
+    max-height: 80%;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.unsaved-indicator {
+    display: none;
+    color: var(--bs-warning);
+    font-size: 0.7rem;
+}
+.unsaved-indicator.show { display: inline; }
+
+@media (max-width: 1100px) {
+    .desktop-sidebar { width: 240px; min-width: 240px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="desktop-header">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-3">
+            <div>
+                <span class="fw-bold">{{ po.code_365 or po.shopping_cart_code }}</span>
+                <span class="badge-mode ms-1">Desktop Entry Mode</span>
+            </div>
+            <div class="text-muted" style="font-size:0.8rem;">
+                <i class="fas fa-truck"></i> {{ po.supplier_name or 'Unknown' }}
+            </div>
+            <div class="text-muted" style="font-size:0.75rem;">
+                <i class="fas fa-receipt"></i> {{ session.receipt_code }}
+                <span class="ms-2 badge bg-secondary">{{ po.status_code or po.status_name or 'N/A' }}</span>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="unsaved-indicator" id="unsavedIndicator">
+                <i class="fas fa-circle"></i> Unsaved
+            </span>
+            <button class="btn btn-sm btn-outline-info" onclick="validateSession()">
+                <i class="fas fa-check-circle"></i> Validate
+            </button>
+            <button class="btn btn-sm btn-success" id="btnSendPS365" onclick="sendToPS365()">
+                <i class="fas fa-paper-plane"></i> Send to PS365
+            </button>
+            <a href="{{ url_for('po_receiving.receive', po_id=po.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-mobile-alt"></i> Standard Mode
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="desktop-body">
+    <div class="desktop-main">
+        <div class="search-container">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text" id="searchBox" class="form-control" placeholder="Search by name, item code, barcode, or supplier code..." autocomplete="off">
+            </div>
+            <div class="search-results-dropdown" id="searchDropdown"></div>
+        </div>
+
+        <div class="filter-bar">
+            <button class="btn btn-outline-light btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
+            <button class="btn btn-outline-success btn-sm" data-filter="ready" onclick="setFilter('ready', this)">Ready</button>
+            <button class="btn btn-outline-danger btn-sm" data-filter="error" onclick="setFilter('error', this)">Errors</button>
+            <button class="btn btn-outline-warning btn-sm" data-filter="warning" onclick="setFilter('warning', this)">Warnings</button>
+            <button class="btn btn-outline-secondary btn-sm" data-filter="not_entered" onclick="setFilter('not_entered', this)">Not Entered</button>
+        </div>
+
+        <div class="table-responsive">
+            <table class="rcv-table" id="rcvTable">
+                <thead>
+                    <tr>
+                        <th style="width:48px"></th>
+                        <th>Item Code</th>
+                        <th>Product Name</th>
+                        <th>Supplier Code</th>
+                        <th>Barcode</th>
+                        <th class="text-end">Ordered</th>
+                        <th style="width:75px">Recv Qty</th>
+                        <th style="width:90px">Unit</th>
+                        <th style="width:60px">Conv</th>
+                        <th class="text-end">System Qty</th>
+                        <th style="width:120px">Expiry</th>
+                        <th class="text-center">Diff</th>
+                        <th>Status</th>
+                        <th style="width:50px"></th>
+                    </tr>
+                </thead>
+                <tbody id="rcvTableBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="desktop-sidebar">
+        <div class="summary-card">
+            <h6><i class="fas fa-chart-bar"></i> Summary</h6>
+            <div class="summary-row"><span class="label">PO Lines</span><span class="value" id="sumTotalLines">0</span></div>
+            <div class="summary-row"><span class="label">Entered</span><span class="value" id="sumEnteredLines">0</span></div>
+            <div class="summary-row"><span class="label text-success">Ready</span><span class="value text-success" id="sumReadyLines">0</span></div>
+            <div class="summary-row"><span class="label text-danger">Errors</span><span class="value text-danger" id="sumErrorLines">0</span></div>
+            <hr style="margin:0.4rem 0">
+            <div class="summary-row"><span class="label">Total Ordered</span><span class="value" id="sumTotalOrdered">0</span></div>
+            <div class="summary-row"><span class="label">Total Received</span><span class="value" id="sumTotalReceived">0</span></div>
+            <div class="summary-row"><span class="label">Variance</span><span class="value" id="sumVariance">0</span></div>
+            <hr style="margin:0.4rem 0">
+            <div class="summary-row"><span class="label text-danger">Missing Expiry</span><span class="value text-danger" id="sumMissingExpiry">0</span></div>
+            <div class="summary-row"><span class="label text-warning">Missing Conv.</span><span class="value text-warning" id="sumMissingConv">0</span></div>
+        </div>
+
+        <div class="summary-card">
+            <h6><i class="fas fa-calendar"></i> Bulk Expiry</h6>
+            <div class="input-group input-group-sm mb-2">
+                <input type="date" id="bulkExpiryDate" class="form-control form-control-sm">
+                <button class="btn btn-outline-primary btn-sm" onclick="applyBulkExpiry('missing')">
+                    Missing
+                </button>
+                <button class="btn btn-outline-warning btn-sm" onclick="applyBulkExpiry('all')">
+                    All
+                </button>
+            </div>
+            <div class="text-muted" style="font-size:0.7rem">Apply expiry to rows missing it or all entered rows</div>
+        </div>
+
+        <div class="summary-card">
+            <h6><i class="fas fa-info-circle"></i> Session</h6>
+            <div class="summary-row"><span class="label">Receipt</span><span class="value">{{ session.receipt_code }}</span></div>
+            <div class="summary-row"><span class="label">Operator</span><span class="value">{{ session.operator or 'N/A' }}</span></div>
+            <div class="summary-row"><span class="label">Started</span><span class="value" style="font-size:0.7rem">{{ session.started_at.strftime('%Y-%m-%d %H:%M') if session.started_at else 'N/A' }}</span></div>
+        </div>
+
+        <div class="summary-card">
+            <h6><i class="fas fa-sticky-note"></i> Comments</h6>
+            <textarea id="sessionComments" class="form-control form-control-sm" rows="3" style="font-size:0.75rem" placeholder="Add comments...">{{ session.comments or '' }}</textarea>
+            <button class="btn btn-outline-primary btn-sm mt-1 w-100" onclick="saveComments()">Save Comments</button>
+        </div>
+    </div>
+</div>
+
+<div id="imgPreview" class="img-preview-overlay" style="display:none" onclick="this.style.display='none'">
+    <img id="imgPreviewImg" src="">
+</div>
+
+<script>
+(function() {
+    const SESSION_ID = {{ session.id }};
+    const PO_ID = {{ po.id }};
+    const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    let poLines = {{ po_lines_data|tojson }};
+    let currentFilter = 'all';
+    let searchTimeout = null;
+    let lineStatuses = {};
+
+    function getHeaders() {
+        return {'Content-Type': 'application/json', 'X-CSRFToken': CSRF};
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('rcvTableBody');
+        tbody.innerHTML = '';
+
+        let totalOrdered = 0, totalReceived = 0;
+        let enteredCount = 0, readyCount = 0, errorCount = 0;
+        let missingExpiry = 0, missingConv = 0;
+
+        poLines.forEach(line => {
+            const ls = computeLineStatus(line);
+            lineStatuses[line.id] = ls;
+
+            totalOrdered += line.line_quantity;
+            totalReceived += line.total_received;
+
+            if (line.total_received > 0 || line.lots.length > 0) enteredCount++;
+
+            if (ls.status === 'ready' || ls.status === 'partial' || ls.status === 'over_received') readyCount++;
+            if (ls.status === 'missing_expiry' || ls.status === 'missing_conversion') errorCount++;
+            if (ls.status === 'missing_expiry') missingExpiry++;
+            if (ls.status === 'missing_conversion') missingConv++;
+
+            if (!matchesFilter(ls.status)) return;
+
+            const rowClass = getRowClass(ls.status);
+            const hasLots = line.lots.length > 0;
+
+            let lotsHtml = '';
+            if (hasLots) {
+                line.lots.forEach(lot => {
+                    const convDisplay = lot.input_qty && lot.conversion_factor
+                        ? `${lot.input_qty} ${lot.input_unit_type || 'unit'} × ${lot.conversion_factor}`
+                        : '';
+                    lotsHtml += `<tr class="lot-row" data-lot-id="${lot.id}" data-po-line-id="${line.id}">
+                        <td></td>
+                        <td colspan="4" class="ps-4 text-muted">
+                            <i class="fas fa-box-open"></i> Lot #${lot.id}
+                            ${lot.lot_note ? '<span class="ms-2 text-warning"><i class="fas fa-sticky-note"></i> ' + escapeHtml(lot.lot_note) + '</span>' : ''}
+                        </td>
+                        <td></td>
+                        <td class="text-end">${lot.input_qty || lot.qty_received}</td>
+                        <td>${lot.input_unit_type || 'unit'}</td>
+                        <td class="text-center">${lot.conversion_factor || 1}</td>
+                        <td class="text-end fw-bold">${lot.qty_received}</td>
+                        <td>${lot.expiry_date || '<span class="text-danger">—</span>'}</td>
+                        <td></td>
+                        <td></td>
+                        <td>
+                            <button class="btn btn-outline-danger btn-icon-sm" onclick="deleteLot(${lot.id}, ${line.id})" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+            }
+
+            const diff = line.total_received - line.line_quantity;
+            const diffStr = line.line_quantity > 0
+                ? (diff > 0 ? `+${diff.toFixed(0)}` : diff.toFixed(0))
+                : '—';
+            const diffClass = diff > 0 ? 'text-warning' : (diff < 0 ? 'text-info' : 'text-success');
+
+            const tr = document.createElement('tr');
+            tr.className = rowClass;
+            tr.dataset.poLineId = line.id;
+            tr.innerHTML = `
+                <td><img class="img-thumb" src="/static/${line.image_path}" alt="" loading="lazy" onerror="this.src='/static/images/image-not-found.png'" onclick="showPreview(this.src)"></td>
+                <td class="cell-code">${escapeHtml(line.item_code_365)}</td>
+                <td class="cell-name" title="${escapeHtml(line.item_name)}">${escapeHtml(line.item_name)}</td>
+                <td class="cell-code">${escapeHtml(line.supplier_item_code)}</td>
+                <td class="cell-code">${escapeHtml(line.item_barcode)}</td>
+                <td class="text-end">${line.line_quantity}</td>
+                <td>
+                    <input type="number" class="form-control form-control-sm" min="0" step="1"
+                        id="inp_qty_${line.id}" placeholder="Qty"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();saveLine(${line.id});}">
+                </td>
+                <td>
+                    <select class="form-select form-select-sm" id="inp_unit_${line.id}" onchange="onUnitChange(${line.id})">
+                        <option value="unit">Unit</option>
+                        <option value="pack">Pack</option>
+                        <option value="box" ${line.unit_type.toUpperCase() === 'BOX' || line.unit_type.toUpperCase() === 'CASE' ? 'selected' : ''}>Box</option>
+                        <option value="virtual_pack" ${line.unit_type.toUpperCase() === 'VPACK' ? 'selected' : ''}>V-Pack</option>
+                    </select>
+                </td>
+                <td>
+                    <input type="number" class="form-control form-control-sm text-center" min="0.01" step="1"
+                        id="inp_conv_${line.id}" value="${line.pieces_per_unit > 1 ? line.pieces_per_unit : 1}"
+                        onchange="updateConversionDisplay(${line.id})">
+                </td>
+                <td class="text-end fw-bold"><span id="sys_qty_${line.id}">${line.total_received || '—'}</span>
+                    <div class="conversion-display" id="conv_display_${line.id}"></div>
+                </td>
+                <td>
+                    <input type="date" class="form-control form-control-sm" id="inp_expiry_${line.id}"
+                        ${line.item_has_expiration_date ? 'required' : ''}>
+                </td>
+                <td class="text-center ${diffClass}">${diffStr}</td>
+                <td>${getStatusBadge(ls.status)}</td>
+                <td>
+                    <button class="btn btn-primary btn-icon-sm" onclick="saveLine(${line.id})" title="Save">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+
+            if (lotsHtml) {
+                const fragment = document.createRange().createContextualFragment(lotsHtml);
+                tbody.appendChild(fragment);
+            }
+        });
+
+        document.getElementById('sumTotalLines').textContent = poLines.length;
+        document.getElementById('sumEnteredLines').textContent = enteredCount;
+        document.getElementById('sumReadyLines').textContent = readyCount;
+        document.getElementById('sumErrorLines').textContent = errorCount;
+        document.getElementById('sumTotalOrdered').textContent = totalOrdered.toFixed(0);
+        document.getElementById('sumTotalReceived').textContent = totalReceived.toFixed(0);
+        document.getElementById('sumVariance').textContent = (totalReceived - totalOrdered).toFixed(0);
+        document.getElementById('sumMissingExpiry').textContent = missingExpiry;
+        document.getElementById('sumMissingConv').textContent = missingConv;
+    }
+
+    function computeLineStatus(line) {
+        if (line.lots.length === 0) return {status: 'not_entered', issues: []};
+        let issues = [];
+        for (let lot of line.lots) {
+            if (line.item_has_expiration_date && !lot.expiry_date) {
+                return {status: 'missing_expiry', issues: ['Missing expiry date']};
+            }
+            if (!lot.conversion_factor || lot.conversion_factor <= 0) {
+                return {status: 'missing_conversion', issues: ['Invalid conversion factor']};
+            }
+        }
+        if (!line.line_id_365) return {status: 'no_ps365_line', issues: ['No PS365 line ID']};
+        if (line.line_quantity > 0 && line.total_received > line.line_quantity) {
+            return {status: 'over_received', issues: ['Over-received']};
+        }
+        if (line.line_quantity > 0 && line.total_received < line.line_quantity) {
+            return {status: 'partial', issues: ['Partial receipt']};
+        }
+        return {status: 'ready', issues: []};
+    }
+
+    function getRowClass(status) {
+        switch(status) {
+            case 'ready': return 'row-ready';
+            case 'partial': return 'row-warning';
+            case 'over_received': return 'row-warning';
+            case 'missing_expiry': case 'missing_conversion': return 'row-error';
+            case 'no_ps365_line': return 'row-info';
+            case 'not_entered': return 'row-not-entered';
+            default: return '';
+        }
+    }
+
+    function getStatusBadge(status) {
+        switch(status) {
+            case 'ready': return '<span class="status-badge status-ready">Ready</span>';
+            case 'partial': return '<span class="status-badge status-partial">Partial</span>';
+            case 'over_received': return '<span class="status-badge" style="background:var(--bs-warning);color:#000">Over</span>';
+            case 'missing_expiry': return '<span class="status-badge status-error">No Expiry</span>';
+            case 'missing_conversion': return '<span class="status-badge status-error">No Conv</span>';
+            case 'no_ps365_line': return '<span class="status-badge status-info">No PS365</span>';
+            case 'not_entered': return '<span class="status-badge status-not-entered">—</span>';
+            default: return '';
+        }
+    }
+
+    function matchesFilter(status) {
+        if (currentFilter === 'all') return true;
+        if (currentFilter === 'ready') return status === 'ready';
+        if (currentFilter === 'error') return status === 'missing_expiry' || status === 'missing_conversion';
+        if (currentFilter === 'warning') return status === 'partial' || status === 'over_received' || status === 'no_ps365_line';
+        if (currentFilter === 'not_entered') return status === 'not_entered';
+        return true;
+    }
+
+    window.setFilter = function(filter, btn) {
+        currentFilter = filter;
+        document.querySelectorAll('.filter-bar .btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderTable();
+    };
+
+    window.saveLine = async function(poLineId) {
+        const line = poLines.find(l => l.id === poLineId);
+        if (!line) return;
+
+        const qtyEl = document.getElementById(`inp_qty_${poLineId}`);
+        const unitEl = document.getElementById(`inp_unit_${poLineId}`);
+        const convEl = document.getElementById(`inp_conv_${poLineId}`);
+        const expiryEl = document.getElementById(`inp_expiry_${poLineId}`);
+
+        const inputQty = parseFloat(qtyEl.value);
+        if (!inputQty || inputQty <= 0) {
+            qtyEl.classList.add('is-invalid');
+            qtyEl.focus();
+            return;
+        }
+        qtyEl.classList.remove('is-invalid');
+
+        const payload = {
+            session_id: SESSION_ID,
+            po_line_id: poLineId,
+            input_qty: inputQty,
+            input_unit_type: unitEl.value,
+            conversion_factor: parseFloat(convEl.value) || 1,
+            expiry_date: expiryEl.value || null,
+            lot_note: '',
+        };
+
+        try {
+            const resp = await fetch('/po-receiving/api/desktop/save-line', {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                line.lots.push(data.line);
+                line.total_received += data.line.qty_received;
+                qtyEl.value = '';
+                expiryEl.value = '';
+                renderTable();
+            } else {
+                alert(data.error || 'Failed to save');
+            }
+        } catch(e) {
+            alert('Network error: ' + e.message);
+        }
+    };
+
+    window.deleteLot = async function(lotId, poLineId) {
+        if (!confirm('Delete this received lot?')) return;
+        try {
+            const resp = await fetch(`/po-receiving/api/desktop/delete-line/${lotId}`, {
+                method: 'POST',
+                headers: getHeaders(),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                const line = poLines.find(l => l.id === poLineId);
+                if (line) {
+                    const lot = line.lots.find(l => l.id === lotId);
+                    if (lot) {
+                        line.total_received -= lot.qty_received;
+                        line.lots = line.lots.filter(l => l.id !== lotId);
+                    }
+                }
+                renderTable();
+            } else {
+                alert(data.error || 'Failed to delete');
+            }
+        } catch(e) {
+            alert('Network error: ' + e.message);
+        }
+    };
+
+    window.onUnitChange = function(poLineId) {
+        const line = poLines.find(l => l.id === poLineId);
+        const unit = document.getElementById(`inp_unit_${poLineId}`).value;
+        const convEl = document.getElementById(`inp_conv_${poLineId}`);
+
+        if (unit === 'unit') {
+            convEl.value = 1;
+        } else if (line && line.pieces_per_unit > 1) {
+            convEl.value = line.pieces_per_unit;
+        }
+        updateConversionDisplay(poLineId);
+    };
+
+    window.updateConversionDisplay = function(poLineId) {
+        const qtyEl = document.getElementById(`inp_qty_${poLineId}`);
+        const convEl = document.getElementById(`inp_conv_${poLineId}`);
+        const unitEl = document.getElementById(`inp_unit_${poLineId}`);
+        const displayEl = document.getElementById(`conv_display_${poLineId}`);
+
+        const qty = parseFloat(qtyEl.value) || 0;
+        const conv = parseFloat(convEl.value) || 1;
+        if (qty > 0 && conv !== 1) {
+            displayEl.textContent = `${qty} ${unitEl.value} × ${conv} = ${(qty * conv).toFixed(0)}`;
+        } else {
+            displayEl.textContent = '';
+        }
+    };
+
+    window.validateSession = async function() {
+        try {
+            const resp = await fetch('/po-receiving/api/desktop/validate-session', {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({session_id: SESSION_ID}),
+            });
+            const data = await resp.json();
+            if (!data.ok) {
+                alert(data.error);
+                return;
+            }
+
+            let msg = `Validation Results:\n\n`;
+            msg += `Lines: ${data.summary.entered_lines}/${data.summary.total_lines} entered\n`;
+            msg += `Ready: ${data.summary.ready_lines}\n`;
+            msg += `Errors: ${data.summary.error_lines}\n`;
+
+            if (data.errors.length) {
+                msg += `\nBlocking Issues:\n` + data.errors.map(e => `  ✗ ${e}`).join('\n');
+            }
+            if (data.warnings.length) {
+                msg += `\nWarnings:\n` + data.warnings.map(w => `  ⚠ ${w}`).join('\n');
+            }
+
+            if (data.can_send) {
+                msg += `\n\n✓ Ready to send to PS365`;
+            } else {
+                msg += `\n\n✗ Cannot send — fix blocking issues first`;
+            }
+
+            alert(msg);
+        } catch(e) {
+            alert('Error: ' + e.message);
+        }
+    };
+
+    window.sendToPS365 = async function() {
+        const hasErrors = Object.values(lineStatuses).some(s =>
+            s.status === 'missing_expiry' || s.status === 'missing_conversion'
+        );
+        const hasEntries = Object.values(lineStatuses).some(s => s.status !== 'not_entered');
+
+        if (!hasEntries) {
+            alert('No lines entered yet. Please enter received quantities first.');
+            return;
+        }
+
+        if (hasErrors) {
+            alert('There are blocking errors. Please fix them before sending.');
+            return;
+        }
+
+        if (!confirm('Send receipt to PS365? This will create a GRN and archive the PO.')) return;
+
+        const btn = document.getElementById('btnSendPS365');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+        try {
+            const resp = await fetch('/po-receiving/api/send-to-ps365', {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({session_id: SESSION_ID}),
+            });
+            const data = await resp.json();
+            if (data.ok && data.ps365?.success) {
+                alert('Successfully sent to PS365!\n\nPick list code: ' + (data.ps365.pick_list_code || 'N/A'));
+                window.location.href = '/po-receiving/';
+            } else {
+                const err = data.ps365?.error || data.error || 'Unknown error';
+                alert('Failed to send to PS365:\n\n' + err);
+            }
+        } catch(e) {
+            alert('Network error: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send to PS365';
+        }
+    };
+
+    window.saveComments = async function() {
+        const comments = document.getElementById('sessionComments').value;
+        try {
+            await fetch(`/po-receiving/api/update-comments/${SESSION_ID}`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({comments}),
+            });
+        } catch(e) {}
+    };
+
+    window.showPreview = function(src) {
+        const fullSrc = src.replace(/\/images\//, '/images/').replace('.webp', '.webp');
+        document.getElementById('imgPreviewImg').src = fullSrc;
+        document.getElementById('imgPreview').style.display = 'flex';
+    };
+
+    window.applyBulkExpiry = function(mode) {
+        const dateVal = document.getElementById('bulkExpiryDate').value;
+        if (!dateVal) {
+            alert('Please select an expiry date first');
+            return;
+        }
+
+        poLines.forEach(line => {
+            if (line.lots.length === 0) return;
+            const expiryEl = document.getElementById(`inp_expiry_${line.id}`);
+            if (expiryEl) {
+                if (mode === 'all') {
+                    expiryEl.value = dateVal;
+                } else if (mode === 'missing') {
+                    const hasMissing = line.lots.some(l => !l.expiry_date) && line.item_has_expiration_date;
+                    if (hasMissing || !expiryEl.value) {
+                        expiryEl.value = dateVal;
+                    }
+                }
+            }
+        });
+    };
+
+    const searchBox = document.getElementById('searchBox');
+    const searchDropdown = document.getElementById('searchDropdown');
+
+    searchBox.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        const q = this.value.trim();
+        if (q.length < 2) {
+            searchDropdown.style.display = 'none';
+            return;
+        }
+        searchTimeout = setTimeout(() => doSearch(q), 250);
+    });
+
+    searchBox.addEventListener('keydown', function(e) {
+        const items = searchDropdown.querySelectorAll('.search-result-item');
+        const active = searchDropdown.querySelector('.search-result-item.active');
+        let idx = Array.from(items).indexOf(active);
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (active) active.classList.remove('active');
+            idx = (idx + 1) % items.length;
+            items[idx]?.classList.add('active');
+            items[idx]?.scrollIntoView({block: 'nearest'});
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (active) active.classList.remove('active');
+            idx = idx <= 0 ? items.length - 1 : idx - 1;
+            items[idx]?.classList.add('active');
+            items[idx]?.scrollIntoView({block: 'nearest'});
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (active) active.click();
+        } else if (e.key === 'Escape') {
+            searchDropdown.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!searchBox.contains(e.target) && !searchDropdown.contains(e.target)) {
+            searchDropdown.style.display = 'none';
+        }
+    });
+
+    async function doSearch(query) {
+        try {
+            const resp = await fetch('/po-receiving/api/desktop/search-items', {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({query, po_id: PO_ID}),
+            });
+            const data = await resp.json();
+            if (!data.ok) return;
+
+            if (data.results.length === 0) {
+                searchDropdown.innerHTML = '<div class="p-3 text-muted text-center" style="font-size:0.8rem">No results found</div>';
+                searchDropdown.style.display = 'block';
+                return;
+            }
+
+            searchDropdown.innerHTML = data.results.map(r => {
+                const imgUrl = `/po-receiving/api/item-image/${encodeURIComponent(r.item_code_365)}`;
+                return `<div class="search-result-item" data-code="${escapeHtml(r.item_code_365)}" data-po-line-id="${r.po_line_id || ''}" onclick="selectSearchResult(this)">
+                    <img src="${imgUrl}" alt="" loading="lazy" onerror="this.src='/static/images/image-not-found.png'">
+                    <div class="sr-details">
+                        <div class="sr-code">${escapeHtml(r.item_code_365)}</div>
+                        <div class="sr-name">${escapeHtml(r.item_name)}</div>
+                        <div class="sr-meta">Sup: ${escapeHtml(r.supplier_item_code || '—')} | BC: ${escapeHtml(r.item_barcode || '—')}${r.on_po ? ' | Ordered: ' + r.ordered_qty : ''}</div>
+                    </div>
+                    ${r.on_po ? '<span class="badge-on-po">On PO</span>' : ''}
+                </div>`;
+            }).join('');
+            searchDropdown.style.display = 'block';
+        } catch(e) {}
+    }
+
+    window.selectSearchResult = function(el) {
+        const code = el.dataset.code;
+        const poLineId = el.dataset.poLineId;
+        searchDropdown.style.display = 'none';
+        searchBox.value = '';
+
+        if (poLineId) {
+            const row = document.querySelector(`tr[data-po-line-id="${poLineId}"]`);
+            if (row) {
+                row.scrollIntoView({behavior: 'smooth', block: 'center'});
+                row.style.transition = 'background 0.3s';
+                row.style.background = 'rgba(var(--bs-primary-rgb), 0.3)';
+                setTimeout(() => { row.style.background = ''; }, 1500);
+                const qtyInput = document.getElementById(`inp_qty_${poLineId}`);
+                if (qtyInput) qtyInput.focus();
+            }
+        } else {
+            addItemToPO(code);
+        }
+    };
+
+    async function addItemToPO(itemCode) {
+        try {
+            const resp = await fetch('/po-receiving/api/add-po-line', {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({po_id: PO_ID, item_code_365: itemCode}),
+            });
+            const data = await resp.json();
+            if (data.ok && data.line) {
+                const imagePath = `images/${itemCode}.webp`;
+                poLines.push({
+                    id: data.line.id,
+                    line_number: data.line.line_number,
+                    item_code_365: data.line.item_code_365,
+                    item_name: data.line.item_name || itemCode,
+                    item_barcode: '',
+                    supplier_item_code: '',
+                    line_quantity: data.line.line_quantity || 0,
+                    unit_type: '',
+                    pieces_per_unit: 1,
+                    item_has_expiration_date: data.line.item_has_expiration_date,
+                    line_id_365: '',
+                    total_received: 0,
+                    lots: [],
+                    shelf_locations: data.line.shelf_locations || [],
+                    image_path: imagePath,
+                });
+                renderTable();
+                setTimeout(() => {
+                    const row = document.querySelector(`tr[data-po-line-id="${data.line.id}"]`);
+                    if (row) {
+                        row.scrollIntoView({behavior: 'smooth', block: 'center'});
+                        const qtyInput = document.getElementById(`inp_qty_${data.line.id}`);
+                        if (qtyInput) qtyInput.focus();
+                    }
+                }, 100);
+            } else {
+                alert(data.error || 'Failed to add item');
+            }
+        } catch(e) {
+            alert('Error adding item: ' + e.message);
+        }
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    renderTable();
+})();
+</script>
+{% endblock %}

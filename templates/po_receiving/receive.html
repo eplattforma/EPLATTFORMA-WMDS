@@ -70,6 +70,9 @@ input[type=number] {
             {% endif %}
         </div>
         <div class="d-flex gap-2 align-items-center">
+            <a href="{{ url_for('po_receiving.receive_desktop', po_id=po.id) }}" class="btn btn-sm btn-outline-primary" title="Desktop Entry Mode">
+                <i class="fas fa-desktop"></i> Desktop Mode
+            </a>
             <span class="badge bg-info">{{ session.receipt_code }}</span>
         </div>
     </div>

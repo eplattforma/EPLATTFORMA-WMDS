@@ -1851,6 +1851,10 @@ class ReceivingLine(db.Model):
     expiry_date = db.Column(db.Date, nullable=True)
     lot_note = db.Column(db.Text, nullable=True)
     
+    input_qty = db.Column(db.Numeric(12, 3), nullable=True)
+    input_unit_type = db.Column(db.String(30), nullable=True)
+    conversion_factor = db.Column(db.Numeric(12, 4), nullable=True)
+    
     received_at = db.Column(UTCDateTime(), default=get_utc_now, nullable=False)
     
     def __repr__(self):

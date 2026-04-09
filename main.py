@@ -50,6 +50,12 @@ if _db_available:
         logging.exception("Forecast ordering schema updater failed (non-fatal)")
 
     try:
+        from update_receiving_desktop_schema import update_receiving_desktop_schema
+        update_receiving_desktop_schema()
+    except Exception:
+        logging.exception("Receiving desktop schema updater failed (non-fatal)")
+
+    try:
         with app.app_context():
             with db.engine.connect() as conn:
                 cols = conn.execute(_sa_text("""

@@ -1535,3 +1535,370 @@ def api_refresh_po(po_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "error": f"Failed to refresh: {str(e)}"}), 500
+
+
+@po_receiving_bp.route('/receive/<int:po_id>/desktop')
+@login_required
+def receive_desktop(po_id):
+    if not check_role_access():
+        flash('Access denied', 'error')
+        return redirect(url_for('dashboard'))
+
+    po = PurchaseOrder.query.get_or_404(po_id)
+
+    session = ReceivingSession.query.filter_by(
+        purchase_order_id=po.id,
+        finished_at=None
+    ).order_by(ReceivingSession.started_at.desc()).first()
+
+    if not session:
+        receipt_code = f"RCV-{uuid.uuid4().hex[:8].upper()}"
+        session = ReceivingSession(
+            purchase_order_id=po.id,
+            receipt_code=receipt_code,
+            operator=current_user.username
+        )
+        db.session.add(session)
+        db.session.commit()
+
+    po_lines_data = []
+    for line in po.lines.order_by(PurchaseOrderLine.line_number).all():
+        rcv_lines = ReceivingLine.query.filter_by(
+            session_id=session.id,
+            po_line_id=line.id
+        ).order_by(ReceivingLine.received_at).all()
+
+        total_received = sum(float(r.qty_received) for r in rcv_lines)
+
+        lots = []
+        for r in rcv_lines:
+            lots.append({
+                'id': r.id,
+                'qty_received': float(r.qty_received),
+                'input_qty': float(r.input_qty) if r.input_qty else None,
+                'input_unit_type': r.input_unit_type,
+                'conversion_factor': float(r.conversion_factor) if r.conversion_factor else None,
+                'expiry_date': r.expiry_date.strftime('%Y-%m-%d') if r.expiry_date else None,
+                'lot_note': r.lot_note,
+            })
+
+        shelf_locs = []
+        if line.shelf_locations:
+            try:
+                shelf_locs = json.loads(line.shelf_locations)
+            except Exception:
+                pass
+
+        image_path = get_product_image(line.item_code_365) if line.item_code_365 else 'images/image-not-found.png'
+
+        po_lines_data.append({
+            'id': line.id,
+            'line_number': line.line_number,
+            'item_code_365': line.item_code_365,
+            'item_name': line.item_name or '',
+            'item_barcode': line.item_barcode or '',
+            'supplier_item_code': line.supplier_item_code or '',
+            'line_quantity': float(line.line_quantity or 0),
+            'unit_type': line.unit_type or '',
+            'pieces_per_unit': int(line.pieces_per_unit or 1),
+            'item_has_expiration_date': line.item_has_expiration_date,
+            'line_id_365': line.line_id_365 or '',
+            'total_received': total_received,
+            'lots': lots,
+            'shelf_locations': shelf_locs,
+            'image_path': image_path,
+        })
+
+    return render_template(
+        'po_receiving/po_receiving_desktop.html',
+        po=po,
+        session=session,
+        po_lines_data=po_lines_data,
+    )
+
+
+@po_receiving_bp.route('/api/desktop/search-items', methods=['POST'])
+@login_required
+def api_desktop_search_items():
+    if not check_role_access():
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    data = request.get_json()
+    query_str = (data.get('query', '') or '').strip()
+    po_id = data.get('po_id')
+
+    if not query_str or len(query_str) < 2:
+        return jsonify({'ok': True, 'results': []})
+
+    results = []
+    seen_codes = set()
+
+    if po_id:
+        po_lines = PurchaseOrderLine.query.filter(
+            PurchaseOrderLine.purchase_order_id == po_id,
+            or_(
+                PurchaseOrderLine.item_code_365.ilike(f'%{query_str}%'),
+                PurchaseOrderLine.item_name.ilike(f'%{query_str}%'),
+                PurchaseOrderLine.item_barcode.ilike(f'%{query_str}%'),
+                PurchaseOrderLine.supplier_item_code.ilike(f'%{query_str}%'),
+            )
+        ).order_by(PurchaseOrderLine.line_number).limit(20).all()
+
+        for pl in po_lines:
+            if pl.item_code_365 in seen_codes:
+                continue
+            seen_codes.add(pl.item_code_365)
+            results.append({
+                'item_code_365': pl.item_code_365,
+                'item_name': pl.item_name or '',
+                'item_barcode': pl.item_barcode or '',
+                'supplier_item_code': pl.supplier_item_code or '',
+                'on_po': True,
+                'ordered_qty': float(pl.line_quantity or 0),
+                'po_line_id': pl.id,
+            })
+
+    if len(results) < 10:
+        from models import DwItem
+        dw_items = DwItem.query.filter(
+            or_(
+                DwItem.item_code_365.ilike(f'%{query_str}%'),
+                DwItem.item_name.ilike(f'%{query_str}%'),
+                DwItem.barcode.ilike(f'%{query_str}%'),
+                DwItem.supplier_item_code.ilike(f'%{query_str}%'),
+            )
+        ).limit(10).all()
+
+        for dw in dw_items:
+            if dw.item_code_365 in seen_codes:
+                continue
+            seen_codes.add(dw.item_code_365)
+            results.append({
+                'item_code_365': dw.item_code_365,
+                'item_name': dw.item_name or '',
+                'item_barcode': dw.barcode or '',
+                'supplier_item_code': dw.supplier_item_code or '',
+                'on_po': False,
+                'ordered_qty': 0,
+            })
+
+    return jsonify({'ok': True, 'results': results})
+
+
+@po_receiving_bp.route('/api/desktop/save-line', methods=['POST'])
+@login_required
+def api_desktop_save_line():
+    if not check_role_access():
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'ok': False, 'error': 'Invalid request body'}), 400
+
+    session_id = data.get('session_id')
+    po_line_id = data.get('po_line_id')
+    input_qty = data.get('input_qty')
+    input_unit_type = data.get('input_unit_type', 'unit')
+    conversion_factor_val = data.get('conversion_factor', 1)
+    expiry_date_str = data.get('expiry_date')
+    lot_note = data.get('lot_note', '')
+    line_id = data.get('line_id')
+
+    sess = ReceivingSession.query.get(session_id)
+    if not sess or sess.finished_at is not None:
+        return jsonify({'ok': False, 'error': 'Invalid or closed session'}), 400
+
+    po_line = PurchaseOrderLine.query.get(po_line_id)
+    if not po_line or po_line.purchase_order_id != sess.purchase_order_id:
+        return jsonify({'ok': False, 'error': 'Invalid PO line'}), 400
+
+    try:
+        inp_qty = Decimal(str(input_qty))
+        if inp_qty <= 0:
+            return jsonify({'ok': False, 'error': 'Quantity must be > 0'}), 400
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Invalid quantity'}), 400
+
+    try:
+        conv = Decimal(str(conversion_factor_val))
+        if conv <= 0:
+            conv = Decimal('1')
+    except Exception:
+        conv = Decimal('1')
+
+    system_qty = inp_qty * conv
+
+    expiry_dt = None
+    if expiry_date_str:
+        try:
+            expiry_dt = datetime.strptime(expiry_date_str, '%Y-%m-%d').date()
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Invalid date format'}), 400
+
+    if po_line.item_has_expiration_date and not expiry_dt:
+        return jsonify({'ok': False, 'error': 'Expiration date is required for this item'}), 400
+
+    try:
+        if line_id:
+            rcv = ReceivingLine.query.get(line_id)
+            if not rcv or rcv.session_id != sess.id:
+                return jsonify({'ok': False, 'error': 'Line not found'}), 404
+            rcv.input_qty = inp_qty
+            rcv.input_unit_type = input_unit_type
+            rcv.conversion_factor = conv
+            rcv.qty_received = system_qty
+            rcv.expiry_date = expiry_dt
+            rcv.lot_note = lot_note or None
+        else:
+            rcv = ReceivingLine(
+                session_id=sess.id,
+                po_line_id=po_line.id,
+                item_code_365=po_line.item_code_365,
+                input_qty=inp_qty,
+                input_unit_type=input_unit_type,
+                conversion_factor=conv,
+                qty_received=system_qty,
+                expiry_date=expiry_dt,
+                lot_note=lot_note or None,
+            )
+            db.session.add(rcv)
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': f'Database error: {str(e)}'}), 500
+
+    return jsonify({
+        'ok': True,
+        'line': {
+            'id': rcv.id,
+            'qty_received': float(rcv.qty_received),
+            'input_qty': float(rcv.input_qty) if rcv.input_qty else None,
+            'input_unit_type': rcv.input_unit_type,
+            'conversion_factor': float(rcv.conversion_factor) if rcv.conversion_factor else None,
+            'expiry_date': rcv.expiry_date.strftime('%Y-%m-%d') if rcv.expiry_date else None,
+            'lot_note': rcv.lot_note,
+        }
+    })
+
+
+@po_receiving_bp.route('/api/desktop/delete-line/<int:line_id>', methods=['POST'])
+@login_required
+def api_desktop_delete_line(line_id):
+    if not check_role_access():
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    rcv = ReceivingLine.query.get(line_id)
+    if not rcv:
+        return jsonify({'ok': False, 'error': 'Line not found'}), 404
+
+    sess = ReceivingSession.query.get(rcv.session_id)
+    if not sess:
+        return jsonify({'ok': False, 'error': 'Session not found'}), 404
+    if sess.finished_at is not None:
+        return jsonify({'ok': False, 'error': 'Cannot delete from finished session'}), 400
+
+    po_line = PurchaseOrderLine.query.get(rcv.po_line_id)
+    if not po_line or po_line.purchase_order_id != sess.purchase_order_id:
+        return jsonify({'ok': False, 'error': 'Authorization failed'}), 403
+
+    try:
+        db.session.delete(rcv)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True})
+
+
+@po_receiving_bp.route('/api/desktop/validate-session', methods=['POST'])
+@login_required
+def api_desktop_validate_session():
+    if not check_role_access():
+        return jsonify({'ok': False, 'error': 'Access denied'}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'ok': False, 'error': 'Invalid request body'}), 400
+    session_id = data.get('session_id')
+    sess = ReceivingSession.query.get(session_id)
+    if not sess:
+        return jsonify({'ok': False, 'error': 'Session not found'}), 404
+
+    po = sess.purchase_order
+    errors = []
+    warnings = []
+    line_statuses = {}
+
+    for po_line in po.lines.order_by(PurchaseOrderLine.line_number).all():
+        rcv_lines = ReceivingLine.query.filter_by(
+            session_id=sess.id,
+            po_line_id=po_line.id
+        ).all()
+
+        total_received = sum(Decimal(str(r.qty_received)) for r in rcv_lines)
+        ordered = po_line.line_quantity or Decimal('0')
+        status = 'ready'
+        issues = []
+
+        if not rcv_lines:
+            status = 'not_entered'
+            issues.append('No quantity entered')
+        else:
+            for r in rcv_lines:
+                if po_line.item_has_expiration_date and not r.expiry_date:
+                    status = 'missing_expiry'
+                    issues.append('Missing expiry date')
+                    break
+                if not r.conversion_factor or float(r.conversion_factor) <= 0:
+                    status = 'missing_conversion'
+                    issues.append('Missing conversion factor')
+                    break
+
+            if status == 'ready':
+                if not po_line.line_id_365:
+                    status = 'no_ps365_line'
+                    issues.append('No PS365 line ID')
+                elif ordered > 0 and total_received > ordered:
+                    status = 'over_received'
+                    issues.append(f'Over-received: {total_received}/{ordered}')
+                elif ordered > 0 and total_received < ordered:
+                    status = 'partial'
+                    issues.append(f'Partial: {total_received}/{ordered}')
+
+        if status in ('missing_expiry', 'missing_conversion'):
+            errors.append(f'{po_line.item_code_365}: {issues[0]}')
+        elif status == 'no_ps365_line':
+            warnings.append(f'{po_line.item_code_365}: {issues[0]}')
+        elif status in ('over_received', 'partial'):
+            warnings.append(f'{po_line.item_code_365}: {issues[0]}')
+
+        line_statuses[po_line.id] = {
+            'status': status,
+            'issues': issues,
+            'total_received': float(total_received),
+            'ordered': float(ordered),
+        }
+
+    total_po_lines = po.lines.count()
+    entered_lines = sum(1 for v in line_statuses.values() if v['status'] != 'not_entered')
+    ready_lines = sum(1 for v in line_statuses.values() if v['status'] in ('ready', 'partial', 'over_received'))
+    error_lines = sum(1 for v in line_statuses.values() if v['status'] in ('missing_expiry', 'missing_conversion'))
+
+    can_send = len(errors) == 0 and entered_lines > 0
+
+    return jsonify({
+        'ok': True,
+        'can_send': can_send,
+        'errors': errors,
+        'warnings': warnings,
+        'line_statuses': {str(k): v for k, v in line_statuses.items()},
+        'summary': {
+            'total_lines': total_po_lines,
+            'entered_lines': entered_lines,
+            'ready_lines': ready_lines,
+            'error_lines': error_lines,
+            'missing_expiry': sum(1 for v in line_statuses.values() if v['status'] == 'missing_expiry'),
+            'missing_conversion': sum(1 for v in line_statuses.values() if v['status'] == 'missing_conversion'),
+        }
+    })
