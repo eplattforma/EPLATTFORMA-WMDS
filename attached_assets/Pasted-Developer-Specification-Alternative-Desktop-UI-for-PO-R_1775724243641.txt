@@ -1,0 +1,621 @@
+Developer Specification: Alternative Desktop UI for PO Receiving
+Objective
+
+Keep the existing PO receiving screen fully working as-is.
+
+Add a second alternative UI called Desktop Entry Mode for office/warehouse users entering receipts on a computer after physically checking goods.
+
+This new UI must:
+
+improve speed and accuracy on desktop
+help identify products correctly
+support quantity conversion from received form to system/base quantity
+capture expiry date
+keep product images visible next to products
+reuse the existing Send Receipt to PS365 / GRN backend flow
+
+The current receiving screen must remain available and unchanged.
+
+1. Scope
+Keep existing workflow
+
+Do not remove, replace, or break the current receiving screen.
+
+Add new workflow
+
+Create an alternative desktop-oriented manual entry mode.
+
+Existing mode
+Standard Mode
+current mobile-first / original screen
+New mode
+Desktop Entry Mode
+optimized for manual PC entry, product verification, quantity conversion, expiry capture, and final submission to PS365
+2. Routing / Access
+Preferred approach
+
+Use the same PO/session route with a UI selector.
+
+Example:
+
+/receiving/po/<po_id> → existing screen
+/receiving/po/<po_id>?ui=desktop → new desktop UI
+
+Alternative acceptable approach:
+
+/receiving/po/<po_id>/desktop
+Requirement
+
+Users must be able to switch between modes from inside the UI.
+
+Add buttons
+
+On existing screen:
+
+Open Desktop Entry Mode
+
+On new desktop screen:
+
+Open Standard Mode
+
+Both screens must operate on the same receiving session / same PO data.
+
+3. Core business principle
+
+The new UI is only a different data-entry interface.
+
+It must not create separate GRN logic.
+
+It must reuse the same backend behavior for:
+
+session loading
+line persistence
+validation where applicable
+payload building
+sending receipt to PS365
+changing status to GRN
+verification against PS365
+local archiving/finalization behavior
+4. Main desktop use case
+
+The user does not normally scan items.
+
+Actual process:
+
+goods are checked physically
+user goes to the PC
+user identifies the product by:
+image
+name
+supplier code
+barcode
+item code
+user enters what was received physically
+user selects the received unit type
+system calculates the system/base quantity
+user enters expiry date
+user reviews lines
+user sends receipt to PS365
+
+The UI must be optimized for that exact process.
+
+5. Layout specification
+Desktop layout
+
+Use a wide desktop layout with 3 main zones:
+
+A. Header / top action bar
+
+Contains:
+
+PO code / shopping cart code
+supplier name
+session/receipt code
+PO status
+mode badge: Desktop Entry Mode
+Save
+Validate
+Send Receipt to PS365
+Open Standard Mode
+B. Main receiving grid
+
+Large central editable table for receiving lines.
+
+C. Right sidebar or top summary strip
+
+Live validation and totals.
+
+6. Product images requirement
+
+This is mandatory.
+
+Requirement
+
+Keep product images visible next to products to make identification easier.
+
+Where images must appear
+In the main receiving table
+
+Add a small thumbnail column near the product name.
+
+Recommended order:
+
+Image
+Product name
+Item code
+other identifiers
+In search/autocomplete results
+
+Every product suggestion in search results should show:
+
+thumbnail image
+product name
+item code
+supplier code
+barcode
+In line detail / expanded row if needed
+
+Allow click-to-enlarge or hover preview if practical.
+
+Image behavior
+use existing product image source already available in system
+if no image exists, show placeholder
+images should load efficiently and not block the page
+thumbnail size should be compact but readable, e.g. 40x40 or 48x48
+keep aspect ratio
+lazy-load when possible
+Purpose
+
+Images are not decorative. They are a key part of product identification and error prevention.
+
+7. Search / product identification
+Search box
+
+At the top of the desktop screen, provide one unified search box.
+
+Search must match:
+
+item name
+item code
+supplier code
+barcode
+Search result display
+
+Each result should show:
+
+product image thumbnail
+item code
+product name
+supplier code
+barcode
+ordered quantity if the item is on the PO
+
+Example display:
+[img] ITEM123 | Coca Cola 330ml | Supplier: SUP-445 | Barcode: 520... | Ordered: 24
+
+Search behavior
+prioritize items already on the PO
+show PO lines first
+support partial matching
+support keyboard navigation
+Enter should select highlighted result
+8. Main receiving grid structure
+
+The desktop grid is the core of the new UI.
+
+Required columns
+Image
+Item Code
+Product Name
+Supplier Code
+Barcode
+Ordered Qty
+Received Qty
+Unit Type
+Conversion
+System Qty
+Expiry Date
+Difference
+Status
+Notes / Flags
+Notes
+Product image and name must stay visually close
+Product identification columns must be visible without opening a popup
+Inline editing should be used for entry fields
+9. Editable fields per row
+Editable
+received qty
+unit type
+conversion factor
+expiry date
+optional note
+Read-only
+image
+item code
+name
+supplier code
+barcode
+ordered qty
+calculated difference
+status text derived from validation
+system qty should normally be calculated, not directly typed
+10. Quantity model
+
+This is critical.
+
+The new UI must support two different quantities:
+
+A. Input quantity
+
+What was physically received and entered by the user.
+
+Examples:
+
+10 boxes
+4 packs
+24 units
+3 virtual packs
+B. System/base quantity
+
+What the system stores / sells / sends to PS365.
+
+Examples:
+
+120 units
+48 units
+Required fields
+
+Per receiving line support:
+
+input_qty
+input_unit_type
+conversion_factor
+converted_qty
+Formula
+converted_qty = input_qty * conversion_factor
+UI requirement
+
+Always show the conversion clearly.
+
+Example:
+
+10 boxes × 12 = 120 units
+
+Do not hide conversion inside backend logic.
+
+11. Unit type handling
+Supported values
+
+At minimum:
+
+unit
+pack
+box
+virtual_pack
+
+Use a dropdown.
+
+Conversion source
+
+Default conversion factor should come from existing master/product data where possible.
+
+Possible sources:
+
+number_of_pieces
+existing internal product pack rules
+existing item/unit logic already in WMDS
+Fallback behavior
+
+If conversion is unknown:
+
+default to 1 only temporarily
+show visible warning
+allow manual correction
+
+Example warning:
+
+Conversion not confirmed
+12. Expiry date handling
+
+Expiry date is required for applicable items.
+
+Requirements
+expiry field per row
+keyboard-friendly input
+date picker support
+validation before PS365 send
+Blocking rule
+
+If a product requires expiry and expiry is missing, sending to PS365 must be blocked.
+
+Recommended convenience tools
+
+Add optional bulk actions:
+
+apply expiry to selected rows
+apply expiry to all rows missing expiry
+
+This is especially useful when many lines share the same expiry.
+
+13. Status model for rows
+
+Each row must show a clear status.
+
+Required statuses
+Ready
+Missing expiry
+Missing conversion
+Qty mismatch
+No PS365 line
+Duplicate
+Over received
+Partial
+Informational / not postable
+Visual treatment
+green = ready
+yellow = warning
+red = blocking issue
+gray = informational
+
+This must be visible at a glance.
+
+14. Summary / validation panel
+
+Add a live summary section on the right or top.
+
+Show at minimum
+total PO lines
+entered lines
+ready lines
+error lines
+total ordered qty
+total converted qty
+variance
+missing expiry count
+missing conversion count
+mismatch count
+
+This gives the user confidence before posting.
+
+15. Product image behavior in table and search
+
+This is specific and mandatory.
+
+In table
+fixed thumbnail column
+image remains visible even when row is edited
+image should not disappear in compact mode
+In search dropdown
+
+Each result should visually show thumbnail first.
+
+On hover / click
+
+Optional enhancement:
+
+larger preview popover
+useful for visually similar products
+Performance rules
+use thumbnails, not full-size images
+lazy-load offscreen images
+cache image URLs if helpful
+placeholder for missing image
+16. Validation rules before sending to PS365
+
+The Send Receipt to PS365 button stays in the new UI.
+
+Before sending, validate:
+
+Blocking issues
+missing required expiry
+missing or invalid conversion factor
+invalid system quantity
+unresolved duplicate issue
+invalid or unmapped PS365 line where required
+any fatal row error
+Warnings allowed if business rules permit
+partial receipt
+under-receipt
+variance vs ordered quantity
+
+If warnings are allowed, show a confirmation step.
+
+17. Backend architecture
+Requirement
+
+Do not duplicate receiving submission logic.
+
+If current code is too controller-heavy, move shared logic into service functions.
+
+Suggested service layer
+
+Create or extend:
+
+services/receiving_service.py
+
+Suggested functions:
+
+load_receiving_session(session_id)
+save_receiving_line(line_id, payload)
+validate_receiving_session(session_id)
+build_ps365_receipt_payload(session_id)
+submit_receipt_to_ps365(session_id, user)
+finalize_grn_success(session_id, response_data)
+
+Both UIs must use these same backend service functions.
+
+18. Suggested file structure
+Keep current files intact
+
+Do not remove or replace existing receiving template.
+
+Add new files
+
+Suggested names:
+
+Template
+templates/receiving/po_receiving_desktop.html
+JavaScript
+static/js/po_receiving_desktop.js
+CSS
+static/css/po_receiving_desktop.css
+
+If your project already uses a different blueprint/template structure, adapt names accordingly, but keep the separation.
+
+19. Suggested data model additions
+
+If the current line model does not yet support desktop helper fields, add them.
+
+Suggested fields:
+
+input_qty = db.Column(db.Numeric(12, 3), nullable=True)
+input_unit_type = db.Column(db.String(30), nullable=True)
+conversion_factor = db.Column(db.Numeric(12, 4), nullable=True)
+converted_qty = db.Column(db.Numeric(12, 3), nullable=True)
+expiry_date = db.Column(db.Date, nullable=True)
+
+Optional:
+
+ui_mode = db.Column(db.String(20), nullable=True)
+
+Important:
+
+existing final quantity field used for PS365 must continue working
+converted_qty should map to the final/base qty sent to PS365
+do not alter proven PS365 business logic unnecessarily
+20. Desktop UX requirements
+Must have
+sticky table header
+compact rows
+inline editing
+keyboard tab flow
+error filters
+fast search
+image thumbnails visible
+unsaved changes protection
+save and validate actions
+clear send button
+Nice to have
+row pinning
+expanded preview
+image zoom on hover
+fill-down expiry
+duplicate merge tools
+21. Acceptance criteria
+
+This work is complete only if all of the following are true:
+
+Existing receiving screen still works unchanged.
+New Desktop Entry Mode is accessible from the existing receiving flow.
+Desktop mode uses the same receiving session / same backend GRN logic.
+Product search works by name, item code, supplier code, and barcode.
+Product images are visible in both search results and receiving table rows.
+User can enter physical qty and unit type.
+System quantity is calculated and clearly shown.
+Expiry date can be entered and validated.
+Validation summary is visible before sending.
+Send Receipt to PS365 still works through the same backend posting flow.
+Desktop mode improves product identification and manual receipt entry without breaking existing behavior.
+22. Rollout plan
+Phase 1
+add route/mode switch
+build desktop template
+render existing PO lines in desktop grid
+add image thumbnails
+add search with image results
+add input qty, unit type, conversion, system qty, expiry
+connect to existing save and send flow
+Phase 2
+add better keyboard navigation
+add bulk expiry tools
+add duplicate handling
+add filters and summaries refinement
+add hover image preview / larger preview
+Exact instruction block to paste to Replit
+Keep the current PO receiving screen exactly as it is and add a second UI option called “Desktop Entry Mode” for manual receiving on computer.
+
+Do not replace the old UI. The old screen must remain fully working.
+
+The new desktop mode should be reachable either by ?ui=desktop on the same route or by a second route, but it must use the same receiving session and the same existing Send Receipt to PS365 / GRN backend flow.
+
+This desktop mode is for manual entry after physically checking goods, not for barcode-scan-first workflow.
+
+Main requirements:
+
+1. Keep the current receiving template and behavior unchanged.
+2. Add a visible switch between Standard Mode and Desktop Entry Mode.
+3. In the new desktop mode, show an editable receiving grid/table optimized for desktop.
+4. Product identification must support search by:
+   - item name
+   - item code
+   - supplier code
+   - barcode
+5. Keep product images visible for easy identification:
+   - show thumbnail images in the receiving table next to product name
+   - show thumbnail images in search/autocomplete results
+   - use placeholder if no image exists
+6. Each receiving row in desktop mode should include:
+   - image
+   - item code
+   - product name
+   - supplier code
+   - barcode
+   - ordered qty
+   - received/input qty
+   - unit type
+   - conversion factor
+   - converted/system qty
+   - expiry date
+   - difference
+   - status
+7. The UI must clearly separate:
+   - physical received quantity (box, pack, unit, virtual_pack)
+   - converted/base system quantity used for storage/sales and sent to PS365
+8. Always show the conversion visibly, e.g. 10 boxes × 12 = 120 units.
+9. Expiry date must be captured and validated for applicable products.
+10. Add clear row statuses such as:
+   - ready
+   - missing expiry
+   - missing conversion
+   - qty mismatch
+   - no PS365 line
+   - duplicate
+   - over received
+11. Add a validation/summary area showing:
+   - total PO lines
+   - entered lines
+   - ready lines
+   - error lines
+   - total ordered qty
+   - total converted qty
+   - missing expiry count
+   - missing conversion count
+   - variance
+12. Keep the existing final Send Receipt to PS365 behavior. Do not create a second GRN logic path.
+13. Reuse the same backend service functions for load/save/validate/payload/send wherever possible.
+14. If needed, refactor receiving logic into a shared service layer, but do not change the proven PS365 business behavior.
+15. Add inline editing and desktop-friendly UX:
+   - sticky headers
+   - compact rows
+   - keyboard navigation
+   - search/autocomplete
+   - error filters
+   - autosave or explicit save
+
+Suggested new files:
+- templates/receiving/po_receiving_desktop.html
+- static/js/po_receiving_desktop.js
+- static/css/po_receiving_desktop.css
+
+If needed, add fields like:
+- input_qty
+- input_unit_type
+- conversion_factor
+- converted_qty
+- expiry_date
+
+Most important:
+- do not break the current receiving screen
+- do not change the current PS365 posting business behavior
+- add the new desktop UI as an alternative mode
+- keep images visible next to products for identification
