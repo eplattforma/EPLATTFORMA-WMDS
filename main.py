@@ -56,6 +56,12 @@ if _db_available:
         logging.exception("Receiving desktop schema updater failed (non-fatal)")
 
     try:
+        from update_forecast_profile_baseline_source_schema import update_forecast_profile_baseline_source_schema
+        update_forecast_profile_baseline_source_schema()
+    except Exception:
+        logging.exception("Forecast profile baseline_source schema updater failed (non-fatal)")
+
+    try:
         with app.app_context():
             with db.engine.connect() as conn:
                 cols = conn.execute(_sa_text("""

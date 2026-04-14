@@ -1,0 +1,81 @@
+026-04-14 14:15:04.13
+e507f18f
+User
+34.38.221.16 - - [14/Apr/2026:11:15:04 +0000] "GET /admin/tools/crm-classification-image/ENGAGE_877a9ea9153d513b.jpg HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/crm/review-ordering" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-14 14:15:07.42
+e507f18f
+User
+(Background on this error at: https://sqlalche.me/e/20/9h9h)
+2026-04-14 14:15:07.42
+e507f18f
+User
+[SQL: UPDATE sku_forecast_profile SET forecast_method=%(forecast_method)s, seasonality_source=%(seasonality_source)s, seasonality_level_code=%(seasonality_level_code)s, review_reason=%(review_reason)s, forecast_confidence=%(forecast_confidence)s, seed_source=%(seed_source)s, analogue_level=%(analogue_level)s, baseline_source=%(baseline_source)s, updated_at=%(updated_at)s WHERE sku_forecast_profile.item_code_365 = %(sku_forecast_profile_item_code_365)s]
+2026-04-14 14:15:07.42
+e507f18f
+User
+ERROR:services.forecast.run_service:Forecast run 30 failed at step 'base_forecast': (psycopg2.errors.StringDataRightTruncation) value too long for type character varying(20)
+2026-04-14 14:15:07.42
+e507f18f
+User
+[parameters: {'forecast_method': 'INSUFFICIENT_HISTORY+OOS', 'seasonality_source': 'supplier', 'seasonality_level_code': '10000061', 'review_reason': 'History not fully loaded; OOS-adjusted history used', 'forecast_confidence': 'low', 'seed_source': 'supplier', 'analogue_level': 'supplier', 'baseline_source': 'supplier', 'updated_at': datetime.datetime(2026, 4, 14, 11, 13, 57, 380054, tzinfo=datetime.timezone.utc), 'sku_forecast_profile_item_code_365': 'SOD-0060'}]
+2026-04-14 14:15:07.43
+e507f18f
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1963, in _exec_single_context
+2026-04-14 14:15:07.43
+e507f18f
+User
+The above exception was the direct cause of the following exception:
+2026-04-14 14:15:07.43
+e507f18f
+User
+Traceback (most recent call last):
+2026-04-14 14:15:07.43
+e507f18f
+User
+File "/home/runner/workspace/services/forecast/run_service.py", line 204, in execute_forecast_run
+2026-04-14 14:15:07.43
+e507f18f
+User
+session.flush()
+2026-04-14 14:15:07.43
+e507f18f
+User
+psycopg2.errors.StringDataRightTruncation: value too long for type character varying(20)
+2026-04-14 14:15:07.43
+e507f18f
+User
+File "/home/runner/workspace/services/forecast/base_forecast_service.py", line 585, in compute_base_forecasts
+2026-04-14 14:15:07.43
+e507f18f
+User
+self._flush(objects)
+2026-04-14 14:15:07.43
+e507f18f
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-14 14:15:07.43
+e507f18f
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4345, in flush
+
+2026-04-14 14:15:07.43
+e507f18f
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4480, in _flush
+2026-04-14 14:15:07.43
+e507f18f
+User
+forecast_count = compute_base_forecasts(session, run_id=run_id, progress_callback=_make_hb_callback(current_step))
+2026-04-14 14:15:15.46
+e507f18f
+User
+34.14.41.126 - - [14/Apr/2026:11:15:15 +0000] "GET /crm/review-ordering?q=POLYS&state=&delivery_slot=&show_all=1 HTTP/1.1" 200 70685 "https://ep-picking-bro.replit.app/crm/review-ordering?q=POLYS&state=&delivery_slot=" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-14 14:15:15.79
+e507f18f
+User
+34.38.221.16 - - [14/Apr/2026:11:15:15 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/crm/review-ordering?q=POLYS&state=&delivery_slot=&show_all=1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-14 14:15:15.80
+e507f18f
+User
+34.14.41.126 - - [14/Apr/2026:11:15:15 +0000] "GET /static/css/crm_offer_intelligence.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/crm/re
