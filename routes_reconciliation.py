@@ -792,7 +792,7 @@ def customer_balances_report():
             'contact': contact_name,
             'last_route': ld.get('route_name', ''),
             'last_delivery_date': ld.get('delivery_date', ''),
-            'last_invoice_date': ld.get('invoice_date', ''),
+            'last_invoice_date': str(as_of) if as_of else '',
             'last_invoice_no': ld.get('invoice_no', ''),
             'last_invoice_amount': ld.get('invoice_amount', ''),
             'last_payment_method': ld.get('payment_method', ''),
