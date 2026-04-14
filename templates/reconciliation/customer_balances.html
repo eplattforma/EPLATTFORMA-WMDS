@@ -300,6 +300,7 @@ var toggleDetail = window.toggleDetail = function(code) {
     detailRow.style.display = isOpen ? 'none' : '';
     if (chevron) chevron.classList.toggle('open', !isOpen);
 }
+window.toggleDetail = toggleDetail;
 
 function esc(str) {
     const d = document.createElement('div');
