@@ -234,7 +234,7 @@
 
 {% block scripts %}
 <script>
-window.filterTable = function() {
+var filterTable = window.filterTable = function() {
     const search = document.getElementById('searchInput').value.toLowerCase();
     const typeFilter = document.getElementById('filterType').value;
     const agentFilter = document.getElementById('filterAgent').value;
@@ -277,7 +277,7 @@ window.filterTable = function() {
     document.getElementById('rowCount').textContent = `Showing ${visible} customers`;
 }
 
-window.toggleDetail = function(code) {
+var toggleDetail = window.toggleDetail = function(code) {
     const detailRow = document.getElementById('detail-' + code);
     const chevron = document.getElementById('chevron-' + code);
     if (!detailRow) return;
@@ -292,7 +292,7 @@ function esc(str) {
     return d.innerHTML;
 }
 
-window.fetchStatement = async function(code) {
+var fetchStatement = window.fetchStatement = async function(code) {
     const btn = document.getElementById('stmt-btn-' + code);
     const area = document.getElementById('stmt-area-' + code);
     if (!btn || !area) return;
@@ -373,7 +373,7 @@ window.fetchStatement = async function(code) {
     }
 }
 
-window.loadSmsPreview = async function(code) {
+var loadSmsPreview = window.loadSmsPreview = async function(code) {
     const area = document.getElementById('sms-preview-' + code);
     if (!area) return;
     area.value = 'Loading...';
@@ -386,7 +386,7 @@ window.loadSmsPreview = async function(code) {
     }
 }
 
-window.sortTable = function() {
+var sortTable = window.sortTable = function() {
     const sortBy = document.getElementById('sortBy').value;
     const tbody = document.getElementById('balancesBody');
     const rows = Array.from(tbody.querySelectorAll('tr[data-code]'));
@@ -421,7 +421,7 @@ function formatElapsed(utcStr) {
 
 let _pollInterval = null;
 
-window.fetchAllBalances = async function() {
+var fetchAllBalances = window.fetchAllBalances = async function() {
     const btn = document.getElementById('btnFetchAll');
     const progress = document.getElementById('fetch-progress');
     btn.disabled = true;
