@@ -205,7 +205,7 @@
                                     </div>
                                     <div class="row g-2 mb-2">
                                         <div class="col-8">
-                                            <select class="form-select form-select-sm bg-dark text-white border-secondary" id="sms-template-{{ c.code }}" onchange="event.stopPropagation();" onfocus="event.stopPropagation(); loadSmsTemplates('{{ c.code }}');" onclick="event.stopPropagation(); loadSmsTemplates('{{ c.code }}');">
+                                            <select class="form-select form-select-sm bg-dark text-white border-secondary" id="sms-template-{{ c.code }}" onchange="event.stopPropagation();">
                                                 <option value="">Select SMS template</option>
                                             </select>
                                         </div>
@@ -405,6 +405,7 @@ var loadSmsPreview = window.loadSmsPreview = async function(code) {
 var loadSmsTemplates = window.loadSmsTemplates = async function(code) {
     const select = document.getElementById('sms-template-' + code);
     if (!select) return;
+    if (select.dataset.loaded === '1') return;
     try {
         const res = await fetch('/reconciliation/api/customer-balances/sms-templates');
         const data = await res.json();
@@ -416,6 +417,7 @@ var loadSmsTemplates = window.loadSmsTemplates = async function(code) {
             opt.textContent = t.title || t.code;
             select.appendChild(opt);
         });
+        select.dataset.loaded = '1';
     } catch (e) {
         alert(e.message);
     }
