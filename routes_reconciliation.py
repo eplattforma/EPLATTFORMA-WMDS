@@ -14,6 +14,7 @@ from app import db
 from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice, BankTransaction, PSCustomer, CustomerBalanceCache
 from models import utc_now
 import services_reconciliation as recon
+from services.communications_service import get_enabled_templates, render_template_for_customer, send_microsms
 
 logger = logging.getLogger(__name__)
 
@@ -862,6 +863,92 @@ def api_customer_balance_sms_preview(customer_code):
         })
     except Exception as e:
         logger.error(f"Error building customer balance SMS preview for {customer_code}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reconciliation_bp.route('/api/customer-balances/sms-templates')
+@login_required
+@admin_or_warehouse_required
+def api_customer_balance_sms_templates():
+    try:
+        templates = get_enabled_templates(channel_filter='microsms')
+        return jsonify({'success': True, 'templates': templates})
+    except Exception as e:
+        logger.error(f"Error loading customer balance SMS templates: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reconciliation_bp.route('/api/customer-balances/send-sms/<customer_code>', methods=['POST'])
+@login_required
+@admin_or_warehouse_required
+def api_customer_balance_send_sms(customer_code):
+    try:
+        data = request.get_json(force=True) if request.is_json else {}
+        template_code = (data.get('template_code') or '').strip()
+        if not template_code:
+            return jsonify({'success': False, 'error': 'Template is required'}), 400
+
+        row = (
+            db.session.query(
+                PSCustomer.customer_code_365,
+                PSCustomer.company_name,
+                PSCustomer.mobile,
+                PSCustomer.tel_1,
+            )
+            .filter(PSCustomer.customer_code_365 == customer_code)
+            .first()
+        )
+        if not row:
+            return jsonify({'success': False, 'error': 'Customer not found'}), 404
+
+        code, name, mobile, tel_1 = row
+        mobile_number = mobile or tel_1 or ''
+        if not mobile_number:
+            return jsonify({'success': False, 'error': 'No mobile number found'}), 400
+
+        ld = _get_last_delivery_info([code]).get(code, {})
+        balance_row = (
+            db.session.query(CustomerBalanceCache.signed_balance)
+            .filter(CustomerBalanceCache.customer_code_365 == code)
+            .first()
+        )
+        current_balance = float(balance_row[0] or 0) if balance_row else 0
+        balance_text = f"€{abs(current_balance):,.2f}"
+        if current_balance > 0:
+            balance_text = f"due {balance_text}"
+        elif current_balance < 0:
+            balance_text = f"credit {balance_text}"
+        else:
+            balance_text = "€0.00"
+
+        tpl = render_template_for_customer(template_code, {
+            'customer_name': name or code,
+            'customer_code': code,
+            'current_balance': current_balance,
+            'balance_text': balance_text,
+            'last_delivery_date': ld.get('delivery_date', ''),
+        })
+        if tpl.get('error'):
+            return jsonify({'success': False, 'error': tpl['error']}), 400
+
+        sender_title = tpl.get('sender_title') or 'EPLATTFORMA'
+        message = tpl.get('rendered_body') or ''
+        result = send_microsms(
+            mobile_number,
+            sender_title,
+            message,
+            customer_code_365=code,
+            customer_name=name or code,
+            template_code=template_code,
+            template_title=tpl.get('title'),
+            source_screen='reconciliation/customer-balances',
+            context_type='customer_balance',
+            context_id=code,
+            username=current_user.username,
+        )
+        return jsonify({'success': True, 'result': result, 'message': message})
+    except Exception as e:
+        logger.error(f"Error sending customer balance SMS for {customer_code}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
