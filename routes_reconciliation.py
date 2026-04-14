@@ -808,6 +808,57 @@ def customer_balances_report():
                            excluded_agents=excluded)
 
 
+@reconciliation_bp.route('/api/customer-balances/sms-preview/<customer_code>')
+@login_required
+@admin_or_warehouse_required
+def api_customer_balance_sms_preview(customer_code):
+    try:
+        row = (
+            db.session.query(
+                PSCustomer.customer_code_365,
+                PSCustomer.company_name,
+                PSCustomer.mobile,
+                PSCustomer.tel_1,
+                CustomerBalanceCache.balance,
+                CustomerBalanceCache.drcr,
+                CustomerBalanceCache.signed_balance,
+                CustomerBalanceCache.fetched_at
+            )
+            .outerjoin(CustomerBalanceCache, CustomerBalanceCache.customer_code_365 == PSCustomer.customer_code_365)
+            .filter(PSCustomer.customer_code_365 == customer_code)
+            .first()
+        )
+        if not row:
+            return jsonify({'success': False, 'error': 'Customer not found'}), 404
+        code, name, mobile, tel_1, balance, drcr, signed_balance, fetched_at = row
+        from services_reconciliation import _get_last_delivery_info
+        ld = _get_last_delivery_info([code]).get(code, {})
+        balance_value = float(signed_balance or 0)
+        message = (
+            f"Dear {name or code}, your current balance is €{abs(balance_value):,.2f} "
+            f"({drcr or ''}). Last delivery date: {ld.get('delivery_date', 'N/A')}."
+        )
+        return jsonify({
+            'success': True,
+            'customer_code': code,
+            'customer_name': name or code,
+            'mobile': mobile or tel_1 or '',
+            'current_balance': balance_value,
+            'last_delivery_date': ld.get('delivery_date', ''),
+            'message': message,
+            'sms_parameters': {
+                'customer_name': '{{ customer_name }}',
+                'customer_code': '{{ customer_code }}',
+                'current_balance': '{{ current_balance }}',
+                'current_balance_formatted': '{{ current_balance_formatted }}',
+                'last_delivery_date': '{{ last_delivery_date }}',
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error building customer balance SMS preview for {customer_code}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @reconciliation_bp.route('/api/customer-statement/<customer_code>')
 @login_required
 @admin_or_warehouse_required
