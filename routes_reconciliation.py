@@ -831,12 +831,18 @@ def api_customer_balance_sms_preview(customer_code):
         if not row:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
         code, name, mobile, tel_1, balance, drcr, signed_balance, fetched_at = row
-        from services_reconciliation import _get_last_delivery_info
         ld = _get_last_delivery_info([code]).get(code, {})
         balance_value = float(signed_balance or 0)
+        balance_text = f"€{abs(balance_value):,.2f}"
+        if balance_value > 0:
+            balance_text = f"due {balance_text}"
+        elif balance_value < 0:
+            balance_text = f"credit {balance_text}"
+        else:
+            balance_text = "€0.00"
         message = (
-            f"Dear {name or code}, your current balance is €{abs(balance_value):,.2f} "
-            f"({drcr or ''}). Last delivery date: {ld.get('delivery_date', 'N/A')}."
+            f"Dear {name or code}, your current balance is {balance_text}. "
+            f"Last delivery date: {ld.get('delivery_date', 'N/A')}."
         )
         return jsonify({
             'success': True,
@@ -850,8 +856,8 @@ def api_customer_balance_sms_preview(customer_code):
                 'customer_name': '{{ customer_name }}',
                 'customer_code': '{{ customer_code }}',
                 'current_balance': '{{ current_balance }}',
-                'current_balance_formatted': '{{ current_balance_formatted }}',
                 'last_delivery_date': '{{ last_delivery_date }}',
+                'balance_text': '{{ balance_text }}',
             }
         })
     except Exception as e:
