@@ -203,24 +203,14 @@
                                     <div class="small text-muted mb-2">
                                         Variables: <code>{{ '{{ customer_name }}' }}</code>, <code>{{ '{{ customer_code }}' }}</code>, <code>{{ '{{ balance_text }}' }}</code>, <code>{{ '{{ last_delivery_date }}' }}</code>
                                     </div>
-                                    <div class="row g-2 mb-2">
-                                        <div class="col-8">
-                                            <select class="form-select form-select-sm bg-dark text-white border-secondary" id="sms-template-{{ c.code }}" onchange="event.stopPropagation();" onfocus="event.stopPropagation(); loadSmsTemplates('{{ c.code }}');" onclick="event.stopPropagation(); loadSmsTemplates('{{ c.code }}');">
-                                                <option value="">Select SMS template</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-4">
-                                            <button class="btn btn-sm btn-success w-100" onclick="event.stopPropagation(); sendSms('{{ c.code }}');">
-                                                <i class="fas fa-paper-plane me-1"></i>Send
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="mb-2 d-flex gap-2">
-                                        <button class="btn btn-sm btn-outline-warning" onclick="event.stopPropagation(); loadSmsPreview('{{ c.code }}');">
-                                            <i class="fas fa-comment-dots me-1"></i>Preview
-                                        </button>
-                                    </div>
-                                    <textarea class="form-control form-control-sm bg-dark text-white border-secondary" rows="4" id="sms-preview-{{ c.code }}" readonly placeholder="Click to load SMS preview"></textarea>
+                                <div class="mb-2 d-flex gap-2 align-items-center">
+                                    <a class="btn btn-sm btn-outline-info" href="/admin/communications/compose?ctx=customer&id={{ c.code }}&source=reconciliation_customer_balances" onclick="event.stopPropagation();">
+                                        <i class="fas fa-comments me-1"></i>Open SMS Composer
+                                    </a>
+                                </div>
+                                <div class="small text-muted">
+                                    Use the shared composer to select templates, preview, and send SMS.
+                                </div>
                                 </div>
                             </div>
                             <div class="mt-3 border-top border-secondary pt-3">
@@ -382,73 +372,6 @@ var fetchStatement = window.fetchStatement = async function(code) {
         area.innerHTML = '<div class="text-danger small"><i class="fas fa-exclamation-circle me-1"></i>Error loading statement. Please try again.</div>';
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-file-invoice me-1"></i>Retry';
-    }
-}
-
-var loadSmsPreview = window.loadSmsPreview = async function(code) {
-    const area = document.getElementById('sms-preview-' + code);
-    const select = document.getElementById('sms-template-' + code);
-    const templateCode = select ? select.value : '';
-    if (!area) return;
-    area.value = 'Loading...';
-    try {
-        const url = templateCode
-            ? '/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code) + '?template_code=' + encodeURIComponent(templateCode)
-            : '/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code);
-        const res = await fetch(url);
-        const data = await res.json();
-        if (!data.success) {
-            area.value = data.error || 'Failed to load SMS preview';
-            return;
-        }
-        area.value = data.message || '';
-    } catch (e) {
-        area.value = 'Error loading SMS preview';
-    }
-}
-
-var loadSmsTemplates = window.loadSmsTemplates = async function(code) {
-    const select = document.getElementById('sms-template-' + code);
-    if (!select) return;
-    if (select.dataset.loaded === '1' && select.options.length > 1) return;
-    try {
-        const res = await fetch('/reconciliation/api/customer-balances/sms-templates');
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error || 'Failed to load templates');
-        select.innerHTML = '<option value="">Select SMS template</option>';
-        (data.templates || []).forEach(t => {
-            const opt = document.createElement('option');
-            opt.value = t.code;
-            opt.textContent = t.title || t.code;
-            select.appendChild(opt);
-        });
-        select.dataset.loaded = '1';
-    } catch (e) {
-        alert(e.message);
-    }
-}
-
-var sendSms = window.sendSms = async function(code) {
-    const select = document.getElementById('sms-template-' + code);
-    const templateCode = select ? select.value : '';
-    if (!templateCode) {
-        alert('Select an SMS template first');
-        return;
-    }
-    try {
-        const res = await fetch('/reconciliation/api/customer-balances/send-sms/' + encodeURIComponent(code), {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({template_code: templateCode})
-        });
-        const data = await res.json();
-        if (!data.success) {
-            alert(data.error || 'Failed to send SMS');
-            return;
-        }
-        alert('SMS sent to SMS ' + (data.mobile || code));
-    } catch (e) {
-        alert('Error sending SMS: ' + e.message);
     }
 }
 
