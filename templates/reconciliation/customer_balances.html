@@ -200,17 +200,30 @@
                                 </div>
                                 <div class="col-md-7">
                                     <h6 class="text-warning mb-2"><i class="fas fa-sms me-1"></i>SMS Message</h6>
-                                    <div class="small text-muted mb-2">
-                                        Variables: <code>{{ '{{ customer_name }}' }}</code>, <code>{{ '{{ customer_code }}' }}</code>, <code>{{ '{{ balance_text }}' }}</code>, <code>{{ '{{ last_delivery_date }}' }}</code>
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-7">
+                                            <select class="form-select form-select-sm bg-dark text-white border-secondary sms-tpl-select"
+                                                    id="sms-template-{{ c.code }}"
+                                                    data-code="{{ c.code }}"
+                                                    onclick="event.stopPropagation();"
+                                                    onchange="event.stopPropagation(); window.onTemplateChange(this);">
+                                                <option value="">Select SMS template</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-5 d-flex gap-1">
+                                            <button class="btn btn-sm btn-outline-warning flex-fill" id="sms-preview-btn-{{ c.code }}" onclick="event.stopPropagation(); window.loadSmsPreview('{{ c.code }}');" disabled>
+                                                <i class="fas fa-eye me-1"></i>Preview
+                                            </button>
+                                            <button class="btn btn-sm btn-success flex-fill" id="sms-send-btn-{{ c.code }}" onclick="event.stopPropagation(); window.sendSms('{{ c.code }}');" disabled>
+                                                <i class="fas fa-paper-plane me-1"></i>Send
+                                            </button>
+                                        </div>
                                     </div>
-                                <div class="mb-2 d-flex gap-2 align-items-center">
-                                    <a class="btn btn-sm btn-outline-info" href="/admin/communications/compose?ctx=customer&id={{ c.code }}&source=reconciliation_customer_balances" onclick="event.stopPropagation();">
-                                        <i class="fas fa-comments me-1"></i>Open SMS Composer
-                                    </a>
-                                </div>
-                                <div class="small text-muted">
-                                    Use the shared composer to select templates, preview, and send SMS.
-                                </div>
+                                    <div class="small mb-1" id="sms-phone-{{ c.code }}" style="display:none;">
+                                        <i class="fas fa-mobile-alt text-info me-1"></i><span class="text-info"></span>
+                                    </div>
+                                    <textarea class="form-control form-control-sm bg-dark text-white border-secondary" rows="4" id="sms-preview-{{ c.code }}" readonly placeholder="Select a template to preview the SMS message"></textarea>
+                                    <div class="small mt-1" id="sms-status-{{ c.code }}"></div>
                                 </div>
                             </div>
                             <div class="mt-3 border-top border-secondary pt-3">
@@ -374,6 +387,141 @@ var fetchStatement = window.fetchStatement = async function(code) {
         btn.innerHTML = '<i class="fas fa-file-invoice me-1"></i>Retry';
     }
 }
+
+var _smsTemplatesCache = null;
+
+window.loadSmsTemplatesInto = async function(selectEl) {
+    if (_smsTemplatesCache) {
+        _populateSelect(selectEl, _smsTemplatesCache);
+        return;
+    }
+    selectEl.innerHTML = '<option value="">Loading...</option>';
+    try {
+        var res = await fetch('/reconciliation/api/customer-balances/sms-templates');
+        var data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed');
+        _smsTemplatesCache = data.templates || [];
+        _populateSelect(selectEl, _smsTemplatesCache);
+    } catch (e) {
+        selectEl.innerHTML = '<option value="">Error loading templates</option>';
+    }
+}
+
+function _populateSelect(selectEl, templates) {
+    var prev = selectEl.value;
+    selectEl.innerHTML = '<option value="">Select SMS template</option>';
+    templates.forEach(function(t) {
+        var opt = document.createElement('option');
+        opt.value = t.code;
+        opt.textContent = t.title || t.code;
+        selectEl.appendChild(opt);
+    });
+    if (prev) selectEl.value = prev;
+}
+
+window.onTemplateChange = function(selectEl) {
+    var code = selectEl.dataset.code;
+    var templateCode = selectEl.value;
+    var previewBtn = document.getElementById('sms-preview-btn-' + code);
+    var sendBtn = document.getElementById('sms-send-btn-' + code);
+    var area = document.getElementById('sms-preview-' + code);
+    var status = document.getElementById('sms-status-' + code);
+    if (previewBtn) previewBtn.disabled = !templateCode;
+    if (sendBtn) sendBtn.disabled = true;
+    if (area) area.value = '';
+    if (status) status.innerHTML = '';
+    if (templateCode) {
+        window.loadSmsPreview(code);
+    }
+}
+
+window.loadSmsPreview = async function(code) {
+    var select = document.getElementById('sms-template-' + code);
+    var templateCode = select ? select.value : '';
+    var area = document.getElementById('sms-preview-' + code);
+    var phoneDiv = document.getElementById('sms-phone-' + code);
+    var sendBtn = document.getElementById('sms-send-btn-' + code);
+    var status = document.getElementById('sms-status-' + code);
+    if (!area) return;
+    if (!templateCode) {
+        area.value = 'Please select a template first';
+        return;
+    }
+    area.value = 'Loading preview...';
+    if (status) status.innerHTML = '';
+    try {
+        var url = '/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code) + '?template_code=' + encodeURIComponent(templateCode);
+        var res = await fetch(url);
+        var data = await res.json();
+        if (!data.success) {
+            area.value = data.error || 'Failed to load preview';
+            if (sendBtn) sendBtn.disabled = true;
+            return;
+        }
+        area.value = data.message || '';
+        if (phoneDiv) {
+            var mobile = data.mobile_display || data.mobile || '';
+            if (mobile) {
+                phoneDiv.style.display = '';
+                phoneDiv.querySelector('span').textContent = 'SMS to: ' + mobile;
+            } else {
+                phoneDiv.style.display = '';
+                phoneDiv.querySelector('span').textContent = 'No mobile number on file';
+                phoneDiv.querySelector('span').classList.remove('text-info');
+                phoneDiv.querySelector('span').classList.add('text-danger');
+            }
+        }
+        if (sendBtn) sendBtn.disabled = !(data.mobile_display || data.mobile);
+    } catch (e) {
+        area.value = 'Error loading preview';
+        if (sendBtn) sendBtn.disabled = true;
+    }
+}
+
+window.sendSms = async function(code) {
+    var select = document.getElementById('sms-template-' + code);
+    var templateCode = select ? select.value : '';
+    var sendBtn = document.getElementById('sms-send-btn-' + code);
+    var status = document.getElementById('sms-status-' + code);
+    if (!templateCode) { alert('Select a template first'); return; }
+    if (!confirm('Send this SMS now?')) return;
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Sending...'; }
+    try {
+        var res = await fetch('/reconciliation/api/customer-balances/send-sms/' + encodeURIComponent(code), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({template_code: templateCode})
+        });
+        var data = await res.json();
+        if (!data.success) {
+            if (status) status.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>' + esc(data.error || 'Send failed') + '</span>';
+            if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Retry'; }
+            return;
+        }
+        if (status) status.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>SMS sent to ' + esc(data.mobile || code) + '</span>';
+        if (sendBtn) { sendBtn.innerHTML = '<i class="fas fa-check me-1"></i>Sent'; sendBtn.classList.remove('btn-success'); sendBtn.classList.add('btn-outline-success'); }
+    } catch (e) {
+        if (status) status.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>Error: ' + esc(e.message) + '</span>';
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '<i class="fas fa-paper-plane me-1"></i>Retry'; }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.sms-tpl-select').forEach(function(sel) {
+        sel.addEventListener('focus', function() {
+            if (!sel.dataset.loaded) {
+                sel.dataset.loaded = '1';
+                window.loadSmsTemplatesInto(sel);
+            }
+        });
+        sel.addEventListener('click', function() {
+            if (!sel.dataset.loaded) {
+                sel.dataset.loaded = '1';
+                window.loadSmsTemplatesInto(sel);
+            }
+        });
+    });
+});
 
 var sortTable = window.sortTable = function() {
     const sortBy = document.getElementById('sortBy').value;
