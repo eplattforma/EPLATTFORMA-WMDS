@@ -814,6 +814,7 @@ def customer_balances_report():
 @admin_or_warehouse_required
 def api_customer_balance_sms_preview(customer_code):
     try:
+        template_code = (request.args.get('template_code') or '').strip()
         row = (
             db.session.query(
                 PSCustomer.customer_code_365,
@@ -841,10 +842,24 @@ def api_customer_balance_sms_preview(customer_code):
             balance_text = f"credit {balance_text}"
         else:
             balance_text = "€0.00"
-        message = (
-            f"Dear {name or code}, your current balance is {balance_text}. "
-            f"Last delivery date: {ld.get('delivery_date', 'N/A')}."
-        )
+        if template_code:
+            tpl = render_template_for_customer(template_code, {
+                'customer_name': name or code,
+                'customer_code': code,
+                'current_balance': balance_value,
+                'balance_text': balance_text,
+                'last_delivery_date': ld.get('delivery_date', ''),
+            })
+            if tpl.get('error'):
+                return jsonify({'success': False, 'error': tpl['error']}), 400
+            message = tpl.get('rendered_body') or ''
+            template_title = tpl.get('title')
+        else:
+            message = (
+                f"Dear {name or code}, your current balance is {balance_text}. "
+                f"Last delivery date: {ld.get('delivery_date', 'N/A')}."
+            )
+            template_title = None
         return jsonify({
             'success': True,
             'customer_code': code,
@@ -854,7 +869,7 @@ def api_customer_balance_sms_preview(customer_code):
             'current_balance': balance_value,
             'last_delivery_date': ld.get('delivery_date', ''),
             'message': message,
-            'template_title': None,
+            'template_title': template_title,
             'sms_parameters': {
                 'customer_name': '{{ customer_name }}',
                 'customer_code': '{{ customer_code }}',

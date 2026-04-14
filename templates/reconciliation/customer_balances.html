@@ -387,10 +387,15 @@ var fetchStatement = window.fetchStatement = async function(code) {
 
 var loadSmsPreview = window.loadSmsPreview = async function(code) {
     const area = document.getElementById('sms-preview-' + code);
+    const select = document.getElementById('sms-template-' + code);
+    const templateCode = select ? select.value : '';
     if (!area) return;
     area.value = 'Loading...';
     try {
-        const res = await fetch('/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code));
+        const url = templateCode
+            ? '/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code) + '?template_code=' + encodeURIComponent(templateCode)
+            : '/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code);
+        const res = await fetch(url);
         const data = await res.json();
         if (!data.success) {
             area.value = data.error || 'Failed to load SMS preview';
