@@ -772,7 +772,6 @@ def customer_balances_report():
         addr_parts = [p for p in [addr1, addr2, postal, town] if p]
         contact_name = ' '.join(p for p in [contact_first, contact_last] if p)
         ld = last_delivery_map.get(code, {})
-        comms = get_customer_comm_history(code, limit=10)
         customers.append({
             'code': code,
             'name': name or code,
@@ -803,7 +802,6 @@ def customer_balances_report():
             'last_payment_method': ld.get('payment_method', ''),
             'last_payment_received': ld.get('payment_received', 0),
             'last_driver': ld.get('driver_name', ''),
-            'sms_history': comms,
         })
 
     customers.sort(key=lambda c: c['signed_balance'], reverse=True)
@@ -890,6 +888,26 @@ def api_customer_balance_sms_preview(customer_code):
         })
     except Exception as e:
         logger.error(f"Error building customer balance SMS preview for {customer_code}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reconciliation_bp.route('/api/customer-balances/sms-history/<customer_code>')
+@login_required
+@admin_or_warehouse_required
+def api_customer_sms_history(customer_code):
+    try:
+        comms = get_customer_comm_history(customer_code, limit=10)
+        messages = []
+        for m in comms:
+            messages.append({
+                'date': m.created_at.strftime('%d-%m %H:%M') if m.created_at else '',
+                'status': (m.status or '').lower(),
+                'template_title': m.template_title or '',
+                'message_text': m.message_text or '',
+            })
+        return jsonify({'success': True, 'messages': messages})
+    except Exception as e:
+        logger.error(f"Error fetching SMS history for {customer_code}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
