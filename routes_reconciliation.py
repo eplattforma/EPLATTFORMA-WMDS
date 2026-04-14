@@ -850,9 +850,11 @@ def api_customer_balance_sms_preview(customer_code):
             'customer_code': code,
             'customer_name': name or code,
             'mobile': mobile or tel_1 or '',
+            'mobile_display': mobile or tel_1 or '',
             'current_balance': balance_value,
             'last_delivery_date': ld.get('delivery_date', ''),
             'message': message,
+            'template_title': None,
             'sms_parameters': {
                 'customer_name': '{{ customer_name }}',
                 'customer_code': '{{ customer_code }}',
@@ -947,6 +949,7 @@ def api_customer_balance_send_sms(customer_code):
             username=current_user.username,
         )
         return jsonify({'success': True, 'result': result, 'message': message})
+        return jsonify({'success': True, 'result': result, 'message': message, 'mobile': mobile_number})
     except Exception as e:
         logger.error(f"Error sending customer balance SMS for {customer_code}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500

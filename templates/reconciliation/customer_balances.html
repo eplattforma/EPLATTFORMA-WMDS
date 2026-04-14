@@ -390,12 +390,25 @@ var fetchStatement = window.fetchStatement = async function(code) {
 
 var loadSmsPreview = window.loadSmsPreview = async function(code) {
     const area = document.getElementById('sms-preview-' + code);
+    const select = document.getElementById('sms-template-' + code);
+    const templateCode = select ? select.value : '';
     if (!area) return;
     area.value = 'Loading...';
     try {
-        const res = await fetch('/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code));
+        const url = templateCode
+            ? '/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code) + '?template_code=' + encodeURIComponent(templateCode)
+            : '/reconciliation/api/customer-balances/sms-preview/' + encodeURIComponent(code);
+        const res = await fetch(url);
         const data = await res.json();
-        area.value = data.success ? data.message : (data.error || 'Failed to load SMS preview');
+        if (!data.success) {
+            area.value = data.error || 'Failed to load SMS preview';
+            return;
+        }
+        const mobile = data.mobile_display || data.mobile || '';
+        const templateTitle = data.template_title || (select && select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '');
+        area.value = (templateTitle ? 'Template: ' + templateTitle + '\n' : '') +
+            (mobile ? 'Send to: ' + mobile + '\n\n' : '') +
+            (data.message || '');
     } catch (e) {
         area.value = 'Error loading SMS preview';
     }
@@ -438,7 +451,7 @@ var sendSms = window.sendSms = async function(code) {
             alert(data.error || 'Failed to send SMS');
             return;
         }
-        alert('SMS sent');
+        alert('SMS sent to ' + (data.mobile || code));
     } catch (e) {
         alert('Error sending SMS: ' + e.message);
     }
