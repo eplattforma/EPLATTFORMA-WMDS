@@ -627,19 +627,24 @@ def _customer_base_filter():
 
 def _get_last_delivery_info(customer_codes):
     from sqlalchemy import func, text
+    from datetime import date, timedelta
     if not customer_codes:
         return {}
+
+    cutoff_date = date.today() - timedelta(days=1)
 
     last_inv_sub = (
         db.session.query(
             Invoice.customer_code_365,
             func.max(Invoice.delivered_at).label('max_delivered')
         )
+        .join(Shipment, Invoice.route_id == Shipment.id)
         .filter(
             Invoice.customer_code_365.in_(customer_codes),
             Invoice.status == 'delivered',
             Invoice.delivered_at.isnot(None),
             Invoice.route_id.isnot(None),
+            Shipment.delivery_date < cutoff_date,
         )
         .group_by(Invoice.customer_code_365)
         .subquery()
