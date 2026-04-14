@@ -476,7 +476,7 @@ def customer_slot_dashboard():
             "window_open": window_open,
             "next_delivery": window_status["next_delivery"].strftime('%a %d-%b') if window_status["next_delivery"] else None,
             "next_delivery_date": window_status["next_delivery"] if window_status["next_delivery"] else None,
-            "mobile_number": r.mobile or r.sms_number or "",
+            "mobile_number": r.sms_number or r.mobile or "",
         })
         os_data = offer_summary_map.get(r.customer_code_365, {})
         dashboard_rows[-1]["has_special_pricing"] = os_data.get("has_special_pricing", False)
@@ -896,7 +896,7 @@ def review_ordering():
             "original_delivery_date": natural_del.isoformat() if natural_del else None,
             "window_close_at": eff_close.isoformat() if eff_close else None,
             "slot_closing_soon": slot_closing_soon,
-            "mobile_number": r.mobile or r.sms_number or "",
+            "mobile_number": r.sms_number or r.mobile or "",
             "assisted_ordering": assisted,
             "review_note": review_rec.review_note if review_rec else "",
             "last_comm": comm_map.get(r.customer_code_365),
@@ -1460,7 +1460,7 @@ def api_offer_sms_send(customer_code_365):
         return jsonify({"success": False, "error": "Message is empty"}), 400
 
     cust = db.session.execute(text("""
-        SELECT COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile,
+        SELECT COALESCE(NULLIF(sms,''), NULLIF(mobile,''), NULLIF(tel_1,''), '') AS mobile,
                COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name
         FROM ps_customers WHERE customer_code_365 = :code
     """), {"code": customer_code_365}).fetchone()

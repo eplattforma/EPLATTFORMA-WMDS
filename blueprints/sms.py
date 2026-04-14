@@ -102,7 +102,7 @@ def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
             SELECT customer_code_365,
                    COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
                    COALESCE(NULLIF(contact_first_name,''), '') AS contact_first_name,
-                   COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile_number
+                   COALESCE(NULLIF(sms,''), NULLIF(mobile,''), NULLIF(tel_1,''), '') AS mobile_number
             FROM ps_customers
             WHERE customer_code_365 = :cid
         """), {"cid": ctx_id}).mappings().first()
@@ -395,7 +395,7 @@ def sms_search_customer():
     rows = db.session.execute(db.text("""
         SELECT customer_code_365,
                COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
-               COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile_number
+               COALESCE(NULLIF(sms,''), NULLIF(mobile,''), NULLIF(tel_1,''), '') AS mobile_number
         FROM ps_customers
         WHERE active = true AND deleted_at IS NULL
           AND (company_name ILIKE :q OR customer_code_365 ILIKE :q

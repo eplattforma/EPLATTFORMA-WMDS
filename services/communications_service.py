@@ -101,7 +101,7 @@ def resolve_customer_context(customer_code_365):
         SELECT customer_code_365,
                COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
                COALESCE(NULLIF(contact_first_name,''), '') AS contact_first_name,
-               COALESCE(NULLIF(mobile,''), NULLIF(sms,''), NULLIF(tel_1,''), '') AS mobile_number,
+               COALESCE(NULLIF(sms,''), NULLIF(mobile,''), NULLIF(tel_1,''), '') AS mobile_number,
                COALESCE(NULLIF(sms,''), '') AS sms_number,
                COALESCE(NULLIF(tel_1,''), '') AS tel_1
         FROM ps_customers

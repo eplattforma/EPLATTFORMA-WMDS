@@ -717,6 +717,7 @@ def customer_balances_report():
             PSCustomer.agent_name,
             PSCustomer.tel_1,
             PSCustomer.mobile,
+            PSCustomer.sms,
             PSCustomer.credit_limit_amount,
             CustomerBalanceCache.balance,
             CustomerBalanceCache.drcr,
@@ -749,7 +750,7 @@ def customer_balances_report():
     fetched_count = 0
     with_balance_count = 0
 
-    for (code, name, town, cat, agent, tel, mobile, credit_limit,
+    for (code, name, town, cat, agent, tel, mobile, sms_num, credit_limit,
          balance, drcr, signed_balance, as_of, fetched_at,
          addr1, addr2, postal, email, vat, contact_first, contact_last, cat2) in rows:
         has_data = balance is not None
@@ -773,9 +774,10 @@ def customer_balances_report():
             'category': cat or '',
             'category2': cat2 or '',
             'agent': agent or '',
-            'phone': mobile or tel or '',
+            'phone': sms_num or mobile or tel or '',
             'tel': tel or '',
             'mobile': mobile or '',
+            'sms': sms_num or '',
             'email': email or '',
             'credit_limit': float(credit_limit or 0),
             'balance': bal,
@@ -819,8 +821,8 @@ def api_customer_balance_sms_preview(customer_code):
             db.session.query(
                 PSCustomer.customer_code_365,
                 PSCustomer.company_name,
+                PSCustomer.sms,
                 PSCustomer.mobile,
-                PSCustomer.tel_1,
                 CustomerBalanceCache.balance,
                 CustomerBalanceCache.drcr,
                 CustomerBalanceCache.signed_balance,
@@ -832,7 +834,7 @@ def api_customer_balance_sms_preview(customer_code):
         )
         if not row:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
-        code, name, mobile, tel_1, balance, drcr, signed_balance, fetched_at = row
+        code, name, sms_number, mobile, balance, drcr, signed_balance, fetched_at = row
         ld = _get_last_delivery_info([code]).get(code, {})
         balance_value = float(signed_balance or 0)
         balance_text = f"€{abs(balance_value):,.2f}"
@@ -864,8 +866,8 @@ def api_customer_balance_sms_preview(customer_code):
             'success': True,
             'customer_code': code,
             'customer_name': name or code,
-            'mobile': mobile or tel_1 or '',
-            'mobile_display': mobile or tel_1 or '',
+            'mobile': sms_number or mobile or '',
+            'mobile_display': sms_number or mobile or '',
             'current_balance': balance_value,
             'last_delivery_date': ld.get('delivery_date', ''),
             'message': message,
@@ -909,8 +911,8 @@ def api_customer_balance_send_sms(customer_code):
             db.session.query(
                 PSCustomer.customer_code_365,
                 PSCustomer.company_name,
+                PSCustomer.sms,
                 PSCustomer.mobile,
-                PSCustomer.tel_1,
             )
             .filter(PSCustomer.customer_code_365 == customer_code)
             .first()
@@ -918,10 +920,10 @@ def api_customer_balance_send_sms(customer_code):
         if not row:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
 
-        code, name, mobile, tel_1 = row
-        mobile_number = mobile or tel_1 or ''
+        code, name, sms_number, mobile = row
+        mobile_number = sms_number or mobile or ''
         if not mobile_number:
-            return jsonify({'success': False, 'error': 'No mobile number found'}), 400
+            return jsonify({'success': False, 'error': 'No SMS number found'}), 400
 
         ld = _get_last_delivery_info([code]).get(code, {})
         balance_row = (
