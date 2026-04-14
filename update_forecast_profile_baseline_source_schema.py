@@ -14,7 +14,7 @@ def update_forecast_profile_baseline_source_schema():
                       AND column_name = :column_name
                 """), {'column_name': column_name}).fetchone()
                 if exists:
-                    conn.execute(text(f"ALTER TABLE sku_forecast_profile ALTER COLUMN {column_name} TYPE VARCHAR(64)"))
+                    conn.execute(text(f"ALTER TABLE sku_forecast_profile ALTER COLUMN {column_name} TYPE VARCHAR(128)"))
                     logger.info(f"Updated {column_name} column type on sku_forecast_profile")
             conn.commit()
         logger.info("Forecast profile schema update completed")
