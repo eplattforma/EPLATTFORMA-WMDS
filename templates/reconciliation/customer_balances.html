@@ -150,7 +150,7 @@
             </thead>
             <tbody id="balancesBody">
                 {% for c in customers %}
-                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}" data-fetched="{{ '1' if c.has_data else '0' }}" class="cursor-pointer" onclick="toggleDetail('{{ c.code }}')">
+                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}" data-fetched="{{ '1' if c.has_data else '0' }}" class="cursor-pointer" onclick="window.toggleDetail('{{ c.code }}')">
                     <td><span class="text-info">{{ c.code }}</span> <i class="fas fa-chevron-right small text-muted detail-chevron" id="chevron-{{ c.code }}"></i></td>
                     <td>{{ c.name }}</td>
                     <td class="text-muted">{{ c.town }}</td>
