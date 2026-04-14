@@ -173,6 +173,23 @@
                     <td class="text-center"><span class="badge bg-dark text-muted">?</span></td>
                     {% endif %}
                     <td class="text-muted small">{% if c.has_data %}{{ c.fetched_at }}{% else %}-{% endif %}</td>
+                    <td class="text-muted small">
+                        {% if c.sms_history %}
+                        <div class="d-flex flex-column gap-1">
+                            {% for m in c.sms_history %}
+                            <div class="d-flex align-items-center justify-content-between gap-2">
+                                <span class="badge bg-secondary text-light">{{ m.created_at.strftime('%d-%m %H:%M') if m.created_at else '' }}</span>
+                                <span class="text-truncate" style="max-width: 220px;" title="{{ m.template_title or m.message_text }}">{{ m.template_title or m.message_text }}</span>
+                                <span class="badge {% if m.status and m.status|lower == 'sent' %}bg-success{% elif m.status and m.status|lower == 'failed' %}bg-danger{% else %}bg-dark{% endif %}">
+                                    {{ m.status or '-' }}
+                                </span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 <tr class="detail-row" id="detail-{{ c.code }}" style="display:none;" onclick="event.stopPropagation();">
                     <td colspan="9" class="p-0 border-0">

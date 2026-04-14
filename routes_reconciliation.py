@@ -14,7 +14,7 @@ from app import db
 from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice, BankTransaction, PSCustomer, CustomerBalanceCache
 from models import utc_now
 import services_reconciliation as recon
-from services.communications_service import get_enabled_templates, render_template_for_customer, send_microsms
+from services.communications_service import get_customer_comm_history, get_enabled_templates, render_template_for_customer, send_microsms
 
 logger = logging.getLogger(__name__)
 
@@ -767,6 +767,7 @@ def customer_balances_report():
         addr_parts = [p for p in [addr1, addr2, postal, town] if p]
         contact_name = ' '.join(p for p in [contact_first, contact_last] if p)
         ld = last_delivery_map.get(code, {})
+        comms = get_customer_comm_history(code, limit=10)
         customers.append({
             'code': code,
             'name': name or code,
@@ -796,6 +797,7 @@ def customer_balances_report():
             'last_payment_method': ld.get('payment_method', ''),
             'last_payment_received': ld.get('payment_received', 0),
             'last_driver': ld.get('driver_name', ''),
+            'sms_history': comms,
         })
 
     customers.sort(key=lambda c: c['signed_balance'], reverse=True)
