@@ -1,0 +1,84 @@
+6-04-14 14:48:34.87
+610ce359
+User
+34.38.221.16 - - [14/Apr/2026:11:48:34 +0000] "GET /forecast/api/run/status HTTP/1.1" 200 380 "https://ep-picking-bro.replit.app/forecast/suppliers" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+2026-04-14 14:48:40.94
+610ce359
+User
+34.14.41.126 - - [14/Apr/2026:11:48:40 +0000] "GET /forecast/api/run/status HTTP/1.1" 200 380 "https://ep-picking-bro.replit.app/forecast/suppliers" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+2026-04-14 14:48:40.95
+610ce359
+User
+[SQL: UPDATE sku_forecast_profile SET forecast_method=%(forecast_method)s, seasonality_source=%(seasonality_source)s, seasonality_level_code=%(seasonality_level_code)s, review_reason=%(review_reason)s, forecast_confidence=%(forecast_confidence)s, seed_source=%(seed_source)s, analogue_level=%(analogue_level)s, baseline_source=%(baseline_source)s, updated_at=%(updated_at)s WHERE sku_forecast_profile.item_code_365 = %(sku_forecast_profile_item_code_365)s]
+2026-04-14 14:48:40.95
+610ce359
+User
+(Background on this error at: https://sqlalche.me/e/20/9h9h)
+2026-04-14 14:48:40.95
+610ce359
+User
+ERROR:services.forecast.run_service:Forecast run 31 failed at step 'base_forecast': (psycopg2.errors.StringDataRightTruncation) value too long for type character varying(20)
+2026-04-14 14:48:40.95
+610ce359
+User
+[parameters: {'forecast_method': 'INSUFFICIENT_HISTORY+OOS', 'seasonality_source': 'supplier', 'seasonality_level_code': '10000061', 'review_reason': 'History not fully loaded; OOS-adjusted history used', 'forecast_confidence': 'low', 'seed_source': 'supplier', 'analogue_level': 'supplier', 'baseline_source': 'supplier', 'updated_at': datetime.datetime(2026, 4, 14, 11, 47, 52, 808538, tzinfo=datetime.timezone.utc), 'sku_forecast_profile_item_code_365': 'SOD-0060'}]
+2026-04-14 14:48:40.97
+610ce359
+User
+psycopg2.errors.StringDataRightTruncation: value too long for type character varying(20)
+2026-04-14 14:48:40.97
+610ce359
+User
+The above exception was the direct cause of the following exception:
+2026-04-14 14:48:40.97
+610ce359
+User
+ERROR:services.forecast.run_service:Traceback (most recent call last):
+2026-04-14 14:48:40.97
+610ce359
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 943, in do_execute
+2026-04-14 14:48:40.97
+610ce359
+User
+cursor.execute(statement, parameters)
+2026-04-14 14:48:40.97
+610ce359
+User
+File "/home/runner/workspace/services/forecast/run_service.py", line 204, in execute_forecast_run
+2026-04-14 14:48:40.97
+610ce359
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-14 14:48:40.97
+610ce359
+User
+forecast_count = compute_base_forecasts(session, run_id=run_id, progress_callback=_make_hb_callback(current_step))
+2026-04-14 14:48:40.97
+610ce359
+User
+self.dialect.do_execute(
+2026-04-14 14:48:40.97
+610ce359
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1963, in _exec_single_context
+2026-04-14 14:48:40.97
+610ce359
+User
+Traceback (most recent call last):
+2026-04-14 14:48:46.91
+610ce359
+User
+35.233.1.226 - - [14/Apr/2026:11:48:46 +0000] "GET /forecast/api/run/status HTTP/1.1" 200 1516 "https://ep-picking-bro.replit.app/forecast/suppliers" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+2026-04-14 14:48:57.48
+610ce359
+User
+34.62.104.36 - - [14/Apr/2026:11:48:57 +0000] "GET /admin/dashboard HTTP/1.1" 200 197827 "https://ep-picking-bro.replit.app/admin/dashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-14 14:48:58.07
+610ce359
+User
+34.38.35.146 - - [14/Apr/2026:11:48:58 +0000] "GET /static/css/custom.css HTTP/1.1" 304 0 "https://ep-picking-bro.replit.app/admin/dashboard" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+2026-04-14 14:48:58.08
+610ce359
+User
+34.38.35.146 - - [14/Apr/2026:11:
