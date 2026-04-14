@@ -150,7 +150,7 @@
             </thead>
             <tbody id="balancesBody">
                 {% for c in customers %}
-                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}" data-fetched="{{ '1' if c.has_data else '0' }}" class="cursor-pointer" onclick="window.toggleDetail('{{ c.code }}')">
+                <tr data-code="{{ c.code }}" data-name="{{ c.name|lower }}" data-town="{{ c.town|lower }}" data-agent="{{ c.agent }}" data-drcr="{{ c.drcr|lower }}" data-signed="{{ c.signed_balance }}" data-fetched="{{ '1' if c.has_data else '0' }}" class="cursor-pointer" onclick="if (window.toggleDetail) window.toggleDetail('{{ c.code }}')">
                     <td><span class="text-info">{{ c.code }}</span> <i class="fas fa-chevron-right small text-muted detail-chevron" id="chevron-{{ c.code }}"></i></td>
                     <td>{{ c.name }}</td>
                     <td class="text-muted">{{ c.town }}</td>
@@ -289,7 +289,7 @@ var filterTable = window.filterTable = function() {
     document.getElementById('rowCount').textContent = `Showing ${visible} customers`;
 }
 
-var toggleDetail = window.toggleDetail = function(code) {
+window.toggleDetail = function(code) {
     const detailRow = document.getElementById('detail-' + code);
     const chevron = document.getElementById('chevron-' + code);
     if (!detailRow) return;
@@ -297,7 +297,6 @@ var toggleDetail = window.toggleDetail = function(code) {
     detailRow.style.display = isOpen ? 'none' : '';
     if (chevron) chevron.classList.toggle('open', !isOpen);
 }
-window.toggleDetail = toggleDetail;
 
 function esc(str) {
     const d = document.createElement('div');
