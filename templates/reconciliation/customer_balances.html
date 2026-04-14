@@ -205,7 +205,7 @@
                                     </div>
                                     <div class="row g-2 mb-2">
                                         <div class="col-8">
-                                            <select class="form-select form-select-sm bg-dark text-white border-secondary" id="sms-template-{{ c.code }}">
+                                            <select class="form-select form-select-sm bg-dark text-white border-secondary" id="sms-template-{{ c.code }}" onchange="event.stopPropagation();" onfocus="event.stopPropagation(); loadSmsTemplates('{{ c.code }}');" onclick="event.stopPropagation(); loadSmsTemplates('{{ c.code }}');">
                                                 <option value="">Select SMS template</option>
                                             </select>
                                         </div>
@@ -218,9 +218,6 @@
                                     <div class="mb-2 d-flex gap-2">
                                         <button class="btn btn-sm btn-outline-warning" onclick="event.stopPropagation(); loadSmsPreview('{{ c.code }}');">
                                             <i class="fas fa-comment-dots me-1"></i>Preview
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); loadSmsTemplates('{{ c.code }}');">
-                                            <i class="fas fa-list me-1"></i>Load Templates
                                         </button>
                                     </div>
                                     <textarea class="form-control form-control-sm bg-dark text-white border-secondary" rows="4" id="sms-preview-{{ c.code }}" readonly placeholder="Click to load SMS preview"></textarea>
