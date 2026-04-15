@@ -20,6 +20,15 @@ logger = logging.getLogger(__name__)
 
 reconciliation_bp = Blueprint('reconciliation', __name__, url_prefix='/reconciliation')
 
+_GR_DAYS = ['ΔΕΥΤΕΡΑ', 'ΤΡΙΤΗ', 'ΤΕΤΑΡΤΗ', 'ΠΕΜΠΤΗ', 'ΠΑΡΑΣΚΕΥΗ', 'ΣΑΒΒΑΤΟ', 'ΚΥΡΙΑΚΗ']
+_GR_MONTHS = ['ΙΑΝ', 'ΦΕΒ', 'ΜΑΡ', 'ΑΠΡ', 'ΜΑΙ', 'ΙΟΥΝ', 'ΙΟΥΛ', 'ΑΥΓ', 'ΣΕΠ', 'ΟΚΤ', 'ΝΟΕ', 'ΔΕΚ']
+
+def _greek_date_str(dt):
+    """Format a date/datetime as e.g. ΤΡΙΤΗ 15 ΑΠΡ in Greek."""
+    if dt is None:
+        return ''
+    return f"{_GR_DAYS[dt.weekday()]} {dt.day} {_GR_MONTHS[dt.month - 1]}"
+
 
 def admin_or_warehouse_required(f):
     """Decorator to require admin or warehouse_manager role"""
@@ -738,6 +747,7 @@ def _get_last_delivery_info(customer_codes):
         result[ccode] = {
             'route_name': route_name or '',
             'delivery_date': delivery_date.strftime('%d/%m/%Y') if delivery_date else (delivered_at.strftime('%d/%m/%Y') if delivered_at else ''),
+            '_delivery_date_obj': delivery_date,
             'invoice_no': inv_no or '',
             'invoice_amount': float(total_grand) if total_grand else 0,
             'payment_method': pm_display,
@@ -907,6 +917,9 @@ def api_customer_balance_sms_preview(customer_code):
             overdue_text = f"credit {overdue_text}"
         else:
             overdue_text = "€0.00"
+        from datetime import datetime as _dt
+        _today = _dt.now()
+        _nd = ld.get('_delivery_date_obj')
         if template_code:
             tpl = render_template_for_customer(template_code, {
                 'customer_name': name or code,
@@ -916,6 +929,8 @@ def api_customer_balance_sms_preview(customer_code):
                 'overdue_balance': overdue_value,
                 'overdue_text': overdue_text,
                 'last_delivery_date': ld.get('delivery_date', ''),
+                'today_formatted': _greek_date_str(_today),
+                'delivery_date_formatted': _greek_date_str(_nd) if _nd else '',
             })
             if tpl.get('error'):
                 return jsonify({'success': False, 'error': tpl['error']}), 400
@@ -946,6 +961,8 @@ def api_customer_balance_sms_preview(customer_code):
                 'overdue_balance': '{{ overdue_balance }}',
                 'overdue_text': '{{ overdue_text }}',
                 'last_delivery_date': '{{ last_delivery_date }}',
+                'today_formatted': '{{ today_formatted }}',
+                'delivery_date_formatted': '{{ delivery_date_formatted }}',
             }
         })
     except Exception as e:
@@ -1081,6 +1098,9 @@ def api_customer_balance_send_sms(customer_code):
         else:
             overdue_text = "€0.00"
 
+        from datetime import datetime as _dt
+        _today = _dt.now()
+        _nd = ld.get('_delivery_date_obj')
         tpl = render_template_for_customer(template_code, {
             'customer_name': name or code,
             'customer_code': code,
@@ -1089,6 +1109,8 @@ def api_customer_balance_send_sms(customer_code):
             'overdue_balance': overdue_value,
             'overdue_text': overdue_text,
             'last_delivery_date': ld.get('delivery_date', ''),
+            'today_formatted': _greek_date_str(_today),
+            'delivery_date_formatted': _greek_date_str(_nd) if _nd else '',
         })
         if tpl.get('error'):
             return jsonify({'success': False, 'error': tpl['error']}), 400

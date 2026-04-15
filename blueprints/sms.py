@@ -11,6 +11,16 @@ from app import db
 sms_bp = Blueprint("sms", __name__, url_prefix="/admin/sms")
 
 MICROSMS_DIRECT_URL = "https://api.microsms.net/sendapidirect.asp"
+
+_GR_DAYS = ['ΔΕΥΤΕΡΑ', 'ΤΡΙΤΗ', 'ΤΕΤΑΡΤΗ', 'ΠΕΜΠΤΗ', 'ΠΑΡΑΣΚΕΥΗ', 'ΣΑΒΒΑΤΟ', 'ΚΥΡΙΑΚΗ']
+_GR_MONTHS = ['ΙΑΝ', 'ΦΕΒ', 'ΜΑΡ', 'ΑΠΡ', 'ΜΑΙ', 'ΙΟΥΝ', 'ΙΟΥΛ', 'ΑΥΓ', 'ΣΕΠ', 'ΟΚΤ', 'ΝΟΕ', 'ΔΕΚ']
+
+def _greek_date_str(dt):
+    """Format a date/datetime as e.g. ΤΡΙΤΗ 15 ΑΠΡ in Greek."""
+    if dt is None:
+        return ''
+    return f"{_GR_DAYS[dt.weekday()]} {dt.day} {_GR_MONTHS[dt.month - 1]}"
+
 BALANCE_URL = "https://ssl.microsms.net/getbalance.asp"
 
 jinja_env = Environment(undefined=StrictUndefined, autoescape=False)
@@ -114,13 +124,13 @@ def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
             ws = get_order_window_status(ctx_id)
             nd = ws.get("next_delivery")
             ctx["delivery_date"] = nd.strftime('%a %d-%b') if nd else ""
-            ctx["delivery_date_formatted"] = nd.strftime('%A %d %b').upper() if nd else ""
+            ctx["delivery_date_formatted"] = _greek_date_str(nd) if nd else ""
         except Exception:
             ctx["delivery_date"] = ""
             ctx["delivery_date_formatted"] = ""
         try:
             from datetime import datetime
-            ctx["today_formatted"] = datetime.now().strftime('%A %d %b').upper()
+            ctx["today_formatted"] = _greek_date_str(datetime.now())
         except Exception:
             ctx["today_formatted"] = ""
         return ctx
