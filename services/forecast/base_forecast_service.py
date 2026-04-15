@@ -172,10 +172,16 @@ def _preload_group_baselines(session, profiles, dw_item_cache):
     weeks_list = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(8)]
 
     def _calc_group_avg(member_items):
+        ranked = sorted(
+            member_items,
+            key=lambda ic: sum(sales_8w.get(ic, {}).values()),
+            reverse=True
+        )
+
         weekly_totals = {}
         for ws in weeks_list:
             total = 0.0
-            for ic in member_items[:50]:
+            for ic in ranked[:50]:
                 total += sales_8w.get(ic, {}).get(ws, 0.0)
             weekly_totals[ws] = total
         total_qty = sum(weekly_totals.values())
@@ -385,14 +391,32 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         old_results[result.item_code_365] = result
     logger.info(f"Preloaded {len(old_results)} existing forecast results for {len(active_codes)} active items")
 
-    dw_item_cache = {}
-    for item in session.query(DwItem).filter(DwItem.active == True).all():
-        dw_item_cache[item.item_code_365] = item
-    logger.info(f"Preloaded {len(dw_item_cache)} active DwItem rows")
+    active_codes = [p.item_code_365 for p in profiles]
+    dw_item_cache = {
+        item.item_code_365: item
+        for item in session.query(DwItem)
+        .filter(DwItem.item_code_365.in_(active_codes))
+        .all()
+    }
+    logger.info(f"Preloaded {len(dw_item_cache)} DwItem rows for {len(active_codes)} profiled items")
 
     seasonality_index_map = {}
     reliable_levels = {}
-    for row in session.query(ForecastSeasonalityMonthly).all():
+    brand_codes = {i.brand_code_365 for i in dw_item_cache.values() if i.brand_code_365}
+    supplier_codes = {i.supplier_code_365 for i in dw_item_cache.values() if i.supplier_code_365}
+
+    seasonality_rows = session.query(ForecastSeasonalityMonthly).filter(
+        (
+            (ForecastSeasonalityMonthly.level_type == 'brand') &
+            (ForecastSeasonalityMonthly.level_code.in_(brand_codes))
+        ) |
+        (
+            (ForecastSeasonalityMonthly.level_type == 'supplier') &
+            (ForecastSeasonalityMonthly.level_code.in_(supplier_codes))
+        )
+    ).all()
+
+    for row in seasonality_rows:
         seasonality_index_map[(row.level_type, row.level_code, row.month_no)] = Decimal(str(row.smoothed_index))
         if row.is_reliable:
             reliable_levels[(row.level_type, row.level_code)] = row.confidence
@@ -480,9 +504,6 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
             base_forecast = 0.0
             forecast_method = "ZERO"
             forecast_confidence = "none"
-
-        if oos_was_applied:
-            forecast_method = forecast_method + "+OOS"
 
         profile.forecast_method = forecast_method
         profile.forecast_confidence = forecast_confidence

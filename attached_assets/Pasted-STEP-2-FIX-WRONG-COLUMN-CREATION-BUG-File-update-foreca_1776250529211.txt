@@ -1,0 +1,113 @@
+STEP 2 — FIX WRONG COLUMN CREATION (BUG)
+File: update_forecast_ordering_schema.py
+Replace:
+"ALTER TABLE sku_forecast_profile ADD COLUMN baseline_source varchar(20) null",
+With:
+"ALTER TABLE sku_forecast_profile ADD COLUMN baseline_source varchar(128) null",
+🔴 STEP 3 — FIX FORECAST METHOD DESIGN (IMPORTANT)
+File: services/forecast/base_forecast_service.py
+FIND:
+if oos_was_applied:
+    forecast_method = forecast_method + "+OOS"
+REPLACE WITH:
+# Do NOT mutate forecast_method — keep it pure
+if oos_was_applied:
+    review_notes.append("OOS-adjusted history used")
+WHY
+
+You already store:
+
+profile.oos_adjusted = oos_was_applied
+
+So +OOS is:
+
+redundant
+causing DB overflow
+bad modeling
+🟡 STEP 4 — ADD HARD SCHEMA VALIDATION (VERY IMPORTANT)
+In main.py after migrations:
+from sqlalchemy import text as _sa_text
+
+with app.app_context():
+    with db.engine.connect() as conn:
+        rows = conn.execute(_sa_text("""
+            SELECT column_name, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_name = 'sku_forecast_profile'
+              AND column_name IN (
+                'forecast_method',
+                'seasonality_source',
+                'seed_source',
+                'analogue_level',
+                'baseline_source'
+              )
+        """)).fetchall()
+
+        lengths = {r[0]: r[1] for r in rows}
+
+        for col in ['forecast_method','seasonality_source','seed_source','analogue_level','baseline_source']:
+            if (lengths.get(col) or 0) < 128:
+                raise RuntimeError(f"Column {col} is too small: {lengths.get(col)}")
+🟢 STEP 5 — PERFORMANCE IMPROVEMENTS
+5.1 Fix double loading of DwItem
+FIND:
+for item in session.query(DwItem).filter(DwItem.active == True).all():
+    dw_item_cache[item.item_code_365] = item
+REPLACE WITH:
+active_codes = [p.item_code_365 for p in profiles]
+
+dw_item_cache = {
+    item.item_code_365: item
+    for item in session.query(DwItem)
+    .filter(DwItem.item_code_365.in_(active_codes))
+    .all()
+}
+5.2 Limit seasonality preload
+FIND:
+for row in session.query(ForecastSeasonalityMonthly).all():
+REPLACE WITH:
+brand_codes = {i.brand_code_365 for i in dw_item_cache.values() if i.brand_code_365}
+supplier_codes = {i.supplier_code_365 for i in dw_item_cache.values() if i.supplier_code_365}
+
+rows = session.query(ForecastSeasonalityMonthly).filter(
+    (
+        (ForecastSeasonalityMonthly.level_type == 'brand') &
+        (ForecastSeasonalityMonthly.level_code.in_(brand_codes))
+    ) |
+    (
+        (ForecastSeasonalityMonthly.level_type == 'supplier') &
+        (ForecastSeasonalityMonthly.level_code.in_(supplier_codes))
+    )
+).all()
+
+for row in rows:
+5.3 Fix unstable baseline sampling
+FIND:
+for ic in member_items[:50]:
+REPLACE WITH:
+ranked = sorted(
+    member_items,
+    key=lambda ic: sum(sales_8w.get(ic, {}).values()),
+    reverse=True
+)
+
+for ic in ranked[:50]:
+🔵 STEP 6 — UI IMPROVEMENT (OPTIONAL BUT CORRECT)
+
+Do NOT store +OOS in DB.
+
+Instead in UI:
+
+display_method = profile.forecast_method
+if profile.oos_adjusted:
+    display_method = f"{display_method} + OOS"
+✅ EXPECTED RESULT AFTER FIX
+No more crash in base_forecast
+Clean forecast_method values:
+MA8
+MEDIAN6
+SEEDED
+INSUFFICIENT_HISTORY
+OOS handled separately (correct design)
+Faster execution on large SKU sets
+Deterministic baselines (no randomness)

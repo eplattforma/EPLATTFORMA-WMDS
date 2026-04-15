@@ -87,7 +87,7 @@ def update_forecast_ordering_schema():
             add_column_if_missing(
                 "sku_forecast_profile",
                 "baseline_source",
-                "ALTER TABLE sku_forecast_profile ADD COLUMN baseline_source varchar(20) null",
+                "ALTER TABLE sku_forecast_profile ADD COLUMN baseline_source varchar(128) null",
             )
 
             logging.info("Forecast ordering schema update completed")

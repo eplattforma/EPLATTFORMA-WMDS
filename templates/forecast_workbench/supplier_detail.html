@@ -609,7 +609,7 @@
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
             <td>${seasonBadge}</td>
-            <td><small>${esc(it.forecast_method || '-')}</small></td>
+            <td><small>${esc(it.forecast_method || '-')}${it.oos_adjusted ? ' <span class="badge bg-warning text-dark" style="font-size:0.6rem">+OOS</span>' : ''}</small></td>
             <td class="num-col">${formatOosDays8w(it.oos_days_8w || 0)}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
@@ -748,7 +748,7 @@
             </div>
             <div style="margin-top: 0.4rem; font-size: 0.75rem;">
                 ${prof.demand_class ? `<span class="badge-demand badge-${esc(prof.demand_class)}">${esc(prof.demand_class)}</span>` : ''} 
-                ${prof.forecast_method ? `<span class="badge bg-secondary">${esc(prof.forecast_method)}</span>` : ''} 
+                ${prof.forecast_method ? `<span class="badge bg-secondary">${esc(prof.forecast_method)}</span>` : ''}${prof.oos_adjusted ? ' <span class="badge bg-warning text-dark">+OOS</span>' : ''} 
                 ${prof.review_flag ? `<span class="badge bg-warning text-dark">Review</span>` : ''}
                 ${data.active ? '' : '<span class="badge bg-danger">Inactive</span>'}
             </div>
