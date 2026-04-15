@@ -140,9 +140,9 @@
                     <th>Code</th>
                     <th>Customer</th>
                     <th>Town</th>
-                    <th>Category</th>
                     <th>Agent</th>
-                    <th>Phone</th>
+                    <th>SMS</th>
+                    <th>Tel</th>
                     <th class="text-end">Overdue Balance</th>
                     <th class="text-center">DR/CR</th>
                     <th>Last Invoice</th>
@@ -154,9 +154,9 @@
                     <td><span class="text-info">{{ c.code }}</span> <i class="fas fa-chevron-right small text-muted detail-chevron" id="chevron-{{ c.code }}"></i></td>
                     <td>{{ c.name }}</td>
                     <td class="text-muted">{{ c.town }}</td>
-                    <td class="text-muted small">{{ c.category }}</td>
                     <td class="text-muted small">{{ c.agent }}</td>
-                    <td class="text-muted small">{{ c.phone }}</td>
+                    <td class="text-muted small">{{ c.sms }}</td>
+                    <td class="text-muted small">{{ c.tel }}</td>
                     {% if c.has_data %}
                     <td class="text-end">
                         <div class="fw-bold {% if c.overdue_balance > 0 %}text-danger{% elif c.overdue_balance < 0 %}text-success{% endif %}">
@@ -183,7 +183,7 @@
                     <td class="text-muted small">{% if c.last_invoice_date %}{{ c.last_invoice_date.strftime('%d/%m/%Y') }}{% else %}-{% endif %}</td>
                 </tr>
                 <tr class="detail-row" id="detail-{{ c.code }}" style="display:none;" onclick="event.stopPropagation();">
-                    <td colspan="9" class="p-0 border-0">
+                    <td colspan="10" class="p-0 border-0">
                         <div class="bg-dark border border-secondary rounded m-2 p-3">
                             <div class="row">
                                 <div class="col-md-5">
