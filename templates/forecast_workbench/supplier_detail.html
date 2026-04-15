@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Forecast Workbench</title>
-</head>
-<body>
-    <table class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="drawer-table" style="width: 100%; margin-bottom: 1rem;">
         <tr><td class="label-col">Demand Class</td><td class="value-col">${prof.demand_class ? `<span class="badge-demand badge-${esc(prof.demand_class)}">${esc(prof.demand_class)}</span>` : '-'}</td></tr>
         <tr><td class="label-col">Forecast Method</td><td class="value-col">${esc(prof.forecast_method || '-')}</td></tr>
         <tr><td class="label-col">Trend</td><td class="value-col">${prof.trend_flag || 'flat'} ${prof.trend_pct != null ? '(' + fmtPct(prof.trend_pct) + ')' : ''}</td></tr>
@@ -13,6 +10,6 @@
         <tr><td class="label-col">Current Month Factor</td><td class="value-col">${fmtNum(res.future_seasonal_index, 2)}</td></tr>
         <tr><td class="label-col">Final vs Base</td><td class="value-col ${finalVsBase > 0 ? 'text-positive' : finalVsBase < 0 ? 'text-negative' : ''}">${fmtPct(finalVsBase)}</td></tr>
         <tr><td class="label-col">Vs Previous Run</td><td class="value-col ${chgClass(res.forecast_change_pct)}">${fmtPct(res.forecast_change_pct)}</td></tr>
-    </table>
-</body>
-</html>
+    </div>
+</div>
+{% endblock %}
