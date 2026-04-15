@@ -748,14 +748,14 @@
                 var es = document.querySelectorAll('.route-total-est[data-route-id="' + gid + '"]');
                 var as2 = document.querySelectorAll('.route-total-actual[data-route-id="' + gid + '"]');
                 var rs = document.querySelectorAll('.route-total-remaining[data-route-id="' + gid + '"]');
-                ws.forEach(function(el) { el.textContent = Math.round(t.weight); el.style.color = '#000'; });
-                es.forEach(function(el) { el.textContent = Math.round(t.est) + 'm'; el.style.color = '#000'; });
+                ws.forEach(function(el) { el.textContent = Math.round(t.weight); el.style.setProperty('color', '#000', 'important'); });
+                es.forEach(function(el) { el.textContent = Math.round(t.est) + 'm'; el.style.setProperty('color', '#000', 'important'); });
                 as2.forEach(function(el) {
                     if (t.actual > 0) {
                         el.innerHTML = '<span class="badge bg-info">' + Math.round(t.actual) + 'm</span>';
                     } else {
                         el.textContent = '-';
-                        el.style.color = 'rgba(255,255,255,0.5)';
+                        el.style.setProperty('color', '#555', 'important');
                     }
                 });
                 rs.forEach(function(el) {
@@ -763,7 +763,7 @@
                         el.innerHTML = '<span class="badge bg-warning text-dark">' + Math.round(t.remaining) + 'm</span>';
                     } else {
                         el.textContent = '-';
-                        el.style.color = 'rgba(255,255,255,0.5)';
+                        el.style.setProperty('color', '#555', 'important');
                     }
                 });
             });
