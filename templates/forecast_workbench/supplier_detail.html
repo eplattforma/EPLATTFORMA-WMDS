@@ -296,6 +296,17 @@
                 </select>
             </div>
             <div class="col-auto">
+                <label>Expiry</label>
+                <select class="form-select form-select-sm" id="filterExpiry">
+                    <option value="">All</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High Risk</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="at_risk">Any Risk</option>
+                    <option value="safe">Safe</option>
+                </select>
+            </div>
+            <div class="col-auto">
                 <label>Prefix</label>
                 <input type="text" class="form-control form-control-sm" id="filterPrefix" placeholder="e.g. SNA-" style="width:80px">
             </div>
@@ -529,6 +540,7 @@
         const cat = document.getElementById('filterCategory').value;
         const br = document.getElementById('filterBrand').value;
         const pf = document.getElementById('filterPrefix').value.trim();
+        const ex = document.getElementById('filterExpiry').value;
 
         return allItems.filter(it => {
             if (dc && it.demand_class !== dc) return false;
@@ -541,6 +553,11 @@
             if (cat && it.category_code !== cat) return false;
             if (br && it.brand_code !== br) return false;
             if (pf && !it.item_code.toLowerCase().startsWith(pf.toLowerCase())) return false;
+            if (ex) {
+                if (ex === 'at_risk') {
+                    if (!it.expiry_risk || it.expiry_risk === 'safe' || it.expiry_risk === 'no_stock') return false;
+                } else if (it.expiry_risk !== ex) return false;
+            }
             return true;
         });
     }
@@ -1299,6 +1316,7 @@
         document.getElementById('filterActive').value = '';
         document.getElementById('filterCategory').value = '';
         document.getElementById('filterBrand').value = '';
+        document.getElementById('filterExpiry').value = '';
         document.getElementById('filterPrefix').value = '';
     }
 
