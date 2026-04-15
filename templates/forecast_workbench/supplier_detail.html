@@ -734,22 +734,6 @@
         const finalVsBase = res.base_forecast_weekly_qty ? ((res.final_forecast_weekly_qty - res.base_forecast_weekly_qty) / res.base_forecast_weekly_qty * 100) : 0;
 
         let html = `
-        <!-- HEADER -->
-        <div style="border-bottom: 2px solid var(--bs-border-color); padding-bottom: 0.75rem; margin-bottom: 1rem;">
-            <h6 style="margin: 0 0 0.5rem 0; font-weight: 700;">${esc(data.item_code)}</h6>
-            <div style="font-size: 0.8rem; color: var(--bs-secondary); line-height: 1.4;">
-                <div>${esc(data.item_name || '-')}</div>
-                <div>${esc(sup.supplier_name || 'Unmapped')} <small>${esc(sup.supplier_code || '')}</small></div>
-                <div>${esc(data.category_name || '-')} / ${esc(data.brand_name || '-')} ${data.prefix ? '·' + esc(data.prefix) : ''}</div>
-            </div>
-            <div style="margin-top: 0.4rem; font-size: 0.75rem;">
-                ${prof.demand_class ? `<span class="badge-demand badge-${esc(prof.demand_class)}">${esc(prof.demand_class)}</span>` : ''} 
-                ${prof.forecast_method ? `<span class="badge bg-secondary">${esc(prof.forecast_method)}</span>` : ''}${prof.oos_adjusted ? ' <span class="badge bg-warning text-dark">+OOS</span>' : ''} 
-                ${prof.review_flag ? `<span class="badge bg-warning text-dark">Review</span>` : ''}
-                ${data.active ? '' : '<span class="badge bg-danger">Inactive</span>'}
-            </div>
-        </div>
-
         <!-- STOCK & EXPIRY ANALYSIS -->
         ${renderStockExpiry(data.stock_expiry)}
 
