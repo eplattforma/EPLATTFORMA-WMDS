@@ -888,6 +888,7 @@ def api_customer_balance_sms_preview(customer_code):
                 PSCustomer.sms,
                 PSCustomer.mobile,
                 PSCustomer.delivery_days,
+                PSCustomer.contact_first_name,
                 CustomerBalanceCache.balance,
                 CustomerBalanceCache.drcr,
                 CustomerBalanceCache.signed_balance,
@@ -899,7 +900,7 @@ def api_customer_balance_sms_preview(customer_code):
         )
         if not row:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
-        code, name, sms_number, mobile, delivery_days_raw, balance, drcr, signed_balance, fetched_at = row
+        code, name, sms_number, mobile, delivery_days_raw, contact_first_name, balance, drcr, signed_balance, fetched_at = row
         ld = _get_last_delivery_info([code]).get(code, {})
         balance_value = float(signed_balance or 0)
         balance_text = f"€{abs(balance_value):,.2f}"
@@ -944,8 +945,11 @@ def api_customer_balance_sms_preview(customer_code):
                 'overdue_balance': overdue_value,
                 'overdue_text': overdue_text,
                 'last_delivery_date': ld.get('delivery_date', ''),
+                'delivery_date': _next_delivery.strftime('%a %d-%b') if _next_delivery else '',
                 'today_formatted': _greek_date_str(_today),
                 'delivery_date_formatted': _greek_date_str(_next_delivery) if _next_delivery else '',
+                'mobile_number': sms_number or mobile or '',
+                'first_name': contact_first_name or '',
             })
             if tpl.get('error'):
                 return jsonify({'success': False, 'error': tpl['error']}), 400
@@ -1078,6 +1082,7 @@ def api_customer_balance_send_sms(customer_code):
                 PSCustomer.sms,
                 PSCustomer.mobile,
                 PSCustomer.delivery_days,
+                PSCustomer.contact_first_name,
             )
             .filter(PSCustomer.customer_code_365 == customer_code)
             .first()
@@ -1085,7 +1090,7 @@ def api_customer_balance_send_sms(customer_code):
         if not row:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
 
-        code, name, sms_number, mobile, delivery_days_raw = row
+        code, name, sms_number, mobile, delivery_days_raw, contact_first_name = row
         mobile_number = sms_number or mobile or ''
         if not mobile_number:
             return jsonify({'success': False, 'error': 'No SMS number found'}), 400
@@ -1139,8 +1144,11 @@ def api_customer_balance_send_sms(customer_code):
             'overdue_balance': overdue_value,
             'overdue_text': overdue_text,
             'last_delivery_date': ld.get('delivery_date', ''),
+            'delivery_date': _next_delivery.strftime('%a %d-%b') if _next_delivery else '',
             'today_formatted': _greek_date_str(_today),
             'delivery_date_formatted': _greek_date_str(_next_delivery) if _next_delivery else '',
+            'mobile_number': sms_number or mobile or '',
+            'first_name': contact_first_name or '',
         })
         if tpl.get('error'):
             return jsonify({'success': False, 'error': tpl['error']}), 400
