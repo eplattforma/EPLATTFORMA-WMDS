@@ -122,6 +122,9 @@ def resolve_customer_context(customer_code_365):
 
     ctx = dict(row)
 
+    ctx["customer_code"] = ctx.get("customer_code_365", "")
+    ctx["first_name"] = ctx.get("contact_first_name", "")
+
     ctx["delivery_date"] = ""
     ctx["delivery_date_formatted"] = ""
     try:
@@ -145,6 +148,73 @@ def resolve_customer_context(customer_code_365):
         pass
 
     ctx["today_formatted"] = _greek_date_str(datetime.now())
+
+    try:
+        bal_row = db.session.execute(db.text("""
+            SELECT signed_balance
+            FROM customer_balance_cache
+            WHERE customer_code_365 = :cid
+        """), {"cid": customer_code_365}).mappings().first()
+        balance_value = float(bal_row["signed_balance"] or 0) if bal_row else 0
+        ctx["current_balance"] = balance_value
+        balance_text = f"\u20ac{abs(balance_value):,.2f}"
+        if balance_value > 0:
+            balance_text = f"due {balance_text}"
+        elif balance_value < 0:
+            balance_text = f"credit {balance_text}"
+        else:
+            balance_text = "\u20ac0.00"
+        ctx["balance_text"] = balance_text
+
+        recent_total = 0
+        try:
+            from datetime import date as _date2, timedelta
+            today = _date2.today()
+            yesterday = today - timedelta(days=1)
+            rt_row = db.session.execute(db.text("""
+                SELECT COALESCE(SUM(
+                    CASE WHEN doc_type = 'SALE' THEN total_amount
+                         WHEN doc_type = 'SALE RETURN' THEN -total_amount
+                         ELSE 0 END
+                ), 0) AS recent
+                FROM dw_invoice_header
+                WHERE customer_code = :cid
+                  AND invoice_date >= :yd
+            """), {"cid": customer_code_365, "yd": yesterday}).mappings().first()
+            recent_total = float(rt_row["recent"]) if rt_row else 0
+        except Exception:
+            pass
+
+        overdue_value = balance_value - recent_total
+        ctx["overdue_balance"] = overdue_value
+        overdue_text = f"\u20ac{abs(overdue_value):,.2f}"
+        if overdue_value > 0:
+            overdue_text = f"due {overdue_text}"
+        elif overdue_value < 0:
+            overdue_text = f"credit {overdue_text}"
+        else:
+            overdue_text = "\u20ac0.00"
+        ctx["overdue_text"] = overdue_text
+    except Exception:
+        ctx["current_balance"] = 0
+        ctx["balance_text"] = ""
+        ctx["overdue_balance"] = 0
+        ctx["overdue_text"] = ""
+
+    try:
+        ld_row = db.session.execute(db.text("""
+            SELECT invoice_date
+            FROM dw_invoice_header
+            WHERE customer_code = :cid AND doc_type = 'SALE'
+            ORDER BY invoice_date DESC
+            LIMIT 1
+        """), {"cid": customer_code_365}).mappings().first()
+        if ld_row and ld_row["invoice_date"]:
+            ctx["last_delivery_date"] = ld_row["invoice_date"].strftime('%a %d-%b')
+        else:
+            ctx["last_delivery_date"] = ""
+    except Exception:
+        ctx["last_delivery_date"] = ""
 
     phone_info = normalize_phone(ctx.get("mobile_number") or ctx.get("sms_number") or "")
     ctx["phone_normalized"] = phone_info
