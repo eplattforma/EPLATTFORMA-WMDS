@@ -734,11 +734,6 @@
         const finalVsBase = res.base_forecast_weekly_qty ? ((res.final_forecast_weekly_qty - res.base_forecast_weekly_qty) / res.base_forecast_weekly_qty * 100) : 0;
 
         let html = `
-        <div style="margin-bottom: 0.75rem;">
-            <span style="font-weight: 700; font-size: 0.9rem;">${esc(data.item_code)}</span>
-            <span style="font-size: 0.8rem; color: var(--bs-secondary); margin-left: 0.4rem;">${esc(data.item_name || '-')}</span>
-        </div>
-
         <!-- STOCK & EXPIRY ANALYSIS -->
         ${renderStockExpiry(data.stock_expiry)}
 
@@ -840,7 +835,7 @@
         </div>
         `;
 
-        document.getElementById('drawerTitleContent').innerHTML = `<h6 class="mb-0">${esc(data.item_code)}</h6>`;
+        document.getElementById('drawerTitleContent').innerHTML = `<h6 class="mb-0" style="font-size:0.85rem;"><span style="font-weight:700;">${esc(data.item_code)}</span> <span style="font-weight:400;color:var(--bs-secondary);">${esc(data.item_name || '')}</span></h6>`;
         document.getElementById('drawerContent').innerHTML = html;
 
         // Add event listeners to drawer content
