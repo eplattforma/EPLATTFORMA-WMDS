@@ -921,6 +921,7 @@ def api_customer_balance_sms_preview(customer_code):
             overdue_text = "€0.00"
         from datetime import datetime as _dt, date as _date
         from services.crm_order_window import next_delivery_date_for_slot
+        from services.crm_delivery_overrides import resolve_effective_delivery
         _today = _dt.now()
         _next_delivery = None
         try:
@@ -931,9 +932,10 @@ def api_customer_balance_sms_preview(customer_code):
                     if len(token) >= 2 and token.isdigit():
                         dow_int = int(token[0])
                         week_code = int(token[1])
-                        nd = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
-                        if _next_delivery is None or nd < _next_delivery:
-                            _next_delivery = nd
+                        natural = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
+                        effective, _ov = resolve_effective_delivery(customer_code, natural)
+                        if _next_delivery is None or effective < _next_delivery:
+                            _next_delivery = effective
         except Exception:
             pass
         if template_code:
@@ -1121,6 +1123,7 @@ def api_customer_balance_send_sms(customer_code):
 
         from datetime import datetime as _dt, date as _date
         from services.crm_order_window import next_delivery_date_for_slot
+        from services.crm_delivery_overrides import resolve_effective_delivery
         _today = _dt.now()
         _next_delivery = None
         try:
@@ -1131,9 +1134,10 @@ def api_customer_balance_send_sms(customer_code):
                     if len(token) >= 2 and token.isdigit():
                         dow_int = int(token[0])
                         week_code = int(token[1])
-                        nd = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
-                        if _next_delivery is None or nd < _next_delivery:
-                            _next_delivery = nd
+                        natural = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
+                        effective, _ov = resolve_effective_delivery(customer_code, natural)
+                        if _next_delivery is None or effective < _next_delivery:
+                            _next_delivery = effective
         except Exception:
             pass
         tpl = render_template_for_customer(template_code, {

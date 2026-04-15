@@ -131,6 +131,7 @@ def resolve_customer_context(customer_code_365):
         dd_raw = (row["delivery_days"] or "").strip()
         if dd_raw:
             from services.crm_order_window import next_delivery_date_for_slot
+            from services.crm_delivery_overrides import resolve_effective_delivery
             from datetime import date as _date
             best = None
             for token in dd_raw.split(","):
@@ -138,9 +139,10 @@ def resolve_customer_context(customer_code_365):
                 if len(token) >= 2 and token.isdigit():
                     dow_int = int(token[0])
                     week_code = int(token[1])
-                    nd = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
-                    if best is None or nd < best:
-                        best = nd
+                    natural = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
+                    effective, _ov = resolve_effective_delivery(customer_code_365, natural)
+                    if best is None or effective < best:
+                        best = effective
             if best:
                 ctx["delivery_date"] = best.strftime('%a %d-%b')
                 ctx["delivery_date_formatted"] = _greek_date_str(best)
