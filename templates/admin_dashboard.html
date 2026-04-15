@@ -748,8 +748,8 @@
                 var es = document.querySelectorAll('.route-total-est[data-route-id="' + gid + '"]');
                 var as2 = document.querySelectorAll('.route-total-actual[data-route-id="' + gid + '"]');
                 var rs = document.querySelectorAll('.route-total-remaining[data-route-id="' + gid + '"]');
-                ws.forEach(function(el) { el.textContent = Math.round(t.weight); el.style.color = '#fff'; });
-                es.forEach(function(el) { el.textContent = Math.round(t.est) + 'm'; el.style.color = '#fff'; });
+                ws.forEach(function(el) { el.textContent = Math.round(t.weight); el.style.color = '#000'; });
+                es.forEach(function(el) { el.textContent = Math.round(t.est) + 'm'; el.style.color = '#000'; });
                 as2.forEach(function(el) {
                     if (t.actual > 0) {
                         el.innerHTML = '<span class="badge bg-info">' + Math.round(t.actual) + 'm</span>';
