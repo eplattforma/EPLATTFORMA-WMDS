@@ -181,18 +181,13 @@ def refresh_ordering_snapshot(
 
         raw_order = max(0.0, target_stock - net_available)
 
-        order_multiple = sup_ctx["order_multiple"]
-
         moq = sup_ctx["min_order_qty"]
         if moq <= 0 and dw_item and dw_item.min_order_qty and dw_item.min_order_qty > 0:
             moq = float(dw_item.min_order_qty)
 
         rounded = raw_order
         if raw_order > 0:
-            if order_multiple > 1:
-                rounded = _ceil_to_multiple(raw_order, order_multiple)
-            else:
-                rounded = math.ceil(raw_order)
+            rounded = math.ceil(raw_order)
             rounded = _enforce_moq(rounded, moq)
 
         explanation = {
@@ -208,7 +203,6 @@ def refresh_ordering_snapshot(
             "reserved": round(reserved, 4),
             "net_available": round(net_available, 4),
             "raw_order": round(raw_order, 4),
-            "order_multiple": order_multiple,
             "min_order_qty": moq,
             "rounded_order": round(rounded, 4),
             "supplier_code": sup_ctx["supplier_code"],
@@ -238,7 +232,6 @@ def refresh_ordering_snapshot(
             raw_recommended_order_qty=Decimal(str(round(raw_order, 6))),
             rounded_order_qty=Decimal(str(round(rounded, 6))),
             supplier_code=sup_ctx["supplier_code"],
-            order_multiple=Decimal(str(round(order_multiple, 4))) if order_multiple else None,
             min_order_qty=Decimal(str(round(moq, 4))) if moq else None,
             explanation_json=explanation,
         )
