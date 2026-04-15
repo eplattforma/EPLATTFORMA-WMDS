@@ -283,6 +283,10 @@ var filterTable = window.filterTable = function() {
 
         const fetched = row.dataset.fetched;
         const signed = parseFloat(row.dataset.signed);
+        const overdueCell = row.querySelector('td:nth-child(7) .fw-bold');
+        const overdueText = overdueCell ? overdueCell.textContent || '' : '';
+        const overdueMatch = overdueText.match(/€([\d,]+(?:\.\d{2})?)/);
+        const overdue = overdueMatch ? parseFloat(overdueMatch[1].replace(/,/g, '')) : 0;
 
         let show = true;
         if (search && !code.includes(search) && !name.includes(search) && !town.includes(search)) {
@@ -293,7 +297,7 @@ var filterTable = window.filterTable = function() {
         if (typeFilter === 'cr' && (drcr !== 'cr' || signed >= 0)) show = false;
         if (typeFilter === 'not_fetched' && fetched !== '0') show = false;
         if (agentFilter && agent !== agentFilter) show = false;
-        if (minBalance > 0 && fetched === '1' && Math.abs(signed) < minBalance) show = false;
+        if (minBalance > 0 && fetched === '1' && Math.abs(overdue) < minBalance) show = false;
 
         row.style.display = show ? '' : 'none';
         const detailRow = document.getElementById('detail-' + row.dataset.code);
