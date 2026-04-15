@@ -64,7 +64,6 @@ def _resolve_supplier_context(item_code, supplier_map, dw_item):
         "lead_time_days": 0.0,
         "review_cycle_days": 1.0,
         "min_order_qty": 0.0,
-        "order_multiple": 1.0,
         "fallback_used": False,
     }
 
@@ -74,7 +73,6 @@ def _resolve_supplier_context(item_code, supplier_map, dw_item):
         context["lead_time_days"] = _to_float(supplier_map.lead_time_days)
         context["review_cycle_days"] = _to_float(supplier_map.review_cycle_days) or 1.0
         context["min_order_qty"] = _to_float(supplier_map.min_order_qty_override)
-        context["order_multiple"] = _to_float(supplier_map.order_multiple) or 1.0
 
     if not context["supplier_code"] and dw_item and dw_item.supplier_code_365:
         context["supplier_code"] = dw_item.supplier_code_365
