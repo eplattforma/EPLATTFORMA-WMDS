@@ -16,6 +16,14 @@ MICROSMS_DIRECT_URL = "https://api.microsms.net/sendapidirect.asp"
 
 VALID_CHANNELS = ('microsms', 'phone_sms', 'phone_call', 'whatsapp', 'viber', 'onesignal_push')
 
+_GR_DAYS = ['ΔΕΥΤΕΡΑ', 'ΤΡΙΤΗ', 'ΤΕΤΑΡΤΗ', 'ΠΕΜΠΤΗ', 'ΠΑΡΑΣΚΕΥΗ', 'ΣΑΒΒΑΤΟ', 'ΚΥΡΙΑΚΗ']
+_GR_MONTHS = ['ΙΑΝ', 'ΦΕΒ', 'ΜΑΡ', 'ΑΠΡ', 'ΜΑΙ', 'ΙΟΥΝ', 'ΙΟΥΛ', 'ΑΥΓ', 'ΣΕΠ', 'ΟΚΤ', 'ΝΟΕ', 'ΔΕΚ']
+
+def _greek_date_str(dt):
+    if dt is None:
+        return ''
+    return f"{_GR_DAYS[dt.weekday()]} {dt.day} {_GR_MONTHS[dt.month - 1]}"
+
 VALID_STATUSES = (
     'initiated', 'launched', 'sent', 'delivered', 'failed',
     'answered', 'no_answer', 'callback_requested', 'wrong_number',
@@ -118,8 +126,12 @@ def resolve_customer_context(customer_code_365):
         ws = get_order_window_status(customer_code_365)
         nd = ws.get("next_delivery")
         ctx["delivery_date"] = nd.strftime('%a %d-%b') if nd else ""
+        ctx["delivery_date_formatted"] = _greek_date_str(nd) if nd else ""
     except Exception:
         ctx["delivery_date"] = ""
+        ctx["delivery_date_formatted"] = ""
+
+    ctx["today_formatted"] = _greek_date_str(datetime.now())
 
     phone_info = normalize_phone(ctx.get("mobile_number") or ctx.get("sms_number") or "")
     ctx["phone_normalized"] = phone_info
