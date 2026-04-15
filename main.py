@@ -488,6 +488,14 @@ if _db_available:
     except Exception as e:
         logging.error(f"Error updating CRM offer schema: {e}")
 
+    from migrations.fix_forecast_profile_columns import run as fix_forecast_schema
+    try:
+        fix_forecast_schema()
+        print("Forecast schema fix applied", flush=True)
+    except Exception as e:
+        print(f"Forecast schema fix failed: {e}", flush=True)
+        raise
+
     db.create_all()
 
     try:
