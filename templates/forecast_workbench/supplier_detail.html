@@ -332,10 +332,8 @@
                     <th class="num-col">Base/Wk</th>
                     <th class="num-col">Final/Wk</th>
                     <th class="num-col" title="Target weeks of stock">Tgt Wks</th>
-                    <th class="num-col">On Hand</th>
                     <th class="num-col">Net Avail</th>
                     <th class="num-col">MOQ</th>
-                    <th class="num-col">Case</th>
                     <th class="num-col">Raw Ord</th>
                     <th class="num-col">Order</th>
                 </tr>
@@ -617,10 +615,8 @@
                 <span class="target-weeks-display" data-item="${esc(it.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666;" title="Click to edit target weeks"
                       onclick="editTargetWeeks(this, '${esc(it.item_code)}', ${it.target_weeks_of_stock || 4})">${fmtNum(it.target_weeks_of_stock || 4, 1)}</span>
             </td>
-            <td class="num-col">${fmtNum(it.on_hand_qty)}</td>
             <td class="num-col">${fmtNum(it.net_available_qty)}</td>
             <td class="num-col">${it.min_order_qty || '-'}</td>
-            <td class="num-col">${it.case_qty || '-'}</td>
             <td class="num-col">${fmtNum(it.raw_order_qty)}</td>
             <td class="num-col fw-bold ${it.rounded_order_qty > 0 ? 'text-warning' : ''}">${fmtNum(it.rounded_order_qty)}</td>
         </tr>`;
@@ -779,10 +775,6 @@
                 <div class="card-value" style="color: #ffc107;">${fmtNum(res.rounded_order_qty, 0)}</div>
                 <div class="card-label">Sugg. Order</div>
             </div>
-            ${res.on_hand_qty != null ? `<div class="forecast-card">
-                <div class="card-value">${fmtNum(res.on_hand_qty, 0)}</div>
-                <div class="card-label">On Hand</div>
-            </div>` : ''}
         </div>
 
         <!-- RECENT SALES SECTION -->
@@ -828,7 +820,6 @@
                 <span class="target-weeks-drawer" data-item="${esc(data.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666;"
                       onclick="editTargetWeeks(this, '${esc(data.item_code)}', ${prof.target_weeks_of_stock || 4})">${fmtNum(prof.target_weeks_of_stock || 4, 1)}</span>
             </td></tr>
-            <tr><td class="label-col">On Hand</td><td class="value-col">${fmtNum(res.on_hand_qty, 0)}</td></tr>
             <tr><td class="label-col">Net Available</td><td class="value-col">${fmtNum(res.net_available_qty, 0)}</td></tr>
             <tr><td class="label-col">Target Stock</td><td class="value-col">${fmtNum(res.target_stock_qty, 0)}</td></tr>
             <tr><td class="label-col"><strong>Suggested Order</strong></td><td class="value-col fw-bold text-warning">${fmtNum(res.rounded_order_qty, 0)}</td></tr>

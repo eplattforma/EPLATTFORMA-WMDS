@@ -305,7 +305,6 @@ def api_items():
             'active': dw.active,
             'season_code': dw.season_code_365,
             'supplier_item_code': dw.supplier_item_code,
-            'case_qty': dw.case_qty,
             'min_order_qty': dw.min_order_qty,
             'supplier_code': dw.supplier_code_365 or (smap.supplier_code if smap else None),
             'supplier_name': dw.supplier_name or (smap.supplier_name if smap else None),
@@ -428,7 +427,6 @@ def api_item_detail(item_code):
         'brand_name': brand_obj.brand_name if brand_obj else None,
         'season_code': dw.season_code_365,
         'supplier_item_code': dw.supplier_item_code,
-        'case_qty': dw.case_qty,
         'min_order_qty': dw.min_order_qty,
         'supplier': {
             'supplier_code': dw.supplier_code_365 or (smap.supplier_code if smap else None),
@@ -933,7 +931,7 @@ def api_export_supplier(supplier_code):
         'Base Forecast/Wk', 'Final Forecast/Wk', 'Final Forecast/Day',
         'Forecast Change %', 'Target Weeks',
         'On Hand', 'Net Available',
-        'Case Qty', 'MOQ', 'Raw Order Qty', 'Rounded Order Qty',
+        'MOQ', 'Raw Order Qty', 'Rounded Order Qty',
     ])
 
     for dw, prof, res in rows:
@@ -958,7 +956,6 @@ def api_export_supplier(supplier_code):
             _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0,
             _float(snap.on_hand_qty) if snap else 0,
             _float(snap.net_available_qty) if snap else 0,
-            dw.case_qty or '',
             dw.min_order_qty or '',
             _float(snap.raw_recommended_order_qty) if snap else 0,
             _float(snap.rounded_order_qty) if snap else 0,
@@ -1179,7 +1176,6 @@ def api_debug(item_code):
         'supplier_code': dw.supplier_code_365,
         'brand_code': dw.brand_code_365,
         'category_code': dw.category_code_365,
-        'case_qty': dw.case_qty,
         'min_order_qty': dw.min_order_qty,
         'weekly_quantities_26': {
             'labels': week_labels,
@@ -1251,7 +1247,7 @@ def api_debug(item_code):
             'target_stock': 'base_target + lead_time_cover + review_cycle_cover + buffer',
             'net_available': 'on_hand + incoming - reserved',
             'raw_order': 'max(0, target_stock - net_available)',
-            'rounded_order': 'ceil_to_case_qty, enforce MOQ',
+            'rounded_order': 'ceil to integer, enforce MOQ',
         },
     }
 
