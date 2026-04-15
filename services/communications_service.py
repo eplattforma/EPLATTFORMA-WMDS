@@ -183,7 +183,7 @@ def resolve_customer_context(customer_code_365):
             """), {"cid": customer_code_365, "yd": yesterday}).mappings().first()
             recent_total = float(rt_row["recent"]) if rt_row else 0
         except Exception:
-            pass
+            db.session.rollback()
 
         overdue_value = balance_value - recent_total
         ctx["overdue_balance"] = overdue_value
@@ -196,6 +196,7 @@ def resolve_customer_context(customer_code_365):
             overdue_text = "\u20ac0.00"
         ctx["overdue_text"] = overdue_text
     except Exception:
+        db.session.rollback()
         ctx["current_balance"] = 0
         ctx["balance_text"] = ""
         ctx["overdue_balance"] = 0
@@ -214,6 +215,7 @@ def resolve_customer_context(customer_code_365):
         else:
             ctx["last_delivery_date"] = ""
     except Exception:
+        db.session.rollback()
         ctx["last_delivery_date"] = ""
 
     phone_info = normalize_phone(ctx.get("mobile_number") or ctx.get("sms_number") or "")
