@@ -289,6 +289,59 @@ def api_items():
     except Exception:
         snap_map = {}
 
+    expiry_risk_map = {}
+    try:
+        today_date = date.today()
+        sp_rows = (
+            StockPosition.query
+            .filter(StockPosition.item_code.in_(item_codes_in_result))
+            .filter(StockPosition.stock_quantity > 0)
+            .all()
+        )
+        sp_by_item = {}
+        for sp in sp_rows:
+            sp_by_item.setdefault(sp.item_code, []).append(sp)
+        forecast_map = {}
+        for r in rows:
+            dw_r, prof_r, res_r = r[0], r[1], r[2]
+            if res_r:
+                forecast_map[dw_r.item_code_365] = _float(res_r.final_forecast_weekly_qty)
+        for ic, batches in sp_by_item.items():
+            weekly_rate = forecast_map.get(ic, 0)
+            daily_rate = weekly_rate / 7.0 if weekly_rate > 0 else 0
+            total_qty = sum(float(b.stock_quantity or 0) for b in batches)
+            expired_qty = 0.0
+            at_risk_qty = 0.0
+            for b in batches:
+                qty = float(b.stock_quantity or 0)
+                if not b.expiry_date:
+                    continue
+                try:
+                    exp_date = datetime.strptime(b.expiry_date.strip(), '%Y-%m-%d').date()
+                    days_left = (exp_date - today_date).days
+                    if days_left < 0:
+                        expired_qty += qty
+                    elif daily_rate > 0 and qty / daily_rate > days_left:
+                        at_risk_qty += max(0, qty - daily_rate * days_left)
+                    elif daily_rate <= 0 and qty > 0:
+                        at_risk_qty += qty
+                except (ValueError, TypeError):
+                    pass
+            if total_qty <= 0:
+                expiry_risk_map[ic] = 'no_stock'
+            elif expired_qty > 0 or at_risk_qty > 0:
+                risk_pct = (expired_qty + at_risk_qty) / total_qty * 100
+                if risk_pct >= 50:
+                    expiry_risk_map[ic] = 'critical'
+                elif risk_pct >= 20:
+                    expiry_risk_map[ic] = 'high'
+                else:
+                    expiry_risk_map[ic] = 'moderate'
+            else:
+                expiry_risk_map[ic] = 'safe'
+    except Exception:
+        expiry_risk_map = {}
+
     items = []
     for dw, prof, res, smap, cat_name, brand_name in rows:
         item_prefix = extract_item_prefix(dw.item_code_365)
@@ -343,6 +396,7 @@ def api_items():
             'oos_days_8w': oos_8w_map.get(dw.item_code_365, 0),
             'history_incomplete': getattr(prof, 'history_incomplete', False) or False if prof else False,
             'baseline_source': getattr(prof, 'baseline_source', None) if prof else None,
+            'expiry_risk': expiry_risk_map.get(dw.item_code_365),
         })
 
     return jsonify({'items': items, 'count': len(items)})
