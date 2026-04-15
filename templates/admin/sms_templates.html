@@ -25,19 +25,31 @@
   {% endif %}
   {% endwith %}
 
-  <div class="card mb-3">
-    <div class="card-header">
-      <i class="fas fa-info-circle me-1"></i>Template Placeholders
-    </div>
-    <div class="card-body py-2">
-      <small class="text-muted">
-        Use Jinja2 placeholders in the body: 
-        <code>{{ '{{' }} customer_name {{ '}}' }}</code>,
-        <code>{{ '{{' }} first_name {{ '}}' }}</code>,
-        <code>{{ '{{' }} customer_code {{ '}}' }}</code>,
-        <code>{{ '{{' }} mobile_number {{ '}}' }}</code>,
-        <code>{{ '{{' }} delivery_date {{ '}}' }}</code>
-      </small>
+  <div class="mb-3">
+    <button class="btn btn-outline-info btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#variablesPanel">
+      <i class="fas fa-code me-1"></i>Variables
+    </button>
+    <div class="collapse mt-2" id="variablesPanel">
+      <div class="card border-info">
+        <div class="card-body py-2">
+          <p class="small text-muted mb-2">Click a variable to copy it. Use these placeholders in the message body:</p>
+          <div class="d-flex flex-wrap gap-2">
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} customer_name {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>customer_name</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} customer_code {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>customer_code</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} current_balance {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>current_balance</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} balance_text {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>balance_text</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} overdue_balance {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>overdue_balance</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} overdue_text {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>overdue_text</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} last_delivery_date {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>last_delivery_date</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} mobile_number {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>mobile_number</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} first_name {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>first_name</span>
+            <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} delivery_date {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>delivery_date</span>
+          </div>
+          <div class="mt-2">
+            <small class="text-muted"><strong>balance_text</strong> = formatted e.g. "due €1,200.00" &nbsp;|&nbsp; <strong>overdue_text</strong> = balance minus today/yesterday invoices</small>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -286,6 +298,24 @@ document.addEventListener('click', function(e) {
     sort_order: parseInt(btn.getAttribute('data-sort-order')) || 0
   };
   editTemplate(t);
+});
+document.addEventListener('click', function(e) {
+  var badge = e.target.closest('.sms-var-badge');
+  if (!badge) return;
+  var varText = badge.getAttribute('data-var');
+  if (!varText) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(varText);
+  }
+  var orig = badge.innerHTML;
+  badge.innerHTML = '<i class="fas fa-check me-1"></i>Copied!';
+  badge.classList.remove('bg-dark');
+  badge.classList.add('bg-success');
+  setTimeout(function() {
+    badge.innerHTML = orig;
+    badge.classList.remove('bg-success');
+    badge.classList.add('bg-dark');
+  }, 1200);
 });
 </script>
 {% endblock %}
