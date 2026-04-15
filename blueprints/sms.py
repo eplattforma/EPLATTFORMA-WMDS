@@ -114,8 +114,15 @@ def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
             ws = get_order_window_status(ctx_id)
             nd = ws.get("next_delivery")
             ctx["delivery_date"] = nd.strftime('%a %d-%b') if nd else ""
+            ctx["delivery_date_formatted"] = nd.strftime('%A %d %b').upper() if nd else ""
         except Exception:
             ctx["delivery_date"] = ""
+            ctx["delivery_date_formatted"] = ""
+        try:
+            from datetime import datetime
+            ctx["today_formatted"] = datetime.now().strftime('%A %d %b').upper()
+        except Exception:
+            ctx["today_formatted"] = ""
         return ctx
 
     raise ValueError(f"Unsupported context type: {ctx_type}")
