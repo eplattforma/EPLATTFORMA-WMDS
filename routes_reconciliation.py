@@ -929,9 +929,10 @@ def api_customer_invoices(customer_code):
             .filter(
                 DwInvoiceHeader.customer_code_365 == customer_code,
                 DwInvoiceHeader.invoice_type.in_(['SALE', 'SALE RETURN']),
+                DwInvoiceHeader.invoice_date_utc0 >= date.today() - timedelta(days=1),
+                DwInvoiceHeader.invoice_date_utc0 <= date.today(),
             )
             .order_by(DwInvoiceHeader.invoice_date_utc0.desc())
-            .limit(10)
             .all()
         )
         today = date.today()
