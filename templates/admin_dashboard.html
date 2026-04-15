@@ -292,19 +292,29 @@
                         {% if invoice.route_id %}
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
-                            <tr class="table-primary">
-                                <td colspan="14" class="fw-bold">
+                            <tr class="table-primary route-header" data-route-id="{{ route.id }}">
+                                <td colspan="7" class="fw-bold">
                                     <i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }}
                                     {% if route.route_name %}({{ route.route_name }}){% endif %}
                                     <span class="badge bg-info ms-2">{{ route.status }}</span>
                                 </td>
+                                <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="{{ route.id }}"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="{{ route.id }}"></span></td>
+                                <td colspan="3"></td>
                             </tr>
                             {% endif %}
                         {% else %}
-                            <tr class="table-secondary">
-                                <td colspan="14" class="fw-bold">
+                            <tr class="table-secondary route-header" data-route-id="unassigned">
+                                <td colspan="7" class="fw-bold">
                                     <i class="fas fa-box me-2"></i>Unassigned
                                 </td>
+                                <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="unassigned"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="unassigned"></span></td>
+                                <td colspan="3"></td>
                             </tr>
                         {% endif %}
                     {% elif loop.previtem %}
@@ -313,25 +323,38 @@
                             {# Route changed - show new route header #}
                             {% set route = route_info.get(invoice.route_id) %}
                             {% if route %}
-                            <tr class="table-primary">
-                                <td colspan="14" class="fw-bold">
+                            <tr class="table-primary route-header" data-route-id="{{ route.id }}">
+                                <td colspan="7" class="fw-bold">
                                     <i class="fas fa-truck me-2"></i>#{{ route.id }} - Route: {{ route.driver_name }} - {{ route.delivery_date.strftime('%d/%m/%Y') }}
                                     {% if route.route_name %}({{ route.route_name }}){% endif %}
                                     <span class="badge bg-info ms-2">{{ route.status }}</span>
                                 </td>
+                                <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="{{ route.id }}"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-est" data-route-id="{{ route.id }}"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="{{ route.id }}"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="{{ route.id }}"></span></td>
+                                <td colspan="3"></td>
                             </tr>
                             {% endif %}
                         {% elif not invoice.route_id and loop.previtem.route_id %}
                             {# Transitioning from route to unassigned #}
-                            <tr class="table-secondary">
-                                <td colspan="14" class="fw-bold">
+                            <tr class="table-secondary route-header" data-route-id="unassigned">
+                                <td colspan="7" class="fw-bold">
                                     <i class="fas fa-box me-2"></i>Unassigned
                                 </td>
+                                <td class="text-center fw-bold"><span class="route-total-weight" data-route-id="unassigned"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-est" data-route-id="unassigned"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-actual" data-route-id="unassigned"></span></td>
+                                <td class="text-center fw-bold"><span class="route-total-remaining" data-route-id="unassigned"></span></td>
+                                <td colspan="3"></td>
                             </tr>
                         {% endif %}
                     {% endif %}
                     
-                    <tr>
+                    <tr data-route-group="{{ invoice.route_id or 'unassigned' }}"
+                        data-weight="{{ invoice.total_weight or 0 }}"
+                        data-est-time="{{ invoice.total_exp_time or 0 }}"
+                    >
                         <td class="text-center">
                             <input type="checkbox" class="order-checkbox" value="{{ invoice.invoice_no }}" onchange="updateSelectedCount()">
                         </td>
@@ -694,6 +717,58 @@
             });
         });
         
+        (function computeRouteTotals() {
+            var rows = document.querySelectorAll('tr[data-route-group]');
+            var totals = {};
+            rows.forEach(function(row) {
+                var gid = row.getAttribute('data-route-group');
+                if (!totals[gid]) totals[gid] = {weight: 0, est: 0, actual: 0, remaining: 0};
+                totals[gid].weight += parseFloat(row.getAttribute('data-weight') || 0);
+                totals[gid].est += parseFloat(row.getAttribute('data-est-time') || 0);
+                var actualEl = row.querySelectorAll('td')[9];
+                if (actualEl) {
+                    var badge = actualEl.querySelector('.badge');
+                    if (badge) {
+                        var m = badge.textContent.match(/([\d.]+)/);
+                        if (m) totals[gid].actual += parseFloat(m[1]);
+                    }
+                }
+                var remEl = row.querySelectorAll('td')[10];
+                if (remEl) {
+                    var badge2 = remEl.querySelector('.badge');
+                    if (badge2) {
+                        var m2 = badge2.textContent.match(/([\d.]+)/);
+                        if (m2) totals[gid].remaining += parseFloat(m2[1]);
+                    }
+                }
+            });
+            Object.keys(totals).forEach(function(gid) {
+                var t = totals[gid];
+                var ws = document.querySelectorAll('.route-total-weight[data-route-id="' + gid + '"]');
+                var es = document.querySelectorAll('.route-total-est[data-route-id="' + gid + '"]');
+                var as2 = document.querySelectorAll('.route-total-actual[data-route-id="' + gid + '"]');
+                var rs = document.querySelectorAll('.route-total-remaining[data-route-id="' + gid + '"]');
+                ws.forEach(function(el) { el.textContent = Math.round(t.weight); el.style.color = '#fff'; });
+                es.forEach(function(el) { el.textContent = Math.round(t.est) + 'm'; el.style.color = '#fff'; });
+                as2.forEach(function(el) {
+                    if (t.actual > 0) {
+                        el.innerHTML = '<span class="badge bg-info">' + Math.round(t.actual) + 'm</span>';
+                    } else {
+                        el.textContent = '-';
+                        el.style.color = 'rgba(255,255,255,0.5)';
+                    }
+                });
+                rs.forEach(function(el) {
+                    if (t.remaining > 0) {
+                        el.innerHTML = '<span class="badge bg-warning text-dark">' + Math.round(t.remaining) + 'm</span>';
+                    } else {
+                        el.textContent = '-';
+                        el.style.color = 'rgba(255,255,255,0.5)';
+                    }
+                });
+            });
+        })();
+
         // Force clear old preferences and reset to new status system
         localStorage.removeItem('adminSortingConfig');
         
