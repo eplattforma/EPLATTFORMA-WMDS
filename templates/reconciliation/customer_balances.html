@@ -161,7 +161,6 @@
                     <td class="text-end">
                         <div class="fw-bold {% if c.overdue_balance > 0 %}text-danger{% elif c.overdue_balance < 0 %}text-success{% endif %}">
                             {% if c.overdue_balance != 0 %}&euro;{{ "{:,.2f}".format(c.overdue_balance|abs) }}{% else %}&euro;0.00{% endif %}
-                            {% if c.overdue_balance > 0 %} DR{% elif c.overdue_balance < 0 %} CR{% endif %}
                         </div>
                         {% if c.recent_invoices_total and c.overdue_balance|round(2) != c.signed_balance|round(2) %}
                         <div class="small text-warning" style="font-size:0.75rem;" title="Overdue excluding today/yesterday invoices (&euro;{{ '{:,.2f}'.format(c.recent_invoices_total) }})">
