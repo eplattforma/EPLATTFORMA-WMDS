@@ -11,7 +11,7 @@ from decimal import Decimal
 import logging
 
 from app import db
-from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice, BankTransaction, PSCustomer, CustomerBalanceCache
+from models import Shipment, RouteStop, CODReceipt, CODInvoiceAllocation, Invoice, RouteStopInvoice, BankTransaction, PSCustomer, CustomerBalanceCache, DwInvoiceHeader
 from models import utc_now
 import services_reconciliation as recon
 from services.communications_service import get_customer_comm_history, get_enabled_templates, render_template_for_customer, send_microsms
@@ -625,6 +625,25 @@ def _customer_base_filter():
     return q
 
 
+def _get_latest_invoice_dates(customer_codes):
+    from sqlalchemy import func
+    if not customer_codes:
+        return {}
+    rows = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365,
+            func.max(DwInvoiceHeader.invoice_date_utc0).label('latest_date')
+        )
+        .filter(
+            DwInvoiceHeader.customer_code_365.in_(customer_codes),
+            DwInvoiceHeader.invoice_type == 'Sales Invoice',
+        )
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .all()
+    )
+    return {r[0]: r[1] for r in rows if r[1]}
+
+
 def _get_last_delivery_info(customer_codes):
     from sqlalchemy import func, text
     from datetime import date, timedelta
@@ -748,6 +767,7 @@ def customer_balances_report():
 
     customer_codes = [r[0] for r in rows]
     last_delivery_map = _get_last_delivery_info(customer_codes)
+    latest_invoice_dates = _get_latest_invoice_dates(customer_codes)
 
     customers = []
     total_dr = Decimal('0')
@@ -796,7 +816,7 @@ def customer_balances_report():
             'contact': contact_name,
             'last_route': ld.get('route_name', ''),
             'last_delivery_date': ld.get('delivery_date', ''),
-            'last_invoice_date': ld.get('delivery_date', ''),
+            'last_invoice_date': latest_invoice_dates.get(code, None),
             'last_invoice_no': ld.get('invoice_no', ''),
             'last_invoice_amount': ld.get('invoice_amount', ''),
             'last_payment_method': ld.get('payment_method', ''),
@@ -888,6 +908,49 @@ def api_customer_balance_sms_preview(customer_code):
         })
     except Exception as e:
         logger.error(f"Error building customer balance SMS preview for {customer_code}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reconciliation_bp.route('/api/customer-balances/invoices/<customer_code>')
+@login_required
+@admin_or_warehouse_required
+def api_customer_invoices(customer_code):
+    from datetime import date, timedelta
+    try:
+        invoices = (
+            db.session.query(
+                DwInvoiceHeader.invoice_no_365,
+                DwInvoiceHeader.invoice_date_utc0,
+                DwInvoiceHeader.invoice_type,
+                DwInvoiceHeader.total_grand,
+                DwInvoiceHeader.total_net,
+                DwInvoiceHeader.total_vat,
+            )
+            .filter(
+                DwInvoiceHeader.customer_code_365 == customer_code,
+                DwInvoiceHeader.invoice_type == 'Sales Invoice',
+            )
+            .order_by(DwInvoiceHeader.invoice_date_utc0.desc())
+            .limit(10)
+            .all()
+        )
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        result = []
+        for inv_no, inv_date, inv_type, total_grand, total_net, total_vat in invoices:
+            is_recent = inv_date is not None and inv_date >= yesterday and inv_date <= today
+            result.append({
+                'invoice_no': inv_no or '',
+                'date': inv_date.strftime('%d/%m/%Y') if inv_date else '',
+                'type': inv_type or '',
+                'total_grand': float(total_grand) if total_grand else 0,
+                'total_net': float(total_net) if total_net else 0,
+                'total_vat': float(total_vat) if total_vat else 0,
+                'is_recent': is_recent,
+            })
+        return jsonify({'success': True, 'invoices': result})
+    except Exception as e:
+        logger.error(f"Error fetching invoices for {customer_code}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

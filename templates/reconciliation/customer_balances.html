@@ -172,7 +172,7 @@
                     <td class="text-end text-muted small">Not fetched</td>
                     <td class="text-center"><span class="badge bg-dark text-muted">?</span></td>
                     {% endif %}
-                    <td class="text-muted small">{% if c.last_invoice_date %}{{ c.last_invoice_date }}{% else %}-{% endif %}</td>
+                    <td class="text-muted small">{% if c.last_invoice_date %}{{ c.last_invoice_date.strftime('%d/%m/%Y') }}{% else %}-{% endif %}</td>
                 </tr>
                 <tr class="detail-row" id="detail-{{ c.code }}" style="display:none;" onclick="event.stopPropagation();">
                     <td colspan="9" class="p-0 border-0">
@@ -225,6 +225,10 @@
                                     <textarea class="form-control form-control-sm bg-dark text-white border-secondary" rows="4" id="sms-preview-{{ c.code }}" readonly placeholder="Select a template to preview the SMS message"></textarea>
                                     <div class="small mt-1" id="sms-status-{{ c.code }}"></div>
                                 </div>
+                            </div>
+                            <div class="mt-3 border-top border-secondary pt-3">
+                                <h6 class="text-primary mb-2"><i class="fas fa-file-invoice-dollar me-1"></i>Last 10 Invoices</h6>
+                                <div id="invoices-{{ c.code }}"><div class="small text-muted"><i class="fas fa-spinner fa-spin me-1"></i>Loading...</div></div>
                             </div>
                             <div class="mt-3 border-top border-secondary pt-3">
                                 <h6 class="text-info mb-2"><i class="fas fa-comments me-1"></i>Last 10 Messages</h6>
@@ -304,11 +308,48 @@ window.toggleDetail = function(code) {
     detailRow.style.display = isOpen ? 'none' : '';
     if (chevron) chevron.classList.toggle('open', !isOpen);
     if (!isOpen) {
+        var invDiv = document.getElementById('invoices-' + code);
+        if (invDiv && !invDiv.dataset.loaded) {
+            invDiv.dataset.loaded = '1';
+            loadInvoices(code);
+        }
         var histDiv = document.getElementById('comm-history-' + code);
         if (histDiv && !histDiv.dataset.loaded) {
             histDiv.dataset.loaded = '1';
             loadCommHistory(code);
         }
+    }
+}
+
+async function loadInvoices(code) {
+    var div = document.getElementById('invoices-' + code);
+    if (!div) return;
+    try {
+        var res = await fetch('/reconciliation/api/customer-balances/invoices/' + encodeURIComponent(code));
+        var data = await res.json();
+        if (!data.success) { div.innerHTML = '<div class="small text-danger">Error loading invoices</div>'; return; }
+        var invs = data.invoices || [];
+        if (invs.length === 0) { div.innerHTML = '<div class="small text-muted fst-italic">No invoices found</div>'; return; }
+        var html = '<table class="table table-sm table-dark table-striped mb-0" style="font-size:0.85rem;">';
+        html += '<thead><tr><th>Date</th><th>Invoice #</th><th class="text-end">Net</th><th class="text-end">VAT</th><th class="text-end">Total</th><th></th></tr></thead>';
+        html += '<tbody>';
+        invs.forEach(function(inv) {
+            var rowClass = inv.is_recent ? ' class="table-warning"' : '';
+            var badge = inv.is_recent ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.7rem;">Ongoing</span>' : '';
+            html += '<tr' + rowClass + '>';
+            html += '<td class="text-nowrap">' + esc(inv.date) + badge + '</td>';
+            html += '<td>' + esc(inv.invoice_no) + '</td>';
+            html += '<td class="text-end">&euro;' + Number(inv.total_net).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>';
+            html += '<td class="text-end">&euro;' + Number(inv.total_vat).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>';
+            html += '<td class="text-end fw-bold">&euro;' + Number(inv.total_grand).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</td>';
+            html += '<td></td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        div.innerHTML = html;
+    } catch (e) {
+        div.dataset.loaded = '';
+        div.innerHTML = '<div class="small text-danger">Error loading invoices</div>';
     }
 }
 
