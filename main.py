@@ -58,8 +58,32 @@ if _db_available:
     try:
         from update_forecast_profile_baseline_source_schema import update_forecast_profile_baseline_source_schema
         update_forecast_profile_baseline_source_schema()
+        logging.warning("Forecast profile schema updater completed")
+        print("Forecast profile schema updater completed", flush=True)
     except Exception:
-        logging.exception("Forecast profile baseline_source schema updater failed (non-fatal)")
+        logging.exception("Forecast profile baseline_source schema updater FAILED")
+        raise
+
+    with app.app_context():
+        with db.engine.connect() as conn:
+            _vrows = conn.execute(_sa_text("""
+                SELECT column_name, character_maximum_length
+                FROM information_schema.columns
+                WHERE table_name = 'sku_forecast_profile'
+                  AND column_name IN (
+                    'forecast_method',
+                    'seasonality_source',
+                    'seed_source',
+                    'analogue_level',
+                    'baseline_source'
+                  )
+            """)).fetchall()
+            _vlengths = {r[0]: r[1] for r in _vrows}
+            for _vcol in ['forecast_method','seasonality_source','seed_source','analogue_level','baseline_source']:
+                if (_vlengths.get(_vcol) or 0) < 128:
+                    raise RuntimeError(f"Forecast profile column {_vcol} is too small: {_vlengths.get(_vcol)}")
+    logging.warning("Forecast profile schema validation passed")
+    print("Forecast profile schema validation passed", flush=True)
 
     try:
         with app.app_context():
@@ -487,33 +511,6 @@ if _db_available:
         ensure_crm_offer_schema()
     except Exception as e:
         logging.error(f"Error updating CRM offer schema: {e}")
-
-    from migrations.fix_forecast_profile_columns import run as fix_forecast_schema
-    try:
-        fix_forecast_schema()
-        print("Forecast schema fix applied", flush=True)
-    except Exception as e:
-        print(f"Forecast schema fix failed: {e}", flush=True)
-        raise
-
-    with db.engine.connect() as conn:
-        rows = conn.execute(_sa_text("""
-            SELECT column_name, character_maximum_length
-            FROM information_schema.columns
-            WHERE table_name = 'sku_forecast_profile'
-              AND column_name IN (
-                'forecast_method',
-                'seasonality_source',
-                'seed_source',
-                'analogue_level',
-                'baseline_source'
-              )
-        """)).fetchall()
-        lengths = {r[0]: r[1] for r in rows}
-        for col in ['forecast_method','seasonality_source','seed_source','analogue_level','baseline_source']:
-            if (lengths.get(col) or 0) < 128:
-                raise RuntimeError(f"Column {col} is too small: {lengths.get(col)}")
-    print("Forecast schema validation passed", flush=True)
 
     db.create_all()
 
