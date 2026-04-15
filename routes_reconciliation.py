@@ -644,6 +644,29 @@ def _get_latest_invoice_dates(customer_codes):
     return {r[0]: r[1] for r in rows if r[1]}
 
 
+def _get_recent_invoice_totals(customer_codes):
+    from sqlalchemy import func
+    from datetime import date, timedelta
+    if not customer_codes:
+        return {}
+    yesterday = date.today() - timedelta(days=1)
+    rows = (
+        db.session.query(
+            DwInvoiceHeader.customer_code_365,
+            func.sum(DwInvoiceHeader.total_grand).label('recent_total')
+        )
+        .filter(
+            DwInvoiceHeader.customer_code_365.in_(customer_codes),
+            DwInvoiceHeader.invoice_type.in_(['SALE', 'SALE RETURN']),
+            DwInvoiceHeader.invoice_date_utc0 >= yesterday,
+            DwInvoiceHeader.invoice_date_utc0 <= date.today(),
+        )
+        .group_by(DwInvoiceHeader.customer_code_365)
+        .all()
+    )
+    return {r[0]: float(r[1]) for r in rows if r[1]}
+
+
 def _get_last_delivery_info(customer_codes):
     from sqlalchemy import func, text
     from datetime import date, timedelta
@@ -768,6 +791,7 @@ def customer_balances_report():
     customer_codes = [r[0] for r in rows]
     last_delivery_map = _get_last_delivery_info(customer_codes)
     latest_invoice_dates = _get_latest_invoice_dates(customer_codes)
+    recent_invoice_totals = _get_recent_invoice_totals(customer_codes)
 
     customers = []
     total_dr = Decimal('0')
@@ -792,6 +816,8 @@ def customer_balances_report():
         addr_parts = [p for p in [addr1, addr2, postal, town] if p]
         contact_name = ' '.join(p for p in [contact_first, contact_last] if p)
         ld = last_delivery_map.get(code, {})
+        recent_total = recent_invoice_totals.get(code, 0)
+        overdue_balance = float(sb) - recent_total
         customers.append({
             'code': code,
             'name': name or code,
@@ -822,6 +848,8 @@ def customer_balances_report():
             'last_payment_method': ld.get('payment_method', ''),
             'last_payment_received': ld.get('payment_received', 0),
             'last_driver': ld.get('driver_name', ''),
+            'recent_invoices_total': recent_total,
+            'overdue_balance': overdue_balance,
         })
 
     customers.sort(key=lambda c: c['signed_balance'], reverse=True)

@@ -158,8 +158,15 @@
                     <td class="text-muted small">{{ c.agent }}</td>
                     <td class="text-muted small">{{ c.phone }}</td>
                     {% if c.has_data %}
-                    <td class="text-end fw-bold {% if c.drcr == 'DR' %}text-danger{% elif c.drcr == 'CR' %}text-success{% endif %}">
-                        {% if c.signed_balance != 0 %}&euro;{{ "{:,.2f}".format(c.balance) }}{% else %}&euro;0.00{% endif %}
+                    <td class="text-end">
+                        <div class="fw-bold {% if c.drcr == 'DR' %}text-danger{% elif c.drcr == 'CR' %}text-success{% endif %}">
+                            {% if c.signed_balance != 0 %}&euro;{{ "{:,.2f}".format(c.balance) }}{% else %}&euro;0.00{% endif %}
+                        </div>
+                        {% if c.recent_invoices_total and c.overdue_balance|round(2) != c.signed_balance|round(2) %}
+                        <div class="small text-warning" style="font-size:0.75rem;" title="Balance excluding today/yesterday invoices (&euro;{{ '{:,.2f}'.format(c.recent_invoices_total) }})">
+                            Overdue: &euro;{{ "{:,.2f}".format(c.overdue_balance|abs) }}{% if c.overdue_balance > 0 %} DR{% elif c.overdue_balance < 0 %} CR{% endif %}
+                        </div>
+                        {% endif %}
                     </td>
                     <td class="text-center">
                         {% if c.signed_balance != 0 %}
