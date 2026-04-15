@@ -636,7 +636,7 @@ def _get_latest_invoice_dates(customer_codes):
         )
         .filter(
             DwInvoiceHeader.customer_code_365.in_(customer_codes),
-            DwInvoiceHeader.invoice_type == 'Sales Invoice',
+            DwInvoiceHeader.invoice_type == 'SALE',
         )
         .group_by(DwInvoiceHeader.customer_code_365)
         .all()
@@ -928,7 +928,7 @@ def api_customer_invoices(customer_code):
             )
             .filter(
                 DwInvoiceHeader.customer_code_365 == customer_code,
-                DwInvoiceHeader.invoice_type == 'Sales Invoice',
+                DwInvoiceHeader.invoice_type.in_(['SALE', 'SALE RETURN']),
             )
             .order_by(DwInvoiceHeader.invoice_date_utc0.desc())
             .limit(10)
