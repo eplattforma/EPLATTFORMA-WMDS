@@ -898,12 +898,23 @@ def api_customer_balance_sms_preview(customer_code):
             balance_text = f"credit {balance_text}"
         else:
             balance_text = "€0.00"
+        recent_total = _get_recent_invoice_totals([code]).get(code, 0)
+        overdue_value = balance_value - recent_total
+        overdue_text = f"€{abs(overdue_value):,.2f}"
+        if overdue_value > 0:
+            overdue_text = f"due {overdue_text}"
+        elif overdue_value < 0:
+            overdue_text = f"credit {overdue_text}"
+        else:
+            overdue_text = "€0.00"
         if template_code:
             tpl = render_template_for_customer(template_code, {
                 'customer_name': name or code,
                 'customer_code': code,
                 'current_balance': balance_value,
                 'balance_text': balance_text,
+                'overdue_balance': overdue_value,
+                'overdue_text': overdue_text,
                 'last_delivery_date': ld.get('delivery_date', ''),
             })
             if tpl.get('error'):
@@ -923,6 +934,7 @@ def api_customer_balance_sms_preview(customer_code):
             'mobile': sms_number or mobile or '',
             'mobile_display': sms_number or mobile or '',
             'current_balance': balance_value,
+            'overdue_balance': overdue_value,
             'last_delivery_date': ld.get('delivery_date', ''),
             'message': message,
             'template_title': template_title,
@@ -930,8 +942,10 @@ def api_customer_balance_sms_preview(customer_code):
                 'customer_name': '{{ customer_name }}',
                 'customer_code': '{{ customer_code }}',
                 'current_balance': '{{ current_balance }}',
-                'last_delivery_date': '{{ last_delivery_date }}',
                 'balance_text': '{{ balance_text }}',
+                'overdue_balance': '{{ overdue_balance }}',
+                'overdue_text': '{{ overdue_text }}',
+                'last_delivery_date': '{{ last_delivery_date }}',
             }
         })
     except Exception as e:
@@ -1057,12 +1071,23 @@ def api_customer_balance_send_sms(customer_code):
             balance_text = f"credit {balance_text}"
         else:
             balance_text = "€0.00"
+        recent_total = _get_recent_invoice_totals([code]).get(code, 0)
+        overdue_value = current_balance - recent_total
+        overdue_text = f"€{abs(overdue_value):,.2f}"
+        if overdue_value > 0:
+            overdue_text = f"due {overdue_text}"
+        elif overdue_value < 0:
+            overdue_text = f"credit {overdue_text}"
+        else:
+            overdue_text = "€0.00"
 
         tpl = render_template_for_customer(template_code, {
             'customer_name': name or code,
             'customer_code': code,
             'current_balance': current_balance,
             'balance_text': balance_text,
+            'overdue_balance': overdue_value,
+            'overdue_text': overdue_text,
             'last_delivery_date': ld.get('delivery_date', ''),
         })
         if tpl.get('error'):
