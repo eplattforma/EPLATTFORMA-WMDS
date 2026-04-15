@@ -112,27 +112,36 @@ def _resolve_context(ctx_type: str, ctx_id: str) -> dict:
             SELECT customer_code_365,
                    COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
                    COALESCE(NULLIF(contact_first_name,''), '') AS contact_first_name,
-                   COALESCE(NULLIF(sms,''), NULLIF(mobile,''), NULLIF(tel_1,''), '') AS mobile_number
+                   COALESCE(NULLIF(sms,''), NULLIF(mobile,''), NULLIF(tel_1,''), '') AS mobile_number,
+                   COALESCE(delivery_days, '') AS delivery_days
             FROM ps_customers
             WHERE customer_code_365 = :cid
         """), {"cid": ctx_id}).mappings().first()
         if not row:
             raise ValueError("Customer not found.")
         ctx = dict(row)
+        ctx["delivery_date"] = ""
+        ctx["delivery_date_formatted"] = ""
         try:
-            from services.crm_order_window import get_order_window_status
-            ws = get_order_window_status(ctx_id)
-            nd = ws.get("next_delivery")
-            ctx["delivery_date"] = nd.strftime('%a %d-%b') if nd else ""
-            ctx["delivery_date_formatted"] = _greek_date_str(nd) if nd else ""
+            dd_raw = (row["delivery_days"] or "").strip()
+            if dd_raw:
+                from services.crm_order_window import next_delivery_date_for_slot
+                from datetime import date as _date
+                best = None
+                for token in dd_raw.split(","):
+                    token = token.strip()
+                    if len(token) >= 2 and token.isdigit():
+                        dow_int = int(token[0])
+                        week_code = int(token[1])
+                        nd = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
+                        if best is None or nd < best:
+                            best = nd
+                if best:
+                    ctx["delivery_date"] = best.strftime('%a %d-%b')
+                    ctx["delivery_date_formatted"] = _greek_date_str(best)
         except Exception:
-            ctx["delivery_date"] = ""
-            ctx["delivery_date_formatted"] = ""
-        try:
-            from datetime import datetime
-            ctx["today_formatted"] = _greek_date_str(datetime.now())
-        except Exception:
-            ctx["today_formatted"] = ""
+            pass
+        ctx["today_formatted"] = _greek_date_str(datetime.now())
         return ctx
 
     raise ValueError(f"Unsupported context type: {ctx_type}")

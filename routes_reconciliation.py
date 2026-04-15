@@ -887,6 +887,7 @@ def api_customer_balance_sms_preview(customer_code):
                 PSCustomer.company_name,
                 PSCustomer.sms,
                 PSCustomer.mobile,
+                PSCustomer.delivery_days,
                 CustomerBalanceCache.balance,
                 CustomerBalanceCache.drcr,
                 CustomerBalanceCache.signed_balance,
@@ -898,7 +899,7 @@ def api_customer_balance_sms_preview(customer_code):
         )
         if not row:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
-        code, name, sms_number, mobile, balance, drcr, signed_balance, fetched_at = row
+        code, name, sms_number, mobile, delivery_days_raw, balance, drcr, signed_balance, fetched_at = row
         ld = _get_last_delivery_info([code]).get(code, {})
         balance_value = float(signed_balance or 0)
         balance_text = f"€{abs(balance_value):,.2f}"
@@ -917,9 +918,23 @@ def api_customer_balance_sms_preview(customer_code):
             overdue_text = f"credit {overdue_text}"
         else:
             overdue_text = "€0.00"
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, date as _date
+        from services.crm_order_window import next_delivery_date_for_slot
         _today = _dt.now()
-        _nd = ld.get('_delivery_date_obj')
+        _next_delivery = None
+        try:
+            dd_raw = (delivery_days_raw or "").strip()
+            if dd_raw:
+                for token in dd_raw.split(","):
+                    token = token.strip()
+                    if len(token) >= 2 and token.isdigit():
+                        dow_int = int(token[0])
+                        week_code = int(token[1])
+                        nd = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
+                        if _next_delivery is None or nd < _next_delivery:
+                            _next_delivery = nd
+        except Exception:
+            pass
         if template_code:
             tpl = render_template_for_customer(template_code, {
                 'customer_name': name or code,
@@ -930,7 +945,7 @@ def api_customer_balance_sms_preview(customer_code):
                 'overdue_text': overdue_text,
                 'last_delivery_date': ld.get('delivery_date', ''),
                 'today_formatted': _greek_date_str(_today),
-                'delivery_date_formatted': _greek_date_str(_nd) if _nd else '',
+                'delivery_date_formatted': _greek_date_str(_next_delivery) if _next_delivery else '',
             })
             if tpl.get('error'):
                 return jsonify({'success': False, 'error': tpl['error']}), 400
@@ -1062,6 +1077,7 @@ def api_customer_balance_send_sms(customer_code):
                 PSCustomer.company_name,
                 PSCustomer.sms,
                 PSCustomer.mobile,
+                PSCustomer.delivery_days,
             )
             .filter(PSCustomer.customer_code_365 == customer_code)
             .first()
@@ -1069,7 +1085,7 @@ def api_customer_balance_send_sms(customer_code):
         if not row:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
 
-        code, name, sms_number, mobile = row
+        code, name, sms_number, mobile, delivery_days_raw = row
         mobile_number = sms_number or mobile or ''
         if not mobile_number:
             return jsonify({'success': False, 'error': 'No SMS number found'}), 400
@@ -1098,9 +1114,23 @@ def api_customer_balance_send_sms(customer_code):
         else:
             overdue_text = "€0.00"
 
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, date as _date
+        from services.crm_order_window import next_delivery_date_for_slot
         _today = _dt.now()
-        _nd = ld.get('_delivery_date_obj')
+        _next_delivery = None
+        try:
+            dd_raw = (delivery_days_raw or "").strip()
+            if dd_raw:
+                for token in dd_raw.split(","):
+                    token = token.strip()
+                    if len(token) >= 2 and token.isdigit():
+                        dow_int = int(token[0])
+                        week_code = int(token[1])
+                        nd = next_delivery_date_for_slot(dow_int, week_code, from_date=_date.today())
+                        if _next_delivery is None or nd < _next_delivery:
+                            _next_delivery = nd
+        except Exception:
+            pass
         tpl = render_template_for_customer(template_code, {
             'customer_name': name or code,
             'customer_code': code,
@@ -1110,7 +1140,7 @@ def api_customer_balance_send_sms(customer_code):
             'overdue_text': overdue_text,
             'last_delivery_date': ld.get('delivery_date', ''),
             'today_formatted': _greek_date_str(_today),
-            'delivery_date_formatted': _greek_date_str(_nd) if _nd else '',
+            'delivery_date_formatted': _greek_date_str(_next_delivery) if _next_delivery else '',
         })
         if tpl.get('error'):
             return jsonify({'success': False, 'error': tpl['error']}), 400
