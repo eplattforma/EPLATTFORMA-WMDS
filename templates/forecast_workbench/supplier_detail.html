@@ -750,6 +750,9 @@
             </div>
         </div>
 
+        <!-- STOCK & EXPIRY ANALYSIS -->
+        ${renderStockExpiry(data.stock_expiry)}
+
         <!-- FORECAST SUMMARY CARDS -->
         <div class="section-title">Forecast Summary</div>
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 1rem;">
@@ -824,7 +827,6 @@
             <tr><td class="label-col">Target Stock</td><td class="value-col">${fmtNum(res.target_stock_qty, 0)}</td></tr>
             <tr><td class="label-col"><strong>Suggested Order</strong></td><td class="value-col fw-bold text-warning">${fmtNum(res.rounded_order_qty, 0)}</td></tr>
             <tr><td class="label-col">MOQ</td><td class="value-col">${data.min_order_qty || '-'}</td></tr>
-            <tr><td class="label-col">Order Multiple</td><td class="value-col">${sup.order_multiple || '-'}</td></tr>
             ${data.ordering_snapshot_at ? `<tr><td class="label-col">Snapshot</td><td class="value-col"><small class="text-muted">${new Date(data.ordering_snapshot_at).toLocaleDateString()}</small></td></tr>` : ''}
         </table>
 
@@ -891,6 +893,70 @@
         document.getElementById('btn8weeks').classList.toggle('btn-outline-primary', currentChartWeeks !== 8);
         document.getElementById('btn26weeks').classList.toggle('btn-primary', currentChartWeeks === 26);
         document.getElementById('btn26weeks').classList.toggle('btn-outline-primary', currentChartWeeks !== 26);
+    }
+
+    function renderStockExpiry(se) {
+        if (!se || se.total_stock_qty <= 0) {
+            return `
+            <div class="section-title">Stock & Expiry Analysis</div>
+            <div style="background: rgba(108,117,125,0.1); border: 1px solid rgba(108,117,125,0.2); border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 1rem; font-size: 0.8rem; color: var(--bs-secondary);">
+                <i class="fas fa-box-open me-1"></i> No stock position data available
+            </div>`;
+        }
+        const riskColors = {
+            safe: { bg: 'rgba(25,135,84,0.12)', border: 'rgba(25,135,84,0.35)', color: '#198754', icon: 'fa-check-circle', label: 'Safe' },
+            moderate: { bg: 'rgba(255,193,7,0.12)', border: 'rgba(255,193,7,0.35)', color: '#ffc107', icon: 'fa-exclamation-triangle', label: 'Moderate Risk' },
+            high: { bg: 'rgba(253,126,20,0.12)', border: 'rgba(253,126,20,0.35)', color: '#fd7e14', icon: 'fa-exclamation-circle', label: 'High Risk' },
+            critical: { bg: 'rgba(220,53,69,0.12)', border: 'rgba(220,53,69,0.35)', color: '#dc3545', icon: 'fa-times-circle', label: 'Critical' },
+            no_stock: { bg: 'rgba(108,117,125,0.12)', border: 'rgba(108,117,125,0.35)', color: '#6c757d', icon: 'fa-minus-circle', label: 'No Stock' },
+        };
+        const rc = riskColors[se.risk_level] || riskColors.safe;
+        const statusBadge = (s) => {
+            if (s === 'expired') return '<span class="badge" style="background:#dc3545;font-size:0.65rem;">EXPIRED</span>';
+            if (s === 'at_risk') return '<span class="badge" style="background:#fd7e14;font-size:0.65rem;">AT RISK</span>';
+            if (s === 'no_demand') return '<span class="badge" style="background:#6c757d;font-size:0.65rem;">NO DEMAND</span>';
+            return '<span class="badge" style="background:#198754;font-size:0.65rem;">OK</span>';
+        };
+        let batchRows = '';
+        (se.batches || []).forEach(b => {
+            const expLabel = b.expiry_date || 'No expiry';
+            const daysLabel = b.days_until_expiry != null ? (b.days_until_expiry < 0 ? `${Math.abs(b.days_until_expiry)}d ago` : `${b.days_until_expiry}d`) : '-';
+            const wksLabel = b.weeks_of_stock != null ? `${b.weeks_of_stock}w` : '-';
+            batchRows += `<tr>
+                <td style="padding:0.25rem 0.4rem;font-size:0.75rem;">${esc(expLabel)}</td>
+                <td style="padding:0.25rem 0.4rem;font-size:0.75rem;text-align:right;">${fmtNum(b.qty, 0)}</td>
+                <td style="padding:0.25rem 0.4rem;font-size:0.75rem;text-align:center;">${daysLabel}</td>
+                <td style="padding:0.25rem 0.4rem;font-size:0.75rem;text-align:center;">${wksLabel}</td>
+                <td style="padding:0.25rem 0.4rem;font-size:0.75rem;text-align:center;">${statusBadge(b.status)}</td>
+            </tr>`;
+        });
+        return `
+        <div class="section-title">Stock & Expiry Analysis</div>
+        <div style="background:${rc.bg}; border:1px solid ${rc.border}; border-radius:0.375rem; padding:0.6rem 0.75rem; margin-bottom:0.75rem; display:flex; align-items:center; gap:0.6rem;">
+            <i class="fas ${rc.icon}" style="font-size:1.4rem; color:${rc.color};"></i>
+            <div style="flex:1;">
+                <div style="font-weight:700; font-size:0.85rem; color:${rc.color};">${rc.label}</div>
+                <div style="font-size:0.75rem; color:var(--bs-secondary);">
+                    ${fmtNum(se.total_stock_qty, 0)} units in stock
+                    ${se.overall_weeks_cover != null ? ' &middot; ' + se.overall_weeks_cover + 'w cover' : ''}
+                    ${se.expired_qty > 0 ? ' &middot; <span style="color:#dc3545;">' + fmtNum(se.expired_qty, 0) + ' expired</span>' : ''}
+                    ${se.at_risk_qty > 0 ? ' &middot; <span style="color:#fd7e14;">' + fmtNum(se.at_risk_qty, 0) + ' at risk</span>' : ''}
+                </div>
+            </div>
+        </div>
+        ${batchRows ? `
+        <table style="width:100%; border-collapse:collapse; margin-bottom:1rem;">
+            <thead>
+                <tr style="border-bottom:1px solid var(--bs-border-color);">
+                    <th style="padding:0.25rem 0.4rem;font-size:0.7rem;font-weight:600;color:var(--bs-secondary);">Expiry</th>
+                    <th style="padding:0.25rem 0.4rem;font-size:0.7rem;font-weight:600;color:var(--bs-secondary);text-align:right;">Qty</th>
+                    <th style="padding:0.25rem 0.4rem;font-size:0.7rem;font-weight:600;color:var(--bs-secondary);text-align:center;">Days Left</th>
+                    <th style="padding:0.25rem 0.4rem;font-size:0.7rem;font-weight:600;color:var(--bs-secondary);text-align:center;">Wks Cover</th>
+                    <th style="padding:0.25rem 0.4rem;font-size:0.7rem;font-weight:600;color:var(--bs-secondary);text-align:center;">Status</th>
+                </tr>
+            </thead>
+            <tbody>${batchRows}</tbody>
+        </table>` : ''}`;
     }
 
     function explainDemand(prof) {

@@ -19,6 +19,7 @@ from models import (
     ForecastItemSupplierMap, FactSalesWeeklyItem,
     ForecastSeasonalityMonthly, SkuForecastProfile,
     SkuForecastResult, SkuOrderingSnapshot, ForecastRun, Setting,
+    StockPosition,
     extract_item_prefix,
 )
 
@@ -472,6 +473,86 @@ def api_item_detail(item_code):
         } if res else None,
         'weekly_history': weekly_history,
         'seasonality': seasonality,
+    }
+
+    stock_batches = (
+        StockPosition.query
+        .filter_by(item_code=item_code)
+        .filter(StockPosition.stock_quantity > 0)
+        .order_by(StockPosition.expiry_date.asc())
+        .all()
+    )
+    weekly_rate = _float(res.final_forecast_weekly_qty) if res else 0
+    daily_rate = weekly_rate / 7.0 if weekly_rate > 0 else 0
+    today_date = date.today()
+    expiry_batches = []
+    total_stock_qty = 0.0
+    at_risk_qty = 0.0
+    expired_qty = 0.0
+    for sp in stock_batches:
+        qty = float(sp.stock_quantity or 0)
+        total_stock_qty += qty
+        exp_str = sp.expiry_date
+        exp_date = None
+        days_until_expiry = None
+        weeks_of_stock_in_batch = None
+        batch_status = 'ok'
+        if exp_str:
+            try:
+                exp_date = datetime.strptime(exp_str.strip(), '%Y-%m-%d').date()
+                days_until_expiry = (exp_date - today_date).days
+                if days_until_expiry < 0:
+                    batch_status = 'expired'
+                    expired_qty += qty
+                elif daily_rate > 0:
+                    days_to_sell = qty / daily_rate
+                    if days_to_sell > days_until_expiry:
+                        batch_status = 'at_risk'
+                        oversupply = qty - (daily_rate * days_until_expiry)
+                        at_risk_qty += max(0, oversupply)
+                    else:
+                        batch_status = 'ok'
+                    weeks_of_stock_in_batch = round(qty / weekly_rate, 1) if weekly_rate > 0 else None
+                else:
+                    batch_status = 'no_demand'
+                    at_risk_qty += qty
+            except (ValueError, TypeError):
+                pass
+        expiry_batches.append({
+            'expiry_date': exp_str,
+            'qty': qty,
+            'days_until_expiry': days_until_expiry,
+            'weeks_of_stock': weeks_of_stock_in_batch,
+            'status': batch_status,
+        })
+    cumulative_days_needed = 0
+    for batch in expiry_batches:
+        if batch['expiry_date'] and daily_rate > 0:
+            cumulative_days_needed += batch['qty'] / daily_rate
+            batch['cumulative_sell_through_days'] = round(cumulative_days_needed, 1)
+        else:
+            batch['cumulative_sell_through_days'] = None
+    overall_weeks_cover = round(total_stock_qty / weekly_rate, 1) if weekly_rate > 0 else None
+    if total_stock_qty <= 0:
+        expiry_risk_level = 'no_stock'
+    elif expired_qty > 0 or at_risk_qty > 0:
+        risk_pct = (expired_qty + at_risk_qty) / total_stock_qty * 100
+        if risk_pct >= 50:
+            expiry_risk_level = 'critical'
+        elif risk_pct >= 20:
+            expiry_risk_level = 'high'
+        else:
+            expiry_risk_level = 'moderate'
+    else:
+        expiry_risk_level = 'safe'
+    result['stock_expiry'] = {
+        'batches': expiry_batches,
+        'total_stock_qty': total_stock_qty,
+        'expired_qty': expired_qty,
+        'at_risk_qty': round(at_risk_qty, 1),
+        'weekly_forecast': weekly_rate,
+        'overall_weeks_cover': overall_weeks_cover,
+        'risk_level': expiry_risk_level,
     }
 
     latest_snap = (
