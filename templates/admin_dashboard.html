@@ -725,21 +725,21 @@
                 if (!totals[gid]) totals[gid] = {weight: 0, est: 0, actual: 0, remaining: 0};
                 totals[gid].weight += parseFloat(row.getAttribute('data-weight') || 0);
                 totals[gid].est += parseFloat(row.getAttribute('data-est-time') || 0);
-                var actualEl = row.querySelectorAll('td')[9];
+                var actualEl = row.querySelectorAll('td')[10];
                 if (actualEl) {
-                    var badge = actualEl.querySelector('.badge');
-                    if (badge) {
+                    var badges = actualEl.querySelectorAll('.badge');
+                    badges.forEach(function(badge) {
                         var m = badge.textContent.match(/([\d.]+)/);
                         if (m) totals[gid].actual += parseFloat(m[1]);
-                    }
+                    });
                 }
-                var remEl = row.querySelectorAll('td')[10];
+                var remEl = row.querySelectorAll('td')[11];
                 if (remEl) {
-                    var badge2 = remEl.querySelector('.badge');
-                    if (badge2) {
+                    var badges2 = remEl.querySelectorAll('.badge');
+                    badges2.forEach(function(badge2) {
                         var m2 = badge2.textContent.match(/([\d.]+)/);
                         if (m2) totals[gid].remaining += parseFloat(m2[1]);
-                    }
+                    });
                 }
             });
             Object.keys(totals).forEach(function(gid) {
@@ -752,10 +752,10 @@
                 es.forEach(function(el) { el.textContent = Math.round(t.est) + 'm'; el.style.setProperty('color', '#000', 'important'); });
                 as2.forEach(function(el) {
                     if (t.actual > 0) {
-                        el.innerHTML = '<span class="badge bg-info">' + Math.round(t.actual) + 'm</span>';
+                        el.innerHTML = '<span class="badge bg-info" style="font-size:0.85em;">' + Math.round(t.actual) + 'm</span>';
                     } else {
-                        el.textContent = '-';
-                        el.style.setProperty('color', '#555', 'important');
+                        el.textContent = '0m';
+                        el.style.setProperty('color', '#000', 'important');
                     }
                 });
                 rs.forEach(function(el) {
