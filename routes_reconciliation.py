@@ -684,26 +684,31 @@ def _get_last_delivery_info(customer_codes):
 
     cutoff_date = date.today() - timedelta(days=1)
 
+    eff_code = func.coalesce(
+        func.nullif(Invoice.customer_code_365, ''),
+        Invoice.customer_code
+    )
+
     last_inv_sub = (
         db.session.query(
-            Invoice.customer_code_365,
+            eff_code.label('eff_code'),
             func.max(Invoice.delivered_at).label('max_delivered')
         )
         .join(Shipment, Invoice.route_id == Shipment.id)
         .filter(
-            Invoice.customer_code_365.in_(customer_codes),
+            eff_code.in_(customer_codes),
             Invoice.status == 'delivered',
             Invoice.delivered_at.isnot(None),
             Invoice.route_id.isnot(None),
             Shipment.delivery_date < cutoff_date,
         )
-        .group_by(Invoice.customer_code_365)
+        .group_by(eff_code)
         .subquery()
     )
 
     rows = (
         db.session.query(
-            Invoice.customer_code_365,
+            eff_code.label('eff_code'),
             Invoice.invoice_no,
             Invoice.delivered_at,
             Invoice.total_grand,
@@ -713,7 +718,7 @@ def _get_last_delivery_info(customer_codes):
             RouteStopInvoice.expected_payment_method,
         )
         .join(last_inv_sub, db.and_(
-            Invoice.customer_code_365 == last_inv_sub.c.customer_code_365,
+            eff_code == last_inv_sub.c.eff_code,
             Invoice.delivered_at == last_inv_sub.c.max_delivered,
         ))
         .join(Shipment, Invoice.route_id == Shipment.id)
