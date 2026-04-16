@@ -243,9 +243,10 @@ def refresh_ordering_snapshot(
 
         rounded = raw_order
         if raw_order > 0:
-            rounded = math.ceil(raw_order)
             if order_multiple > 0:
-                rounded = _ceil_to_multiple(rounded, order_multiple)
+                rounded = _ceil_to_multiple(raw_order, order_multiple)
+            else:
+                rounded = math.ceil(raw_order)
             rounded = _enforce_moq(rounded, moq)
 
         explanation = {
