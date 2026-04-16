@@ -123,7 +123,7 @@ def _build_review_reasons(profile, result, supplier_context, dw_item, old_final,
         if on_hand > 0:
             reasons.append("no demand but stock exists")
 
-    if profile.forecast_method == "SEEDED":
+    if profile.forecast_method in ("SEEDED", "SEEDED_NEW", "AVAILABILITY_DISTORTED", "INSUFFICIENT_HISTORY"):
         if getattr(profile, "seeded_cap_applied", False):
             reasons.append("seeded forecast capped")
         elif raw_order > 0:

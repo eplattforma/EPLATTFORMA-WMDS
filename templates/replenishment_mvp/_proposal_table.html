@@ -30,7 +30,7 @@
                 <td class="small">{{ l.item_name or '' }}</td>
                 <td class="text-center">
                     {% set dc = l.calc_json.get('demand_class', '') if l.calc_json else '' %}
-                    <span class="badge bg-{% if dc == 'smooth' %}success{% elif dc == 'erratic' %}warning text-dark{% elif dc == 'intermittent' %}primary{% elif dc == 'lumpy' %}danger{% elif dc == 'new_sparse' %}secondary{% else %}dark{% endif %}"
+                    <span class="badge bg-{% if dc == 'smooth' %}success{% elif dc == 'erratic' %}warning text-dark{% elif dc == 'intermittent' %}primary{% elif dc == 'lumpy' %}danger{% elif dc in ('new_sparse', 'new_true') %}secondary{% elif dc == 'sparse_valid' %}info{% elif dc == 'availability_distorted' %}danger{% else %}dark{% endif %}"
                           style="font-size:0.65rem;">{{ dc }}</span>
                 </td>
                 <td class="text-center small">{{ l.calc_json.get('forecast_method', '') if l.calc_json else '' }}</td>

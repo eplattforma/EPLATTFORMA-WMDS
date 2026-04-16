@@ -16,6 +16,11 @@ WEEKS_WINDOW = 26
 HISTORY_WINDOW_DAYS = 365
 MIN_HISTORY_COVERAGE_WEEKS = 20
 
+NEW_TRUE_AGE_THRESHOLD = 6
+NEW_TRUE_NZ_THRESHOLD = 4
+SPARSE_VALID_NZ_THRESHOLD = 3
+AVAILABILITY_DISTORTED_OOS_THRESHOLD = 3
+
 
 def _get_weekly_gross_qtys(session: Session, item_code: str, num_weeks: int = WEEKS_WINDOW):
     completed_week_cutoff = get_completed_week_cutoff()
@@ -57,6 +62,18 @@ def _classify_demand(weeks_non_zero: int, adi: float, cv2: float) -> str:
     return "lumpy"
 
 
+def _reclassify_low_history(weeks_non_zero, item_age_weeks, oos_weeks_26):
+    if oos_weeks_26 >= AVAILABILITY_DISTORTED_OOS_THRESHOLD:
+        return "availability_distorted"
+    if item_age_weeks < NEW_TRUE_AGE_THRESHOLD and weeks_non_zero < NEW_TRUE_NZ_THRESHOLD:
+        return "new_true"
+    if item_age_weeks >= NEW_TRUE_AGE_THRESHOLD and weeks_non_zero >= SPARSE_VALID_NZ_THRESHOLD:
+        return "sparse_valid"
+    if weeks_non_zero < NEW_TRUE_NZ_THRESHOLD:
+        return "new_true"
+    return "sparse_valid"
+
+
 def _forecast_method(demand_class: str) -> str:
     methods = {
         "smooth": "MA8",
@@ -64,6 +81,9 @@ def _forecast_method(demand_class: str) -> str:
         "intermittent": "MEDIAN6",
         "lumpy": "MEDIAN6",
         "new_sparse": "SEEDED",
+        "new_true": "SEEDED_NEW",
+        "sparse_valid": "RATE_BASED",
+        "availability_distorted": "AVAILABILITY_DISTORTED",
         "no_demand": "ZERO",
     }
     return methods.get(demand_class, "ZERO")
@@ -116,9 +136,47 @@ def _compute_profile(weekly_qtys: list) -> dict:
     }
 
 
+def _compute_item_age_weeks(item_sales, completed_week_cutoff):
+    sale_weeks = [ws for ws, qty in item_sales.items() if qty > 0]
+    if not sale_weeks:
+        return 0
+    first_sale = min(sale_weeks)
+    return (completed_week_cutoff - first_sale).days / 7.0
+
+
 def classify_single_item(session: Session, item_code: str) -> dict:
+    completed_week_cutoff = get_completed_week_cutoff()
+    window_start = completed_week_cutoff - timedelta(weeks=WEEKS_WINDOW)
+
     weekly_qtys = _get_weekly_gross_qtys(session, item_code, WEEKS_WINDOW)
     profile = _compute_profile(weekly_qtys)
+
+    if profile["demand_class"] == "new_sparse":
+        rows = (
+            session.query(FactSalesWeeklyItem.week_start, FactSalesWeeklyItem.gross_qty)
+            .filter(
+                FactSalesWeeklyItem.item_code_365 == item_code,
+                FactSalesWeeklyItem.week_start >= window_start,
+                FactSalesWeeklyItem.week_start < completed_week_cutoff,
+                FactSalesWeeklyItem.gross_qty > 0,
+            )
+            .all()
+        )
+        item_sales = {r.week_start: float(r.gross_qty) for r in rows}
+        item_age_weeks = _compute_item_age_weeks(item_sales, completed_week_cutoff)
+
+        try:
+            from services.forecast.oos_demand_service import get_oos_weeks_set, OOS_THRESHOLD_DAYS
+            oos_weeks = get_oos_weeks_set(session, item_code, WEEKS_WINDOW, OOS_THRESHOLD_DAYS)
+            oos_count = len(oos_weeks)
+        except Exception:
+            oos_count = 0
+
+        new_class = _reclassify_low_history(
+            profile["weeks_non_zero_26"], item_age_weeks, oos_count
+        )
+        profile["demand_class"] = new_class
+        profile["forecast_method"] = _forecast_method(new_class)
 
     now = get_utc_now()
     existing = session.get(SkuForecastProfile, item_code)
@@ -184,7 +242,15 @@ def classify_all_items(session: Session) -> int:
         logger.warning(f"Could not load OOS data for classification: {e}")
         oos_map = {}
 
-    stats = {"no_demand": 0, "new_sparse": 0, "history_incomplete": 0, "smooth": 0, "erratic": 0, "intermittent": 0, "lumpy": 0}
+    item_age_cache = {}
+    for item_code, item_sales in sales_by_item.items():
+        item_age_cache[item_code] = _compute_item_age_weeks(item_sales, completed_week_cutoff)
+
+    stats = {
+        "no_demand": 0, "new_true": 0, "sparse_valid": 0,
+        "availability_distorted": 0, "history_incomplete": 0,
+        "smooth": 0, "erratic": 0, "intermittent": 0, "lumpy": 0,
+    }
 
     for (item_code,) in items:
         item_sales = sales_by_item.get(item_code, {})
@@ -218,6 +284,14 @@ def classify_all_items(session: Session) -> int:
             profile["oos_adjusted"] = False
 
         profile["oos_weeks_26"] = oos_count
+
+        if profile["demand_class"] == "new_sparse":
+            item_age = item_age_cache.get(item_code, 0)
+            new_class = _reclassify_low_history(
+                profile["weeks_non_zero_26"], item_age, oos_count
+            )
+            profile["demand_class"] = new_class
+            profile["forecast_method"] = _forecast_method(new_class)
 
         if is_history_incomplete and profile["demand_class"] == "no_demand":
             profile["history_incomplete"] = True

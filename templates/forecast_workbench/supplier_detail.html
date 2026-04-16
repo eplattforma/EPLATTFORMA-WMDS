@@ -100,6 +100,9 @@
     .badge-intermittent { background: #0d6efd; color: #fff; }
     .badge-lumpy { background: #fd7e14; color: #fff; }
     .badge-new_sparse { background: #6c757d; color: #fff; }
+    .badge-new_true { background: #6c757d; color: #fff; }
+    .badge-sparse_valid { background: #17a2b8; color: #fff; }
+    .badge-availability_distorted { background: #dc3545; color: #fff; }
     .badge-no_demand { background: #495057; color: #adb5bd; }
     .badge-trend-up { color: #198754; }
     .badge-trend-down { color: #dc3545; }
@@ -199,7 +202,9 @@
         <div class="kpi-card"><div class="kpi-value text-warning" id="kpiErratic">-</div><div class="kpi-label">Erratic</div></div>
         <div class="kpi-card"><div class="kpi-value" style="color:#0d6efd" id="kpiIntermittent">-</div><div class="kpi-label">Intermittent</div></div>
         <div class="kpi-card"><div class="kpi-value" style="color:#fd7e14" id="kpiLumpy">-</div><div class="kpi-label">Lumpy</div></div>
-        <div class="kpi-card"><div class="kpi-value text-secondary" id="kpiNewSparse">-</div><div class="kpi-label">New/Sparse</div></div>
+        <div class="kpi-card"><div class="kpi-value text-secondary" id="kpiNewTrue">-</div><div class="kpi-label">New</div></div>
+        <div class="kpi-card"><div class="kpi-value" style="color:#17a2b8" id="kpiSparseValid">-</div><div class="kpi-label">Sparse</div></div>
+        <div class="kpi-card"><div class="kpi-value text-danger" id="kpiAvailDistorted">-</div><div class="kpi-label">Avail. Dist.</div></div>
         <div class="kpi-card"><div class="kpi-value text-muted" id="kpiNoDemand">-</div><div class="kpi-label">No Demand</div></div>
         <div class="kpi-card"><div class="kpi-value text-success" id="kpiTrendUp">-</div><div class="kpi-label"><i class="fas fa-arrow-up"></i> Trend Up</div></div>
         <div class="kpi-card"><div class="kpi-value text-danger" id="kpiTrendDown">-</div><div class="kpi-label"><i class="fas fa-arrow-down"></i> Trend Down</div></div>
@@ -239,7 +244,9 @@
                     <option value="erratic">Erratic</option>
                     <option value="intermittent">Intermittent</option>
                     <option value="lumpy">Lumpy</option>
-                    <option value="new_sparse">New/Sparse</option>
+                    <option value="new_true">New</option>
+                    <option value="sparse_valid">Sparse</option>
+                    <option value="availability_distorted">Avail. Distorted</option>
                     <option value="no_demand">No Demand</option>
                 </select>
             </div>
@@ -483,7 +490,8 @@
     }
 
     function updateKPIs(items) {
-        let counts = {smooth:0, erratic:0, intermittent:0, lumpy:0, new_sparse:0, no_demand:0,
+        let counts = {smooth:0, erratic:0, intermittent:0, lumpy:0, new_true:0, sparse_valid:0,
+                      availability_distorted:0, new_sparse:0, no_demand:0,
                       trend_up:0, trend_down:0, seasonal:0, review:0, with_order:0};
         items.forEach(it => {
             if (it.demand_class) counts[it.demand_class] = (counts[it.demand_class]||0) + 1;
@@ -498,7 +506,9 @@
         document.getElementById('kpiErratic').textContent = counts.erratic;
         document.getElementById('kpiIntermittent').textContent = counts.intermittent;
         document.getElementById('kpiLumpy').textContent = counts.lumpy;
-        document.getElementById('kpiNewSparse').textContent = counts.new_sparse;
+        document.getElementById('kpiNewTrue').textContent = counts.new_true + counts.new_sparse;
+        document.getElementById('kpiSparseValid').textContent = counts.sparse_valid;
+        document.getElementById('kpiAvailDistorted').textContent = counts.availability_distorted;
         document.getElementById('kpiNoDemand').textContent = counts.no_demand;
         document.getElementById('kpiTrendUp').textContent = counts.trend_up;
         document.getElementById('kpiTrendDown').textContent = counts.trend_down;
@@ -703,7 +713,7 @@
     }
 
     function formatDemandClass(dc) {
-        const map = {smooth:'Smooth', erratic:'Erratic', intermittent:'Intmit', lumpy:'Lumpy', new_sparse:'New', no_demand:'None'};
+        const map = {smooth:'Smooth', erratic:'Erratic', intermittent:'Intmit', lumpy:'Lumpy', new_true:'New', sparse_valid:'Sparse', availability_distorted:'Avail.D', new_sparse:'New', no_demand:'None'};
         return map[dc] || dc;
     }
 
@@ -974,6 +984,9 @@
         if (dc === 'erratic') return 'Irregular volume. ADI < 1.32, CV&sup2; &ge; 0.49. Uses MA8 but flagged for review due to high variability.';
         if (dc === 'intermittent') return 'Sporadic timing. ADI &ge; 1.32, CV&sup2; < 0.49. Uses Median6 to handle gaps.';
         if (dc === 'lumpy') return 'Both sporadic and variable. ADI &ge; 1.32, CV&sup2; &ge; 0.49. Uses Median6, flagged for review.';
+        if (dc === 'new_true') return 'Truly new item (< 6 weeks old, < 4 non-zero weeks). Uses conservative brand/category analogue floor.';
+        if (dc === 'sparse_valid') return 'Sparse but valid history (&ge; 3 non-zero weeks, &ge; 6 weeks old). Uses rate-based forecast (total sales / active weeks).';
+        if (dc === 'availability_distorted') return 'Sales history distorted by frequent stockouts (&ge; 3 OOS weeks). Uses exposure-adjusted demand or analogue floor.';
         if (dc === 'new_sparse') return 'Fewer than 6 non-zero weeks in last 26. Too little data for reliable forecasting.';
         if (dc === 'no_demand') return 'Zero sales in the last 26 weeks.';
         return dc;

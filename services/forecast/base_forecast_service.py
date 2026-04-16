@@ -75,57 +75,18 @@ def _compute_median6(weekly_qtys):
     return sorted_vals[mid]
 
 
-def _compute_seeded_forecast(item_code, weekly_qtys, profile, dw_item_cache=None, group_baseline_cache=None):
-    non_zero = [q for q in weekly_qtys[:8] if q > 0]
-    own_signal = sum(non_zero) / len(non_zero) if non_zero else 0.0
-
-    dw_item = dw_item_cache.get(item_code) if dw_item_cache else None
-    supplier_code = dw_item.supplier_code_365 if dw_item else None
-    brand_code = dw_item.brand_code_365 if dw_item else None
-    item_prefix = extract_item_prefix(item_code)
-
-    analogue_baseline = None
-    analogue_level = "none"
-    analogue_item = None
-
-    if group_baseline_cache is not None:
-        if brand_code and ("brand", brand_code) in group_baseline_cache:
-            baseline = group_baseline_cache[("brand", brand_code)]
-            if baseline is not None and baseline > 0:
-                analogue_baseline = baseline
-                analogue_level = "brand"
-        if analogue_baseline is None and supplier_code and ("supplier", supplier_code) in group_baseline_cache:
-            baseline = group_baseline_cache[("supplier", supplier_code)]
-            if baseline is not None and baseline > 0:
-                analogue_baseline = baseline
-                analogue_level = "supplier"
-
-    if own_signal > 0 and analogue_baseline is not None:
-        forecast = 0.70 * own_signal + 0.30 * analogue_baseline
-    elif own_signal > 0:
-        forecast = own_signal * 0.70
-        analogue_level = "none"
-    elif analogue_baseline is not None:
-        forecast = analogue_baseline
-    else:
-        return 0.0, "none", None, "none", False
-
-    if own_signal > 0:
-        seeded_cap = max(2.0, own_signal * 2.5)
-    else:
-        seeded_cap = max(2.0, forecast * 2.5)
-    capped_forecast = min(forecast, seeded_cap)
-    cap_applied = capped_forecast < forecast
-
-    if cap_applied:
-        logger.info(f"SEEDED cap applied for {item_code}: raw={forecast:.2f}, capped={capped_forecast:.2f}, own_signal={own_signal:.2f}")
-
-    return capped_forecast, analogue_level, analogue_item, "low", cap_applied
+def _percentile(values, pct):
+    if not values:
+        return None
+    sorted_v = sorted(values)
+    idx = int(len(sorted_v) * pct / 100)
+    idx = min(idx, len(sorted_v) - 1)
+    return sorted_v[idx]
 
 
-def _preload_group_baselines(session, profiles, dw_item_cache):
+def _build_analogue_floors(session, profiles, dw_item_cache):
     completed_week_cutoff = get_completed_week_cutoff()
-    cutoff_8w = completed_week_cutoff - timedelta(weeks=8)
+    cutoff_26w = completed_week_cutoff - timedelta(weeks=26)
 
     eligible_profiles = {
         p.item_code_365: p for p in profiles
@@ -133,70 +94,132 @@ def _preload_group_baselines(session, profiles, dw_item_cache):
         and (p.weeks_non_zero_26 or 0) >= 6
     }
 
-    supplier_groups = {}
     brand_groups = {}
-    prefix_groups = {}
+    category_groups = {}
 
     for item_code, dw_item in dw_item_cache.items():
         if not dw_item.active or item_code not in eligible_profiles:
             continue
-        if dw_item.supplier_code_365:
-            supplier_groups.setdefault(dw_item.supplier_code_365, []).append(item_code)
         if dw_item.brand_code_365:
             brand_groups.setdefault(dw_item.brand_code_365, []).append(item_code)
-        prefix = extract_item_prefix(item_code)
-        if prefix:
-            prefix_groups.setdefault(prefix, []).append(item_code)
+        if dw_item.category_code_365:
+            category_groups.setdefault(dw_item.category_code_365, []).append(item_code)
 
     all_eligible_items = list(eligible_profiles.keys())
 
-    sales_8w = {}
+    item_weekly_avg = {}
     if all_eligible_items:
-        rows = (
-            session.query(
-                FactSalesWeeklyItem.item_code_365,
-                FactSalesWeeklyItem.week_start,
-                FactSalesWeeklyItem.gross_qty,
+        batch_size = 500
+        for i in range(0, len(all_eligible_items), batch_size):
+            batch = all_eligible_items[i:i + batch_size]
+            rows = (
+                session.query(
+                    FactSalesWeeklyItem.item_code_365,
+                    func.sum(FactSalesWeeklyItem.gross_qty),
+                )
+                .filter(
+                    FactSalesWeeklyItem.item_code_365.in_(batch),
+                    FactSalesWeeklyItem.week_start >= cutoff_26w,
+                    FactSalesWeeklyItem.week_start < completed_week_cutoff,
+                )
+                .group_by(FactSalesWeeklyItem.item_code_365)
+                .all()
             )
-            .filter(
-                FactSalesWeeklyItem.item_code_365.in_(all_eligible_items),
-                FactSalesWeeklyItem.week_start >= cutoff_8w,
-                FactSalesWeeklyItem.week_start < completed_week_cutoff,
-            )
-            .all()
-        )
-        for item_code, week_start, gross_qty in rows:
-            sales_8w.setdefault(item_code, {})
-            sales_8w[item_code][week_start] = _to_float(gross_qty)
-
-    weeks_list = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(8)]
-
-    def _calc_group_avg(member_items):
-        ranked = sorted(
-            member_items,
-            key=lambda ic: sum(sales_8w.get(ic, {}).values()),
-            reverse=True
-        )
-
-        weekly_totals = {}
-        for ws in weeks_list:
-            total = 0.0
-            for ic in ranked[:50]:
-                total += sales_8w.get(ic, {}).get(ws, 0.0)
-            weekly_totals[ws] = total
-        total_qty = sum(weekly_totals.values())
-        avg = total_qty / 8.0
-        return avg if avg > 0 else None
+            for item_code_r, total_qty in rows:
+                avg = float(total_qty or 0) / 26.0
+                if avg > 0:
+                    item_weekly_avg[item_code_r] = avg
 
     cache = {}
-    for code, members in supplier_groups.items():
-        cache[("supplier", code)] = _calc_group_avg(members)
-    for code, members in brand_groups.items():
-        cache[("brand", code)] = _calc_group_avg(members)
-    for code, members in prefix_groups.items():
-        cache[("prefix", code)] = _calc_group_avg(members)
 
+    for brand, members in brand_groups.items():
+        avgs = [item_weekly_avg[ic] for ic in members if ic in item_weekly_avg]
+        if len(avgs) >= 2:
+            cache[("brand", brand)] = _percentile(avgs, 25)
+        elif len(avgs) == 1:
+            cache[("brand", brand)] = avgs[0] * 0.5
+
+    for cat, members in category_groups.items():
+        avgs = [item_weekly_avg[ic] for ic in members if ic in item_weekly_avg]
+        if len(avgs) >= 3:
+            cache[("category", cat)] = _percentile(avgs, 20)
+
+    logger.info(
+        f"Analogue floors built: {sum(1 for k in cache if k[0] == 'brand')} brands, "
+        f"{sum(1 for k in cache if k[0] == 'category')} categories"
+    )
     return cache
+
+
+def _get_analogue_floor(item_code, dw_item_cache, analogue_cache):
+    dw_item = dw_item_cache.get(item_code)
+    if not dw_item:
+        return 0.0, "none"
+
+    brand = dw_item.brand_code_365
+    if brand and ("brand", brand) in analogue_cache:
+        floor = analogue_cache[("brand", brand)]
+        if floor is not None and floor > 0:
+            return floor, "brand"
+
+    category = dw_item.category_code_365
+    if category and ("category", category) in analogue_cache:
+        floor = analogue_cache[("category", category)]
+        if floor is not None and floor > 0:
+            return floor, "category"
+
+    return 0.0, "none"
+
+
+def _compute_seeded_new_forecast(item_code, dw_item_cache, analogue_cache):
+    floor, level = _get_analogue_floor(item_code, dw_item_cache, analogue_cache)
+    return floor, level, "low"
+
+
+def _compute_rate_based_forecast(weekly_qtys, week_starts, oos_weeks):
+    total_qty = 0.0
+    active_weeks = 0
+    for qty, ws in zip(weekly_qtys, week_starts):
+        if ws in oos_weeks:
+            continue
+        total_qty += qty
+        active_weeks += 1
+
+    if active_weeks == 0:
+        return 0.0
+
+    return total_qty / active_weeks
+
+
+def _compute_availability_distorted_forecast(
+    item_code, weekly_qtys, week_starts, oos_weeks, dw_item_cache, analogue_cache
+):
+    review_note = None
+
+    if oos_weeks:
+        total_qty = sum(weekly_qtys)
+        total_weeks = len(weekly_qtys)
+        oos_count = sum(1 for ws in week_starts if ws in oos_weeks)
+        active_weeks = total_weeks - oos_count
+
+        if active_weeks >= 2:
+            clean_total = sum(q for q, ws in zip(weekly_qtys, week_starts) if ws not in oos_weeks)
+            forecast = clean_total / active_weeks
+            return forecast, "exposure_adjusted", "medium", review_note
+
+    floor, level = _get_analogue_floor(item_code, dw_item_cache, analogue_cache)
+    if floor > 0:
+        review_note = "Availability-distorted: analogue floor used, planner review recommended"
+        return floor, level, "low", review_note
+
+    return 0.0, "none", "low", "Availability-distorted: no analogue floor available"
+
+
+def _compute_seeded_forecast(item_code, weekly_qtys, profile, dw_item_cache=None, group_baseline_cache=None):
+    floor, level = _get_analogue_floor(item_code, dw_item_cache, group_baseline_cache or {})
+    if floor > 0:
+        return floor, level, None, "low", False
+    return 0.0, "none", None, "none", False
 
 
 def _get_seasonality_indexes_preloaded(item_code, dw_item_cache, seasonality_index_map, reliable_levels, horizon_days):
@@ -314,7 +337,7 @@ def _min_clean_weeks_for_method(demand_class: str) -> int:
         return 8
     if demand_class in ("intermittent", "lumpy"):
         return 6
-    if demand_class == "new_sparse":
+    if demand_class in ("new_sparse", "new_true", "sparse_valid", "availability_distorted"):
         return 4
     return 0
 
@@ -326,6 +349,10 @@ def _recent_trend_allowed(recent_calendar_week_starts, item_oos_weeks):
     if not recent_two:
         return False
     return all(ws not in item_oos_weeks for ws in recent_two)
+
+
+def _preload_group_baselines(session, profiles, dw_item_cache):
+    return _build_analogue_floors(session, profiles, dw_item_cache)
 
 
 def compute_base_forecasts(session: Session, run_id=None, progress_callback=None):
@@ -377,13 +404,17 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         existing_by_item[item_code][week_start] = float(gross_qty or 0)
     
     sales_by_item = {}
+    week_starts_by_item = {}
     for item_code in set(p.item_code_365 for p in profiles):
         weekly_qtys = []
+        ws_list = []
         for i in range(26):
             ws = completed_week_cutoff - timedelta(weeks=(i + 1))
             qty = existing_by_item.get(item_code, {}).get(ws, 0.0)
             weekly_qtys.append(qty)
+            ws_list.append(ws)
         sales_by_item[item_code] = weekly_qtys
+        week_starts_by_item[item_code] = ws_list
     
     active_codes = {p.item_code_365 for p in profiles}
     old_results = {}
@@ -422,8 +453,8 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
             reliable_levels[(row.level_type, row.level_code)] = row.confidence
     logger.info(f"Preloaded {len(seasonality_index_map)} seasonality index rows, {len(reliable_levels)} reliable levels")
 
-    group_baseline_cache = _preload_group_baselines(session, profiles, dw_item_cache)
-    logger.info(f"Preloaded {len(group_baseline_cache)} group baselines")
+    analogue_cache = _build_analogue_floors(session, profiles, dw_item_cache)
+    logger.info(f"Preloaded {len(analogue_cache)} analogue floors")
 
     try:
         from services.forecast.oos_demand_service import bulk_get_oos_weeks, OOS_THRESHOLD_DAYS
@@ -437,9 +468,9 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         item_code = profile.item_code_365
         demand_class = profile.demand_class
         weekly_qtys = sales_by_item.get(item_code, [])
+        week_starts_for_item = week_starts_by_item.get(item_code, [])
 
         item_oos_weeks = oos_map.get(item_code, set())
-        week_starts_for_item = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(len(weekly_qtys))]
         required_clean_weeks = _min_clean_weeks_for_method(demand_class)
 
         if item_oos_weeks and weekly_qtys:
@@ -472,11 +503,12 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         is_incomplete = getattr(profile, 'history_incomplete', False)
 
         if is_incomplete:
-            base_forecast, analogue_level, analogue_item, forecast_confidence, cap_applied = _compute_seeded_forecast(
-                item_code, forecast_qtys, profile,
-                dw_item_cache=dw_item_cache,
-                group_baseline_cache=group_baseline_cache,
+            floor, level, conf = _compute_seeded_new_forecast(
+                item_code, dw_item_cache, analogue_cache
             )
+            base_forecast = floor
+            analogue_level = level
+            forecast_confidence = conf
             forecast_method = "INSUFFICIENT_HISTORY"
             seed_source = analogue_level
             profile.baseline_source = analogue_level
@@ -492,11 +524,58 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
             base_forecast = _compute_median6(forecast_qtys)
             forecast_method = "MEDIAN6"
             forecast_confidence = "medium"
+
+            if base_forecast == 0.0 and any(q > 0 for q in weekly_qtys):
+                rate_based = _compute_rate_based_forecast(
+                    weekly_qtys, week_starts_for_item, item_oos_weeks
+                )
+                if rate_based > 0:
+                    base_forecast = rate_based
+                    forecast_method = "RATE_BASED"
+                    forecast_confidence = "low"
+                    logger.info(
+                        f"MEDIAN6 collapse fallback for {item_code}: "
+                        f"rate_based={rate_based:.4f}"
+                    )
+        elif demand_class == "new_true":
+            floor, level, conf = _compute_seeded_new_forecast(
+                item_code, dw_item_cache, analogue_cache
+            )
+            base_forecast = floor
+            analogue_level = level
+            forecast_confidence = conf
+            forecast_method = "SEEDED_NEW"
+            seed_source = level
+            profile.baseline_source = level
+        elif demand_class == "sparse_valid":
+            base_forecast = _compute_rate_based_forecast(
+                weekly_qtys, week_starts_for_item, item_oos_weeks
+            )
+            forecast_method = "RATE_BASED"
+            forecast_confidence = "medium" if base_forecast > 0 else "low"
+        elif demand_class == "availability_distorted":
+            forecast, level, conf, review_note = _compute_availability_distorted_forecast(
+                item_code, weekly_qtys, week_starts_for_item,
+                item_oos_weeks, dw_item_cache, analogue_cache
+            )
+            base_forecast = forecast
+            analogue_level = level
+            forecast_confidence = conf
+            forecast_method = "AVAILABILITY_DISTORTED"
+            seed_source = level if level != "exposure_adjusted" else None
+            profile.baseline_source = level
+            if review_note:
+                profile.review_flag = True
+                existing_reason = profile.review_reason or ""
+                parts = [r.strip() for r in existing_reason.split(";") if r.strip()] if existing_reason else []
+                if review_note not in parts:
+                    parts.append(review_note)
+                profile.review_reason = "; ".join(parts)
         elif demand_class == "new_sparse":
             base_forecast, analogue_level, analogue_item, forecast_confidence, cap_applied = _compute_seeded_forecast(
                 item_code, forecast_qtys, profile,
                 dw_item_cache=dw_item_cache,
-                group_baseline_cache=group_baseline_cache,
+                group_baseline_cache=analogue_cache,
             )
             forecast_method = "SEEDED"
             seed_source = analogue_level
@@ -627,6 +706,29 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
     weekly_qtys = _get_recent_weekly_qtys(session, item_code, 26)
     demand_class = profile.demand_class
 
+    completed_week_cutoff = get_completed_week_cutoff()
+    week_starts = [completed_week_cutoff - timedelta(weeks=(i + 1)) for i in range(26)]
+
+    try:
+        from services.forecast.oos_demand_service import get_oos_weeks_set, OOS_THRESHOLD_DAYS
+        item_oos_weeks = get_oos_weeks_set(session, item_code, 26, OOS_THRESHOLD_DAYS)
+    except Exception:
+        item_oos_weeks = set()
+
+    single_dw_cache = {}
+    dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
+    if dw_item:
+        single_dw_cache[item_code] = dw_item
+
+    all_profiles = session.query(SkuForecastProfile).join(
+        DwItem, DwItem.item_code_365 == SkuForecastProfile.item_code_365
+    ).filter(DwItem.active == True).all()
+    all_dw = {
+        it.item_code_365: it
+        for it in session.query(DwItem).filter(DwItem.active == True).all()
+    }
+    single_analogue_cache = _build_analogue_floors(session, all_profiles, all_dw)
+
     base_forecast = 0.0
     forecast_method = "ZERO"
     trend_flag = "flat"
@@ -635,22 +737,16 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
     is_incomplete = getattr(profile, 'history_incomplete', False)
 
     if is_incomplete:
-        single_dw_cache = {}
-        dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
-        if dw_item:
-            single_dw_cache[item_code] = dw_item
-        single_group_cache = _preload_group_baselines(session, [profile], single_dw_cache)
-        base_forecast, analogue_level, analogue_item, confidence, cap_applied = _compute_seeded_forecast(
-            item_code, weekly_qtys, profile,
-            dw_item_cache=single_dw_cache,
-            group_baseline_cache=single_group_cache,
+        floor, level, conf = _compute_seeded_new_forecast(
+            item_code, single_dw_cache, single_analogue_cache
         )
+        base_forecast = floor
         forecast_method = "INSUFFICIENT_HISTORY"
-        profile.seed_source = analogue_level
-        profile.analogue_item_code = analogue_item
-        profile.analogue_level = analogue_level
-        profile.forecast_confidence = confidence
-        profile.baseline_source = analogue_level
+        profile.seed_source = level
+        profile.analogue_item_code = None
+        profile.analogue_level = level
+        profile.forecast_confidence = conf
+        profile.baseline_source = level
     elif demand_class == "smooth":
         base_forecast = _compute_ma8(weekly_qtys)
         forecast_method = "MA8"
@@ -660,16 +756,44 @@ def compute_single_base_forecast(session: Session, item_code: str, run_id=None):
     elif demand_class in ("intermittent", "lumpy"):
         base_forecast = _compute_median6(weekly_qtys)
         forecast_method = "MEDIAN6"
+
+        if base_forecast == 0.0 and any(q > 0 for q in weekly_qtys):
+            rate_based = _compute_rate_based_forecast(weekly_qtys, week_starts, item_oos_weeks)
+            if rate_based > 0:
+                base_forecast = rate_based
+                forecast_method = "RATE_BASED"
+    elif demand_class == "new_true":
+        floor, level, conf = _compute_seeded_new_forecast(
+            item_code, single_dw_cache, single_analogue_cache
+        )
+        base_forecast = floor
+        forecast_method = "SEEDED_NEW"
+        profile.seed_source = level
+        profile.analogue_item_code = None
+        profile.analogue_level = level
+        profile.forecast_confidence = conf
+        profile.baseline_source = level
+    elif demand_class == "sparse_valid":
+        base_forecast = _compute_rate_based_forecast(weekly_qtys, week_starts, item_oos_weeks)
+        forecast_method = "RATE_BASED"
+    elif demand_class == "availability_distorted":
+        forecast, level, conf, review_note = _compute_availability_distorted_forecast(
+            item_code, weekly_qtys, week_starts,
+            item_oos_weeks, single_dw_cache, single_analogue_cache
+        )
+        base_forecast = forecast
+        forecast_method = "AVAILABILITY_DISTORTED"
+        profile.analogue_level = level
+        profile.forecast_confidence = conf
+        profile.baseline_source = level
+        if review_note:
+            profile.review_flag = True
+            profile.review_reason = review_note
     elif demand_class == "new_sparse":
-        single_dw_cache = {}
-        dw_item = session.query(DwItem).filter_by(item_code_365=item_code).first()
-        if dw_item:
-            single_dw_cache[item_code] = dw_item
-        single_group_cache = _preload_group_baselines(session, [profile], single_dw_cache)
         base_forecast, analogue_level, analogue_item, confidence, cap_applied = _compute_seeded_forecast(
             item_code, weekly_qtys, profile,
             dw_item_cache=single_dw_cache,
-            group_baseline_cache=single_group_cache,
+            group_baseline_cache=single_analogue_cache,
         )
         forecast_method = "SEEDED"
         profile.seed_source = analogue_level
