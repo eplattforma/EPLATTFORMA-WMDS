@@ -390,8 +390,8 @@
                     <th>Method</th>
                     <th class="num-col" title="OOS days in the 8-week forecast window (max 56)">OOS 8w</th>
                     <th class="num-col">Base/Wk</th>
-                    <th class="num-col">Final/Wk</th>
-                    <th class="num-col" title="Override forecast (weekly)">Ovr/Wk</th>
+                    <th class="num-col" title="Final forecast used for ordering (override if active, else system)">Final/Wk</th>
+                    <th class="num-col" title="Override forecast value (weekly)">Ovr/Wk</th>
                     <th title="Forecast source: System or Override">Src</th>
                     <th title="Override reason code">Reason</th>
                     <th title="Override review due date">Review</th>
@@ -706,8 +706,8 @@
             <td><small>${esc(it.forecast_method || '-')}${it.oos_adjusted ? ' <span class="badge bg-warning text-dark" style="font-size:0.6rem">+OOS</span>' : ''}</small></td>
             <td class="num-col">${formatOosDays8w(it.oos_days_8w || 0)}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
-            <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
-            <td class="num-col ${it.has_override ? 'text-info' : ''}">${ovrQty}</td>
+            <td class="num-col fw-bold ${it.has_override ? 'text-info' : ''}">${fmtNum(it.final_forecast_weekly)}</td>
+            <td class="num-col">${ovrQty}</td>
             <td>${srcBadge}</td>
             <td><small>${it.has_override ? esc(formatReasonCode(it.override_reason_code)) : '-'}</small></td>
             <td><small>${it.override_review_due_at ? new Date(it.override_review_due_at).toLocaleDateString() : '-'}</small></td>

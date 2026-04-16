@@ -400,7 +400,8 @@ def api_items():
             'adi_26': _float(prof.adi_26) if prof else None,
             'cv2_26': _float(prof.cv2_26) if prof else None,
             'base_forecast_weekly': _float(res.base_forecast_weekly_qty) if res else 0,
-            'final_forecast_weekly': _float(res.final_forecast_weekly_qty) if res else 0,
+            'system_forecast_weekly': _float(res.final_forecast_weekly_qty) if res else 0,
+            'final_forecast_weekly': _float(ovr.override_weekly_qty) if ovr else (_float(res.final_forecast_weekly_qty) if res else 0),
             'final_forecast_daily': _float(res.final_forecast_daily_qty) if res else 0,
             'forecast_change_pct': _float(res.forecast_change_pct) if res else None,
             'target_weeks_of_stock': _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0,
@@ -1056,6 +1057,54 @@ def api_ordering_status():
         if job['snapshot_count'] is not None:
             resp['snapshot_count'] = job['snapshot_count']
     return jsonify(resp)
+
+
+@forecast_bp.route('/api/overrides')
+@admin_or_warehouse_required
+def api_overrides():
+    supplier_code = request.args.get('supplier', '')
+    if not supplier_code:
+        return jsonify({'error': 'supplier is required'}), 400
+
+    from sqlalchemy.orm import aliased
+    dw = aliased(DwItem)
+    smap = aliased(ForecastItemSupplierMap)
+
+    item_codes_q = db.session.query(dw.item_code_365).outerjoin(
+        smap, dw.item_code_365 == smap.item_code_365
+    ).filter(
+        or_(dw.supplier_code_365 == supplier_code, smap.supplier_code == supplier_code)
+    ).distinct().all()
+    item_codes = [r[0] for r in item_codes_q]
+
+    overrides = SkuForecastOverride.query.filter(
+        SkuForecastOverride.item_code_365.in_(item_codes),
+        SkuForecastOverride.is_active == True,
+    ).order_by(SkuForecastOverride.created_at.desc()).all()
+
+    now_utc = get_utc_now()
+    result = []
+    for o in overrides:
+        status = 'active'
+        if o.review_due_at and o.review_due_at < now_utc:
+            status = 'past_due'
+        elif o.review_due_at and (o.review_due_at - now_utc).days <= 7:
+            status = 'review_due'
+        result.append({
+            'id': o.id,
+            'item_code_365': o.item_code_365,
+            'override_weekly_qty': _float(o.override_weekly_qty),
+            'reason_code': o.reason_code,
+            'reason_note': o.reason_note,
+            'is_active': o.is_active,
+            'review_due_at': o.review_due_at.isoformat() + 'Z' if o.review_due_at else None,
+            'created_at': o.created_at.isoformat() + 'Z' if o.created_at else None,
+            'created_by': o.created_by,
+            'last_reviewed_at': o.last_reviewed_at.isoformat() + 'Z' if o.last_reviewed_at else None,
+            'last_reviewed_by': o.last_reviewed_by,
+            'status': status,
+        })
+    return jsonify({'overrides': result, 'count': len(result)})
 
 
 @forecast_bp.route('/api/override/apply', methods=['POST'])
