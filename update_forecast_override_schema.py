@@ -17,7 +17,7 @@ def update_forecast_override_schema():
                     reason_note TEXT,
                     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                     created_by VARCHAR(100),
-                    review_due_at TIMESTAMP,
+                    review_due_at TIMESTAMP DEFAULT (NOW() + INTERVAL '28 days'),
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     cleared_at TIMESTAMP,
                     cleared_by VARCHAR(100),
@@ -39,6 +39,17 @@ def update_forecast_override_schema():
         """))
         db.session.commit()
 
+        try:
+            db.session.execute(text("""
+                ALTER TABLE sku_forecast_override
+                ALTER COLUMN review_due_at SET DEFAULT (NOW() + INTERVAL '28 days')
+            """))
+            db.session.commit()
+            logger.info("review_due_at default ensured on sku_forecast_override")
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"Could not set review_due_at default: {e}")
+
         for col, col_type in [
             ("system_forecast_weekly_qty", "NUMERIC(18,6)"),
             ("override_forecast_weekly_qty", "NUMERIC(18,6)"),
@@ -48,11 +59,12 @@ def update_forecast_override_schema():
                 db.session.execute(text(
                     f"ALTER TABLE sku_ordering_snapshot ADD COLUMN IF NOT EXISTS {col} {col_type}"
                 ))
+                db.session.commit()
                 logger.info(f"{col} column ensured on sku_ordering_snapshot")
-            except Exception:
-                pass
+            except Exception as e:
+                db.session.rollback()
+                logger.warning(f"Could not add {col} to sku_ordering_snapshot: {e}")
 
-        db.session.commit()
         logger.info("✅ Forecast override schema update completed successfully")
     except Exception as e:
         db.session.rollback()

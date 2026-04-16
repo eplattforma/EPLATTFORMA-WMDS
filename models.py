@@ -2881,7 +2881,7 @@ class SkuForecastOverride(db.Model):
     reason_note = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     created_by = db.Column(db.String(100), nullable=True)
-    review_due_at = db.Column(db.DateTime, nullable=True)
+    review_due_at = db.Column(db.DateTime, nullable=True, default=lambda: utc_now() + timedelta(days=28))
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     cleared_at = db.Column(db.DateTime, nullable=True)
     cleared_by = db.Column(db.String(100), nullable=True)
