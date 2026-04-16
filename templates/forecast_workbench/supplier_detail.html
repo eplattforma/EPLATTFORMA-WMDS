@@ -390,6 +390,7 @@
                     <th>Method</th>
                     <th class="num-col" title="OOS days in the 8-week forecast window (max 56)">OOS 8w</th>
                     <th class="num-col">Base/Wk</th>
+                    <th class="num-col" title="System final forecast (before override)">Sys/Wk</th>
                     <th class="num-col" title="Final forecast used for ordering (override if active, else system)">Final/Wk</th>
                     <th class="num-col" title="Override forecast value (weekly)">Ovr/Wk</th>
                     <th title="Forecast source: System or Override">Src</th>
@@ -403,7 +404,7 @@
                 </tr>
             </thead>
             <tbody id="forecastBody">
-                <tr><td colspan="22" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
+                <tr><td colspan="23" class="text-center py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -531,7 +532,7 @@
             })
             .catch(e => {
                 document.getElementById('forecastBody').innerHTML =
-                    '<tr><td colspan="22" class="text-center text-danger py-4">Error loading data</td></tr>';
+                    '<tr><td colspan="23" class="text-center text-danger py-4">Error loading data</td></tr>';
             });
     }
 
@@ -638,7 +639,7 @@
         const grouped = document.getElementById('groupByCategory').checked;
 
         if (!items.length) {
-            body.innerHTML = '<tr><td colspan="22" class="text-center text-muted py-4">No items match filters</td></tr>';
+            body.innerHTML = '<tr><td colspan="23" class="text-center text-muted py-4">No items match filters</td></tr>';
             return;
         }
 
@@ -650,7 +651,7 @@
                 const group = (it.category_name || it.category_code || 'Uncategorized') + ' / ' + (it.brand_name || it.brand_code || 'No Brand');
                 if (group !== lastGroup) {
                     lastGroup = group;
-                    html += `<tr class="group-header"><td colspan="22"><i class="fas fa-layer-group me-1"></i>${esc(group)}</td></tr>`;
+                    html += `<tr class="group-header"><td colspan="23"><i class="fas fa-layer-group me-1"></i>${esc(group)}</td></tr>`;
                 }
             }
             html += buildRow(it);
@@ -706,6 +707,7 @@
             <td><small>${esc(it.forecast_method || '-')}${it.oos_adjusted ? ' <span class="badge bg-warning text-dark" style="font-size:0.6rem">+OOS</span>' : ''}</small></td>
             <td class="num-col">${formatOosDays8w(it.oos_days_8w || 0)}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
+            <td class="num-col">${fmtNum(it.system_forecast_weekly)}</td>
             <td class="num-col fw-bold ${it.has_override ? 'text-info' : ''}">${fmtNum(it.final_forecast_weekly)}</td>
             <td class="num-col">${ovrQty}</td>
             <td>${srcBadge}</td>
