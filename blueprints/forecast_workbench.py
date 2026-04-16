@@ -1075,11 +1075,16 @@ def api_overrides():
     dw = aliased(DwItem)
     smap = aliased(ForecastItemSupplierMap)
 
-    item_codes_q = db.session.query(dw.item_code_365).outerjoin(
+    q = db.session.query(dw.item_code_365).outerjoin(
         smap, dw.item_code_365 == smap.item_code_365
-    ).filter(
-        or_(dw.supplier_code_365 == supplier_code, smap.supplier_code == supplier_code)
-    ).distinct().all()
+    )
+    if supplier_code == 'UNMAPPED':
+        q = q.filter(or_(dw.supplier_code_365.is_(None), dw.supplier_code_365 == ''))
+    else:
+        q = q.filter(
+            or_(dw.supplier_code_365 == supplier_code, smap.supplier_code == supplier_code)
+        )
+    item_codes_q = q.distinct().all()
     item_codes = [r[0] for r in item_codes_q]
 
     overrides = SkuForecastOverride.query.filter(
