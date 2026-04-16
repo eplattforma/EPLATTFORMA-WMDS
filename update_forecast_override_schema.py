@@ -65,6 +65,21 @@ def update_forecast_override_schema():
                 db.session.rollback()
                 logger.warning(f"Could not add {col} to sku_ordering_snapshot: {e}")
 
+        try:
+            db.session.execute(text("""
+                ALTER TABLE sku_ordering_snapshot
+                ADD CONSTRAINT ck_final_forecast_source
+                CHECK (final_forecast_source IN ('system', 'override'))
+            """))
+            db.session.commit()
+            logger.info("ck_final_forecast_source constraint added to sku_ordering_snapshot")
+        except Exception as e:
+            db.session.rollback()
+            if "already exists" in str(e):
+                logger.info("ck_final_forecast_source constraint already exists")
+            else:
+                logger.warning(f"Could not add ck_final_forecast_source constraint: {e}")
+
         logger.info("✅ Forecast override schema update completed successfully")
     except Exception as e:
         db.session.rollback()
