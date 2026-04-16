@@ -2862,8 +2862,34 @@ class SkuOrderingSnapshot(db.Model):
 
     explanation_json = db.Column(db.JSON, nullable=True)
 
+    system_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=True)
+    override_forecast_weekly_qty = db.Column(db.Numeric(18, 6), nullable=True)
+    final_forecast_source = db.Column(db.String(20), nullable=True)
+
     __table_args__ = (
         db.Index('ix_sku_ordering_snapshot_item_time', 'item_code_365', 'snapshot_at'),
+    )
+
+
+class SkuForecastOverride(db.Model):
+    __tablename__ = "sku_forecast_override"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    item_code_365 = db.Column(db.String(64), nullable=False, index=True)
+    override_weekly_qty = db.Column(db.Numeric(18, 6), nullable=False)
+    reason_code = db.Column(db.String(50), nullable=True)
+    reason_note = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    created_by = db.Column(db.String(100), nullable=True)
+    review_due_at = db.Column(db.DateTime, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    cleared_at = db.Column(db.DateTime, nullable=True)
+    cleared_by = db.Column(db.String(100), nullable=True)
+    last_reviewed_at = db.Column(db.DateTime, nullable=True)
+    last_reviewed_by = db.Column(db.String(100), nullable=True)
+
+    __table_args__ = (
+        db.Index('ix_sku_forecast_override_item_active', 'item_code_365', 'is_active'),
     )
 
 

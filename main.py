@@ -512,6 +512,12 @@ if _db_available:
     except Exception as e:
         logging.error(f"Error updating CRM offer schema: {e}")
 
+    try:
+        from update_forecast_override_schema import update_forecast_override_schema
+        update_forecast_override_schema()
+    except Exception as e:
+        logging.error(f"Error updating forecast override schema: {e}")
+
     db.create_all()
 
     try:
