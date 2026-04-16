@@ -7,21 +7,36 @@
     .kpi-card {
         background: var(--bs-dark);
         border: 1px solid var(--bs-border-color);
-        border-radius: 0.5rem;
-        padding: 0.5rem 0.75rem;
+        border-radius: 0.375rem;
+        padding: 0.3rem 0.5rem;
         text-align: center;
-        min-width: 90px;
+        min-width: 0;
+        flex: 1 1 0;
+        cursor: pointer;
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .kpi-card:hover {
+        border-color: var(--bs-primary);
+        box-shadow: 0 0 0 1px var(--bs-primary);
+    }
+    .kpi-card.kpi-active {
+        border-color: var(--bs-primary);
+        box-shadow: 0 0 0 2px var(--bs-primary);
+        background: rgba(13, 110, 253, 0.08);
     }
     .kpi-card .kpi-value {
-        font-size: 1.4rem;
+        font-size: 1.1rem;
         font-weight: 700;
-        line-height: 1.2;
+        line-height: 1.1;
     }
     .kpi-card .kpi-label {
-        font-size: 0.7rem;
+        font-size: 0.6rem;
         text-transform: uppercase;
         color: var(--bs-secondary);
-        letter-spacing: 0.03em;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .filter-section {
         background: var(--bs-dark);
@@ -213,23 +228,23 @@
         </div>
     </div>
 
-    <div class="d-flex flex-wrap gap-2 mb-3" id="kpiCards">
-        <div class="kpi-card"><div class="kpi-value text-info" id="kpiTotal">-</div><div class="kpi-label">Total SKUs</div></div>
-        <div class="kpi-card"><div class="kpi-value text-success" id="kpiSmooth">-</div><div class="kpi-label">Smooth</div></div>
-        <div class="kpi-card"><div class="kpi-value text-warning" id="kpiErratic">-</div><div class="kpi-label">Erratic</div></div>
-        <div class="kpi-card"><div class="kpi-value" style="color:#0d6efd" id="kpiIntermittent">-</div><div class="kpi-label">Intermittent</div></div>
-        <div class="kpi-card"><div class="kpi-value" style="color:#fd7e14" id="kpiLumpy">-</div><div class="kpi-label">Lumpy</div></div>
-        <div class="kpi-card"><div class="kpi-value text-secondary" id="kpiNewTrue">-</div><div class="kpi-label">New</div></div>
-        <div class="kpi-card"><div class="kpi-value" style="color:#17a2b8" id="kpiSparseValid">-</div><div class="kpi-label">Sparse</div></div>
-        <div class="kpi-card"><div class="kpi-value text-danger" id="kpiAvailDistorted">-</div><div class="kpi-label">Avail. Dist.</div></div>
-        <div class="kpi-card"><div class="kpi-value text-muted" id="kpiNoDemand">-</div><div class="kpi-label">No Demand</div></div>
-        <div class="kpi-card"><div class="kpi-value text-success" id="kpiTrendUp">-</div><div class="kpi-label"><i class="fas fa-arrow-up"></i> Trend Up</div></div>
-        <div class="kpi-card"><div class="kpi-value text-danger" id="kpiTrendDown">-</div><div class="kpi-label"><i class="fas fa-arrow-down"></i> Trend Down</div></div>
-        <div class="kpi-card"><div class="kpi-value" style="color:#6f42c1" id="kpiSeasonal">-</div><div class="kpi-label">Seasonal</div></div>
-        <div class="kpi-card"><div class="kpi-value text-warning" id="kpiReview">-</div><div class="kpi-label">Review</div></div>
-        <div class="kpi-card"><div class="kpi-value text-primary" id="kpiWithOrder">-</div><div class="kpi-label">Order > 0</div></div>
-        <div class="kpi-card"><div class="kpi-value" style="color:#0d6efd" id="kpiOverride">-</div><div class="kpi-label">Overridden</div></div>
-        <div class="kpi-card"><div class="kpi-value text-danger" id="kpiOverrideDue">-</div><div class="kpi-label">Review Due</div></div>
+    <div class="d-flex flex-nowrap gap-1 mb-3" id="kpiCards">
+        <div class="kpi-card" data-kpi-filter="total"><div class="kpi-value text-info" id="kpiTotal">-</div><div class="kpi-label">Total</div></div>
+        <div class="kpi-card" data-kpi-filter="smooth"><div class="kpi-value text-success" id="kpiSmooth">-</div><div class="kpi-label">Smooth</div></div>
+        <div class="kpi-card" data-kpi-filter="erratic"><div class="kpi-value text-warning" id="kpiErratic">-</div><div class="kpi-label">Erratic</div></div>
+        <div class="kpi-card" data-kpi-filter="intermittent"><div class="kpi-value" style="color:#0d6efd" id="kpiIntermittent">-</div><div class="kpi-label">Intermit.</div></div>
+        <div class="kpi-card" data-kpi-filter="lumpy"><div class="kpi-value" style="color:#fd7e14" id="kpiLumpy">-</div><div class="kpi-label">Lumpy</div></div>
+        <div class="kpi-card" data-kpi-filter="new_true"><div class="kpi-value text-secondary" id="kpiNewTrue">-</div><div class="kpi-label">New</div></div>
+        <div class="kpi-card" data-kpi-filter="sparse_valid"><div class="kpi-value" style="color:#17a2b8" id="kpiSparseValid">-</div><div class="kpi-label">Sparse</div></div>
+        <div class="kpi-card" data-kpi-filter="availability_distorted"><div class="kpi-value text-danger" id="kpiAvailDistorted">-</div><div class="kpi-label">Avl.Dist</div></div>
+        <div class="kpi-card" data-kpi-filter="no_demand"><div class="kpi-value text-muted" id="kpiNoDemand">-</div><div class="kpi-label">No Dmd</div></div>
+        <div class="kpi-card" data-kpi-filter="trend_up"><div class="kpi-value text-success" id="kpiTrendUp">-</div><div class="kpi-label"><i class="fas fa-arrow-up"></i> Up</div></div>
+        <div class="kpi-card" data-kpi-filter="trend_down"><div class="kpi-value text-danger" id="kpiTrendDown">-</div><div class="kpi-label"><i class="fas fa-arrow-down"></i> Down</div></div>
+        <div class="kpi-card" data-kpi-filter="seasonal"><div class="kpi-value" style="color:#6f42c1" id="kpiSeasonal">-</div><div class="kpi-label">Season</div></div>
+        <div class="kpi-card" data-kpi-filter="review"><div class="kpi-value text-warning" id="kpiReview">-</div><div class="kpi-label">Review</div></div>
+        <div class="kpi-card" data-kpi-filter="with_order"><div class="kpi-value text-primary" id="kpiWithOrder">-</div><div class="kpi-label">Order&gt;0</div></div>
+        <div class="kpi-card" data-kpi-filter="overridden"><div class="kpi-value" style="color:#0d6efd" id="kpiOverride">-</div><div class="kpi-label">Overrid.</div></div>
+        <div class="kpi-card" data-kpi-filter="override_due"><div class="kpi-value text-danger" id="kpiOverrideDue">-</div><div class="kpi-label">Rvw Due</div></div>
     </div>
 
     <ul class="nav nav-tabs saved-views mb-2" id="savedViewTabs">
@@ -608,7 +623,8 @@
         return allItems.filter(it => {
             if (dc && it.demand_class !== dc) return false;
             if (tf && it.trend_flag !== tf) return false;
-            if (ss && it.seasonality_source !== ss) return false;
+            if (ss === '_any' && (!it.seasonality_source || it.seasonality_source === 'none')) return false;
+            if (ss && ss !== '_any' && it.seasonality_source !== ss) return false;
             if (rv === '1' && !it.review_flag) return false;
             if (oo === '1' && !(it.rounded_order_qty > 0)) return false;
             if (ac === '1' && !it.active) return false;
@@ -627,6 +643,66 @@
             return true;
         });
     }
+
+    function resetAllFilters() {
+        document.getElementById('filterDemandClass').value = '';
+        document.getElementById('filterTrend').value = '';
+        document.getElementById('filterSeasonality').value = '';
+        document.getElementById('filterReview').value = '';
+        document.getElementById('filterOrder').value = '';
+        document.getElementById('filterActive').value = '';
+        document.getElementById('filterCategory').value = '';
+        document.getElementById('filterBrand').value = '';
+        document.getElementById('filterPrefix').value = '';
+        document.getElementById('filterExpiry').value = '';
+        document.getElementById('filterOverride').value = '';
+    }
+
+    function setActiveKpi(filterKey) {
+        document.querySelectorAll('#kpiCards .kpi-card').forEach(c => c.classList.remove('kpi-active'));
+        if (filterKey) {
+            const card = document.querySelector(`[data-kpi-filter="${filterKey}"]`);
+            if (card) card.classList.add('kpi-active');
+        }
+    }
+
+    document.getElementById('kpiCards').addEventListener('click', function(e) {
+        const card = e.target.closest('.kpi-card');
+        if (!card) return;
+        const key = card.dataset.kpiFilter;
+        if (!key) return;
+
+        const wasActive = card.classList.contains('kpi-active');
+        resetAllFilters();
+
+        if (wasActive) {
+            setActiveKpi(null);
+            applyFilters();
+            return;
+        }
+
+        const demandClasses = ['smooth','erratic','intermittent','lumpy','new_true','sparse_valid','availability_distorted','no_demand'];
+        if (demandClasses.includes(key)) {
+            document.getElementById('filterDemandClass').value = key;
+        } else if (key === 'trend_up') {
+            document.getElementById('filterTrend').value = 'up';
+        } else if (key === 'trend_down') {
+            document.getElementById('filterTrend').value = 'down';
+        } else if (key === 'seasonal') {
+            document.getElementById('filterSeasonality').value = '_any';
+        } else if (key === 'review') {
+            document.getElementById('filterReview').value = '1';
+        } else if (key === 'with_order') {
+            document.getElementById('filterOrder').value = '1';
+        } else if (key === 'overridden') {
+            document.getElementById('filterOverride').value = 'overridden';
+        } else if (key === 'override_due') {
+            document.getElementById('filterOverride').value = 'review_due';
+        }
+
+        setActiveKpi(key === 'total' ? null : key);
+        applyFilters();
+    });
 
     function applyFilters() {
         const filtered = getFilteredItems();
@@ -1396,6 +1472,7 @@
             this.classList.add('active');
             const view = this.dataset.view;
             clearFilterInputs();
+            setActiveKpi(null);
             const preset = savedViewPresets[view] || {};
             if (preset.order) document.getElementById('filterOrder').value = preset.order;
             if (preset.review) document.getElementById('filterReview').value = preset.review;
@@ -1422,14 +1499,15 @@
 
     document.getElementById('btnClearFilters').addEventListener('click', function() {
         clearFilterInputs();
+        setActiveKpi(null);
         document.querySelectorAll('#savedViewTabs .nav-link').forEach(t => t.classList.remove('active'));
         document.querySelector('#savedViewTabs .nav-link[data-view="all"]').classList.add('active');
         applyFilters();
     });
 
     document.querySelectorAll('#filterBar select, #filterBar input').forEach(el => {
-        el.addEventListener('change', applyFilters);
-        if (el.tagName === 'INPUT') el.addEventListener('input', applyFilters);
+        el.addEventListener('change', function() { setActiveKpi(null); applyFilters(); });
+        if (el.tagName === 'INPUT') el.addEventListener('input', function() { setActiveKpi(null); applyFilters(); });
     });
 
     document.getElementById('groupByCategory').addEventListener('change', applyFilters);
