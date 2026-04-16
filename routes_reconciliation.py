@@ -1048,11 +1048,12 @@ def api_customer_sms_history(customer_code):
         comms = get_customer_comm_history(customer_code, limit=10)
         messages = []
         for m in comms:
+            created_at = m['created_at']
             messages.append({
-                'date': m.created_at.strftime('%d-%m %H:%M') if m.created_at else '',
-                'status': (m.status or '').lower(),
-                'template_title': m.template_title or '',
-                'message_text': m.message_text or '',
+                'date': created_at.strftime('%d-%m %H:%M') if created_at else '',
+                'status': (m['status'] or '').lower(),
+                'template_title': m['template_title'] or '',
+                'message_text': m['message_text'] or '',
             })
         return jsonify({'success': True, 'messages': messages})
     except Exception as e:
