@@ -1,0 +1,502 @@
+Instructions to Replit — Correct new/seeded forecast logic and add persistent forecast overrides
+
+Do not redesign the screens or change the current user flow.
+Keep the existing forecast workbench / ordering flow.
+The changes below are logic + data model + small UI behavior additions inside the existing screens.
+
+1) Main objective
+
+We need to correct two things:
+
+A. New / seeded forecasting is currently wrong
+
+The current seeded logic is too aggressive and can be distorted by low-sales / OOS situations.
+
+B. Manual forecast override must exist and persist
+
+The planner must be able to modify a forecast and have that modified forecast used by ordering until the override is reviewed / cleared.
+
+2) Keep current screens and flow
+
+Important:
+
+Do not create a new flow
+Do not redesign the current pages
+Do not move users to a separate override workflow
+
+Instead:
+
+keep the current forecast workbench
+keep current ordering screen
+add override capability inside the existing main screen
+allow filtering/selecting/reviewing overrides from the main screen
+
+We only need practical additions, not a redesign.
+
+3) Fix the seeded / new forecast logic
+3.1 Remove current seeded analogue behavior
+
+Current seeded logic in services/forecast/base_forecast_service.py is wrong because the group baseline is too broad and can inflate forecasts.
+
+Current problems
+_preload_group_baselines() builds a group baseline from top items and totals, which is not conservative enough for one SKU
+_compute_seeded_forecast() blends own signal with analogue in a way that can overstate demand
+if own signal exists and no analogue exists, it still reduces own signal to 70%, which is also not correct
+MEDIAN6 for intermittent/lumpy can collapse to zero too easily
+3.2 Replace seeded logic with 3 practical forecast buckets
+
+We need to separate seeded/new items into these buckets:
+
+A. new_true
+
+Meaning:
+
+very new item
+not enough real history yet
+B. sparse_valid
+
+Meaning:
+
+low frequency item
+but history is valid enough to use its own sales rate
+C. availability_distorted
+
+Meaning:
+
+low sales may be caused by OOS / lack of exposure
+do not trust raw sales as true demand
+4) New classification rules for low-history items
+
+Modify classification so we do not treat everything with < 6 non-zero weeks as one single new_sparse bucket.
+
+Keep compatibility if needed, but internally split logic as follows:
+
+4.1 new_true
+
+Use this when:
+
+item is newly introduced
+and there is not enough elapsed history yet
+
+Suggested rule:
+
+first stock / first sale date within last 6 weeks
+and non-zero weeks < 4
+4.2 sparse_valid
+
+Use this when:
+
+item is not brand new
+there is some meaningful history across time
+but demand is still low-frequency
+
+Suggested rule:
+
+item age >= 6 weeks
+at least 3 or 4 non-zero weeks
+no strong evidence of availability distortion
+4.3 availability_distorted
+
+Use this when:
+
+own sales are weak
+and OOS / low exposure likely distorted history
+
+For now, if reliable OOS exposure history does not yet exist, use a proxy flag and keep this conservative.
+
+5) New forecast methods to use
+
+Replace the current behavior with these practical methods:
+
+5.1 SEEDED_NEW
+
+For new_true
+
+Use:
+
+conservative analogue floor only
+no aggressive blending
+
+Formula:
+
+forecast = analogue_floor
+
+Where analogue_floor is conservative and normalized.
+
+5.2 RATE_BASED
+
+For sparse_valid
+
+Use:
+
+forecast = total_units / total_weeks
+over a reasonable lookback window
+
+Do not use:
+
+MEDIAN6
+MA8
+current seeded blend
+
+This is the correct treatment for slow/intermittent but real items.
+
+5.3 AVAILABILITY_DISTORTED
+
+For low-sales items where availability probably suppressed demand
+
+If OOS exposure data exists:
+
+use exposure-adjusted demand:
+forecast = total_units / total_in_stock_days * 7
+with confidence/capping rules
+
+If OOS exposure data does not exist yet:
+
+do not pretend sales history is reliable
+use a conservative temporary floor / test-stock logic
+for forecast result, use a conservative analogue floor and flag the SKU for review
+6) Analogue floor — very conservative and based on brand/category
+
+We discussed that analogue should be:
+
+based on brand first
+fallback to category
+very conservative
+not supplier totals
+not averages distorted by big sellers
+6.1 Build analogue pools from valid SKUs only
+
+Only include comparable SKUs that are:
+
+active
+have usable sales history
+are not obviously dead / zero-history
+later, exclude heavy OOS-distorted SKUs when OOS data exists
+6.2 Hierarchy
+
+Use:
+
+brand
+category
+only if absolutely needed: supplier fallback, still conservative
+6.3 Statistic
+
+Use:
+
+brand floor = P25 or median of weekly demand of valid similar SKUs
+category fallback = P20 or P25
+
+Do not use:
+
+top-50 totals
+summed group volume
+broad averages
+6.4 Purpose
+
+Analogue is a floor, not a main forecast driver.
+
+Use it:
+
+for SEEDED_NEW
+for AVAILABILITY_DISTORTED when own demand is not trustworthy
+optionally as a floor in sparse items:
+max(own_rate, analogue_floor) only if needed and still conservative
+7) Replace intermittent/lumpy calculation
+
+Current MEDIAN6 is not suitable for many low-frequency items because it often collapses to zero.
+
+For slow valid items, replace with:
+
+RATE_BASED = total_units_last_26_weeks / 26
+
+or an equivalent valid-weeks rate if the item is newer.
+
+This should become the main treatment for slow but real demand items.
+
+8) OOS / exposure handling
+
+We already discussed that a week with full OOS must not be treated as zero demand.
+
+8.1 Rule
+
+If days_in_stock = 0 for a week:
+
+do not treat as zero-demand week
+treat as no exposure
+exclude from direct demand estimation
+count it for availability distortion/confidence
+8.2 When OOS data exists
+
+Use:
+
+adjusted_weekly_rate = total_units / total_in_stock_days * 7
+
+Then:
+
+if exposure is high, trust it more
+if exposure is low, blend or cap conservatively
+8.3 For now
+
+If historical OOS exposure is not yet fully available:
+
+do not over-engineer
+keep the new/seeded logic conservative
+mark likely distorted items for planner review
+9) Add forecast override layer
+
+This is mandatory.
+
+The planner must be able to manually override a forecast, and that override must survive future forecast runs.
+
+9.1 Add a separate override table
+
+Do not overwrite SkuForecastResult.
+
+Create something like:
+
+sku_forecast_override
+
+Fields:
+
+id
+item_code_365
+override_weekly_qty
+reason_code
+reason_note
+created_at
+created_by
+review_due_at
+is_active
+cleared_at
+cleared_by
+
+Optional:
+
+auto_release_if_mature boolean
+last_reviewed_at
+last_reviewed_by
+9.2 Final forecast logic
+
+Do not store manual override inside the raw system result.
+
+Instead:
+
+system_forecast = SkuForecastResult.final_forecast_weekly_qty
+override_forecast = active override if exists
+final_forecast_for_planning = override if present else system
+
+This final forecast must be what ordering uses.
+
+10) Ordering must use the final forecast, not raw system forecast
+
+This is a critical requirement.
+
+In services/forecast/ordering_refresh_service.py:
+
+Currently ordering uses SkuForecastResult.final_forecast_weekly_qty.
+
+Change this so ordering uses:
+
+override weekly qty if active override exists
+otherwise system weekly qty
+
+Also persist into SkuOrderingSnapshot enough fields to make this visible:
+
+Add fields such as:
+
+system_forecast_weekly_qty
+override_forecast_weekly_qty
+final_forecast_source (system / override)
+keep final_forecast_weekly_qty as the actual used value
+
+So we can always see what drove the order.
+
+11) New forecast runs must not clear overrides
+
+When a new forecast run is executed:
+
+recalculate the system forecast as usual
+do not delete or overwrite active overrides
+recompute final forecast using override if active
+ordering keeps using the overridden value until override is cleared/reviewed
+
+This means override state is independent from forecast-run rows.
+
+12) Override review behavior
+
+We do not want a new flow, but we do need a practical review process.
+
+12.1 Default review period
+
+Set default review due date to:
+
+4 weeks from override creation
+
+So:
+
+review_due_at = created_at + 28 days
+
+This must be the default.
+
+12.2 Review from main screen
+
+Do not create a new special flow.
+
+Inside the existing main forecast screen:
+
+allow filtering to overridden items
+allow filtering to review-due items
+allow row selection
+allow reviewing / clearing / extending overrides from the main screen
+
+This is not a redesign; it is an operational improvement.
+
+Add practical abilities in the existing screen:
+checkbox per row
+filter: overridden only
+filter: review due
+filter: past due
+bulk select
+bulk action: extend review by 4 weeks
+bulk action: clear override
+bulk action: change review due date
+bulk action: mark reviewed
+
+Keep everything inside the same main screen and current flow.
+
+13) Do not redesign the screen — only add needed indicators
+
+Keep the existing forecast workbench layout.
+
+Just add the minimum required fields/behavior to support overrides:
+
+Per row show:
+system forecast
+override forecast (if any)
+final forecast actually used
+override reason
+review due date
+override status
+Suggested statuses:
+Active
+Review Due
+Past Due
+
+No new workflow is needed. Just make overrides visible and manageable in the current table.
+
+14) Forecast maturity / release guidance
+
+Do not auto-clear overrides blindly on new runs.
+
+However, add support logic to identify when a SKU may be ready to come off override.
+
+Suggested readiness indicators:
+
+enough age in market
+enough non-zero weeks
+enough exposure
+forecast no longer highly unstable
+
+This can initially be informational only.
+
+For now:
+
+override remains until manually cleared
+review date prompts planner review
+system can later suggest “ready to release” but should not silently remove the override
+15) Fix ordering rounding consistency
+
+While touching ordering, also correct this:
+
+In ordering_refresh_service.py, current logic uses:
+
+ceil(raw_order)
+MOQ enforcement
+
+It does not apply order_multiple, even though supplier map has it.
+
+Change ordering refresh to:
+
+compute raw order
+round to order_multiple if present
+then enforce MOQ
+persist order_multiple into snapshot
+
+This must be consistent with your replenishment logic.
+
+16) Supplier context consistency in ordering
+
+Current ordering refresh filters by DwItem.supplier_code_365, while supplier context later can come from ForecastItemSupplierMap.
+
+Make this more consistent:
+
+if supplier mapping table is the chosen planning source for supplier context, ordering refresh should respect it
+do not exclude valid mapped items just because DwItem.supplier_code_365 differs or is missing
+17) Keep target weeks as-is, but make override-driven ordering transparent
+
+Do not change current screen flow around target weeks.
+
+Just ensure:
+
+target weeks still works
+ordering calculation is based on the final forecast used
+the user can clearly see when an override is what changed the order
+18) Implementation order
+
+Please implement in this order:
+
+Phase 1 — data model
+Create sku_forecast_override
+Add any needed extra fields to sku_ordering_snapshot
+Add migration and startup safety for missing columns/table
+Phase 2 — forecast logic
+Replace current seeded logic with:
+SEEDED_NEW
+RATE_BASED
+AVAILABILITY_DISTORTED
+Add conservative analogue floor logic:
+brand primary
+category fallback
+conservative percentile/median only
+Phase 3 — ordering logic
+Make ordering use override-aware final forecast
+Add order-multiple handling
+Persist forecast source in ordering snapshot
+Phase 4 — existing screen enhancement only
+Add override fields/actions into current main forecast screen
+Add filter/select/review capabilities for overrides from the main screen
+Default review due to 4 weeks
+19) Validation / tests required
+
+After implementation, validate these cases:
+
+A. New item, no history
+gets conservative seeded floor
+does not receive inflated supplier-total forecast
+B. Sparse valid item
+uses rate-based forecast
+does not fall to zero because of median-zero issue
+C. Availability-distorted item
+does not get falsely treated as zero-demand
+stays conservative until better exposure exists
+D. Override applied
+override survives a new forecast run
+ordering uses override, not raw system value
+E. Review due default
+override created today gets review date at +28 days
+F. Main screen review
+user can filter/select/review overrides from the existing main screen without changing overall flow
+G. Ordering rounding
+order multiple is applied before MOQ
+20) Final principle to follow
+
+The system forecast is a suggestion.
+The final forecast used for ordering is a business decision.
+
+So the architecture must be:
+
+system forecast remains calculated by the engine
+manual override remains separate and persistent
+ordering uses the final effective forecast
+overrides are reviewable from the current main screen
+seeded/new logic must be conservative and availability-aware
