@@ -142,9 +142,10 @@ def refresh_ordering_snapshot(
                 if r.item_code_365 not in result_map:
                     result_map[r.item_code_365] = r
                     results.append(r)
-            logger.info(f"Ordering refresh: added {len(missing_codes)} items from supplier map"
-                        f" (supplier_map supplier={supplier_code},"
-                        f" DwItem.supplier_code_365 mismatch or missing)")
+            added = len([c for c in missing_codes if c in result_map])
+            logger.info(f"Ordering refresh: found {len(missing_codes)} supplier-map items"
+                        f" not in DwItem query, {added} had forecast results"
+                        f" (supplier={supplier_code})")
 
     logger.info(f"Ordering refresh: processing {len(results)} items"
                 f" (supplier={supplier_code}, buffer={buffer_days}d)")
@@ -158,7 +159,7 @@ def refresh_ordering_snapshot(
 
     all_item_codes = [r.item_code_365 for r in results]
 
-    override_cache = _build_override_cache(session, all_item_codes if item_codes else None)
+    override_cache = _build_override_cache(session, all_item_codes)
 
     dw_item_cache = {}
     dw_q = session.query(DwItem)
