@@ -14,11 +14,13 @@ from sqlalchemy import func, case, and_, or_, text
 
 from app import db
 from timezone_utils import get_utc_now
+from routes import validate_csrf_token
 from models import (
     DwItem, DwItemCategory, DwBrand, DwSeason,
     ForecastItemSupplierMap, FactSalesWeeklyItem,
     ForecastSeasonalityMonthly, SkuForecastProfile,
-    SkuForecastResult, SkuOrderingSnapshot, ForecastRun, Setting,
+    SkuForecastResult, SkuOrderingSnapshot, SkuForecastOverride,
+    ForecastRun, Setting,
     StockPosition,
     extract_item_prefix,
 )
@@ -289,6 +291,20 @@ def api_items():
     except Exception:
         snap_map = {}
 
+    override_map = {}
+    try:
+        ovr_q = SkuForecastOverride.query.filter(
+            SkuForecastOverride.item_code_365.in_(item_codes_in_result),
+            SkuForecastOverride.is_active == True,
+        ).all()
+        for o in ovr_q:
+            code = o.item_code_365
+            if code not in override_map or o.created_at > override_map[code].created_at:
+                override_map[code] = o
+    except Exception:
+        override_map = {}
+    now_utc = get_utc_now()
+
     expiry_risk_map = {}
     try:
         today_date = date.today()
@@ -348,6 +364,16 @@ def api_items():
         snap = snap_map.get(dw.item_code_365)
         if filter_order_only and (not snap or _float(snap.rounded_order_qty) <= 0):
             continue
+        ovr = override_map.get(dw.item_code_365)
+        ovr_status = None
+        if ovr:
+            if ovr.review_due_at and ovr.review_due_at < now_utc:
+                ovr_status = 'past_due'
+            elif ovr.review_due_at and (ovr.review_due_at - now_utc).days <= 7:
+                ovr_status = 'review_due'
+            else:
+                ovr_status = 'active'
+        final_source = getattr(snap, 'final_forecast_source', None) if snap else None
         items.append({
             'item_code': dw.item_code_365,
             'item_name': dw.item_name,
@@ -389,6 +415,7 @@ def api_items():
             'incoming_qty': _float(snap.incoming_qty) if snap else 0,
             'reserved_qty': _float(snap.reserved_qty) if snap else 0,
             'ordering_snapshot_at': snap.snapshot_at.isoformat() + 'Z' if snap and snap.snapshot_at else None,
+            'final_forecast_source': final_source,
             'forecast_confidence': prof.forecast_confidence if prof else None,
             'seed_source': prof.seed_source if prof else None,
             'oos_weeks_26': getattr(prof, 'oos_weeks_26', 0) or 0 if prof else 0,
@@ -397,6 +424,14 @@ def api_items():
             'history_incomplete': getattr(prof, 'history_incomplete', False) or False if prof else False,
             'baseline_source': getattr(prof, 'baseline_source', None) if prof else None,
             'expiry_risk': expiry_risk_map.get(dw.item_code_365),
+            'override_weekly_qty': _float(ovr.override_weekly_qty) if ovr else None,
+            'override_reason_code': ovr.reason_code if ovr else None,
+            'override_reason_note': ovr.reason_note if ovr else None,
+            'override_review_due_at': ovr.review_due_at.isoformat() + 'Z' if ovr and ovr.review_due_at else None,
+            'override_created_at': ovr.created_at.isoformat() + 'Z' if ovr and ovr.created_at else None,
+            'override_created_by': ovr.created_by if ovr else None,
+            'override_status': ovr_status,
+            'has_override': ovr is not None,
         })
 
     return jsonify({'items': items, 'count': len(items)})
@@ -628,6 +663,30 @@ def api_item_detail(item_code):
         result['result']['target_stock_qty'] = 0
         result['result']['raw_recommended_order_qty'] = 0
         result['result']['rounded_order_qty'] = 0
+
+    ovr = SkuForecastOverride.query.filter_by(
+        item_code_365=item_code, is_active=True
+    ).order_by(SkuForecastOverride.created_at.desc()).first()
+    if ovr:
+        now_utc = get_utc_now()
+        ovr_status = 'active'
+        if ovr.review_due_at and ovr.review_due_at < now_utc:
+            ovr_status = 'past_due'
+        elif ovr.review_due_at and (ovr.review_due_at - now_utc).days <= 7:
+            ovr_status = 'review_due'
+        result['override'] = {
+            'id': ovr.id,
+            'override_weekly_qty': _float(ovr.override_weekly_qty),
+            'reason_code': ovr.reason_code,
+            'reason_note': ovr.reason_note,
+            'review_due_at': ovr.review_due_at.isoformat() + 'Z' if ovr.review_due_at else None,
+            'created_at': ovr.created_at.isoformat() + 'Z' if ovr.created_at else None,
+            'created_by': ovr.created_by,
+            'last_reviewed_at': ovr.last_reviewed_at.isoformat() + 'Z' if ovr.last_reviewed_at else None,
+            'status': ovr_status,
+        }
+    else:
+        result['override'] = None
 
     return jsonify(result)
 
@@ -997,6 +1056,147 @@ def api_ordering_status():
         if job['snapshot_count'] is not None:
             resp['snapshot_count'] = job['snapshot_count']
     return jsonify(resp)
+
+
+@forecast_bp.route('/api/override/apply', methods=['POST'])
+@admin_or_warehouse_required
+def api_override_apply():
+    if not validate_csrf_token():
+        return jsonify({'error': 'Invalid CSRF token'}), 403
+    from datetime import timedelta
+    data = request.get_json(silent=True) or {}
+    item_code = data.get('item_code', '').strip()
+    override_qty = data.get('override_weekly_qty')
+    reason_code = data.get('reason_code', '').strip() or None
+    reason_note = data.get('reason_note', '').strip() or None
+
+    if not item_code:
+        return jsonify({'error': 'item_code is required'}), 400
+    if override_qty is None:
+        return jsonify({'error': 'override_weekly_qty is required'}), 400
+    try:
+        override_qty = float(override_qty)
+        if override_qty < 0:
+            return jsonify({'error': 'override_weekly_qty must be >= 0'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid override_weekly_qty'}), 400
+
+    dw = DwItem.query.get(item_code)
+    if not dw:
+        return jsonify({'error': 'Item not found'}), 404
+
+    try:
+        SkuForecastOverride.query.filter_by(
+            item_code_365=item_code, is_active=True
+        ).update({'is_active': False, 'cleared_at': get_utc_now(), 'cleared_by': current_user.username})
+
+        now = get_utc_now()
+        ovr = SkuForecastOverride(
+            item_code_365=item_code,
+            override_weekly_qty=Decimal(str(round(override_qty, 6))),
+            reason_code=reason_code,
+            reason_note=reason_note,
+            created_by=current_user.username,
+            is_active=True,
+            review_due_at=now + timedelta(days=28),
+        )
+        db.session.add(ovr)
+        db.session.commit()
+        return jsonify({'status': 'ok', 'item_code': item_code, 'override_id': ovr.id})
+    except Exception:
+        db.session.rollback()
+        logger.exception(f"Failed to apply override for {item_code}")
+        return jsonify({'error': 'Failed to apply override'}), 500
+
+
+@forecast_bp.route('/api/override/clear', methods=['POST'])
+@admin_or_warehouse_required
+def api_override_clear():
+    if not validate_csrf_token():
+        return jsonify({'error': 'Invalid CSRF token'}), 403
+    data = request.get_json(silent=True) or {}
+    item_code = data.get('item_code', '').strip()
+    if not item_code:
+        return jsonify({'error': 'item_code is required'}), 400
+
+    try:
+        updated = SkuForecastOverride.query.filter_by(
+            item_code_365=item_code, is_active=True
+        ).update({'is_active': False, 'cleared_at': get_utc_now(), 'cleared_by': current_user.username})
+        db.session.commit()
+        return jsonify({'status': 'ok', 'item_code': item_code, 'cleared_count': updated})
+    except Exception:
+        db.session.rollback()
+        logger.exception(f"Failed to clear override for {item_code}")
+        return jsonify({'error': 'Failed to clear override'}), 500
+
+
+@forecast_bp.route('/api/override/bulk', methods=['POST'])
+@admin_or_warehouse_required
+def api_override_bulk():
+    if not validate_csrf_token():
+        return jsonify({'error': 'Invalid CSRF token'}), 403
+    from datetime import timedelta
+    data = request.get_json(silent=True) or {}
+    action = data.get('action', '')
+    item_codes = data.get('item_codes', [])
+    if not item_codes or not isinstance(item_codes, list):
+        return jsonify({'error': 'item_codes list is required'}), 400
+    if action not in ('extend_review', 'clear', 'mark_reviewed', 'change_review_date'):
+        return jsonify({'error': 'Invalid action'}), 400
+
+    try:
+        now = get_utc_now()
+        affected = 0
+
+        if action == 'clear':
+            affected = SkuForecastOverride.query.filter(
+                SkuForecastOverride.item_code_365.in_(item_codes),
+                SkuForecastOverride.is_active == True,
+            ).update({'is_active': False, 'cleared_at': now, 'cleared_by': current_user.username}, synchronize_session=False)
+
+        elif action == 'extend_review':
+            overrides = SkuForecastOverride.query.filter(
+                SkuForecastOverride.item_code_365.in_(item_codes),
+                SkuForecastOverride.is_active == True,
+            ).all()
+            for o in overrides:
+                base = o.review_due_at if o.review_due_at and o.review_due_at > now else now
+                o.review_due_at = base + timedelta(weeks=4)
+                affected += 1
+
+        elif action == 'mark_reviewed':
+            overrides = SkuForecastOverride.query.filter(
+                SkuForecastOverride.item_code_365.in_(item_codes),
+                SkuForecastOverride.is_active == True,
+            ).all()
+            for o in overrides:
+                o.last_reviewed_at = now
+                o.last_reviewed_by = current_user.username
+                if o.review_due_at and o.review_due_at < now:
+                    o.review_due_at = now + timedelta(weeks=4)
+                affected += 1
+
+        elif action == 'change_review_date':
+            new_date_str = data.get('review_due_date', '')
+            if not new_date_str:
+                return jsonify({'error': 'review_due_date is required for change_review_date'}), 400
+            try:
+                from datetime import datetime as dt_cls
+                new_date = dt_cls.fromisoformat(new_date_str.replace('Z', '+00:00'))
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid review_due_date format'}), 400
+            affected = SkuForecastOverride.query.filter(
+                SkuForecastOverride.item_code_365.in_(item_codes),
+                SkuForecastOverride.is_active == True,
+            ).update({'review_due_at': new_date}, synchronize_session=False)
+
+        db.session.commit()
+        return jsonify({'status': 'ok', 'action': action, 'affected': affected})
+    except Exception:
+        db.session.rollback()
+        logger.exception(f"Bulk override action '{action}' failed")
+        return jsonify({'error': 'Bulk action failed'}), 500
 
 
 @forecast_bp.route('/api/seasonality/<item_code>')

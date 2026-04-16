@@ -111,6 +111,23 @@
     .badge-seasonality-supplier { background: #20c997; color: #000; font-size: 0.65rem; }
     .badge-seasonality-prefix { background: #17a2b8; color: #fff; font-size: 0.65rem; }
     .badge-seasonality-none { background: transparent; color: #6c757d; font-size: 0.65rem; }
+    .badge-override-active { background: #0d6efd; color: #fff; font-size: 0.65rem; }
+    .badge-override-review_due { background: #ffc107; color: #000; font-size: 0.65rem; }
+    .badge-override-past_due { background: #dc3545; color: #fff; font-size: 0.65rem; }
+    .badge-source-system { background: transparent; color: #6c757d; font-size: 0.65rem; }
+    .badge-source-override { background: #0d6efd; color: #fff; font-size: 0.65rem; }
+    .bulk-action-bar {
+        display: none;
+        background: rgba(13,110,253,0.1);
+        border: 1px solid rgba(13,110,253,0.3);
+        border-radius: 0.375rem;
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.5rem;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .bulk-action-bar.show { display: flex; }
+    .bulk-action-bar .bulk-count { font-weight: 700; font-size: 0.85rem; color: #0d6efd; }
     .review-dot {
         display: inline-block;
         width: 8px;
@@ -211,6 +228,8 @@
         <div class="kpi-card"><div class="kpi-value" style="color:#6f42c1" id="kpiSeasonal">-</div><div class="kpi-label">Seasonal</div></div>
         <div class="kpi-card"><div class="kpi-value text-warning" id="kpiReview">-</div><div class="kpi-label">Review</div></div>
         <div class="kpi-card"><div class="kpi-value text-primary" id="kpiWithOrder">-</div><div class="kpi-label">Order > 0</div></div>
+        <div class="kpi-card"><div class="kpi-value" style="color:#0d6efd" id="kpiOverride">-</div><div class="kpi-label">Overridden</div></div>
+        <div class="kpi-card"><div class="kpi-value text-danger" id="kpiOverrideDue">-</div><div class="kpi-label">Review Due</div></div>
     </div>
 
     <ul class="nav nav-tabs saved-views mb-2" id="savedViewTabs">
@@ -231,6 +250,9 @@
         </li>
         <li class="nav-item">
             <a class="nav-link" href="#" data-view="master_data">Master Data Issues</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" data-view="overrides">Overrides</a>
         </li>
     </ul>
 
@@ -314,6 +336,15 @@
                 </select>
             </div>
             <div class="col-auto">
+                <label>Override</label>
+                <select class="form-select form-select-sm" id="filterOverride">
+                    <option value="">All</option>
+                    <option value="overridden">Overridden</option>
+                    <option value="review_due">Review Due</option>
+                    <option value="past_due">Past Due</option>
+                </select>
+            </div>
+            <div class="col-auto">
                 <label>Prefix</label>
                 <input type="text" class="form-control form-control-sm" id="filterPrefix" placeholder="e.g. SNA-" style="width:80px">
             </div>
@@ -323,6 +354,14 @@
                 </button>
             </div>
         </div>
+    </div>
+
+    <div class="bulk-action-bar" id="bulkActionBar">
+        <span class="bulk-count"><span id="bulkCount">0</span> selected</span>
+        <button class="btn btn-sm btn-outline-warning" onclick="bulkAction('extend_review')"><i class="fas fa-calendar-plus me-1"></i>Extend +4w</button>
+        <button class="btn btn-sm btn-outline-info" onclick="bulkAction('mark_reviewed')"><i class="fas fa-check me-1"></i>Mark Reviewed</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('clear')"><i class="fas fa-times me-1"></i>Clear Overrides</button>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()"><i class="fas fa-times"></i></button>
     </div>
 
     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -337,6 +376,7 @@
         <table class="table table-sm table-hover forecast-table mb-0" id="forecastTable">
             <thead>
                 <tr>
+                    <th style="width:24px"><input type="checkbox" id="selectAll" title="Select all" style="cursor:pointer"></th>
                     <th style="width:20px"></th>
                     <th>Item Code</th>
                     <th>Description</th>
@@ -349,6 +389,8 @@
                     <th class="num-col" title="OOS days in the 8-week forecast window (max 56)">OOS 8w</th>
                     <th class="num-col">Base/Wk</th>
                     <th class="num-col">Final/Wk</th>
+                    <th class="num-col" title="Override forecast (weekly)">Ovr/Wk</th>
+                    <th title="Forecast source: System or Override">Src</th>
                     <th class="num-col" title="Target weeks of stock">Tgt Wks</th>
                     <th class="num-col">Net Avail</th>
                     <th class="num-col">MOQ</th>
@@ -492,7 +534,8 @@
     function updateKPIs(items) {
         let counts = {smooth:0, erratic:0, intermittent:0, lumpy:0, new_true:0, sparse_valid:0,
                       availability_distorted:0, new_sparse:0, no_demand:0,
-                      trend_up:0, trend_down:0, seasonal:0, review:0, with_order:0};
+                      trend_up:0, trend_down:0, seasonal:0, review:0, with_order:0,
+                      overridden:0, override_due:0};
         items.forEach(it => {
             if (it.demand_class) counts[it.demand_class] = (counts[it.demand_class]||0) + 1;
             if (it.trend_flag === 'up') counts.trend_up++;
@@ -500,6 +543,8 @@
             if (it.seasonality_source && it.seasonality_source !== 'none') counts.seasonal++;
             if (it.review_flag) counts.review++;
             if (it.rounded_order_qty > 0) counts.with_order++;
+            if (it.has_override) counts.overridden++;
+            if (it.override_status === 'review_due' || it.override_status === 'past_due') counts.override_due++;
         });
         document.getElementById('kpiTotal').textContent = items.length;
         document.getElementById('kpiSmooth').textContent = counts.smooth;
@@ -515,6 +560,8 @@
         document.getElementById('kpiSeasonal').textContent = counts.seasonal;
         document.getElementById('kpiReview').textContent = counts.review;
         document.getElementById('kpiWithOrder').textContent = counts.with_order;
+        document.getElementById('kpiOverride').textContent = counts.overridden;
+        document.getElementById('kpiOverrideDue').textContent = counts.override_due;
     }
 
     function populateFilterDropdowns(items) {
@@ -551,6 +598,7 @@
         const br = document.getElementById('filterBrand').value;
         const pf = document.getElementById('filterPrefix').value.trim();
         const ex = document.getElementById('filterExpiry').value;
+        const ov = document.getElementById('filterOverride').value;
 
         return allItems.filter(it => {
             if (dc && it.demand_class !== dc) return false;
@@ -568,6 +616,9 @@
                     if (!it.expiry_risk || it.expiry_risk === 'safe' || it.expiry_risk === 'no_stock') return false;
                 } else if (it.expiry_risk !== ex) return false;
             }
+            if (ov === 'overridden' && !it.has_override) return false;
+            if (ov === 'review_due' && it.override_status !== 'review_due' && it.override_status !== 'past_due') return false;
+            if (ov === 'past_due' && it.override_status !== 'past_due') return false;
             return true;
         });
     }
@@ -605,6 +656,9 @@
         body.querySelectorAll('.item-row').forEach(row => {
             row.addEventListener('click', () => openDrawer(row.dataset.itemCode));
         });
+        body.querySelectorAll('.row-check').forEach(cb => {
+            cb.addEventListener('change', updateBulkBar);
+        });
     }
 
     function buildRow(it) {
@@ -625,8 +679,19 @@
         const activeBadge = it.active ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-danger"></i>';
         const sparkline = buildSparklinePlaceholder(it.item_code);
 
+        const ovrQty = it.has_override ? fmtNum(it.override_weekly_qty) : '-';
+        const ovrStatusBadge = it.override_status
+            ? `<span class="badge badge-override-${esc(it.override_status)}">${it.override_status === 'active' ? 'OVR' : it.override_status === 'review_due' ? 'DUE' : 'PAST'}</span>`
+            : '';
+        const srcBadge = it.final_forecast_source === 'override'
+            ? '<span class="badge badge-source-override">Ovr</span>'
+            : it.final_forecast_source === 'system'
+            ? '<span class="badge badge-source-system">Sys</span>'
+            : '<span class="badge badge-source-system">-</span>';
+
         return `<tr class="item-row" data-item-code="${esc(it.item_code)}">
-            <td>${reviewDot}</td>
+            <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check" value="${esc(it.item_code)}" style="cursor:pointer"></td>
+            <td>${reviewDot}${ovrStatusBadge}</td>
             <td><code class="small">${esc(it.item_code)}</code></td>
             <td class="text-truncate" style="max-width:200px" title="${esc(it.item_name || '')}">${esc(it.item_name || '')}</td>
             <td>${activeBadge}</td>
@@ -638,6 +703,8 @@
             <td class="num-col">${formatOosDays8w(it.oos_days_8w || 0)}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col fw-bold">${fmtNum(it.final_forecast_weekly)}</td>
+            <td class="num-col ${it.has_override ? 'text-info' : ''}">${ovrQty}</td>
+            <td>${srcBadge}</td>
             <td class="num-col">
                 <span class="target-weeks-display" data-item="${esc(it.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666;" title="Click to edit target weeks"
                       onclick="editTargetWeeks(this, '${esc(it.item_code)}', ${it.target_weeks_of_stock || 4})">${fmtNum(it.target_weeks_of_stock || 4, 1)}</span>
@@ -833,6 +900,10 @@
             ${explainDemand(prof)}
             ${(prof.oos_weeks_26 || 0) > 0 ? '<br><strong style="color:#dc3545">⚠ OOS Impact:</strong> This item was out of stock for ' + prof.oos_weeks_26 + ' week(s) in the last 26 weeks.' + (prof.oos_adjusted ? ' The forecast excludes OOS-impacted weeks to avoid underestimating demand.' : ' Not enough clean weeks to adjust the forecast.') : ''}
         </div>
+
+        <!-- FORECAST OVERRIDE SECTION -->
+        <div class="section-title">Forecast Override</div>
+        ${renderOverrideSection(data)}
 
         <!-- ORDERING SECTION -->
         <div class="section-title">Ordering</div>
@@ -1302,6 +1373,7 @@
         exceptions: {demand_class: '', review: '1'},
         seasonal_watch: {seasonality: 'brand'},
         master_data: {},
+        overrides: {override: 'overridden'},
     };
 
     document.querySelectorAll('#savedViewTabs .nav-link').forEach(tab => {
@@ -1316,6 +1388,7 @@
             if (preset.review) document.getElementById('filterReview').value = preset.review;
             if (preset.demand_class) document.getElementById('filterDemandClass').value = preset.demand_class;
             if (preset.seasonality) document.getElementById('filterSeasonality').value = preset.seasonality;
+            if (preset.override) document.getElementById('filterOverride').value = preset.override;
             applyFilters();
         });
     });
@@ -1330,6 +1403,7 @@
         document.getElementById('filterCategory').value = '';
         document.getElementById('filterBrand').value = '';
         document.getElementById('filterExpiry').value = '';
+        document.getElementById('filterOverride').value = '';
         document.getElementById('filterPrefix').value = '';
     }
 
@@ -1406,6 +1480,174 @@
             if (e.key === 'Escape') { input.replaceWith(el); }
         });
     };
+
+    function renderOverrideSection(data) {
+        const ovr = data.override;
+        const itemCode = data.item_code;
+        const res = data.result || {};
+        const systemFcst = res.final_forecast_weekly_qty || res.base_forecast_weekly_qty || 0;
+
+        if (ovr) {
+            const statusLabel = ovr.status === 'past_due' ? '<span class="badge badge-override-past_due">PAST DUE</span>'
+                : ovr.status === 'review_due' ? '<span class="badge badge-override-review_due">REVIEW DUE</span>'
+                : '<span class="badge badge-override-active">ACTIVE</span>';
+            const reviewDate = ovr.review_due_at ? new Date(ovr.review_due_at).toLocaleDateString() : '-';
+            const createdDate = ovr.created_at ? new Date(ovr.created_at).toLocaleDateString() : '-';
+            return `
+            <div style="background: rgba(13,110,253,0.08); border: 1px solid rgba(13,110,253,0.25); border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 0.75rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                    <span style="font-weight:700; color:#0d6efd;">Override Active</span>
+                    ${statusLabel}
+                </div>
+                <table class="drawer-table" style="width:100%;">
+                    <tr><td class="label-col">Override Qty/Wk</td><td class="value-col" style="color:#0d6efd; font-weight:700;">${fmtNum(ovr.override_weekly_qty)}</td></tr>
+                    <tr><td class="label-col">System Forecast/Wk</td><td class="value-col">${fmtNum(systemFcst)}</td></tr>
+                    <tr><td class="label-col">Reason</td><td class="value-col">${esc(ovr.reason_code || '-')}${ovr.reason_note ? ' — ' + esc(ovr.reason_note) : ''}</td></tr>
+                    <tr><td class="label-col">Created By</td><td class="value-col">${esc(ovr.created_by || '-')} on ${createdDate}</td></tr>
+                    <tr><td class="label-col">Review Due</td><td class="value-col">${reviewDate}</td></tr>
+                    ${ovr.last_reviewed_at ? '<tr><td class="label-col">Last Reviewed</td><td class="value-col">' + new Date(ovr.last_reviewed_at).toLocaleDateString() + '</td></tr>' : ''}
+                </table>
+                <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                    <button class="btn btn-sm btn-outline-danger" onclick="clearOverride('${esc(itemCode)}')"><i class="fas fa-times me-1"></i>Clear Override</button>
+                    <button class="btn btn-sm btn-outline-info" onclick="document.getElementById('ovrFormToggle').style.display='block'; this.style.display='none'"><i class="fas fa-edit me-1"></i>Change Override</button>
+                </div>
+                <div id="ovrFormToggle" style="display:none; margin-top:0.75rem;">
+                    ${buildOverrideForm(itemCode, ovr.override_weekly_qty, ovr.reason_code, ovr.reason_note)}
+                </div>
+            </div>`;
+        }
+
+        return `
+        <div style="background: rgba(108,117,125,0.08); border: 1px solid rgba(108,117,125,0.2); border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 0.75rem;">
+            <div style="font-size:0.8rem; color:var(--bs-secondary); margin-bottom:0.5rem;">No override set. System forecast: <strong>${fmtNum(systemFcst)}/wk</strong></div>
+            ${buildOverrideForm(itemCode, '', '', '')}
+        </div>`;
+    }
+
+    function buildOverrideForm(itemCode, defQty, defReason, defNote) {
+        return `
+        <div style="font-size:0.8rem;">
+            <div style="margin-bottom:0.5rem;">
+                <label style="font-size:0.72rem; font-weight:600; color:var(--bs-secondary);">Override Qty/Week</label>
+                <input type="number" id="ovrQtyInput" class="form-control form-control-sm" value="${defQty}" min="0" step="0.1" style="width:120px;">
+            </div>
+            <div style="margin-bottom:0.5rem;">
+                <label style="font-size:0.72rem; font-weight:600; color:var(--bs-secondary);">Reason</label>
+                <select id="ovrReasonCode" class="form-select form-select-sm">
+                    <option value="">Select reason...</option>
+                    <option value="promo" ${defReason==='promo'?'selected':''}>Promotion / Campaign</option>
+                    <option value="market_intel" ${defReason==='market_intel'?'selected':''}>Market Intelligence</option>
+                    <option value="seasonal_adj" ${defReason==='seasonal_adj'?'selected':''}>Seasonal Adjustment</option>
+                    <option value="new_item_boost" ${defReason==='new_item_boost'?'selected':''}>New Item Boost</option>
+                    <option value="phase_out" ${defReason==='phase_out'?'selected':''}>Phase Out / Reduce</option>
+                    <option value="data_quality" ${defReason==='data_quality'?'selected':''}>Data Quality Issue</option>
+                    <option value="supplier_constraint" ${defReason==='supplier_constraint'?'selected':''}>Supplier Constraint</option>
+                    <option value="other" ${defReason==='other'?'selected':''}>Other</option>
+                </select>
+            </div>
+            <div style="margin-bottom:0.5rem;">
+                <label style="font-size:0.72rem; font-weight:600; color:var(--bs-secondary);">Note (optional)</label>
+                <input type="text" id="ovrReasonNote" class="form-control form-control-sm" value="${esc(defNote || '')}" placeholder="Brief explanation..." maxlength="500">
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="applyOverride('${esc(itemCode)}')"><i class="fas fa-save me-1"></i>Apply Override</button>
+        </div>`;
+    }
+
+    window.applyOverride = function(itemCode) {
+        const qty = document.getElementById('ovrQtyInput').value;
+        const reasonCode = document.getElementById('ovrReasonCode').value;
+        const reasonNote = document.getElementById('ovrReasonNote').value;
+        if (qty === '' || isNaN(parseFloat(qty)) || parseFloat(qty) < 0) {
+            alert('Please enter a valid quantity (>= 0)');
+            return;
+        }
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        fetch('{{ url_for("forecast_workbench.api_override_apply") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({item_code: itemCode, override_weekly_qty: parseFloat(qty), reason_code: reasonCode, reason_note: reasonNote}),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                openDrawer(itemCode);
+                loadItems();
+            } else {
+                alert(data.error || 'Failed to apply override');
+            }
+        })
+        .catch(e => alert('Error applying override'));
+    };
+
+    window.clearOverride = function(itemCode) {
+        if (!confirm('Clear the forecast override for this item?')) return;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        fetch('{{ url_for("forecast_workbench.api_override_clear") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({item_code: itemCode}),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                openDrawer(itemCode);
+                loadItems();
+            } else {
+                alert(data.error || 'Failed to clear override');
+            }
+        })
+        .catch(e => alert('Error clearing override'));
+    };
+
+    function getSelectedCodes() {
+        return Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+    }
+
+    function updateBulkBar() {
+        const selected = getSelectedCodes();
+        const bar = document.getElementById('bulkActionBar');
+        document.getElementById('bulkCount').textContent = selected.length;
+        if (selected.length > 0) {
+            bar.classList.add('show');
+        } else {
+            bar.classList.remove('show');
+        }
+    }
+
+    window.clearSelection = function() {
+        document.querySelectorAll('.row-check:checked').forEach(cb => cb.checked = false);
+        document.getElementById('selectAll').checked = false;
+        updateBulkBar();
+    };
+
+    window.bulkAction = function(action) {
+        const codes = getSelectedCodes();
+        if (!codes.length) return;
+        const actionLabels = {extend_review: 'extend review date by 4 weeks', mark_reviewed: 'mark as reviewed', clear: 'clear overrides'};
+        if (!confirm(`${actionLabels[action] || action} for ${codes.length} item(s)?`)) return;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        fetch('{{ url_for("forecast_workbench.api_override_bulk") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({action: action, item_codes: codes}),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                clearSelection();
+                loadItems();
+            } else {
+                alert(data.error || 'Bulk action failed');
+            }
+        })
+        .catch(e => alert('Error performing bulk action'));
+    };
+
+    document.getElementById('selectAll').addEventListener('change', function() {
+        const checked = this.checked;
+        document.querySelectorAll('.row-check').forEach(cb => cb.checked = checked);
+        updateBulkBar();
+    });
 
     loadItems();
 })();
