@@ -45,6 +45,18 @@ def admin_or_warehouse_required(f):
     return decorated_function
 
 
+def _compute_override_status(review_due_at, now_utc):
+    if not review_due_at:
+        return 'active'
+    due = review_due_at.replace(tzinfo=None) if review_due_at.tzinfo else review_due_at
+    now = now_utc.replace(tzinfo=None) if now_utc.tzinfo else now_utc
+    if due < now:
+        return 'past_due'
+    if (due - now).days <= 7:
+        return 'review_due'
+    return 'active'
+
+
 def _float(val, default=0):
     if val is None:
         return default
@@ -365,14 +377,7 @@ def api_items():
         if filter_order_only and (not snap or _float(snap.rounded_order_qty) <= 0):
             continue
         ovr = override_map.get(dw.item_code_365)
-        ovr_status = None
-        if ovr:
-            if ovr.review_due_at and ovr.review_due_at < now_utc:
-                ovr_status = 'past_due'
-            elif ovr.review_due_at and (ovr.review_due_at - now_utc).days <= 7:
-                ovr_status = 'review_due'
-            else:
-                ovr_status = 'active'
+        ovr_status = _compute_override_status(ovr.review_due_at, now_utc) if ovr else None
         final_source = getattr(snap, 'final_forecast_source', None) if snap else None
         items.append({
             'item_code': dw.item_code_365,
@@ -426,12 +431,16 @@ def api_items():
             'baseline_source': getattr(prof, 'baseline_source', None) if prof else None,
             'expiry_risk': expiry_risk_map.get(dw.item_code_365),
             'override_weekly_qty': _float(ovr.override_weekly_qty) if ovr else None,
+            'reason_code': ovr.reason_code if ovr else None,
             'override_reason_code': ovr.reason_code if ovr else None,
+            'reason_note': ovr.reason_note if ovr else None,
             'override_reason_note': ovr.reason_note if ovr else None,
+            'review_due_at': ovr.review_due_at.isoformat() + 'Z' if ovr and ovr.review_due_at else None,
             'override_review_due_at': ovr.review_due_at.isoformat() + 'Z' if ovr and ovr.review_due_at else None,
             'override_created_at': ovr.created_at.isoformat() + 'Z' if ovr and ovr.created_at else None,
             'override_created_by': ovr.created_by if ovr else None,
             'override_status': ovr_status,
+            'is_active': ovr.is_active if ovr else False,
             'has_override': ovr is not None,
         })
 
@@ -670,11 +679,7 @@ def api_item_detail(item_code):
     ).order_by(SkuForecastOverride.created_at.desc()).first()
     if ovr:
         now_utc = get_utc_now()
-        ovr_status = 'active'
-        if ovr.review_due_at and ovr.review_due_at < now_utc:
-            ovr_status = 'past_due'
-        elif ovr.review_due_at and (ovr.review_due_at - now_utc).days <= 7:
-            ovr_status = 'review_due'
+        ovr_status = _compute_override_status(ovr.review_due_at, now_utc)
         result['override'] = {
             'id': ovr.id,
             'override_weekly_qty': _float(ovr.override_weekly_qty),
@@ -1085,11 +1090,7 @@ def api_overrides():
     now_utc = get_utc_now()
     result = []
     for o in overrides:
-        status = 'active'
-        if o.review_due_at and o.review_due_at < now_utc:
-            status = 'past_due'
-        elif o.review_due_at and (o.review_due_at - now_utc).days <= 7:
-            status = 'review_due'
+        status = _compute_override_status(o.review_due_at, now_utc)
         result.append({
             'id': o.id,
             'item_code_365': o.item_code_365,
