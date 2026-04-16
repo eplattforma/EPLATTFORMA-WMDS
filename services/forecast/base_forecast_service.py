@@ -177,12 +177,19 @@ def _compute_seeded_new_forecast(item_code, dw_item_cache, analogue_cache):
 
 
 def _compute_rate_based_forecast(weekly_qtys, week_starts, oos_weeks):
+    first_sale_idx = None
+    for i, qty in enumerate(weekly_qtys):
+        if qty > 0:
+            first_sale_idx = i
+    if first_sale_idx is None:
+        return 0.0
+
     total_qty = 0.0
     active_weeks = 0
-    for qty, ws in zip(weekly_qtys, week_starts):
-        if ws in oos_weeks:
+    for i in range(first_sale_idx + 1):
+        if week_starts[i] in oos_weeks:
             continue
-        total_qty += qty
+        total_qty += weekly_qtys[i]
         active_weeks += 1
 
     if active_weeks == 0:
