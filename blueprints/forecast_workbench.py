@@ -11,6 +11,7 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from sqlalchemy import func, case, and_, or_, text
+from sqlalchemy.exc import IntegrityError
 
 from app import db
 from timezone_utils import get_utc_now
@@ -1223,7 +1224,18 @@ def api_override_bulk():
     if action not in ('extend_review', 'clear', 'mark_reviewed', 'change_review_date'):
         return jsonify({'error': 'Invalid action'}), 400
 
-    try:
+    new_date = None
+    if action == 'change_review_date':
+        new_date_str = data.get('review_due_date', '')
+        if not new_date_str:
+            return jsonify({'error': 'review_due_date is required for change_review_date'}), 400
+        try:
+            from datetime import datetime as dt_cls
+            new_date = dt_cls.fromisoformat(new_date_str.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid review_due_date format'}), 400
+
+    def _run_bulk():
         now = get_utc_now()
         affected = 0
 
@@ -1256,25 +1268,41 @@ def api_override_bulk():
                 affected += 1
 
         elif action == 'change_review_date':
-            new_date_str = data.get('review_due_date', '')
-            if not new_date_str:
-                return jsonify({'error': 'review_due_date is required for change_review_date'}), 400
-            try:
-                from datetime import datetime as dt_cls
-                new_date = dt_cls.fromisoformat(new_date_str.replace('Z', '+00:00'))
-            except (ValueError, TypeError):
-                return jsonify({'error': 'Invalid review_due_date format'}), 400
             affected = SkuForecastOverride.query.filter(
                 SkuForecastOverride.item_code_365.in_(item_codes),
                 SkuForecastOverride.is_active == True,
             ).update({'review_due_at': new_date}, synchronize_session=False)
 
         db.session.commit()
-        return jsonify({'status': 'ok', 'action': action, 'affected': affected})
-    except Exception:
-        db.session.rollback()
-        logger.exception(f"Bulk override action '{action}' failed")
-        return jsonify({'error': 'Bulk action failed'}), 500
+        return affected
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            affected = _run_bulk()
+            return jsonify({'status': 'ok', 'action': action, 'affected': affected})
+        except IntegrityError as ie:
+            db.session.rollback()
+            logger.warning(
+                "Bulk override action '%s' hit IntegrityError on attempt %d/%d (likely concurrent override on overlapping items): %s",
+                action, attempt, max_attempts, ie.orig if hasattr(ie, 'orig') else ie,
+            )
+            if attempt >= max_attempts:
+                break
+            continue
+        except Exception:
+            db.session.rollback()
+            logger.exception(f"Bulk override action '{action}' failed")
+            return jsonify({'error': 'Bulk action failed'}), 500
+
+    logger.error(
+        "Bulk override action '%s' aborted after %d IntegrityError retries for %d items",
+        action, max_attempts, len(item_codes),
+    )
+    return jsonify({
+        'error': 'Bulk action conflicted with concurrent override changes; please retry',
+        'detail': 'unique_constraint_violation',
+    }), 409
 
 
 @forecast_bp.route('/api/seasonality/<item_code>')
