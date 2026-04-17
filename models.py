@@ -2822,6 +2822,9 @@ class SkuForecastProfile(db.Model):
     target_weeks_of_stock = db.Column(db.Numeric(12, 4), nullable=False, default=4)
     target_weeks_updated_at = db.Column(db.DateTime, nullable=True)
     target_weeks_updated_by = db.Column(db.String(100), nullable=True)
+    manual_order_qty = db.Column(db.Numeric(18, 6), nullable=True)
+    manual_order_qty_updated_at = db.Column(db.DateTime, nullable=True)
+    manual_order_qty_updated_by = db.Column(db.String(100), nullable=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 

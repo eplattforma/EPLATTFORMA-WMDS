@@ -518,6 +518,12 @@ if _db_available:
     except Exception as e:
         logging.error(f"Error updating forecast override schema: {e}")
 
+    try:
+        from update_forecast_profile_manual_order_schema import update_forecast_profile_manual_order_schema
+        update_forecast_profile_manual_order_schema()
+    except Exception as e:
+        logging.error(f"Error updating forecast profile manual order schema: {e}")
+
     db.create_all()
 
     try:

@@ -852,7 +852,9 @@
             <td class="num-col">${fmtNum(it.net_available_qty)}</td>
             <td class="num-col">${it.min_order_qty || '-'}</td>
             <td class="num-col">${fmtNum(it.raw_order_qty)}</td>
-            <td class="num-col fw-bold ${it.rounded_order_qty > 0 ? 'text-warning' : ''}">${fmtNum(it.rounded_order_qty)}</td>
+            <td class="num-col">
+                ${buildOrderQtyCell(it)}
+            </td>
         </tr>`;
     }
 
@@ -1573,6 +1575,81 @@
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') closeDrawer();
     });
+
+    function buildOrderQtyCell(it) {
+        const isManual = it.manual_order_qty !== null && it.manual_order_qty !== undefined;
+        const displayQty = isManual ? it.manual_order_qty : it.rounded_order_qty;
+        const colorClass = isManual ? 'text-info' : (displayQty > 0 ? 'text-warning' : '');
+        const title = isManual ? 'Manual override — click to edit' : 'System suggested — click to override';
+        const manualIcon = isManual ? ' <i class="fas fa-pencil-alt" style="font-size:0.55rem;opacity:0.6;"></i>' : '';
+        return `<span class="order-qty-display fw-bold ${colorClass}" data-item="${esc(it.item_code)}"
+                      data-system-qty="${it.rounded_order_qty}" data-manual-qty="${isManual ? it.manual_order_qty : ''}"
+                      style="cursor:pointer; border-bottom:1px dashed #666;" title="${title}"
+                      onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty)}${manualIcon}</span>`;
+    }
+
+    window.editOrderQty = function(el, itemCode, currentVal) {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = currentVal;
+        input.min = '0';
+        input.step = '1';
+        input.style.cssText = 'width: 60px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #0d6efd; border-radius: 3px;';
+        el.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let saving = false;
+        function save() {
+            if (saving) return;
+            saving = true;
+            const raw = input.value.trim();
+            const newVal = raw === '' ? null : parseFloat(raw);
+            if (newVal !== null && (isNaN(newVal) || newVal < 0)) {
+                input.replaceWith(el);
+                return;
+            }
+            input.disabled = true;
+            input.style.opacity = '0.5';
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            fetch(`{{ url_for('forecast_workbench.api_set_manual_order_qty', item_code='__PH__') }}`.replace('__PH__', itemCode), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+                body: JSON.stringify({manual_order_qty: newVal}),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    const isManual = data.manual_order_qty !== null && data.manual_order_qty !== undefined;
+                    const displayQty = isManual ? data.manual_order_qty : parseFloat(el.dataset.systemQty || 0);
+                    const colorClass = isManual ? 'text-info' : (displayQty > 0 ? 'text-warning' : '');
+                    const manualIcon = isManual ? ' <i class="fas fa-pencil-alt" style="font-size:0.55rem;opacity:0.6;"></i>' : '';
+                    el.className = `order-qty-display fw-bold ${colorClass}`;
+                    el.dataset.manualQty = isManual ? data.manual_order_qty : '';
+                    el.title = isManual ? 'Manual override — click to edit' : 'System suggested — click to override';
+                    el.setAttribute('onclick', `editOrderQty(this, '${itemCode}', ${displayQty})`);
+                    el.innerHTML = `${fmtNum(displayQty)}${manualIcon}`;
+                    input.replaceWith(el);
+                    // update local data cache
+                    const item = allItems.find(i => i.item_code === itemCode);
+                    if (item) {
+                        item.manual_order_qty = data.manual_order_qty;
+                        item.effective_order_qty = displayQty;
+                    }
+                } else {
+                    alert(data.error || 'Failed to save');
+                    input.replaceWith(el);
+                }
+            })
+            .catch(() => { input.replaceWith(el); });
+        }
+
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            if (e.key === 'Escape') { input.replaceWith(el); }
+        });
+    };
 
     window.editTargetWeeks = function(el, itemCode, currentVal) {
         const input = document.createElement('input');

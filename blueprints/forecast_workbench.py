@@ -375,7 +375,9 @@ def api_items():
     for dw, prof, res, smap, cat_name, brand_name in rows:
         item_prefix = extract_item_prefix(dw.item_code_365)
         snap = snap_map.get(dw.item_code_365)
-        if filter_order_only and (not snap or _float(snap.rounded_order_qty) <= 0):
+        manual_ord = _float(getattr(prof, 'manual_order_qty', None)) if prof else None
+        effective_order = manual_ord if manual_ord is not None else (_float(snap.rounded_order_qty) if snap else 0)
+        if filter_order_only and effective_order <= 0:
             continue
         ovr = override_map.get(dw.item_code_365)
         ovr_status = _compute_override_status(ovr.review_due_at, now_utc) if ovr else None
@@ -415,6 +417,8 @@ def api_items():
             'net_available_qty': _float(snap.net_available_qty) if snap else 0,
             'raw_order_qty': _float(snap.raw_recommended_order_qty) if snap else 0,
             'rounded_order_qty': _float(snap.rounded_order_qty) if snap else 0,
+            'manual_order_qty': manual_ord,
+            'effective_order_qty': effective_order,
             'target_stock_qty': _float(snap.target_stock_qty) if snap else 0,
             'buffer_stock_qty': _float(snap.buffer_days) if snap else 0,
             'lead_time_days': _float(snap.lead_time_days) if snap else 0,
@@ -1029,6 +1033,43 @@ def api_set_target_weeks(item_code):
         'status': 'ok',
         'item_code': item_code,
         'target_weeks_of_stock': float(prof.target_weeks_of_stock),
+    })
+
+
+@forecast_bp.route('/api/item/<item_code>/manual-order-qty', methods=['POST'])
+@admin_or_warehouse_required
+def api_set_manual_order_qty(item_code):
+    prof = SkuForecastProfile.query.get(item_code)
+    if not prof:
+        return jsonify({'error': 'Profile not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    qty = data.get('manual_order_qty')
+
+    if qty is None:
+        # Clear the manual override
+        prof.manual_order_qty = None
+        prof.manual_order_qty_updated_at = get_utc_now()
+        prof.manual_order_qty_updated_by = current_user.username
+        db.session.commit()
+        return jsonify({'status': 'ok', 'item_code': item_code, 'manual_order_qty': None})
+
+    try:
+        qty = float(qty)
+        if qty < 0:
+            return jsonify({'error': 'Quantity cannot be negative'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid quantity value'}), 400
+
+    prof.manual_order_qty = Decimal(str(round(qty, 6)))
+    prof.manual_order_qty_updated_at = get_utc_now()
+    prof.manual_order_qty_updated_by = current_user.username
+    db.session.commit()
+
+    return jsonify({
+        'status': 'ok',
+        'item_code': item_code,
+        'manual_order_qty': float(prof.manual_order_qty),
     })
 
 
