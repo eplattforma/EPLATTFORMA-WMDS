@@ -335,8 +335,8 @@
     </div>
 
     <div class="filter-section" id="filterBar">
-        <div class="row g-2">
-            <div class="col-auto">
+        <div class="d-flex flex-nowrap align-items-end gap-2">
+            <div>
                 <label>Demand Class</label>
                 <select class="form-select form-select-sm" id="filterDemandClass">
                     <option value="">All</option>
@@ -350,7 +350,7 @@
                     <option value="no_demand">No Demand</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Trend</label>
                 <select class="form-select form-select-sm" id="filterTrend">
                     <option value="">All</option>
@@ -359,7 +359,7 @@
                     <option value="down">Down</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Seasonality</label>
                 <select class="form-select form-select-sm" id="filterSeasonality">
                     <option value="">All</option>
@@ -368,21 +368,21 @@
                     <option value="none">None</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Review</label>
                 <select class="form-select form-select-sm" id="filterReview">
                     <option value="">All</option>
                     <option value="1">Review Only</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Order</label>
                 <select class="form-select form-select-sm" id="filterOrder">
                     <option value="">All</option>
                     <option value="1">Order > 0</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Active</label>
                 <select class="form-select form-select-sm" id="filterActive">
                     <option value="">All</option>
@@ -390,19 +390,19 @@
                     <option value="0">Inactive</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Category</label>
                 <select class="form-select form-select-sm" id="filterCategory">
                     <option value="">All</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Brand</label>
                 <select class="form-select form-select-sm" id="filterBrand">
                     <option value="">All</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Expiry</label>
                 <select class="form-select form-select-sm" id="filterExpiry">
                     <option value="">All</option>
@@ -413,7 +413,7 @@
                     <option value="safe">Safe</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Override</label>
                 <select class="form-select form-select-sm" id="filterOverride">
                     <option value="">All</option>
@@ -422,15 +422,13 @@
                     <option value="past_due">Past Due</option>
                 </select>
             </div>
-            <div class="col-auto">
+            <div>
                 <label>Prefix</label>
-                <input type="text" class="form-control form-control-sm" id="filterPrefix" placeholder="e.g. SNA-" style="width:80px">
+                <input type="text" class="form-control form-control-sm" id="filterPrefix" placeholder="e.g. SNA-" style="width:70px">
             </div>
-            <div class="col-auto d-flex align-items-end">
-                <button class="btn btn-sm btn-outline-secondary" id="btnClearFilters">
-                    <i class="fas fa-times me-1"></i>Clear
-                </button>
-            </div>
+            <button class="btn btn-sm btn-outline-secondary flex-shrink-0" id="btnClearFilters" style="margin-bottom:1px">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
     </div>
 
