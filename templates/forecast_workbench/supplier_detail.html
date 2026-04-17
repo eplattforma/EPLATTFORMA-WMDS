@@ -213,6 +213,13 @@
         width: 220px;
         min-width: 220px;
         max-width: 220px;
+    }
+    .sticky-col-5 {
+        left: 382px;
+        width: 80px;
+        min-width: 80px;
+        max-width: 80px;
+        text-align: right;
         box-shadow: 4px 0 4px -2px rgba(0,0,0,0.3);
     }
     .forecast-table tbody tr.group-header td.sticky-col {
@@ -450,6 +457,7 @@
                     <th class="sticky-col sticky-col-2"></th>
                     <th class="sticky-col sticky-col-3">Item Code</th>
                     <th class="sticky-col sticky-col-4">Description</th>
+                    <th class="sticky-col sticky-col-5 num-col">Order</th>
                     <th>Act</th>
                     <th>Demand</th>
                     <th>Trend</th>
@@ -468,7 +476,6 @@
                     <th class="num-col">Net Avail</th>
                     <th class="num-col">MOQ</th>
                     <th class="num-col">Raw Ord</th>
-                    <th class="num-col">Order</th>
                 </tr>
             </thead>
             <tbody id="forecastBody">
@@ -831,6 +838,9 @@
             <td class="sticky-col sticky-col-2">${reviewDot}${ovrStatusBadge}</td>
             <td class="sticky-col sticky-col-3 clickable-cell"><code class="small">${esc(it.item_code)}</code></td>
             <td class="sticky-col sticky-col-4 clickable-cell text-truncate" title="${esc(it.item_name || '')}">${esc(it.item_name || '')}</td>
+            <td class="sticky-col sticky-col-5 num-col">
+                ${buildOrderQtyCell(it)}
+            </td>
             <td>${activeBadge}</td>
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
@@ -852,9 +862,6 @@
             <td class="num-col">${fmtNum(it.net_available_qty)}</td>
             <td class="num-col">${it.min_order_qty || '-'}</td>
             <td class="num-col">${fmtNum(it.raw_order_qty)}</td>
-            <td class="num-col">
-                ${buildOrderQtyCell(it)}
-            </td>
         </tr>`;
     }
 
