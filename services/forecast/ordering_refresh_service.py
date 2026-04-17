@@ -310,6 +310,13 @@ def refresh_ordering_snapshot(
             explanation_json=explanation,
         )
         session.add(snap)
+
+        # Clear any manual order quantity — the new snapshot supersedes it
+        if profile is not None and getattr(profile, 'manual_order_qty', None) is not None:
+            profile.manual_order_qty = None
+            profile.manual_order_qty_updated_at = get_utc_now()
+            profile.manual_order_qty_updated_by = f'system:ordering_refresh'
+
         snapshots.append(snap)
         count += 1
 
