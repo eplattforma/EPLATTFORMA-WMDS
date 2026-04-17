@@ -20,6 +20,10 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "override-pipeline"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -31,6 +35,17 @@ outputType = "webview"
 task = "shell.exec"
 args = "fuser -k 5000/tcp 2>/dev/null; sleep 1; gunicorn -c gunicorn_config.py main:app"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "override-pipeline"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pytest -q tests/test_override_ordering_pipeline.py"
 
 [[ports]]
 localPort = 5000
