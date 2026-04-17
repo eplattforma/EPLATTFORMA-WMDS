@@ -1141,23 +1141,46 @@ def api_override_apply():
         return jsonify({'error': 'Item not found'}), 404
 
     try:
+        now = get_utc_now()
+        review_due = now + timedelta(days=28)
+
         SkuForecastOverride.query.filter_by(
             item_code_365=item_code, is_active=True
-        ).update({'is_active': False, 'cleared_at': get_utc_now(), 'cleared_by': current_user.username})
+        ).update({'is_active': False, 'cleared_at': now, 'cleared_by': current_user.username})
 
-        now = get_utc_now()
-        ovr = SkuForecastOverride(
-            item_code_365=item_code,
-            override_weekly_qty=Decimal(str(round(override_qty, 6))),
-            reason_code=reason_code,
-            reason_note=reason_note,
-            created_by=current_user.username,
-            is_active=True,
-            review_due_at=now + timedelta(days=28),
+        db.session.flush()
+
+        result = db.session.execute(
+            text("""
+                INSERT INTO sku_forecast_override
+                    (item_code_365, override_weekly_qty, reason_code, reason_note,
+                     created_at, created_by, is_active, review_due_at)
+                VALUES
+                    (:item_code, :qty, :reason_code, :reason_note,
+                     :now, :created_by, true, :review_due)
+                ON CONFLICT (item_code_365) WHERE is_active = true
+                DO UPDATE SET
+                    override_weekly_qty = EXCLUDED.override_weekly_qty,
+                    reason_code         = EXCLUDED.reason_code,
+                    reason_note         = EXCLUDED.reason_note,
+                    created_at          = EXCLUDED.created_at,
+                    created_by          = EXCLUDED.created_by,
+                    review_due_at       = EXCLUDED.review_due_at
+                RETURNING id
+            """),
+            {
+                'item_code': item_code,
+                'qty': str(Decimal(str(round(override_qty, 6)))),
+                'reason_code': reason_code,
+                'reason_note': reason_note,
+                'now': now,
+                'created_by': current_user.username,
+                'review_due': review_due,
+            }
         )
-        db.session.add(ovr)
+        new_id = result.scalar()
         db.session.commit()
-        return jsonify({'status': 'ok', 'item_code': item_code, 'override_id': ovr.id})
+        return jsonify({'status': 'ok', 'item_code': item_code, 'override_id': new_id})
     except Exception:
         db.session.rollback()
         logger.exception(f"Failed to apply override for {item_code}")

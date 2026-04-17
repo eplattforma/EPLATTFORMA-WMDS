@@ -2890,6 +2890,12 @@ class SkuForecastOverride(db.Model):
 
     __table_args__ = (
         db.Index('ix_sku_forecast_override_item_active', 'item_code_365', 'is_active'),
+        db.Index(
+            'ux_active_override_per_item',
+            'item_code_365',
+            unique=True,
+            postgresql_where=db.text('is_active = true'),
+        ),
     )
 
 

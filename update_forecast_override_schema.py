@@ -80,6 +80,39 @@ def update_forecast_override_schema():
             else:
                 logger.warning(f"Could not add ck_final_forecast_source constraint: {e}")
 
+        dupes = db.session.execute(text("""
+            SELECT item_code_365
+            FROM sku_forecast_override
+            WHERE is_active = true
+            GROUP BY item_code_365
+            HAVING COUNT(*) > 1
+        """)).fetchall()
+        if dupes:
+            logger.warning(f"Found {len(dupes)} item(s) with duplicate active overrides, deactivating older rows")
+            for (item_code,) in dupes:
+                db.session.execute(text("""
+                    UPDATE sku_forecast_override
+                    SET is_active = false, cleared_at = NOW(), cleared_by = 'system-migration'
+                    WHERE item_code_365 = :item_code
+                      AND is_active = true
+                      AND id != (
+                          SELECT id FROM sku_forecast_override
+                          WHERE item_code_365 = :item_code AND is_active = true
+                          ORDER BY created_at DESC
+                          LIMIT 1
+                      )
+                """), {'item_code': item_code})
+            db.session.commit()
+            logger.info("Duplicate active overrides cleaned up")
+
+        db.session.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_active_override_per_item
+            ON sku_forecast_override (item_code_365)
+            WHERE is_active = true
+        """))
+        db.session.commit()
+        logger.info("ux_active_override_per_item partial unique index ensured")
+
         logger.info("✅ Forecast override schema update completed successfully")
     except Exception as e:
         db.session.rollback()
