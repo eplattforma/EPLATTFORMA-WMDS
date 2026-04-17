@@ -1520,12 +1520,13 @@
         if (e.key === 'Escape') closeDrawer();
     });
 
-    function computeCoverage(netAvail, orderQty, weeklyFcst) {
+    function computeCoverage(netAvail, onOrder, orderQty, weeklyFcst) {
         const w = parseFloat(weeklyFcst || 0);
         const na = parseFloat(netAvail || 0);
+        const oo = parseFloat(onOrder || 0);
         const oq = parseFloat(orderQty || 0);
         if (!w || w <= 0) return '∞';
-        return ((na + oq) / w).toFixed(1);
+        return ((na + oo + oq) / w).toFixed(1);
     }
 
     function coverageColor(weeksStr) {
@@ -1543,18 +1544,20 @@
         const colorClass = isManual ? 'text-info' : (displayQty > 0 ? 'text-warning' : '');
         const title = isManual ? 'Manual override — click to edit' : 'System suggested — click to override';
         const manualIcon = isManual ? ' <i class="fas fa-pencil-alt" style="font-size:0.55rem;opacity:0.6;"></i>' : '';
-        const cov = computeCoverage(it.net_available_qty, displayQty, it.final_forecast_weekly);
+        const onOrder = it.incoming_qty || 0;
+        const cov = computeCoverage(it.net_available_qty, onOrder, displayQty, it.final_forecast_weekly);
         const covCls = coverageColor(cov);
         return `<div class="d-flex align-items-center justify-content-end gap-1" style="line-height:1.1">
                   <div class="order-qty-box">
                     <span class="order-qty-display fw-bold ${colorClass}" data-item="${esc(it.item_code)}"
                         data-system-qty="${it.rounded_order_qty}" data-manual-qty="${isManual ? it.manual_order_qty : ''}"
-                        data-net-avail="${it.net_available_qty || 0}" data-weekly-fcst="${it.final_forecast_weekly || 0}"
+                        data-net-avail="${it.net_available_qty || 0}" data-on-order="${onOrder}"
+                        data-weekly-fcst="${it.final_forecast_weekly || 0}"
                         style="cursor:pointer;" title="${title}"
                         onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty)}${manualIcon}</span>
                   </div>
                   <span class="coverage-display ${covCls}" data-item="${esc(it.item_code)}"
-                        style="font-size:0.75rem; white-space:nowrap" title="Weeks of stock if this order is placed: (Net Avail + Order) / Weekly Forecast">${cov}w</span>
+                        style="font-size:0.75rem; white-space:nowrap" title="Weeks of cover: (Net/Avl + OnOrd + Order) / Wk/FCT">${cov}w</span>
                 </div>`;
     }
 
@@ -1562,7 +1565,7 @@
         const span = document.querySelector(`.order-qty-display[data-item="${itemCode}"]`);
         const covEl = document.querySelector(`.coverage-display[data-item="${itemCode}"]`);
         if (!span || !covEl) return;
-        const cov = computeCoverage(span.dataset.netAvail, orderQty, span.dataset.weeklyFcst);
+        const cov = computeCoverage(span.dataset.netAvail, span.dataset.onOrder, orderQty, span.dataset.weeklyFcst);
         covEl.textContent = cov + 'w';
         covEl.className = `coverage-display ${coverageColor(cov)}`;
     }
@@ -1630,7 +1633,7 @@
             const qty = v === '' ? parseFloat(el.dataset.systemQty || 0) : parseFloat(v);
             const covEl = document.querySelector(`.coverage-display[data-item="${itemCode}"]`);
             if (!covEl) return;
-            const cov = computeCoverage(el.dataset.netAvail, qty, el.dataset.weeklyFcst);
+            const cov = computeCoverage(el.dataset.netAvail, el.dataset.onOrder, qty, el.dataset.weeklyFcst);
             covEl.textContent = cov + 'w';
             covEl.className = `coverage-display ${coverageColor(cov)}`;
         });
