@@ -167,6 +167,27 @@
     .item-row .clickable-cell {
         cursor: pointer;
     }
+    /* Sortable column headers */
+    .forecast-table thead th[data-sort] {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+    .forecast-table thead th[data-sort]:hover {
+        background-color: rgba(255,255,255,0.07);
+    }
+    .forecast-table thead th[data-sort] .sort-icon {
+        display: inline-block;
+        margin-left: 4px;
+        opacity: 0.3;
+        font-size: 0.65rem;
+        vertical-align: middle;
+    }
+    .forecast-table thead th[data-sort].sort-asc .sort-icon,
+    .forecast-table thead th[data-sort].sort-desc .sort-icon {
+        opacity: 1;
+        color: #0d6efd;
+    }
     .item-row .clickable-cell:hover {
         background-color: rgba(13, 110, 253, 0.12);
     }
