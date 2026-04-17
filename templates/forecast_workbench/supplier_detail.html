@@ -342,25 +342,6 @@
         </div>
     </div>
 
-    <div class="d-flex flex-nowrap gap-1 mb-2" id="kpiCards">
-        <div class="kpi-card" data-kpi-filter="total"><div class="kpi-value text-info" id="kpiTotal">-</div><div class="kpi-label">Total</div></div>
-        <div class="kpi-card" data-kpi-filter="smooth"><div class="kpi-value text-success" id="kpiSmooth">-</div><div class="kpi-label">Smooth</div></div>
-        <div class="kpi-card" data-kpi-filter="erratic"><div class="kpi-value text-warning" id="kpiErratic">-</div><div class="kpi-label">Erratic</div></div>
-        <div class="kpi-card" data-kpi-filter="intermittent"><div class="kpi-value" style="color:#0d6efd" id="kpiIntermittent">-</div><div class="kpi-label">Intermit.</div></div>
-        <div class="kpi-card" data-kpi-filter="lumpy"><div class="kpi-value" style="color:#fd7e14" id="kpiLumpy">-</div><div class="kpi-label">Lumpy</div></div>
-        <div class="kpi-card" data-kpi-filter="new_true"><div class="kpi-value text-secondary" id="kpiNewTrue">-</div><div class="kpi-label">New</div></div>
-        <div class="kpi-card" data-kpi-filter="sparse_valid"><div class="kpi-value" style="color:#17a2b8" id="kpiSparseValid">-</div><div class="kpi-label">Sparse</div></div>
-        <div class="kpi-card" data-kpi-filter="availability_distorted"><div class="kpi-value text-danger" id="kpiAvailDistorted">-</div><div class="kpi-label">Avl.Dist</div></div>
-        <div class="kpi-card" data-kpi-filter="no_demand"><div class="kpi-value text-muted" id="kpiNoDemand">-</div><div class="kpi-label">No Dmd</div></div>
-        <div class="kpi-card" data-kpi-filter="trend_up"><div class="kpi-value text-success" id="kpiTrendUp">-</div><div class="kpi-label"><i class="fas fa-arrow-up"></i> Up</div></div>
-        <div class="kpi-card" data-kpi-filter="trend_down"><div class="kpi-value text-danger" id="kpiTrendDown">-</div><div class="kpi-label"><i class="fas fa-arrow-down"></i> Down</div></div>
-        <div class="kpi-card" data-kpi-filter="seasonal"><div class="kpi-value" style="color:#6f42c1" id="kpiSeasonal">-</div><div class="kpi-label">Season</div></div>
-        <div class="kpi-card" data-kpi-filter="review"><div class="kpi-value text-warning" id="kpiReview">-</div><div class="kpi-label">Review</div></div>
-        <div class="kpi-card" data-kpi-filter="with_order"><div class="kpi-value text-primary" id="kpiWithOrder">-</div><div class="kpi-label">Order&gt;0</div></div>
-        <div class="kpi-card" data-kpi-filter="overridden"><div class="kpi-value" style="color:#0d6efd" id="kpiOverride">-</div><div class="kpi-label">Overrid.</div></div>
-        <div class="kpi-card" data-kpi-filter="override_due"><div class="kpi-value text-danger" id="kpiOverrideDue">-</div><div class="kpi-label">Rvw Due</div></div>
-    </div>
-
     <ul class="nav nav-tabs saved-views mb-2" id="savedViewTabs">
         <li class="nav-item">
             <a class="nav-link active" href="#" data-view="all">All Items</a>
@@ -683,22 +664,23 @@
             if (it.has_override) counts.overridden++;
             if (it.override_status === 'review_due' || it.override_status === 'past_due') counts.override_due++;
         });
-        document.getElementById('kpiTotal').textContent = items.length;
-        document.getElementById('kpiSmooth').textContent = counts.smooth;
-        document.getElementById('kpiErratic').textContent = counts.erratic;
-        document.getElementById('kpiIntermittent').textContent = counts.intermittent;
-        document.getElementById('kpiLumpy').textContent = counts.lumpy;
-        document.getElementById('kpiNewTrue').textContent = counts.new_true + counts.new_sparse;
-        document.getElementById('kpiSparseValid').textContent = counts.sparse_valid;
-        document.getElementById('kpiAvailDistorted').textContent = counts.availability_distorted;
-        document.getElementById('kpiNoDemand').textContent = counts.no_demand;
-        document.getElementById('kpiTrendUp').textContent = counts.trend_up;
-        document.getElementById('kpiTrendDown').textContent = counts.trend_down;
-        document.getElementById('kpiSeasonal').textContent = counts.seasonal;
-        document.getElementById('kpiReview').textContent = counts.review;
-        document.getElementById('kpiWithOrder').textContent = counts.with_order;
-        document.getElementById('kpiOverride').textContent = counts.overridden;
-        document.getElementById('kpiOverrideDue').textContent = counts.override_due;
+        function setKpi(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+        setKpi('kpiTotal', items.length);
+        setKpi('kpiSmooth', counts.smooth);
+        setKpi('kpiErratic', counts.erratic);
+        setKpi('kpiIntermittent', counts.intermittent);
+        setKpi('kpiLumpy', counts.lumpy);
+        setKpi('kpiNewTrue', counts.new_true + counts.new_sparse);
+        setKpi('kpiSparseValid', counts.sparse_valid);
+        setKpi('kpiAvailDistorted', counts.availability_distorted);
+        setKpi('kpiNoDemand', counts.no_demand);
+        setKpi('kpiTrendUp', counts.trend_up);
+        setKpi('kpiTrendDown', counts.trend_down);
+        setKpi('kpiSeasonal', counts.seasonal);
+        setKpi('kpiReview', counts.review);
+        setKpi('kpiWithOrder', counts.with_order);
+        setKpi('kpiOverride', counts.overridden);
+        setKpi('kpiOverrideDue', counts.override_due);
     }
 
     function populateFilterDropdowns(items) {
@@ -779,51 +761,7 @@
         document.getElementById('filterOverride').value = '';
     }
 
-    function setActiveKpi(filterKey) {
-        document.querySelectorAll('#kpiCards .kpi-card').forEach(c => c.classList.remove('kpi-active'));
-        if (filterKey) {
-            const card = document.querySelector(`[data-kpi-filter="${filterKey}"]`);
-            if (card) card.classList.add('kpi-active');
-        }
-    }
-
-    document.getElementById('kpiCards').addEventListener('click', function(e) {
-        const card = e.target.closest('.kpi-card');
-        if (!card) return;
-        const key = card.dataset.kpiFilter;
-        if (!key) return;
-
-        const wasActive = card.classList.contains('kpi-active');
-        resetAllFilters();
-
-        if (wasActive) {
-            setActiveKpi(null);
-            applyFilters();
-            return;
-        }
-
-        const demandClasses = ['smooth','erratic','intermittent','lumpy','new_true','sparse_valid','availability_distorted','no_demand'];
-        if (demandClasses.includes(key)) {
-            document.getElementById('filterDemandClass').value = key;
-        } else if (key === 'trend_up') {
-            document.getElementById('filterTrend').value = 'up';
-        } else if (key === 'trend_down') {
-            document.getElementById('filterTrend').value = 'down';
-        } else if (key === 'seasonal') {
-            document.getElementById('filterSeasonality').value = '_any';
-        } else if (key === 'review') {
-            document.getElementById('filterReview').value = '1';
-        } else if (key === 'with_order') {
-            document.getElementById('filterOrder').value = '1';
-        } else if (key === 'overridden') {
-            document.getElementById('filterOverride').value = 'overridden';
-        } else if (key === 'override_due') {
-            document.getElementById('filterOverride').value = 'review_due';
-        }
-
-        setActiveKpi(key === 'total' ? null : key);
-        applyFilters();
-    });
+    function setActiveKpi(filterKey) { /* KPI cards removed — no-op */ }
 
     function applyFilters() {
         const filtered = getFilteredItems();
