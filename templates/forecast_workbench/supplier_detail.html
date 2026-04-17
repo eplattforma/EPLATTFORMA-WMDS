@@ -243,6 +243,18 @@
         text-align: center;
         box-shadow: 4px 0 4px -2px rgba(0,0,0,0.3);
     }
+    .order-qty-box {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        padding: 0.12rem 0.4rem;
+        border: 1px solid rgba(13,110,253,0.55);
+        border-radius: 0.35rem;
+        background: rgba(13,110,253,0.08);
+        min-width: 92px;
+        cursor: pointer;
+    }
     .forecast-table tbody tr.group-header td.sticky-col {
         background-color: var(--bs-tertiary-bg, #2b3035);
     }
@@ -1629,14 +1641,14 @@
         const manualIcon = isManual ? ' <i class="fas fa-pencil-alt" style="font-size:0.55rem;opacity:0.6;"></i>' : '';
         const cov = computeCoverage(it.net_available_qty, displayQty, it.final_forecast_weekly);
         const covCls = coverageColor(cov);
-        return `<div class="d-flex align-items-center justify-content-end gap-1" style="line-height:1.1">
+        return `<div class="order-qty-box" style="line-height:1.1">
                   <span class="order-qty-display fw-bold ${colorClass}" data-item="${esc(it.item_code)}"
                       data-system-qty="${it.rounded_order_qty}" data-manual-qty="${isManual ? it.manual_order_qty : ''}"
                       data-net-avail="${it.net_available_qty || 0}" data-weekly-fcst="${it.final_forecast_weekly || 0}"
                       style="cursor:pointer; border-bottom:1px dashed #666;" title="${title}"
                       onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty)}${manualIcon}</span>
                   <span class="coverage-display ${covCls}" data-item="${esc(it.item_code)}"
-                        style="font-size:0.75rem" title="Weeks of stock if this order is placed: (Net Avail + Order) / Weekly Forecast">${cov}w</span>
+                        style="font-size:0.75rem; white-space:nowrap" title="Weeks of stock if this order is placed: (Net Avail + Order) / Weekly Forecast">${cov}w</span>
                 </div>`;
     }
 
