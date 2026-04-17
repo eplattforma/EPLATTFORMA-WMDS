@@ -31,7 +31,7 @@ def app():
         'pool_pre_ping': True,
         'echo': False
     }
-    
+
     # Import all routes to ensure they're registered
     import routes  # Main routes
     import routes_operations  # CSV export routes

@@ -37,7 +37,16 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 is_production = os.environ.get("REPLIT_DEPLOYMENT") == "1"
 
-if is_production:
+# SQLite (used by the test suite) doesn't accept Postgres-specific pool/connect
+# options, so we only apply them when running against a real Postgres URL.
+_is_sqlite = app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite")
+
+if _is_sqlite:
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping": True,
+        "echo": False,
+    }
+elif is_production:
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         'pool_pre_ping': True,
         "pool_recycle": 300,
