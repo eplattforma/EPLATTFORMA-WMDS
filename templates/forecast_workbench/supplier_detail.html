@@ -1629,14 +1629,14 @@
         const manualIcon = isManual ? ' <i class="fas fa-pencil-alt" style="font-size:0.55rem;opacity:0.6;"></i>' : '';
         const cov = computeCoverage(it.net_available_qty, displayQty, it.final_forecast_weekly);
         const covCls = coverageColor(cov);
-        return `<div class="d-flex flex-column align-items-end" style="line-height:1.1">
+        return `<div class="d-flex align-items-center justify-content-end gap-1" style="line-height:1.1">
                   <span class="order-qty-display fw-bold ${colorClass}" data-item="${esc(it.item_code)}"
                       data-system-qty="${it.rounded_order_qty}" data-manual-qty="${isManual ? it.manual_order_qty : ''}"
                       data-net-avail="${it.net_available_qty || 0}" data-weekly-fcst="${it.final_forecast_weekly || 0}"
                       style="cursor:pointer; border-bottom:1px dashed #666;" title="${title}"
                       onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty)}${manualIcon}</span>
                   <span class="coverage-display ${covCls}" data-item="${esc(it.item_code)}"
-                        style="font-size:0.65rem" title="Weeks of stock if this order is placed: (Net Avail + Order) / Weekly Forecast">${cov}w</span>
+                        style="font-size:0.75rem" title="Weeks of stock if this order is placed: (Net Avail + Order) / Weekly Forecast">${cov}w</span>
                 </div>`;
     }
 
