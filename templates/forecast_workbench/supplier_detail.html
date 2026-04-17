@@ -234,6 +234,13 @@
         min-width: 72px;
         max-width: 72px;
         text-align: right;
+    }
+    .sticky-col-8 {
+        left: 602px;
+        width: 40px;
+        min-width: 40px;
+        max-width: 40px;
+        text-align: center;
         box-shadow: 4px 0 4px -2px rgba(0,0,0,0.3);
     }
     .forecast-table tbody tr.group-header td.sticky-col {
@@ -474,10 +481,10 @@
                     <th class="sticky-col sticky-col-5 num-col">Order</th>
                     <th class="sticky-col sticky-col-6 num-col" title="Final forecast used for ordering (override if active, else system)">Final/Wk</th>
                     <th class="sticky-col sticky-col-7 num-col">Net Avail</th>
+                    <th class="sticky-col sticky-col-8" title="Stock expiry risk">Exp</th>
                     <th>Act</th>
                     <th>Demand</th>
                     <th>Trend</th>
-                    <th title="Stock expiry risk">Exp</th>
                     <th>Season</th>
                     <th>Method</th>
                     <th class="num-col" title="OOS days in the 8-week forecast window (max 56)">OOS 8w</th>
@@ -857,10 +864,10 @@
             </td>
             <td class="sticky-col sticky-col-6 num-col fw-bold ${it.has_override ? 'text-info' : ''}">${fmtNum(it.final_forecast_weekly)}</td>
             <td class="sticky-col sticky-col-7 num-col">${fmtNum(it.net_available_qty)}</td>
+            <td class="sticky-col sticky-col-8">${expiryIcon(it.expiry_risk)}</td>
             <td>${activeBadge}</td>
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
-            <td>${expiryIcon(it.expiry_risk)}</td>
             <td>${seasonBadge}</td>
             <td><small>${esc(it.forecast_method || '-')}${it.oos_adjusted ? ' <span class="badge bg-warning text-dark" style="font-size:0.6rem">+OOS</span>' : ''}</small></td>
             <td class="num-col">${formatOosDays8w(it.oos_days_8w || 0)}</td>
