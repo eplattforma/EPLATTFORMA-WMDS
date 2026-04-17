@@ -2565,6 +2565,28 @@ class Ps365ReservedStock777(db.Model):
         return f"<Ps365ReservedStock777 {self.item_code_365}>"
 
 
+class Ps365Stock777Current(db.Model):
+    """Current stock snapshot for Store 777 — written by ordering/forecasting refresh."""
+    __tablename__ = "ps365_stock_777_current"
+
+    item_code_365     = db.Column(db.String(64), primary_key=True)
+    item_name         = db.Column(db.String(255), nullable=True)
+    supplier_code_365 = db.Column(db.String(50),  nullable=True)
+    store_code_365    = db.Column(db.String(16),   nullable=False, default="777")
+    stock             = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_reserved    = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_on_transfer = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_ordered     = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    available_qty     = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    is_available      = db.Column(db.Boolean, nullable=False, default=True)
+    is_oos            = db.Column(db.Boolean, nullable=False, default=False)
+    is_low_stock      = db.Column(db.Boolean, nullable=False, default=False)
+    updated_at        = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    def __repr__(self):
+        return f"<Ps365Stock777Current {self.item_code_365} stock={self.stock} ordered={self.stock_ordered}>"
+
+
 class Ps365Stock777Run(db.Model):
     __tablename__ = "ps365_stock_777_runs"
 

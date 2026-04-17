@@ -1,0 +1,184 @@
+nstructions to Replit — include live stock_ordered from PS365 in the stock refresh used by forecasting and ordering
+
+We need to correct how stock is refreshed for forecasting / ordering, specifically to make sure the live PS365 stock_ordered value is pulled and used.
+
+Problem
+
+For item SNA-0114, the extra ordered stock value used in PO receiving / ordering comes from:
+
+PS365 API endpoint: /list_items_stock
+field: stock_ordered
+
+At the moment, the local stock caches mentioned are empty, so the value is not being refreshed locally in a reliable way. That means forecasting / ordering may be using stale or zero incoming quantities.
+
+What to do
+
+We need the stock refresh script used by forecasting / ordering to explicitly fetch and persist:
+
+stock_actual
+stock_reserved
+stock_ordered
+
+for the relevant store, especially store 777.
+
+1) Find the stock refresh path used by forecasting / ordering
+
+Please locate the code path that refreshes stock before or during:
+
+forecasting stock enrichment
+ordering refresh
+replenishment snapshot generation
+
+Likely places are in services related to:
+
+forecast ordering refresh
+stock sync
+PS365 stock client/service
+
+We need to identify the function that currently populates:
+
+on hand
+reserved
+incoming
+
+and confirm whether incoming is sourced from stock_ordered or not.
+
+2) Use the live PS365 API /list_items_stock
+
+In the PS365 stock fetch script / service, call the API endpoint already used elsewhere:
+
+POST /list_items_stock
+
+For each requested item code for store 777, capture at minimum:
+
+item code
+store code
+stock_actual
+stock_reserved
+stock_ordered
+
+If the response contains list_stock_store, make sure the script reads stock_ordered from that structure and not only actual/reserved.
+
+3) Persist stock_ordered in the local stock refresh output
+
+The stock refresh logic must save stock_ordered into the local stock cache/table used by forecasting and ordering.
+
+Please verify which local table is intended for current stock snapshot for store 777. It may be something like:
+
+ps365_stock_777_current
+or another current-stock table
+
+Wherever current stock snapshot is stored, include/update a column for:
+
+stock_ordered
+
+If the table does not yet have it, add it.
+
+Suggested columns in the current stock cache:
+
+item_code_365
+store_code
+stock_actual
+stock_reserved
+stock_ordered
+synced_at
+4) Use stock_ordered as incoming quantity in forecasting / ordering
+
+Where forecasting / ordering currently derives:
+
+incoming_qty
+
+make sure it is populated from the refreshed PS365 stock_ordered value.
+
+Meaning:
+
+incoming_qty = stock_ordered
+
+for the latest synced stock snapshot for the relevant store.
+
+This should feed the ordering snapshot / calculation used for:
+
+incoming
+net available
+target stock / order need
+5) If no local stock snapshot exists, refresh before using stock values
+
+Right now the local caches were empty. So if the script is about to calculate ordering / forecasting and there is no fresh local stock snapshot, it should either:
+
+preferred
+
+refresh stock from PS365 first
+
+or at minimum:
+
+fallback
+
+log clearly that stock data is missing/stale and avoid assuming stock_ordered = 0 silently.
+
+A silent zero is dangerous because it understates incoming stock.
+
+6) Add diagnostic logging for one test SKU like SNA-0114
+
+Please add temporary logging or a debug check for SNA-0114 so we can confirm the pipeline end to end.
+
+For example, after stock refresh, log something like:
+
+item code
+stock_actual
+stock_reserved
+stock_ordered
+synced_at
+
+Then confirm that the same stock_ordered value appears as:
+
+incoming_qty in the ordering snapshot
+7) Validate with SNA-0114
+
+Please test specifically for SNA-0114:
+
+Step A
+
+Call the live PS365 /list_items_stock for store 777 and confirm the returned stock_ordered.
+
+Step B
+
+Confirm the refresh script writes that value into the local stock snapshot table.
+
+Step C
+
+Confirm forecasting / ordering uses that same value as incoming_qty.
+
+Step D
+
+Confirm the resulting ordering snapshot shows:
+
+on hand
+reserved
+incoming (stock_ordered)
+net available
+8) Important distinction
+
+Do not confuse:
+
+PO line ordered quantity from /purchaseorder
+with
+store stock ordered quantity from /list_items_stock -> stock_ordered
+
+For forecasting / ordering stock position, we want the store-level live stock_ordered included in the stock refresh.
+
+That is the value that should feed incoming_qty.
+
+9) Expected result
+
+After this change:
+
+stock refresh will bring in live stock_ordered from PS365
+local stock snapshot will contain it
+forecasting / ordering will no longer rely on empty cache / stale zero incoming
+SNA-0114 can be checked end to end to confirm the value flows correctly
+Short implementation summary
+Find the stock refresh function used by forecasting / ordering.
+In the PS365 /list_items_stock call, read stock_ordered as well as actual/reserved.
+Persist stock_ordered into the current stock cache table.
+Use that stored stock_ordered as incoming_qty in ordering/forecasting snapshot logic.
+Add a validation check for SNA-0114.

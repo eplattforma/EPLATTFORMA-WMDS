@@ -6,6 +6,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from datetime import timezone
+
 from models import (
     SkuForecastProfile,
     SkuForecastResult,
@@ -14,8 +16,11 @@ from models import (
     ForecastItemSupplierMap,
     DwItem,
     Setting,
+    Ps365Stock777Current,
 )
 from timezone_utils import get_utc_now
+
+DIAG_SKUS = {"SNA-0114"}  # SKUs that get extra diagnostic logging
 
 logger = logging.getLogger(__name__)
 
@@ -169,17 +174,76 @@ def refresh_ordering_snapshot(
         dw_item_cache[item.item_code_365] = item
 
     stock_cache_by_supplier = {}
+    now_utc = get_utc_now()
+
+    def _persist_stock_to_db(sup_code, items_dict):
+        """Write live stock data to ps365_stock_777_current so it can be used as fallback."""
+        try:
+            for item_code, d in items_dict.items():
+                stock_val = float(d.get("stock_now_units", 0))
+                ordered_val = float(d.get("ordered_now_units", 0))
+                reserved_val = float(d.get("reserved_now_units", 0))
+                transfer_val = float(d.get("on_transfer_now_units", 0))
+                avail_val = stock_val + ordered_val - reserved_val
+                row = session.get(Ps365Stock777Current, item_code)
+                if row is None:
+                    row = Ps365Stock777Current(item_code_365=item_code)
+                    session.add(row)
+                row.supplier_code_365 = sup_code
+                row.store_code_365 = "777"
+                row.item_name = d.get("item_name", "")
+                row.stock = Decimal(str(round(stock_val, 4)))
+                row.stock_reserved = Decimal(str(round(reserved_val, 4)))
+                row.stock_on_transfer = Decimal(str(round(transfer_val, 4)))
+                row.stock_ordered = Decimal(str(round(ordered_val, 4)))
+                row.available_qty = Decimal(str(round(avail_val, 4)))
+                row.is_oos = stock_val <= 0
+                row.is_available = stock_val > 0
+                row.is_low_stock = 0 < stock_val < 5
+                row.updated_at = now_utc
+            session.flush()
+            logger.info(f"Persisted {len(items_dict)} stock rows to ps365_stock_777_current (supplier={sup_code})")
+        except Exception as e:
+            logger.warning(f"Could not persist stock to ps365_stock_777_current: {e}")
+
+    def _read_stock_from_db(item_codes_list):
+        """Read stock from the DB snapshot as fallback for items without a live fetch."""
+        try:
+            rows = session.query(Ps365Stock777Current).filter(
+                Ps365Stock777Current.item_code_365.in_(item_codes_list)
+            ).all()
+            result = {}
+            for r in rows:
+                result[r.item_code_365] = {
+                    "stock_now_units": float(r.stock),
+                    "ordered_now_units": float(r.stock_ordered),
+                    "reserved_now_units": float(r.stock_reserved),
+                }
+            return result
+        except Exception as e:
+            logger.warning(f"Could not read stock from ps365_stock_777_current: {e}")
+            return {}
 
     def _get_stock_cache(sup_code):
         if sup_code not in stock_cache_by_supplier:
+            if progress_callback:
+                progress_callback(f"Fetching stock from PS365 for supplier {sup_code}...")
             try:
-                if progress_callback:
-                    progress_callback(f"Fetching stock from PS365 for supplier {sup_code}...")
                 from services.replenishment_mvp.ps365_client import fetch_supplier_stock
-                stock_cache_by_supplier[sup_code] = fetch_supplier_stock(sup_code)
+                live = fetch_supplier_stock(sup_code)
+                _persist_stock_to_db(sup_code, live)
+                stock_cache_by_supplier[sup_code] = live
+                logger.info(f"Live stock fetched for supplier {sup_code}: {len(live)} items")
             except Exception as e:
-                logger.warning(f"Failed to fetch stock for supplier {sup_code}: {e}")
-                stock_cache_by_supplier[sup_code] = {}
+                logger.warning(
+                    f"Live PS365 stock fetch FAILED for supplier {sup_code}: {e}. "
+                    f"Falling back to ps365_stock_777_current DB snapshot."
+                )
+                # Fall back to DB snapshot
+                all_codes = [r.item_code_365 for r in results if
+                             dw_item_cache.get(r.item_code_365) and
+                             dw_item_cache[r.item_code_365].supplier_code_365 == sup_code]
+                stock_cache_by_supplier[sup_code] = _read_stock_from_db(all_codes)
         return stock_cache_by_supplier[sup_code]
 
     last_run = (
@@ -230,8 +294,22 @@ def refresh_ordering_snapshot(
         buffer_stock = effective_daily * buffer_days
         target_stock = base_target_stock + lead_time_cover + review_cycle_cover + buffer_stock
 
-        stock_cache = _get_stock_cache(sup_ctx["supplier_code"]) if sup_ctx["supplier_code"] else {}
-        on_hand, incoming, reserved = _get_stock_for_item(item_code, stock_cache)
+        if sup_ctx["supplier_code"]:
+            stock_cache = _get_stock_cache(sup_ctx["supplier_code"])
+            on_hand, incoming, reserved = _get_stock_for_item(item_code, stock_cache)
+        else:
+            # No supplier resolved — read directly from DB snapshot
+            db_snap = _read_stock_from_db([item_code])
+            on_hand, incoming, reserved = _get_stock_for_item(item_code, db_snap)
+            if not db_snap.get(item_code):
+                logger.debug(f"{item_code}: no supplier code resolved and no DB stock snapshot found; using zeros")
+
+        if item_code in DIAG_SKUS:
+            logger.info(
+                f"[DIAG] {item_code}: on_hand={on_hand}, incoming(stock_ordered)={incoming}, "
+                f"reserved={reserved}, net_available={on_hand + incoming - reserved}"
+            )
+
         net_available = on_hand + incoming - reserved
 
         raw_order = max(0.0, target_stock - net_available)
