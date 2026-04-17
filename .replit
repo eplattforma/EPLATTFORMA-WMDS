@@ -70,3 +70,7 @@ EXPIRY_FTP_TIMEOUT = "30"
 EXPIRY_EXPORT_DIR = "/tmp"
 
 [userenv.development]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 120000
