@@ -677,7 +677,9 @@
             if (it.trend_flag === 'down') counts.trend_down++;
             if (it.seasonality_source && it.seasonality_source !== 'none') counts.seasonal++;
             if (it.review_flag) counts.review++;
-            if (it.rounded_order_qty > 0) counts.with_order++;
+            const effectiveQty = (it.manual_order_qty !== null && it.manual_order_qty !== undefined)
+                ? it.manual_order_qty : it.rounded_order_qty;
+            if (effectiveQty > 0) counts.with_order++;
             if (it.has_override) counts.overridden++;
             if (it.override_status === 'review_due' || it.override_status === 'past_due') counts.override_due++;
         });
@@ -741,7 +743,11 @@
             if (ss === '_any' && (!it.seasonality_source || it.seasonality_source === 'none')) return false;
             if (ss && ss !== '_any' && it.seasonality_source !== ss) return false;
             if (rv === '1' && !it.review_flag) return false;
-            if (oo === '1' && !(it.rounded_order_qty > 0)) return false;
+            if (oo === '1') {
+                const eff = (it.manual_order_qty !== null && it.manual_order_qty !== undefined)
+                    ? it.manual_order_qty : it.rounded_order_qty;
+                if (!(eff > 0)) return false;
+            }
             if (ac === '1' && !it.active) return false;
             if (ac === '0' && it.active) return false;
             if (cat && it.category_code !== cat) return false;
