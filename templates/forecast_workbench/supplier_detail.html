@@ -1572,7 +1572,7 @@
                         data-net-avail="${it.net_available_qty || 0}" data-on-order="${onOrder}"
                         data-weekly-fcst="${it.final_forecast_weekly || 0}"
                         style="cursor:pointer;" title="${title}"
-                        onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty)}${manualIcon}</span>
+                        onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty, 0)}${manualIcon}</span>
                   </div>
                   <span class="coverage-display ${covCls}" data-item="${esc(it.item_code)}"
                         style="font-size:0.75rem; white-space:nowrap" title="Weeks of cover: (Net/Avl + OnOrd + Order) / Wk/FCT">${cov}w</span>
