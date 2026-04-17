@@ -827,8 +827,8 @@
                 ${buildOrderQtyCell(it)}
             </td>
             <td class="sticky-col sticky-col-6 num-col fw-bold ${it.has_override ? 'text-info' : ''}">${fmtNum(it.final_forecast_weekly)}</td>
-            <td class="sticky-col sticky-col-7 num-col">${fmtNum(it.net_available_qty)}</td>
-            <td class="sticky-col sticky-col-8 num-col" style="color:#6ea8fe;">${it.incoming_qty ? fmtNum(it.incoming_qty) : '<span style="color:#6c757d">—</span>'}</td>
+            <td class="sticky-col sticky-col-7 num-col">${fmtNum(it.net_available_qty, 0)}</td>
+            <td class="sticky-col sticky-col-8 num-col" style="color:#6ea8fe;">${it.incoming_qty ? fmtNum(it.incoming_qty, 0) : '<span style="color:#6c757d">—</span>'}</td>
             <td class="sticky-col sticky-col-9">${expiryIcon(it.expiry_risk)}</td>
             <td>${activeBadge}</td>
             <td>${demandBadge}</td>
