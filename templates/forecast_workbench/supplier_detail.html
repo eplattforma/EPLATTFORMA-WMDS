@@ -1604,16 +1604,49 @@
         if (e.key === 'Escape') closeDrawer();
     });
 
+    function computeCoverage(netAvail, orderQty, weeklyFcst) {
+        const w = parseFloat(weeklyFcst || 0);
+        const na = parseFloat(netAvail || 0);
+        const oq = parseFloat(orderQty || 0);
+        if (!w || w <= 0) return '∞';
+        return ((na + oq) / w).toFixed(1);
+    }
+
+    function coverageColor(weeksStr) {
+        if (weeksStr === '∞') return 'text-muted';
+        const v = parseFloat(weeksStr);
+        if (isNaN(v)) return 'text-muted';
+        if (v < 1) return 'text-danger';
+        if (v < 2) return 'text-warning';
+        return 'text-success';
+    }
+
     function buildOrderQtyCell(it) {
         const isManual = it.manual_order_qty !== null && it.manual_order_qty !== undefined;
         const displayQty = isManual ? it.manual_order_qty : it.rounded_order_qty;
         const colorClass = isManual ? 'text-info' : (displayQty > 0 ? 'text-warning' : '');
         const title = isManual ? 'Manual override — click to edit' : 'System suggested — click to override';
         const manualIcon = isManual ? ' <i class="fas fa-pencil-alt" style="font-size:0.55rem;opacity:0.6;"></i>' : '';
-        return `<span class="order-qty-display fw-bold ${colorClass}" data-item="${esc(it.item_code)}"
+        const cov = computeCoverage(it.net_available_qty, displayQty, it.final_forecast_weekly);
+        const covCls = coverageColor(cov);
+        return `<div class="d-flex flex-column align-items-end" style="line-height:1.1">
+                  <span class="order-qty-display fw-bold ${colorClass}" data-item="${esc(it.item_code)}"
                       data-system-qty="${it.rounded_order_qty}" data-manual-qty="${isManual ? it.manual_order_qty : ''}"
+                      data-net-avail="${it.net_available_qty || 0}" data-weekly-fcst="${it.final_forecast_weekly || 0}"
                       style="cursor:pointer; border-bottom:1px dashed #666;" title="${title}"
-                      onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty)}${manualIcon}</span>`;
+                      onclick="editOrderQty(this, '${esc(it.item_code)}', ${displayQty})">${fmtNum(displayQty)}${manualIcon}</span>
+                  <span class="coverage-display ${covCls}" data-item="${esc(it.item_code)}"
+                        style="font-size:0.65rem" title="Weeks of stock if this order is placed: (Net Avail + Order) / Weekly Forecast">${cov}w</span>
+                </div>`;
+    }
+
+    function updateCoverageDisplay(itemCode, orderQty) {
+        const span = document.querySelector(`.order-qty-display[data-item="${itemCode}"]`);
+        const covEl = document.querySelector(`.coverage-display[data-item="${itemCode}"]`);
+        if (!span || !covEl) return;
+        const cov = computeCoverage(span.dataset.netAvail, orderQty, span.dataset.weeklyFcst);
+        covEl.textContent = cov + 'w';
+        covEl.className = `coverage-display ${coverageColor(cov)}`;
     }
 
     window.editOrderQty = function(el, itemCode, currentVal) {
@@ -1658,6 +1691,7 @@
                     el.setAttribute('onclick', `editOrderQty(this, '${itemCode}', ${displayQty})`);
                     el.innerHTML = `${fmtNum(displayQty)}${manualIcon}`;
                     input.replaceWith(el);
+                    updateCoverageDisplay(itemCode, displayQty);
                     // update local data cache
                     const item = allItems.find(i => i.item_code === itemCode);
                     if (item) {
@@ -1672,10 +1706,24 @@
             .catch(() => { input.replaceWith(el); });
         }
 
+        // Live update coverage as user types
+        input.addEventListener('input', function() {
+            const v = input.value.trim();
+            const qty = v === '' ? parseFloat(el.dataset.systemQty || 0) : parseFloat(v);
+            const covEl = document.querySelector(`.coverage-display[data-item="${itemCode}"]`);
+            if (!covEl) return;
+            const cov = computeCoverage(el.dataset.netAvail, qty, el.dataset.weeklyFcst);
+            covEl.textContent = cov + 'w';
+            covEl.className = `coverage-display ${coverageColor(cov)}`;
+        });
+
         input.addEventListener('blur', save);
         input.addEventListener('keydown', function(e) {
             if (e.key === 'Enter') { e.preventDefault(); save(); }
-            if (e.key === 'Escape') { input.replaceWith(el); }
+            if (e.key === 'Escape') {
+                input.replaceWith(el);
+                updateCoverageDisplay(itemCode, currentVal);
+            }
         });
     };
 
