@@ -375,7 +375,8 @@ def api_items():
     for dw, prof, res, smap, cat_name, brand_name in rows:
         item_prefix = extract_item_prefix(dw.item_code_365)
         snap = snap_map.get(dw.item_code_365)
-        manual_ord = _float(getattr(prof, 'manual_order_qty', None)) if prof else None
+        _manual_raw = getattr(prof, 'manual_order_qty', None) if prof else None
+        manual_ord = float(_manual_raw) if _manual_raw is not None else None
         effective_order = manual_ord if manual_ord is not None else (_float(snap.rounded_order_qty) if snap else 0)
         if filter_order_only and effective_order <= 0:
             continue
