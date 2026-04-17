@@ -631,6 +631,7 @@
                     '<tr><td colspan="24" class="text-center text-danger py-4">Error loading data</td></tr>';
             });
     }
+    window.loadItems = loadItems; // expose for supplier refresh buttons outside this IIFE
 
     function updateKPIs(items) {
         let counts = {smooth:0, erratic:0, intermittent:0, lumpy:0, new_true:0, sparse_valid:0,
