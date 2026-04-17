@@ -60,10 +60,6 @@
         line-height: 1.2;
         height: auto;
     }
-    .saved-views .nav-link {
-        padding: 0.25rem 0.7rem;
-        font-size: 0.8rem;
-    }
     .compact-header h5 {
         font-size: 1rem;
         margin: 0;
@@ -171,10 +167,6 @@
     .sparkline-container svg {
         width: 100%;
         height: 100%;
-    }
-    .saved-views .nav-link {
-        font-size: 0.8rem;
-        padding: 0.35rem 0.75rem;
     }
     .item-row .clickable-cell {
         cursor: pointer;
@@ -341,30 +333,6 @@
             </a>
         </div>
     </div>
-
-    <ul class="nav nav-tabs saved-views mb-2" id="savedViewTabs">
-        <li class="nav-item">
-            <a class="nav-link active" href="#" data-view="all">All Items</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" data-view="order_build">Order Build</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" data-view="forecast_review">Forecast Review</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" data-view="exceptions">Exceptions</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" data-view="seasonal_watch">Seasonal Watch</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" data-view="master_data">Master Data Issues</a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" href="#" data-view="overrides">Overrides</a>
-        </li>
-    </ul>
 
     <div class="filter-section" id="filterBar">
         <div class="row g-2">
@@ -1520,34 +1488,6 @@
             .then(seasData => { renderSeasonalityLineChart(seasData); });
     }
 
-    const savedViewPresets = {
-        all: {},
-        order_build: {order: '1'},
-        forecast_review: {review: '1'},
-        exceptions: {demand_class: '', review: '1'},
-        seasonal_watch: {seasonality: 'brand'},
-        master_data: {},
-        overrides: {override: 'overridden'},
-    };
-
-    document.querySelectorAll('#savedViewTabs .nav-link').forEach(tab => {
-        tab.addEventListener('click', function(e) {
-            e.preventDefault();
-            document.querySelectorAll('#savedViewTabs .nav-link').forEach(t => t.classList.remove('active'));
-            this.classList.add('active');
-            const view = this.dataset.view;
-            clearFilterInputs();
-            setActiveKpi(null);
-            const preset = savedViewPresets[view] || {};
-            if (preset.order) document.getElementById('filterOrder').value = preset.order;
-            if (preset.review) document.getElementById('filterReview').value = preset.review;
-            if (preset.demand_class) document.getElementById('filterDemandClass').value = preset.demand_class;
-            if (preset.seasonality) document.getElementById('filterSeasonality').value = preset.seasonality;
-            if (preset.override) document.getElementById('filterOverride').value = preset.override;
-            applyFilters();
-        });
-    });
-
     function clearFilterInputs() {
         document.getElementById('filterDemandClass').value = '';
         document.getElementById('filterTrend').value = '';
@@ -1564,9 +1504,6 @@
 
     document.getElementById('btnClearFilters').addEventListener('click', function() {
         clearFilterInputs();
-        setActiveKpi(null);
-        document.querySelectorAll('#savedViewTabs .nav-link').forEach(t => t.classList.remove('active'));
-        document.querySelector('#savedViewTabs .nav-link[data-view="all"]').classList.add('active');
         applyFilters();
     });
 
