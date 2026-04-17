@@ -220,6 +220,20 @@
         min-width: 80px;
         max-width: 80px;
         text-align: right;
+    }
+    .sticky-col-6 {
+        left: 462px;
+        width: 68px;
+        min-width: 68px;
+        max-width: 68px;
+        text-align: right;
+    }
+    .sticky-col-7 {
+        left: 530px;
+        width: 72px;
+        min-width: 72px;
+        max-width: 72px;
+        text-align: right;
         box-shadow: 4px 0 4px -2px rgba(0,0,0,0.3);
     }
     .forecast-table tbody tr.group-header td.sticky-col {
@@ -458,6 +472,8 @@
                     <th class="sticky-col sticky-col-3">Item Code</th>
                     <th class="sticky-col sticky-col-4">Description</th>
                     <th class="sticky-col sticky-col-5 num-col">Order</th>
+                    <th class="sticky-col sticky-col-6 num-col" title="Final forecast used for ordering (override if active, else system)">Final/Wk</th>
+                    <th class="sticky-col sticky-col-7 num-col">Net Avail</th>
                     <th>Act</th>
                     <th>Demand</th>
                     <th>Trend</th>
@@ -467,13 +483,11 @@
                     <th class="num-col" title="OOS days in the 8-week forecast window (max 56)">OOS 8w</th>
                     <th class="num-col">Base/Wk</th>
                     <th class="num-col" title="System final forecast (before override)">Sys/Wk</th>
-                    <th class="num-col" title="Final forecast used for ordering (override if active, else system)">Final/Wk</th>
                     <th class="num-col" title="Override forecast value (weekly)">Ovr/Wk</th>
                     <th title="Forecast source: System or Override">Src</th>
                     <th title="Override reason code">Reason</th>
                     <th title="Override review due date">Review</th>
                     <th class="num-col" title="Target weeks of stock">Tgt Wks</th>
-                    <th class="num-col">Net Avail</th>
                     <th class="num-col">MOQ</th>
                     <th class="num-col">Raw Ord</th>
                 </tr>
@@ -841,6 +855,8 @@
             <td class="sticky-col sticky-col-5 num-col">
                 ${buildOrderQtyCell(it)}
             </td>
+            <td class="sticky-col sticky-col-6 num-col fw-bold ${it.has_override ? 'text-info' : ''}">${fmtNum(it.final_forecast_weekly)}</td>
+            <td class="sticky-col sticky-col-7 num-col">${fmtNum(it.net_available_qty)}</td>
             <td>${activeBadge}</td>
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
@@ -850,7 +866,6 @@
             <td class="num-col">${formatOosDays8w(it.oos_days_8w || 0)}</td>
             <td class="num-col">${fmtNum(it.base_forecast_weekly)}</td>
             <td class="num-col">${fmtNum(it.system_forecast_weekly)}</td>
-            <td class="num-col fw-bold ${it.has_override ? 'text-info' : ''}">${fmtNum(it.final_forecast_weekly)}</td>
             <td class="num-col">${ovrQty}</td>
             <td>${srcBadge}</td>
             <td><small>${it.has_override ? esc(formatReasonCode(it.override_reason_code)) : '-'}</small></td>
@@ -859,7 +874,6 @@
                 <span class="target-weeks-display" data-item="${esc(it.item_code)}" style="cursor:pointer; border-bottom:1px dashed #666;" title="Click to edit target weeks"
                       onclick="editTargetWeeks(this, '${esc(it.item_code)}', ${it.target_weeks_of_stock || 4})">${fmtNum(it.target_weeks_of_stock || 4, 1)}</span>
             </td>
-            <td class="num-col">${fmtNum(it.net_available_qty)}</td>
             <td class="num-col">${it.min_order_qty || '-'}</td>
             <td class="num-col">${fmtNum(it.raw_order_qty)}</td>
         </tr>`;
