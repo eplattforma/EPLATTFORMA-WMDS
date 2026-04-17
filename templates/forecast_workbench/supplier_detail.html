@@ -247,12 +247,14 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 0.25rem;
-        padding: 0.12rem 0.4rem;
+        width: 60px;
+        min-width: 60px;
+        max-width: 60px;
+        padding: 1px 4px;
         border: 1px solid rgba(13,110,253,0.55);
-        border-radius: 0.35rem;
+        border-radius: 3px;
         background: rgba(13,110,253,0.08);
-        min-width: 92px;
+        font-size: 0.8rem;
         cursor: pointer;
     }
     .forecast-table tbody tr.group-header td.sticky-col {
@@ -1669,7 +1671,7 @@
         input.value = currentVal;
         input.min = '0';
         input.step = '1';
-        input.style.cssText = 'width: 60px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #0d6efd; border-radius: 3px;';
+        input.style.cssText = 'width: 60px; min-width: 60px; max-width: 60px; font-size: 0.8rem; padding: 1px 4px; background: #1a1a2e; color: #e0e0ff; border: 1px solid #0d6efd; border-radius: 3px;';
         el.replaceWith(input);
         input.focus();
         input.select();
