@@ -16,7 +16,7 @@ from models import (
     ForecastItemSupplierMap,
     DwItem,
     Setting,
-    Ps365Stock777Current,
+    Ps365Stock777Current,  # read-only: stock DB snapshot built by stock_refresh_service
 )
 from timezone_utils import get_utc_now
 
@@ -109,7 +109,22 @@ def refresh_ordering_snapshot(
     item_codes: list = None,
     created_by: str = None,
     progress_callback=None,
+    reset_manual_overrides: bool = True,
 ):
+    """Recalculate ordering snapshots using the latest forecast and stock DB snapshot.
+
+    Stock is read from ``Ps365Stock777Current`` (populated by
+    ``stock_refresh_service.refresh_stock_snapshot``).  Live PS365 stock is
+    NOT fetched here.  Run stock refresh first when fresh data is needed.
+
+    Args:
+        reset_manual_overrides: When True (default), clears ``manual_order_qty``
+            on ``SkuForecastProfile`` for every recalculated item so the UI
+            shows the new system quantity.  Set False when calling from
+            narrow recalcs (e.g. target-weeks change) that should not disturb
+            an intentional manual order override.
+    """
+    scope_label = supplier_code if supplier_code else "global"
     now = get_utc_now()
     buffer_days = _safe_num(session, "forecast_buffer_stock_days", 1.0, float)
     default_review_cycle = _safe_num(session, "forecast_review_cycle_days", 1.0, float)
@@ -148,12 +163,18 @@ def refresh_ordering_snapshot(
                     result_map[r.item_code_365] = r
                     results.append(r)
             added = len([c for c in missing_codes if c in result_map])
-            logger.info(f"Ordering refresh: found {len(missing_codes)} supplier-map items"
-                        f" not in DwItem query, {added} had forecast results"
-                        f" (supplier={supplier_code})")
+            logger.info(
+                "ordering_refresh: scope=%s found %d supplier-map items not in DwItem query, "
+                "%d had forecast results",
+                scope_label, len(missing_codes), added,
+            )
 
-    logger.info(f"Ordering refresh: processing {len(results)} items"
-                f" (supplier={supplier_code}, buffer={buffer_days}d)")
+    logger.info(
+        "ordering_refresh START: scope=%s items=%d buffer=%.1fd reset_manual=%s stock_source=db_snapshot",
+        scope_label, len(results), buffer_days, reset_manual_overrides,
+    )
+    if progress_callback:
+        progress_callback(f"Ordering refresh: recalculating {len(results)} items…")
 
     profile_cache = {}
     profile_q = session.query(SkuForecastProfile)
@@ -173,78 +194,42 @@ def refresh_ordering_snapshot(
     for item in dw_q.all():
         dw_item_cache[item.item_code_365] = item
 
-    stock_cache_by_supplier = {}
-    now_utc = get_utc_now()
+    # Stock is read exclusively from the local DB snapshot (Ps365Stock777Current).
+    # Run stock_refresh_service.refresh_stock_snapshot() first to update it.
+    db_stock_cache: dict[str, dict] = {}  # item_code -> stock dict (lazy-loaded by supplier)
+    stock_loaded_suppliers: set = set()
 
-    def _persist_stock_to_db(sup_code, items_dict):
-        """Write live stock data to ps365_stock_777_current so it can be used as fallback."""
-        try:
-            for item_code, d in items_dict.items():
-                stock_val = float(d.get("stock_now_units", 0))
-                ordered_val = float(d.get("ordered_now_units", 0))
-                reserved_val = float(d.get("reserved_now_units", 0))
-                transfer_val = float(d.get("on_transfer_now_units", 0))
-                avail_val = stock_val + ordered_val - reserved_val
-                row = session.get(Ps365Stock777Current, item_code)
-                if row is None:
-                    row = Ps365Stock777Current(item_code_365=item_code)
-                    session.add(row)
-                row.supplier_code_365 = sup_code
-                row.store_code_365 = "777"
-                row.item_name = d.get("item_name", "")
-                row.stock = Decimal(str(round(stock_val, 4)))
-                row.stock_reserved = Decimal(str(round(reserved_val, 4)))
-                row.stock_on_transfer = Decimal(str(round(transfer_val, 4)))
-                row.stock_ordered = Decimal(str(round(ordered_val, 4)))
-                row.available_qty = Decimal(str(round(avail_val, 4)))
-                row.is_oos = stock_val <= 0
-                row.is_available = stock_val > 0
-                row.is_low_stock = 0 < stock_val < 5
-                row.updated_at = now_utc
-            session.flush()
-            logger.info(f"Persisted {len(items_dict)} stock rows to ps365_stock_777_current (supplier={sup_code})")
-        except Exception as e:
-            logger.warning(f"Could not persist stock to ps365_stock_777_current: {e}")
-
-    def _read_stock_from_db(item_codes_list):
-        """Read stock from the DB snapshot as fallback for items without a live fetch."""
+    def _load_db_stock_for_supplier(sup_code):
+        if sup_code in stock_loaded_suppliers:
+            return
         try:
             rows = session.query(Ps365Stock777Current).filter(
-                Ps365Stock777Current.item_code_365.in_(item_codes_list)
+                Ps365Stock777Current.supplier_code_365 == sup_code
             ).all()
-            result = {}
             for r in rows:
-                result[r.item_code_365] = {
+                db_stock_cache[r.item_code_365] = {
                     "stock_now_units": float(r.stock),
                     "ordered_now_units": float(r.stock_ordered),
                     "reserved_now_units": float(r.stock_reserved),
                 }
-            return result
-        except Exception as e:
-            logger.warning(f"Could not read stock from ps365_stock_777_current: {e}")
-            return {}
+            stock_loaded_suppliers.add(sup_code)
+        except Exception as exc:
+            logger.warning("ordering_refresh: failed to load DB stock for supplier=%s: %s", sup_code, exc)
+            stock_loaded_suppliers.add(sup_code)
 
-    def _get_stock_cache(sup_code):
-        if sup_code not in stock_cache_by_supplier:
-            if progress_callback:
-                progress_callback(f"Fetching stock from PS365 for supplier {sup_code}...")
-            try:
-                from services.replenishment_mvp.ps365_client import fetch_supplier_stock
-                live = fetch_supplier_stock(sup_code)
-                _persist_stock_to_db(sup_code, live)
-                stock_cache_by_supplier[sup_code] = live
-                logger.info(f"Live stock fetched for supplier {sup_code}: {len(live)} items")
-            except Exception as e:
-                logger.warning(
-                    f"Live PS365 stock fetch FAILED for supplier {sup_code}: {e}. "
-                    f"Falling back to ps365_stock_777_current DB snapshot."
-                )
-                # Fall back to DB snapshot
-                all_codes = [r.item_code_365 for r in results if
-                             dw_item_cache.get(r.item_code_365) and
-                             dw_item_cache[r.item_code_365].supplier_code_365 == sup_code]
-                stock_cache_by_supplier[sup_code] = _read_stock_from_db(all_codes)
-        return stock_cache_by_supplier[sup_code]
+    def _get_stock_from_db(item_code_single):
+        try:
+            rows = session.query(Ps365Stock777Current).filter(
+                Ps365Stock777Current.item_code_365 == item_code_single
+            ).all()
+            return {r.item_code_365: {
+                "stock_now_units": float(r.stock),
+                "ordered_now_units": float(r.stock_ordered),
+                "reserved_now_units": float(r.stock_reserved),
+            } for r in rows}
+        except Exception as exc:
+            logger.warning("ordering_refresh: DB stock read failed for %s: %s", item_code_single, exc)
+            return {}
 
     last_run = (
         session.query(SkuForecastResult.run_id, SkuForecastResult.calculated_at)
@@ -256,6 +241,7 @@ def refresh_ordering_snapshot(
 
     count = 0
     override_count = 0
+    manual_reset_count = 0
     snapshots = []
 
     for result in results:
@@ -294,24 +280,26 @@ def refresh_ordering_snapshot(
         buffer_stock = effective_daily * buffer_days
         target_stock = base_target_stock + lead_time_cover + review_cycle_cover + buffer_stock
 
+        # Read stock from DB snapshot
         if sup_ctx["supplier_code"]:
-            stock_cache = _get_stock_cache(sup_ctx["supplier_code"])
-            on_hand, incoming, reserved = _get_stock_for_item(item_code, stock_cache)
+            _load_db_stock_for_supplier(sup_ctx["supplier_code"])
+            on_hand, incoming, reserved = _get_stock_for_item(item_code, db_stock_cache)
         else:
-            # No supplier resolved — read directly from DB snapshot
-            db_snap = _read_stock_from_db([item_code])
+            db_snap = _get_stock_from_db(item_code)
             on_hand, incoming, reserved = _get_stock_for_item(item_code, db_snap)
             if not db_snap.get(item_code):
-                logger.debug(f"{item_code}: no supplier code resolved and no DB stock snapshot found; using zeros")
+                logger.debug(
+                    "%s: no supplier code resolved and no DB stock snapshot found; using zeros",
+                    item_code,
+                )
 
         if item_code in DIAG_SKUS:
             logger.info(
-                f"[DIAG] {item_code}: on_hand={on_hand}, incoming(stock_ordered)={incoming}, "
-                f"reserved={reserved}, net_available={on_hand + incoming - reserved}"
+                "[DIAG] %s: on_hand=%s incoming=%s reserved=%s net=%s",
+                item_code, on_hand, incoming, reserved, on_hand + incoming - reserved,
             )
 
         net_available = on_hand + incoming - reserved
-
         raw_order = max(0.0, target_stock - net_available)
 
         moq = sup_ctx["min_order_qty"]
@@ -350,6 +338,7 @@ def refresh_ordering_snapshot(
             "rounded_order": round(rounded, 4),
             "supplier_code": sup_ctx["supplier_code"],
             "supplier_source": sup_ctx["supplier_source"],
+            "stock_source": "db_snapshot",
         }
         if override:
             explanation["override_weekly_qty"] = round(override_weekly, 6)
@@ -390,32 +379,58 @@ def refresh_ordering_snapshot(
         )
         session.add(snap)
 
-        # Clear any manual order quantity — the new snapshot supersedes it
-        if profile is not None and getattr(profile, 'manual_order_qty', None) is not None:
+        # Only clear manual order qty when explicitly requested (i.e. user ran Ordering Refresh)
+        if reset_manual_overrides and profile is not None and getattr(profile, 'manual_order_qty', None) is not None:
             profile.manual_order_qty = None
             profile.manual_order_qty_updated_at = get_utc_now()
-            profile.manual_order_qty_updated_by = f'system:ordering_refresh'
+            profile.manual_order_qty_updated_by = 'system:ordering_refresh'
+            manual_reset_count += 1
 
         snapshots.append(snap)
         count += 1
 
         if count % 500 == 0:
             session.flush()
-            logger.info(f"Ordering refresh: processed {count}/{len(results)} items")
+            logger.info("ordering_refresh: processed %d/%d items (scope=%s)", count, len(results), scope_label)
             if progress_callback:
                 progress_callback(f"Processed {count}/{len(results)} ordering items")
 
     session.flush()
-    logger.info(f"Ordering refresh completed: {count} snapshots created"
-                f" ({override_count} using overrides)")
+    logger.info(
+        "ordering_refresh DONE: scope=%s snapshots=%d overrides_used=%d "
+        "manual_overrides_reset=%d reset_manual=%s stock_source=db_snapshot",
+        scope_label, count, override_count, manual_reset_count, reset_manual_overrides,
+    )
 
     return {
+        "action_type": "ordering_refresh",
+        "scope": scope_label,
         "status": "completed",
         "snapshot_count": count,
         "override_count": override_count,
+        "manual_overrides_reset": manual_reset_count if reset_manual_overrides else 0,
         "snapshot_at": now.isoformat() if now else None,
         "created_by": created_by,
+        "stock_source": "db_snapshot",
     }
+
+
+def refresh_supplier_ordering_snapshot(
+    session: Session,
+    supplier_code: str,
+    created_by: str = None,
+    progress_callback=None,
+) -> dict:
+    """Convenience wrapper: ordering refresh scoped to exactly one supplier."""
+    if not supplier_code:
+        raise ValueError("supplier_code is required")
+    return refresh_ordering_snapshot(
+        session=session,
+        supplier_code=supplier_code,
+        created_by=created_by,
+        progress_callback=progress_callback,
+        reset_manual_overrides=True,
+    )
 
 
 def get_latest_snapshots(session: Session, item_codes: list = None, supplier_code: str = None):

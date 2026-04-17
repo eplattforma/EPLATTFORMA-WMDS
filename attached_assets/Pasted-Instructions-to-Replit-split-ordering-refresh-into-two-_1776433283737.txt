@@ -1,0 +1,307 @@
+Instructions to Replit — split ordering refresh into two actions and control overwrite behavior correctly
+
+Please refactor the current ordering refresh flow so that stock refresh and order recalculation are separate actions.
+
+This is important because right now ordering refresh is doing too much at once, and we need tighter control over when manually overwritten order quantities are reset.
+
+Do not redesign the screens or workflow.
+Keep the current flow, but split the backend behavior and add one additional scoped refresh option.
+
+1) Split the current ordering refresh into two distinct actions
+A. Stock Refresh
+
+This action should only:
+
+fetch latest stock data
+persist/update local stock snapshot/cache
+not rebuild ordering rows
+not overwrite any manually changed order quantities
+
+This should include:
+
+on hand
+reserved
+ordered / incoming
+any other stock fields already used in ordering
+
+If supplier stock is fetched live from PS365, that logic belongs here.
+
+B. Ordering Refresh
+
+This action should only:
+
+use the latest available forecast
+use the latest available stock snapshot
+recalculate ordering values
+rebuild/update ordering rows
+and this is the only action that should reset/overwrite manually overwritten order quantities
+
+This is the key rule:
+
+Only the Ordering Refresh should reset overwritten order quantities
+
+Not stock refresh.
+Not forecast rebuild.
+Not fast refresh.
+
+2) Preserve overwritten order quantities unless Ordering Refresh is explicitly run
+
+We need a clear distinction between:
+
+system-calculated order quantity
+manually overwritten/final order quantity
+Required behavior
+
+If a user has manually changed an order quantity for an SKU/supplier row, that overwritten quantity must remain untouched when:
+
+stock refresh runs
+forecast refresh runs
+fast refresh runs
+other background recalculations happen
+
+It should only be reset/replaced when the user runs:
+
+Ordering Refresh
+
+That action means:
+
+“Recalculate order proposals from the latest forecast + stock and replace the current order quantities.”
+
+3) Add/confirm fields to support this behavior
+
+If not already present, make sure ordering rows/snapshots support both values separately.
+
+Suggested fields:
+
+system_order_qty
+final_order_qty
+order_qty_overridden boolean
+order_qty_overridden_at
+order_qty_overridden_by
+Meaning
+system_order_qty = latest calculated result from engine
+final_order_qty = what the user actually intends to order
+if not overridden, final_order_qty = system_order_qty
+if overridden, final_order_qty remains user value until Ordering Refresh explicitly resets it
+4) New behavior for Stock Refresh
+Stock Refresh must:
+update local stock snapshot/cache
+update timestamps/logging
+optionally mark affected ordering data as stale
+not touch final_order_qty
+not clear manual order overrides
+not rebuild supplier order basket
+
+It may optionally update helper/calculated stock fields in the UI if those are read live from the stock snapshot, but it must not rewrite final ordering decisions.
+
+5) New behavior for Ordering Refresh
+Ordering Refresh must:
+read latest forecast
+apply forecast override if one exists
+read latest stock snapshot
+recalculate:
+target stock
+net available
+raw order qty
+rounded/system order qty
+then reset/replace:
+system_order_qty
+final_order_qty
+and clear the manual order overwrite flag for refreshed rows
+
+This means:
+
+Ordering Refresh is the explicit “start fresh from the system” action
+6) Add a scoped refresh option: supplier-order scope only
+
+We also need an option to refresh only the scope of the current supplier order.
+
+New option required
+
+Add support for:
+
+Supplier Order Scope Refresh
+
+Meaning:
+
+refresh stock and/or ordering only for the currently selected supplier scope
+not all SKUs
+not the full global ordering snapshot
+
+This is important for speed and for preserving work outside the supplier currently being reviewed.
+
+7) Two scoped actions are needed
+A. Supplier Stock Refresh
+
+For one supplier only:
+
+fetch latest stock for items in that supplier scope
+update local stock snapshot for those items only
+do not reset manual order quantities
+B. Supplier Ordering Refresh
+
+For one supplier only:
+
+recalculate order rows for that supplier only
+this scoped ordering refresh does reset overwritten order quantities, but only for that supplier scope
+
+This lets the user intentionally refresh one supplier basket without affecting other suppliers they may already have reviewed manually.
+
+8) Definition of “supplier order scope”
+
+Please use the same supplier scoping logic already used in the supplier-order/forecast ordering view.
+
+Meaning:
+
+only the SKUs currently belonging to the selected supplier context
+based on the same supplier resolution/mapping used for ordering
+
+Do not use a different supplier-selection logic here.
+
+9) Recommended action structure
+
+Please restructure into these operations:
+
+Global actions
+Refresh Stock
+all relevant items
+no order overwrite reset
+Refresh Ordering
+all relevant items
+resets overwritten order quantities
+Supplier-scoped actions
+Refresh Supplier Stock
+selected supplier only
+no order overwrite reset
+Refresh Supplier Ordering
+selected supplier only
+resets overwritten order quantities for that supplier only
+10) Suggested service split
+
+Refactor the current ordering_refresh_service.py responsibilities into two services or two clearly separate code paths.
+
+Suggested structure:
+
+stock_refresh_service.py
+
+Functions such as:
+
+refresh_stock_snapshot(...)
+refresh_supplier_stock_snapshot(supplier_code, ...)
+
+Responsibility:
+
+fetch/persist stock only
+ordering_refresh_service.py
+
+Functions such as:
+
+refresh_ordering_snapshot(...)
+refresh_supplier_ordering_snapshot(supplier_code, ...)
+
+Responsibility:
+
+recalculate ordering only
+explicitly reset manual order overwrites for refreshed scope
+11) Reset logic for overwritten order quantities
+
+This is the exact rule to implement:
+
+On Stock Refresh
+keep final_order_qty unchanged
+keep order_qty_overridden = true unchanged
+On Ordering Refresh
+
+For refreshed rows/scope:
+
+recompute new system_order_qty
+set final_order_qty = system_order_qty
+set order_qty_overridden = false
+clear override metadata for order quantity
+
+This should apply:
+
+globally for global ordering refresh
+only to the supplier scope for supplier ordering refresh
+12) UI behavior requirement
+
+No redesign is needed, but the actions should be clearly separated in the existing UI/backend behavior.
+
+At minimum, make sure the current action labels and endpoints distinguish between:
+
+stock refresh
+ordering refresh
+supplier-scoped refresh
+
+If only one extra UI action can be added now, prioritize:
+
+Supplier Ordering Refresh
+
+because that is the most operationally useful.
+
+13) Logging / audit
+
+Please add logging so we can tell exactly what was refreshed.
+
+For every refresh action, log:
+
+action type (stock_refresh, ordering_refresh, supplier_stock_refresh, supplier_ordering_refresh)
+scope (global or supplier code)
+count of items affected
+whether manual order overwrites were reset
+stock source used (live_ps365 / DB snapshot)
+
+This will make behavior much easier to verify.
+
+14) Validation cases
+
+Please validate these cases carefully.
+
+Case A — global stock refresh
+stock updates
+overwritten order quantities remain untouched
+Case B — global ordering refresh
+system order qty recalculates
+overwritten order quantities are reset/replaced
+Case C — supplier stock refresh
+only selected supplier stock updates
+overwritten quantities for that supplier remain untouched
+Case D — supplier ordering refresh
+only selected supplier order rows recalculate
+overwritten quantities reset only for that supplier
+other suppliers remain untouched
+Case E — forecast refresh
+forecast values may change
+overwritten order quantities are still not reset unless ordering refresh is run
+15) Final principle
+
+We need a clean separation:
+
+Stock Refresh
+
+Updates reality.
+
+Ordering Refresh
+
+Rebuilds decision quantities.
+
+And only:
+
+Ordering Refresh
+
+is allowed to discard/reset manually overwritten order quantities.
+
+Also, we need the same behavior available at:
+
+global scope
+supplier order scope only
+Short summary
+
+Please implement this split:
+
+Refresh Stock = update stock only, preserve manual order overwrites
+Refresh Ordering = recalculate order quantities and reset manual order overwrites
+Refresh Supplier Stock = same as stock refresh, but only for one supplier
+Refresh Supplier Ordering = same as ordering refresh, but only for one supplier
+
+Do not redesign the screens. Keep the flow, but split the backend logic and add supplier-scope refresh support.

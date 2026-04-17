@@ -101,7 +101,12 @@
                     </a></li>
                 </ul>
             </div>
-            <button id="btnRefreshOrdering" class="btn btn-outline-warning btn-sm" onclick="refreshOrdering()">
+            <button id="btnRefreshStock" class="btn btn-outline-info btn-sm" onclick="refreshStock()"
+                    title="Fetch latest stock from PS365 for all suppliers. Does not reset order quantities or manual overrides.">
+                <i class="fas fa-sync-alt me-1"></i>Refresh Stock
+            </button>
+            <button id="btnRefreshOrdering" class="btn btn-outline-warning btn-sm" onclick="refreshOrdering()"
+                    title="Recalculate order quantities for all suppliers using latest forecast + stock snapshot. Resets manual order overrides.">
                 <i class="fas fa-shopping-cart me-1"></i>Refresh Ordering
             </button>
         </div>
@@ -444,9 +449,41 @@ function runForecast(mode) {
     });
 }
 
+function refreshStock() {
+    const btn = document.getElementById('btnRefreshStock');
+    if (!confirm('Refresh stock for all suppliers?\n\nThis fetches live PS365 stock and updates the local snapshot.\nOrdering quantities and manual overrides will NOT be changed.')) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refreshing...';
+    fetch('{{ url_for("forecast_workbench.api_stock_refresh") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'started') {
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running...';
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Refresh Stock';
+                loadSuppliers();
+            }, 4000);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Refresh Stock';
+            alert('Stock refresh error: ' + (data.error || JSON.stringify(data)));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Refresh Stock';
+        alert('Error: ' + err.message);
+    });
+}
+
 function refreshOrdering() {
     const btn = document.getElementById('btnRefreshOrdering');
-    if (!confirm('Refresh ordering data for all suppliers? This fetches live stock and recalculates orders.')) return;
+    if (!confirm('Refresh ordering for all suppliers?\n\nThis recalculates order quantities using the latest forecast and current stock snapshot.\nManual order overrides will be reset.')) return;
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refreshing...';

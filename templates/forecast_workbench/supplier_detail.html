@@ -327,7 +327,17 @@
                 <small class="text-muted ms-2" style="font-size:0.7em">{{ supplier_code }}</small>
             </h5>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center">
+            {% if supplier_code != 'UNMAPPED' %}
+            <button class="btn btn-sm btn-outline-info py-0" id="btnRefreshStock"
+                    onclick="supplierRefreshStock()" title="Fetch latest stock from PS365 for this supplier. Does not reset order quantities.">
+                <i class="fas fa-sync-alt me-1"></i>Refresh Stock
+            </button>
+            <button class="btn btn-sm btn-outline-warning py-0" id="btnRefreshOrdering"
+                    onclick="supplierRefreshOrdering()" title="Recalculate order quantities for this supplier. Resets manual order overrides for this supplier only.">
+                <i class="fas fa-shopping-cart me-1"></i>Refresh Ordering
+            </button>
+            {% endif %}
             <a href="{{ url_for('forecast_workbench.api_export_supplier', supplier_code=supplier_code) }}" class="btn btn-sm btn-outline-success py-0">
                 <i class="fas fa-file-csv me-1"></i>Export CSV
             </a>
@@ -1906,5 +1916,63 @@
 
     loadItems();
 })();
+
+function supplierRefreshStock() {
+    const btn = document.getElementById('btnRefreshStock');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refreshing…';
+    fetch('{{ url_for("forecast_workbench.api_stock_refresh_supplier") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({supplier_code: '{{ supplier_code }}'})
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Refresh Stock';
+        if (data.status === 'completed') {
+            const count = data.items_updated ?? '?';
+            alert(`Stock refreshed for {{ supplier_code }}. ${count} item(s) updated.\nOrdering quantities and manual overrides were NOT changed.`);
+            loadItems();
+        } else {
+            alert('Stock refresh error: ' + (data.error || JSON.stringify(data)));
+        }
+    })
+    .catch(e => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Refresh Stock';
+        alert('Stock refresh failed: ' + e);
+    });
+}
+
+function supplierRefreshOrdering() {
+    if (!confirm('Refresh ordering for {{ supplier_code }}?\n\nThis will recalculate order quantities using the latest forecast and current stock snapshot.\n\nManual order overrides for this supplier will be reset.')) return;
+    const btn = document.getElementById('btnRefreshOrdering');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Refreshing…';
+    fetch('{{ url_for("forecast_workbench.api_ordering_refresh_supplier") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({supplier_code: '{{ supplier_code }}'})
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
+        if (data.status === 'completed') {
+            const snaps = data.snapshot_count ?? '?';
+            const reset = data.manual_overrides_reset ?? 0;
+            alert(`Ordering refreshed for {{ supplier_code }}.\n${snaps} item(s) recalculated.\n${reset} manual override(s) reset.`);
+            loadItems();
+        } else {
+            alert('Ordering refresh error: ' + (data.error || JSON.stringify(data)));
+        }
+    })
+    .catch(e => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-shopping-cart me-1"></i>Refresh Ordering';
+        alert('Ordering refresh failed: ' + e);
+    });
+}
 </script>
 {% endblock %}

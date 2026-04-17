@@ -995,6 +995,135 @@ def api_ordering_refresh():
     return jsonify({'status': 'started', 'supplier_code': supplier})
 
 
+@forecast_bp.route('/api/stock/refresh', methods=['POST'])
+@admin_or_warehouse_required
+def api_stock_refresh():
+    """Global stock refresh — fetches live PS365 stock, persists to DB.
+
+    Does NOT recalculate ordering quantities.
+    Does NOT reset manual order overrides.
+    Runs in a background thread (may take several minutes for many suppliers).
+    """
+    import threading
+    username = current_user.username
+    supplier = request.json.get('supplier_code') if request.is_json else request.form.get('supplier_code')
+
+    def _run(app, uname, sup_code):
+        with app.app_context():
+            try:
+                from services.forecast.stock_refresh_service import refresh_stock_snapshot
+                from sqlalchemy.orm import sessionmaker
+                SessionLocal = sessionmaker(bind=db.engine)
+                session = SessionLocal()
+                try:
+                    result = refresh_stock_snapshot(
+                        session=session,
+                        supplier_code=sup_code or None,
+                        progress_callback=None,
+                    )
+                    session.commit()
+                    logger.info(
+                        "api_stock_refresh DONE: scope=%s suppliers=%d items=%d by=%s",
+                        result['scope'], result['suppliers_refreshed'], result['items_updated'], uname,
+                    )
+                finally:
+                    session.close()
+            except Exception:
+                logger.exception("Background stock refresh failed")
+
+    t = threading.Thread(
+        target=_run,
+        args=(current_app._get_current_object(), username, supplier),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({
+        'status': 'started',
+        'action': 'stock_refresh',
+        'scope': supplier if supplier else 'global',
+        'note': 'Stock snapshot update only — ordering quantities and manual overrides untouched',
+    })
+
+
+@forecast_bp.route('/api/stock/refresh-supplier', methods=['POST'])
+@admin_or_warehouse_required
+def api_stock_refresh_supplier():
+    """Supplier-scoped stock refresh — synchronous (fast, single supplier).
+
+    Fetches live PS365 stock for the given supplier only.
+    Does NOT recalculate ordering quantities.
+    Does NOT reset manual order overrides.
+    """
+    data = request.get_json(silent=True) or {}
+    supplier_code = data.get('supplier_code', '').strip()
+    if not supplier_code:
+        return jsonify({'error': 'supplier_code is required'}), 400
+
+    try:
+        from services.forecast.stock_refresh_service import refresh_supplier_stock_snapshot
+        result = refresh_supplier_stock_snapshot(
+            session=db.session,
+            supplier_code=supplier_code,
+        )
+        db.session.commit()
+        logger.info(
+            "api_stock_refresh_supplier DONE: supplier=%s items=%d by=%s",
+            supplier_code, result['items_updated'], current_user.username,
+        )
+        return jsonify({
+            'status': 'completed',
+            'action': 'supplier_stock_refresh',
+            'scope': supplier_code,
+            'items_updated': result['items_updated'],
+            'suppliers_refreshed': result['suppliers_refreshed'],
+            'manual_overrides_reset': False,
+            'stock_source': 'live_ps365',
+        })
+    except Exception as exc:
+        logger.exception("Supplier stock refresh failed for %s", supplier_code)
+        return jsonify({'status': 'error', 'error': str(exc)}), 500
+
+
+@forecast_bp.route('/api/ordering/refresh-supplier', methods=['POST'])
+@admin_or_warehouse_required
+def api_ordering_refresh_supplier():
+    """Supplier-scoped ordering refresh — synchronous (fast, single supplier).
+
+    Recalculates order quantities for items belonging to this supplier using
+    the latest forecast and the current stock DB snapshot.
+    RESETS manual order overrides for that supplier only.
+    """
+    data = request.get_json(silent=True) or {}
+    supplier_code = data.get('supplier_code', '').strip()
+    if not supplier_code:
+        return jsonify({'error': 'supplier_code is required'}), 400
+
+    try:
+        from services.forecast.ordering_refresh_service import refresh_supplier_ordering_snapshot
+        result = refresh_supplier_ordering_snapshot(
+            session=db.session,
+            supplier_code=supplier_code,
+            created_by=current_user.username,
+        )
+        db.session.commit()
+        logger.info(
+            "api_ordering_refresh_supplier DONE: supplier=%s snapshots=%d manual_reset=%d by=%s",
+            supplier_code, result['snapshot_count'], result['manual_overrides_reset'],
+            current_user.username,
+        )
+        return jsonify({
+            'status': 'completed',
+            'action': 'supplier_ordering_refresh',
+            'scope': supplier_code,
+            'snapshot_count': result['snapshot_count'],
+            'manual_overrides_reset': result['manual_overrides_reset'],
+            'stock_source': 'db_snapshot',
+        })
+    except Exception as exc:
+        logger.exception("Supplier ordering refresh failed for %s", supplier_code)
+        return jsonify({'status': 'error', 'error': str(exc)}), 500
+
+
 @forecast_bp.route('/api/item/<item_code>/target-weeks', methods=['POST'])
 @admin_or_warehouse_required
 def api_set_target_weeks(item_code):
@@ -1025,6 +1154,7 @@ def api_set_target_weeks(item_code):
             session=db.session,
             item_codes=[item_code],
             created_by=current_user.username,
+            reset_manual_overrides=False,  # target-weeks change does not reset manual order qty
         )
         db.session.commit()
     except Exception:
