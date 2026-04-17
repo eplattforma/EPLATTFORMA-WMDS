@@ -304,6 +304,21 @@ def api_items():
     except Exception:
         snap_map = {}
 
+    # Load fresh stock snapshot from Ps365Stock777Current.
+    # Stock fields (on_hand, incoming, reserved) from here are preferred over the
+    # ordering snapshot when the stock row is newer, so Refresh Stock is immediately
+    # visible without needing a full Ordering Refresh.
+    live_stock_map = {}
+    try:
+        from models import Ps365Stock777Current
+        live_rows = Ps365Stock777Current.query.filter(
+            Ps365Stock777Current.item_code_365.in_(item_codes_in_result)
+        ).all()
+        for lr in live_rows:
+            live_stock_map[lr.item_code_365] = lr
+    except Exception:
+        live_stock_map = {}
+
     override_map = {}
     try:
         ovr_q = SkuForecastOverride.query.filter(
@@ -414,8 +429,14 @@ def api_items():
             'final_forecast_daily': _float(res.final_forecast_daily_qty) if res else 0,
             'forecast_change_pct': _float(res.forecast_change_pct) if res else None,
             'target_weeks_of_stock': _float(prof.target_weeks_of_stock) if prof and prof.target_weeks_of_stock else 4.0,
-            'on_hand_qty': _float(snap.on_hand_qty) if snap else 0,
-            'net_available_qty': _float(snap.net_available_qty) if snap else 0,
+            'on_hand_qty': _float(live_stock_map[dw.item_code_365].stock)
+                           if dw.item_code_365 in live_stock_map
+                           else (_float(snap.on_hand_qty) if snap else 0),
+            'net_available_qty': (
+                _float(live_stock_map[dw.item_code_365].stock)
+                + _float(live_stock_map[dw.item_code_365].stock_ordered)
+                - _float(live_stock_map[dw.item_code_365].stock_reserved)
+            ) if dw.item_code_365 in live_stock_map else (_float(snap.net_available_qty) if snap else 0),
             'raw_order_qty': _float(snap.raw_recommended_order_qty) if snap else 0,
             'rounded_order_qty': _float(snap.rounded_order_qty) if snap else 0,
             'manual_order_qty': manual_ord,
@@ -424,8 +445,12 @@ def api_items():
             'buffer_stock_qty': _float(snap.buffer_days) if snap else 0,
             'lead_time_days': _float(snap.lead_time_days) if snap else 0,
             'review_cycle_days': _float(snap.review_cycle_days) if snap else 0,
-            'incoming_qty': _float(snap.incoming_qty) if snap else 0,
-            'reserved_qty': _float(snap.reserved_qty) if snap else 0,
+            'incoming_qty': _float(live_stock_map[dw.item_code_365].stock_ordered)
+                            if dw.item_code_365 in live_stock_map
+                            else (_float(snap.incoming_qty) if snap else 0),
+            'reserved_qty': _float(live_stock_map[dw.item_code_365].stock_reserved)
+                            if dw.item_code_365 in live_stock_map
+                            else (_float(snap.reserved_qty) if snap else 0),
             'ordering_snapshot_at': snap.snapshot_at.isoformat() + 'Z' if snap and snap.snapshot_at else None,
             'final_forecast_source': final_source,
             'forecast_confidence': prof.forecast_confidence if prof else None,
