@@ -7,13 +7,14 @@
     .kpi-card {
         background: var(--bs-dark);
         border: 1px solid var(--bs-border-color);
-        border-radius: 0.375rem;
-        padding: 0.3rem 0.5rem;
+        border-radius: 0.3rem;
+        padding: 0.15rem 0.4rem;
         text-align: center;
         min-width: 0;
         flex: 1 1 0;
         cursor: pointer;
         transition: border-color 0.15s, box-shadow 0.15s;
+        line-height: 1.1;
     }
     .kpi-card:hover {
         border-color: var(--bs-primary);
@@ -25,36 +26,47 @@
         background: rgba(13, 110, 253, 0.08);
     }
     .kpi-card .kpi-value {
-        font-size: 1.1rem;
+        font-size: 0.95rem;
         font-weight: 700;
         line-height: 1.1;
     }
     .kpi-card .kpi-label {
-        font-size: 0.6rem;
+        font-size: 0.55rem;
         text-transform: uppercase;
         color: var(--bs-secondary);
         letter-spacing: 0.02em;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        line-height: 1.1;
     }
     .filter-section {
         background: var(--bs-dark);
         border: 1px solid var(--bs-border-color);
-        border-radius: 0.5rem;
-        padding: 0.75rem;
-        margin-bottom: 0.75rem;
+        border-radius: 0.4rem;
+        padding: 0.4rem 0.5rem;
+        margin-bottom: 0.5rem;
     }
     .filter-section label {
-        font-size: 0.75rem;
+        font-size: 0.65rem;
         font-weight: 600;
         text-transform: uppercase;
         color: var(--bs-secondary);
-        margin-bottom: 0.15rem;
+        margin-bottom: 0.05rem;
     }
     .filter-section select, .filter-section input {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        line-height: 1.2;
+        height: auto;
+    }
+    .saved-views .nav-link {
+        padding: 0.25rem 0.7rem;
         font-size: 0.8rem;
-        padding: 0.25rem 0.5rem;
+    }
+    .compact-header h5 {
+        font-size: 1rem;
+        margin: 0;
     }
     .forecast-table {
         font-size: 0.78rem;
@@ -313,24 +325,24 @@
 
 {% block content %}
 <div class="container-fluid px-3">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2 compact-header">
         <div class="d-flex align-items-center gap-2">
-            <a href="{{ url_for('forecast_workbench.suppliers') }}" class="btn btn-sm btn-outline-secondary">
+            <a href="{{ url_for('forecast_workbench.suppliers') }}" class="btn btn-sm btn-outline-secondary py-0 px-2">
                 <i class="fas fa-arrow-left"></i>
             </a>
-            <h4 class="mb-0">
+            <h5 class="mb-0">
                 <i class="fas fa-chart-line text-primary me-2"></i>{{ supplier_name }}
                 <small class="text-muted ms-2" style="font-size:0.7em">{{ supplier_code }}</small>
-            </h4>
+            </h5>
         </div>
         <div class="d-flex gap-2">
-            <a href="{{ url_for('forecast_workbench.api_export_supplier', supplier_code=supplier_code) }}" class="btn btn-sm btn-outline-success">
+            <a href="{{ url_for('forecast_workbench.api_export_supplier', supplier_code=supplier_code) }}" class="btn btn-sm btn-outline-success py-0">
                 <i class="fas fa-file-csv me-1"></i>Export CSV
             </a>
         </div>
     </div>
 
-    <div class="d-flex flex-nowrap gap-1 mb-3" id="kpiCards">
+    <div class="d-flex flex-nowrap gap-1 mb-2" id="kpiCards">
         <div class="kpi-card" data-kpi-filter="total"><div class="kpi-value text-info" id="kpiTotal">-</div><div class="kpi-label">Total</div></div>
         <div class="kpi-card" data-kpi-filter="smooth"><div class="kpi-value text-success" id="kpiSmooth">-</div><div class="kpi-label">Smooth</div></div>
         <div class="kpi-card" data-kpi-filter="erratic"><div class="kpi-value text-warning" id="kpiErratic">-</div><div class="kpi-label">Erratic</div></div>
