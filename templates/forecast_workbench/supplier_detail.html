@@ -787,7 +787,7 @@
             : it.seasonality_source === 'prefix'
             ? `<span class="badge badge-seasonality-prefix">Prefix</span>`
             : '<span class="badge badge-seasonality-none">-</span>';
-        const activeBadge = it.active ? '<i class="fas fa-check text-success"></i>' : '<i class="fas fa-times text-danger"></i>';
+        const activeBadge = it.active ? '' : '<i class="fas fa-times text-danger"></i>';
         const sparkline = buildSparklinePlaceholder(it.item_code);
 
         const ovrQty = it.has_override ? fmtNum(it.override_weekly_qty) : '-';
