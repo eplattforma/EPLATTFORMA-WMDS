@@ -66,6 +66,21 @@
             <a href="{{ url_for('forecast_workbench.help_manual') }}" class="btn btn-outline-secondary btn-sm" title="View manual">
                 <i class="fas fa-question-circle me-1"></i>Help
             </a>
+            <div class="btn-group">
+                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fas fa-cog me-1"></i>Admin
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark">
+                    <li><a class="dropdown-item" href="{{ url_for('forecast_workbench.admin_settings') }}">
+                        <i class="fas fa-sliders-h me-2 text-info"></i>Forecast Settings
+                        <div class="small text-muted ps-4">Buffer days, review cycle, etc.</div>
+                    </a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('forecast_workbench.admin_supplier_mapping') }}">
+                        <i class="fas fa-truck me-2 text-warning"></i>Supplier Mapping
+                        <div class="small text-muted ps-4">Lead time, MOQ, order multiple per item</div>
+                    </a></li>
+                </ul>
+            </div>
             <div class="btn-group" id="forecastRunGroup">
                 <button id="btnRunForecast" class="btn btn-primary btn-sm" onclick="runForecast('incremental')">
                     <i class="fas fa-play me-1"></i>Fast Refresh
