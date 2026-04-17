@@ -164,7 +164,39 @@
         font-size: 0.8rem;
         padding: 0.35rem 0.75rem;
     }
-    .item-row { cursor: pointer; }
+    .item-row .clickable-cell {
+        cursor: pointer;
+    }
+    .item-row .clickable-cell:hover {
+        background-color: rgba(13, 110, 253, 0.12);
+    }
+    /* Sticky (frozen) left columns: checkbox, status, item code, description */
+    .forecast-table thead th,
+    .forecast-table tbody td {
+        background-color: var(--bs-body-bg);
+    }
+    .forecast-table .sticky-col {
+        position: sticky;
+        z-index: 2;
+        background-color: var(--bs-body-bg);
+    }
+    .forecast-table thead .sticky-col {
+        z-index: 5;
+        background-color: var(--bs-body-bg);
+    }
+    .sticky-col-1 { left: 0; width: 28px; min-width: 28px; }
+    .sticky-col-2 { left: 28px; width: 24px; min-width: 24px; }
+    .sticky-col-3 { left: 52px; width: 110px; min-width: 110px; }
+    .sticky-col-4 {
+        left: 162px;
+        width: 220px;
+        min-width: 220px;
+        max-width: 220px;
+        box-shadow: 4px 0 4px -2px rgba(0,0,0,0.3);
+    }
+    .forecast-table tbody tr.group-header td.sticky-col {
+        background-color: var(--bs-tertiary-bg, #2b3035);
+    }
     .drawer-overlay {
         position: fixed;
         top: 0;
@@ -393,10 +425,10 @@
         <table class="table table-sm table-hover forecast-table mb-0" id="forecastTable">
             <thead>
                 <tr>
-                    <th style="width:24px"><input type="checkbox" id="selectAll" title="Select all" style="cursor:pointer"></th>
-                    <th style="width:20px"></th>
-                    <th>Item Code</th>
-                    <th>Description</th>
+                    <th class="sticky-col sticky-col-1"><input type="checkbox" id="selectAll" title="Select all" style="cursor:pointer"></th>
+                    <th class="sticky-col sticky-col-2"></th>
+                    <th class="sticky-col sticky-col-3">Item Code</th>
+                    <th class="sticky-col sticky-col-4">Description</th>
                     <th>Act</th>
                     <th>Demand</th>
                     <th>Trend</th>
@@ -734,8 +766,11 @@
         });
         body.innerHTML = html;
 
-        body.querySelectorAll('.item-row').forEach(row => {
-            row.addEventListener('click', () => openDrawer(row.dataset.itemCode));
+        body.querySelectorAll('.item-row .clickable-cell').forEach(cell => {
+            cell.addEventListener('click', () => {
+                const row = cell.closest('.item-row');
+                if (row) openDrawer(row.dataset.itemCode);
+            });
         });
         body.querySelectorAll('.row-check').forEach(cb => {
             cb.addEventListener('change', updateBulkBar);
@@ -771,10 +806,10 @@
             : '<span class="badge badge-source-system">-</span>';
 
         return `<tr class="item-row" data-item-code="${esc(it.item_code)}">
-            <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check" value="${esc(it.item_code)}" style="cursor:pointer"></td>
-            <td>${reviewDot}${ovrStatusBadge}</td>
-            <td><code class="small">${esc(it.item_code)}</code></td>
-            <td class="text-truncate" style="max-width:200px" title="${esc(it.item_name || '')}">${esc(it.item_name || '')}</td>
+            <td class="sticky-col sticky-col-1"><input type="checkbox" class="row-check" value="${esc(it.item_code)}" style="cursor:pointer"></td>
+            <td class="sticky-col sticky-col-2">${reviewDot}${ovrStatusBadge}</td>
+            <td class="sticky-col sticky-col-3 clickable-cell"><code class="small">${esc(it.item_code)}</code></td>
+            <td class="sticky-col sticky-col-4 clickable-cell text-truncate" title="${esc(it.item_name || '')}">${esc(it.item_name || '')}</td>
             <td>${activeBadge}</td>
             <td>${demandBadge}</td>
             <td>${trendIcon}</td>
