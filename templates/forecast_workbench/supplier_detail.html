@@ -857,7 +857,7 @@
         return `<tr class="item-row" data-item-code="${esc(it.item_code)}">
             <td class="sticky-col sticky-col-1"><input type="checkbox" class="row-check" value="${esc(it.item_code)}" style="cursor:pointer"></td>
             <td class="sticky-col sticky-col-2">${reviewDot}${ovrStatusBadge}</td>
-            <td class="sticky-col sticky-col-3 clickable-cell"><code class="small text-info">${esc(it.item_code.slice(0, 9))}</code></td>
+            <td class="sticky-col sticky-col-3 clickable-cell"><code class="small text-info">${esc((it.item_code || '').substring(0, 9))}</code></td>
             <td class="sticky-col sticky-col-4 clickable-cell text-truncate" title="${esc(it.item_name || '')}">${esc(it.item_name || '')}</td>
             <td class="sticky-col sticky-col-5 num-col">
                 ${buildOrderQtyCell(it)}
