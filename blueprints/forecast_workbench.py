@@ -1452,6 +1452,80 @@ def api_export_supplier(supplier_code):
     )
 
 
+@forecast_bp.route('/supplier/<supplier_code>/send-po', methods=['POST'])
+@admin_or_warehouse_required
+def send_supplier_po(supplier_code):
+    """Send a forecasting supplier PO to PS365 using the shared sender.
+
+    Aggregates all items for the supplier whose effective order qty
+    (manual override > 0 if set, else snapshot rounded_order_qty) is positive
+    and posts a single PO via the shared service.
+    """
+    from services.ps365_purchase_order_service import create_ps365_purchase_order
+    from services.forecast.ordering_refresh_service import get_latest_snapshots
+
+    if not supplier_code or supplier_code == 'UNMAPPED':
+        flash("A real supplier code is required to send a PO.", "error")
+        return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+    rows = (
+        db.session.query(DwItem, SkuForecastProfile)
+        .join(SkuForecastProfile, SkuForecastProfile.item_code_365 == DwItem.item_code_365, isouter=True)
+        .filter(DwItem.supplier_code_365 == supplier_code)
+        .all()
+    )
+    if not rows:
+        flash(f"No items found for supplier {supplier_code}.", "warning")
+        return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+    item_codes = [dw.item_code_365 for dw, _ in rows]
+    snap_map = get_latest_snapshots(db.session, item_codes=item_codes)
+
+    order_lines = []
+    for dw, prof in rows:
+        snap = snap_map.get(dw.item_code_365)
+        manual_raw = getattr(prof, 'manual_order_qty', None) if prof else None
+        manual_ord = float(manual_raw) if manual_raw is not None else None
+        if manual_ord is not None:
+            qty = manual_ord
+        elif snap and snap.rounded_order_qty is not None:
+            qty = float(snap.rounded_order_qty)
+        else:
+            qty = 0
+        if qty > 0:
+            order_lines.append({
+                "item_code_365": dw.item_code_365,
+                "line_quantity": int(qty),
+            })
+
+    if not order_lines:
+        flash(f"No items with a positive order quantity for supplier {supplier_code}.", "warning")
+        return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+    logger.info("Forecast supplier PO send: supplier=%s lines=%d items=%s",
+                supplier_code, len(order_lines),
+                [(l["item_code_365"], l["line_quantity"]) for l in order_lines])
+
+    result = create_ps365_purchase_order(
+        supplier_code=supplier_code,
+        order_lines=order_lines,
+        user_code=current_user.username,
+        comments=f"Forecast supplier order {supplier_code} - {len(order_lines)} items",
+        cart_prefix="WMDS-FCT",
+    )
+
+    if result["success"]:
+        logger.info("Forecast PO created: %s supplier=%s lines=%d",
+                    result["po_code"], supplier_code, result["lines_count"])
+        flash(f"Purchase Order created! PO Code: {result['po_code']} ({result['lines_count']} items)", "success")
+    else:
+        logger.error("Forecast PO send failed for supplier %s: %s",
+                     supplier_code, result["error"])
+        flash(f"PS365 error: {result['error']}", "error")
+
+    return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+
 @forecast_bp.route('/admin/supplier-mapping')
 @admin_or_warehouse_required
 def admin_supplier_mapping():

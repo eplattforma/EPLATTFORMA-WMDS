@@ -1,0 +1,177 @@
+Instructions to Replit — find the existing PS365 PO sender and reuse it for supplier ordering in forecasting
+
+Please locate the existing script/function that already sends a purchase order from the replenishment flow to PS365, and reuse that logic for the supplier-order send action in forecasting.
+
+We do not want duplicate PO payload-building logic in two places.
+
+1) Find the existing PS365 purchase order sender
+
+Please find the current code path that sends replenishment orders to PS365.
+
+It should already:
+
+take final item quantities
+build PS365 PO header/details
+enrich lines if needed
+post to the PS365 purchase order endpoint
+
+From earlier review, this appears to be in:
+
+blueprints/replenishment_mvp.py
+function/route similar to: send_po_to_ps365(run_id)
+
+Please confirm that this is the correct sender and inspect exactly:
+
+how supplier code is passed
+how line_quantity is built
+how PO lines are enriched
+how the payload is posted to /purchaseorder
+2) Do not duplicate the send logic in forecasting
+
+For forecasting supplier ordering, do not rewrite the PS365 PO payload-building logic separately.
+
+Instead:
+
+reuse the existing replenishment send logic
+or extract the reusable core into a shared helper/service and make both flows use it
+
+The forecasting module should decide:
+
+which supplier
+which items
+what final reviewed order quantity to send
+
+The shared sender should decide:
+
+how to format the PS365 payload
+how to enrich the lines
+how to call /purchaseorder
+3) Refactor the replenishment sender into a reusable shared helper
+
+Please extract the common PS365 PO sending logic from the replenishment code into a reusable service, for example something like:
+
+services/ps365_purchase_order_service.py
+
+Suggested shared functions:
+
+build_ps365_po_payload(supplier_code, order_lines, user_code, comments=None)
+send_ps365_po(payload)
+create_ps365_purchase_order(supplier_code, order_lines, user_code, comments=None)
+
+Where order_lines is a simple list like:
+
+[
+    {"item_code_365": "SNA-0114", "line_quantity": 24},
+    {"item_code_365": "ABC-1234", "line_quantity": 12},
+]
+
+This shared helper should contain:
+
+supplier header build
+PO line formatting
+price/VAT enrichment if the current replenishment sender already does it
+POST to the PS365 /purchaseorder endpoint
+response handling / errors
+4) Make replenishment keep using the shared helper
+
+After refactoring, update the existing replenishment send code so it still works exactly the same, but now uses the shared helper internally.
+
+So the replenishment route should:
+
+gather its run lines
+convert them into order_lines
+call the shared PO creation helper
+
+No business logic should be lost.
+
+5) Reuse the same sender for supplier ordering in forecasting
+
+For the forecasting supplier-order flow, build the supplier order from the forecast/order rows for one supplier at a time.
+
+The forecasting side should prepare only:
+
+supplier_code
+item_code_365
+final_order_qty
+
+Then map that into:
+
+order_lines = [
+    {
+        "item_code_365": row.item_code_365,
+        "line_quantity": int(row.final_order_qty),
+    }
+    for row in supplier_rows
+    if row.final_order_qty and row.final_order_qty > 0
+]
+
+Then call the same shared helper:
+
+create_ps365_purchase_order(
+    supplier_code=supplier_code,
+    order_lines=order_lines,
+    user_code=current_user.username,
+    comments=f"Forecast supplier order {supplier_code}"
+)
+6) The quantity to send in forecasting must come from the reviewed final order quantity
+
+Important:
+For forecasting, do not use replenishment final_units.
+
+Instead, use the forecasting supplier-order quantity that is already calculated/reviewed in the forecasting ordering logic, for example:
+
+final_order_qty
+or whatever field currently represents the final supplier order after rounding/adjustment
+
+This final reviewed quantity should become:
+
+line_quantity
+
+in the shared PO sender.
+
+7) Keep sending one supplier at a time
+
+The forecasting supplier-order send should work one supplier at a time.
+
+For one send action:
+
+one supplier_code
+many item lines
+only lines with positive final quantity
+
+This matches the replenishment sender structure and keeps the PO header correct.
+
+8) Validate against existing replenishment behavior
+
+After refactoring, validate both callers:
+
+Replenishment
+existing replenishment PO send still works exactly as before
+Forecasting
+supplier order send uses the same PS365 payload builder/sender
+one supplier PO is created successfully
+line quantities match the reviewed forecast order quantities
+9) Add logging for the forecast supplier-order send
+
+When sending from forecasting, log:
+
+supplier code
+number of lines sent
+item codes and quantities
+PS365 response / PO code if returned
+
+This will help confirm that forecasting is reusing the sender correctly.
+
+10) Final implementation principle
+
+We want a single shared PS365 purchase-order sending engine.
+
+Replenishment decides what to order
+Forecasting supplier ordering decides what to order
+Shared helper decides how to send it to PS365
+
+That way:
+
+there is no duplicated payload logic
+pricing/VAT enrichment stays consistent
+future fixes are made once, not twice

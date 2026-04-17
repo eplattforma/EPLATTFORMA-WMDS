@@ -331,6 +331,15 @@
             <a href="{{ url_for('forecast_workbench.api_export_supplier', supplier_code=supplier_code) }}" class="btn btn-sm btn-outline-success py-0">
                 <i class="fas fa-file-csv me-1"></i>Export CSV
             </a>
+            {% if supplier_code != 'UNMAPPED' %}
+            <form method="POST" action="{{ url_for('forecast_workbench.send_supplier_po', supplier_code=supplier_code) }}"
+                  onsubmit="return confirm('Send PO to PS365 for {{ supplier_code }} using current reviewed order quantities?');"
+                  class="d-inline">
+                <button type="submit" class="btn btn-sm btn-primary py-0">
+                    <i class="fas fa-paper-plane me-1"></i>Send PO to PS365
+                </button>
+            </form>
+            {% endif %}
         </div>
     </div>
 
