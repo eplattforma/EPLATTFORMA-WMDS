@@ -243,9 +243,10 @@ def refresh_ordering_snapshot(
         order_multiple = _to_float(smap.order_multiple) if smap and smap.order_multiple else 0.0
 
         rounded = raw_order
+        rounding_step = order_multiple if order_multiple > 0 else (moq if moq > 0 else 0.0)
         if raw_order > 0:
-            if order_multiple > 0:
-                rounded = _ceil_to_multiple(raw_order, order_multiple)
+            if rounding_step > 0:
+                rounded = _ceil_to_multiple(raw_order, rounding_step)
             else:
                 rounded = math.ceil(raw_order)
             rounded = _enforce_moq(rounded, moq)
