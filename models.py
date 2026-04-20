@@ -1236,7 +1236,8 @@ class PSCustomer(db.Model, SoftDeleteMixin, ActivatableMixin):
     delivery_days_parsed_at = db.Column(UTCDateTime(), nullable=True)
     last_synced_at = db.Column(UTCDateTime(), nullable=True)
     reporting_group = db.Column(db.Text, nullable=True)
-    
+    preferred_language = db.Column(db.String(2), nullable=False, default='el', server_default='el')
+
     # Relationships
     delivery_slots = db.relationship('CustomerDeliverySlot', backref='customer', cascade='all, delete-orphan')
 

@@ -444,6 +444,12 @@ function clearBulkSelection() {
                     <input class="form-check-input" type="checkbox" id="drawer-assisted" onchange="saveAssisted(this)">
                 </div>
             </div>
+            <div class="drawer-field mt-2">
+                <span class="label">EN communication <span style="color:#adb5bd;font-size:0.65rem;">(SMS in English)</span></span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="drawer-comm-en" onchange="saveCommsLang(this)">
+                </div>
+            </div>
             <div class="mt-2">
                 <label class="form-label mb-1 small text-muted">Short note</label>
                 <textarea class="form-control form-control-sm" id="drawer-note" rows="2" onblur="saveFlags()" style="font-size:0.82rem;"></textarea>
@@ -569,6 +575,7 @@ function openDrawer(idx) {
     document.getElementById('drawer-last-invoice').textContent = r.r_invoice_days !== null ? r.r_invoice_days + ' days ago' : '—';
 
     document.getElementById('drawer-assisted').checked = !!r.assisted_ordering;
+    document.getElementById('drawer-comm-en').checked = (r.preferred_language || 'el') === 'en';
     document.getElementById('drawer-note').value = r.review_note || '';
 
     // Populate action log with message history
@@ -681,6 +688,31 @@ async function saveAssisted(el) {
             alert('Error: ' + data.error);
         }
     } catch(e) { alert('Error saving: ' + e.message); }
+}
+
+async function saveCommsLang(el) {
+    if (_currentIdx === null) return;
+    var r = _rowsData[_currentIdx];
+    var lang = el.checked ? 'en' : 'el';
+    var fd = new FormData();
+    fd.append('customer_code_365', r.customer_code_365);
+    fd.append('preferred_language', lang);
+    try {
+        var res = await fetch('/crm/review-ordering/set-comm-lang', {method:'POST', body:fd});
+        var data = await res.json();
+        if (data.ok) {
+            r.preferred_language = lang;
+            var t = document.createElement('div');
+            t.className = 'position-fixed bottom-0 start-50 translate-middle-x mb-3 px-4 py-2 rounded shadow text-white';
+            t.style.cssText = 'background:#0d6efd;z-index:9999;font-size:0.9rem;';
+            t.innerHTML = '<i class="fas fa-language me-2"></i>Communication language set to <strong>' + lang.toUpperCase() + '</strong>';
+            document.body.appendChild(t);
+            setTimeout(function(){ t.remove(); }, 3000);
+        } else {
+            el.checked = !el.checked;
+            alert('Error: ' + data.error);
+        }
+    } catch(e) { el.checked = !el.checked; alert('Error saving: ' + e.message); }
 }
 
 async function saveFlags() {

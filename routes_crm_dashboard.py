@@ -632,6 +632,7 @@ def review_ordering():
             sales_sq.c.last_invoice_date,
             CRMCustomerOpenOrders.open_order_amount,
             CRMCustomerOpenOrders.open_order_count,
+            PSCustomer.preferred_language,
         )
         .filter(PSCustomer.active.is_(True))
         .filter(PSCustomer.deleted_at.is_(None))
@@ -898,6 +899,7 @@ def review_ordering():
             "slot_closing_soon": slot_closing_soon,
             "mobile_number": r.sms_number or r.mobile or "",
             "assisted_ordering": assisted,
+            "preferred_language": r.preferred_language or "el",
             "review_note": review_rec.review_note if review_rec else "",
             "last_comm": comm_map.get(r.customer_code_365),
             "msg_history": comm_list_map.get(r.customer_code_365, []),
@@ -1244,6 +1246,23 @@ def review_ordering_set_assisted():
     prof.updated_by = getattr(current_user, "username", None)
     db.session.commit()
     return jsonify({"ok": True, "assisted_ordering": assisted})
+
+
+@crm_dashboard_bp.post("/review-ordering/set-comm-lang")
+@login_required
+def review_ordering_set_comm_lang():
+    customer_code = request.form.get("customer_code_365", "").strip()
+    lang = (request.form.get("preferred_language") or "el").strip().lower()
+    if lang not in ("el", "en"):
+        return jsonify({"ok": False, "error": "Invalid language"}), 400
+    if not customer_code:
+        return jsonify({"ok": False, "error": "Missing customer code"}), 400
+    db.session.execute(
+        db.text("UPDATE ps_customers SET preferred_language = :l WHERE customer_code_365 = :c"),
+        {"l": lang, "c": customer_code},
+    )
+    db.session.commit()
+    return jsonify({"ok": True, "preferred_language": lang})
 
 
 @crm_dashboard_bp.post("/customer/<customer_code_365>/set-classification")
