@@ -268,7 +268,8 @@ def resolve_customer_context(customer_code_365, language=None):
 def render_template_for_customer(template_code, customer_ctx, extra_ctx=None):
     tpl_row = db.session.execute(db.text("""
         SELECT code, title, sender_title, body, call_script, force_unicode,
-               allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber
+               allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber,
+               offer_image_url, offer_title
         FROM sms_template
         WHERE code = :c AND is_enabled = TRUE
     """), {"c": template_code}).mappings().first()
@@ -277,6 +278,9 @@ def render_template_for_customer(template_code, customer_ctx, extra_ctx=None):
         return {"error": "Template not found or disabled"}
 
     ctx = dict(customer_ctx or {})
+    # Inject offer_link from the template's configured public URL.
+    ctx["offer_link"] = (tpl_row.get("offer_image_url") or "").strip()
+    ctx.setdefault("offer_title", tpl_row.get("offer_title") or "")
     if extra_ctx:
         ctx.update(extra_ctx)
 
