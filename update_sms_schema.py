@@ -100,6 +100,29 @@ def update_sms_schema():
             except Exception:
                 pass
 
+        # --- SMS Module Enhancement: offer image/link fields on sms_template ---
+        for col, typ, default in [
+            ("offer_image_path", "TEXT", None),
+            ("offer_image_url", "TEXT", None),
+            ("offer_link_slug", "TEXT", None),
+            ("offer_title", "TEXT", None),
+        ]:
+            try:
+                default_clause = f" DEFAULT {default}" if default else ""
+                db.session.execute(text(
+                    f"ALTER TABLE sms_template ADD COLUMN IF NOT EXISTS {col} {typ}{default_clause}"
+                ))
+            except Exception:
+                pass
+
+        # --- SMS Module Enhancement: customer preferred language on ps_customers ---
+        try:
+            db.session.execute(text(
+                "ALTER TABLE ps_customers ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(2) NOT NULL DEFAULT 'el'"
+            ))
+        except Exception:
+            pass
+
         db.session.execute(text("""
             CREATE TABLE IF NOT EXISTS customer_push_identity (
                 customer_code_365 VARCHAR(50) PRIMARY KEY,

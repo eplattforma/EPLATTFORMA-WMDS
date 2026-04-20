@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from datetime import datetime
 
@@ -10,7 +11,9 @@ from services.communications_service import (
     resolve_customer_context, normalize_phone, render_template_for_customer,
     create_comm_log, update_comm_log_status, send_microsms,
     build_launch_url, get_customer_comm_history, get_enabled_templates,
+    get_template_full, build_preview_rows, send_finalized_sms,
 )
+from services.sms_translation_service import generate_translated_draft
 from services.onesignal_service import (
     refresh_customer_push_identity, get_cached_push_identity,
     send_push_to_customer, bulk_send_push,
@@ -271,15 +274,206 @@ def bulk_prepare():
 
     templates = get_enabled_templates(channel_filter='microsms', bulk_only=True)
 
+    # Enrich templates with offer image/url/title for the UI.
+    enriched_templates = []
+    for t in templates:
+        full = get_template_full(t.get("code"))
+        if full:
+            t = dict(t)
+            t["offer_image_url"] = full.get("offer_image_url") or ""
+            t["offer_title"] = full.get("offer_title") or ""
+        enriched_templates.append(t)
+
     return render_template(
         "admin/communications_bulk_send.html",
         customers=customers,
-        templates=templates,
+        templates=enriched_templates,
         valid_count=valid_count,
         invalid_count=invalid_count,
         total_selected=len(codes),
         source_screen=source,
     )
+
+
+@communications_bp.route("/translate-draft", methods=["POST"])
+@login_required
+def route_translate_draft():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}),
+                        mimetype="application/json", status=403)
+    text = (request.form.get("text") or "").strip()
+    src = (request.form.get("source_lang") or "el").strip().lower()
+    tgt = (request.form.get("target_lang") or "en").strip().lower()
+    if not text:
+        return Response(json.dumps({"ok": False, "error": "Text is required"}),
+                        mimetype="application/json")
+    result = generate_translated_draft(text, source_lang=src, target_lang=tgt)
+    return Response(json.dumps(result), mimetype="application/json")
+
+
+@communications_bp.route("/bulk/preview", methods=["POST"])
+@login_required
+def bulk_preview():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}),
+                        mimetype="application/json", status=403)
+    codes = request.form.getlist("customer_codes[]")
+    if not codes:
+        codes_str = request.form.get("customer_codes", "")
+        codes = [c.strip() for c in codes_str.split(",") if c.strip()]
+    greek_draft = request.form.get("greek_draft", "")
+    english_draft = request.form.get("english_draft", "") or None
+    tpl_code = (request.form.get("template_code") or "").strip() or None
+
+    rows = build_preview_rows(codes, greek_draft, english_draft, tpl_code)
+
+    template_meta = None
+    if tpl_code:
+        full = get_template_full(tpl_code)
+        if full:
+            template_meta = {
+                "offer_image_url": full.get("offer_image_url") or "",
+                "offer_title": full.get("offer_title") or "",
+            }
+
+    return Response(json.dumps({
+        "ok": True,
+        "rows": rows,
+        "template_meta": template_meta,
+    }, default=str), mimetype="application/json")
+
+
+@communications_bp.route("/bulk/send-finalized", methods=["POST"])
+@login_required
+def bulk_send_finalized():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}),
+                        mimetype="application/json", status=403)
+
+    payload_raw = request.form.get("payload", "").strip()
+    if not payload_raw:
+        return Response(json.dumps({"ok": False, "error": "Missing payload"}),
+                        mimetype="application/json")
+    try:
+        payload = json.loads(payload_raw)
+    except Exception as e:
+        return Response(json.dumps({"ok": False, "error": f"Bad payload: {e}"}),
+                        mimetype="application/json")
+
+    rows = payload.get("rows") or []
+    tpl_code = (payload.get("template_code") or "").strip() or None
+    source = payload.get("source_screen") or "bulk_send"
+
+    if not rows:
+        return Response(json.dumps({"ok": False, "error": "No recipients"}),
+                        mimetype="application/json")
+
+    tpl_full = get_template_full(tpl_code) if tpl_code else None
+    sender = (
+        (tpl_full.get("sender_title") if tpl_full else None)
+        or os.getenv("MICROSMS_SENDER", "EPLATTFORMA")
+    )
+    tpl_title = tpl_full.get("title") if tpl_full else None
+
+    batch_id = f"bulk-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    username = getattr(current_user, "username", None)
+
+    total_sent = 0
+    total_failed = 0
+    total_skipped = 0
+    results = []
+
+    for r in rows:
+        code = r.get("customer_code")
+        text = (r.get("final_text") or "").strip()
+        e164 = (r.get("mobile_e164") or "").strip()
+        lang = r.get("language") or "el"
+        cname = r.get("customer_name") or None
+
+        if not e164 or not text:
+            total_skipped += 1
+            results.append({"code": code, "status": "skipped",
+                            "reason": "missing phone or text"})
+            continue
+
+        result = send_finalized_sms(
+            mobile_e164=e164,
+            sender_title=sender,
+            final_text=text,
+            customer_code_365=code,
+            customer_name=cname,
+            template_code=tpl_code,
+            template_title=tpl_title,
+            source_screen=source,
+            batch_id=batch_id,
+            username=username,
+            language=lang,
+        )
+
+        if result.get("ok"):
+            total_sent += 1
+            results.append({"code": code, "status": "sent", "language": lang})
+        else:
+            total_failed += 1
+            results.append({"code": code, "status": "failed",
+                            "language": lang, "reason": result.get("error")})
+
+    try:
+        db.session.execute(db.text("""
+            INSERT INTO crm_communication_batch (
+                created_by_username, source_screen, channel,
+                template_code, template_title,
+                total_selected, total_valid, total_sent, total_failed, total_skipped,
+                batch_id
+            ) VALUES (
+                :user, :source, 'microsms',
+                :tpl_code, :tpl_title,
+                :total_sel, :total_valid, :total_sent, :total_failed, :total_skip,
+                :batch
+            )
+        """), {
+            "user": username, "source": source,
+            "tpl_code": tpl_code, "tpl_title": tpl_title,
+            "total_sel": len(rows), "total_valid": total_sent + total_failed,
+            "total_sent": total_sent, "total_failed": total_failed,
+            "total_skip": total_skipped, "batch": batch_id,
+        })
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    return Response(json.dumps({
+        "ok": True,
+        "batch_id": batch_id,
+        "total_sent": total_sent,
+        "total_failed": total_failed,
+        "total_skipped": total_skipped,
+        "results": results,
+    }), mimetype="application/json")
+
+
+@communications_bp.route("/customer/set-language", methods=["POST"])
+@login_required
+def customer_set_language():
+    if not _role_ok():
+        return Response(json.dumps({"ok": False, "error": "Not authorized"}),
+                        mimetype="application/json", status=403)
+    cc = (request.form.get("customer_code_365") or "").strip()
+    lang = (request.form.get("preferred_language") or "").strip().lower()
+    if not cc or lang not in ("el", "en"):
+        return Response(json.dumps({"ok": False, "error": "Bad parameters"}),
+                        mimetype="application/json")
+    try:
+        db.session.execute(db.text(
+            "UPDATE ps_customers SET preferred_language = :l WHERE customer_code_365 = :c"
+        ), {"l": lang, "c": cc})
+        db.session.commit()
+        return Response(json.dumps({"ok": True, "preferred_language": lang}),
+                        mimetype="application/json")
+    except Exception as e:
+        db.session.rollback()
+        return Response(json.dumps({"ok": False, "error": str(e)}),
+                        mimetype="application/json")
 
 
 @communications_bp.route("/bulk/send-microsms", methods=["POST"])

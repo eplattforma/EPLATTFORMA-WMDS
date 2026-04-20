@@ -46,6 +46,7 @@
             <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} mobile_number {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>mobile_number</span>
             <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} first_name {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>first_name</span>
             <span class="badge bg-dark px-2 py-1 sms-var-badge" role="button" title="Click to copy" data-var="{{ '{{' }} delivery_date {{ '}}' }}"><i class="fas fa-copy me-1 opacity-50"></i>delivery_date</span>
+            <span class="badge bg-success px-2 py-1 sms-var-badge" role="button" title="Click to copy — resolves to the template's Offer Image URL" data-var="{{ '{{' }} offer_link {{ '}}' }}"><i class="fas fa-image me-1 opacity-50"></i>offer_link</span>
           </div>
           <div class="mt-2">
             <small class="text-muted"><strong>balance_text</strong> = formatted e.g. "due €1,200.00" &nbsp;|&nbsp; <strong>overdue_text</strong> = balance minus today/yesterday invoices</small>
@@ -101,7 +102,10 @@
                   data-allow-onesignal-push="{{ t.allow_onesignal_push|tojson }}"
                   data-call-script="{{ (t.call_script or '')|e }}"
                   data-is-bulk="{{ t.is_bulk_allowed|tojson }}"
-                  data-sort-order="{{ t.sort_order }}">
+                  data-sort-order="{{ t.sort_order }}"
+                  data-offer-image-url="{{ (t.offer_image_url or '')|e }}"
+                  data-offer-title="{{ (t.offer_title or '')|e }}"
+                  data-offer-link-slug="{{ (t.offer_link_slug or '')|e }}">
             <i class="fas fa-edit me-1"></i>Edit
           </button>
           <form method="post" action="{{ url_for('sms.sms_template_delete', tpl_id=t.id) }}"
@@ -126,7 +130,7 @@
 <div class="modal fade" id="tplModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('sms.sms_template_save') }}">
+      <form method="post" action="{{ url_for('sms.sms_template_save') }}" enctype="multipart/form-data">
         <input type="hidden" name="id" id="tplId">
         <div class="modal-header">
           <h5 class="modal-title" id="tplModalTitle"><i class="fas fa-plus me-2"></i>New Template</h5>
@@ -170,6 +174,7 @@
                 <span class="badge bg-dark px-2 py-1 insert-var-badge" role="button" data-var="{{ '{{' }} last_delivery_date {{ '}}' }}" data-target="tplBody">last_delivery_date</span>
                 <span class="badge bg-dark px-2 py-1 insert-var-badge" role="button" data-var="{{ '{{' }} delivery_date {{ '}}' }}" data-target="tplBody">delivery_date</span>
                 <span class="badge bg-dark px-2 py-1 insert-var-badge" role="button" data-var="{{ '{{' }} mobile_number {{ '}}' }}" data-target="tplBody">mobile_number</span>
+                <span class="badge bg-success px-2 py-1 insert-var-badge" role="button" data-var="{{ '{{' }} offer_link {{ '}}' }}" data-target="tplBody"><i class="fas fa-image me-1"></i>offer_link</span>
               </div>
             </div>
             <textarea class="form-control" name="body" id="tplBody" rows="5" required
@@ -219,6 +224,50 @@
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="allow_onesignal_push" id="tplPush">
               <label class="form-check-label" for="tplPush"><i class="fas fa-bell me-1"></i>Push</label>
+            </div>
+          </div>
+          <hr class="my-3">
+          <div class="card border-success">
+            <div class="card-header py-2 bg-success bg-opacity-10">
+              <strong><i class="fas fa-image me-1"></i>Offer Image / Link</strong>
+              <small class="text-muted ms-2">Used by the <code>{{ '{{' }} offer_link {{ '}}' }}</code> placeholder</small>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Offer Image URL <small class="text-muted">(public)</small></label>
+                  <input class="form-control" type="url" name="offer_image_url" id="tplOfferUrl"
+                         placeholder="https://example.com/offer.jpg" maxlength="512"
+                         oninput="updateOfferPreview()">
+                  <small class="text-muted">This URL is what gets injected when you use <code>{{ '{{' }} offer_link {{ '}}' }}</code> in the message body.</small>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Upload Image <small class="text-muted">(optional, fills URL above)</small></label>
+                  <input class="form-control" type="file" name="offer_image_file" id="tplOfferFile" accept="image/*">
+                  <small class="text-muted">Saved to <code>/static/uploads/sms_offers/</code> and the public URL is set automatically on save.</small>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Offer Title <small class="text-muted">(optional, internal label)</small></label>
+                  <input class="form-control" type="text" name="offer_title" id="tplOfferTitle" maxlength="200"
+                         placeholder="e.g. Spring Promotion 2026">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Slug <small class="text-muted">(optional, internal id)</small></label>
+                  <input class="form-control" type="text" name="offer_link_slug" id="tplOfferSlug" maxlength="80"
+                         placeholder="e.g. spring-2026">
+                </div>
+                <div class="col-12" id="tplOfferPreviewWrap" style="display:none;">
+                  <label class="form-label">Preview</label>
+                  <div class="d-flex align-items-start gap-3">
+                    <img id="tplOfferPreviewImg" src="" alt="offer preview"
+                         style="max-width: 180px; max-height: 120px; border:1px solid rgba(255,255,255,0.15); border-radius:6px;">
+                    <div class="small text-break">
+                      <div><strong>Resolved URL:</strong></div>
+                      <a id="tplOfferPreviewLink" href="#" target="_blank" rel="noopener"></a>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="row g-3 mt-2">
@@ -272,8 +321,22 @@ function resetForm() {
   document.getElementById('tplCallScript').value = '';
   document.getElementById('tplBulk').checked = false;
   document.getElementById('tplSortOrder').value = '0';
+  document.getElementById('tplOfferUrl').value = '';
+  document.getElementById('tplOfferFile').value = '';
+  document.getElementById('tplOfferTitle').value = '';
+  document.getElementById('tplOfferSlug').value = '';
   document.getElementById('tplModalTitle').innerHTML = '<i class="fas fa-plus me-2"></i>New Template';
   updateTplCounts();
+  updateOfferPreview();
+}
+function updateOfferPreview() {
+  var url = document.getElementById('tplOfferUrl').value.trim();
+  var wrap = document.getElementById('tplOfferPreviewWrap');
+  if (!url) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  document.getElementById('tplOfferPreviewImg').src = url;
+  var a = document.getElementById('tplOfferPreviewLink');
+  a.href = url; a.textContent = url;
 }
 function editTemplate(t) {
   document.getElementById('tplId').value = t.id;
@@ -292,8 +355,13 @@ function editTemplate(t) {
   document.getElementById('tplCallScript').value = t.call_script || '';
   document.getElementById('tplBulk').checked = t.is_bulk_allowed;
   document.getElementById('tplSortOrder').value = t.sort_order || 0;
+  document.getElementById('tplOfferUrl').value = t.offer_image_url || '';
+  document.getElementById('tplOfferFile').value = '';
+  document.getElementById('tplOfferTitle').value = t.offer_title || '';
+  document.getElementById('tplOfferSlug').value = t.offer_link_slug || '';
   document.getElementById('tplModalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Template';
   updateTplCounts();
+  updateOfferPreview();
   var modal = new bootstrap.Modal(document.getElementById('tplModal'));
   modal.show();
 }
@@ -323,7 +391,10 @@ document.addEventListener('click', function(e) {
     allow_onesignal_push: btn.getAttribute('data-allow-onesignal-push') === 'true',
     call_script: btn.getAttribute('data-call-script'),
     is_bulk_allowed: btn.getAttribute('data-is-bulk') === 'true',
-    sort_order: parseInt(btn.getAttribute('data-sort-order')) || 0
+    sort_order: parseInt(btn.getAttribute('data-sort-order')) || 0,
+    offer_image_url: btn.getAttribute('data-offer-image-url') || '',
+    offer_title: btn.getAttribute('data-offer-title') || '',
+    offer_link_slug: btn.getAttribute('data-offer-link-slug') || ''
   };
   editTemplate(t);
 });

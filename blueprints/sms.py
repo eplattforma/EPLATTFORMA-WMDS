@@ -447,7 +447,9 @@ def sms_templates():
         SELECT id, code, title, sender_title, body, force_unicode, is_enabled,
                allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber,
                allow_onesignal_push,
-               call_script, is_bulk_allowed, sort_order, created_at, updated_at
+               call_script, is_bulk_allowed, sort_order,
+               offer_image_url, offer_title, offer_link_slug,
+               created_at, updated_at
         FROM sms_template
         ORDER BY COALESCE(sort_order, 999), title
     """)).mappings().all()
@@ -471,6 +473,9 @@ def sms_templates():
             "call_script": r.call_script or "",
             "is_bulk_allowed": bool(r.is_bulk_allowed),
             "sort_order": r.sort_order or 0,
+            "offer_image_url": r.offer_image_url or "",
+            "offer_title": r.offer_title or "",
+            "offer_link_slug": r.offer_link_slug or "",
         })
 
     return render_template("admin/sms_templates.html", templates=templates)
@@ -498,6 +503,9 @@ def sms_template_save():
     allow_onesignal_push = request.form.get("allow_onesignal_push") == "on"
     call_script = request.form.get("call_script", "").strip() or None
     is_bulk_allowed = request.form.get("is_bulk_allowed") == "on"
+    offer_image_url = (request.form.get("offer_image_url") or "").strip() or None
+    offer_title = (request.form.get("offer_title") or "").strip() or None
+    offer_link_slug = (request.form.get("offer_link_slug") or "").strip() or None
     sort_order = request.form.get("sort_order", "0").strip()
     try:
         sort_order = int(sort_order)
@@ -510,6 +518,33 @@ def sms_template_save():
 
     code = re.sub(r'[^A-Z0-9_]', '_', code)
 
+    # Optional file upload — saves to /static/uploads/sms_offers/ and overrides URL.
+    offer_image_path = None
+    upload = request.files.get("offer_image_file")
+    if upload and upload.filename:
+        import os as _os
+        from werkzeug.utils import secure_filename
+        from flask import current_app
+        ext = _os.path.splitext(upload.filename)[1].lower()
+        allowed = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        if ext not in allowed:
+            flash(f"Image type {ext} not allowed.", "warning")
+        else:
+            safe = secure_filename(upload.filename) or f"offer{ext}"
+            stem, _ = _os.path.splitext(safe)
+            fname = f"{code.lower()}_{int(datetime.utcnow().timestamp())}_{stem[:40]}{ext}"
+            target_dir = _os.path.join(current_app.root_path, "static", "uploads", "sms_offers")
+            _os.makedirs(target_dir, exist_ok=True)
+            disk_path = _os.path.join(target_dir, fname)
+            upload.save(disk_path)
+            offer_image_path = f"static/uploads/sms_offers/{fname}"
+            try:
+                offer_image_url = url_for("static",
+                                          filename=f"uploads/sms_offers/{fname}",
+                                          _external=True)
+            except Exception:
+                offer_image_url = f"/static/uploads/sms_offers/{fname}"
+
     params = {
         "code": code, "title": title, "sender": sender_title,
         "body": body, "fu": force_unicode, "en": is_enabled,
@@ -517,6 +552,8 @@ def sms_template_save():
         "a_call": allow_call, "a_wa": allow_whatsapp, "a_viber": allow_viber,
         "a_push": allow_onesignal_push,
         "cs": call_script, "bulk": is_bulk_allowed, "so": sort_order,
+        "oimg_path": offer_image_path, "oimg_url": offer_image_url,
+        "oslug": offer_link_slug, "otitle": offer_title,
     }
 
     try:
@@ -530,6 +567,10 @@ def sms_template_save():
                     allow_call = :a_call, allow_whatsapp = :a_wa, allow_viber = :a_viber,
                     allow_onesignal_push = :a_push,
                     call_script = :cs, is_bulk_allowed = :bulk, sort_order = :so,
+                    offer_image_path = COALESCE(:oimg_path, offer_image_path),
+                    offer_image_url = :oimg_url,
+                    offer_link_slug = :oslug,
+                    offer_title = :otitle,
                     updated_at = NOW()
                 WHERE id = :id
             """), params)
@@ -538,10 +579,12 @@ def sms_template_save():
             db.session.execute(db.text("""
                 INSERT INTO sms_template (code, title, sender_title, body, force_unicode, is_enabled,
                     allow_microsms, allow_phone_sms, allow_call, allow_whatsapp, allow_viber,
-                    allow_onesignal_push, call_script, is_bulk_allowed, sort_order)
+                    allow_onesignal_push, call_script, is_bulk_allowed, sort_order,
+                    offer_image_path, offer_image_url, offer_link_slug, offer_title)
                 VALUES (:code, :title, :sender, :body, :fu, :en,
                     :a_micro, :a_phone, :a_call, :a_wa, :a_viber,
-                    :a_push, :cs, :bulk, :so)
+                    :a_push, :cs, :bulk, :so,
+                    :oimg_path, :oimg_url, :oslug, :otitle)
             """), params)
             flash(f"Template '{title}' created.", "success")
         db.session.commit()

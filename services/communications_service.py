@@ -19,10 +19,27 @@ VALID_CHANNELS = ('microsms', 'phone_sms', 'phone_call', 'whatsapp', 'viber', 'o
 _GR_DAYS = ['ΔΕΥΤΕΡΑ', 'ΤΡΙΤΗ', 'ΤΕΤΑΡΤΗ', 'ΠΕΜΠΤΗ', 'ΠΑΡΑΣΚΕΥΗ', 'ΣΑΒΒΑΤΟ', 'ΚΥΡΙΑΚΗ']
 _GR_MONTHS = ['ΙΑΝ', 'ΦΕΒ', 'ΜΑΡ', 'ΑΠΡ', 'ΜΑΙ', 'ΙΟΥΝ', 'ΙΟΥΛ', 'ΑΥΓ', 'ΣΕΠ', 'ΟΚΤ', 'ΝΟΕ', 'ΔΕΚ']
 
+_EN_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+_EN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
 def _greek_date_str(dt):
     if dt is None:
         return ''
     return f"{_GR_DAYS[dt.weekday()]} {dt.day} {_GR_MONTHS[dt.month - 1]}"
+
+
+def _english_date_str(dt):
+    if dt is None:
+        return ''
+    return f"{_EN_DAYS[dt.weekday()]} {dt.day} {_EN_MONTHS[dt.month - 1]}"
+
+
+def format_date_for_lang(dt, language='el'):
+    if dt is None:
+        return ''
+    if (language or 'el').lower() == 'en':
+        return _english_date_str(dt)
+    return _greek_date_str(dt)
 
 VALID_STATUSES = (
     'initiated', 'launched', 'sent', 'delivered', 'failed',
@@ -104,7 +121,15 @@ def normalize_phone(number, default_country='CY'):
     }
 
 
-def resolve_customer_context(customer_code_365):
+def resolve_customer_context(customer_code_365, language=None):
+    """Build the SMS render context for a customer.
+
+    Args:
+        customer_code_365: customer id.
+        language: 'el' or 'en'. If None, uses the customer's preferred_language
+                  (falling back to 'el'). Date placeholders are formatted in
+                  the chosen language.
+    """
     row = db.session.execute(db.text("""
         SELECT customer_code_365,
                COALESCE(NULLIF(company_name,''), customer_code_365) AS customer_name,
@@ -112,7 +137,8 @@ def resolve_customer_context(customer_code_365):
                COALESCE(NULLIF(sms,''), NULLIF(mobile,''), NULLIF(tel_1,''), '') AS mobile_number,
                COALESCE(NULLIF(sms,''), '') AS sms_number,
                COALESCE(NULLIF(tel_1,''), '') AS tel_1,
-               COALESCE(delivery_days, '') AS delivery_days
+               COALESCE(delivery_days, '') AS delivery_days,
+               COALESCE(preferred_language, 'el') AS preferred_language
         FROM ps_customers
         WHERE customer_code_365 = :cid
     """), {"cid": customer_code_365}).mappings().first()
@@ -121,6 +147,15 @@ def resolve_customer_context(customer_code_365):
         return None
 
     ctx = dict(row)
+
+    pref_lang = (ctx.get("preferred_language") or "el").lower()
+    if pref_lang not in ("el", "en"):
+        pref_lang = "el"
+    ctx["preferred_language"] = pref_lang
+    effective_lang = (language or pref_lang).lower()
+    if effective_lang not in ("el", "en"):
+        effective_lang = "el"
+    ctx["language"] = effective_lang
 
     ctx["customer_code"] = ctx.get("customer_code_365", "")
     ctx["first_name"] = ctx.get("contact_first_name", "")
@@ -145,11 +180,12 @@ def resolve_customer_context(customer_code_365):
                         best = effective
             if best:
                 ctx["delivery_date"] = best.strftime('%a %d-%b')
-                ctx["delivery_date_formatted"] = _greek_date_str(best)
+                ctx["delivery_date_formatted"] = format_date_for_lang(best, effective_lang)
     except Exception:
         pass
 
-    ctx["today_formatted"] = _greek_date_str(datetime.now())
+    ctx["today_formatted"] = format_date_for_lang(datetime.now(), effective_lang)
+    ctx["offer_link"] = ""
 
     try:
         bal_row = db.session.execute(db.text("""
@@ -507,6 +543,191 @@ def get_customer_comm_history(customer_code_365, limit=30):
         LIMIT :lim
     """), {"cc": customer_code_365, "lim": limit}).mappings().all()
     return [dict(r) for r in rows]
+
+
+def get_template_full(code_or_id):
+    """Load an SMS template by code OR numeric id, including offer fields."""
+    is_id = False
+    try:
+        tpl_id = int(code_or_id)
+        is_id = True
+    except (TypeError, ValueError):
+        tpl_id = None
+
+    where = "id = :v" if is_id else "code = :v"
+    row = db.session.execute(db.text(f"""
+        SELECT id, code, title, sender_title, body, force_unicode, is_enabled,
+               is_bulk_allowed, allow_microsms,
+               offer_image_path, offer_image_url, offer_link_slug, offer_title
+        FROM sms_template
+        WHERE {where}
+    """), {"v": tpl_id if is_id else str(code_or_id)}).mappings().first()
+    return dict(row) if row else None
+
+
+def resolve_offer_link(template_row):
+    """Return the public URL for a template's offer image/link, or '' if none."""
+    if not template_row:
+        return ""
+    return (template_row.get("offer_image_url") or "").strip()
+
+
+def _is_unicode_text(text):
+    if not text:
+        return False
+    GSM7 = set(
+        "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ ÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑܧ¿abcdefghijklmnopqrstuvwxyzäöñüà"
+        "{}\\[~]|€\f^"
+    )
+    return any(ch not in GSM7 for ch in text)
+
+
+def count_sms_segments(text):
+    """Estimate SMS segment count for plain GSM-7 vs Unicode (UCS-2)."""
+    if not text:
+        return {"chars": 0, "segments": 0, "unicode": False, "limit_per_segment": 160}
+    is_unicode = _is_unicode_text(text)
+    n = len(text)
+    if is_unicode:
+        if n <= 70:
+            seg = 1
+        else:
+            seg = -(-n // 67)  # ceil
+        limit = 70
+    else:
+        if n <= 160:
+            seg = 1
+        else:
+            seg = -(-n // 153)
+        limit = 160
+    return {"chars": n, "segments": seg, "unicode": is_unicode, "limit_per_segment": limit}
+
+
+def build_preview_rows(customer_codes, greek_draft, english_draft=None,
+                       template_code=None):
+    """For each customer, render the draft (Greek or English depending on the
+    customer's preferred_language) into the final SMS text the user will see
+    AND that will be sent.
+
+    Returns list of dicts:
+        customer_code, customer_name, mobile_display, mobile_e164,
+        language, source_lang, final_text, warnings, chars, segments,
+        unicode, phone_valid
+    """
+    greek_draft = (greek_draft or "")
+    english_draft = (english_draft or "").strip() or None
+
+    template_row = None
+    if template_code:
+        template_row = get_template_full(template_code)
+    offer_link = resolve_offer_link(template_row)
+
+    rows = []
+    for code in customer_codes:
+        cust = resolve_customer_context(code)  # uses customer's preferred lang
+        if not cust:
+            rows.append({
+                "customer_code": code,
+                "customer_name": "",
+                "mobile_display": "",
+                "mobile_e164": "",
+                "language": "el",
+                "source_lang": "el",
+                "final_text": "",
+                "warnings": ["Customer not found"],
+                "chars": 0, "segments": 0, "unicode": False,
+                "phone_valid": False,
+            })
+            continue
+
+        lang = (cust.get("preferred_language") or "el").lower()
+
+        if lang == "en" and english_draft:
+            draft_body = english_draft
+            source_lang = "en"
+        else:
+            draft_body = greek_draft
+            source_lang = "el"
+
+        # Re-resolve context using the *draft's* language so dates/words match
+        # the body language (English fallback to Greek must use Greek dates).
+        render_ctx = resolve_customer_context(code, language=source_lang)
+        if render_ctx is None:
+            render_ctx = cust
+        render_ctx["offer_link"] = offer_link
+
+        warnings = []
+        if not render_ctx.get("phone_valid"):
+            warnings.append("Invalid mobile number")
+        if "{{ offer_link }}" in (draft_body or "") or "{{offer_link}}" in (draft_body or ""):
+            if not offer_link:
+                warnings.append("Template uses {{offer_link}} but no offer image URL is configured")
+        if lang == "en" and not english_draft:
+            warnings.append("Customer prefers English but no English draft provided; sent Greek")
+
+        final_text, render_warning = _render_body(draft_body, render_ctx)
+        if render_warning:
+            warnings.append(f"Unresolved placeholder: {render_warning}")
+        if not final_text.strip():
+            warnings.append("Final message is empty")
+
+        seg = count_sms_segments(final_text)
+
+        rows.append({
+            "customer_code": code,
+            "customer_name": render_ctx.get("customer_name", ""),
+            "mobile_display": render_ctx.get("primary_display", ""),
+            "mobile_e164": render_ctx.get("primary_e164", ""),
+            "language": lang,
+            "source_lang": source_lang,
+            "final_text": final_text,
+            "warnings": warnings,
+            "chars": seg["chars"],
+            "segments": seg["segments"],
+            "unicode": seg["unicode"],
+            "phone_valid": bool(render_ctx.get("phone_valid")),
+        })
+
+    return rows
+
+
+def send_finalized_sms(mobile_e164, sender_title, final_text,
+                       customer_code_365=None, customer_name=None,
+                       template_code=None, template_title=None,
+                       source_screen=None, batch_id=None, username=None,
+                       language=None):
+    """Send a pre-rendered SMS exactly as supplied (no further templating).
+    Returns the same dict shape as `send_microsms`.
+    """
+    extra_json = None
+    if language:
+        import json as _json
+        extra_json = _json.dumps({"language": language})
+
+    result = send_microsms(
+        mobile_e164=mobile_e164,
+        sender_title=sender_title,
+        message=final_text,
+        customer_code_365=customer_code_365,
+        customer_name=customer_name,
+        template_code=template_code,
+        template_title=template_title,
+        source_screen=source_screen,
+        context_type="bulk_finalized",
+        context_id=customer_code_365,
+        batch_id=batch_id,
+        username=username,
+    )
+    if extra_json and result.get("log_id"):
+        try:
+            db.session.execute(db.text(
+                "UPDATE crm_communication_log SET extra_json = :j WHERE id = :id"
+            ), {"j": extra_json, "id": result["log_id"]})
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return result
 
 
 def get_enabled_templates(channel_filter=None, bulk_only=False):

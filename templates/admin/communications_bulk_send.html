@@ -3,10 +3,10 @@
 {% block head %}
 <style>
 .bulk-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.bulk-card h6 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.45); margin-bottom: 10px; }
-.stats-row { display: flex; gap: 16px; margin-bottom: 16px; }
-.stat-box { padding: 10px 20px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); }
-.stat-box .num { font-size: 1.4rem; font-weight: 700; }
+.bulk-card h6 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.55); margin-bottom: 10px; }
+.stats-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.stat-box { padding: 8px 16px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); }
+.stat-box .num { font-size: 1.3rem; font-weight: 700; }
 .stat-box .lbl { font-size: 0.65rem; text-transform: uppercase; color: rgba(255,255,255,0.45); }
 #bulkResults { display: none; }
 .result-summary { display: flex; gap: 16px; margin-bottom: 16px; }
@@ -16,6 +16,13 @@
 .result-box.skipped { background: rgba(108,117,125,0.15); border: 1px solid rgba(108,117,125,0.3); }
 .result-box .num { font-size: 1.6rem; font-weight: 700; }
 .result-box .lbl { font-size: 0.7rem; text-transform: uppercase; color: rgba(255,255,255,0.5); }
+.draft-area { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
+.lang-badge.el { background:#0d6efd; }
+.lang-badge.en { background:#6610f2; }
+.draft-meta { font-size:0.72rem; color: rgba(255,255,255,0.5); }
+.recipient-text { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; background: rgba(0,0,0,0.25); padding: 6px 8px; border-radius: 4px; }
+.warn-pill { display:inline-block; background: rgba(220,53,69,0.2); color:#ffb6bf; padding: 1px 6px; border-radius: 10px; font-size:0.7rem; margin-right:4px; }
+.lang-toggle { font-size:0.7rem; }
 </style>
 {% endblock %}
 
@@ -23,85 +30,118 @@
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="fas fa-paper-plane me-2"></i>Bulk MicroSMS Send</h4>
-        <a href="{{ request.referrer or url_for('crm_dashboard.review_ordering') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Review</a>
+        <a href="{{ request.referrer or url_for('crm_dashboard.review_ordering') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back</a>
     </div>
 
     <div id="bulkForm">
         <div class="stats-row">
-            <div class="stat-box">
-                <div class="num text-primary">{{ total_selected }}</div>
-                <div class="lbl">Selected</div>
-            </div>
-            <div class="stat-box">
-                <div class="num text-success">{{ valid_count }}</div>
-                <div class="lbl">Valid Phone</div>
-            </div>
-            <div class="stat-box">
-                <div class="num text-danger">{{ invalid_count }}</div>
-                <div class="lbl">Invalid / Skipped</div>
-            </div>
+            <div class="stat-box"><div class="num text-primary">{{ total_selected }}</div><div class="lbl">Selected</div></div>
+            <div class="stat-box"><div class="num text-success">{{ valid_count }}</div><div class="lbl">Valid Phone</div></div>
+            <div class="stat-box"><div class="num text-danger">{{ invalid_count }}</div><div class="lbl">Invalid</div></div>
+            <div class="stat-box"><div class="num text-info" id="statEnCount">0</div><div class="lbl">English Pref.</div></div>
+            <div class="stat-box"><div class="num text-warning" id="statElCount">0</div><div class="lbl">Greek Pref.</div></div>
         </div>
 
+        {# ---------- 1) Template ---------- #}
         <div class="bulk-card">
-            <h6>Choose Template</h6>
+            <h6>1. Template</h6>
             {% if templates %}
-            <select class="form-select form-select-sm mb-2" id="bulkTemplate">
-                <option value="">— Select template —</option>
-                {% for t in templates %}
-                <option value="{{ t.code }}" data-body="{{ t.body or '' }}">{{ t.title or t.code }}</option>
-                {% endfor %}
-            </select>
-            <div class="mb-2">
-                <label class="form-label" style="font-size:0.8rem;">Preview (first customer):</label>
-                <textarea class="form-control" id="bulkPreview" rows="3" readonly placeholder="Select a template…" style="font-size:0.85rem;"></textarea>
+            <div class="row g-2 align-items-end">
+                <div class="col-md-7">
+                    <label class="form-label" style="font-size:0.8rem;">Choose template (loads body into the Greek draft below)</label>
+                    <select class="form-select form-select-sm" id="bulkTemplate">
+                        <option value="">— Select template —</option>
+                        {% for t in templates %}
+                        <option value="{{ t.code }}"
+                                data-body="{{ t.body or '' }}"
+                                data-offer-url="{{ t.offer_image_url or '' }}"
+                                data-offer-title="{{ t.offer_title or '' }}">
+                            {{ t.title or t.code }}{% if t.offer_image_url %} · 🖼{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <div id="offerInfo" class="small text-muted" style="display:none;">
+                        <strong>Offer link:</strong>
+                        <a id="offerInfoLink" href="#" target="_blank" rel="noopener" class="text-info"></a>
+                        <span id="offerInfoTitle" class="ms-2"></span>
+                    </div>
+                </div>
             </div>
             {% else %}
-            <div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>No bulk-enabled templates found. Mark templates as "Bulk Allowed" in template management.</div>
+            <div class="alert alert-warning mb-0"><i class="fas fa-exclamation-triangle me-2"></i>No bulk-enabled templates found. Mark templates as "Bulk Allowed" in template management.</div>
             {% endif %}
         </div>
 
+        {# ---------- 2) Greek draft ---------- #}
         <div class="bulk-card">
-            <h6>Recipients ({{ valid_count }} valid)</h6>
-            <div style="max-height:300px;overflow-y:auto;">
-                <table class="table table-sm" style="font-size:0.82rem;">
-                    <thead><tr><th>Customer</th><th>Phone</th><th>Status</th></tr></thead>
-                    <tbody>
-                        {% for c in customers %}
-                        <tr>
-                            <td>{{ c.customer_name }}<br><small class="text-muted">{{ c.customer_code_365 }}</small></td>
-                            <td>{{ c.primary_display or c.mobile_number or '—' }}</td>
-                            <td>
-                                {% if c.phone_valid %}<span class="badge bg-success">valid</span>
-                                {% else %}<span class="badge bg-danger">invalid</span>{% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">2. Greek Draft <span class="badge lang-badge el ms-1">EL</span></h6>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-secondary" id="btnResetGreek" title="Reload from selected template">
+                        <i class="fas fa-undo me-1"></i>Reset to template
+                    </button>
+                </div>
+            </div>
+            <small class="text-muted d-block mt-1 mb-2">Edit freely. Master template will not be changed. Variables like <code>{{ '{{customer_name}}' }}</code> and <code>{{ '{{offer_link}}' }}</code> render per-recipient.</small>
+            <textarea id="greekDraft" class="form-control draft-area" rows="6" maxlength="900"
+                      placeholder="Select a template above, or type your Greek SMS here…"></textarea>
+            <div class="draft-meta mt-1" id="greekMeta">0 chars · 0 segments</div>
+        </div>
+
+        {# ---------- 3) English draft ---------- #}
+        <div class="bulk-card">
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">3. English Draft <span class="badge lang-badge en ms-1">EN</span></h6>
+                <div class="form-check form-switch m-0">
+                    <input class="form-check-input" type="checkbox" id="enableEnglish">
+                    <label class="form-check-label small" for="enableEnglish">Generate English version</label>
+                </div>
+            </div>
+            <div id="englishPanel" style="display:none;" class="mt-2">
+                <div class="d-flex gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-info" id="btnGenerateEn">
+                        <i class="fas fa-language me-1"></i>Translate Greek → English (AI)
+                    </button>
+                    <span id="enStatus" class="small text-muted align-self-center"></span>
+                </div>
+                <small class="text-muted d-block mb-2">English-preferring customers will receive this text. Edit freely; placeholders are preserved.</small>
+                <textarea id="englishDraft" class="form-control draft-area" rows="6" maxlength="900"
+                          placeholder="Click 'Translate' to generate, or type English SMS here…"></textarea>
+                <div class="draft-meta mt-1" id="englishMeta">0 chars · 0 segments</div>
+            </div>
+            <small class="text-muted d-block mt-2" id="englishOff">Toggle on to enable English drafts. Without it, all customers receive the Greek text.</small>
+        </div>
+
+        {# ---------- 4) Per-recipient preview ---------- #}
+        <div class="bulk-card">
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">4. Preview Per Recipient</h6>
+                <button type="button" class="btn btn-sm btn-primary" id="btnPreview">
+                    <i class="fas fa-eye me-1"></i>Build Preview
+                </button>
+            </div>
+            <small class="text-muted d-block mt-1 mb-2">Shows the exact text each recipient will receive — this is what is sent.</small>
+            <div id="previewWrap" class="mt-2" style="max-height:480px; overflow-y:auto;">
+                <div class="text-muted small text-center py-3">Click <strong>Build Preview</strong> to render messages for all {{ valid_count }} recipients.</div>
             </div>
         </div>
 
-        {% if templates and valid_count > 0 %}
-        <button class="btn btn-primary btn-lg" id="btnBulkSend" onclick="executeBulkSend()">
-            <i class="fas fa-paper-plane me-2"></i>Send to {{ valid_count }} Customers
-        </button>
-        {% endif %}
+        {# ---------- 5) Send ---------- #}
+        <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-success btn-lg" id="btnBulkSend" disabled>
+                <i class="fas fa-paper-plane me-2"></i>Send Finalized Messages
+            </button>
+            <span id="sendHint" class="small text-muted">Build preview to enable Send.</span>
+        </div>
     </div>
 
     <div id="bulkResults">
         <div class="result-summary">
-            <div class="result-box success">
-                <div class="num" id="resSent">0</div>
-                <div class="lbl">Sent</div>
-            </div>
-            <div class="result-box failed">
-                <div class="num" id="resFailed">0</div>
-                <div class="lbl">Failed</div>
-            </div>
-            <div class="result-box skipped">
-                <div class="num" id="resSkipped">0</div>
-                <div class="lbl">Skipped</div>
-            </div>
+            <div class="result-box success"><div class="num" id="resSent">0</div><div class="lbl">Sent</div></div>
+            <div class="result-box failed"><div class="num" id="resFailed">0</div><div class="lbl">Failed</div></div>
+            <div class="result-box skipped"><div class="num" id="resSkipped">0</div><div class="lbl">Skipped</div></div>
         </div>
         <div class="bulk-card">
             <h6>Results</h6>
@@ -112,60 +152,246 @@
 </div>
 
 <script>
-var _customerCodes = {{ customers | map(attribute='customer_code_365') | list | tojson }};
+var _customers = {{ customers | tojson }};
+var _validCodes = _customers.filter(function(c){return c.phone_valid;}).map(function(c){return c.customer_code_365;});
+var _previewRows = null;
+var _currentTplCode = '';
 
+function _isUnicode(s) {
+    if (!s) return false;
+    for (var i=0;i<s.length;i++){ if (s.charCodeAt(i) > 127) return true; }
+    return false;
+}
+function _segments(s) {
+    if (!s) return 0;
+    var u = _isUnicode(s);
+    var n = s.length;
+    if (u) return n <= 70 ? 1 : Math.ceil(n / 67);
+    return n <= 160 ? 1 : Math.ceil(n / 153);
+}
+function _updateMeta(taId, metaId) {
+    var ta = document.getElementById(taId);
+    var meta = document.getElementById(metaId);
+    var t = ta.value || '';
+    var seg = _segments(t);
+    meta.textContent = t.length + ' chars · ' + seg + ' segment' + (seg!==1?'s':'') + (_isUnicode(t) ? ' · unicode' : ' · GSM-7');
+}
+
+// Language pref counts (uses preferred_language passed in customer dict)
+(function () {
+    var en = 0, el = 0;
+    _customers.forEach(function(c){
+        if (!c.phone_valid) return;
+        if ((c.preferred_language || 'el') === 'en') en++; else el++;
+    });
+    document.getElementById('statEnCount').textContent = en;
+    document.getElementById('statElCount').textContent = el;
+})();
+
+// Template select → load Greek body
 var _bulkTplSelect = document.getElementById('bulkTemplate');
 if (_bulkTplSelect) {
     _bulkTplSelect.addEventListener('change', function(){
-        if (!this.value) { document.getElementById('bulkPreview').value = ''; return; }
-        var fd = new FormData();
-        fd.append('customer_code_365', _customerCodes[0]);
-        fd.append('template_code', this.value);
-        fetch('/admin/communications/preview', {method:'POST', body:fd})
-            .then(function(r){ return r.json(); })
-            .then(function(data){
-                document.getElementById('bulkPreview').value = data.rendered_body || data.error || '';
-            });
+        _currentTplCode = this.value || '';
+        var opt = this.options[this.selectedIndex];
+        var body = opt ? (opt.getAttribute('data-body') || '') : '';
+        var ourl = opt ? (opt.getAttribute('data-offer-url') || '') : '';
+        var otitle = opt ? (opt.getAttribute('data-offer-title') || '') : '';
+        document.getElementById('greekDraft').value = body;
+        _updateMeta('greekDraft', 'greekMeta');
+        var info = document.getElementById('offerInfo');
+        if (ourl) {
+            info.style.display = '';
+            var a = document.getElementById('offerInfoLink');
+            a.href = ourl; a.textContent = ourl;
+            document.getElementById('offerInfoTitle').textContent = otitle ? '— ' + otitle : '';
+        } else {
+            info.style.display = 'none';
+        }
+        _invalidatePreview();
     });
 }
 
-async function executeBulkSend() {
-    var tplEl = document.getElementById('bulkTemplate');
-    if (!tplEl) { alert('No templates available.'); return; }
-    var tpl = tplEl.value;
-    if (!tpl) { alert('Please select a template.'); return; }
-    if (!confirm('Send MicroSMS to ' + {{ valid_count }} + ' customers?')) return;
+document.getElementById('btnResetGreek').addEventListener('click', function(){
+    if (!_bulkTplSelect.value) { alert('Pick a template first.'); return; }
+    var opt = _bulkTplSelect.options[_bulkTplSelect.selectedIndex];
+    document.getElementById('greekDraft').value = opt.getAttribute('data-body') || '';
+    _updateMeta('greekDraft','greekMeta');
+    _invalidatePreview();
+});
 
-    var btn = document.getElementById('btnBulkSend');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending…';
+document.getElementById('greekDraft').addEventListener('input', function(){
+    _updateMeta('greekDraft','greekMeta');
+    _invalidatePreview();
+});
 
-    var fd = new FormData();
-    _customerCodes.forEach(function(c){ fd.append('customer_codes[]', c); });
-    fd.append('template_code', tpl);
-    fd.append('source_screen', '{{ source_screen }}');
+// English toggle
+var _enableEn = document.getElementById('enableEnglish');
+_enableEn.addEventListener('change', function(){
+    var on = this.checked;
+    document.getElementById('englishPanel').style.display = on ? '' : 'none';
+    document.getElementById('englishOff').style.display = on ? 'none' : '';
+    _invalidatePreview();
+});
+document.getElementById('englishDraft').addEventListener('input', function(){
+    _updateMeta('englishDraft','englishMeta');
+    _invalidatePreview();
+});
 
+document.getElementById('btnGenerateEn').addEventListener('click', async function(){
+    var greek = document.getElementById('greekDraft').value || '';
+    if (!greek.trim()) { alert('Greek draft is empty.'); return; }
+    var btn = this;
+    var status = document.getElementById('enStatus');
+    btn.disabled = true; status.textContent = 'Translating…';
     try {
-        var res = await fetch('/admin/communications/bulk/send-microsms', {method:'POST', body:fd});
+        var fd = new FormData();
+        fd.append('text', greek);
+        fd.append('source_lang', 'el');
+        fd.append('target_lang', 'en');
+        var res = await fetch('/admin/communications/translate-draft', {method:'POST', body: fd});
+        var data = await res.json();
+        if (data.ok && data.translated) {
+            document.getElementById('englishDraft').value = data.translated;
+            _updateMeta('englishDraft','englishMeta');
+            status.innerHTML = '<span class="text-success">Done.</span>';
+            _invalidatePreview();
+        } else {
+            status.innerHTML = '<span class="text-danger">' + (data.error || 'Translation failed') + '</span>';
+        }
+    } catch(e) {
+        status.innerHTML = '<span class="text-danger">' + e.message + '</span>';
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+// Preview
+function _invalidatePreview() {
+    _previewRows = null;
+    document.getElementById('btnBulkSend').disabled = true;
+    document.getElementById('sendHint').textContent = 'Edits detected — rebuild preview to enable Send.';
+}
+
+document.getElementById('btnPreview').addEventListener('click', async function(){
+    var greek = document.getElementById('greekDraft').value || '';
+    if (!greek.trim()) { alert('Greek draft is required.'); return; }
+    var english = _enableEn.checked ? (document.getElementById('englishDraft').value || '') : '';
+    var btn = this;
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Building…';
+    try {
+        var fd = new FormData();
+        _validCodes.forEach(function(c){ fd.append('customer_codes[]', c); });
+        fd.append('greek_draft', greek);
+        if (english) fd.append('english_draft', english);
+        if (_currentTplCode) fd.append('template_code', _currentTplCode);
+        var res = await fetch('/admin/communications/bulk/preview', {method:'POST', body: fd});
+        var data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'preview failed');
+        _previewRows = data.rows || [];
+        _renderPreview(_previewRows);
+        document.getElementById('btnBulkSend').disabled = false;
+        document.getElementById('sendHint').textContent = 'Preview ready — Send delivers these exact texts.';
+    } catch(e) {
+        alert('Preview error: ' + e.message);
+    } finally {
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-eye me-1"></i>Build Preview';
+    }
+});
+
+function _renderPreview(rows) {
+    var wrap = document.getElementById('previewWrap');
+    if (!rows.length) { wrap.innerHTML = '<div class="text-muted small">No rows.</div>'; return; }
+    var totalSeg = 0;
+    var html = '<div class="small text-muted mb-2">Showing ' + rows.length + ' recipient(s).</div>';
+    html += '<table class="table table-sm align-middle" style="font-size:0.8rem;">';
+    html += '<thead><tr><th>#</th><th>Customer</th><th>Phone</th><th>Lang</th><th>Final SMS</th><th>Length</th><th>Notes</th></tr></thead><tbody>';
+    rows.forEach(function(r, i){
+        totalSeg += (r.segments || 0);
+        var langBadge = '<span class="badge lang-badge ' + r.language + '">' + (r.language||'').toUpperCase() + '</span>';
+        if (r.source_lang && r.source_lang !== r.language) {
+            langBadge += '<br><small class="text-warning">via ' + r.source_lang + '</small>';
+        }
+        var warns = (r.warnings || []).map(function(w){return '<span class="warn-pill">'+w+'</span>';}).join('');
+        var langToggle = '<button class="btn btn-link p-0 lang-toggle ms-1" data-cc="'+r.customer_code+'" data-lang="'+(r.language==='en'?'el':'en')+'" title="Switch this customer\'s preferred language">switch to ' + (r.language==='en'?'EL':'EN') + '</button>';
+        html += '<tr>';
+        html += '<td>'+(i+1)+'</td>';
+        html += '<td>'+ (r.customer_name||'') +'<br><small class="text-muted">'+r.customer_code+'</small>'+langToggle+'</td>';
+        html += '<td><small>'+(r.mobile_display||r.mobile_e164||'—')+'</small></td>';
+        html += '<td>'+langBadge+'</td>';
+        html += '<td><div class="recipient-text">'+_escape(r.final_text||'')+'</div></td>';
+        html += '<td><small>'+r.chars+' ch<br>'+r.segments+' seg'+(r.unicode?'<br>uni':'')+'</small></td>';
+        html += '<td>'+warns+'</td>';
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html = '<div class="alert alert-info py-1 small mb-2">Total estimated SMS segments: <strong>' + totalSeg + '</strong></div>' + html;
+    wrap.innerHTML = html;
+}
+function _escape(s){ return (s||'').replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+
+// Per-recipient preferred-language switch
+document.addEventListener('click', async function(e){
+    var btn = e.target.closest('.lang-toggle');
+    if (!btn) return;
+    e.preventDefault();
+    var cc = btn.getAttribute('data-cc');
+    var lang = btn.getAttribute('data-lang');
+    var fd = new FormData();
+    fd.append('customer_code_365', cc);
+    fd.append('preferred_language', lang);
+    btn.disabled = true; btn.textContent = 'saving…';
+    try {
+        var res = await fetch('/admin/communications/customer/set-language', {method:'POST', body: fd});
+        var data = await res.json();
+        if (data.ok) {
+            // Update local cache and re-trigger preview build
+            _customers.forEach(function(c){ if (c.customer_code_365===cc) c.preferred_language = lang; });
+            document.getElementById('btnPreview').click();
+        } else {
+            alert(data.error || 'Save failed');
+            btn.disabled = false;
+        }
+    } catch(e2) {
+        alert(e2.message);
+        btn.disabled = false;
+    }
+});
+
+// Send finalized
+document.getElementById('btnBulkSend').addEventListener('click', async function(){
+    if (!_previewRows || !_previewRows.length) { alert('Build preview first.'); return; }
+    var sendable = _previewRows.filter(function(r){return r.phone_valid && r.final_text;});
+    if (!confirm('Send ' + sendable.length + ' SMS messages now?')) return;
+    var btn = this;
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending…';
+    var payload = {
+        rows: _previewRows,
+        template_code: _currentTplCode || null,
+        source_screen: '{{ source_screen }}'
+    };
+    try {
+        var fd = new FormData();
+        fd.append('payload', JSON.stringify(payload));
+        var res = await fetch('/admin/communications/bulk/send-finalized', {method:'POST', body: fd});
         var data = await res.json();
         document.getElementById('bulkForm').style.display = 'none';
         document.getElementById('bulkResults').style.display = 'block';
         document.getElementById('resSent').textContent = data.total_sent || 0;
         document.getElementById('resFailed').textContent = data.total_failed || 0;
         document.getElementById('resSkipped').textContent = data.total_skipped || 0;
-
-        var html = '<table class="table table-sm" style="font-size:0.82rem;"><thead><tr><th>Customer</th><th>Status</th><th>Note</th></tr></thead><tbody>';
-        (data.results || []).forEach(function(r){
-            var cls = r.status === 'sent' ? 'bg-success' : r.status === 'failed' ? 'bg-danger' : 'bg-secondary';
-            html += '<tr><td>' + r.code + '</td><td><span class="badge ' + cls + '">' + r.status + '</span></td><td>' + (r.reason || '') + '</td></tr>';
+        var html = '<table class="table table-sm" style="font-size:0.82rem;"><thead><tr><th>Customer</th><th>Lang</th><th>Status</th><th>Note</th></tr></thead><tbody>';
+        (data.results||[]).forEach(function(r){
+            var cls = r.status==='sent'?'bg-success':r.status==='failed'?'bg-danger':'bg-secondary';
+            html += '<tr><td>'+r.code+'</td><td>'+(r.language||'').toUpperCase()+'</td><td><span class="badge '+cls+'">'+r.status+'</span></td><td>'+(r.reason||'')+'</td></tr>';
         });
         html += '</tbody></table>';
         document.getElementById('resDetails').innerHTML = html;
     } catch(e) {
-        alert('Error: ' + e.message);
+        alert('Send error: ' + e.message);
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send';
+        btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send Finalized Messages';
     }
-}
+});
 </script>
 {% endblock %}
