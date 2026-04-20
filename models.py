@@ -2824,7 +2824,7 @@ class SkuForecastProfile(db.Model):
     avg_non_zero_26 = db.Column(db.Numeric(18, 6), nullable=True)
     std_non_zero_26 = db.Column(db.Numeric(18, 6), nullable=True)
     cv2_26 = db.Column(db.Numeric(18, 6), nullable=True)
-    demand_class = db.Column(db.String(20), nullable=False, default='no_demand', index=True)
+    demand_class = db.Column(db.String(50), nullable=False, default='no_demand', index=True)
     forecast_method = db.Column(db.String(128), nullable=False, default='ZERO')
     trend_flag = db.Column(db.String(10), nullable=False, default='flat')
     trend_pct = db.Column(db.Numeric(12, 6), nullable=True)
