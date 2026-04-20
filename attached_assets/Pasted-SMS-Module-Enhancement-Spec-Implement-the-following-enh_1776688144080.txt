@@ -1,0 +1,519 @@
+SMS Module Enhancement Spec
+
+Implement the following enhancements in the existing SMS / communications flow.
+
+Main goals
+
+Add a clean bulk SMS workflow with:
+
+Select an existing template
+Edit the message before sending without changing the saved master template
+Support English recipients using customer preferred_language
+Support template-level offer image links through a clickable URL in the SMS
+Keep the send UI simple
+Preview final per-customer messages before send
+Send the exact previewed content to MicroSMS
+Functional design
+1) Master template vs send draft
+
+Keep a clear distinction between:
+
+A. Master template
+
+The saved reusable SMS template in the database.
+
+B. Send draft
+
+A temporary editable working copy created when the user selects a template for a send.
+
+C. Final rendered message
+
+The final message text per recipient after language and variable rendering.
+
+Required behavior
+Selecting a template loads its content into an editable draft area
+Editing this draft must not overwrite the saved template
+The saved template should only change if the user explicitly chooses:
+Update template
+or Save as new template
+2) Editable message before sending
+
+When a user selects a template in the send UI:
+
+load the template into an editable text area
+allow the user to modify the message before sending
+treat this edited text as the send draft for this campaign only
+
+This is the main change requested.
+
+Example flow
+select template
+edit draft
+preview
+send
+
+No need to create many duplicate templates.
+
+3) Preferred language support
+
+Add or use a customer-level field:
+
+preferred_language with values:
+el
+en
+
+Default to:
+
+el
+
+This can live in the most appropriate CRM/customer profile table already used in communications.
+
+Send behavior
+
+If the send draft base language is Greek:
+
+recipients with preferred_language = 'el' get the Greek version
+recipients with preferred_language = 'en' get the English version
+
+If base language is English:
+
+reverse accordingly if needed, but initial use case is Greek base + English for English customers
+4) Translation workflow
+
+Do not silently translate at final send row-by-row with no user visibility.
+
+Implement this flow:
+
+In send UI
+user selects template
+user edits Greek draft
+optional checkbox:
+Generate English version for English recipients
+Then
+system generates one English draft version from the current edited Greek draft
+show the English draft in a second editable area
+user can review and modify the English draft before send
+Why
+
+This avoids:
+
+hidden translation mistakes
+inconsistent wording across recipients
+repeated per-recipient translation calls
+Final rule
+
+Use:
+
+Greek draft for el
+English draft for en
+5) Template-level offer image link
+
+Keep this simple.
+
+Do not add image upload to the send UI.
+
+Instead, extend templates so that a template may optionally have:
+
+an uploaded image
+a public link / landing page link / short link associated with that image
+Required template fields
+
+Add fields similar to:
+
+offer_image_path
+offer_image_url
+offer_link_slug
+optional offer_title
+Template variable
+
+Expose:
+
+{{ offer_link }}
+
+If template has an attached offer image/link, this variable resolves automatically in the final message.
+
+Example template
+{{ customer_name }}, ειδικές τιμές μόνο για εσένα. Δες την προσφορά εδώ: {{ offer_link }}
+Important
+
+Keep the image configured in the template manager only.
+No upload control in send screen.
+
+6) Offer link behavior
+
+Preferred implementation:
+
+Better option
+
+Create a short branded link like:
+
+/o/<slug>
+
+This should open:
+
+either a simple landing page with the image
+or redirect to the public image URL
+Recommended
+
+Use a landing page if easy.
+At minimum, support a direct public image link.
+
+Link tracking
+
+If possible, track clicks on the short link route:
+
+campaign/send id
+recipient/customer id
+clicked_at
+
+This is optional but strongly recommended.
+
+UI changes
+A) Template management UI
+
+Extend template management so each template can have:
+
+template name
+body
+allowed channels
+bulk allowed flag
+optional preferred base language if useful
+optional offer image upload
+preview current image
+remove/replace image
+generated offer link preview
+Template manager requirements
+upload image only here
+store image safely
+generate/update short link or public URL
+allow preview thumbnail
+B) Send / compose UI
+
+Keep this simple but structured.
+
+Section 1 — Template selection
+select existing template
+load into draft
+Section 2 — Draft editor
+editable Greek/base draft
+reset to template
+optional save back actions:
+update template
+save as new template
+Section 3 — Language options
+base draft language: Greek / English
+checkbox:
+Generate English version for customers with preferred language = English
+
+When checked:
+
+generate English draft from current Greek draft
+display editable English draft box
+Section 4 — Preview
+
+Show final per-recipient preview before send
+
+Columns:
+
+customer code
+customer name
+mobile number
+preferred language
+final message text
+character count
+SMS segments
+warnings
+source version (Greek draft or English draft)
+
+If template has offer image/link:
+
+show image thumbnail somewhere in preview header or side panel
+show resolved offer_link
+Section 5 — Send
+send immediately
+use exact previewed message text
+Rendering rules
+1) Render from send drafts, not master template
+
+Use the current editable send draft.
+
+2) Language-aware rendering
+
+Support language-specific formatted values.
+
+Do not use Greek-formatted date strings for English customers.
+
+Fix render context
+
+Where you currently build variables like:
+
+delivery_date_formatted
+today_formatted
+
+make them language-aware based on recipient language.
+
+Examples:
+
+Greek:
+Τρίτη 14/04
+English:
+Tuesday 14/04
+Required behavior
+
+Before rendering each recipient row:
+
+determine target language
+build render context for that language
+render using that language’s draft
+Variable handling
+
+Keep current variables, but make them more robust.
+
+Currently you already support variables such as:
+
+customer_name
+first_name
+current_balance
+overdue_balance
+delivery_date
+delivery_date_formatted
+today_formatted
+last_delivery_date
+
+Add:
+
+offer_link
+Missing variable behavior
+
+For preview:
+
+show warnings if variables are unresolved or empty
+
+For send:
+
+do not silently produce broken messages where critical values are missing
+Recommended rule
+
+Mark each row with warnings like:
+
+missing mobile
+missing customer_name
+missing balance
+unresolved variable
+empty rendered message
+
+Allow valid rows to send.
+Invalid rows should be excluded or blocked.
+
+Preview and send logic
+Critical rule
+
+When the user clicks Send:
+
+send the exact final previewed text per recipient
+do not re-render differently at the last second
+Recommended implementation
+
+Create an in-memory or persisted preview structure before send:
+
+recipient
+phone
+language
+final rendered text
+warnings
+chars
+segments
+
+Then send from this finalized output.
+
+For now, immediate send is fine.
+No need to add scheduling in this phase unless already easy.
+
+Database changes
+
+Implement the minimum clean schema additions needed.
+
+1) Customer preferred language
+
+Add a field in the correct customer/CRM table:
+
+preferred_language VARCHAR(...)
+Values:
+el
+en
+
+Default:
+
+el
+2) SMS template extensions
+
+Add fields to sms_template (or equivalent model/table) such as:
+
+offer_image_path
+offer_image_url
+offer_link_slug
+optional offer_title
+3) Optional click tracking table
+
+If implementing click tracking, add something like:
+
+id
+template_id
+campaign_id or batch id if exists
+customer_code_365
+mobile
+slug
+clicked_at
+maybe user-agent/ip if useful
+
+Only add if straightforward.
+
+Backend/service changes
+1) Template loading into send draft
+
+Update compose/send route so selecting a template loads the body into editable draft fields.
+
+2) Translation service hook
+
+Add a service method to generate English draft from Greek draft.
+
+Something like:
+
+generate_translated_draft(text, source_lang='el', target_lang='en')
+
+The result should populate the English draft field and remain editable.
+
+3) Language-aware context builder
+
+Refactor message context creation so it supports:
+
+recipient language
+language-formatted dates/text values
+
+Example:
+
+build_sms_context(customer, language='el')
+4) Preview generator
+
+Add a service that:
+
+takes selected recipients
+takes Greek/base draft
+takes optional English draft
+determines recipient language
+renders final text
+computes chars/segments/warnings
+returns preview rows
+5) Send executor
+
+Send final text row-by-row to MicroSMS exactly as previewed.
+
+No hidden re-translation or re-generation at send time.
+
+6) Offer link resolver
+
+When a template includes offer image/link metadata:
+
+expose offer_link in render context
+SMS segment calculation
+
+In preview, show:
+
+character count
+estimated segment count
+
+This is important for users editing before send.
+
+Make sure calculation accounts for:
+
+plain GSM vs Unicode if you later enable proper Unicode detection
+
+I know your current Unicode detection is effectively bypassed. Do not let this block this feature, but structure the code so segment calculation can later be improved cleanly.
+
+Keep existing behavior compatible
+
+Do not break:
+
+current template usage
+current bulk send
+MicroSMS API send flow
+current logs
+current DLR callback behavior
+
+This change should enhance the current flow, not replace everything.
+
+Recommended user flow after implementation
+Standard Greek campaign
+select template
+edit Greek draft
+preview
+send
+Greek + English campaign
+select template
+edit Greek draft
+enable English generation
+review/edit English draft
+preview all recipients
+send
+Offer campaign
+choose offer template that already has image/link configured
+edit message text
+preview with resolved offer_link
+send
+Validation rules
+
+At preview stage, flag rows with:
+
+invalid/missing mobile number
+missing preferred_language fallback issues
+unresolved template placeholders
+empty final message
+missing offer_link if template body uses {{ offer_link }} but template has no image/link configured
+
+Do not silently ignore these.
+
+Out of scope for this phase
+
+Do not implement yet unless already easy:
+
+scheduled sending
+provider-side scheduling
+full campaign queue framework
+per-recipient manual override editor
+MMS/inline image sending
+WhatsApp/Viber media messaging changes
+
+This phase is only:
+
+editable send draft
+English support by customer language
+template-level offer image link
+preview before send
+Suggested implementation order
+Phase 1
+add preferred_language
+add template image/link fields
+add offer_link variable
+add editable send draft
+Phase 2
+add English draft generation
+add language-aware rendering context
+Phase 3
+add preview grid with chars/segments/warnings
+send exact frozen preview content
+Phase 4
+optional click tracking for offer links
+Acceptance criteria
+
+This is complete only when all of the following work:
+
+User can select a saved SMS template and edit it before sending without overwriting the template.
+User can optionally generate and edit an English draft.
+Customers with preferred_language = 'en' receive the English version.
+Customers with preferred_language = 'el' receive the Greek version.
+Offer templates can have an image configured in template management only.
+SMS body can use {{ offer_link }} and resolve it correctly.
+Send UI remains simple and does not include image upload controls.
+Preview shows final per-customer rendered message before sending.
+Preview shows warnings for bad/missing data.
+MicroSMS receives the exact final previewed text per recipient.
