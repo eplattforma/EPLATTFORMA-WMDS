@@ -293,7 +293,7 @@ function clearBulkSelection() {
                         <div class="fw-semibold">
                             {{ r.customer_name }}
                         </div>
-                        <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.district %} · {{ r.district }}{% endif %}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}</span>
+                        <span class="text-muted" style="font-size:0.72rem;">{{ r.customer_code_365 }}{% if r.district %} · {{ r.district }}{% endif %}{% if r.assisted_ordering %} <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>{% endif %}{% if r.preferred_language == 'en' %} <span class="ms-1" title="English communication" style="font-size:0.78rem;line-height:1;">🇬🇧</span>{% endif %}</span>
                     </td>
                     <td>
                         {% if r.classification and allowed_classifications.get(r.classification) and allowed_classifications[r.classification].get('icon') %}
@@ -658,9 +658,10 @@ async function saveAssisted(el) {
                 // Update code with icon
                 var codeSpan = rowEl.querySelector('[style*="font-size:0.72rem"]');
                 if (codeSpan) {
-                    var iconHTML = el.checked ? ' <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>' : '';
+                    var assistedHTML = el.checked ? ' <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>' : '';
+                    var enHTML = (r.preferred_language === 'en') ? ' <span class="ms-1" title="English communication" style="font-size:0.78rem;line-height:1;">🇬🇧</span>' : '';
                     var codeText = r.customer_code_365 + (r.district ? ' · ' + r.district : '');
-                    codeSpan.innerHTML = codeText + iconHTML;
+                    codeSpan.innerHTML = codeText + assistedHTML + enHTML;
                 }
                 
                 // Recompute state: if assisted is now enabled and no open orders, set to follow_up
@@ -702,6 +703,16 @@ async function saveCommsLang(el) {
         var data = await res.json();
         if (data.ok) {
             r.preferred_language = lang;
+            var rowEl = document.querySelector('.row-item[data-idx="' + _currentIdx + '"]');
+            if (rowEl) {
+                var codeSpan = rowEl.querySelector('[style*="font-size:0.72rem"]');
+                if (codeSpan) {
+                    var assistedHTML = r.assisted_ordering ? ' <i class="fas fa-hands-helping ms-1" title="Assisted ordering" style="color:#ffc107;font-size:0.68rem;"></i>' : '';
+                    var enHTML = (lang === 'en') ? ' <span class="ms-1" title="English communication" style="font-size:0.78rem;line-height:1;">🇬🇧</span>' : '';
+                    var codeText = r.customer_code_365 + (r.district ? ' · ' + r.district : '');
+                    codeSpan.innerHTML = codeText + assistedHTML + enHTML;
+                }
+            }
             var t = document.createElement('div');
             t.className = 'position-fixed bottom-0 start-50 translate-middle-x mb-3 px-4 py-2 rounded shadow text-white';
             t.style.cssText = 'background:#0d6efd;z-index:9999;font-size:0.9rem;';
