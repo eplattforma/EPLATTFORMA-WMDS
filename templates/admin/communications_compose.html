@@ -4,171 +4,197 @@
 <style>
 .comm-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
 .comm-card h6 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.45); margin-bottom: 10px; }
-.channel-btn { min-width: 130px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
-.channel-btn i { font-size: 1rem; }
-.btn-microsms { background: #0d6efd; color: white; }
-.btn-microsms:hover { background: #0b5ed7; color: white; }
-.btn-phone-sms { background: #198754; color: white; }
-.btn-phone-sms:hover { background: #157347; color: white; }
-.btn-call { background: #0dcaf0; color: #000; }
-.btn-call:hover { background: #0ab9de; color: #000; }
-.btn-whatsapp { background: #25D366; color: white; }
-.btn-whatsapp:hover { background: #1fb855; color: white; }
-.btn-viber { background: #7360f2; color: white; }
-.btn-viber:hover { background: #6050d8; color: white; }
-.btn-push { background: #e8590c; color: white; }
-.btn-push:hover { background: #d9480f; color: white; }
-.customer-header { display: flex; align-items: center; gap: 16px; }
-.customer-header .avatar { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; }
+
+/* Compact one-line customer header */
+.customer-strip {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
+}
+.customer-strip .name { font-weight: 600; }
+.customer-strip .code { color: rgba(255,255,255,0.5); font-size: 0.85rem; }
+.customer-strip .meta { color: rgba(255,255,255,0.7); font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; }
+.customer-strip .badge-sm { font-size: 0.6rem; }
+
+/* Segmented channel selector */
+.channel-seg { display: inline-flex; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 3px; gap: 2px; }
+.channel-seg .seg-btn { background: transparent; border: 0; color: rgba(255,255,255,0.65); font-size: 0.85rem; padding: 6px 14px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.channel-seg .seg-btn:hover { color: white; background: rgba(255,255,255,0.05); }
+.channel-seg .seg-btn.active { background: #0d6efd; color: white; box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset; }
+.channel-seg .seg-btn.active.sms { background: #0d6efd; }
+.channel-seg .seg-btn.active.push { background: #e8590c; }
+.channel-seg .seg-btn.active.whatsapp { background: #25D366; }
+.channel-seg .seg-btn.active.phone { background: #198754; }
+
+/* Primary action button */
+.primary-action {
+    width: 100%;
+    padding: 10px 16px; font-size: 0.95rem; font-weight: 600;
+    border: 0; border-radius: 6px; color: white;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.primary-action[disabled] { opacity: 0.55; cursor: not-allowed; }
+.primary-action.sms { background: #0d6efd; }
+.primary-action.sms:hover:not([disabled]) { background: #0b5ed7; }
+.primary-action.push { background: #e8590c; }
+.primary-action.push:hover:not([disabled]) { background: #d9480f; }
+.primary-action.whatsapp { background: #25D366; }
+.primary-action.whatsapp:hover:not([disabled]) { background: #1fb855; }
+.primary-action.phone { background: #198754; }
+.primary-action.phone:hover:not([disabled]) { background: #157347; }
+
 .char-info { font-size: 0.75rem; color: rgba(255,255,255,0.4); }
 .call-script-panel { background: rgba(0,220,180,0.05); border: 1px solid rgba(0,220,180,0.15); border-radius: 6px; padding: 12px; margin-top: 10px; display: none; }
 .call-script-panel.visible { display: block; }
+.copy-link-btn { background: transparent; border: 0; color: rgba(255,255,255,0.45); font-size: 0.78rem; padding: 0; }
+.copy-link-btn:hover { color: white; }
 #commStatus { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9999; display: none; padding: 10px 24px; border-radius: 8px; font-size: 0.9rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+/* History collapsible */
+.history-toggle { background: transparent; border: 0; color: rgba(255,255,255,0.7); font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; padding: 0; }
+.history-toggle:hover { color: white; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-3">
+<div class="container-fluid py-3" style="max-width: 1100px;">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="fas fa-comments me-2"></i>Communications</h4>
         <a href="{{ request.referrer or url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back</a>
     </div>
 
-    <div class="row">
-        <div class="col-lg-5">
-            <div class="comm-card">
-                <h6>Customer</h6>
-                <div class="customer-header">
-                    <div class="avatar"><i class="fas fa-user fa-lg text-muted"></i></div>
-                    <div>
-                        <strong>{{ customer.customer_name }}</strong><br>
-                        <small class="text-muted">{{ customer.customer_code_365 }}</small>
-                        {% if customer.contact_first_name %}
-                        <small class="text-muted ms-2"><i class="fas fa-user-tag me-1"></i>{{ customer.contact_first_name }}</small>
-                        {% endif %}
-                        {% if source_screen %}
-                        <span class="badge bg-secondary ms-2" style="font-size:0.65rem;">{{ source_screen }}</span>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="mt-2">
-                    <div class="d-flex align-items-center gap-2 mb-1">
-                        <i class="fas fa-mobile-alt text-success"></i>
-                        <span id="phoneDisplay">{{ customer.primary_display or customer.mobile_number or '—' }}</span>
-                        {% if customer.phone_valid %}
-                        <span class="badge bg-success" style="font-size:0.6rem;">valid</span>
-                        {% else %}
-                        <span class="badge bg-danger" style="font-size:0.6rem;">invalid</span>
-                        {% endif %}
-                        <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="copyToClip('{{ customer.primary_e164 }}', 'Number copied')" title="Copy number"><i class="fas fa-copy" style="font-size:0.7rem;"></i></button>
-                    </div>
-                    {% if customer.delivery_date %}
-                    <div class="d-flex align-items-center gap-2">
-                        <i class="fas fa-truck text-warning"></i>
-                        <span>{{ customer.delivery_date }}</span>
-                    </div>
-                    {% endif %}
-                    <div class="d-flex align-items-center gap-2 mt-1">
-                        <i class="fas fa-bell text-info"></i>
-                        <span id="pushStatusLabel" class="badge bg-secondary" style="font-size:0.6rem;">Push: checking…</span>
-                        <button class="btn btn-outline-info btn-sm py-0 px-1" onclick="recheckPush()" title="Recheck push availability"><i class="fas fa-sync-alt" style="font-size:0.7rem;"></i></button>
-                    </div>
-                </div>
-            </div>
+    <!-- Compact customer header -->
+    <div class="customer-strip">
+        <div>
+            <span class="name">{{ customer.customer_name }}</span>
+            <span class="code ms-2">{{ customer.customer_code_365 }}</span>
+            {% if customer.contact_first_name %}
+            <span class="meta ms-2"><i class="fas fa-user-tag"></i>{{ customer.contact_first_name }}</span>
+            {% endif %}
+        </div>
+        <div class="meta">
+            <i class="fas fa-mobile-alt text-success"></i>
+            <span id="phoneDisplay">{{ customer.primary_display or customer.mobile_number or '—' }}</span>
+            {% if customer.phone_valid %}
+            <span class="badge bg-success badge-sm">valid</span>
+            {% else %}
+            <span class="badge bg-danger badge-sm">invalid</span>
+            {% endif %}
+            <button class="btn btn-outline-secondary btn-sm py-0 px-1" onclick="copyToClip('{{ customer.primary_e164 }}', 'Number copied')" title="Copy number"><i class="fas fa-copy" style="font-size:0.7rem;"></i></button>
+        </div>
+        <div class="meta">
+            <i class="fas fa-bell text-info"></i>
+            <span id="pushStatusLabel" class="badge bg-secondary badge-sm">Push: checking…</span>
+            <button class="btn btn-outline-info btn-sm py-0 px-1" onclick="recheckPush()" title="Recheck push availability"><i class="fas fa-sync-alt" style="font-size:0.7rem;"></i></button>
+        </div>
+        {% if customer.delivery_date %}
+        <div class="meta"><i class="fas fa-truck text-warning"></i>{{ customer.delivery_date }}</div>
+        {% endif %}
+        {% if source_screen %}
+        <div class="ms-auto"><span class="badge bg-secondary badge-sm">{{ source_screen }}</span></div>
+        {% endif %}
+    </div>
 
-            <div class="comm-card">
-                <h6>Template & Message</h6>
-                <div class="mb-2">
-                    <select class="form-select form-select-sm" id="templateSelect">
-                        <option value="">— No template —</option>
-                        {% for t in templates %}
-                        <option value="{{ t.code }}" data-body="{{ t.body or '' }}" data-call-script="{{ t.call_script or '' }}"
-                                data-allow-microsms="{{ t.allow_microsms }}" data-allow-phone-sms="{{ t.allow_phone_sms }}"
-                                data-allow-call="{{ t.allow_call }}" data-allow-whatsapp="{{ t.allow_whatsapp }}"
-                                data-allow-viber="{{ t.allow_viber }}" data-sender="{{ t.sender_title or '' }}"
-                                {% if selected_tpl == t.code %}selected{% endif %}>
-                            {{ t.title or t.code }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="mb-2">
-                    <textarea class="form-control" id="messageText" rows="5" placeholder="Type your message…">{% if rendered and rendered.rendered_body %}{{ rendered.rendered_body }}{% endif %}</textarea>
-                    <div class="d-flex justify-content-between mt-1">
-                        <span class="char-info" id="charCount">0 / 600</span>
-                        <span class="char-info" id="partCount">1 SMS part</span>
-                    </div>
-                </div>
-                <div class="call-script-panel" id="callScriptPanel">
-                    <h6 style="color:#0dcaf0;"><i class="fas fa-phone-alt me-1"></i>Call Script</h6>
-                    <div id="callScriptText" style="white-space:pre-wrap;font-size:0.85rem;"></div>
-                </div>
-                <div class="d-flex gap-1 mt-2">
-                    <button class="btn btn-outline-secondary btn-sm" onclick="copyToClip(document.getElementById('messageText').value, 'Message copied')" title="Copy message"><i class="fas fa-clipboard me-1"></i>Copy</button>
-                </div>
+    <!-- Compose card -->
+    <div class="comm-card">
+        <!-- Channel selector -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="channel-seg" id="channelSeg">
+                <button type="button" class="seg-btn sms active" data-channel="sms" onclick="setChannel('sms')"><i class="fas fa-satellite-dish"></i>SMS</button>
+                <button type="button" class="seg-btn push" data-channel="push" onclick="setChannel('push')"><i class="fas fa-bell"></i>Push</button>
+                <button type="button" class="seg-btn whatsapp" data-channel="whatsapp" onclick="setChannel('whatsapp')"><i class="fab fa-whatsapp"></i>WhatsApp</button>
+                <button type="button" class="seg-btn phone" data-channel="phone" onclick="setChannel('phone')"><i class="fas fa-mobile-alt"></i>Phone</button>
             </div>
+            <span class="char-info" id="channelHint">Send via MicroSMS gateway</span>
+        </div>
 
-            <div class="comm-card" id="pushFieldsCard">
-                <h6><i class="fas fa-bell me-1"></i>Push Notification Fields</h6>
-                <div class="mb-2">
-                    <label class="form-label" style="font-size:0.8rem;">Push Title</label>
-                    <input type="text" class="form-control form-control-sm" id="pushTitle" placeholder="Notification title" maxlength="100">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label" style="font-size:0.8rem;">Click URL <small class="text-muted">(optional, overridden by deep link)</small></label>
-                    <input type="url" class="form-control form-control-sm" id="pushUrl" placeholder="https://...">
-                </div>
-                <hr style="border-color:rgba(255,255,255,0.1);margin:12px 0;">
-                <h6 style="margin-bottom:8px;"><i class="fas fa-crosshairs me-1"></i>Push Destination</h6>
-                <div class="mb-2">
-                    <label class="form-label" style="font-size:0.8rem;">Target Type</label>
-                    <select class="form-select form-select-sm" id="pushTargetType" onchange="togglePushTarget()">
-                        <option value="none">No target (open app home)</option>
-                        <option value="category">Category</option>
-                        <option value="product">Product</option>
-                        <option value="custom_deeplink">Custom Deep Link</option>
-                    </select>
-                </div>
-                <div class="mb-2" id="pushTargetCategoryWrap" style="display:none;">
-                    <label class="form-label" style="font-size:0.8rem;">Category ID</label>
-                    <input type="number" class="form-control form-control-sm" id="pushCategoryId" placeholder="e.g. 132" min="1">
-                </div>
-                <div class="mb-2" id="pushTargetProductWrap" style="display:none;">
-                    <label class="form-label" style="font-size:0.8rem;">Product ID</label>
-                    <input type="number" class="form-control form-control-sm" id="pushProductId" placeholder="e.g. 26184" min="1">
-                </div>
-                <div class="mb-2" id="pushTargetDeeplinkWrap" style="display:none;">
-                    <label class="form-label" style="font-size:0.8rem;">Deep Link URL</label>
-                    <input type="text" class="form-control form-control-sm" id="pushDeepLink" placeholder="myapp://product/26184">
-                </div>
-            </div>
+        <!-- Template -->
+        <div class="mb-2">
+            <label class="form-label" style="font-size:0.78rem;color:rgba(255,255,255,0.55);">Template</label>
+            <select class="form-select form-select-sm" id="templateSelect">
+                <option value="">— No template —</option>
+                {% for t in templates %}
+                <option value="{{ t.code }}" data-body="{{ t.body or '' }}" data-call-script="{{ t.call_script or '' }}"
+                        data-allow-microsms="{{ t.allow_microsms }}" data-allow-phone-sms="{{ t.allow_phone_sms }}"
+                        data-allow-call="{{ t.allow_call }}" data-allow-whatsapp="{{ t.allow_whatsapp }}"
+                        data-allow-viber="{{ t.allow_viber }}" data-sender="{{ t.sender_title or '' }}"
+                        {% if selected_tpl == t.code %}selected{% endif %}>
+                    {{ t.title or t.code }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
 
-            <div class="comm-card">
-                <h6>Actions</h6>
-                <div class="d-flex flex-wrap gap-2">
-                    <button class="btn channel-btn btn-microsms" id="btnMicrosms" onclick="doSendMicrosms()" {% if not customer.phone_valid %}disabled{% endif %}>
-                        <i class="fas fa-satellite-dish"></i>Send MicroSMS
-                    </button>
-                    <button class="btn channel-btn btn-phone-sms" id="btnPhoneSms" onclick="doLaunch('phone_sms')" {% if not customer.phone_valid %}disabled{% endif %}>
-                        <i class="fas fa-mobile-alt"></i>SMS via Phone
-                    </button>
-                    <button class="btn channel-btn btn-whatsapp" id="btnWhatsapp" onclick="doLaunch('whatsapp')" {% if not customer.phone_valid %}disabled{% endif %}>
-                        <i class="fab fa-whatsapp"></i>WhatsApp
-                    </button>
-                    <button class="btn channel-btn btn-push" id="btnPush" onclick="doSendPush()" disabled>
-                        <i class="fas fa-bell"></i>Send Push
-                    </button>
-                </div>
+        <!-- Message -->
+        <div class="mb-2">
+            <label class="form-label d-flex justify-content-between align-items-center" style="font-size:0.78rem;color:rgba(255,255,255,0.55);">
+                <span>Message</span>
+                <button type="button" class="copy-link-btn" onclick="copyToClip(document.getElementById('messageText').value, 'Message copied')" title="Copy message"><i class="fas fa-clipboard me-1"></i>Copy</button>
+            </label>
+            <textarea class="form-control" id="messageText" rows="5" placeholder="Type your message…">{% if rendered and rendered.rendered_body %}{{ rendered.rendered_body }}{% endif %}</textarea>
+            <div class="d-flex justify-content-between mt-1">
+                <span class="char-info" id="charCount">0 / 600</span>
+                <span class="char-info" id="partCount">1 SMS part</span>
             </div>
         </div>
 
-        <div class="col-lg-7">
-            <div class="comm-card">
-                <h6>Communication History</h6>
-                <div id="historyContainer">
-                    {% include "admin/partials/communication_history_table.html" %}
-                </div>
+        <div class="call-script-panel" id="callScriptPanel">
+            <h6 style="color:#0dcaf0;"><i class="fas fa-phone-alt me-1"></i>Call Script</h6>
+            <div id="callScriptText" style="white-space:pre-wrap;font-size:0.85rem;"></div>
+        </div>
+
+        <!-- Push options (only shown in push mode) -->
+        <div id="pushFieldsCard" style="display:none;margin-top:14px;padding:12px;background:rgba(232,89,12,0.06);border:1px solid rgba(232,89,12,0.2);border-radius:6px;">
+            <h6 style="color:#e8590c;"><i class="fas fa-bell me-1"></i>Push Options</h6>
+            <div class="mb-2">
+                <label class="form-label" style="font-size:0.8rem;">Push Title</label>
+                <input type="text" class="form-control form-control-sm" id="pushTitle" placeholder="Notification title" maxlength="100">
             </div>
+            <div class="mb-2">
+                <label class="form-label" style="font-size:0.8rem;">Click URL <small class="text-muted">(optional, overridden by deep link)</small></label>
+                <input type="url" class="form-control form-control-sm" id="pushUrl" placeholder="https://...">
+            </div>
+            <hr style="border-color:rgba(255,255,255,0.1);margin:10px 0;">
+            <div class="mb-2">
+                <label class="form-label" style="font-size:0.8rem;">Target Type</label>
+                <select class="form-select form-select-sm" id="pushTargetType" onchange="togglePushTarget()">
+                    <option value="none">No target (open app home)</option>
+                    <option value="category">Category</option>
+                    <option value="product">Product</option>
+                    <option value="custom_deeplink">Custom Deep Link</option>
+                </select>
+            </div>
+            <div class="mb-2" id="pushTargetCategoryWrap" style="display:none;">
+                <label class="form-label" style="font-size:0.8rem;">Category ID</label>
+                <input type="number" class="form-control form-control-sm" id="pushCategoryId" placeholder="e.g. 132" min="1">
+            </div>
+            <div class="mb-2" id="pushTargetProductWrap" style="display:none;">
+                <label class="form-label" style="font-size:0.8rem;">Product ID</label>
+                <input type="number" class="form-control form-control-sm" id="pushProductId" placeholder="e.g. 26184" min="1">
+            </div>
+            <div class="mb-2" id="pushTargetDeeplinkWrap" style="display:none;">
+                <label class="form-label" style="font-size:0.8rem;">Deep Link URL</label>
+                <input type="text" class="form-control form-control-sm" id="pushDeepLink" placeholder="myapp://product/26184">
+            </div>
+        </div>
+
+        <!-- Single primary action -->
+        <div class="mt-3">
+            <button id="primaryActionBtn" type="button" class="primary-action sms" onclick="doPrimaryAction()" {% if not customer.phone_valid %}disabled{% endif %}>
+                <i class="fas fa-satellite-dish"></i><span id="primaryActionLabel">Send SMS</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Communication history (collapsed by default) -->
+    <div class="comm-card">
+        <div class="d-flex justify-content-between align-items-center" style="cursor:pointer;" onclick="toggleHistory()">
+            <h6 class="mb-0">Communication History</h6>
+            <button type="button" class="history-toggle" id="historyToggleBtn"><i class="fas fa-chevron-down" id="historyChevron"></i> <span id="historyToggleLabel">Show</span></button>
+        </div>
+        <div id="historyContainer" style="display:none;margin-top:12px;">
+            {% include "admin/partials/communication_history_table.html" %}
         </div>
     </div>
 </div>
@@ -203,7 +229,17 @@
 var _customerCode = '{{ customer.customer_code_365 }}';
 var _customerName = '{{ customer.customer_name | e }}';
 var _sourceScreen = '{{ source_screen }}';
+var _customerPhoneValid = {{ 'true' if customer.phone_valid else 'false' }};
 var _lastLogId = null;
+var _activeChannel = 'sms';
+var _pushAvailable = false;
+
+var CHANNEL_CONFIG = {
+    sms:      { label: 'Send SMS',      icon: 'fas fa-satellite-dish', hint: 'Send via MicroSMS gateway',     requiresPhone: true,  needsPushAvail: false },
+    push:     { label: 'Send Push',     icon: 'fas fa-bell',           hint: 'Send a push notification to the customer\'s app', requiresPhone: false, needsPushAvail: true  },
+    whatsapp: { label: 'Open WhatsApp', icon: 'fab fa-whatsapp',       hint: 'Open WhatsApp with this message ready to send',   requiresPhone: true,  needsPushAvail: false },
+    phone:    { label: 'Send via Phone',icon: 'fas fa-mobile-alt',     hint: 'Open the SMS app on your phone',                  requiresPhone: true,  needsPushAvail: false },
+};
 
 function showStatus(msg, type) {
     var el = document.getElementById('commStatus');
@@ -224,8 +260,67 @@ function updateCharCount() {
     var len = ta.value.length;
     document.getElementById('charCount').textContent = len + ' / 600';
     var parts = Math.ceil(len / 160) || 1;
-    document.getElementById('partCount').textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
+    var partEl = document.getElementById('partCount');
+    if (_activeChannel === 'sms') {
+        partEl.style.display = '';
+        partEl.textContent = parts + ' SMS part' + (parts > 1 ? 's' : '');
+    } else {
+        partEl.style.display = 'none';
+    }
 }
+
+function setChannel(ch) {
+    _activeChannel = ch;
+    document.querySelectorAll('#channelSeg .seg-btn').forEach(function(b){
+        b.classList.toggle('active', b.dataset.channel === ch);
+    });
+    var cfg = CHANNEL_CONFIG[ch];
+    document.getElementById('channelHint').textContent = cfg.hint;
+
+    // Push fields visibility
+    document.getElementById('pushFieldsCard').style.display = (ch === 'push') ? '' : 'none';
+
+    // Primary button
+    var btn = document.getElementById('primaryActionBtn');
+    btn.className = 'primary-action ' + ch;
+    document.getElementById('primaryActionLabel').textContent = cfg.label;
+    btn.querySelector('i').className = cfg.icon;
+    refreshPrimaryButtonState();
+
+    updateCharCount();
+}
+
+function refreshPrimaryButtonState() {
+    var btn = document.getElementById('primaryActionBtn');
+    var cfg = CHANNEL_CONFIG[_activeChannel];
+    var disabled = false;
+    if (cfg.requiresPhone && !_customerPhoneValid) disabled = true;
+    if (cfg.needsPushAvail && !_pushAvailable) disabled = true;
+    btn.disabled = disabled;
+}
+
+function doPrimaryAction() {
+    if (_activeChannel === 'sms') return doSendMicrosms();
+    if (_activeChannel === 'push') return doSendPush();
+    if (_activeChannel === 'whatsapp') return doLaunch('whatsapp');
+    if (_activeChannel === 'phone') return doLaunch('phone_sms');
+}
+
+function toggleHistory() {
+    var c = document.getElementById('historyContainer');
+    var chev = document.getElementById('historyChevron');
+    var lbl = document.getElementById('historyToggleLabel');
+    if (c.style.display === 'none') {
+        c.style.display = '';
+        chev.className = 'fas fa-chevron-up';
+        lbl.textContent = 'Hide';
+    } else {
+        c.style.display = 'none';
+        chev.className = 'fas fa-chevron-down';
+        lbl.textContent = 'Show';
+    }
+}
+
 document.getElementById('messageText').addEventListener('input', updateCharCount);
 updateCharCount();
 
@@ -272,8 +367,10 @@ document.getElementById('templateSelect').addEventListener('change', function(){
 async function doSendMicrosms() {
     var msg = document.getElementById('messageText').value.trim();
     if (!msg) { alert('Please type a message.'); return; }
-    var btn = document.getElementById('btnMicrosms');
-    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
+    var btn = document.getElementById('primaryActionBtn');
+    btn.disabled = true;
+    var origHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Sending…</span>';
     try {
         var fd = new FormData();
         fd.append('customer_code_365', _customerCode);
@@ -289,7 +386,8 @@ async function doSendMicrosms() {
             showStatus('<i class="fas fa-exclamation-circle me-2"></i>' + (data.error || 'Send failed'), 'error');
         }
     } catch(e) { showStatus('<i class="fas fa-exclamation-circle me-2"></i>Error: ' + e.message, 'error'); }
-    btn.disabled = false; btn.innerHTML = '<i class="fas fa-satellite-dish"></i>Send MicroSMS';
+    btn.innerHTML = origHtml;
+    refreshPrimaryButtonState();
 }
 
 async function doLaunch(channel) {
@@ -408,13 +506,10 @@ async function refreshHistory() {
     } catch(e) {}
 }
 
-var _pushAvailable = false;
-
 async function checkPushStatus(live) {
     var url = live ? '/admin/communications/push/verify' : '/admin/communications/push/cached-status';
     var label = document.getElementById('pushStatusLabel');
-    var btn = document.getElementById('btnPush');
-    if (!label || !btn) return;
+    if (!label) return;
     try {
         var fd = new FormData();
         fd.append('customer_code_365', _customerCode);
@@ -422,34 +517,27 @@ async function checkPushStatus(live) {
         var data = await res.json();
         _pushAvailable = data.push_available;
         if (data.push_available) {
-            label.className = 'badge bg-success';
-            label.style.fontSize = '0.6rem';
+            label.className = 'badge bg-success badge-sm';
             label.innerHTML = '<i class="fas fa-check me-1"></i>Push available (' + (data.push_subscription_count || 0) + ')';
-            btn.disabled = false;
         } else if (data.cached === false && !live) {
-            label.className = 'badge bg-secondary';
-            label.style.fontSize = '0.6rem';
+            label.className = 'badge bg-secondary badge-sm';
             label.textContent = 'Push: unknown';
-            btn.disabled = true;
         } else {
-            label.className = 'badge bg-warning text-dark';
-            label.style.fontSize = '0.6rem';
+            label.className = 'badge bg-warning text-dark badge-sm';
             label.textContent = 'No active push subscription';
-            btn.disabled = true;
         }
     } catch(e) {
-        label.className = 'badge bg-secondary';
-        label.style.fontSize = '0.6rem';
+        label.className = 'badge bg-secondary badge-sm';
         label.textContent = 'Push: check failed';
-        btn.disabled = true;
+        _pushAvailable = false;
     }
+    refreshPrimaryButtonState();
 }
 
 async function recheckPush() {
     var label = document.getElementById('pushStatusLabel');
     if (!label) return;
-    label.className = 'badge bg-secondary';
-    label.style.fontSize = '0.6rem';
+    label.className = 'badge bg-secondary badge-sm';
     label.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Verifying…';
     await checkPushStatus(true);
 }
@@ -482,9 +570,10 @@ async function doSendPush() {
         if (!dl) { alert('Please enter a deep link URL.'); return; }
     }
 
-    var btn = document.getElementById('btnPush');
-    if (!btn) return;
-    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
+    var btn = document.getElementById('primaryActionBtn');
+    btn.disabled = true;
+    var origHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Sending…</span>';
     try {
         var fd = new FormData();
         fd.append('customer_code_365', _customerCode);
@@ -505,18 +594,21 @@ async function doSendPush() {
         } else if (data.status === 'skipped_no_subscription') {
             showStatus('<i class="fas fa-exclamation-triangle me-2"></i>No active push subscription', 'error');
             _pushAvailable = false;
-            document.getElementById('pushStatusLabel').className = 'badge bg-warning text-dark';
-            document.getElementById('pushStatusLabel').style.fontSize = '0.6rem';
-            document.getElementById('pushStatusLabel').textContent = 'No active push subscription';
+            var label = document.getElementById('pushStatusLabel');
+            label.className = 'badge bg-warning text-dark badge-sm';
+            label.textContent = 'No active push subscription';
             refreshHistory();
         } else {
             showStatus('<i class="fas fa-exclamation-circle me-2"></i>' + (data.error || 'Send failed'), 'error');
         }
     } catch(e) { showStatus('<i class="fas fa-exclamation-circle me-2"></i>Error: ' + e.message, 'error'); }
-    btn.disabled = !_pushAvailable; btn.innerHTML = '<i class="fas fa-bell"></i>Send Push';
+    btn.innerHTML = origHtml;
+    refreshPrimaryButtonState();
 }
 
+// Initial setup
 checkPushStatus(false);
+setChannel('sms');
 
 if (document.getElementById('templateSelect').value) {
     document.getElementById('templateSelect').dispatchEvent(new Event('change'));
