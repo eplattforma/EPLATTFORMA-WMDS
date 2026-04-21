@@ -520,8 +520,12 @@ async function checkPushStatus(live) {
             label.className = 'badge bg-success badge-sm';
             label.innerHTML = '<i class="fas fa-check me-1"></i>Push available (' + (data.push_subscription_count || 0) + ')';
         } else if (data.cached === false && !live) {
+            // Never verified before — automatically fall through to a live check
             label.className = 'badge bg-secondary badge-sm';
-            label.textContent = 'Push: unknown';
+            label.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Verifying push…';
+            refreshPrimaryButtonState();
+            await checkPushStatus(true);
+            return;
         } else {
             label.className = 'badge bg-warning text-dark badge-sm';
             label.textContent = 'No active push subscription';
