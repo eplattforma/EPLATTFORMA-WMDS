@@ -199,7 +199,7 @@
   });
 
   btn.addEventListener('click', function(){
-    if (selectedCode) window.location.href = '/admin/sms/compose?ctx=customer&id=' + encodeURIComponent(selectedCode);
+    if (selectedCode) window.location.href = '/admin/communications/compose?ctx=customer&id=' + encodeURIComponent(selectedCode) + '&source=sms_home';
   });
 })();
 </script>

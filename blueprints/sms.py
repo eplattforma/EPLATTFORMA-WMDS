@@ -183,73 +183,13 @@ def sms_home():
 @sms_bp.route("/compose", methods=["GET"])
 @login_required
 def sms_compose():
-    if not _role_ok():
-        flash("Not authorized.", "danger")
-        return redirect(url_for("admin_dashboard"))
-
-    ctx_type = request.args.get("ctx")
-    ctx_id = request.args.get("id")
-    tpl_code = (request.args.get("tpl") or "").strip() or None
-
-    try:
-        ctx = _resolve_context(ctx_type, ctx_id)
-    except ValueError as e:
-        flash(str(e), "danger")
-        return redirect(request.referrer or url_for("sms.sms_home"))
-
-    RESERVED_PARAMS = {"ctx", "id", "tpl"}
-    for k, v in request.args.items():
-        if k not in RESERVED_PARAMS and k not in ctx:
-            ctx[k] = v
-
-    mobile = _normalize_mob(ctx.get("mobile_number") or "")
-    if not mobile or not _is_valid_mob(mobile):
-        flash("Customer has no valid mobile number.", "danger")
-        return redirect(request.referrer or url_for("sms.sms_home"))
-
-    sender = os.getenv("MICROSMS_SENDER", "EPLATTFORMA")
-    message = ""
-    unicode_mode = False
-
-    if tpl_code:
-        tpl = db.session.execute(db.text("""
-            SELECT code, title, sender_title, body, force_unicode
-            FROM sms_template
-            WHERE code = :c AND is_enabled = TRUE
-        """), {"c": tpl_code}).mappings().first()
-
-        if not tpl:
-            flash("Template not found or disabled.", "danger")
-            return redirect(request.referrer or url_for("sms.sms_home"))
-
-        sender = (tpl.get("sender_title") or sender).strip()
-        message, tpl_err = _render_db_template(tpl["body"], ctx)
-        if tpl_err:
-            flash(f"Template has missing placeholders ({tpl_err}). Edit the message before sending.", "warning")
-        unicode_mode = bool(tpl.get("force_unicode")) or _needs_unicode(message)
-
-    from models import Setting
-    bank_account_no = Setting.get(db.session, 'bank_account_no', '')
-    raw_iban = Setting.get(db.session, 'bank_iban', '').replace(' ', '')
-    bank_iban = ' '.join(raw_iban[i:i+4] for i in range(0, len(raw_iban), 4))
-    bank_bic = Setting.get(db.session, 'bank_bic', '')
-    bank_beneficiary = Setting.get(db.session, 'bank_beneficiary', '')
-
-    return render_template(
-        "admin/sms_compose.html",
-        ctx_type=ctx_type, ctx_id=ctx_id, tpl_code=tpl_code,
-        customer_code_365=ctx.get("customer_code_365"),
-        customer_name=ctx.get("customer_name"),
-        contact_first_name=ctx.get("contact_first_name", ""),
-        mobile_number=mobile,
-        sender_title=sender,
-        message=message,
-        unicode_mode=unicode_mode,
-        bank_account_no=bank_account_no,
-        bank_iban=bank_iban,
-        bank_bic=bank_bic,
-        bank_beneficiary=bank_beneficiary
-    )
+    # Legacy route — redirect to the new unified communications composer,
+    # preserving query params (ctx, id, tpl, source, …).
+    qs = request.query_string.decode("utf-8")
+    target = "/admin/communications/compose"
+    if qs:
+        target = f"{target}?{qs}"
+    return redirect(target, code=301)
 
 
 @sms_bp.route("/send", methods=["POST"])
