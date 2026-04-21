@@ -1,0 +1,352 @@
+Refactor the bulk SMS send flow so it becomes step-guided, safer, and clearer, without changing the core send engine unless necessary. Keep this as a bulk-specific UI; do not try to merge it with the single-customer composer.
+
+Scope
+
+This applies to the bulk SMS send screen and its preview/send flow, including:
+
+template selection
+Greek draft
+optional English draft
+preview generation
+final send confirmation
+
+Do not remove any existing capability. This is a UX and control-flow refactor.
+
+1. Make the page explicitly step-based
+
+The current page already has sections, but the flow is not enforced strongly enough.
+
+Required step structure
+
+Use these visible step labels:
+
+Select Template
+Edit Message
+Language Options
+Preview & Validate
+Confirm & Send
+
+These steps should be visually obvious and read top-to-bottom.
+
+Behavior
+The page should feel like a guided workflow, not a loose form.
+Each step should make clear what the user must do next.
+Keep the same dark theme and styling approach; this is not a visual redesign from scratch.
+2. Improve the top summary bar and make it actionable
+
+The current counters are useful but too passive.
+
+Keep these summary metrics at the top
+Selected
+Valid phone
+Invalid
+English preference
+Greek preference
+Improve display
+
+Add a compact human-readable summary directly under the counters, for example:
+
+3 recipients selected
+3 valid, 0 invalid
+Greek preferred: 3 | English preferred: 0
+Behavior
+
+If there are invalid recipients:
+
+show the invalid count in a clear warning style
+provide a way to inspect who is invalid before sending
+
+Do not let the user ignore invalid recipients silently.
+
+3. Step 1 — Template selection must establish state clearly
+Current issue
+
+The relation between selected template and the editable draft is not explicit enough.
+
+Required changes
+
+When a template is selected:
+
+populate the Greek draft as it does today
+show a clear label such as:
+Using template: OVERDUE
+
+If the user edits the Greek draft after loading the template:
+
+show an indicator such as:
+Modified from template
+this can be a small badge or warning text near the draft area
+Reset behavior
+
+Keep Reset to template, but make the behavior explicit:
+
+it resets the draft back to the selected template text
+it does not modify the master template
+
+That explanation should stay visible but be more concise.
+
+4. Step 2 — Improve the Greek draft area
+
+This is the main message editing area and should feel more operational.
+
+Keep
+editable Greek draft textarea
+character count
+segment count
+Improve
+
+Under the textarea, show:
+
+character count
+estimated SMS segments
+variable notice only if variables exist in the draft
+
+Example:
+
+112 characters | 1 SMS segment
+Variables detected: {{customer_name}}, {{offer_link}}
+Copy
+
+If there is a copy button, keep it very low emphasis. It must not compete with the main workflow actions.
+
+5. Step 3 — Replace the current English toggle with a clearer language mode
+
+The current “Generate English version” toggle is not clear enough operationally.
+
+Replace with a clearer control
+
+Use a language mode selector such as:
+
+Greek only
+Greek + English by customer preference
+
+Default:
+
+Greek only
+Behavior
+If Greek only
+hide the English draft textarea entirely
+show a small note:
+All recipients will receive the Greek message
+If Greek + English by customer preference
+reveal the English draft section
+show a summary line based on selected recipients, such as:
+2 recipients will receive English
+1 recipient will receive Greek
+Important
+
+The language routing logic must be explicit before sending. The user should never have to infer which customers get which version.
+
+6. Step 4 — Preview must be mandatory, visible, and trusted
+
+This is the most important improvement.
+
+Current issue
+
+Preview exists, but it looks optional and gives weak feedback.
+
+Required changes
+
+Rename the button to something explicit:
+
+Build Preview for 3 Recipients
+
+Use the actual recipient count dynamically.
+
+After preview is built
+
+Show a clear success state:
+
+Preview ready — 3 messages generated
+Preview content
+
+Render a preview list of the actual per-recipient messages. At minimum show:
+
+recipient/customer name
+phone number if appropriate
+language used
+fully rendered final message text
+Example structure
+Recipient: Polis
+Language: Greek
+Message: Polis, το υπόλοιπό σας €152 είναι καθυστερημένο...
+Display strategy
+
+Show the first few previews inline and provide:
+
+View all recipients
+or
+an expandable full list
+Required rule
+
+Final send must remain disabled until preview is successfully built for the current draft state.
+
+If the user edits Greek or English draft after preview is built:
+
+invalidate the preview automatically
+show a notice such as:
+Draft changed — rebuild preview before sending
+
+This is critical.
+
+7. Add validation and warnings inside Preview & Validate
+
+Inside the preview step, include a compact validation summary:
+
+total recipients
+valid recipients
+invalid recipients
+Greek count
+English count
+number of generated messages
+
+If there are invalid recipients:
+
+show them in a warning area
+make clear they will be excluded or blocked, depending on current backend behavior
+
+This must not be ambiguous.
+
+8. Step 5 — Add a proper confirmation step before final send
+
+This is mandatory.
+
+Current issue
+
+The final send button is present but there is no strong confirmation checkpoint.
+
+Required behavior
+
+When the user clicks the final send button, show a confirmation modal.
+
+Confirmation modal content
+
+It must summarize:
+
+number of messages to send
+number of recipients
+valid vs invalid count
+Greek vs English count
+selected template name if any
+whether the draft was modified from template
+Example
+
+You are about to send:
+
+3 messages
+3 valid recipients
+0 invalid recipients
+Greek: 3
+English: 0
+Template: OVERDUE
+
+Buttons:
+
+Cancel
+Confirm Send
+Important
+
+Do not send immediately on first click from the main page. Require the confirmation modal.
+
+9. Improve final send button logic and wording
+Current issue
+
+The disabled send state is not clear enough.
+
+Required states
+Before preview
+
+Primary button should read:
+
+Build Preview to Enable Sending
+or keep the Build Preview button as the main action and keep Send disabled with clearer helper text.
+After preview is valid
+
+Primary send button should read:
+
+Send 3 Messages
+
+Use actual count dynamically.
+
+After draft change invalidates preview
+disable send again
+show:
+Draft changed — rebuild preview
+
+This must be automatic.
+
+10. Make invalid recipients explicit
+
+Bulk send must be safe.
+
+If any selected recipients are invalid:
+
+provide a visible list or modal showing which recipients are invalid and why
+example reasons:
+missing phone
+malformed phone
+missing language preference if that matters
+
+The user should understand exactly what the system will do:
+
+exclude invalid recipients
+or
+block sending until resolved
+
+Reflect current backend behavior accurately; do not invent silent rules.
+
+11. Preserve existing backend behavior where possible
+
+Do not break:
+
+existing template rendering
+variable substitution
+recipient-specific rendering
+bulk preview generation
+finalized send endpoint
+
+If the current preview/send flow already has the right backend contracts, reuse them.
+
+This refactor should primarily improve:
+
+clarity
+progression
+validation
+confirmation
+12. Implementation details
+Frontend state to track
+
+Track at least:
+
+selected template
+Greek draft
+English mode enabled or not
+English draft
+preview status
+preview dirty flag
+modified-from-template flag
+recipient summary counts
+preview result set
+Dirty preview rule
+
+Any change to:
+
+selected template
+Greek draft
+English draft
+language mode
+
+must invalidate preview and disable final send until preview is rebuilt.
+
+13. Acceptance criteria
+
+I will consider this complete when all of the following are true:
+
+The page clearly reads as a 5-step workflow
+Language handling is explicit and understandable
+Preview is mandatory before send
+Editing a draft after preview invalidates send
+Final send requires a confirmation modal
+Recipient counts and language counts are clearly summarized
+Invalid recipients are visible and understandable
+Final button text reflects actual recipient/message counts
