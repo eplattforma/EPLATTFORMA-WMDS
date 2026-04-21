@@ -1,0 +1,187 @@
+Implement server-side SSO launch from WMDS to eppromo so a logged-in WMDS admin can click a menu item and land in eppromo already logged in.
+
+Goal
+
+From WMDS, add a route and menu item that generates a signed one-time eppromo SSO URL using the shared secret, then redirects the current logged-in admin to eppromo.
+
+This must be done server-side only.
+Do not generate tokens in browser JS.
+
+1. Add required environment variables in WMDS
+
+Please use these env vars in WMDS:
+
+EPPROMO_SSO_SECRET
+EPPROMO_BASE_URL
+
+Requirements:
+
+EPPROMO_SSO_SECRET must be the exact same secret already configured in eppromo
+EPPROMO_BASE_URL should be the base URL of eppromo, for example:
+https://eppromo.replit.app
+or the future custom domain if applicable
+
+If either env var is missing, the feature should fail gracefully.
+
+2. Inspect eppromo /sso contract before coding
+
+Before implementing the signer in WMDS, inspect the eppromo /sso route and confirm exactly what token payload format it expects.
+
+Possible cases:
+
+timestamp-only payload
+JSON payload including timestamp and username
+another exact payload format already implemented
+
+Do not guess.
+
+WMDS must generate the token in the exact format eppromo currently validates.
+
+3. Create a dedicated SSO helper in WMDS
+
+Add a helper module, for example:
+
+services/eppromo_sso.py
+
+This helper should:
+
+read EPPROMO_SSO_SECRET
+read EPPROMO_BASE_URL
+generate the token in the exact format eppromo expects
+return the full redirect URL:
+{EPPROMO_BASE_URL}/sso?token=...
+Requirements
+use HMAC-SHA256
+use URL-safe base64 without trailing =
+generate token server-side
+keep code clean and isolated from route logic
+If eppromo supports username in payload
+
+Include:
+
+current WMDS username
+current unix timestamp
+
+If eppromo currently expects timestamp-only, match that exactly for now.
+
+4. Add a WMDS route to launch eppromo
+
+Add a new admin route in WMDS:
+
+/admin/eppromo
+
+Behavior:
+
+require normal WMDS login
+optionally restrict to admin/staff roles if appropriate
+generate the signed eppromo SSO URL
+redirect the user to it immediately
+
+If SSO config is missing or invalid:
+
+show a friendly flash message such as:
+EPPROMO SSO is not configured.
+redirect back to the WMDS admin dashboard
+
+Do not show raw exceptions to the user.
+
+5. Add a menu item in WMDS
+
+Add a visible navigation entry in WMDS admin:
+
+Label:
+
+Promotions
+
+Behavior:
+
+points to /admin/eppromo
+
+This should act as the standard launch point from WMDS into eppromo.
+
+Do not link directly to eppromo /sso from the template.
+Always route through WMDS first so the server can generate a fresh signed URL.
+
+6. Implementation requirements
+A. Server-side only
+
+The token must be created only on the WMDS server.
+
+Do not:
+
+create the token in frontend JS
+expose the shared secret to the browser
+B. Graceful failure
+
+If EPPROMO_SSO_SECRET or EPPROMO_BASE_URL is missing:
+
+log a warning
+flash a friendly message
+redirect to dashboard
+C. Use current logged-in user if supported
+
+If eppromo /sso accepts username in the signed payload:
+
+use current_user.username
+or the correct WMDS login identifier already used internally
+
+If eppromo does not yet use username, still keep the WMDS helper structured so username support can be added easily later.
+
+7. Preferred code structure
+
+Please implement in this structure:
+
+A. Service/helper
+services/eppromo_sso.py
+contains token generation + URL generation
+B. Route
+add route in the appropriate admin blueprint or create a small blueprint if needed
+C. Navigation
+add Promotions link to existing admin nav
+
+Do not bury the logic inside templates or a large unrelated route file.
+
+8. Logging and debugging
+
+Add minimal safe logging on the WMDS side:
+
+when /admin/eppromo is invoked
+whether config exists
+whether redirect URL generation succeeded
+
+Do not log the secret.
+Do not log full sensitive token values in production logs.
+
+If needed for debug, log only:
+
+username
+timestamp
+target base URL
+success/failure
+9. Acceptance criteria
+
+I will consider this complete when all of the following are true:
+
+WMDS has env vars:
+EPPROMO_SSO_SECRET
+EPPROMO_BASE_URL
+There is a helper module generating the signed eppromo SSO URL
+There is a WMDS route:
+/admin/eppromo
+The route requires WMDS login
+The route redirects to eppromo /sso?token=...
+A Promotions menu item exists in WMDS and points to /admin/eppromo
+Missing config fails gracefully with a flash message
+The implementation matches the exact payload/signature format expected by eppromo /sso
+10. Very important validation step
+
+After implementation, test this end-to-end:
+
+Log into WMDS
+Click Promotions
+Confirm redirect to eppromo occurs
+Confirm eppromo opens already authenticated
+Confirm expired/invalid token behavior is handled correctly
+Confirm no secret is exposed to the browser
+
+If it fails, compare WMDS signer payload format directly against the eppromo /sso verifier.
