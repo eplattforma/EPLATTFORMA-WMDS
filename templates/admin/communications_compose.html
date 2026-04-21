@@ -152,14 +152,8 @@
                     <button class="btn channel-btn btn-phone-sms" id="btnPhoneSms" onclick="doLaunch('phone_sms')" {% if not customer.phone_valid %}disabled{% endif %}>
                         <i class="fas fa-mobile-alt"></i>SMS via Phone
                     </button>
-                    <button class="btn channel-btn btn-call" id="btnCall" onclick="doLaunch('phone_call')" {% if not customer.phone_valid %}disabled{% endif %}>
-                        <i class="fas fa-phone"></i>Call
-                    </button>
                     <button class="btn channel-btn btn-whatsapp" id="btnWhatsapp" onclick="doLaunch('whatsapp')" {% if not customer.phone_valid %}disabled{% endif %}>
                         <i class="fab fa-whatsapp"></i>WhatsApp
-                    </button>
-                    <button class="btn channel-btn btn-viber" id="btnViber" onclick="doLaunch('viber')" {% if not customer.phone_valid %}disabled{% endif %}>
-                        <i class="fab fa-viber"></i>Viber
                     </button>
                     <button class="btn channel-btn btn-push" id="btnPush" onclick="doSendPush()" disabled>
                         <i class="fas fa-bell"></i>Send Push
