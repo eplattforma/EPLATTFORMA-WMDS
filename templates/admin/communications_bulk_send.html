@@ -81,11 +81,16 @@
                 <div class="stat-box"><div class="num text-info" id="statEnCount">0</div><div class="lbl">English Pref.</div></div>
                 <div class="stat-box"><div class="num text-warning" id="statElCount">0</div><div class="lbl">Greek Pref.</div></div>
             </div>
-            <div class="summary-line" id="summaryLine">
-                <span id="summaryText"></span>
-                {% if invalid_count %}
-                <a class="invalid-link" data-bs-toggle="modal" data-bs-target="#invalidModal"><i class="fas fa-exclamation-triangle me-1"></i>Inspect {{ invalid_count }} invalid</a>
-                {% endif %}
+            <div class="summary-line d-flex justify-content-between align-items-center flex-wrap gap-2" id="summaryLine">
+                <div>
+                    <span id="summaryText"></span>
+                    {% if invalid_count %}
+                    <a class="invalid-link" data-bs-toggle="modal" data-bs-target="#invalidModal"><i class="fas fa-exclamation-triangle me-1"></i>Inspect {{ invalid_count }} invalid</a>
+                    {% endif %}
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnCopyPhones" title="Copy valid recipient phone numbers (one per line) for pasting into MicroSMS">
+                    <i class="fas fa-clipboard-list me-1"></i>Copy Valid Phones
+                </button>
             </div>
         </div>
 
@@ -298,15 +303,36 @@ var _languageMode = 'greek_only'; // 'greek_only' | 'by_preference'
 
 function _escape(s){ return (s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 
+function _showToast(label, kind) {
+    var bg = kind === 'error' ? '#dc3545' : '#22c55e';
+    var t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:'+bg+';color:white;padding:8px 18px;border-radius:6px;z-index:9999;font-size:0.85rem;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+    t.textContent = label || '';
+    document.body.appendChild(t);
+    setTimeout(function(){ t.remove(); }, 2500);
+}
+function _fallbackCopy(text) {
+    try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+    } catch(e) { return false; }
+}
 function copyToClip(text, label) {
     if (!text) return;
-    navigator.clipboard.writeText(text).then(function(){
-        var t = document.createElement('div');
-        t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#22c55e;color:white;padding:8px 18px;border-radius:6px;z-index:9999;font-size:0.85rem;';
-        t.textContent = label || 'Copied';
-        document.body.appendChild(t);
-        setTimeout(function(){ t.remove(); }, 2500);
-    });
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+            function(){ _showToast(label || 'Copied', 'success'); },
+            function(){ _showToast(_fallbackCopy(text) ? (label || 'Copied') : 'Copy failed', _fallbackCopy(text) ? 'success' : 'error'); }
+        );
+    } else {
+        _showToast(_fallbackCopy(text) ? (label || 'Copied') : 'Copy failed', 'success');
+    }
 }
 
 function _isUnicode(s) {
@@ -378,6 +404,30 @@ document.getElementById('statElCount').textContent = _elCount;
     });
     html += '</tbody></table>';
     c.innerHTML = html;
+})();
+
+// ---------- Copy Valid Phones ----------
+(function setupCopyPhones(){
+    var btn = document.getElementById('btnCopyPhones');
+    if (!btn) return;
+    var seen = {};
+    var phones = [];
+    _validCustomers.forEach(function(c){
+        var p = (c.primary_e164 || c.mobile_e164 || '').trim();
+        if (!p || seen[p]) return;
+        seen[p] = true;
+        phones.push(p);
+    });
+    if (!phones.length) {
+        btn.disabled = true;
+        btn.title = 'No valid phone numbers to copy';
+        btn.innerHTML = '<i class="fas fa-clipboard-list me-1"></i>No valid phones';
+        return;
+    }
+    btn.title = 'Copy ' + phones.length + ' phone number' + (phones.length!==1?'s':'') + ' (one per line) for pasting into MicroSMS';
+    btn.addEventListener('click', function(){
+        copyToClip(phones.join('\n'), phones.length + ' phone number' + (phones.length!==1?'s':'') + ' copied');
+    });
 })();
 
 // ---------- Step 1: Template select ----------

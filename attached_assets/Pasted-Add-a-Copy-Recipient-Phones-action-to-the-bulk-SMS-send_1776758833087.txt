@@ -1,0 +1,117 @@
+Add a “Copy Recipient Phones” action to the bulk SMS send screen so users can copy the phone numbers of all valid recipients and paste them directly into MicroSMS for manual or scheduled sending.
+
+Goal
+
+Provide a fast, reliable way to extract the recipient phone list from the current bulk selection without sending through the app.
+
+This is a supporting action, not the primary action.
+
+Placement
+
+Add a secondary button near the bulk summary / preview area, not as the main send button.
+
+Recommended labels:
+
+Copy Recipient Phones
+or
+Copy Valid Phones
+
+Do not make it visually stronger than:
+
+Build Preview
+Send Messages
+
+Best placement options:
+
+In the top summary area near selected/valid counts
+In Step 4 Preview & Validate
+As a small secondary action above the preview list
+Behavior
+
+When clicked, the button should copy to clipboard the phone numbers of the valid recipients only from the current bulk selection.
+
+Output format
+
+Use a plain text list suitable for pasting into MicroSMS.
+
+Preferred format:
+
+one phone number per line
+
+Example:
+
++35799123456
++35799111222
++35799777888
+
+Alternative acceptable format only if MicroSMS prefers it:
+
+comma-separated
+
+But default should be:
+
+one per line
+Validation rules
+
+The copied list should include only recipients that are currently considered valid for sending.
+
+Do not include:
+
+invalid phone numbers
+empty numbers
+duplicate numbers, unless there is a deliberate business reason to allow duplicates
+
+Recommended:
+
+deduplicate phone numbers before copying
+preserve a stable order matching the recipient list / selection order where possible
+User feedback
+
+After copy succeeds, show a clear success message such as:
+
+3 phone numbers copied
+or Copied 3 valid recipient phones
+
+If there are no valid recipients:
+
+disable the button
+or
+show a warning:
+No valid phone numbers to copy
+Important distinction
+
+This button is for copying recipient phone numbers only.
+It should not copy:
+
+message text
+template name
+recipient names
+preview content
+
+This is specifically for manual upload / paste into MicroSMS scheduled sending.
+
+Optional enhancement
+
+If easy to add safely, provide a small dropdown on the button with:
+
+Copy phones only
+Copy phones + names
+
+But only do this if there is already a use case for names. Otherwise keep it simple:
+
+phones only
+Acceptance criteria
+
+I will consider this complete when:
+
+The bulk SMS screen has a visible secondary action to copy valid recipient phones
+Clicking it copies only valid recipient phone numbers
+Numbers are copied in a MicroSMS-friendly format
+Duplicate/invalid numbers are excluded
+The user gets confirmation of how many phones were copied
+
+Also, I recommend the button text be exactly:
+
+Copy Valid Phones
+
+That is the clearest operational wording.
