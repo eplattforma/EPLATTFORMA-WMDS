@@ -1,0 +1,275 @@
+Refactor /admin/communications/compose to make single-customer SMS sending the primary workflow, while keeping Push / WhatsApp / Phone as secondary options. Do not change the backend send logic yet unless needed for the UI toggle behavior. This is mainly a UI/UX restructuring of the existing page.
+
+Goals
+Make SMS the default and dominant action.
+Hide Push-specific fields unless Push is the selected channel.
+Reduce clutter from customer info and history.
+Keep all existing capabilities, but demote non-SMS actions.
+1. Add a channel selector at the top of the compose area
+
+Inside the main compose card, above template selection, add a compact channel selector such as:
+
+SMS
+Push
+WhatsApp
+Phone
+
+Default selected channel:
+
+SMS
+
+Implementation guidance:
+
+Use a simple segmented control / pill buttons / radio group.
+Bind selected value in the page state, for example:
+sms
+push
+whatsapp
+phone
+
+Behavior:
+
+On initial page load, selected channel should default to sms.
+If there is an explicit query param or server-side context already indicating push mode, allow preselecting push.
+Otherwise always default to sms.
+2. Show/hide sections based on selected channel
+A. SMS mode
+
+When selected channel = sms:
+
+Show:
+Template dropdown
+Message textarea
+SMS character count / parts
+Main primary button = Send SMS
+Hide:
+Push title
+Push click URL
+Push destination / target type
+Secondary actions may still exist, but do not visually compete with the primary send button.
+B. Push mode
+
+When selected channel = push:
+
+Show:
+Template dropdown if it is already supported for push-compatible text
+Message body if used for push body
+Push title
+Push click URL
+Push destination / target type
+Primary button = Send Push
+Hide SMS-specific wording such as “SMS parts” where not relevant.
+C. WhatsApp mode
+
+When selected channel = whatsapp:
+
+Show:
+Template dropdown
+Message textarea
+Primary button = Open WhatsApp or existing equivalent action
+Hide push fields.
+D. Phone mode
+
+When selected channel = phone:
+
+Show:
+Customer phone number
+Existing phone/send-via-phone action
+Hide push fields.
+Message area can remain visible if useful, but this mode should not look like an SMS send mode.
+3. Make the primary action singular and obvious
+
+Currently there are multiple same-weight buttons. Change that.
+
+Required behavior
+
+Only one primary action button should be visually dominant at a time, based on selected channel:
+
+SMS → Send SMS
+Push → Send Push
+WhatsApp → Open WhatsApp
+Phone → Send via Phone or existing equivalent wording
+Secondary actions
+
+Move other channels into a secondary area such as:
+
+a small inline secondary action row
+or a collapsible “Other actions”
+
+Do not show all channel buttons as equal large buttons at the same time.
+
+Important
+
+If “MicroSMS” is the actual backend provider, keep it internally, but the UI label should be user-friendly:
+
+Prefer Send SMS
+Do not use Send MicroSMS as the main label unless there is a real business reason
+4. Compact the customer summary card
+
+The current customer panel is too tall.
+
+Refactor customer summary into a compact header-style block.
+
+Keep visible:
+Customer name
+Customer code
+Main phone number
+Optional assigned user / rep if relevant
+Push availability badge
+Possibly the most important date if truly useful
+Reduce/remove from top priority view:
+Excess vertical spacing
+Redundant icon rows
+Low-value metadata that can move into a tooltip / secondary line
+Desired layout example
+
+One compact card or header line:
+
+CASH - CLICK N COLLECT. Polis
+77700002
++357 99 512513
+Push available
+source tag if needed
+
+The goal is to use much less vertical space before the actual composition area.
+
+5. Reorganize template/message block into a clearer flow
+
+Inside the message section, keep this order:
+
+Channel selector
+Template dropdown
+Message textarea
+Counter / diagnostics
+Primary action
+For the message block:
+Keep template dropdown at the top
+Keep message textarea editable
+Keep character count visible
+Keep SMS parts visible only in SMS mode
+Move “Copy” to a low-emphasis control:
+small icon button in textarea corner
+or subtle secondary button below the textarea
+
+Do not let “Copy” compete visually with Send.
+
+6. Push fields should be in a conditional panel only
+
+Current push fields are always visible. Change that.
+
+Create a conditional section titled for example:
+
+Push Options
+
+This section should render only when selected channel = push.
+
+Fields to place inside:
+
+Push title
+Click URL
+Target type / destination
+Any category / deep link related options already supported
+
+Do not render this panel in SMS mode.
+
+7. Reduce the dominance of Communication History
+
+The history table is useful but currently too prominent.
+
+Change requested
+
+Keep history accessible, but reduce its dominance in the compose workflow.
+
+Preferred options:
+
+Option A — best for focus
+
+Move Communication History below the compose area and collapse it by default:
+
+Communication History (last 10) expandable panel
+Option B — acceptable if preserving two-column layout
+
+Keep it on the right, but:
+
+reduce height
+show only last 5 entries initially
+add View all history
+reduce visual emphasis compared with the compose card
+Important
+
+This page is primarily for sending, not reviewing history.
+
+8. Keep layout but optimize for task focus
+
+You do not need to redesign the page from scratch. Keep current dark theme and general component style.
+
+But change the hierarchy so that:
+
+left/main column = compose task
+right/secondary column = reference info only
+
+If necessary:
+
+widen the compose area
+narrow the history panel
+reduce margins/padding slightly where space is wasted
+9. Preserve existing routes and backend actions
+
+Do not break:
+
+/admin/communications/compose
+existing query params (ctx, id, tpl, source, etc.)
+current send endpoints
+current logging behavior
+
+This task is a UI restructuring, not a functional rewrite.
+
+If a small JS controller is needed to toggle sections client-side, add it cleanly.
+
+10. Suggested implementation checklist
+
+Please implement in this order:
+
+Step 1
+
+Refactor template to add channel selector and conditional section containers.
+
+Step 2
+
+Hide push fields by default and show only in push mode.
+
+Step 3
+
+Convert action buttons to:
+
+one primary action for current channel
+secondary actions for others
+Step 4
+
+Compact customer summary card.
+
+Step 5
+
+Reduce history panel prominence.
+
+Step 6
+
+Test all modes:
+
+SMS send
+Push send
+WhatsApp action
+Phone action
+template load/edit
+query param prefill
+existing customer context loading
+11. Acceptance criteria
+
+I will consider this complete when:
+
+Opening /admin/communications/compose?... defaults to SMS mode
+Push fields are not visible in SMS mode
+Only one primary action button is emphasized at a time
+Customer card is visibly more compact
+History no longer dominates the page
+All current sending functions still work
