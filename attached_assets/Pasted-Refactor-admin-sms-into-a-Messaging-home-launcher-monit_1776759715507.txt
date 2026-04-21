@@ -1,0 +1,256 @@
+Refactor /admin/sms/ into a Messaging home / launcher / monitoring page.
+Keep the route for now if needed, but change the page wording and behavior so it is no longer an “SMS-only standalone tool”.
+
+Goal
+
+This page should become the entry point for messaging-related work, while actual composition and sending continue to happen in the unified composer and bulk messaging flows.
+
+This page should allow:
+searching/selecting a customer to start a message
+accessing templates
+reviewing recent SMS delivery logs
+checking provider balance
+optionally jumping to bulk messaging
+This page should NOT:
+act like a full compose screen
+send messages directly from this page
+bypass the unified composer
+1. Rename the page and all key labels
+Change page title
+
+From:
+
+SMS Service
+
+To:
+
+Messaging
+Change top call-to-action wording
+
+From:
+
+Compose New SMS
+Compose
+
+To:
+
+Message Customer
+
+Use consistent wording across this page.
+
+Change history label carefully
+
+If the table is still only MicroSMS / SMS-provider delivery data, rename:
+
+Recent SMS History
+
+To:
+
+SMS Delivery Log
+
+Do not rename it to “Message History” unless the underlying data truly includes all channels.
+
+2. Reposition this page as a launcher, not a composer
+Keep the customer search
+
+Keep:
+
+customer search input
+action button
+
+But the action should always open the unified composer:
+
+/admin/communications/compose?...
+Required button behavior
+
+When a customer is selected/searched and user clicks the main button:
+
+open the unified composer for that customer
+
+Recommended button label:
+
+Message Customer
+
+Do not label it Compose.
+
+Important
+
+This page should not render any message body editor or send controls itself.
+
+3. Add a “Bulk Messaging” entry point
+
+Since this is now the Messaging home page, add a visible secondary action for bulk use.
+
+Add button/link
+
+Recommended label:
+
+Bulk Messaging
+
+Recommended behavior:
+
+open the existing bulk messaging flow
+do not create a new bulk UI here
+
+Place it near the top messaging launcher area, but visually secondary to “Message Customer”.
+
+4. Keep templates, but make them launcher/admin shortcuts only
+
+The current green template chips look like quick-send actions. That is misleading.
+
+Keep templates section
+
+Keep:
+
+template list/chips/cards
+Manage Templates
+Change template behavior
+
+Clicking a template from this page should do one of these:
+
+Preferred: open the unified composer with that template preselected
+Acceptable: open template details/admin screen
+Preferred behavior
+
+Template click should route into:
+
+/admin/communications/compose?tpl=TEMPLATE_CODE
+or equivalent existing parameter format
+
+This allows the page to remain useful operationally without sending directly from here.
+
+Styling change
+
+Reduce the “action-send” look of the template chips.
+They should look like:
+
+shortcuts
+quick starts
+references
+
+Not like “instant send” buttons.
+
+5. Reorganize the page into clear sections
+
+Use clear section structure in this order:
+
+A. Start a Message
+
+Contains:
+
+customer search
+Message Customer button
+Bulk Messaging button/link
+B. Templates
+
+Contains:
+
+template shortcuts
+Manage Templates
+C. SMS Delivery Log
+
+Contains:
+
+existing recent SMS table
+same provider delivery statuses / DLR if currently available
+D. Utilities
+
+Contains:
+
+Check Balance
+
+This should make the page feel like a clean control panel.
+
+6. Keep the SMS delivery table, but label it accurately
+
+If the current table is still based on SMS provider logs only:
+
+call it SMS Delivery Log
+
+That is the correct label.
+
+Do not broaden the label to “Messaging History” unless the data model truly includes:
+
+SMS
+Push
+WhatsApp
+other communication events
+Optional improvements
+
+If easy to add safely:
+
+filter by status
+filter by template
+filter by recent period
+show source if available (single / bulk / system)
+
+But this is optional for now.
+
+7. Keep “Check Balance” here
+
+This belongs here and should stay.
+
+It fits the role of a messaging operations page.
+
+If needed, move it into a Utilities section rather than leaving it visually detached.
+
+8. Remove any remaining “old SMS product” cues
+
+Review the page and remove wording or layout that suggests this page is a separate full messaging system.
+
+Examples to remove/change:
+
+Compose New SMS
+generic Compose
+any implication that clicking a template directly sends
+any old text suggesting standalone SMS compose workflow
+
+The page should feel like:
+
+a launcher
+a monitoring page
+a management page
+
+Not a second compose application.
+
+9. Keep route compatibility for now
+
+You may keep the route as:
+
+/admin/sms/
+
+for now, to avoid breaking navigation.
+
+But the page content and labels should reflect the new role:
+
+Messaging
+
+Later we can decide whether to rename the route as well.
+
+10. Recommended top section layout
+
+Please implement the top area roughly like this:
+
+Messaging
+Start a Message
+Search customer input
+Message Customer primary button
+Bulk Messaging secondary button
+Templates
+template shortcuts that open composer with template preselected
+Manage Templates
+
+This should replace the old “Compose New SMS” feel.
+
+11. Acceptance criteria
+
+I will consider this complete when all of the following are true:
+
+The page title reads Messaging
+The customer search remains available
+The main customer action opens the unified composer
+There is a visible Bulk Messaging entry point
+Templates no longer look like direct-send actions
+Clicking a template opens the unified composer with that template selected, or clearly opens template admin
+The history section is labeled accurately as SMS Delivery Log if it is still SMS-only
+The page no longer feels like a separate legacy SMS product

@@ -1,12 +1,10 @@
 {% extends "base.html" %}
-{% block title %}SMS Service — EPLATTFORMA{% endblock %}
+{% block title %}Messaging — EPLATTFORMA{% endblock %}
 {% block content %}
 <div class="container-fluid mt-4" style="max-width: 1100px;">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3 class="mb-0"><i class="fas fa-sms me-2"></i>SMS Service</h3>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sms.sms_balance') }}">
-      <i class="fas fa-wallet me-1"></i>Check Balance
-    </a>
+    <h3 class="mb-0"><i class="fas fa-comments me-2"></i>Messaging</h3>
+    <span class="text-muted small">Launcher · Templates · Delivery Log</span>
   </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -20,23 +18,29 @@
   {% endif %}
   {% endwith %}
 
+  {# ===== A. Start a Message ===== #}
   <div class="card mb-4">
     <div class="card-header bg-primary text-white">
-      <i class="fas fa-pen me-1"></i>Compose New SMS
+      <i class="fas fa-paper-plane me-1"></i>Start a Message
     </div>
     <div class="card-body">
       <div class="row g-2 align-items-end">
-        <div class="col-md-8">
+        <div class="col-md-7">
           <label class="form-label fw-bold mb-1">Search Customer</label>
           <input type="text" class="form-control" id="customerSearch"
                  placeholder="Type customer name or code…" autocomplete="off">
           <div id="customerResults" class="list-group mt-1 position-absolute shadow"
                style="z-index: 1050; max-height: 250px; overflow-y: auto; display: none;"></div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
           <button class="btn btn-primary w-100" id="btnCompose" disabled>
-            <i class="fas fa-pen me-1"></i>Compose
+            <i class="fas fa-user me-1"></i>Message Customer
           </button>
+        </div>
+        <div class="col-md-2">
+          <a class="btn btn-outline-primary w-100" href="{{ url_for('crm_dashboard.review_ordering') }}">
+            <i class="fas fa-users me-1"></i>Bulk Messaging
+          </a>
         </div>
       </div>
       <div id="selectedCustomer" class="mt-2 d-none">
@@ -47,13 +51,17 @@
           <span class="ms-2" id="selMobile"></span>
         </span>
       </div>
-      <p class="mt-2 mb-0 text-muted small">Default sender: <strong>{{ default_sender }}</strong></p>
+      <p class="mt-2 mb-0 text-muted small">
+        Selecting a customer opens the unified composer. Bulk Messaging starts from the order review screen.
+        Default sender: <strong>{{ default_sender }}</strong>
+      </p>
     </div>
   </div>
 
+  {# ===== B. Templates ===== #}
   <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span><i class="fas fa-file-alt me-1"></i>Templates</span>
+      <span><i class="fas fa-file-alt me-1"></i>Templates <small class="text-muted ms-2">Click to open composer with template preselected</small></span>
       <a href="{{ url_for('sms.sms_templates') }}" class="btn btn-outline-primary btn-sm">
         <i class="fas fa-cog me-1"></i>Manage Templates
       </a>
@@ -61,10 +69,15 @@
     <div class="card-body">
       <div class="d-flex flex-wrap gap-2">
         {% for t in templates %}
-        <span class="badge {% if t.is_enabled %}bg-success{% else %}bg-secondary{% endif %} fs-6 px-3 py-2">
-          <i class="fas fa-{% if t.is_enabled %}check-circle{% else %}times-circle{% endif %} me-1"></i>
-          {{ t.title }} <small class="opacity-75">({{ t.code }})</small>
-        </span>
+        <a href="{{ url_for('communications.compose') }}?tpl={{ t.code|urlencode }}&source=sms_home"
+           class="text-decoration-none"
+           title="Open composer with template '{{ t.title }}' preselected">
+          <span class="badge bg-light text-dark border fs-6 px-3 py-2"
+                style="border-color: {% if t.is_enabled %}#198754{% else %}#6c757d{% endif %} !important;">
+            <i class="fas fa-{% if t.is_enabled %}file-alt{% else %}ban{% endif %} me-1 {% if t.is_enabled %}text-success{% else %}text-secondary{% endif %}"></i>
+            {{ t.title }} <small class="text-muted">({{ t.code }})</small>
+          </span>
+        </a>
         {% endfor %}
         {% if not templates %}
         <span class="text-muted">No templates configured yet.</span>
@@ -73,10 +86,11 @@
     </div>
   </div>
 
-  <div class="card">
+  {# ===== C. SMS Delivery Log ===== #}
+  <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span><i class="fas fa-history me-1"></i>Recent SMS History</span>
-      <small class="text-muted">Last 80 messages</small>
+      <span><i class="fas fa-history me-1"></i>SMS Delivery Log</span>
+      <small class="text-muted">Last 80 messages · MicroSMS provider data only</small>
     </div>
     <div class="card-body p-0">
       <div class="table-responsive">
@@ -141,6 +155,19 @@
           </tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  {# ===== D. Utilities ===== #}
+  <div class="card mb-4">
+    <div class="card-header">
+      <i class="fas fa-tools me-1"></i>Utilities
+    </div>
+    <div class="card-body">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sms.sms_balance') }}">
+        <i class="fas fa-wallet me-1"></i>Check Balance
+      </a>
+      <span class="text-muted small ms-2">MicroSMS provider account balance.</span>
     </div>
   </div>
 </div>
