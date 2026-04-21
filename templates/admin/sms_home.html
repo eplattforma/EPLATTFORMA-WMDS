@@ -25,22 +25,17 @@
     </div>
     <div class="card-body">
       <div class="row g-2 align-items-end">
-        <div class="col-md-7">
+        <div class="col-md-8">
           <label class="form-label fw-bold mb-1">Search Customer</label>
           <input type="text" class="form-control" id="customerSearch"
                  placeholder="Type customer name or code…" autocomplete="off">
           <div id="customerResults" class="list-group mt-1 position-absolute shadow"
                style="z-index: 1050; max-height: 250px; overflow-y: auto; display: none;"></div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
           <button class="btn btn-primary w-100" id="btnCompose" disabled>
             <i class="fas fa-user me-1"></i>Message Customer
           </button>
-        </div>
-        <div class="col-md-2">
-          <a class="btn btn-outline-primary w-100" href="{{ url_for('crm_dashboard.review_ordering') }}">
-            <i class="fas fa-users me-1"></i>Bulk Messaging
-          </a>
         </div>
       </div>
       <div id="selectedCustomer" class="mt-2 d-none">
@@ -52,7 +47,7 @@
         </span>
       </div>
       <p class="mt-2 mb-0 text-muted small">
-        Selecting a customer opens the unified composer. Bulk Messaging starts from the order review screen.
+        Selecting a customer opens the unified composer.
         Default sender: <strong>{{ default_sender }}</strong>
       </p>
     </div>
@@ -61,28 +56,10 @@
   {# ===== B. Templates ===== #}
   <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span><i class="fas fa-file-alt me-1"></i>Templates <small class="text-muted ms-2">Click to open composer with template preselected</small></span>
+      <span><i class="fas fa-file-alt me-1"></i>Templates</span>
       <a href="{{ url_for('sms.sms_templates') }}" class="btn btn-outline-primary btn-sm">
         <i class="fas fa-cog me-1"></i>Manage Templates
       </a>
-    </div>
-    <div class="card-body">
-      <div class="d-flex flex-wrap gap-2">
-        {% for t in templates %}
-        <a href="{{ url_for('communications.compose') }}?tpl={{ t.code|urlencode }}&source=sms_home"
-           class="text-decoration-none"
-           title="Open composer with template '{{ t.title }}' preselected">
-          <span class="badge bg-light text-dark border fs-6 px-3 py-2"
-                style="border-color: {% if t.is_enabled %}#198754{% else %}#6c757d{% endif %} !important;">
-            <i class="fas fa-{% if t.is_enabled %}file-alt{% else %}ban{% endif %} me-1 {% if t.is_enabled %}text-success{% else %}text-secondary{% endif %}"></i>
-            {{ t.title }} <small class="text-muted">({{ t.code }})</small>
-          </span>
-        </a>
-        {% endfor %}
-        {% if not templates %}
-        <span class="text-muted">No templates configured yet.</span>
-        {% endif %}
-      </div>
     </div>
   </div>
 
