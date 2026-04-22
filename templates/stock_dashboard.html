@@ -114,9 +114,10 @@
                             </td>
                             <td style="text-align: center;">
                                 <button type="button"
-                                        class="btn btn-sm btn-outline-info py-0 px-2"
+                                        class="btn btn-sm btn-outline-info py-0 px-2 item-sales-btn"
                                         title="View sales history & stock analysis"
-                                        onclick="openItemSalesDrawer('{{ item['Item Code'] }}', {{ item['Item Description']|tojson }})"
+                                        data-item-code="{{ item['Item Code'] }}"
+                                        data-item-name="{{ item['Item Description'] }}"
                                         style="font-size: 0.75rem;">
                                     <i class="fas fa-chart-line"></i>
                                 </button>
@@ -510,6 +511,14 @@ function _renderStockExpiry(se) {
 
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeItemSalesDrawer();
+});
+
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.item-sales-btn');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openItemSalesDrawer(btn.dataset.itemCode || '', btn.dataset.itemName || '');
 });
 
 // ================ end item drawer ================
