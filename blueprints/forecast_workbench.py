@@ -728,6 +728,93 @@ def api_item_detail(item_code):
     return jsonify(result)
 
 
+@forecast_bp.route('/api/items-stock-risk', methods=['POST'])
+@admin_or_warehouse_required
+def api_items_stock_risk():
+    """Bulk compute the stock-expiry risk_level for many item codes at once.
+
+    Mirrors the logic used by api_item_detail's stock_expiry block but
+    returns just the per-item risk summary so dashboards can show a
+    Safe / Moderate / High / Critical / No Stock badge inline.
+    """
+    payload = request.get_json(silent=True) or {}
+    raw_codes = payload.get('item_codes') or []
+    if not isinstance(raw_codes, list):
+        return jsonify({'error': 'item_codes must be a list'}), 400
+    item_codes = [str(c).strip() for c in raw_codes if c and str(c).strip()]
+    item_codes = list(dict.fromkeys(item_codes))[:5000]
+    if not item_codes:
+        return jsonify({'risks': {}})
+
+    weekly_rates = {}
+    for r in (
+        SkuForecastResult.query
+        .filter(SkuForecastResult.item_code_365.in_(item_codes))
+        .all()
+    ):
+        weekly_rates[r.item_code_365] = _float(r.final_forecast_weekly_qty) or 0.0
+
+    batches_by_item = {}
+    for sp in (
+        StockPosition.query
+        .filter(StockPosition.item_code.in_(item_codes))
+        .filter(StockPosition.stock_quantity > 0)
+        .all()
+    ):
+        batches_by_item.setdefault(sp.item_code, []).append(sp)
+
+    today_date = date.today()
+    risks = {}
+    for code in item_codes:
+        weekly_rate = weekly_rates.get(code, 0.0)
+        daily_rate = (weekly_rate / 7.0) if weekly_rate > 0 else 0.0
+        total_qty = 0.0
+        expired_qty = 0.0
+        at_risk_qty = 0.0
+        for sp in batches_by_item.get(code, []):
+            qty = float(sp.stock_quantity or 0)
+            total_qty += qty
+            exp_str = sp.expiry_date
+            if not exp_str:
+                continue
+            try:
+                exp_date = datetime.strptime(exp_str.strip(), '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                continue
+            days_left = (exp_date - today_date).days
+            if days_left < 0:
+                expired_qty += qty
+            elif daily_rate > 0:
+                if (qty / daily_rate) > days_left:
+                    oversupply = qty - (daily_rate * days_left)
+                    at_risk_qty += max(0.0, oversupply)
+            else:
+                at_risk_qty += qty
+
+        if total_qty <= 0:
+            risk_level = 'no_stock'
+        elif expired_qty > 0 or at_risk_qty > 0:
+            risk_pct = (expired_qty + at_risk_qty) / total_qty * 100.0
+            if risk_pct >= 50:
+                risk_level = 'critical'
+            elif risk_pct >= 20:
+                risk_level = 'high'
+            else:
+                risk_level = 'moderate'
+        else:
+            risk_level = 'safe'
+
+        risks[code] = {
+            'risk_level': risk_level,
+            'total_stock_qty': round(total_qty, 2),
+            'expired_qty': round(expired_qty, 2),
+            'at_risk_qty': round(at_risk_qty, 2),
+            'weekly_forecast': round(weekly_rate, 2),
+        }
+
+    return jsonify({'risks': risks})
+
+
 @forecast_bp.route('/api/run', methods=['POST'])
 @admin_or_warehouse_required
 def api_run():

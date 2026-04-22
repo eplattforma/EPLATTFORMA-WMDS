@@ -112,7 +112,7 @@
                                     <span class="text-muted">No date</span>
                                 {% endif %}
                             </td>
-                            <td style="text-align: center;">
+                            <td style="text-align: center; white-space: nowrap;">
                                 <button type="button"
                                         class="btn btn-sm btn-outline-info py-0 px-2 item-sales-btn"
                                         title="View sales history & stock analysis"
@@ -121,6 +121,8 @@
                                         style="font-size: 0.75rem;">
                                     <i class="fas fa-chart-line"></i>
                                 </button>
+                                <span class="risk-badge risk-loading" data-risk-for="{{ item['Item Code'] }}"
+                                      title="Stock & Expiry risk">…</span>
                             </td>
                             <td style="text-align: right;">
                                 {% if item['total_stock'] == item['total_stock']|int %}
@@ -276,6 +278,20 @@
     font-weight: 600; color: var(--bs-secondary); text-align: left;
     border-bottom: 1px solid var(--bs-border-color);
 }
+.risk-badge {
+    display: inline-block; min-width: 1.4rem; padding: 0 .35rem;
+    margin-left: .25rem; border-radius: .25rem;
+    font-size: .65rem; font-weight: 700; line-height: 1.4;
+    text-align: center; vertical-align: middle; color: #fff;
+    text-transform: uppercase; letter-spacing: .03em;
+}
+.risk-badge.risk-loading   { background: #adb5bd; color: #fff; font-weight: 400; }
+.risk-badge.risk-safe      { background: #198754; }
+.risk-badge.risk-moderate  { background: #ffc107; color: #212529; }
+.risk-badge.risk-high      { background: #fd7e14; }
+.risk-badge.risk-critical  { background: #dc3545; }
+.risk-badge.risk-no_stock  { background: #6c757d; }
+.risk-badge.risk-error     { background: transparent; color: #adb5bd; font-weight: 400; }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -520,6 +536,82 @@ document.addEventListener('click', function(e) {
     e.stopPropagation();
     openItemSalesDrawer(btn.dataset.itemCode || '', btn.dataset.itemName || '');
 });
+
+// ================ Stock & Expiry risk badges (bulk) ================
+const RISK_LABELS = {
+    safe: 'SAFE', moderate: 'MOD', high: 'HIGH',
+    critical: 'CRIT', no_stock: 'NONE'
+};
+const RISK_TITLES = {
+    safe: 'Safe — no expired or at-risk stock',
+    moderate: 'Moderate risk — some at-risk stock (<20%)',
+    high: 'High risk — at-risk or expired stock (20–50%)',
+    critical: 'Critical — at-risk or expired stock ≥50%',
+    no_stock: 'No stock on hand'
+};
+
+function _applyRisk(badge, info) {
+    const lvl = (info && info.risk_level) || 'no_stock';
+    badge.classList.remove('risk-loading', 'risk-error',
+        'risk-safe', 'risk-moderate', 'risk-high', 'risk-critical', 'risk-no_stock');
+    badge.classList.add('risk-' + lvl);
+    badge.textContent = RISK_LABELS[lvl] || lvl.toUpperCase();
+    let tip = RISK_TITLES[lvl] || 'Stock & Expiry risk';
+    if (info && info.total_stock_qty != null) {
+        tip += ` — ${_fmtNum(info.total_stock_qty, 0)} units`;
+        if (info.expired_qty > 0) tip += `, ${_fmtNum(info.expired_qty, 0)} expired`;
+        if (info.at_risk_qty > 0) tip += `, ${_fmtNum(info.at_risk_qty, 0)} at risk`;
+    }
+    badge.title = tip;
+}
+
+async function loadStockExpiryRiskBadges() {
+    const badges = Array.from(document.querySelectorAll('.risk-badge[data-risk-for]'));
+    if (!badges.length) return;
+    const codes = Array.from(new Set(badges.map(b => b.dataset.riskFor).filter(Boolean)));
+
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    const csrf = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+    const CHUNK = 500;
+    for (let i = 0; i < codes.length; i += CHUNK) {
+        const chunk = codes.slice(i, i + CHUNK);
+        try {
+            const res = await fetch('/forecast/api/items-stock-risk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf,
+                },
+                body: JSON.stringify({ item_codes: chunk })
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const risks = (data && data.risks) || {};
+            chunk.forEach(code => {
+                const info = risks[code];
+                document.querySelectorAll(`.risk-badge[data-risk-for="${CSS.escape(code)}"]`)
+                    .forEach(b => _applyRisk(b, info));
+            });
+        } catch (err) {
+            chunk.forEach(code => {
+                document.querySelectorAll(`.risk-badge[data-risk-for="${CSS.escape(code)}"]`)
+                    .forEach(b => {
+                        b.classList.remove('risk-loading');
+                        b.classList.add('risk-error');
+                        b.textContent = '?';
+                        b.title = 'Could not load risk: ' + err.message;
+                    });
+            });
+        }
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadStockExpiryRiskBadges);
+} else {
+    loadStockExpiryRiskBadges();
+}
 
 // ================ end item drawer ================
 
