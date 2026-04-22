@@ -73,6 +73,7 @@
                             <th>Item Code</th>
                             <th>Item Description</th>
                             <th>Earliest Exp Date</th>
+                            <th style="width: 40px;"></th>
                             <th style="text-align: right;">Total Stock</th>
                         </tr>
                     </thead>
@@ -111,6 +112,15 @@
                                     <span class="text-muted">No date</span>
                                 {% endif %}
                             </td>
+                            <td style="text-align: center;">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-info py-0 px-2"
+                                        title="View sales history & stock analysis"
+                                        onclick="openItemSalesDrawer('{{ item['Item Code'] }}', {{ item['Item Description']|tojson }})"
+                                        style="font-size: 0.75rem;">
+                                    <i class="fas fa-chart-line"></i>
+                                </button>
+                            </td>
                             <td style="text-align: right;">
                                 {% if item['total_stock'] == item['total_stock']|int %}
                                     {{ item['total_stock']|int }}
@@ -123,7 +133,7 @@
                         {% for row in item['records'] %}
                         <tr class="detail-row" style="display: none; background-color: #f8f9fa;">
                             <td></td>
-                            <td colspan="5">
+                            <td colspan="6">
                                 <div class="ps-3">
                                     <small class="text-muted">
                                         <strong>Store:</strong> {{ row['Store Code'] }} - {{ row['Store Name'] }} | 
@@ -214,7 +224,296 @@
     </div>
 </div>
 
+<!-- Item Sales Drawer -->
+<div id="itemDrawerBackdrop" class="item-drawer-backdrop" onclick="closeItemSalesDrawer()"></div>
+<aside id="itemDrawer" class="item-drawer" aria-hidden="true">
+    <div class="item-drawer-header">
+        <div id="itemDrawerTitle" style="flex:1; min-width:0;">
+            <h6 class="mb-0 text-truncate" style="font-size:0.9rem;">Item details</h6>
+        </div>
+        <button type="button" class="btn btn-sm btn-light" onclick="closeItemSalesDrawer()" title="Close">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+    <div id="itemDrawerBody" class="item-drawer-body">
+        <p class="text-muted text-center mt-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</p>
+    </div>
+</aside>
+
+<style>
+.item-drawer-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    opacity: 0; pointer-events: none; transition: opacity .2s ease;
+    z-index: 1045;
+}
+.item-drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+.item-drawer {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 520px; max-width: 95vw;
+    background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #212529);
+    box-shadow: -4px 0 16px rgba(0,0,0,0.2);
+    transform: translateX(100%); transition: transform .25s ease;
+    z-index: 1050; display: flex; flex-direction: column;
+}
+.item-drawer.open { transform: translateX(0); }
+.item-drawer-header {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .6rem .85rem; border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+    background: var(--bs-tertiary-bg, #f8f9fa);
+}
+.item-drawer-body { padding: .85rem; overflow-y: auto; flex: 1; }
+.item-drawer .section-title {
+    font-size: .75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--bs-secondary, #6c757d);
+    margin: .25rem 0 .5rem;
+}
+.item-drawer .se-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+.item-drawer .se-table th, .item-drawer .se-table td {
+    padding: .25rem .4rem; font-size: .75rem;
+}
+.item-drawer .se-table th {
+    font-weight: 600; color: var(--bs-secondary); text-align: left;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
+// ================ Item Sales Drawer ================
+let _itemDrawerChart = null;
+let _itemDrawerHistory = [];
+let _itemDrawerResult = null;
+let _itemDrawerWeeks = 8;
+
+function _esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+function _fmtNum(v, dec) {
+    if (v == null || isNaN(v)) return '-';
+    const d = (dec == null) ? 1 : dec;
+    return Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+window.openItemSalesDrawer = function(itemCode, itemName) {
+    document.getElementById('itemDrawerBackdrop').classList.add('open');
+    const drawer = document.getElementById('itemDrawer');
+    drawer.classList.add('open');
+    drawer.setAttribute('aria-hidden', 'false');
+
+    document.getElementById('itemDrawerTitle').innerHTML =
+        `<h6 class="mb-0" style="font-size:0.9rem;"><span style="font-weight:700;">${_esc(itemCode)}</span> <span style="font-weight:400;color:var(--bs-secondary);">${_esc(itemName || '')}</span></h6>`;
+    document.getElementById('itemDrawerBody').innerHTML =
+        '<p class="text-muted text-center mt-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</p>';
+
+    fetch(`/forecast/api/item/${encodeURIComponent(itemCode)}`)
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(data => _renderItemDrawer(data))
+        .catch(err => {
+            document.getElementById('itemDrawerBody').innerHTML =
+                `<div class="alert alert-warning mt-3">Could not load sales history for this item.<br><small class="text-muted">${_esc(err.message)}</small></div>`;
+        });
+};
+
+window.closeItemSalesDrawer = function() {
+    document.getElementById('itemDrawerBackdrop').classList.remove('open');
+    const drawer = document.getElementById('itemDrawer');
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden', 'true');
+    if (_itemDrawerChart) { try { _itemDrawerChart.destroy(); } catch(e) {} _itemDrawerChart = null; }
+};
+
+function _renderItemDrawer(data) {
+    _itemDrawerHistory = data.weekly_history || [];
+    _itemDrawerResult = data.result || {};
+    _itemDrawerWeeks = 8;
+
+    const html = `
+        ${_renderStockExpiry(data.stock_expiry)}
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+            <div class="section-title" style="margin: 0;">Sales History</div>
+            <div style="display: flex; gap: 0.3rem;">
+                <button id="itemDrawerBtn8" type="button" class="btn btn-sm btn-primary" onclick="setItemDrawerWeeks(8)" style="font-size:0.7rem; padding:0.25rem 0.55rem;">8 Weeks</button>
+                <button id="itemDrawerBtn26" type="button" class="btn btn-sm btn-outline-primary" onclick="setItemDrawerWeeks(26)" style="font-size:0.7rem; padding:0.25rem 0.55rem;">26 Weeks</button>
+            </div>
+        </div>
+        <div style="position: relative; height: 220px; margin-bottom: .5rem;">
+            <canvas id="itemDrawerChart"></canvas>
+        </div>
+        ${(!_itemDrawerHistory.length) ? '<p class="text-muted small text-center">No sales history available.</p>' : ''}
+    `;
+    document.getElementById('itemDrawerBody').innerHTML = html;
+    requestAnimationFrame(() => _renderItemDrawerChart());
+}
+
+window.setItemDrawerWeeks = function(weeks) {
+    _itemDrawerWeeks = weeks;
+    document.getElementById('itemDrawerBtn8').className =
+        'btn btn-sm ' + (weeks === 8 ? 'btn-primary' : 'btn-outline-primary');
+    document.getElementById('itemDrawerBtn26').className =
+        'btn btn-sm ' + (weeks === 26 ? 'btn-primary' : 'btn-outline-primary');
+    document.getElementById('itemDrawerBtn8').style.cssText = 'font-size:0.7rem; padding:0.25rem 0.55rem;';
+    document.getElementById('itemDrawerBtn26').style.cssText = 'font-size:0.7rem; padding:0.25rem 0.55rem;';
+    _renderItemDrawerChart();
+};
+
+function _renderItemDrawerChart() {
+    const canvas = document.getElementById('itemDrawerChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (_itemDrawerChart) { try { _itemDrawerChart.destroy(); } catch(e) {} }
+
+    const displayed = _itemDrawerHistory.slice(-_itemDrawerWeeks);
+    const labels = displayed.map(h => {
+        const d = new Date(h.week_start);
+        return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    });
+    const grossData = displayed.map(h => h.gross_qty || 0);
+    const oosDays = displayed.map(h => h.oos_days || 0);
+
+    const barColors = grossData.map((_, i) =>
+        oosDays[i] >= 3 ? 'rgba(220,53,69,0.7)' :
+        oosDays[i] > 0  ? 'rgba(255,193,7,0.7)' :
+                          'rgba(13,110,253,0.6)');
+    const barBorders = grossData.map((_, i) =>
+        oosDays[i] >= 3 ? 'rgba(220,53,69,1)' :
+        oosDays[i] > 0  ? 'rgba(255,193,7,1)' :
+                          'rgba(13,110,253,1)');
+
+    const datasets = [{
+        label: 'Actual Sales',
+        data: grossData,
+        backgroundColor: barColors,
+        borderColor: barBorders,
+        borderWidth: 1.5,
+        type: 'bar',
+        barThickness: 'flex',
+        maxBarThickness: 14,
+    }];
+
+    const res = _itemDrawerResult || {};
+    if (res.base_forecast_weekly_qty) {
+        datasets.push({
+            label: 'MA8 Base Forecast',
+            data: Array(labels.length).fill(res.base_forecast_weekly_qty),
+            borderColor: '#ffc107',
+            backgroundColor: 'transparent',
+            borderWidth: 2.5,
+            borderDash: [5, 3],
+            pointRadius: 0,
+            tension: 0,
+            type: 'line',
+            fill: false,
+        });
+    }
+    if (res.final_forecast_weekly_qty) {
+        datasets.push({
+            label: 'Final Forecast',
+            data: Array(labels.length).fill(res.final_forecast_weekly_qty),
+            borderColor: '#28a745',
+            backgroundColor: 'transparent',
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0,
+            type: 'line',
+            fill: false,
+        });
+    }
+
+    _itemDrawerChart = new Chart(canvas.getContext('2d'), {
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } },
+                tooltip: { callbacks: {
+                    label: function(ctx) {
+                        const v = ctx.parsed.y;
+                        return ctx.dataset.label + ': ' + (v == null ? '-' : Number(v).toFixed(1));
+                    }
+                }}
+            },
+            scales: {
+                x: { ticks: { font: { size: 10 } }, grid: { display: false } },
+                y: { beginAtZero: true, ticks: { font: { size: 10 } } }
+            }
+        }
+    });
+}
+
+function _renderStockExpiry(se) {
+    if (!se || !se.total_stock_qty || se.total_stock_qty <= 0) {
+        return `
+        <div class="section-title">Stock & Expiry Analysis</div>
+        <div style="background: rgba(108,117,125,0.1); border:1px solid rgba(108,117,125,0.2); border-radius:.375rem; padding:.6rem .75rem; margin-bottom:1rem; font-size:.8rem; color: var(--bs-secondary);">
+            <i class="fas fa-box-open me-1"></i> No stock position data available
+        </div>`;
+    }
+    const riskColors = {
+        safe:     { bg:'rgba(25,135,84,.12)',  border:'rgba(25,135,84,.35)',  color:'#198754', icon:'fa-check-circle',       label:'Safe' },
+        moderate: { bg:'rgba(255,193,7,.12)',  border:'rgba(255,193,7,.35)',  color:'#ffc107', icon:'fa-exclamation-triangle',label:'Moderate Risk' },
+        high:     { bg:'rgba(253,126,20,.12)', border:'rgba(253,126,20,.35)', color:'#fd7e14', icon:'fa-exclamation-circle', label:'High Risk' },
+        critical: { bg:'rgba(220,53,69,.12)',  border:'rgba(220,53,69,.35)',  color:'#dc3545', icon:'fa-times-circle',       label:'Critical' },
+        no_stock: { bg:'rgba(108,117,125,.12)',border:'rgba(108,117,125,.35)',color:'#6c757d', icon:'fa-minus-circle',       label:'No Stock' },
+    };
+    const rc = riskColors[se.risk_level] || riskColors.safe;
+    const statusBadge = (s) => {
+        if (s === 'expired')   return '<span class="badge" style="background:#dc3545;font-size:.65rem;">EXPIRED</span>';
+        if (s === 'at_risk')   return '<span class="badge" style="background:#fd7e14;font-size:.65rem;">AT RISK</span>';
+        if (s === 'no_demand') return '<span class="badge" style="background:#6c757d;font-size:.65rem;">NO DEMAND</span>';
+        return '<span class="badge" style="background:#198754;font-size:.65rem;">OK</span>';
+    };
+    let batchRows = '';
+    (se.batches || []).forEach(b => {
+        const expLabel = b.expiry_date || 'No expiry';
+        const daysLabel = b.days_until_expiry != null
+            ? (b.days_until_expiry < 0 ? `${Math.abs(b.days_until_expiry)}d ago` : `${b.days_until_expiry}d`)
+            : '-';
+        const wksLabel = b.weeks_of_stock != null ? `${b.weeks_of_stock}w` : '-';
+        batchRows += `<tr>
+            <td>${_esc(expLabel)}</td>
+            <td style="text-align:right;">${_fmtNum(b.qty, 0)}</td>
+            <td style="text-align:center;">${daysLabel}</td>
+            <td style="text-align:center;">${wksLabel}</td>
+            <td style="text-align:center;">${statusBadge(b.status)}</td>
+        </tr>`;
+    });
+    return `
+    <div class="section-title">Stock & Expiry Analysis</div>
+    <div style="background:${rc.bg}; border:1px solid ${rc.border}; border-radius:.375rem; padding:.6rem .75rem; margin-bottom:.75rem; display:flex; align-items:center; gap:.6rem;">
+        <i class="fas ${rc.icon}" style="font-size:1.4rem; color:${rc.color};"></i>
+        <div style="flex:1;">
+            <div style="font-weight:700; font-size:.85rem; color:${rc.color};">${rc.label}</div>
+            <div style="font-size:.75rem; color: var(--bs-secondary);">
+                ${_fmtNum(se.total_stock_qty, 0)} units in stock
+                ${se.overall_weeks_cover != null ? ' &middot; ' + se.overall_weeks_cover + 'w cover' : ''}
+                ${se.expired_qty > 0 ? ' &middot; <span style="color:#dc3545;">' + _fmtNum(se.expired_qty, 0) + ' expired</span>' : ''}
+                ${se.at_risk_qty > 0 ? ' &middot; <span style="color:#fd7e14;">' + _fmtNum(se.at_risk_qty, 0) + ' at risk</span>' : ''}
+            </div>
+        </div>
+    </div>
+    ${batchRows ? `
+    <table class="se-table">
+        <thead>
+            <tr>
+                <th>Expiry</th>
+                <th style="text-align:right;">Qty</th>
+                <th style="text-align:center;">Days Left</th>
+                <th style="text-align:center;">Wks Cover</th>
+                <th style="text-align:center;">Status</th>
+            </tr>
+        </thead>
+        <tbody>${batchRows}</tbody>
+    </table>` : ''}`;
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeItemSalesDrawer();
+});
+
+// ================ end item drawer ================
+
 // Toggle detail rows
 window.toggleDetails = function(button) {
     const row = button.closest('tr');
