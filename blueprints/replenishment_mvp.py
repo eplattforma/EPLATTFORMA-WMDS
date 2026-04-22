@@ -586,6 +586,10 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gm
     msg.attach(MIMEText(text_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
+    if not SMTP_HOST or not SMTP_EMAIL or not SMTP_PASSWORD:
+        logger.error("SMTP not configured (SMTP_HOST/SMTP_EMAIL/SMTP_PASSWORD missing)")
+        return False, "SMTP not configured on server."
+
     try:
         logger.info(f"Attempting to connect to SMTP {SMTP_HOST}:{SMTP_PORT}")
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
@@ -595,12 +599,16 @@ def _send_po_email(run, order_lines, po_code, sent_at, recipient="eplattforma@gm
             server.sendmail(SMTP_EMAIL, RECIPIENT, msg.as_string())
             logger.info(f"SMTP sendmail completed for {RECIPIENT}")
         logger.info(f"PO email sent to {RECIPIENT} for PO {po_code}")
+        return True, None
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"SMTP authentication failed: {e}")
+        return False, f"SMTP authentication failed: {e}"
     except smtplib.SMTPException as e:
         logger.error(f"SMTP error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}")
+        return False, f"SMTP error: {type(e).__name__}: {e}"
     except Exception as e:
         logger.error(f"Error sending PO email to {RECIPIENT}: {type(e).__name__}: {e}", exc_info=True)
+        return False, f"Error sending email: {type(e).__name__}: {e}"
 
 
 @replenishment_bp.route('/run/<int:run_id>/email-preview', methods=['GET'])
@@ -662,8 +670,11 @@ def email_order(run_id):
         po_code = f"Run-{run.id}"
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    _send_po_email(run, order_lines, po_code, now_utc, recipient_email)
-    flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
+    ok, err = _send_po_email(run, order_lines, po_code, now_utc, recipient_email)
+    if ok:
+        flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
+    else:
+        flash(f"Failed to send order email: {err}", "error")
     return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
 

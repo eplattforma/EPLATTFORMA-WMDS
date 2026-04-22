@@ -1875,8 +1875,11 @@ def supplier_email_order(supplier_code):
         return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    _send_po_email(run_shim, order_lines, po_code_or_err, now_utc, recipient_email)
-    flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
+    ok, err = _send_po_email(run_shim, order_lines, po_code_or_err, now_utc, recipient_email)
+    if ok:
+        flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
+    else:
+        flash(f"Failed to send order email: {err}", "error")
     return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
 
 
