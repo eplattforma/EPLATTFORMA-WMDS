@@ -1768,6 +1768,118 @@ def send_supplier_po(supplier_code):
     return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
 
 
+def _build_forecast_supplier_email_payload(supplier_code):
+    """Collect data needed to reuse the replenishment PO email builder.
+
+    Returns (run_shim, order_lines, po_code) or (None, None, error_message).
+    Each order_line exposes item_code_365, item_name, case_qty_units, final_cases —
+    the exact attributes _build_po_email_content() reads.
+    """
+    from types import SimpleNamespace
+    from services.forecast.ordering_refresh_service import get_latest_snapshots
+
+    rows = (
+        db.session.query(DwItem, SkuForecastProfile)
+        .join(SkuForecastProfile,
+              SkuForecastProfile.item_code_365 == DwItem.item_code_365,
+              isouter=True)
+        .filter(DwItem.supplier_code_365 == supplier_code)
+        .all()
+    )
+    if not rows:
+        return None, None, f"No items found for supplier {supplier_code}."
+
+    item_codes = [dw.item_code_365 for dw, _ in rows]
+    snap_map = get_latest_snapshots(db.session, item_codes=item_codes)
+
+    supplier_name = rows[0][0].supplier_name or supplier_code
+
+    order_lines = []
+    for dw, prof in rows:
+        snap = snap_map.get(dw.item_code_365)
+        manual_raw = getattr(prof, 'manual_order_qty', None) if prof else None
+        manual_ord = float(manual_raw) if manual_raw is not None else None
+        if manual_ord is not None:
+            qty_units = manual_ord
+        elif snap and snap.rounded_order_qty is not None:
+            qty_units = float(snap.rounded_order_qty)
+        else:
+            qty_units = 0
+        if qty_units <= 0:
+            continue
+
+        case_qty = float(dw.case_qty) if dw.case_qty else 1.0
+        if case_qty <= 0:
+            case_qty = 1.0
+        final_cases = qty_units / case_qty
+
+        order_lines.append(SimpleNamespace(
+            item_code_365=dw.item_code_365,
+            item_name=dw.item_name or '',
+            case_qty_units=case_qty,
+            final_cases=final_cases,
+        ))
+
+    if not order_lines:
+        return None, None, f"No items with a positive order quantity for supplier {supplier_code}."
+
+    run_shim = SimpleNamespace(
+        id=f"FCT-{supplier_code}",
+        supplier_code=supplier_code,
+        supplier_name=supplier_name,
+    )
+    po_code = f"FCT-{supplier_code}-{date.today().isoformat()}"
+    return run_shim, order_lines, po_code
+
+
+@forecast_bp.route('/supplier/<supplier_code>/email-preview', methods=['GET'])
+@admin_or_warehouse_required
+def supplier_email_preview(supplier_code):
+    from datetime import datetime, timezone
+    from blueprints.replenishment_mvp import _build_po_email_content
+
+    if not supplier_code or supplier_code == 'UNMAPPED':
+        return jsonify({"error": "A real supplier code is required."}), 400
+
+    run_shim, order_lines, po_code_or_err = _build_forecast_supplier_email_payload(supplier_code)
+    if run_shim is None:
+        return jsonify({"error": po_code_or_err}), 400
+
+    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+    content = _build_po_email_content(run_shim, order_lines, po_code_or_err, now_utc)
+    return jsonify({
+        "subject": f"PO {po_code_or_err} - {run_shim.supplier_name} - {len(order_lines)} items",
+        "text_body": content["text_body"],
+        "html_body": content["html_body"],
+    })
+
+
+@forecast_bp.route('/supplier/<supplier_code>/email-order', methods=['POST'])
+@admin_or_warehouse_required
+def supplier_email_order(supplier_code):
+    from datetime import datetime, timezone
+    from blueprints.replenishment_mvp import _send_po_email
+
+    if not supplier_code or supplier_code == 'UNMAPPED':
+        flash("A real supplier code is required to email an order.", "error")
+        return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+    recipient_email = (request.form.get("recipient_email") or "eplattforma@gmail.com").strip()
+    if not recipient_email:
+        flash("Recipient email is required.", "warning")
+        return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+    run_shim, order_lines, po_code_or_err = _build_forecast_supplier_email_payload(supplier_code)
+    if run_shim is None:
+        flash(po_code_or_err, "warning")
+        return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+    now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+    _send_po_email(run_shim, order_lines, po_code_or_err, now_utc, recipient_email)
+    flash(f"Order email sent to {recipient_email} ({len(order_lines)} items).", "success")
+    return redirect(url_for('forecast_workbench.supplier_detail', supplier_code=supplier_code))
+
+
 @forecast_bp.route('/admin/supplier-mapping')
 @admin_or_warehouse_required
 def admin_supplier_mapping():

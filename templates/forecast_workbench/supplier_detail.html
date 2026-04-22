@@ -342,6 +342,11 @@
                 <i class="fas fa-file-csv me-1"></i>Export CSV
             </a>
             {% if supplier_code != 'UNMAPPED' %}
+            <button type="button" class="btn btn-sm btn-secondary py-0"
+                    data-bs-toggle="modal" data-bs-target="#emailPreviewModal"
+                    onclick="previewSupplierEmail('{{ supplier_code }}')">
+                <i class="fas fa-envelope me-1"></i>Email Order
+            </button>
             <form method="POST" action="{{ url_for('forecast_workbench.send_supplier_po', supplier_code=supplier_code) }}"
                   onsubmit="return confirm('Send PO to PS365 for {{ supplier_code }} using current reviewed order quantities?');"
                   class="d-inline">
@@ -1975,5 +1980,79 @@ function supplierRefreshOrdering() {
         alert('Ordering refresh failed: ' + e);
     });
 }
+
+function previewSupplierEmail(supplierCode) {
+    const subjectEl = document.getElementById('emailSubject');
+    const bodyEl = document.getElementById('emailBody');
+    const sendBtn = document.getElementById('sendEmailBtn');
+    subjectEl.value = 'Loading…';
+    bodyEl.value = 'Loading preview…';
+    sendBtn.disabled = true;
+
+    fetch(`/forecast/supplier/${encodeURIComponent(supplierCode)}/email-preview`)
+        .then(r => r.json().then(data => ({ok: r.ok, data})))
+        .then(({ok, data}) => {
+            if (!ok) {
+                subjectEl.value = '';
+                bodyEl.value = data.error || 'Failed to load preview.';
+                return;
+            }
+            subjectEl.value = data.subject || '';
+            bodyEl.value = data.text_body || '';
+            sendBtn.disabled = false;
+        })
+        .catch(e => {
+            bodyEl.value = 'Error loading preview: ' + e;
+        });
+}
+
+function sendSupplierEmail(supplierCode) {
+    const recipient = document.getElementById('emailRecipient').value.trim();
+    if (!recipient) { alert('Recipient email required.'); return; }
+    if (!confirm(`Send order email to ${recipient} for supplier ${supplierCode}?`)) return;
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/forecast/supplier/${encodeURIComponent(supplierCode)}/email-order`;
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'recipient_email';
+    input.value = recipient;
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+}
 </script>
+
+<div class="modal fade" id="emailPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-envelope me-2"></i>Email Order — {{ supplier_name }} ({{ supplier_code }})</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small">Recipient</label>
+          <input type="email" id="emailRecipient" class="form-control form-control-sm" value="eplattforma@gmail.com">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small">Subject</label>
+          <input type="text" id="emailSubject" class="form-control form-control-sm" readonly>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small">Body (text preview)</label>
+          <textarea id="emailBody" class="form-control form-control-sm" rows="18" readonly style="font-family: monospace; font-size: 0.8rem;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="sendEmailBtn" class="btn btn-primary btn-sm"
+                onclick="sendSupplierEmail('{{ supplier_code }}')" disabled>
+          <i class="fas fa-paper-plane me-1"></i>Send Email
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
