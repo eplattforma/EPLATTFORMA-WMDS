@@ -1811,13 +1811,12 @@ def _build_forecast_supplier_email_payload(supplier_code):
         case_qty = float(dw.case_qty) if dw.case_qty else 1.0
         if case_qty <= 0:
             case_qty = 1.0
-        final_cases = qty_units / case_qty
 
         order_lines.append(SimpleNamespace(
             item_code_365=dw.item_code_365,
             item_name=dw.item_name or '',
             case_qty_units=case_qty,
-            final_cases=final_cases,
+            final_cases=qty_units,
         ))
 
     if not order_lines:
@@ -1846,7 +1845,10 @@ def supplier_email_preview(supplier_code):
         return jsonify({"error": po_code_or_err}), 400
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-    content = _build_po_email_content(run_shim, order_lines, po_code_or_err, now_utc)
+    content = _build_po_email_content(
+        run_shim, order_lines, po_code_or_err, now_utc,
+        qty_label="Order Qty (units)",
+    )
     return jsonify({
         "subject": f"PO {po_code_or_err} - {run_shim.supplier_name} - {len(order_lines)} items",
         "text_body": content["text_body"],

@@ -487,8 +487,12 @@ def send_po_to_ps365(run_id):
     return redirect(url_for('replenishment_mvp.run_detail', run_id=run_id))
 
 
-def _build_po_email_content(run, order_lines, po_code, sent_at):
-    """Build the email content (text and HTML bodies). Returns dict with text_body and html_body."""
+def _build_po_email_content(run, order_lines, po_code, sent_at, qty_label="Cases Ordered"):
+    """Build the email content (text and HTML bodies). Returns dict with text_body and html_body.
+
+    qty_label controls the header of the rightmost column. Replenishment passes
+    cases (default); forecast supplier passes units, so it overrides this.
+    """
     rows_html = ""
     rows_text = ""
     for idx, line in enumerate(sorted(order_lines, key=lambda l: l.item_code_365), start=1):
@@ -531,7 +535,7 @@ def _build_po_email_content(run, order_lines, po_code, sent_at):
                     <th>Item Name</th>
                     <th>Supplier Code</th>
                     <th>Case Qty</th>
-                    <th>Cases Ordered</th>
+                    <th>{qty_label}</th>
                 </tr>
             </thead>
             <tbody>
@@ -553,7 +557,7 @@ Run ID: {run.id} (7-day cover)
 Date: {sent_at.strftime('%Y-%m-%d %H:%M')} UTC
 
 Items:
-Item Name | Supplier Code | Case Qty | Cases Ordered
+Item Name | Supplier Code | Case Qty | {qty_label}
 {rows_text}
 Total Items: {len(order_lines)}
 """
