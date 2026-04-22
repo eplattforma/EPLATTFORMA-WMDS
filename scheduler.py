@@ -132,17 +132,6 @@ def setup_scheduler(app):
             logger.info("✓ PENDING_RETRY payment retry scheduled: Every 5 minutes")
 
             scheduler.add_job(
-                func=_run_dropbox_cost_import,
-                trigger=CronTrigger(hour=2, minute=0),
-                id='dropbox_cost_import',
-                name='Dropbox Cost Import',
-                replace_existing=True,
-                max_instances=1,
-                misfire_grace_time=3600
-            )
-            logger.info("✓ Dropbox cost import scheduled: Daily at 2:00 AM")
-
-            scheduler.add_job(
                 func=_run_erp_item_cost_refresh,
                 trigger=CronTrigger(hour=2, minute=45),
                 id='erp_item_cost_refresh',
@@ -670,31 +659,6 @@ def _run_erp_item_cost_refresh():
         logger.error(f"Error in scheduled ERP item cost refresh: {str(e)}", exc_info=True)
 
 
-def _run_dropbox_cost_import():
-    try:
-        from app import app
-        from services.dropbox_service import sync_dropbox_file
-        logger.info("=" * 60)
-        logger.info("STARTING SCHEDULED DROPBOX COST IMPORT")
-        logger.info("=" * 60)
-        with app.app_context():
-            log = sync_dropbox_file(skip_unchanged=True)
-            if log.status == 'success_no_change':
-                logger.info("DROPBOX COST IMPORT: File unchanged — no update needed")
-            elif log.status in ('config_error', 'auth_error'):
-                logger.error(f"DROPBOX COST IMPORT FAILED: {log.error_message}")
-            else:
-                md = log.metadata_json or {}
-                logger.info(
-                    f"DROPBOX COST IMPORT COMPLETED: "
-                    f"{md.get('rows_read', 0)} read, "
-                    f"{md.get('rows_matched', 0)} matched, "
-                    f"{log.rows_imported} updated"
-                )
-    except Exception as e:
-        logger.error(f"Error in scheduled Dropbox cost import: {str(e)}", exc_info=True)
-
-
 def _run_expiry_ftp_upload():
     try:
         from app import app
@@ -784,7 +748,6 @@ def list_scheduled_jobs():
             {'id': 'nightly_forecast', 'name': 'Nightly Forecast Run', 'trigger': 'Daily at 5:00 AM', 'next_run': None},
             {'id': 'pending_orders', 'name': 'PS365 Pending Orders Sync', 'trigger': 'Every 30 minutes', 'next_run': None},
             {'id': 'payment_retry', 'name': 'Retry PENDING_RETRY Payments to PS365', 'trigger': 'Every 5 minutes', 'next_run': None},
-            {'id': 'dropbox_cost_import', 'name': 'Dropbox Cost Import', 'trigger': 'Daily at 2:00 AM', 'next_run': None},
             {'id': 'expiry_ftp_upload', 'name': 'Expiry Dates FTP Upload', 'trigger': 'Daily at 9:00 PM', 'next_run': None},
             {'id': 'stock_777_sync_production', 'name': 'PS365 Stock 777 Daily Sync', 'trigger': 'Daily at 11:30 PM', 'next_run': None},
         ]
