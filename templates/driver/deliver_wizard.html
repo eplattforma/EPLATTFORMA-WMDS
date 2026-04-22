@@ -457,11 +457,67 @@ input[type=number]::-webkit-inner-spin-button {
                         Payment will be made online. Amount set to invoice total for record keeping.
                     </div>
                 </div>
+
+                <div id="pw-step-confirm" style="display:none;">
+                    <div class="text-center mb-3">
+                        <div style="font-size:48px;color:#f59e0b;line-height:1;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h5 class="text-white mt-2 mb-0">Confirm Payment</h5>
+                        <div class="small text-white-50">Please review the details before submitting</div>
+                    </div>
+                    <div class="p-3 rounded mb-3" style="background:#0f172a;border:1px solid rgba(255,255,255,.1);">
+                        <div class="d-flex justify-content-between py-2 border-bottom border-secondary">
+                            <span class="text-white-50">Payment Method</span>
+                            <span class="text-white fw-bold" id="pw-cf-method">—</span>
+                        </div>
+                        <div class="d-flex justify-content-between py-2 border-bottom border-secondary">
+                            <span class="text-white-50">Amount</span>
+                            <span class="fw-bold" id="pw-cf-amount" style="color:#22c55e;font-size:1.4rem;">€ 0.00</span>
+                        </div>
+                        <div class="d-flex justify-content-between py-2 border-bottom border-secondary">
+                            <span class="text-white-50">Amount Due</span>
+                            <span class="text-white" id="pw-cf-due">€ 0.00</span>
+                        </div>
+                        <div class="d-flex justify-content-between py-2" id="pw-cf-variance-row" style="display:none !important;">
+                            <span class="text-white-50">Variance</span>
+                            <span class="fw-bold" id="pw-cf-variance">€ 0.00</span>
+                        </div>
+                        <div id="pw-cf-cheque-rows" style="display:none;">
+                            <div class="d-flex justify-content-between py-2 border-top border-secondary">
+                                <span class="text-white-50">Cheque Number</span>
+                                <span class="text-white" id="pw-cf-cheque-no">—</span>
+                            </div>
+                            <div class="d-flex justify-content-between py-2">
+                                <span class="text-white-50">Cheque Date</span>
+                                <span class="text-white" id="pw-cf-cheque-date">—</span>
+                            </div>
+                            <div id="pw-cf-pdc-note" class="alert alert-warning small mt-2 mb-0" style="display:none;">
+                                <i class="fas fa-info-circle"></i> Post-dated cheque — receipt will print as PDC Acknowledgement.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert alert-warning small mb-0">
+                        <strong>Are you sure you want to confirm this payment?</strong>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer border-0 d-grid" style="background:#1e293b;">
-                <button type="button" class="btn btn-success btn-lg" id="pw-submit-btn" onclick="submitPaymentWizard()" disabled>
+                <button type="button" class="btn btn-success btn-lg" id="pw-submit-btn" onclick="pwShowConfirm()" disabled>
                     <i class="fas fa-check-circle me-1"></i> Confirm Payment
                 </button>
+                <div id="pw-confirm-actions" class="row g-2" style="display:none;">
+                    <div class="col-6">
+                        <button type="button" class="btn btn-outline-light btn-lg w-100" id="pw-cf-no-btn" onclick="pwBackFromConfirm()">
+                            <i class="fas fa-times me-1"></i> No, Edit
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button type="button" class="btn btn-success btn-lg w-100" id="pw-cf-yes-btn" onclick="submitPaymentWizard()">
+                            <i class="fas fa-check me-1"></i> Yes, Confirm
+                        </button>
+                    </div>
+                </div>
                 <div id="pw-spinner" class="text-center py-2" style="display:none;">
                     <div class="spinner-border text-light" role="status"></div>
                     <div class="small text-white-50 mt-1">Syncing with PS365...</div>
@@ -915,10 +971,60 @@ function pwCheckPdc() {
     warn.style.display = sel > today ? 'block' : 'none';
 }
 
+function pwShowConfirm() {
+    const labels = {cash:'Cash', cheque:'Cheque', online:'Pay Online', card:'Card (POS)'};
+    const amount = parseFloat(document.getElementById('pw-amount-val').value) || 0;
+    const due = getCollectDue();
+    const variance = amount - due;
+
+    document.getElementById('pw-cf-method').textContent = labels[pwSelectedMethod] || pwSelectedMethod || '—';
+    document.getElementById('pw-cf-amount').textContent = '\u20AC ' + amount.toFixed(2);
+    document.getElementById('pw-cf-due').textContent = '\u20AC ' + due.toFixed(2);
+
+    const varRow = document.getElementById('pw-cf-variance-row');
+    const varEl = document.getElementById('pw-cf-variance');
+    if (Math.abs(variance) >= 0.01) {
+        varRow.style.cssText = 'display:flex !important;';
+        varEl.textContent = (variance > 0 ? '+\u20AC ' : '\u2212\u20AC ') + Math.abs(variance).toFixed(2);
+        varEl.style.color = variance < 0 ? '#f97316' : '#22c55e';
+    } else {
+        varRow.style.cssText = 'display:none !important;';
+    }
+
+    const chqRows = document.getElementById('pw-cf-cheque-rows');
+    if (pwSelectedMethod === 'cheque') {
+        const num = (document.getElementById('pw-cheque-number').value || '').trim() || '—';
+        const dt = (document.getElementById('pw-cheque-date').value || '').trim() || '—';
+        document.getElementById('pw-cf-cheque-no').textContent = num;
+        document.getElementById('pw-cf-cheque-date').textContent = dt;
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('pw-cf-pdc-note').style.display = (dt && dt > today) ? 'block' : 'none';
+        chqRows.style.display = 'block';
+    } else {
+        chqRows.style.display = 'none';
+    }
+
+    document.getElementById('pw-step1').style.display = 'none';
+    document.getElementById('pw-step2').style.display = 'none';
+    document.getElementById('pw-step-confirm').style.display = 'block';
+    document.getElementById('pw-submit-btn').style.display = 'none';
+    document.getElementById('pw-confirm-actions').style.display = 'flex';
+}
+
+function pwBackFromConfirm() {
+    document.getElementById('pw-step-confirm').style.display = 'none';
+    document.getElementById('pw-step2').style.display = 'block';
+    document.getElementById('pw-confirm-actions').style.display = 'none';
+    document.getElementById('pw-submit-btn').style.display = 'block';
+    pwValidateStep2();
+}
+
 async function submitPaymentWizard() {
     const btn = document.getElementById('pw-submit-btn');
+    const confirmActions = document.getElementById('pw-confirm-actions');
     const spinner = document.getElementById('pw-spinner');
     btn.style.display = 'none';
+    if (confirmActions) confirmActions.style.display = 'none';
     spinner.style.display = 'block';
 
     const amount = parseFloat(document.getElementById('pw-amount-val').value) || 0;
@@ -946,13 +1052,13 @@ async function submitPaymentWizard() {
             }
         } else {
             alert(data.error || 'Payment failed');
-            btn.style.display = 'block';
             spinner.style.display = 'none';
+            pwBackFromConfirm();
         }
     } catch (e) {
         alert('Network error: ' + e.message);
-        btn.style.display = 'block';
         spinner.style.display = 'none';
+        pwBackFromConfirm();
     }
 }
 
