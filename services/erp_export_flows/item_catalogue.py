@@ -88,33 +88,57 @@ def import_item_catalogue_costs(file_path: str) -> dict:
         raise RuntimeError("No valid cost records found in the exported file")
 
     updated_count = 0
+    unchanged_count = 0
     not_found = 0
+    EPSILON = 0.0001  # 1/100 of a cent — anything smaller is a float-rounding artifact
     try:
+        existing = {
+            row[0]: row[1]
+            for row in db.session.execute(
+                text(
+                    'SELECT item_code_365, cost_price FROM ps_items_dw '
+                    'WHERE item_code_365 = ANY(:codes)'
+                ),
+                {'codes': [rec['item_code'] for rec in updates]},
+            ).fetchall()
+        }
+
         for i in range(0, len(updates), 500):
             batch = updates[i:i + 500]
             for rec in batch:
-                result = db.session.execute(
+                code = rec['item_code']
+                new_cost = rec['cost_price']
+                if code not in existing:
+                    not_found += 1
+                    continue
+                old_cost = existing[code]
+                old_cost_f = float(old_cost) if old_cost is not None else None
+                if old_cost_f is not None and abs(old_cost_f - new_cost) < EPSILON:
+                    unchanged_count += 1
+                    continue
+                db.session.execute(
                     text(
-                        'UPDATE ps_items_dw SET cost_price = :cost_price '
+                        'UPDATE ps_items_dw '
+                        'SET cost_price = :cost_price, '
+                        '    cost_price_updated_at = :now '
                         'WHERE item_code_365 = :item_code'
                     ),
-                    rec,
+                    {**rec, 'now': datetime.utcnow()},
                 )
-                if result.rowcount > 0:
-                    updated_count += result.rowcount
-                else:
-                    not_found += 1
+                updated_count += 1
 
         db.session.commit()
     except Exception:
         db.session.rollback()
         raise
     logger.info(
-        f"Cost import complete: {updated_count} items updated, "
+        f"Cost import complete: {updated_count} items changed, "
+        f"{unchanged_count} unchanged, "
         f"{not_found} not found in ps_items_dw, {skipped} skipped (no cost)"
     )
     return {
         'items_updated': updated_count,
+        'items_unchanged': unchanged_count,
         'items_not_found': not_found,
         'items_skipped': skipped,
         'total_in_file': len(updates) + skipped,

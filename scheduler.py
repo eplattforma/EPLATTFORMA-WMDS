@@ -143,6 +143,17 @@ def setup_scheduler(app):
             logger.info("✓ Dropbox cost import scheduled: Daily at 2:00 AM")
 
             scheduler.add_job(
+                func=_run_erp_item_cost_refresh,
+                trigger=CronTrigger(hour=2, minute=45),
+                id='erp_item_cost_refresh',
+                name='ERP Item Catalogue Cost Refresh',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=3600
+            )
+            logger.info("✓ ERP item cost refresh scheduled: Daily at 2:45 AM (before full DW sync)")
+
+            scheduler.add_job(
                 func=_run_expiry_ftp_upload,
                 trigger=CronTrigger(hour=21, minute=0),
                 id='expiry_ftp_upload',
@@ -620,6 +631,43 @@ def _run_ftp_price_master_sync():
         logger.info(f"FTP PRICE MASTER SYNC {'COMPLETED' if result.get('success') else 'FAILED'}: {result}")
     except Exception as e:
         logger.error(f"Error in FTP price master sync: {str(e)}", exc_info=True)
+
+
+def _run_erp_item_cost_refresh():
+    """Daily refresh of cost_price in ps_items_dw from the PS365 ERP Item Catalogue.
+
+    Runs the same Playwright export flow that the Stock Dashboard's
+    'Update Costs' button triggers, then imports the XLSX. Only items
+    whose cost actually changes get cost_price_updated_at bumped.
+    """
+    try:
+        from app import app
+        from services.erp_export_bot import check_concurrent_run, run_export_sync
+        logger.info("=" * 60)
+        logger.info("STARTING SCHEDULED ERP ITEM COST REFRESH")
+        logger.info("=" * 60)
+        with app.app_context():
+            if check_concurrent_run('item_catalogue'):
+                logger.warning(
+                    "ERP ITEM COST REFRESH skipped: another item_catalogue export is already running"
+                )
+                return
+            result = run_export_sync('item_catalogue', triggered_by='scheduler')
+            if result.get('status') == 'success':
+                post = result.get('post_process', {}) or {}
+                logger.info(
+                    "ERP ITEM COST REFRESH COMPLETED: "
+                    f"{post.get('items_updated', 0)} changed, "
+                    f"{post.get('items_unchanged', 0)} unchanged, "
+                    f"{post.get('items_not_found', 0)} not in DW, "
+                    f"{post.get('items_skipped', 0)} skipped"
+                )
+            else:
+                logger.error(
+                    f"ERP ITEM COST REFRESH FAILED: {result.get('error_message', 'unknown error')}"
+                )
+    except Exception as e:
+        logger.error(f"Error in scheduled ERP item cost refresh: {str(e)}", exc_info=True)
 
 
 def _run_dropbox_cost_import():

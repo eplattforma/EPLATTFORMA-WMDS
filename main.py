@@ -473,6 +473,7 @@ if _db_available:
             ('vat_code_365', 'VARCHAR(20)'),
             ('vat_percent', 'NUMERIC(6,2)'),
             ('cost_price', 'NUMERIC(12,4)'),
+            ('cost_price_updated_at', 'TIMESTAMP'),
         ]:
             if col_name not in dw_cols:
                 _db.session.execute(sa_text(f'ALTER TABLE ps_items_dw ADD COLUMN {col_name} {col_def}'))
