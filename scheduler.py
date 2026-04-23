@@ -6,6 +6,7 @@ Uses APScheduler to manage scheduled jobs.
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from datetime import datetime
 import os
 
@@ -28,8 +29,36 @@ def setup_scheduler(app):
         return
     
     try:
-        scheduler = BackgroundScheduler(daemon=True)
-        
+        jobstore_engine = None
+        try:
+            from app import db as _db
+            with app.app_context():
+                jobstore_engine = _db.engine
+        except Exception as e:
+            logger.warning(f"Could not access Flask-SQLAlchemy engine for jobstore ({e}); will fall back to DATABASE_URL")
+
+        if jobstore_engine is not None:
+            jobstores = {
+                'default': SQLAlchemyJobStore(
+                    engine=jobstore_engine,
+                    tablename='apscheduler_jobs',
+                )
+            }
+            scheduler = BackgroundScheduler(daemon=True, jobstores=jobstores)
+            logger.info("Scheduler using SQLAlchemy jobstore (shared engine, pool_pre_ping enabled) — missed runs will be recovered on worker boot")
+        elif os.environ.get("DATABASE_URL"):
+            jobstores = {
+                'default': SQLAlchemyJobStore(
+                    url=os.environ["DATABASE_URL"],
+                    tablename='apscheduler_jobs',
+                )
+            }
+            scheduler = BackgroundScheduler(daemon=True, jobstores=jobstores)
+            logger.info("Scheduler using SQLAlchemy jobstore (own engine via DATABASE_URL) — missed runs will be recovered on worker boot")
+        else:
+            scheduler = BackgroundScheduler(daemon=True)
+            logger.warning("DATABASE_URL not set — scheduler falling back to in-memory jobstore (missed runs will be lost on restart)")
+
         # Only set up scheduled jobs in production or if explicitly enabled
         is_production = os.environ.get("REPLIT_ENVIRONMENT") == "production" or os.environ.get("REPLIT_DEPLOYMENT") == "1"
         if os.environ.get("ENABLE_BACKGROUND_JOBS") == "true" or is_production:
@@ -138,7 +167,8 @@ def setup_scheduler(app):
                 name='ERP Item Catalogue Cost Refresh',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ ERP item cost refresh scheduled: Daily at 2:45 AM (before full DW sync)")
 
