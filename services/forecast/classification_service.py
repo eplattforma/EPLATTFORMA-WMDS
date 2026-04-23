@@ -1,5 +1,7 @@
 import logging
 import math
+import os
+import resource
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -11,6 +13,35 @@ from timezone_utils import get_utc_now
 from services.forecast.week_utils import get_completed_week_cutoff
 
 logger = logging.getLogger(__name__)
+
+
+def _rss_mb() -> tuple:
+    """Return (current_rss_mb, peak_rss_mb). Either may be -1.0 if unavailable."""
+    cur = -1.0
+    try:
+        with open("/proc/self/status", "r") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    cur = float(parts[1]) / 1024.0
+                    break
+    except Exception:
+        pass
+    peak = -1.0
+    try:
+        ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if os.uname().sysname == "Darwin":
+            peak = ru / (1024.0 * 1024.0)
+        else:
+            peak = ru / 1024.0
+    except Exception:
+        pass
+    return cur, peak
+
+
+def _mem_str() -> str:
+    cur, peak = _rss_mb()
+    return f"rss={cur:.1f}MB peak={peak:.1f}MB"
 
 WEEKS_WINDOW = 26
 HISTORY_WINDOW_DAYS = 365
@@ -195,13 +226,14 @@ def classify_single_item(session: Session, item_code: str) -> dict:
 
 
 def classify_all_items(session: Session) -> int:
+    logger.info(f"[classify] start: {_mem_str()}")
     items = (
         session.query(DwItem.item_code_365)
         .filter(DwItem.active.is_(True))
         .all()
     )
 
-    logger.info(f"Classifying {len(items)} active items")
+    logger.info(f"[classify] active items loaded: {len(items)} ({_mem_str()})")
     count = 0
     now = get_utc_now()
     
@@ -220,12 +252,15 @@ def classify_all_items(session: Session) -> int:
         )
         .all()
     )
+    logger.info(f"[classify] weekly sales rows loaded: {len(all_sales)} ({_mem_str()})")
     
     sales_by_item = {}
     for item_code, week_start, gross_qty in all_sales:
         if item_code not in sales_by_item:
             sales_by_item[item_code] = {}
         sales_by_item[item_code][week_start] = float(gross_qty or 0)
+    del all_sales
+    logger.info(f"[classify] sales_by_item built: {len(sales_by_item)} items ({_mem_str()})")
 
     all_items_with_any_row = set(sales_by_item.keys())
     total_distinct_weeks = set()
@@ -317,9 +352,12 @@ def classify_all_items(session: Session) -> int:
         count += 1
         if count % 500 == 0:
             session.flush()
-            logger.info(f"Classified {count}/{len(items)} items")
+            session.expire_all()
+            logger.info(f"[classify] processed {count}/{len(items)} items ({_mem_str()})")
 
     session.flush()
-    logger.info(f"Classification complete: {count} items processed")
-    logger.info(f"Classification breakdown: {stats}")
+    session.expire_all()
+    del sales_by_item, item_age_cache, oos_map
+    logger.info(f"[classify] complete: {count} items processed ({_mem_str()})")
+    logger.info(f"[classify] breakdown: {stats}")
     return count
