@@ -75,7 +75,8 @@ def setup_scheduler(app):
                 name='Full Data Warehouse Sync',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ Full DW sync scheduled: Daily at 3:00 AM")
 
@@ -90,7 +91,8 @@ def setup_scheduler(app):
                 name='Incremental Data Warehouse Sync',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ Incremental DW sync scheduled: Daily at 1:00 AM and 1:00 PM")
 
@@ -101,7 +103,8 @@ def setup_scheduler(app):
                 name='Customer Sync from PS365',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ Customer sync scheduled: Daily at 4:00 AM")
 
@@ -112,7 +115,8 @@ def setup_scheduler(app):
                 name='Invoice Sync from PS365',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ Invoice sync scheduled: Daily at 6:00 PM (last 2 days)")
 
@@ -123,7 +127,8 @@ def setup_scheduler(app):
                 name='Customer Balance Fetch from PS365',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ Balance fetch scheduled: Daily at 2:30 AM")
 
@@ -134,7 +139,8 @@ def setup_scheduler(app):
                 name='Nightly Forecast Run',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ Forecast run scheduled: Daily at 5:00 AM")
 
@@ -179,7 +185,8 @@ def setup_scheduler(app):
                 name='Expiry Dates FTP Upload',
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=3600
+                misfire_grace_time=21600,
+                coalesce=True,
             )
             logger.info("✓ Expiry dates FTP upload scheduled: Daily at 9:00 PM (21:00)")
 
@@ -191,7 +198,8 @@ def setup_scheduler(app):
                     name='PS365 Stock 777 Daily Sync (Production)',
                     replace_existing=True,
                     max_instances=1,
-                    misfire_grace_time=3600
+                    misfire_grace_time=21600,
+                    coalesce=True,
                 )
                 logger.info("✓ Stock 777 production sync scheduled: Daily at 11:30 PM")
             else:
@@ -202,7 +210,8 @@ def setup_scheduler(app):
                     name='PS365 Stock 777 Daily Sync',
                     replace_existing=True,
                     max_instances=1,
-                    misfire_grace_time=3600
+                    misfire_grace_time=21600,
+                    coalesce=True,
                 )
                 logger.info("✓ Stock 777 sync scheduled: Daily at 11:30 PM")
 
@@ -229,7 +238,8 @@ def setup_scheduler(app):
                     name='FTP Price Master Sync',
                     replace_existing=True,
                     max_instances=1,
-                    misfire_grace_time=3600
+                    misfire_grace_time=21600,
+                    coalesce=True,
                 )
                 logger.info("✓ FTP price master sync scheduled: Daily at 6:00 AM")
             else:
@@ -261,49 +271,75 @@ def _check_missed_syncs_on_startup():
             now = datetime.utcnow()
             logger.info("Checking for missed scheduled syncs after startup...")
 
-            last_full = (
+            running_full = (
                 PS365SyncLog.query
-                .filter(PS365SyncLog.sync_type == 'FULL_DW_UPDATE')
-                .filter(PS365SyncLog.status.in_(['COMPLETED', 'COMPLETED_WITH_ERRORS']))
+                .filter(PS365SyncLog.sync_type == 'FULL_DW_UPDATE', PS365SyncLog.status == 'RUNNING')
                 .order_by(PS365SyncLog.started_at.desc())
                 .first()
             )
-            hours_since_full = None
-            if last_full and last_full.started_at:
-                hours_since_full = (now - last_full.started_at).total_seconds() / 3600
-                logger.info(f"Last successful full DW sync: {last_full.started_at} ({hours_since_full:.1f}h ago)")
+            if running_full and running_full.started_at \
+                    and (now - running_full.started_at) < timedelta(hours=6):
+                logger.info(
+                    f"Full DW sync already RUNNING (started {running_full.started_at}); "
+                    f"skipping startup catch-up to avoid double-fire with APScheduler misfire recovery."
+                )
             else:
-                logger.info("No previous full DW sync found")
+                last_full = (
+                    PS365SyncLog.query
+                    .filter(PS365SyncLog.sync_type == 'FULL_DW_UPDATE')
+                    .filter(PS365SyncLog.status.in_(['COMPLETED', 'COMPLETED_WITH_ERRORS']))
+                    .order_by(PS365SyncLog.started_at.desc())
+                    .first()
+                )
+                hours_since_full = None
+                if last_full and last_full.started_at:
+                    hours_since_full = (now - last_full.started_at).total_seconds() / 3600
+                    logger.info(f"Last successful full DW sync: {last_full.started_at} ({hours_since_full:.1f}h ago)")
+                else:
+                    logger.info("No previous full DW sync found")
 
-            if hours_since_full is None or hours_since_full > 20:
-                logger.info("Full DW sync is overdue (>20h or never ran) — triggering now")
-                _run_full_sync()
-            else:
-                logger.info(f"Full DW sync is recent ({hours_since_full:.1f}h ago), skipping")
+                if hours_since_full is None or hours_since_full > 20:
+                    logger.info("Full DW sync is overdue (>20h or never ran) — triggering now")
+                    _run_full_sync()
+                else:
+                    logger.info(f"Full DW sync is recent ({hours_since_full:.1f}h ago), skipping")
 
             db.session.remove()
             db.engine.dispose()
 
             now = datetime.utcnow()
-            last_invoice = (
+            running_inv = (
                 PS365SyncLog.query
-                .filter(PS365SyncLog.sync_type == 'INVOICE_SYNC')
-                .filter(PS365SyncLog.status.in_(['COMPLETED', 'COMPLETED_WITH_ERRORS']))
+                .filter(PS365SyncLog.sync_type == 'INVOICE_SYNC', PS365SyncLog.status == 'RUNNING')
                 .order_by(PS365SyncLog.started_at.desc())
                 .first()
             )
-            hours_since_inv = None
-            if last_invoice and last_invoice.started_at:
-                hours_since_inv = (now - last_invoice.started_at).total_seconds() / 3600
-                logger.info(f"Last successful invoice sync: {last_invoice.started_at} ({hours_since_inv:.1f}h ago)")
+            if running_inv and running_inv.started_at \
+                    and (now - running_inv.started_at) < timedelta(hours=6):
+                logger.info(
+                    f"Invoice sync already RUNNING (started {running_inv.started_at}); "
+                    f"skipping startup catch-up to avoid double-fire."
+                )
             else:
-                logger.info("No previous invoice sync found")
+                last_invoice = (
+                    PS365SyncLog.query
+                    .filter(PS365SyncLog.sync_type == 'INVOICE_SYNC')
+                    .filter(PS365SyncLog.status.in_(['COMPLETED', 'COMPLETED_WITH_ERRORS']))
+                    .order_by(PS365SyncLog.started_at.desc())
+                    .first()
+                )
+                hours_since_inv = None
+                if last_invoice and last_invoice.started_at:
+                    hours_since_inv = (now - last_invoice.started_at).total_seconds() / 3600
+                    logger.info(f"Last successful invoice sync: {last_invoice.started_at} ({hours_since_inv:.1f}h ago)")
+                else:
+                    logger.info("No previous invoice sync found")
 
-            if hours_since_inv is None or hours_since_inv > 20:
-                logger.info("Invoice sync is overdue (>20h or never ran) — triggering now")
-                _run_invoice_sync()
-            else:
-                logger.info(f"Invoice sync is recent ({hours_since_inv:.1f}h ago), skipping")
+                if hours_since_inv is None or hours_since_inv > 20:
+                    logger.info("Invoice sync is overdue (>20h or never ran) — triggering now")
+                    _run_invoice_sync()
+                else:
+                    logger.info(f"Invoice sync is recent ({hours_since_inv:.1f}h ago), skipping")
 
     except Exception as e:
         logger.error(f"Error checking missed syncs on startup: {str(e)}", exc_info=True)

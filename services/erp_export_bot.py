@@ -230,7 +230,50 @@ async def run_export(export_name: str, params: dict = None, triggered_by: str = 
 
             await _ensure_authenticated(context, page, config)
 
-            await flow.navigate_to_export_screen()
+            try:
+                await flow.navigate_to_export_screen()
+            except Exception as nav_err:
+                current_url = ''
+                page_title = ''
+                login_form_visible = False
+                try:
+                    current_url = (page.url or '').lower()
+                    page_title = (await page.title() or '').lower()
+                    login_form_visible = await page.query_selector(
+                        '#ContentMasterMain_txtUserName'
+                    ) is not None
+                except Exception:
+                    pass
+                landed_on_login = (
+                    'login.aspx' in current_url
+                    or 'login - powersoft' in page_title
+                    or login_form_visible
+                )
+                if landed_on_login:
+                    logger.warning(
+                        f"[bot:{run_id}] navigate_to_export_screen failed and landed on "
+                        f"login page (url={current_url!r}, title={page_title!r}, "
+                        f"login_form={login_form_visible}). Saved auth state appears expired. "
+                        f"Original error: {type(nav_err).__name__}: {nav_err}. "
+                        f"Re-logging in and retrying once."
+                    )
+                    for p in (AUTH_STATE_FILE, AUTH_STATE_META):
+                        try:
+                            if os.path.exists(p):
+                                os.remove(p)
+                        except Exception as rm_err:
+                            logger.warning(f"Could not remove stale auth file {p}: {rm_err}")
+                    await _login(page, config)
+                    try:
+                        await context.storage_state(path=AUTH_STATE_FILE)
+                        _save_auth_state_meta()
+                        logger.info(f"[bot:{run_id}] Refreshed auth state after expiry")
+                    except Exception as save_err:
+                        logger.warning(f"Could not save refreshed auth state: {save_err}")
+                    await flow.navigate_to_export_screen()
+                else:
+                    raise
+
             await flow.apply_filters(params)
 
             await flow.trigger_export()
