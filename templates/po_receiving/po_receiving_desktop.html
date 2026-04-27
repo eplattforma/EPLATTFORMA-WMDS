@@ -249,6 +249,48 @@ input[type=number] { -moz-appearance: textfield; }
 }
 .unsaved-indicator.show { display: inline; }
 
+.saved-lots {
+    margin-top: 0.25rem;
+    font-size: 0.7rem;
+    line-height: 1.3;
+}
+.saved-lot-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.05rem 0;
+}
+.saved-lot-row .lot-qty {
+    font-weight: 600;
+    color: var(--bs-success);
+}
+.saved-lot-row .lot-exp {
+    color: var(--bs-info);
+    font-family: monospace;
+}
+.saved-lot-row .lot-exp.lot-exp-missing {
+    color: var(--bs-danger);
+}
+.saved-lot-row .lot-del {
+    background: none;
+    border: none;
+    color: var(--bs-danger);
+    padding: 0 0.15rem;
+    font-size: 0.65rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.6;
+}
+.saved-lot-row .lot-del:hover { opacity: 1; }
+.saved-lots-total {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--bs-success);
+    margin-top: 0.15rem;
+    padding-top: 0.15rem;
+    border-top: 1px dashed var(--bs-border-color);
+}
+
 @media (max-width: 1100px) {
     .desktop-sidebar { width: 240px; min-width: 240px; }
 }
@@ -421,6 +463,10 @@ input[type=number] { -moz-appearance: textfield; }
                 : '—';
             const diffClass = diff > 0 ? 'text-warning' : (diff < 0 ? 'text-info' : 'text-success');
 
+            const lotsArr = line.lots || [];
+            const savedQtyHtml = renderSavedQty(line, lotsArr);
+            const savedExpHtml = renderSavedExpiry(line, lotsArr);
+
             const tr = document.createElement('tr');
             tr.className = rowClass;
             tr.dataset.poLineId = line.id;
@@ -435,15 +481,17 @@ input[type=number] { -moz-appearance: textfield; }
                     <input type="number" class="form-control form-control-sm" min="0" step="1"
                         id="inp_qty_${line.id}" placeholder="Qty Received"
                         onkeydown="if(event.key==='Enter'){event.preventDefault();saveLine(${line.id});}">
+                    ${savedQtyHtml}
                 </td>
                 <td>
                     <input type="date" class="form-control form-control-sm" id="inp_expiry_${line.id}"
                         ${line.item_has_expiration_date ? 'required' : ''}>
+                    ${savedExpHtml}
                 </td>
                 <td class="text-center ${diffClass}">${diffStr}</td>
                 <td>${getStatusBadge(ls.status)}</td>
                 <td>
-                    <button class="btn btn-primary btn-icon-sm" onclick="saveLine(${line.id})" title="Save">
+                    <button class="btn btn-primary btn-icon-sm" onclick="saveLine(${line.id})" title="Add lot">
                         <i class="fas fa-plus"></i>
                     </button>
                 </td>
@@ -461,11 +509,52 @@ input[type=number] { -moz-appearance: textfield; }
         document.getElementById('sumMissingExpiry').textContent = missingExpiry;
     }
 
+    function renderSavedQty(line, lots) {
+        if (!lots.length) return '';
+        const total = lots.reduce((s, l) => s + (Number(l.qty_received) || 0), 0);
+        const rows = lots.map(lot => {
+            const q = Number(lot.qty_received || 0).toFixed(0);
+            return `<div class="saved-lot-row">
+                <span class="lot-qty">${q}</span>
+                <button class="lot-del" title="Remove lot" onclick="deleteLot(${lot.id}, ${line.id})">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>`;
+        }).join('');
+        const totalLine = lots.length > 1
+            ? `<div class="saved-lots-total">Total: ${total.toFixed(0)}</div>`
+            : '';
+        return `<div class="saved-lots">${rows}${totalLine}</div>`;
+    }
+
+    function renderSavedExpiry(line, lots) {
+        if (!lots.length) return '';
+        const rows = lots.map(lot => {
+            if (lot.expiry_date) {
+                return `<div class="saved-lot-row">
+                    <span class="lot-exp">${escapeHtml(lot.expiry_date)}</span>
+                </div>`;
+            }
+            if (line.item_has_expiration_date) {
+                return `<div class="saved-lot-row">
+                    <span class="lot-exp lot-exp-missing"><i class="fas fa-exclamation-triangle"></i> No expiry</span>
+                </div>`;
+            }
+            return `<div class="saved-lot-row">
+                <span class="lot-exp" style="opacity:0.5">—</span>
+            </div>`;
+        }).join('');
+        return `<div class="saved-lots">${rows}</div>`;
+    }
+
     function computeLineStatus(line) {
         if (line.total_received <= 0) return {status: 'not_entered', issues: []};
-        let issues = [];
-        if (line.item_has_expiration_date && !line.expiry_date) {
-            return {status: 'missing_expiry', issues: ['Missing expiry date']};
+        const lots = Array.isArray(line.lots) ? line.lots : [];
+        if (line.item_has_expiration_date) {
+            const missingExp = lots.length === 0 || lots.some(l => !l.expiry_date);
+            if (missingExp) {
+                return {status: 'missing_expiry', issues: ['Missing expiry date']};
+            }
         }
         if (!line.line_id_365) return {status: 'no_ps365_line', issues: ['No PS365 line ID']};
         if (line.line_quantity > 0 && line.total_received > line.line_quantity) {
@@ -551,12 +640,52 @@ input[type=number] { -moz-appearance: textfield; }
                 line.total_received += data.line.qty_received;
                 line.expiry_date = data.line.expiry_date;
                 line.input_qty = data.line.input_qty;
+                if (!Array.isArray(line.lots)) line.lots = [];
+                line.lots.push({
+                    id: data.line.id,
+                    qty_received: data.line.qty_received,
+                    input_qty: data.line.input_qty,
+                    input_unit_type: data.line.input_unit_type,
+                    conversion_factor: data.line.conversion_factor,
+                    expiry_date: data.line.expiry_date,
+                    lot_note: data.line.lot_note,
+                });
                 qtyEl.value = '';
                 expiryEl.value = '';
                 renderTable();
             } else {
                 alert(data.error || 'Failed to save');
             }
+        } catch(e) {
+            alert('Network error: ' + e.message);
+        }
+    };
+
+    window.deleteLot = async function(lotId, poLineId) {
+        if (!confirm('Remove this lot entry?')) return;
+        try {
+            const resp = await fetch(`/po-receiving/api/desktop/delete-line/${lotId}`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({session_id: SESSION_ID}),
+            });
+            const data = await resp.json();
+            if (!data.ok) {
+                alert(data.error || 'Failed to remove lot');
+                return;
+            }
+            const line = poLines.find(l => l.id === poLineId);
+            if (line && Array.isArray(line.lots)) {
+                const removed = line.lots.find(l => l.id === lotId);
+                if (removed) {
+                    line.total_received = Math.max(0, line.total_received - (Number(removed.qty_received) || 0));
+                }
+                line.lots = line.lots.filter(l => l.id !== lotId);
+                const last = line.lots.length ? line.lots[line.lots.length - 1] : null;
+                line.expiry_date = last ? last.expiry_date : null;
+                line.input_qty = last ? last.input_qty : null;
+            }
+            renderTable();
         } catch(e) {
             alert('Network error: ' + e.message);
         }
