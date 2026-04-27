@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash
 from flask_login import login_required, current_user
 from app import db
-from models import PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine
+from models import PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine, DwItem
 from sqlalchemy import func, or_
 from shelves_service import fetch_item_shelves, Ps365Error
 from utils.image_handler import get_product_image
