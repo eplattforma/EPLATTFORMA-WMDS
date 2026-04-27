@@ -389,7 +389,9 @@ input[type=number] { -moz-appearance: textfield; }
         <div class="summary-card">
             <h6><i class="fas fa-calendar"></i> Bulk Expiry</h6>
             <div class="input-group input-group-sm mb-2">
-                <input type="date" id="bulkExpiryDate" class="form-control form-control-sm">
+                <input type="text" id="bulkExpiryDate" class="form-control form-control-sm"
+                    placeholder="dd/mm/yy" maxlength="8" inputmode="numeric"
+                    oninput="maskDateInput(this)">
                 <button class="btn btn-outline-primary btn-sm" onclick="applyBulkExpiry('missing')">
                     Missing
                 </button>
@@ -433,6 +435,59 @@ input[type=number] { -moz-appearance: textfield; }
         return {'Content-Type': 'application/json', 'X-CSRFToken': CSRF};
     }
 
+    // --- Date helpers: dd/mm/yy <-> yyyy-mm-dd ---
+    function parseDDMMYYtoISO(s) {
+        if (!s) return null;
+        const m = String(s).trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2}|\d{4})$/);
+        if (!m) return null;
+        let dd = parseInt(m[1], 10), mm = parseInt(m[2], 10), yy = parseInt(m[3], 10);
+        if (yy < 100) yy += 2000;
+        if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+        const d = new Date(yy, mm - 1, dd);
+        if (d.getFullYear() !== yy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
+        const pad = n => String(n).padStart(2, '0');
+        return `${yy}-${pad(mm)}-${pad(dd)}`;
+    }
+    function formatISOtoDDMMYY(iso) {
+        if (!iso) return '';
+        const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) return iso;
+        return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+    }
+    window.maskDateInput = function(input) {
+        // Caret-preserving auto-format to dd/mm/yy.
+        // Strategy: count digits to the left of the caret in the raw value,
+        // rebuild the formatted value, then place the caret after the same
+        // digit count in the formatted string (skipping inserted slashes).
+        const oldVal = input.value || '';
+        const caret = (typeof input.selectionStart === 'number') ? input.selectionStart : oldVal.length;
+
+        let digitsBeforeCaret = 0;
+        for (let i = 0; i < caret && i < oldVal.length; i++) {
+            if (oldVal.charCodeAt(i) >= 48 && oldVal.charCodeAt(i) <= 57) digitsBeforeCaret++;
+        }
+
+        const allDigits = oldVal.replace(/[^\d]/g, '').slice(0, 6);
+        let formatted;
+        if (allDigits.length >= 5) formatted = allDigits.slice(0, 2) + '/' + allDigits.slice(2, 4) + '/' + allDigits.slice(4);
+        else if (allDigits.length >= 3) formatted = allDigits.slice(0, 2) + '/' + allDigits.slice(2);
+        else formatted = allDigits;
+
+        if (formatted === oldVal) return; // no change → don't disturb caret
+
+        // Walk formatted string until we have passed `digitsBeforeCaret` digits.
+        let newCaret = formatted.length;
+        let seen = 0;
+        for (let i = 0; i < formatted.length; i++) {
+            if (seen >= digitsBeforeCaret) { newCaret = i; break; }
+            const c = formatted.charCodeAt(i);
+            if (c >= 48 && c <= 57) seen++;
+        }
+
+        input.value = formatted;
+        try { input.setSelectionRange(newCaret, newCaret); } catch (e) { /* ignore on inputs that don't support it */ }
+    };
+
     function renderTable() {
         const tbody = document.getElementById('rcvTableBody');
         tbody.innerHTML = '';
@@ -441,7 +496,21 @@ input[type=number] { -moz-appearance: textfield; }
         let enteredCount = 0, readyCount = 0, errorCount = 0;
         let missingExpiry = 0;
 
-        poLines.forEach(line => {
+        // On the "Ready" tab, sort by entry order (FIFO — first in on top).
+        // Lines without any received lot fall to the bottom.
+        let iterLines = poLines;
+        if (currentFilter === 'ready') {
+            iterLines = poLines.slice().sort(function(a, b) {
+                const aTs = a.first_received_at || '';
+                const bTs = b.first_received_at || '';
+                if (aTs && bTs) return aTs.localeCompare(bTs);
+                if (aTs) return -1;
+                if (bTs) return 1;
+                return 0;
+            });
+        }
+
+        iterLines.forEach(line => {
             const ls = computeLineStatus(line);
             lineStatuses[line.id] = ls;
 
@@ -484,7 +553,9 @@ input[type=number] { -moz-appearance: textfield; }
                     ${savedQtyHtml}
                 </td>
                 <td>
-                    <input type="date" class="form-control form-control-sm" id="inp_expiry_${line.id}"
+                    <input type="text" class="form-control form-control-sm" id="inp_expiry_${line.id}"
+                        placeholder="dd/mm/yy" maxlength="8" inputmode="numeric"
+                        oninput="maskDateInput(this)"
                         ${line.item_has_expiration_date ? 'required' : ''}>
                     ${savedExpHtml}
                 </td>
@@ -532,7 +603,7 @@ input[type=number] { -moz-appearance: textfield; }
         const rows = lots.map(lot => {
             if (lot.expiry_date) {
                 return `<div class="saved-lot-row">
-                    <span class="lot-exp">${escapeHtml(lot.expiry_date)}</span>
+                    <span class="lot-exp">${escapeHtml(formatISOtoDDMMYY(lot.expiry_date))}</span>
                 </div>`;
             }
             if (line.item_has_expiration_date) {
@@ -621,11 +692,23 @@ input[type=number] { -moz-appearance: textfield; }
         }
         qtyEl.classList.remove('is-invalid');
 
+        let expiryISO = null;
+        if (expiryEl.value && expiryEl.value.trim()) {
+            expiryISO = parseDDMMYYtoISO(expiryEl.value);
+            if (!expiryISO) {
+                expiryEl.classList.add('is-invalid');
+                expiryEl.focus();
+                alert('Invalid expiry date. Use format dd/mm/yy');
+                return;
+            }
+        }
+        expiryEl.classList.remove('is-invalid');
+
         const payload = {
             session_id: SESSION_ID,
             po_line_id: poLineId,
             input_qty: inputQty,
-            expiry_date: expiryEl.value || null,
+            expiry_date: expiryISO,
             lot_note: '',
         };
 
@@ -790,22 +873,31 @@ input[type=number] { -moz-appearance: textfield; }
     };
 
     window.applyBulkExpiry = function(mode) {
-        const dateVal = document.getElementById('bulkExpiryDate').value;
-        if (!dateVal) {
-            alert('Please select an expiry date first');
+        const bulkEl = document.getElementById('bulkExpiryDate');
+        const rawVal = (bulkEl.value || '').trim();
+        if (!rawVal) {
+            alert('Please enter an expiry date first (dd/mm/yy)');
             return;
         }
+        const iso = parseDDMMYYtoISO(rawVal);
+        if (!iso) {
+            bulkEl.classList.add('is-invalid');
+            alert('Invalid date. Use format dd/mm/yy');
+            return;
+        }
+        bulkEl.classList.remove('is-invalid');
+        const displayVal = formatISOtoDDMMYY(iso);
 
         poLines.forEach(line => {
             if (line.total_received <= 0) return;
             const expiryEl = document.getElementById(`inp_expiry_${line.id}`);
             if (expiryEl) {
                 if (mode === 'all') {
-                    expiryEl.value = dateVal;
+                    expiryEl.value = displayVal;
                 } else if (mode === 'missing') {
                     const hasMissing = line.item_has_expiration_date && !expiryEl.value;
                     if (hasMissing) {
-                        expiryEl.value = dateVal;
+                        expiryEl.value = displayVal;
                     }
                 }
             }

@@ -1569,6 +1569,7 @@ def receive_desktop(po_id):
         ).order_by(ReceivingLine.received_at).all()
 
         total_received = sum(float(r.qty_received) for r in rcv_lines)
+        first_received_at = rcv_lines[0].received_at.isoformat() if rcv_lines and rcv_lines[0].received_at else None
 
         lots = []
         for r in rcv_lines:
@@ -1604,6 +1605,7 @@ def receive_desktop(po_id):
             'item_has_expiration_date': line.item_has_expiration_date,
             'line_id_365': line.line_id_365 or '',
             'total_received': total_received,
+            'first_received_at': first_received_at,
             'lots': lots,
             'shelf_locations': shelf_locs,
             'image_path': image_path,
