@@ -184,7 +184,7 @@
 </head>
 <body>
     <div class="action-buttons no-print">
-        <a href="{{ url_for('po_receiving.receive', po_id=po.id) }}" class="action-btn btn-secondary-custom">
+        <a href="{{ url_for('po_receiving.receive_desktop', po_id=po.id) }}" class="action-btn btn-secondary-custom">
             <i class="fas fa-arrow-left"></i> Back
         </a>
         <button class="action-btn btn-blue" onclick="window.print()">

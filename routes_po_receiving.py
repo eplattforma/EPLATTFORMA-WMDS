@@ -606,7 +606,7 @@ def download():
             else:
                 flash(f'Purchase order {po_code} downloaded successfully', 'success')
             
-            return redirect(url_for('po_receiving.receive', po_id=po.id))
+            return redirect(url_for('po_receiving.receive_desktop', po_id=po.id))
         except Exception as e:
             flash(f'Error downloading order: {str(e)}', 'error')
             return render_template('po_receiving/download.html', error=str(e))

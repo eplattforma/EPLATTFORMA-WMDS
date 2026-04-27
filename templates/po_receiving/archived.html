@@ -78,7 +78,7 @@
                     </small>
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="{{ url_for('po_receiving.receive', po_id=item.po.id) }}" class="btn btn-sm btn-outline-primary" title="View details">
+                    <a href="{{ url_for('po_receiving.receive_desktop', po_id=item.po.id) }}" class="btn btn-sm btn-outline-primary" title="View details">
                         <i class="fas fa-eye"></i> View
                     </a>
                     <button onclick="unarchivePO({{ item.po.id }}, '{{ item.po.code_365 or item.po.shopping_cart_code }}')" class="btn btn-sm btn-success" title="Restore this PO">
