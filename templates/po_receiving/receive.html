@@ -235,7 +235,14 @@ input[type=number] {
                                 {% if line.supplier_item_code %}
                                 <span class="text-info" style="margin-left: 8px;">({{ line.supplier_item_code }})</span>
                                 {% endif %}
-                                {% if line.unit_type %}
+                                {% set ps = psitems_by_line.get(line.id) if psitems_by_line else None %}
+                                {% set ps_attr = (ps.attribute_1_code if ps else '') %}
+                                {% set ps_qty = (ps.selling_qty if ps else None) %}
+                                {% if ps_attr %}
+                                <span class="badge bg-light text-dark border ms-2">
+                                    {{ ps_attr }}{% if ps_qty and ps_qty > 0 %}({{ ps_qty|int if ps_qty == ps_qty|int else ps_qty }}){% endif %}
+                                </span>
+                                {% elif line.unit_type %}
                                 <span class="badge bg-light text-dark border ms-2">
                                     {{ line.unit_type }}{% if line.pieces_per_unit and line.pieces_per_unit > 1 %}({{ line.pieces_per_unit|int }}){% endif %}
                                 </span>

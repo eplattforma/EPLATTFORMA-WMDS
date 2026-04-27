@@ -649,7 +649,24 @@ def receive(po_id):
             po_line_id=line.id
         ).scalar() or Decimal('0')
         received_by_line[line.id] = total_received
-    
+
+    # Bulk-fetch PSItems data for unit-code/selling-qty display (matches picking)
+    item_codes_for_dw = [l.item_code_365 for l in po.lines if l.item_code_365]
+    psitems_by_line = {}
+    if item_codes_for_dw:
+        dw_rows = DwItem.query.filter(DwItem.item_code_365.in_(item_codes_for_dw)).all()
+        dw_map = {d.item_code_365: d for d in dw_rows}
+        for l in po.lines:
+            d = dw_map.get(l.item_code_365)
+            attr1 = (d.attribute_1_code_365 if d and d.attribute_1_code_365 else '') or ''
+            sq = None
+            if d and d.selling_qty is not None:
+                try:
+                    sq = float(d.selling_qty)
+                except (TypeError, ValueError):
+                    sq = None
+            psitems_by_line[l.id] = {'attribute_1_code': attr1, 'selling_qty': sq}
+
     # Get receiving notes from settings
     from models import Setting
     default_receiving_notes = "Wrong Barcode\nBarcode not in system\nNew Product\nRepacking\nNeeds Labels"
@@ -661,6 +678,7 @@ def receive(po_id):
         po=po,
         session=session,
         received_by_line=received_by_line,
+        psitems_by_line=psitems_by_line,
         receiving_notes=receiving_notes
     )
 
