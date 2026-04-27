@@ -33,14 +33,6 @@ input[type=number] { -moz-appearance: textfield; }
     overflow-y: auto;
     padding: 0.75rem;
 }
-.desktop-sidebar {
-    width: 280px;
-    min-width: 280px;
-    background: var(--bs-dark);
-    border-left: 1px solid var(--bs-border-color);
-    overflow-y: auto;
-    padding: 0.75rem;
-}
 .search-container {
     position: relative;
     margin-bottom: 0.75rem;
@@ -291,9 +283,6 @@ input[type=number] { -moz-appearance: textfield; }
     border-top: 1px dashed var(--bs-border-color);
 }
 
-@media (max-width: 1100px) {
-    .desktop-sidebar { width: 240px; min-width: 240px; }
-}
 </style>
 {% endblock %}
 
@@ -357,7 +346,7 @@ input[type=number] { -moz-appearance: textfield; }
                         <th>Product Name</th>
                         <th>Supplier Code</th>
                         <th>Barcode</th>
-                        <th class="text-end">Ordered</th>
+                <th class="text-end">Ordered</th>
                         <th style="width:120px">Qty Received</th>
                         <th style="width:120px">Expiry</th>
                         <th class="text-center">Diff</th>
@@ -369,50 +358,25 @@ input[type=number] { -moz-appearance: textfield; }
                 </tbody>
             </table>
         </div>
-    </div>
 
-    <div class="desktop-sidebar">
-        <div class="summary-card">
-            <h6><i class="fas fa-chart-bar"></i> Summary</h6>
-            <div class="summary-row"><span class="label">PO Lines</span><span class="value" id="sumTotalLines">0</span></div>
-            <div class="summary-row"><span class="label">Entered</span><span class="value" id="sumEnteredLines">0</span></div>
-            <div class="summary-row"><span class="label text-success">Ready</span><span class="value text-success" id="sumReadyLines">0</span></div>
-            <div class="summary-row"><span class="label text-danger">Errors</span><span class="value text-danger" id="sumErrorLines">0</span></div>
-            <hr style="margin:0.4rem 0">
-            <div class="summary-row"><span class="label">Total Ordered</span><span class="value" id="sumTotalOrdered">0</span></div>
-            <div class="summary-row"><span class="label">Total Received</span><span class="value" id="sumTotalReceived">0</span></div>
-            <div class="summary-row"><span class="label">Variance</span><span class="value" id="sumVariance">0</span></div>
-            <hr style="margin:0.4rem 0">
-            <div class="summary-row"><span class="label text-danger">Missing Expiry</span><span class="value text-danger" id="sumMissingExpiry">0</span></div>
-        </div>
-
-        <div class="summary-card">
-            <h6><i class="fas fa-calendar"></i> Bulk Expiry</h6>
-            <div class="input-group input-group-sm mb-2">
-                <input type="text" id="bulkExpiryDate" class="form-control form-control-sm"
-                    placeholder="dd/mm/yy" maxlength="8" inputmode="numeric"
-                    oninput="maskDateInput(this)">
-                <button class="btn btn-outline-primary btn-sm" onclick="applyBulkExpiry('missing')">
-                    Missing
-                </button>
-                <button class="btn btn-outline-warning btn-sm" onclick="applyBulkExpiry('all')">
-                    All
-                </button>
+        <div class="card mt-3">
+            <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <strong><i class="fas fa-info-circle"></i> Receipt Details</strong>
+                <span class="badge bg-secondary">{{ session.receipt_code }}</span>
             </div>
-            <div class="text-muted" style="font-size:0.7rem">Apply expiry to rows missing it or all entered rows</div>
-        </div>
-
-        <div class="summary-card">
-            <h6><i class="fas fa-info-circle"></i> Session</h6>
-            <div class="summary-row"><span class="label">Receipt</span><span class="value">{{ session.receipt_code }}</span></div>
-            <div class="summary-row"><span class="label">Operator</span><span class="value">{{ session.operator or 'N/A' }}</span></div>
-            <div class="summary-row"><span class="label">Started</span><span class="value" style="font-size:0.7rem">{{ session.started_at.strftime('%Y-%m-%d %H:%M') if session.started_at else 'N/A' }}</span></div>
-        </div>
-
-        <div class="summary-card">
-            <h6><i class="fas fa-sticky-note"></i> Comments</h6>
-            <textarea id="sessionComments" class="form-control form-control-sm" rows="3" style="font-size:0.75rem" placeholder="Add comments...">{{ session.comments or '' }}</textarea>
-            <button class="btn btn-outline-primary btn-sm mt-1 w-100" onclick="saveComments()">Save Comments</button>
+            <div class="card-body py-2">
+                <div class="row g-2 small">
+                    <div class="col-md-6 col-xl-3"><div><span class="text-muted">Receipt</span><br><strong>{{ session.receipt_code }}</strong></div></div>
+                    <div class="col-md-6 col-xl-3"><div><span class="text-muted">Operator</span><br><strong>{{ session.operator or 'N/A' }}</strong></div></div>
+                    <div class="col-md-6 col-xl-3"><div><span class="text-muted">Started</span><br><strong>{{ session.started_at.strftime('%Y-%m-%d %H:%M') if session.started_at else 'N/A' }}</strong></div></div>
+                    <div class="col-md-6 col-xl-3"><div><span class="text-muted">PO Status</span><br><strong>{{ po.status_code or po.status_name or 'N/A' }}</strong></div></div>
+                </div>
+                <div class="mt-2">
+                    <label class="form-label mb-1 small text-muted">Comments</label>
+                    <textarea id="sessionComments" class="form-control form-control-sm" rows="2" style="font-size:0.75rem" placeholder="Add comments...">{{ session.comments or '' }}</textarea>
+                    <button class="btn btn-outline-primary btn-sm mt-1" onclick="saveComments()">Save Comments</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -545,7 +509,6 @@ input[type=number] { -moz-appearance: textfield; }
                 <td class="cell-name" title="${escapeHtml(line.item_name)}">${escapeHtml(line.item_name)}</td>
                 <td class="cell-code">${escapeHtml(line.supplier_item_code)}</td>
                 <td class="cell-code">${escapeHtml(line.item_barcode)}</td>
-                <td class="text-end">${line.line_quantity}</td>
                 <td>
                     <input type="number" class="form-control form-control-sm" min="0" step="1"
                         id="inp_qty_${line.id}" placeholder="Qty Received"
@@ -570,14 +533,6 @@ input[type=number] { -moz-appearance: textfield; }
             tbody.appendChild(tr);
         });
 
-        document.getElementById('sumTotalLines').textContent = poLines.length;
-        document.getElementById('sumEnteredLines').textContent = enteredCount;
-        document.getElementById('sumReadyLines').textContent = readyCount;
-        document.getElementById('sumErrorLines').textContent = errorCount;
-        document.getElementById('sumTotalOrdered').textContent = totalOrdered.toFixed(0);
-        document.getElementById('sumTotalReceived').textContent = totalReceived.toFixed(0);
-        document.getElementById('sumVariance').textContent = (totalReceived - totalOrdered).toFixed(0);
-        document.getElementById('sumMissingExpiry').textContent = missingExpiry;
     }
 
     function renderSavedQty(line, lots) {
