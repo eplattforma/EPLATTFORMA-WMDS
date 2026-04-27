@@ -47,7 +47,20 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
     if params:
         url = f"{url}?{_build_query_string(params)}"
 
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+    }
+
+    cf_header_name = os.getenv('MAGENTO_CF_BYPASS_HEADER_NAME')
+    cf_header_value = os.getenv('MAGENTO_CF_BYPASS_HEADER_VALUE')
+    if cf_header_name and cf_header_value:
+        headers[cf_header_name] = cf_header_value
 
     last_status = 0
     last_text = ""
@@ -59,13 +72,18 @@ def magento_rest_get(path: str, params: dict = None, timeout: int = 30) -> tuple
         last_status = resp.status_code
         last_text = resp.text
 
-        if resp.status_code != 401:
-            if resp.status_code != 200:
-                logger.warning(f"Magento {resp.status_code}: {resp.text[:500]}")
+        if resp.status_code == 200:
             return resp.status_code, resp.text
 
-        logger.warning(f"Magento 401 on attempt {attempt}: {resp.text[:200]}")
-        if attempt < MAX_RETRIES:
-            time.sleep(RETRY_DELAY * attempt)
+        if resp.status_code in (401, 403, 429, 502, 503, 504):
+            logger.warning(
+                f"Magento {resp.status_code} on attempt {attempt}: {resp.text[:200]}"
+            )
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY * attempt)
+                continue
+
+        logger.warning(f"Magento {resp.status_code}: {resp.text[:500]}")
+        return resp.status_code, resp.text
 
     return last_status, last_text

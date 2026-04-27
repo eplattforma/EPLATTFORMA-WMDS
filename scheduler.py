@@ -266,9 +266,15 @@ def _check_missed_syncs_on_startup():
     try:
         from app import app, db
         from models import PS365SyncLog
-        from datetime import timedelta
+        from datetime import timedelta, timezone
+
+        def _aware(dt):
+            if dt is None:
+                return None
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
         with app.app_context():
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             logger.info("Checking for missed scheduled syncs after startup...")
 
             running_full = (
@@ -278,7 +284,7 @@ def _check_missed_syncs_on_startup():
                 .first()
             )
             if running_full and running_full.started_at \
-                    and (now - running_full.started_at) < timedelta(hours=6):
+                    and (now - _aware(running_full.started_at)) < timedelta(hours=6):
                 logger.info(
                     f"Full DW sync already RUNNING (started {running_full.started_at}); "
                     f"skipping startup catch-up to avoid double-fire with APScheduler misfire recovery."
@@ -293,7 +299,7 @@ def _check_missed_syncs_on_startup():
                 )
                 hours_since_full = None
                 if last_full and last_full.started_at:
-                    hours_since_full = (now - last_full.started_at).total_seconds() / 3600
+                    hours_since_full = (now - _aware(last_full.started_at)).total_seconds() / 3600
                     logger.info(f"Last successful full DW sync: {last_full.started_at} ({hours_since_full:.1f}h ago)")
                 else:
                     logger.info("No previous full DW sync found")
@@ -307,7 +313,7 @@ def _check_missed_syncs_on_startup():
             db.session.remove()
             db.engine.dispose()
 
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             running_inv = (
                 PS365SyncLog.query
                 .filter(PS365SyncLog.sync_type == 'INVOICE_SYNC', PS365SyncLog.status == 'RUNNING')
@@ -315,7 +321,7 @@ def _check_missed_syncs_on_startup():
                 .first()
             )
             if running_inv and running_inv.started_at \
-                    and (now - running_inv.started_at) < timedelta(hours=6):
+                    and (now - _aware(running_inv.started_at)) < timedelta(hours=6):
                 logger.info(
                     f"Invoice sync already RUNNING (started {running_inv.started_at}); "
                     f"skipping startup catch-up to avoid double-fire."
@@ -330,7 +336,7 @@ def _check_missed_syncs_on_startup():
                 )
                 hours_since_inv = None
                 if last_invoice and last_invoice.started_at:
-                    hours_since_inv = (now - last_invoice.started_at).total_seconds() / 3600
+                    hours_since_inv = (now - _aware(last_invoice.started_at)).total_seconds() / 3600
                     logger.info(f"Last successful invoice sync: {last_invoice.started_at} ({hours_since_inv:.1f}h ago)")
                 else:
                     logger.info("No previous invoice sync found")
