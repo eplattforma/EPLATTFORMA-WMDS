@@ -556,6 +556,12 @@ input[type=number] { -moz-appearance: textfield; }
         return `<div class="saved-lots">${rows}${totalLine}</div>`;
     }
 
+    function getPackagingLabel(line) {
+        const unitType = line.unit_type && line.unit_type !== 'None' ? line.unit_type : 'PIECE';
+        const pieces = Number(line.pieces_per_unit || 1);
+        return pieces > 1 ? `${unitType}(${pieces})` : unitType;
+    }
+
     function renderSavedExpiry(line, lots) {
         if (!lots.length) return '';
         const rows = lots.map(lot => {
