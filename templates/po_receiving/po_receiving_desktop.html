@@ -504,8 +504,28 @@ input[type=number] { -moz-appearance: textfield; }
             const diffClass = diff > 0 ? 'text-warning' : (diff < 0 ? 'text-info' : 'text-success');
 
             const lotsArr = line.lots || [];
+            const hasLots = lotsArr.length > 0;
             const savedQtyHtml = renderSavedQty(line, lotsArr);
             const savedExpHtml = renderSavedExpiry(line, lotsArr);
+
+            const qtyCellHtml = hasLots
+                ? savedQtyHtml
+                : `<input type="number" class="form-control form-control-sm" min="0" step="1"
+                        id="inp_qty_${line.id}" placeholder="Qty Received"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();saveLine(${line.id});}">`;
+
+            const expCellHtml = hasLots
+                ? savedExpHtml
+                : `<input type="text" class="form-control form-control-sm" id="inp_expiry_${line.id}"
+                        placeholder="dd/mm/yy" maxlength="8" inputmode="numeric"
+                        oninput="maskDateInput(this)"
+                        ${line.item_has_expiration_date ? 'required' : ''}>`;
+
+            const actionCellHtml = hasLots
+                ? ''
+                : `<button class="btn btn-primary btn-icon-sm" onclick="saveLine(${line.id})" title="Save line">
+                        <i class="fas fa-plus"></i>
+                    </button>`;
 
             const tr = document.createElement('tr');
             tr.className = rowClass;
@@ -518,26 +538,11 @@ input[type=number] { -moz-appearance: textfield; }
                 <td class="cell-code">${escapeHtml(line.item_barcode)}</td>
                 <td class="text-end">${line.line_quantity}</td>
                 <td class="cell-code">${escapeHtml(getPackagingLabel(line))}</td>
-                <td>
-                    <input type="number" class="form-control form-control-sm" min="0" step="1"
-                        id="inp_qty_${line.id}" placeholder="Qty Received"
-                        onkeydown="if(event.key==='Enter'){event.preventDefault();saveLine(${line.id});}">
-                    ${savedQtyHtml}
-                </td>
-                <td>
-                    <input type="text" class="form-control form-control-sm" id="inp_expiry_${line.id}"
-                        placeholder="dd/mm/yy" maxlength="8" inputmode="numeric"
-                        oninput="maskDateInput(this)"
-                        ${line.item_has_expiration_date ? 'required' : ''}>
-                    ${savedExpHtml}
-                </td>
+                <td>${qtyCellHtml}</td>
+                <td>${expCellHtml}</td>
                 <td class="text-center ${diffClass}">${diffStr}</td>
                 <td>${getStatusBadge(ls.status)}</td>
-                <td>
-                    <button class="btn btn-primary btn-icon-sm" onclick="saveLine(${line.id})" title="Add lot">
-                        <i class="fas fa-plus"></i>
-                    </button>
-                </td>
+                <td>${actionCellHtml}</td>
             `;
             tbody.appendChild(tr);
         });
