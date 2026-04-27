@@ -115,6 +115,31 @@ function clearBulkSelection() {
     if (selAll) selAll.checked = false;
     updateBulkCount();
 }
+function refreshAllData() {
+    var btn = document.getElementById('btn-refresh-all');
+    var spinner = btn ? btn.querySelector('.spinner-icon') : null;
+    if (btn) btn.disabled = true;
+    if (spinner) spinner.classList.add('fa-spin');
+    Promise.all([
+        fetch('/crm/open-orders/refresh', {method:'POST'}).then(function(r){return r.json();}),
+        fetch('/crm/abandoned-carts/refresh', {method:'POST'}).then(function(r){return r.json();})
+    ]).then(function(results){
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.classList.remove('fa-spin');
+        if (results[0].success && results[1].success) {
+            location.reload();
+        } else {
+            var err = '';
+            if (!results[0].success) err += 'Orders: ' + results[0].message + '\n';
+            if (!results[1].success) err += 'Carts: ' + results[1].message;
+            alert('Sync error:\n' + err);
+        }
+    }).catch(function(){
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.classList.remove('fa-spin');
+        alert('Sync failed. Please try again.');
+    });
+}
 </script>
 {% endblock %}
 
@@ -968,33 +993,6 @@ function toggleStateGroup(e, state) {
 })();
 
 setTimeout(function(){ location.reload(); }, 600000);
-
-function refreshAllData() {
-    var btn = document.getElementById('btn-refresh-all');
-    var spinner = btn.querySelector('.spinner-icon');
-    var text = btn.querySelector('.refresh-text');
-    if (btn) btn.disabled = true;
-    if (spinner) spinner.classList.add('fa-spin');
-    Promise.all([
-        fetch('/crm/open-orders/refresh', {method:'POST'}).then(function(r){return r.json();}),
-        fetch('/crm/abandoned-carts/refresh', {method:'POST'}).then(function(r){return r.json();})
-    ]).then(function(results){
-        if (btn) btn.disabled = false;
-        if (spinner) spinner.classList.remove('fa-spin');
-        if (results[0].success && results[1].success) {
-            location.reload();
-        } else {
-            var err = '';
-            if (!results[0].success) err += 'Orders: ' + results[0].message + '\n';
-            if (!results[1].success) err += 'Carts: ' + results[1].message;
-            alert('Sync error:\n' + err);
-        }
-    }).catch(function(){
-        if (btn) btn.disabled = false;
-        if (spinner) spinner.classList.remove('fa-spin');
-        alert('Sync failed. Please try again.');
-    });
-}
 
 window.addEventListener('load', function() {
     document.querySelectorAll('.msg-popover[data-bs-toggle="popover"]').forEach(function(el) {
