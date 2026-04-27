@@ -7,7 +7,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from datetime import datetime, timezone
+from datetime import datetime
 import os
 
 logger = logging.getLogger(__name__)
@@ -268,7 +268,7 @@ def _check_missed_syncs_on_startup():
         from models import PS365SyncLog
         from datetime import timedelta
         with app.app_context():
-            now = datetime.now(timezone.utc)
+            now = datetime.utcnow()
             logger.info("Checking for missed scheduled syncs after startup...")
 
             running_full = (
@@ -307,7 +307,7 @@ def _check_missed_syncs_on_startup():
             db.session.remove()
             db.engine.dispose()
 
-            now = datetime.now(timezone.utc)
+            now = datetime.utcnow()
             running_inv = (
                 PS365SyncLog.query
                 .filter(PS365SyncLog.sync_type == 'INVOICE_SYNC', PS365SyncLog.status == 'RUNNING')
