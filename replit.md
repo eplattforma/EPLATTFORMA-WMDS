@@ -72,4 +72,4 @@ Preferred communication style: Simple, everyday language.
 - **OneSignal**: For push notifications.
 - **Power BI**: For business intelligence reporting.
 - **Magento/BSS**: For customer pricing and abandoned cart data.
-- **Playwright**: Browser automation for ERP export bot.
+- **Playwright**: Browser automation for ERP export bot. Chromium is auto-installed on first use; in production the scheduler also kicks off a background pre-warm at boot so the 02:45 ERP item-cost cron isn't paying first-time install cost. Install location is probed across `PLAYWRIGHT_BROWSERS_PATH`, `~/.cache/ms-playwright`, and `~/workspace/.cache/ms-playwright`. The cost-refresh cron writes its `bot_run_log` audit row before any browser/install step, and the Powersoft365 nav-with-relogin path retries up to 3 times (clearing cookies between attempts) so a single transient login redirect doesn't kill the whole nightly run.

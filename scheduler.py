@@ -178,6 +178,18 @@ def setup_scheduler(app):
             )
             logger.info("✓ ERP item cost refresh scheduled: Daily at 2:45 AM (before full DW sync)")
 
+            # Pre-warm Playwright Chromium in production so the 02:45 ERP cron
+            # doesn't pay first-time install cost (and any install failure is
+            # surfaced in boot logs instead of silently killing the cron before
+            # it can write its BotRunLog row).
+            if is_production:
+                try:
+                    from services.erp_export_bot import prewarm_playwright_browsers_async
+                    prewarm_playwright_browsers_async()
+                    logger.info("✓ Playwright Chromium pre-warm kicked off in background")
+                except Exception as e:
+                    logger.warning(f"Could not start Playwright pre-warm: {e}")
+
             scheduler.add_job(
                 func=_run_expiry_ftp_upload,
                 trigger=CronTrigger(hour=21, minute=0),
