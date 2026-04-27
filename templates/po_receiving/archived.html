@@ -47,6 +47,13 @@
                         {% else %}
                         <span class="badge bg-warning">Incomplete</span>
                         {% endif %}
+                        {% if item.po.archived_at %}
+                        <span class="badge bg-info ms-1" title="Archived date">
+                            <i class="fas fa-archive"></i>
+                            {{ item.po.archived_at.strftime('%Y-%m-%d %H:%M') }}
+                            {% if item.po.archiver %} · {{ item.po.archiver.username }}{% endif %}
+                        </span>
+                        {% endif %}
                     </h6>
                     {% if item.po.supplier_name %}
                     <div class="mb-1">{{ item.po.supplier_name }}</div>

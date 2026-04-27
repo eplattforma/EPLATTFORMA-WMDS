@@ -309,6 +309,9 @@ input[type=number] { -moz-appearance: textfield; }
             <button class="btn btn-sm btn-outline-info" onclick="validateSession()">
                 <i class="fas fa-check-circle"></i> Validate
             </button>
+            <a href="{{ url_for('po_receiving.print_po', po_id=po.id) }}" target="_blank" class="btn btn-sm btn-outline-light" title="Print purchase order">
+                <i class="fas fa-print"></i> Print
+            </a>
             <button class="btn btn-sm btn-success" id="btnSendPS365" onclick="sendToPS365()">
                 <i class="fas fa-paper-plane"></i> Send to PS365
             </button>
