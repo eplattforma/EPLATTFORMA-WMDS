@@ -1561,8 +1561,15 @@ def receive_desktop(po_id):
         db.session.add(session)
         db.session.commit()
 
+    all_lines = po.lines.order_by(PurchaseOrderLine.line_number).all()
+    item_codes = [l.item_code_365 for l in all_lines if l.item_code_365]
+    dw_items_map = {}
+    if item_codes:
+        dw_rows = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
+        dw_items_map = {d.item_code_365: d for d in dw_rows}
+
     po_lines_data = []
-    for line in po.lines.order_by(PurchaseOrderLine.line_number).all():
+    for line in all_lines:
         rcv_lines = ReceivingLine.query.filter_by(
             session_id=session.id,
             po_line_id=line.id
@@ -1592,6 +1599,15 @@ def receive_desktop(po_id):
 
         image_path = get_product_image(line.item_code_365) if line.item_code_365 else 'images/image-not-found.png'
 
+        dw = dw_items_map.get(line.item_code_365)
+        attribute_1_code = (dw.attribute_1_code_365 if dw and dw.attribute_1_code_365 else '') or ''
+        selling_qty_val = None
+        if dw and dw.selling_qty is not None:
+            try:
+                selling_qty_val = float(dw.selling_qty)
+            except (TypeError, ValueError):
+                selling_qty_val = None
+
         po_lines_data.append({
             'id': line.id,
             'line_number': line.line_number,
@@ -1602,6 +1618,8 @@ def receive_desktop(po_id):
             'line_quantity': float(line.line_quantity or 0),
             'unit_type': line.unit_type or '',
             'pieces_per_unit': int(line.pieces_per_unit or 1),
+            'attribute_1_code': attribute_1_code,
+            'selling_qty': selling_qty_val,
             'item_has_expiration_date': line.item_has_expiration_date,
             'line_id_365': line.line_id_365 or '',
             'total_received': total_received,

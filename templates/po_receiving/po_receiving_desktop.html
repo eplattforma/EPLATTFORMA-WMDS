@@ -153,6 +153,27 @@ input[type=number] { -moz-appearance: textfield; }
     font-size: 0.8rem;
     height: auto;
 }
+.rcv-table .cell-qty input.form-control-sm,
+.rcv-table .cell-expiry input.form-control-sm {
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0.3rem 0.45rem;
+}
+.rcv-table .cell-qty .saved-lots,
+.rcv-table .cell-expiry .saved-lots {
+    font-size: 0.95rem;
+}
+.rcv-table .cell-qty .saved-lot-row .lot-qty,
+.rcv-table .cell-expiry .saved-lot-row .lot-exp {
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+.rcv-table .cell-expiry .no-expiry-tag {
+    color: var(--bs-secondary);
+    opacity: 0.55;
+    font-size: 0.75rem;
+    font-style: italic;
+}
 .rcv-table select.form-select-sm {
     padding: 0.15rem 0.3rem;
     font-size: 0.8rem;
@@ -505,6 +526,7 @@ input[type=number] { -moz-appearance: textfield; }
 
             const lotsArr = line.lots || [];
             const hasLots = lotsArr.length > 0;
+            const requiresExpiry = !!line.item_has_expiration_date;
             const savedQtyHtml = renderSavedQty(line, lotsArr);
             const savedExpHtml = renderSavedExpiry(line, lotsArr);
 
@@ -514,12 +536,16 @@ input[type=number] { -moz-appearance: textfield; }
                         id="inp_qty_${line.id}" placeholder="Qty Received"
                         onkeydown="if(event.key==='Enter'){event.preventDefault();saveLine(${line.id});}">`;
 
-            const expCellHtml = hasLots
-                ? savedExpHtml
-                : `<input type="text" class="form-control form-control-sm" id="inp_expiry_${line.id}"
+            let expCellHtml;
+            if (!requiresExpiry) {
+                expCellHtml = `<span class="no-expiry-tag">N/A</span>`;
+            } else if (hasLots) {
+                expCellHtml = savedExpHtml;
+            } else {
+                expCellHtml = `<input type="text" class="form-control form-control-sm" id="inp_expiry_${line.id}"
                         placeholder="dd/mm/yy" maxlength="8" inputmode="numeric"
-                        oninput="maskDateInput(this)"
-                        ${line.item_has_expiration_date ? 'required' : ''}>`;
+                        oninput="maskDateInput(this)" required>`;
+            }
 
             const actionCellHtml = hasLots
                 ? ''
@@ -538,8 +564,8 @@ input[type=number] { -moz-appearance: textfield; }
                 <td class="cell-code">${escapeHtml(line.item_barcode)}</td>
                 <td class="text-end">${line.line_quantity}</td>
                 <td class="cell-code">${escapeHtml(getPackagingLabel(line))}</td>
-                <td>${qtyCellHtml}</td>
-                <td>${expCellHtml}</td>
+                <td class="cell-qty">${qtyCellHtml}</td>
+                <td class="cell-expiry">${expCellHtml}</td>
                 <td class="text-center ${diffClass}">${diffStr}</td>
                 <td>${getStatusBadge(ls.status)}</td>
                 <td>${actionCellHtml}</td>
@@ -568,6 +594,17 @@ input[type=number] { -moz-appearance: textfield; }
     }
 
     function getPackagingLabel(line) {
+        const attr1 = (line.attribute_1_code || '').toString().trim();
+        const sellQtyRaw = line.selling_qty;
+        const sellQty = (sellQtyRaw !== null && sellQtyRaw !== undefined && !isNaN(Number(sellQtyRaw)))
+            ? Number(sellQtyRaw) : null;
+        if (attr1) {
+            if (sellQty && sellQty > 0) {
+                const qStr = Number.isInteger(sellQty) ? sellQty.toString() : sellQty.toString();
+                return `${attr1}(${qStr})`;
+            }
+            return attr1;
+        }
         const unitType = line.unit_type && line.unit_type !== 'None' ? line.unit_type : 'PIECE';
         const pieces = Number(line.pieces_per_unit || 1);
         return pieces > 1 ? `${unitType}(${pieces})` : unitType;
