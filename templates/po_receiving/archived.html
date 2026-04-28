@@ -47,6 +47,12 @@
                         {% else %}
                         <span class="badge bg-warning">Incomplete</span>
                         {% endif %}
+                        {% if item.last_received_at %}
+                        <span class="badge bg-success ms-1" title="Last receipt date">
+                            <i class="fas fa-truck-loading"></i>
+                            Received: {{ item.last_received_at.strftime('%Y-%m-%d %H:%M') }}
+                        </span>
+                        {% endif %}
                         {% if item.po.archived_at %}
                         <span class="badge bg-info ms-1" title="Archived date">
                             <i class="fas fa-archive"></i>

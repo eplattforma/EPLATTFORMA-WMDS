@@ -1418,11 +1418,19 @@ def archived():
         ).join(ReceivingSession).filter(
             ReceivingSession.purchase_order_id == po.id
         ).scalar() or Decimal('0')
-        
+
+        # Most recent receipt timestamp across all sessions/lots for this PO
+        last_received_at = db.session.query(
+            func.max(ReceivingLine.received_at)
+        ).join(ReceivingSession).filter(
+            ReceivingSession.purchase_order_id == po.id
+        ).scalar()
+
         order_data.append({
             'po': po,
             'total_ordered': total_ordered,
             'total_received': total_received,
+            'last_received_at': last_received_at,
             'is_complete': total_received >= total_ordered if total_ordered > 0 else False
         })
     
