@@ -13,6 +13,11 @@
                     {% else %}
                         Last: {{ stats.last_updated }}
                     {% endif %}
+                    {% if reserved_synced_at %}
+                        <span class="ms-2" title="When reserved-stock figures were last fetched from PS365 (Store 777)">
+                            | Reserved: {{ reserved_synced_at | local_time('%d/%m/%Y %H:%M:%S') }}
+                        </span>
+                    {% endif %}
                 </small>
             </h2>
         </div>
@@ -75,6 +80,7 @@
                             <th>Earliest Exp Date</th>
                             <th style="width: 40px;"></th>
                             <th style="text-align: right;">Total Stock</th>
+                            <th style="text-align: right;" title="Stock currently reserved in sales orders (Store 777). Updated after Fetch from ERP.">Reserved</th>
                         </tr>
                     </thead>
                     <tbody id="stockTableBody">
@@ -129,6 +135,24 @@
                                     {{ item['total_stock']|int }}
                                 {% else %}
                                     {{ "%.2f"|format(item['total_stock']) }}
+                                {% endif %}
+                            </td>
+                            <td style="text-align: right;">
+                                {% if item['reserved_stock'] is not none %}
+                                    {% if item['reserved_stock'] > 0 %}
+                                        <span class="badge bg-warning text-dark"
+                                              title="Reserved in sales orders (Store 777){% if item['ordered_stock'] %} | Ordered: {{ item['ordered_stock']|int if item['ordered_stock'] == item['ordered_stock']|int else "%.2f"|format(item['ordered_stock']) }}{% endif %}">
+                                            {% if item['reserved_stock'] == item['reserved_stock']|int %}
+                                                {{ item['reserved_stock']|int }}
+                                            {% else %}
+                                                {{ "%.2f"|format(item['reserved_stock']) }}
+                                            {% endif %}
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">0</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted" title="Not yet fetched. Click Refresh Exp Dates → Fetch from ERP.">—</span>
                                 {% endif %}
                             </td>
                         </tr>
@@ -736,40 +760,69 @@ window.uploadFile = async function(input) {
 window.refreshFromERP = async function() {
     const erpBtn = document.getElementById('erpRefreshBtn');
     const topBtn = document.getElementById('refreshBtn');
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+    const resetButtons = () => {
+        erpBtn.disabled = false;
+        erpBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch from ERP';
+        topBtn.disabled = false;
+        topBtn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
+    };
+
     erpBtn.disabled = true;
     erpBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Fetching from ERP...';
     topBtn.disabled = true;
     topBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Updating...';
 
+    // Step 1: refresh expiry dates / stock positions from ERP
+    let erpData;
     try {
         const response = await fetch('{{ url_for("erp_bot.erp_refresh_stock_positions") }}', {
             method: 'POST',
-            headers: {
-                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-            }
+            headers: { 'X-CSRFToken': csrfToken }
         });
-
-        const data = await response.json();
-
-        if (data.success) {
-            const modal = bootstrap.Modal.getInstance(document.getElementById('refreshInstructionsModal'));
-            if (modal) modal.hide();
-            alert(`✅ ${data.message}`);
-            location.reload();
-        } else {
-            alert(`❌ Error: ${data.error}`);
-            erpBtn.disabled = false;
-            erpBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch from ERP';
-            topBtn.disabled = false;
-            topBtn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
-        }
+        erpData = await response.json();
     } catch (error) {
         alert(`❌ Error: ${error.message}`);
-        erpBtn.disabled = false;
-        erpBtn.innerHTML = '<i class="fas fa-download me-1"></i>Fetch from ERP';
-        topBtn.disabled = false;
-        topBtn.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh Exp Dates';
+        resetButtons();
+        return;
     }
+
+    if (!erpData.success) {
+        alert(`❌ Error: ${erpData.error}`);
+        resetButtons();
+        return;
+    }
+
+    // Step 2: chain — fetch reserved/ordered stock from PS365 stock API
+    erpBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Fetching reserved stock…';
+    topBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Reserved stock…';
+
+    let reservedData = null;
+    let reservedError = null;
+    try {
+        const r2 = await fetch('{{ url_for("refresh_reserved_stock") }}', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken }
+        });
+        reservedData = await r2.json();
+        if (!reservedData.success) {
+            reservedError = reservedData.error || 'Reserved-stock refresh failed';
+        }
+    } catch (e) {
+        reservedError = e.message;
+    }
+
+    const modal = bootstrap.Modal.getInstance(document.getElementById('refreshInstructionsModal'));
+    if (modal) modal.hide();
+
+    if (reservedError) {
+        // ERP step succeeded; only the reserved-stock step failed.
+        alert(`✅ ${erpData.message}\n\n⚠️ Reserved stock could not be refreshed: ${reservedError}`);
+    } else {
+        alert(`✅ ${erpData.message}\n${reservedData.message}`);
+    }
+    location.reload();
 };
 
 window.refreshCostsFromERP = async function() {

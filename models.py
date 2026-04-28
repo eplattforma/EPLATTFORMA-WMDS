@@ -3273,3 +3273,23 @@ class BotRunLog(db.Model):
         if self.started_at and self.finished_at:
             return (self.finished_at - self.started_at).total_seconds()
         return None
+
+
+class StockDashboardReserved(db.Model):
+    """
+    Per-item reserved/ordered stock snapshot for the Stock Dashboard.
+
+    Populated on-demand by /api/refresh-reserved-stock (chained after the
+    "Fetch from ERP" step on /stock-dashboard). One row per item code for
+    Store 777 (the warehouse). Fully overwritten on every refresh.
+    """
+    __tablename__ = "stock_dashboard_reserved"
+
+    item_code = db.Column(db.String(64), primary_key=True)
+    store_code = db.Column(db.String(16), nullable=False, default="777")
+    stock_reserved = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    stock_ordered = db.Column(db.Numeric(18, 4), nullable=False, default=0)
+    synced_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+
+    def __repr__(self):
+        return f"<StockDashboardReserved {self.item_code} reserved={self.stock_reserved}>"

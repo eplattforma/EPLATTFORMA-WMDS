@@ -4190,7 +4190,20 @@ def stock_dashboard():
     
     # Get all stock positions from database
     stock_data = db.session.query(StockPosition).all()
-    
+
+    # Reserved/ordered stock per item (Store 777) — populated by
+    # /api/refresh-reserved-stock right after the ERP refresh.
+    from models import StockDashboardReserved
+    reserved_rows = db.session.query(StockDashboardReserved).all()
+    reserved_map = {
+        r.item_code: {
+            'reserved': float(r.stock_reserved or 0),
+            'ordered': float(r.stock_ordered or 0),
+        }
+        for r in reserved_rows
+    }
+    reserved_synced_at = max((r.synced_at for r in reserved_rows), default=None)
+
     # Convert to dicts for template
     stock_list = []
     for stock in stock_data:
@@ -4209,13 +4222,16 @@ def stock_dashboard():
     for row in stock_list:
         item_code = row['Item Code']
         if item_code not in grouped_items:
+            res = reserved_map.get(item_code)
             grouped_items[item_code] = {
                 'Item Code': item_code,
                 'Item Description': row['Item Description'],
                 'records': [],
                 'earliest_date': None,
                 'earliest_date_stock': 0,
-                'total_stock': 0
+                'total_stock': 0,
+                'reserved_stock': res['reserved'] if res else None,
+                'ordered_stock': res['ordered'] if res else None,
             }
         grouped_items[item_code]['records'].append(row)
         grouped_items[item_code]['total_stock'] += row['Stock']
@@ -4308,7 +4324,8 @@ def stock_dashboard():
                          grouped_items=sorted_items,
                          unique_items=unique_items,
                          unique_stores=unique_stores,
-                         stats=stats)
+                         stats=stats,
+                         reserved_synced_at=reserved_synced_at)
 
 
 @app.route('/api/refresh-stock-position', methods=['POST'])
@@ -4507,6 +4524,45 @@ def refresh_stock_position():
     except Exception as e:
         db.session.rollback()
         logging.error(f'Stock refresh error: {str(e)}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/refresh-reserved-stock', methods=['POST'])
+@login_required
+def refresh_reserved_stock():
+    """
+    Refresh per-item reserved/ordered stock from the PS365 stock API for
+    every item currently in the Stock Dashboard. Chained from the
+    /stock-dashboard "Fetch from ERP" flow once the ERP refresh completes.
+    """
+    if current_user.role not in ['admin', 'warehouse_manager']:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+    try:
+        from services.dashboard_reserved_stock import refresh_dashboard_reserved_stock
+        result = refresh_dashboard_reserved_stock()
+
+        if not result.get('success'):
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Reserved-stock refresh failed'),
+            }), 500
+
+        items_returned = result.get('items_returned', 0)
+        items_requested = result.get('items_requested', 0)
+        return jsonify({
+            'success': True,
+            'message': (
+                f"Reserved stock updated for {items_returned:,} of "
+                f"{items_requested:,} items (Store 777)"
+            ),
+            'items_requested': items_requested,
+            'items_returned': items_returned,
+            'items_saved': result.get('items_saved', 0),
+            'synced_at': result.get('synced_at'),
+        })
+    except Exception as e:
+        logging.error(f'Reserved-stock refresh error: {str(e)}', exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
