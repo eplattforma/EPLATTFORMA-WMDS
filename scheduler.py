@@ -179,7 +179,7 @@ def setup_scheduler(app):
 
             scheduler.add_job(
                 func=_run_erp_item_cost_refresh,
-                trigger=CronTrigger(hour=2, minute=45),
+                trigger=CronTrigger(hour=16, minute=20),
                 id='erp_item_cost_refresh',
                 name='ERP Item Catalogue Cost Refresh',
                 replace_existing=True,
@@ -187,9 +187,9 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ ERP item cost refresh scheduled: Daily at 2:45 AM (before full DW sync)")
+            logger.info("✓ ERP item cost refresh scheduled: Daily at 16:20 Cairo (before evening DW sync)")
 
-            # Pre-warm Playwright Chromium in production so the 02:45 ERP cron
+            # Pre-warm Playwright Chromium in production so the 16:20 ERP cron
             # doesn't pay first-time install cost (and any install failure is
             # surfaced in boot logs instead of silently killing the cron before
             # it can write its BotRunLog row).
@@ -203,7 +203,7 @@ def setup_scheduler(app):
 
             scheduler.add_job(
                 func=_run_expiry_ftp_upload,
-                trigger=CronTrigger(hour=21, minute=0),
+                trigger=CronTrigger(hour=17, minute=45),
                 id='expiry_ftp_upload',
                 name='Expiry Dates FTP Upload',
                 replace_existing=True,
@@ -211,12 +211,12 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Expiry dates FTP upload scheduled: Daily at 9:00 PM (21:00)")
+            logger.info("✓ Expiry dates FTP upload scheduled: Daily at 17:45 Cairo")
 
             if is_production:
                 scheduler.add_job(
                     func=_run_stock_777_sync,
-                    trigger=CronTrigger(hour=23, minute=30),
+                    trigger=CronTrigger(hour=18, minute=5),
                     id='stock_777_sync_production',
                     name='PS365 Stock 777 Daily Sync (Production)',
                     replace_existing=True,
@@ -224,7 +224,7 @@ def setup_scheduler(app):
                     misfire_grace_time=21600,
                     coalesce=True,
                 )
-                logger.info("✓ Stock 777 production sync scheduled: Daily at 11:30 PM")
+                logger.info("✓ Stock 777 production sync scheduled: Daily at 18:05 Cairo")
             else:
                 scheduler.add_job(
                     func=_run_stock_777_sync,
@@ -256,7 +256,7 @@ def setup_scheduler(app):
 
                 scheduler.add_job(
                     func=_run_ftp_price_master_sync,
-                    trigger=CronTrigger(hour=6, minute=0),
+                    trigger=CronTrigger(hour=17, minute=55),
                     id='ftp_price_master_sync',
                     name='FTP Price Master Sync',
                     replace_existing=True,
@@ -264,7 +264,7 @@ def setup_scheduler(app):
                     misfire_grace_time=21600,
                     coalesce=True,
                 )
-                logger.info("✓ FTP price master sync scheduled: Daily at 6:00 AM")
+                logger.info("✓ FTP price master sync scheduled: Daily at 17:55 Cairo")
             else:
                 logger.info("⏭ FTP login sync skipped (not deployed)")
                 logger.info("⏭ FTP price master sync skipped (not deployed)")
@@ -848,3 +848,223 @@ def list_scheduled_jobs():
         ]
     
     return []
+
+
+# ============================================================================
+# Admin UI helpers (used by routes_admin_scheduler)
+# ============================================================================
+#
+# In autoscale, only the "designated scheduler worker" (worker age=1) actually
+# starts the BackgroundScheduler. Other workers leave the module-level
+# `scheduler` global as None. Admin requests can land on any worker, so we
+# need helpers that talk to the shared SQLAlchemy jobstore directly rather
+# than the in-process scheduler. Job mutations (modify/pause/resume) write
+# straight to the apscheduler_jobs table; the live scheduler picks them up
+# on its next jobstore reload.
+
+JOB_FUNCTIONS = {}
+
+
+def _register_job_funcs():
+    """Register the canonical job_id -> function mapping for 'Run Now'."""
+    global JOB_FUNCTIONS
+    JOB_FUNCTIONS = {
+        'full_dw_sync': _run_full_sync,
+        'incremental_dw_sync': _run_incremental_sync,
+        'customer_sync': _run_customer_sync,
+        'invoice_sync': _run_invoice_sync,
+        'balance_fetch': _run_balance_fetch,
+        'forecast_run': _run_forecast,
+        'pending_orders_sync': _run_pending_orders_sync,
+        'retry_pending_payments': _retry_pending_payments,
+        'erp_item_cost_refresh': _run_erp_item_cost_refresh,
+        'expiry_ftp_upload': _run_expiry_ftp_upload,
+        'stock_777_sync_production': _run_stock_777_sync,
+        'stock_777_sync': _run_stock_777_sync,
+        'ftp_login_sync': _run_ftp_login_sync,
+        'ftp_price_master_sync': _run_ftp_price_master_sync,
+    }
+
+
+class _JobstoreContext:
+    """Context manager that yields a usable scheduler bound to the shared jobstore.
+
+    APScheduler's mutation/read methods (`get_jobs`, `reschedule_job`,
+    `pause_job`, `resume_job`) only work on a *started* scheduler — an
+    unstarted one returns empty / raises JobLookupError because it hasn't
+    populated its in-memory view from the jobstore. So:
+
+    - On the designated scheduler worker, we yield the live module-level
+      scheduler (already running, jobs already loaded).
+    - On any other worker we build a proxy scheduler bound to the same
+      SQLAlchemy jobstore, start it paused (loads jobs from DB without
+      firing anything), let the caller use it, then shut it down on exit.
+    """
+    def __init__(self):
+        self._proxy = None
+        self._owned = False
+
+    def __enter__(self):
+        global scheduler
+        if scheduler is not None and scheduler.running:
+            return scheduler
+
+        try:
+            from app import db as _db, app as _app
+            with _app.app_context():
+                engine = _db.engine
+            jobstores = {
+                'default': SQLAlchemyJobStore(engine=engine, tablename='apscheduler_jobs')
+            }
+        except Exception:
+            if not os.environ.get("DATABASE_URL"):
+                raise RuntimeError("No DATABASE_URL — cannot reach scheduler jobstore")
+            jobstores = {
+                'default': SQLAlchemyJobStore(
+                    url=os.environ["DATABASE_URL"],
+                    tablename='apscheduler_jobs',
+                )
+            }
+
+        self._proxy = BackgroundScheduler(daemon=True, jobstores=jobstores)
+        # Start paused so the proxy reads jobs from the jobstore but never
+        # fires anything (only the designated worker's scheduler should fire).
+        self._proxy.start(paused=True)
+        self._owned = True
+        return self._proxy
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._owned and self._proxy is not None:
+            try:
+                self._proxy.shutdown(wait=False)
+            except Exception as e:
+                logger.warning(f"Could not shut down jobstore proxy scheduler: {e}")
+        return False
+
+
+def _trigger_summary(trigger):
+    """Build a human-readable string describing a CronTrigger's schedule."""
+    fields = {}
+    try:
+        for f in getattr(trigger, 'fields', []):
+            fields[f.name] = str(f)
+    except Exception:
+        return str(trigger)
+    if not fields:
+        return str(trigger)
+    parts = []
+    for k in ('day_of_week', 'hour', 'minute'):
+        if k in fields:
+            parts.append(f"{k}={fields[k]}")
+    return ", ".join(parts) if parts else str(trigger)
+
+
+def list_scheduled_jobs_full():
+    """List all jobs from the shared jobstore with editable fields broken out.
+
+    Works from any worker via _JobstoreContext. Each item:
+        { id, name, trigger_str, hour, minute, day_of_week, next_run, paused }
+    """
+    out = []
+    with _JobstoreContext() as sch:
+        for job in sch.get_jobs():
+            trigger = job.trigger
+            hour = minute = day_of_week = None
+            try:
+                for f in trigger.fields:
+                    if f.name == 'hour':
+                        hour = str(f)
+                    elif f.name == 'minute':
+                        minute = str(f)
+                    elif f.name == 'day_of_week':
+                        dow = str(f)
+                        if dow not in ('*', '?'):
+                            day_of_week = dow
+            except Exception:
+                pass
+            out.append({
+                'id': job.id,
+                'name': job.name,
+                'trigger_str': _trigger_summary(trigger),
+                'hour': hour,
+                'minute': minute,
+                'day_of_week': day_of_week,
+                'next_run': job.next_run_time.isoformat() if job.next_run_time else None,
+                'paused': job.next_run_time is None,
+            })
+    out.sort(key=lambda j: (j['next_run'] or 'zzz', j['id']))
+    return out
+
+
+def reschedule_job(job_id, hour, minute, day_of_week=None):
+    """Reschedule a job's CronTrigger. hour/minute are strings (cron syntax OK)."""
+    kwargs = {'hour': hour, 'minute': minute}
+    if day_of_week:
+        kwargs['day_of_week'] = day_of_week
+    new_trigger = CronTrigger(**kwargs)
+    with _JobstoreContext() as sch:
+        sch.reschedule_job(job_id, trigger=new_trigger)
+    logger.info(f"Job {job_id} rescheduled: hour={hour} minute={minute} dow={day_of_week or '*'}")
+
+
+def pause_job(job_id):
+    with _JobstoreContext() as sch:
+        sch.pause_job(job_id)
+    logger.info(f"Job {job_id} paused")
+
+
+def resume_job(job_id):
+    with _JobstoreContext() as sch:
+        sch.resume_job(job_id)
+    logger.info(f"Job {job_id} resumed")
+
+
+# Per-worker guard against double-firing the same job via "Run Now". This
+# is *per process* — a click on worker A and a simultaneous click on worker
+# B can still both fire (rare in practice, since admin actions are bursty
+# and route to one worker). Combined with the confirm() dialog and the
+# in-job idempotency (every _run_* helper wraps with app.app_context()
+# and writes its own log row, so a double-fire is detectable and not
+# catastrophic for the data), this is enough defence for an admin tool.
+import threading as _threading
+_RUN_NOW_GUARD = _threading.Lock()
+_RUN_NOW_IN_PROGRESS = set()
+
+
+def run_job_now(job_id):
+    """Invoke a job's function immediately, in a daemon thread.
+
+    Bypasses the scheduler entirely (so this works from any worker). The
+    function is responsible for its own app context / error handling — every
+    _run_* helper in this module already wraps with `with app.app_context()`.
+
+    A per-process lock prevents a double-click from launching two parallel
+    instances of the same heavy job from this worker.
+    """
+    if not JOB_FUNCTIONS:
+        _register_job_funcs()
+    func = JOB_FUNCTIONS.get(job_id)
+    if func is None:
+        raise KeyError(f"No registered function for job_id={job_id!r}")
+
+    with _RUN_NOW_GUARD:
+        if job_id in _RUN_NOW_IN_PROGRESS:
+            raise RuntimeError(
+                f"Job '{job_id}' is already running via Run Now on this worker. "
+                "Wait for it to finish before triggering it again."
+            )
+        _RUN_NOW_IN_PROGRESS.add(job_id)
+
+    def _runner():
+        try:
+            func()
+        except Exception as e:
+            logger.error(f"Manual 'Run Now' for {job_id} failed: {e}", exc_info=True)
+        finally:
+            with _RUN_NOW_GUARD:
+                _RUN_NOW_IN_PROGRESS.discard(job_id)
+
+    t = _threading.Thread(target=_runner, daemon=True, name=f"run-now:{job_id}")
+    t.start()
+    logger.info(f"Job {job_id} manually triggered (Run Now) by admin UI")
+    return True

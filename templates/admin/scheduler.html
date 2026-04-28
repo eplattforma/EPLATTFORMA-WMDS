@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduled Jobs{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3>
+            <i class="fas fa-clock text-primary"></i>
+            Scheduled Jobs
+        </h3>
+        <a href="/" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+    </div>
+
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i>
+        <strong>How scheduling works on this deployment.</strong>
+        Jobs only fire while a worker is awake. Because the production app
+        runs on autoscale (workers spin down when there's no traffic), all
+        daily jobs are intentionally scheduled in the late afternoon when
+        warehouse staff are using the system. Sub-hourly jobs (pending
+        orders, payment retries, FTP login) fire naturally throughout the
+        business day.
+        <br>
+        <strong class="d-block mt-2">Editing schedules:</strong>
+        Changes you make here are written to the shared schedule database
+        immediately. The running scheduler picks them up on its next wake
+        cycle &mdash; usually within a few minutes &mdash; so you don't
+        need to redeploy. <em>Pause</em>, <em>Resume</em> and <em>Run
+        Now</em> all take effect right away.
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger">
+        <strong>Could not load scheduler state:</strong> {{ error }}
+    </div>
+    {% endif %}
+
+    {% if not jobs and not error %}
+    <div class="alert alert-warning">
+        <i class="fas fa-exclamation-triangle"></i>
+        No jobs are registered. Background scheduling is disabled in this
+        environment (it activates automatically in production deployments
+        and when <code>ENABLE_BACKGROUND_JOBS=true</code>).
+    </div>
+    {% endif %}
+
+    {% if jobs %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th style="min-width: 220px;">Job</th>
+                    <th>Current schedule</th>
+                    <th>Next run (Cairo)</th>
+                    <th>Status</th>
+                    <th class="text-end" style="min-width: 360px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr>
+                    <td>
+                        <div class="fw-bold">{{ job.name }}</div>
+                        <div class="text-muted small font-monospace">{{ job.id }}</div>
+                    </td>
+                    <td class="font-monospace small">{{ job.trigger_str }}</td>
+                    <td>
+                        {% if job.next_run %}
+                            <span class="font-monospace small">{{ job.next_run }}</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if job.paused %}
+                            <span class="badge bg-warning text-dark">Paused</span>
+                        {% else %}
+                            <span class="badge bg-success">Active</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="d-flex gap-2 justify-content-end flex-wrap">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-primary"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#edit-{{ loop.index }}">
+                                <i class="fas fa-pencil-alt"></i> Edit time
+                            </button>
+
+                            {% if job.paused %}
+                            <form method="POST"
+                                  action="{{ url_for('admin_scheduler.resume', job_id=job.id) }}"
+                                  class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-success">
+                                    <i class="fas fa-play"></i> Resume
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="POST"
+                                  action="{{ url_for('admin_scheduler.pause', job_id=job.id) }}"
+                                  class="d-inline"
+                                  onsubmit="return confirm('Pause job {{ job.id }}? It will not fire on schedule until resumed.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-warning">
+                                    <i class="fas fa-pause"></i> Pause
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            <form method="POST"
+                                  action="{{ url_for('admin_scheduler.run_now', job_id=job.id) }}"
+                                  class="d-inline"
+                                  onsubmit="return confirm('Run job {{ job.id }} immediately? It will execute in the background.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-bolt"></i> Run now
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                <tr class="collapse" id="edit-{{ loop.index }}">
+                    <td colspan="5" class="bg-body-tertiary">
+                        <form method="POST"
+                              action="{{ url_for('admin_scheduler.reschedule', job_id=job.id) }}"
+                              class="row g-3 align-items-end p-3 m-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="col-auto">
+                                <label class="form-label small mb-1">Hour (0–23)</label>
+                                <input type="text" name="hour"
+                                       class="form-control form-control-sm font-monospace"
+                                       value="{{ job.hour or '' }}"
+                                       placeholder="e.g. 16"
+                                       style="width: 110px;"
+                                       required>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label small mb-1">Minute (0–59)</label>
+                                <input type="text" name="minute"
+                                       class="form-control form-control-sm font-monospace"
+                                       value="{{ job.minute or '' }}"
+                                       placeholder="e.g. 20"
+                                       style="width: 110px;"
+                                       required>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label small mb-1">Day of week <span class="text-muted">(blank = every day)</span></label>
+                                <input type="text" name="day_of_week"
+                                       class="form-control form-control-sm font-monospace"
+                                       value="{{ job.day_of_week or '' }}"
+                                       placeholder="e.g. mon-fri"
+                                       style="width: 160px;">
+                            </div>
+                            <div class="col-auto">
+                                <button type="submit" class="btn btn-sm btn-success">
+                                    <i class="fas fa-save"></i> Save schedule
+                                </button>
+                            </div>
+                            <div class="col-12">
+                                <small class="text-muted">
+                                    All values use cron syntax — single number
+                                    (<code>16</code>), comma list
+                                    (<code>13,17</code>), range (<code>9-17</code>),
+                                    step (<code>*/5</code>), or wildcard
+                                    (<code>*</code>). Time zone is Africa/Cairo.
+                                </small>
+                            </div>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

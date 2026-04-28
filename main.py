@@ -281,6 +281,9 @@ app.register_blueprint(crm_dashboard_bp)
 from routes_erp_bot import erp_bot_bp
 app.register_blueprint(erp_bot_bp)
 
+from routes_admin_scheduler import admin_scheduler_bp
+app.register_blueprint(admin_scheduler_bp)
+
 logging.warning("PHASE 5: all blueprints registered")
 print("PHASE 5: all blueprints registered", flush=True)
 
