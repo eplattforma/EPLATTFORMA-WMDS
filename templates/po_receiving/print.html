@@ -284,10 +284,10 @@
                 </td>
                 <td class="qty-cell" style="text-align: center;">{{ item.line.line_quantity|int }}</td>
                 <td class="received-cell">{{ item.total_received|int }}</td>
-                <td style="font-size: 12px; font-weight: bold; {% if item.received_newer_than_existing %}background:#ffe5e5 !important; color:#950606 !important;{% endif %}">
+                <td style="font-size: 12px; font-weight: bold; {% if item.received_earlier_than_existing %}background:#ffe5e5 !important; color:#950606 !important;{% endif %}">
                     {% if item.received_expiry_dates %}
-                        {% if item.received_newer_than_existing %}
-                            <div style="font-size: 8px; font-weight: bold; color:#950606; margin-bottom:2px; text-transform:uppercase;">⚠ Newer than existing</div>
+                        {% if item.received_earlier_than_existing %}
+                            <div style="font-size: 8px; font-weight: bold; color:#950606; margin-bottom:2px; text-transform:uppercase;">⚠ Expires before stock</div>
                         {% endif %}
                         {% if item.received_expiry_dates|length > 1 %}
                             {% for exp in item.received_expiry_dates %}

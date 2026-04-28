@@ -739,7 +739,7 @@ def print_po(po_id):
     # store 777 / E-SHOP). One row per (item_code, expiry_date).
     item_codes_in_po = [l.item_code_365 for l in po.lines if l.item_code_365]
     existing_stock_by_item = {}  # item_code -> list[{'date': 'YYYY-MM-DD', 'qty': float}]
-    latest_existing_by_item = {}  # item_code -> 'YYYY-MM-DD' (max expiry across batches)
+    earliest_existing_by_item = {}  # item_code -> date (min expiry across batches)
     if item_codes_in_po:
         sp_rows = (
             db.session.query(
@@ -776,7 +776,7 @@ def print_po(po_id):
             existing_stock_by_item[code] = rows
             dated = [r['date_obj'] for r in rows if r['date_obj']]
             if dated:
-                latest_existing_by_item[code] = max(dated)  # date object
+                earliest_existing_by_item[code] = min(dated)  # date object
 
     # Get all lines with their barcodes, stock, and receiving data
     lines_with_data = []
@@ -822,16 +822,17 @@ def print_po(po_id):
 
         # Existing-stock breakdown (from Stock Dashboard / stock_positions)
         existing_stock_by_expiry = existing_stock_by_item.get(line.item_code_365, [])
-        latest_existing = latest_existing_by_item.get(line.item_code_365)  # date or None
+        earliest_existing = earliest_existing_by_item.get(line.item_code_365)  # date or None
 
-        # Flag rule: any received expiry date is NEWER (later) than the
-        # newest existing-stock expiry date for this item. Signals a FIFO
-        # rotation concern (fresher stock arriving than what's on the shelf).
-        received_newer_than_existing = False
-        if latest_existing and receiving_lines:
+        # Flag rule: any received expiry date is EARLIER than the oldest
+        # existing-stock expiry date for this item. Signals a rotation /
+        # short-shelf-life concern (the new arrival will expire before
+        # anything currently on the shelf).
+        received_earlier_than_existing = False
+        if earliest_existing and receiving_lines:
             for rcv_line in receiving_lines:
-                if rcv_line.expiry_date and rcv_line.expiry_date > latest_existing:
-                    received_newer_than_existing = True
+                if rcv_line.expiry_date and rcv_line.expiry_date < earliest_existing:
+                    received_earlier_than_existing = True
                     break
         
         # Parse shelf locations
@@ -852,7 +853,7 @@ def print_po(po_id):
             'shelf_locations': shelf_locations,
             'received_expiry_dates': received_expiry_dates,
             'existing_stock_by_expiry': existing_stock_by_expiry,
-            'received_newer_than_existing': received_newer_than_existing,
+            'received_earlier_than_existing': received_earlier_than_existing,
             'notes': list(set(notes)),  # Unique notes
             'primary_shelf': shelf_locations[0] if shelf_locations else 'ZZZZ'  # For sorting
         })
