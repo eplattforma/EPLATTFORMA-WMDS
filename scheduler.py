@@ -67,10 +67,24 @@ def setup_scheduler(app):
             
             logger.info("Setting up background scheduled jobs...")
             
-            # Full DW sync - runs daily at 3:00 AM
+            # NOTE on scheduling window:
+            # The production deployment runs on Replit Autoscale, which spins
+            # gunicorn workers down to zero when there is no HTTP traffic. The
+            # in-process APScheduler can therefore only fire while a worker is
+            # alive — i.e. during business hours when warehouse staff are
+            # actively using the CRM. All daily batch jobs are therefore
+            # scheduled in a late-afternoon window (16:20–18:05 Cairo) when
+            # at least one worker is reliably awake. Sub-hourly jobs
+            # (pending orders, payment retries, FTP login sync) stay on their
+            # original short cadence — they naturally fire whenever the app
+            # is in use during the day. Misfire grace is 6 hours on every
+            # daily job so even a slightly delayed worker boot still catches
+            # the run.
+
+            # Full DW sync - daily at 17:15 Cairo (heavy, given a 15min gap after incremental)
             scheduler.add_job(
                 func=_run_full_sync,
-                trigger=CronTrigger(hour=3, minute=0),
+                trigger=CronTrigger(hour=17, minute=15),
                 id='full_dw_sync',
                 name='Full Data Warehouse Sync',
                 replace_existing=True,
@@ -78,15 +92,12 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Full DW sync scheduled: Daily at 3:00 AM")
+            logger.info("✓ Full DW sync scheduled: Daily at 17:15 Cairo")
 
-            # Daily invoice/customer sync - also daily at 4:00 AM
-            # (Note: we already have incremental below, but user wants daily full update)
-            
-            # Incremental sync - runs daily at 1:00 AM and 1:00 PM
+            # Incremental sync - twice daily at 13:00 (lunch traffic) and 17:00 Cairo
             scheduler.add_job(
                 func=_run_incremental_sync,
-                trigger=CronTrigger(hour="1,13", minute=0),
+                trigger=CronTrigger(hour="13,17", minute=0),
                 id='incremental_dw_sync',
                 name='Incremental Data Warehouse Sync',
                 replace_existing=True,
@@ -94,11 +105,11 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Incremental DW sync scheduled: Daily at 1:00 AM and 1:00 PM")
+            logger.info("✓ Incremental DW sync scheduled: Daily at 13:00 and 17:00 Cairo")
 
             scheduler.add_job(
                 func=_run_customer_sync,
-                trigger=CronTrigger(hour=4, minute=0),
+                trigger=CronTrigger(hour=16, minute=40),
                 id='customer_sync',
                 name='Customer Sync from PS365',
                 replace_existing=True,
@@ -106,11 +117,11 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Customer sync scheduled: Daily at 4:00 AM")
+            logger.info("✓ Customer sync scheduled: Daily at 16:40 Cairo")
 
             scheduler.add_job(
                 func=_run_invoice_sync,
-                trigger=CronTrigger(hour=18, minute=0),
+                trigger=CronTrigger(hour=16, minute=50),
                 id='invoice_sync',
                 name='Invoice Sync from PS365',
                 replace_existing=True,
@@ -118,11 +129,11 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Invoice sync scheduled: Daily at 6:00 PM (last 2 days)")
+            logger.info("✓ Invoice sync scheduled: Daily at 16:50 Cairo (last 2 days)")
 
             scheduler.add_job(
                 func=_run_balance_fetch,
-                trigger=CronTrigger(hour=2, minute=30),
+                trigger=CronTrigger(hour=16, minute=30),
                 id='balance_fetch',
                 name='Customer Balance Fetch from PS365',
                 replace_existing=True,
@@ -130,11 +141,11 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Balance fetch scheduled: Daily at 2:30 AM")
+            logger.info("✓ Balance fetch scheduled: Daily at 16:30 Cairo")
 
             scheduler.add_job(
                 func=_run_forecast,
-                trigger=CronTrigger(hour=5, minute=0),
+                trigger=CronTrigger(hour=17, minute=35),
                 id='forecast_run',
                 name='Nightly Forecast Run',
                 replace_existing=True,
@@ -142,7 +153,7 @@ def setup_scheduler(app):
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ Forecast run scheduled: Daily at 5:00 AM")
+            logger.info("✓ Forecast run scheduled: Daily at 17:35 Cairo")
 
             scheduler.add_job(
                 func=_run_pending_orders_sync,
