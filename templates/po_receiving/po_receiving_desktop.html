@@ -1068,9 +1068,9 @@ input[type=number] { -moz-appearance: textfield; }
                 row.style.transition = 'background 0.3s';
                 row.style.background = 'rgba(var(--bs-primary-rgb), 0.3)';
                 setTimeout(() => { row.style.background = ''; }, 1500);
-                const qtyInput = document.getElementById(`inp_qty_${poLineId}`);
-                if (qtyInput) qtyInput.focus();
             }
+            const qtyInput = document.getElementById(`inp_qty_${poLineId}`);
+            if (qtyInput) qtyInput.focus();
         } else {
             addItemToPO(code);
         }
