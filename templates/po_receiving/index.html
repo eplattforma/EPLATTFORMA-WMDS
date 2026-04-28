@@ -72,6 +72,9 @@
                         <i class="fas fa-plus"></i> Start
                     </a>
                     {% endif %}
+                    <a href="{{ url_for('po_receiving.print_po', po_id=item.po.id) }}" target="_blank" class="btn btn-sm btn-warning" title="Plan / print this purchase order">
+                        <i class="fas fa-clipboard-list"></i> Plan
+                    </a>
                     <button onclick="refreshPO({{ item.po.id }}, '{{ item.po.code_365 or item.po.shopping_cart_code }}')" class="btn btn-sm btn-outline-primary" title="Re-download from PS365">
                         <i class="fas fa-sync-alt"></i>
                     </button>
