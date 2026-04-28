@@ -96,6 +96,35 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'  # type: ignore
 
+# Resolve a supplier's display name by looking it up in the imported
+# suppliers directory (matched by code) and falling back to whatever name
+# is already on the parent record (e.g. PurchaseOrder.supplier_name).
+def resolve_supplier_name(po_or_code, fallback=None):
+    """Return the canonical supplier name for the given PO or code.
+
+    - If passed an object, uses ``supplier_code`` and ``supplier_name`` from it.
+    - If passed a string, treats it as the supplier code.
+    Falls back to the existing ``supplier_name`` (or the explicit ``fallback``).
+    Safe when the suppliers directory has not been populated.
+    """
+    try:
+        from models import Supplier
+        if hasattr(po_or_code, 'supplier_code'):
+            code = po_or_code.supplier_code
+            fb = fallback if fallback is not None else getattr(po_or_code, 'supplier_name', None)
+        else:
+            code = po_or_code
+            fb = fallback
+        if not code:
+            return fb
+        s = Supplier.query.filter_by(code=str(code)).first()
+        if s and s.name:
+            return s.name
+        return fb
+    except Exception:
+        return fallback
+
+
 # Add context processor to provide the 'now' datetime and CSRF token to all templates
 @app.context_processor
 def inject_context():
@@ -115,7 +144,8 @@ def inject_context():
     return {
         'now': get_local_time(),
         'csrf_token': csrf_token,
-        'use_shipments': use_shipments
+        'use_shipments': use_shipments,
+        'resolve_supplier_name': resolve_supplier_name,
     }
 
 # Template filter for timezone conversion

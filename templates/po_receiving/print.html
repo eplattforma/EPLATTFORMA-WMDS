@@ -198,7 +198,7 @@
             <div>
                 <div class="info-row">
                     <span class="info-label">Supplier:</span>
-                    <span>{{ po.supplier_name or 'N/A' }}</span>
+                    <span>{% if po.supplier_code %}{{ po.supplier_code }} — {% endif %}{{ resolve_supplier_name(po) or 'N/A' }}</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">Description:</span>

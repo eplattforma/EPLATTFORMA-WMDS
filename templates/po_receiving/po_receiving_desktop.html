@@ -316,7 +316,8 @@ input[type=number] { -moz-appearance: textfield; }
                 <span class="badge-mode ms-1">Desktop Entry Mode</span>
             </div>
             <div class="text-muted" style="font-size:0.8rem;">
-                <i class="fas fa-truck"></i> {{ po.supplier_name or 'Unknown' }}
+                <i class="fas fa-truck"></i>
+                {% if po.supplier_code %}<code>{{ po.supplier_code }}</code> — {% endif %}{{ resolve_supplier_name(po) or 'Unknown' }}
             </div>
             <div class="text-muted" style="font-size:0.75rem;">
                 <i class="fas fa-receipt"></i> {{ session.receipt_code }}

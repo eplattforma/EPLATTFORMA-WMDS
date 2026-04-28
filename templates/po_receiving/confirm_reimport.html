@@ -15,7 +15,9 @@
                         <h5><strong>Warning:</strong> This purchase order already exists with receiving data</h5>
                         <hr>
                         <p class="mb-2"><strong>Purchase Order:</strong> {{ po_code }}</p>
-                        <p class="mb-2"><strong>Supplier:</strong> {{ po.supplier_name or 'N/A' }}</p>
+                        <p class="mb-2"><strong>Supplier:</strong>
+                            {% if po.supplier_code %}{{ po.supplier_code }} — {% endif %}{{ resolve_supplier_name(po) or 'N/A' }}
+                        </p>
                         <p class="mb-2"><strong>Total Received:</strong> {{ total_received|int }} units</p>
                     </div>
                     
