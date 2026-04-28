@@ -734,24 +734,14 @@ input[type=number] { -moz-appearance: textfield; }
         };
 
         try {
-            let data = await postSave(basePayload);
+            const data = await postSave(basePayload);
 
-            // Item is flagged as expirable in PS365 but no expiry was entered.
-            // Ask the user to acknowledge once, then retry the save.
-            if (!data.ok && data.error_code === 'expiry_required_confirm') {
-                const itemLabel = data.item_code
-                    ? `${data.item_code} — ${data.item_name || ''}`.trim()
-                    : (data.item_name || 'this item');
-                const ok = confirm(
-                    `${itemLabel}\n\n` +
-                    `This item is normally tracked with an expiration date in PS365, ` +
-                    `but no expiry was entered.\n\nSave the receipt without an expiry date?`
-                );
-                if (!ok) {
-                    expiryEl.focus();
-                    return;
-                }
-                data = await postSave({ ...basePayload, acknowledged_no_expiry: true });
+            // Hard block: an expirable item without an expiry date cannot be saved.
+            // Focus the expiry field so the operator can fix it immediately.
+            if (!data.ok && data.error_code === 'expiry_required') {
+                alert(data.error || 'Expiration date is required for this item.');
+                expiryEl.focus();
+                return;
             }
 
             if (data.ok) {
@@ -857,13 +847,18 @@ input[type=number] { -moz-appearance: textfield; }
             return;
         }
 
+        // Hard block: cannot send to PS365 while any expirable item is missing
+        // its expiration date. The operator must enter the date first.
         if (missingExpCount > 0) {
-            const msg = `${missingExpCount} line(s) were saved without an expiry date.\n\n` +
-                `Send the receipt to PS365 anyway?`;
-            if (!confirm(msg)) return;
-        } else {
-            if (!confirm('Send receipt to PS365? This will create a GRN and archive the PO.')) return;
+            alert(
+                `${missingExpCount} line(s) are missing an expiration date.\n\n` +
+                `Items flagged in PS365 as expirable must be received with an expiry date. ` +
+                `Please add the missing expiry dates before sending to PS365.`
+            );
+            return;
         }
+
+        if (!confirm('Send receipt to PS365? This will create a GRN and archive the PO.')) return;
 
         const btn = document.getElementById('btnSendPS365');
         btn.disabled = true;

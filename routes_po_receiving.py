@@ -1833,18 +1833,14 @@ def api_desktop_save_line():
         except Exception:
             return jsonify({'ok': False, 'error': 'Invalid date format'}), 400
 
-    # If the PS365 item-master flags this item as expirable but the user is
-    # saving without an expiry date, require an explicit acknowledgement from
-    # the client. The frontend handles this by showing a confirm dialog and
-    # retrying the save with acknowledged_no_expiry=true. This covers the case
-    # where PS365's item setup says "tracks expiry" but the actual goods being
-    # received don't carry a printed expiry date.
-    acknowledged_no_expiry = bool(data.get('acknowledged_no_expiry'))
-    if po_line.item_has_expiration_date and not expiry_dt and not acknowledged_no_expiry:
+    # Hard block: items flagged as expirable in the PS365 item master MUST be
+    # received with an expiration date. There is no override — operators
+    # cannot save a lot without one.
+    if po_line.item_has_expiration_date and not expiry_dt:
         return jsonify({
             'ok': False,
-            'error': 'This item is normally tracked with an expiration date.',
-            'error_code': 'expiry_required_confirm',
+            'error': f'Expiration date is required for {po_line.item_code_365} — {po_line.item_name or ""}'.strip(' —'),
+            'error_code': 'expiry_required',
             'item_name': po_line.item_name,
             'item_code': po_line.item_code_365,
         }), 400
@@ -1980,12 +1976,9 @@ def api_desktop_validate_session():
         if status == 'missing_conversion':
             errors.append(f'{po_line.item_code_365}: {issues[0]}')
         elif status == 'missing_expiry':
-            # Saving a lot without an expiry date already requires explicit
-            # acknowledgement at the per-line save step, so by the time we
-            # reach validation those lines were intentionally accepted by
-            # the operator. Surface them as warnings (not blocking errors)
-            # so the receipt can still be sent to PS365.
-            warnings.append(f'{po_line.item_code_365}: {issues[0]}')
+            # Hard block: an expirable item received without an expiry date
+            # cannot be sent to PS365.
+            errors.append(f'{po_line.item_code_365}: {issues[0]}')
         elif status == 'no_ps365_line':
             warnings.append(f'{po_line.item_code_365}: {issues[0]}')
         elif status in ('over_received', 'partial'):

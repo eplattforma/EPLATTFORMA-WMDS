@@ -216,7 +216,7 @@
                 <th style="width: 35px;">Barcode</th>
                 <th style="width: 110px; white-space: normal;">Item Name</th>
                 <th style="width: 30px; font-weight: bold;">Shelf</th>
-                <th style="width: 60px;">Shelf stock by expiry date</th>
+                <th style="width: 75px;">Shelf stock by expiry date</th>
                 <th style="width: 18px; text-align: center;">Ordered</th>
                 <th style="width: 22px; text-align: center; font-weight: bold;">Received</th>
                 <th style="width: 50px;">Expiration date received</th>
@@ -251,16 +251,33 @@
                         N/A
                     {% endif %}
                 </td>
-                <td style="font-size: 10px;">
+                <td style="font-size: 10px; padding: 2px 3px !important;">
                     {% if item.existing_stock_by_expiry %}
-                        {% for exp in item.existing_stock_by_expiry %}
-                            <div>
-                                {% if exp.date %}{{ exp.date }}{% else %}<span style="color:#666;">(no date)</span>{% endif %}
-                                <span style="font-weight: bold;">{{ exp.qty|int }}</span>
+                        {% set total_stock = item.existing_stock_by_expiry|sum(attribute='qty') %}
+                        <div style="display: flex; align-items: center; gap: 4px;">
+                            <div style="font-size: 14px; font-weight: bold; min-width: 22px; text-align: right; border-right: 1px solid #000; padding-right: 4px;">
+                                {{ total_stock|int }}
                             </div>
-                        {% endfor %}
+                            <div style="flex: 1; line-height: 1.25;">
+                                {% for exp in item.existing_stock_by_expiry %}
+                                    <div>
+                                        <span style="font-weight: bold;">{{ exp.qty|int }}</span>
+                                        {% if exp.date and exp.date|length == 10 %}
+                                            <span>{{ exp.date[8:10] }}-{{ exp.date[5:7] }}-{{ exp.date[2:4] }}</span>
+                                        {% else %}
+                                            <span style="color:#666;">(no date)</span>
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
                     {% elif item.stock_qty is not none %}
-                        <span style="color:#666;">{{ item.stock_qty|int }} (no expiry data)</span>
+                        <div style="display: flex; align-items: center; gap: 4px;">
+                            <div style="font-size: 14px; font-weight: bold; min-width: 22px; text-align: right; border-right: 1px solid #000; padding-right: 4px;">
+                                {{ item.stock_qty|int }}
+                            </div>
+                            <div style="flex: 1; color:#666; font-style: italic;">no expiry data</div>
+                        </div>
                     {% else %}
                         -
                     {% endif %}
