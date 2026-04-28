@@ -813,7 +813,7 @@ input[type=number] { -moz-appearance: textfield; }
                     lot_note: data.line.lot_note,
                 });
                 qtyEl.value = '';
-                expiryEl.value = '';
+                if (expiryEl) expiryEl.value = '';
                 renderTable();
             } else {
                 alert(data.error || 'Failed to save');
