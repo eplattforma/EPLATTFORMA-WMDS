@@ -1070,7 +1070,11 @@ input[type=number] { -moz-appearance: textfield; }
                 setTimeout(() => { row.style.background = ''; }, 1500);
             }
             const qtyInput = document.getElementById(`inp_qty_${poLineId}`);
-            if (qtyInput) qtyInput.focus();
+            if (qtyInput) {
+                qtyInput.focus();
+            } else {
+                addItemToPO(code);
+            }
         } else {
             addItemToPO(code);
         }
@@ -1106,12 +1110,12 @@ input[type=number] { -moz-appearance: textfield; }
                 });
                 renderTable();
                 setTimeout(() => {
-                    const row = document.querySelector(`tr[data-po-line-id="${data.line.id}"]`);
-                    if (row) {
-                        row.scrollIntoView({behavior: 'smooth', block: 'center'});
-                        const qtyInput = document.getElementById(`inp_qty_${data.line.id}`);
-                        if (qtyInput) qtyInput.focus();
-                    }
+                const row = document.querySelector(`tr[data-po-line-id="${data.line.id}"]`);
+                if (row) {
+                    row.scrollIntoView({behavior: 'smooth', block: 'center'});
+                }
+                const qtyInput = document.getElementById(`inp_qty_${data.line.id}`);
+                if (qtyInput) qtyInput.focus();
                 }, 100);
             } else {
                 alert(data.error || 'Failed to add item');
