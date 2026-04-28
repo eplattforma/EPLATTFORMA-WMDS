@@ -667,6 +667,7 @@ def receive(po_id):
     # Bulk-fetch PSItems data for unit-code/selling-qty display (matches picking)
     item_codes_for_dw = [l.item_code_365 for l in po.lines if l.item_code_365]
     psitems_by_line = {}
+    attr_name_map = {}
     if item_codes_for_dw:
         dw_rows = DwItem.query.filter(DwItem.item_code_365.in_(item_codes_for_dw)).all()
         dw_map = {d.item_code_365: d for d in dw_rows}
@@ -681,6 +682,13 @@ def receive(po_id):
                     sq = None
             psitems_by_line[l.id] = {'attribute_1_code': attr1, 'selling_qty': sq}
 
+        # Resolve attribute codes to friendly names (CAS -> CASE, TEM -> ITEM)
+        from models import DwAttribute1
+        codes_used = {v['attribute_1_code'] for v in psitems_by_line.values() if v.get('attribute_1_code')}
+        if codes_used:
+            attr_rows = DwAttribute1.query.filter(DwAttribute1.attribute_1_code_365.in_(codes_used)).all()
+            attr_name_map = {a.attribute_1_code_365: a.attribute_1_name for a in attr_rows}
+
     # Get receiving notes from settings
     from models import Setting
     default_receiving_notes = "Wrong Barcode\nBarcode not in system\nNew Product\nRepacking\nNeeds Labels"
@@ -693,6 +701,7 @@ def receive(po_id):
         session=session,
         received_by_line=received_by_line,
         psitems_by_line=psitems_by_line,
+        attr_name_map=attr_name_map,
         receiving_notes=receiving_notes
     )
 
@@ -1656,9 +1665,16 @@ def receive_desktop(po_id):
     all_lines = po.lines.order_by(PurchaseOrderLine.line_number).all()
     item_codes = [l.item_code_365 for l in all_lines if l.item_code_365]
     dw_items_map = {}
+    attr_name_map: dict[str, str] = {}
     if item_codes:
         dw_rows = DwItem.query.filter(DwItem.item_code_365.in_(item_codes)).all()
         dw_items_map = {d.item_code_365: d for d in dw_rows}
+        # Resolve attribute codes to friendly names (CAS -> CASE, TEM -> ITEM)
+        from models import DwAttribute1
+        attr_codes = {d.attribute_1_code_365 for d in dw_rows if d.attribute_1_code_365}
+        if attr_codes:
+            attr_rows = DwAttribute1.query.filter(DwAttribute1.attribute_1_code_365.in_(attr_codes)).all()
+            attr_name_map = {a.attribute_1_code_365: a.attribute_1_name for a in attr_rows}
 
     po_lines_data = []
     for line in all_lines:
@@ -1711,6 +1727,7 @@ def receive_desktop(po_id):
             'unit_type': line.unit_type or '',
             'pieces_per_unit': int(line.pieces_per_unit or 1),
             'attribute_1_code': attribute_1_code,
+            'attribute_1_name': attr_name_map.get(attribute_1_code, '') if attribute_1_code else '',
             'selling_qty': selling_qty_val,
             'item_has_expiration_date': line.item_has_expiration_date,
             'line_id_365': line.line_id_365 or '',

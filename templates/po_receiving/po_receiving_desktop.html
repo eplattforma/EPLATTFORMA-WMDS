@@ -598,16 +598,18 @@ input[type=number] { -moz-appearance: textfield; }
     }
 
     function getPackagingLabel(line) {
-        const attr1 = (line.attribute_1_code || '').toString().trim();
+        const attrName = (line.attribute_1_name || '').toString().trim();
+        const attrCode = (line.attribute_1_code || '').toString().trim();
+        const attrLabel = attrName || attrCode;
         const sellQtyRaw = line.selling_qty;
         const sellQty = (sellQtyRaw !== null && sellQtyRaw !== undefined && !isNaN(Number(sellQtyRaw)))
             ? Number(sellQtyRaw) : null;
-        if (attr1) {
+        if (attrLabel) {
             if (sellQty && sellQty > 0) {
                 const qStr = Number.isInteger(sellQty) ? sellQty.toString() : sellQty.toString();
-                return `${attr1}(${qStr})`;
+                return `${attrLabel}(${qStr})`;
             }
-            return attr1;
+            return attrLabel;
         }
         const unitType = line.unit_type && line.unit_type !== 'None' ? line.unit_type : 'PIECE';
         const pieces = Number(line.pieces_per_unit || 1);

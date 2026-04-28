@@ -151,6 +151,10 @@ input[type=number] {
     <select id="lineSelect" style="display: none;">
         <option value="">-- Select line --</option>
         {% for line in po.lines %}
+        {% set _ps = psitems_by_line.get(line.id) if psitems_by_line else None %}
+        {% set _ps_attr_code = (_ps.attribute_1_code if _ps else '') %}
+        {% set _ps_attr_name = (attr_name_map.get(_ps_attr_code) if attr_name_map else '') or '' %}
+        {% set _ps_qty = (_ps.selling_qty if _ps else None) %}
         <option value="{{ line.id }}" 
                 data-item="{{ line.item_code_365 }}" 
                 data-barcode="{{ line.item_barcode or '' }}"
@@ -159,6 +163,9 @@ input[type=number] {
                 data-qty="{{ line.line_quantity }}"
                 data-unit="{{ line.unit_type }}"
                 data-pieces="{{ line.pieces_per_unit|int if line.pieces_per_unit else 1 }}"
+                data-attr-code="{{ _ps_attr_code }}"
+                data-attr-name="{{ _ps_attr_name }}"
+                data-selling-qty="{{ _ps_qty if _ps_qty is not none else '' }}"
                 data-requires-expiry="{{ 'true' if line.item_has_expiration_date else 'false' }}">
             #{{ line.line_number }} - {{ line.item_code_365 }} - {{ line.item_name }}
         </option>
@@ -236,7 +243,8 @@ input[type=number] {
                                 <span class="text-info" style="margin-left: 8px;">({{ line.supplier_item_code }})</span>
                                 {% endif %}
                                 {% set ps = psitems_by_line.get(line.id) if psitems_by_line else None %}
-                                {% set ps_attr = (ps.attribute_1_code if ps else '') %}
+                                {% set ps_attr_code = (ps.attribute_1_code if ps else '') %}
+                                {% set ps_attr = (attr_name_map.get(ps_attr_code) if attr_name_map else None) or ps_attr_code %}
                                 {% set ps_qty = (ps.selling_qty if ps else None) %}
                                 {% if ps_attr %}
                                 <span class="badge bg-light text-dark border ms-2">
@@ -409,6 +417,28 @@ const SESSION_ID = {{ session.id }};
 let scannerOn = false;
 let lastScanned = null;
 
+// Build packaging label from a <option> element using PSItems attribute info
+// (matches desktop's getPackagingLabel logic so both modes show the same label)
+function packagingLabelFromOption(option) {
+    if (!option) return 'PIECE';
+    const attrName = (option.dataset.attrName || '').toString().trim();
+    const attrCode = (option.dataset.attrCode || '').toString().trim();
+    const attrLabel = attrName || attrCode;
+    const sellQtyRaw = option.dataset.sellingQty;
+    const sellQty = (sellQtyRaw !== undefined && sellQtyRaw !== null && sellQtyRaw !== '' && !isNaN(Number(sellQtyRaw)))
+        ? Number(sellQtyRaw) : null;
+    if (attrLabel) {
+        if (sellQty && sellQty > 0) {
+            const qStr = Number.isInteger(sellQty) ? sellQty.toString() : sellQty.toString();
+            return `${attrLabel}(${qStr})`;
+        }
+        return attrLabel;
+    }
+    const unitType = (option.dataset.unit && option.dataset.unit !== 'None') ? option.dataset.unit : 'PIECE';
+    const pieces = parseInt(option.dataset.pieces || 1);
+    return pieces > 1 ? `${unitType}(${pieces})` : unitType;
+}
+
 // Toggle scanner
 function toggleScanner() {
     const viewport = document.getElementById('scannerViewport');
@@ -528,9 +558,7 @@ function selectLine() {
         select.value = lineId;
         
         const selectedOption = select.options[select.selectedIndex];
-        const unitType = (selectedOption.dataset.unit && selectedOption.dataset.unit !== 'None') ? selectedOption.dataset.unit : 'PIECE';
-        const pieces = parseInt(selectedOption.dataset.pieces || 1);
-        const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+        const unitDisplay = packagingLabelFromOption(selectedOption);
         const barcode = selectedOption.dataset.barcode || '';
         const supplierItemCode = selectedOption.dataset.supplierItem || '';
 
@@ -635,9 +663,7 @@ function updateExpiryFieldVisibility() {
             if (option.dataset.item === code || option.dataset.supplierItem === code) {
                 select.selectedIndex = i;
                 
-                const unitType = (option.dataset.unit && option.dataset.unit !== 'None') ? option.dataset.unit : 'PIECE';
-                const pieces = parseInt(option.dataset.pieces || 1);
-                const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+                const unitDisplay = packagingLabelFromOption(option);
 
                 // Update display
                 const display = document.getElementById('selectedItemDisplay');
@@ -684,9 +710,7 @@ function updateExpiryFieldVisibility() {
                         (data.supplier_item_code && option.dataset.supplierItem === data.supplier_item_code)) {
                         select.selectedIndex = i;
                         
-                        const unitType = option.dataset.unit || 'PIECE';
-                        const pieces = parseInt(option.dataset.pieces || 1);
-                        const unitDisplay = pieces > 1 ? `${unitType}(${pieces})` : unitType;
+                        const unitDisplay = packagingLabelFromOption(option);
 
                         // Update display
                         const display = document.getElementById('selectedItemDisplay');
