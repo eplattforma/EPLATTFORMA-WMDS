@@ -37,8 +37,16 @@
                         <span class="badge bg-secondary">Not Started</span>
                         {% endif %}
                     </h6>
-                    {% if item.po.supplier_name %}
-                    <div class="mb-1">{{ item.po.supplier_name }}</div>
+                    {% set lookup_name = supplier_name_by_code.get(item.po.supplier_code) if item.po.supplier_code else None %}
+                    {% set display_supplier = lookup_name or item.po.supplier_name %}
+                    {% if item.po.supplier_code or display_supplier %}
+                    <div class="mb-1">
+                        <small class="text-muted">Supplier:</small>
+                        {% if item.po.supplier_code %}<code>{{ item.po.supplier_code }}</code>{% endif %}
+                        {% if display_supplier %}
+                            {% if item.po.supplier_code %} — {% endif %}{{ display_supplier }}
+                        {% endif %}
+                    </div>
                     {% endif %}
                     <div class="mb-1">
                         <small class="text-muted">Description:</small>

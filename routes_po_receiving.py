@@ -529,7 +529,17 @@ def index():
     
     # Get all non-archived purchase orders with receiving progress
     orders = PurchaseOrder.query.filter_by(is_archived=False).order_by(PurchaseOrder.downloaded_at.desc()).all()
-    
+
+    # Build a supplier code -> name map from the imported supplier directory
+    from models import Supplier
+    supplier_codes = {po.supplier_code for po in orders if po.supplier_code}
+    supplier_name_by_code = {}
+    if supplier_codes:
+        supplier_name_by_code = {
+            s.code: s.name
+            for s in Supplier.query.filter(Supplier.code.in_(supplier_codes)).all()
+        }
+
     # Calculate receiving progress for each order
     order_data = []
     for po in orders:
@@ -557,7 +567,11 @@ def index():
             'is_complete': total_received >= total_ordered if total_ordered > 0 else False
         })
     
-    return render_template('po_receiving/index.html', order_data=order_data)
+    return render_template(
+        'po_receiving/index.html',
+        order_data=order_data,
+        supplier_name_by_code=supplier_name_by_code,
+    )
 
 @po_receiving_bp.route('/download', methods=['GET', 'POST'])
 @login_required
