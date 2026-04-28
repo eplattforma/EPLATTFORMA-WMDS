@@ -143,10 +143,15 @@ input[type=number] { -moz-appearance: textfield; }
     white-space: nowrap;
 }
 .rcv-table .cell-name {
-    max-width: 200px;
-    white-space: nowrap;
+    max-width: 260px;
+    white-space: normal;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.2;
+    word-break: break-word;
 }
 .rcv-table input.form-control-sm {
     padding: 0.15rem 0.3rem;
@@ -734,6 +739,11 @@ input[type=number] { -moz-appearance: textfield; }
         const qtyEl = document.getElementById(`inp_qty_${poLineId}`);
         const expiryEl = document.getElementById(`inp_expiry_${poLineId}`);
 
+        if (!qtyEl) {
+            renderTable();
+            return;
+        }
+
         const inputQty = parseFloat(qtyEl.value);
         if (!inputQty || inputQty <= 0) {
             qtyEl.classList.add('is-invalid');
@@ -743,7 +753,7 @@ input[type=number] { -moz-appearance: textfield; }
         qtyEl.classList.remove('is-invalid');
 
         let expiryISO = null;
-        if (expiryEl.value && expiryEl.value.trim()) {
+        if (expiryEl && expiryEl.value && expiryEl.value.trim()) {
             expiryISO = parseDDMMYYtoISO(expiryEl.value);
             if (!expiryISO) {
                 expiryEl.classList.add('is-invalid');
@@ -758,7 +768,7 @@ input[type=number] { -moz-appearance: textfield; }
                 return;
             }
         }
-        expiryEl.classList.remove('is-invalid');
+        if (expiryEl) expiryEl.classList.remove('is-invalid');
 
         const basePayload = {
             session_id: SESSION_ID,
