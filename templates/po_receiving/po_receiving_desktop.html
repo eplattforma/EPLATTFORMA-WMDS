@@ -450,6 +450,38 @@ input[type=number] { -moz-appearance: textfield; }
         if (!m) return iso;
         return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
     }
+
+    // Validate an ISO expiry date against today's date.
+    // - Blocks dates already in the past (returns {ok:false, reason:'expired'})
+    // - For dates within 30 days, asks the operator to confirm
+    //   (returns {ok:false, reason:'cancelled'} if they decline)
+    // Returns {ok:true} when the date is acceptable.
+    function validateExpiryISO(expiryISO) {
+        if (!expiryISO) return {ok: true};
+        const m = String(expiryISO).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return {ok: true};
+        // Calendar-day diff via UTC midnight on both dates (DST-safe).
+        const expUTC = Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+        const now = new Date();
+        const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        const msPerDay = 24 * 60 * 60 * 1000;
+        const diffDays = Math.round((expUTC - todayUTC) / msPerDay);
+        if (diffDays < 0) {
+            const ddmmyy = formatISOtoDDMMYY(expiryISO);
+            alert(`Expiry date ${ddmmyy} is already expired (${Math.abs(diffDays)} day(s) past). Please enter a date that has not expired yet.`);
+            return {ok: false, reason: 'expired', diffDays};
+        }
+        if (diffDays < 30) {
+            const ddmmyy = formatISOtoDDMMYY(expiryISO);
+            const msg = diffDays === 0
+                ? `Expiry date ${ddmmyy} is TODAY. OK to proceed?`
+                : `Expiry date ${ddmmyy} is only ${diffDays} day(s) away. OK to proceed?`;
+            if (!confirm(msg)) {
+                return {ok: false, reason: 'cancelled', diffDays};
+            }
+        }
+        return {ok: true, diffDays};
+    }
     window.maskDateInput = function(input) {
         // Caret-preserving auto-format to dd/mm/yy.
         // Strategy: count digits to the left of the caret in the raw value,
@@ -717,6 +749,12 @@ input[type=number] { -moz-appearance: textfield; }
                 expiryEl.classList.add('is-invalid');
                 expiryEl.focus();
                 alert('Invalid expiry date. Use format dd/mm/yy');
+                return;
+            }
+            const expCheck = validateExpiryISO(expiryISO);
+            if (!expCheck.ok) {
+                expiryEl.classList.add('is-invalid');
+                expiryEl.focus();
                 return;
             }
         }

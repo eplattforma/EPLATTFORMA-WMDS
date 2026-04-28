@@ -417,6 +417,47 @@ const SESSION_ID = {{ session.id }};
 let scannerOn = false;
 let lastScanned = null;
 
+// Validate an ISO expiry date (YYYY-MM-DD) against today's date.
+// - Blocks dates already in the past (returns {ok:false, reason:'expired'})
+// - For dates within 30 days, asks the operator to confirm
+//   (returns {ok:false, reason:'cancelled'} if they decline)
+// Returns {ok:true} when the date is acceptable.
+function validateExpiryISO(expiryISO) {
+    if (!expiryISO) return {ok: true};
+    const m = String(expiryISO).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return {ok: true};
+    // Calendar-day diff via UTC midnight on both dates (DST-safe).
+    const expUTC = Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    const now = new Date();
+    const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const diffDays = Math.round((expUTC - todayUTC) / msPerDay);
+    if (diffDays < 0) {
+        alert(`Expiry date ${expiryISO} is already expired (${Math.abs(diffDays)} day(s) past). Please enter a date that has not expired yet.`);
+        return {ok: false, reason: 'expired', diffDays};
+    }
+    if (diffDays < 30) {
+        const msg = diffDays === 0
+            ? `Expiry date ${expiryISO} is TODAY. OK to proceed?`
+            : `Expiry date ${expiryISO} is only ${diffDays} day(s) away. OK to proceed?`;
+        if (!confirm(msg)) {
+            return {ok: false, reason: 'cancelled', diffDays};
+        }
+    }
+    return {ok: true, diffDays};
+}
+
+// Set min attribute on the expiry input to today, so the native date
+// picker greys out past dates as a UX hint (validation still runs on submit).
+document.addEventListener('DOMContentLoaded', function() {
+    const expiryInput = document.getElementById('expiryInput');
+    if (expiryInput) {
+        const t = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        expiryInput.min = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+    }
+});
+
 // Build packaging label from a <option> element using PSItems attribute info
 // (matches desktop's getPackagingLabel logic so both modes show the same label)
 function packagingLabelFromOption(option) {
@@ -1053,7 +1094,16 @@ async function savePoComments() {
         alert('Please enter a valid quantity');
         return;
     }
-    
+
+    if (expiry) {
+        const expCheck = validateExpiryISO(expiry);
+        if (!expCheck.ok) {
+            const expEl = document.getElementById('expiryInput');
+            if (expEl) expEl.focus();
+            return;
+        }
+    }
+
     const msgDiv = document.getElementById('addMsg');
     msgDiv.innerHTML = '<div class="text-info"><i class="fas fa-spinner fa-spin"></i> Adding...</div>';
     
