@@ -716,7 +716,7 @@ input[type=number] { -moz-appearance: textfield; }
         }
         expiryEl.classList.remove('is-invalid');
 
-        const payload = {
+        const basePayload = {
             session_id: SESSION_ID,
             po_line_id: poLineId,
             input_qty: inputQty,
@@ -724,13 +724,36 @@ input[type=number] { -moz-appearance: textfield; }
             lot_note: '',
         };
 
-        try {
+        const postSave = async function(payload) {
             const resp = await fetch('/po-receiving/api/desktop/save-line', {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify(payload),
             });
-            const data = await resp.json();
+            return resp.json();
+        };
+
+        try {
+            let data = await postSave(basePayload);
+
+            // Item is flagged as expirable in PS365 but no expiry was entered.
+            // Ask the user to acknowledge once, then retry the save.
+            if (!data.ok && data.error_code === 'expiry_required_confirm') {
+                const itemLabel = data.item_code
+                    ? `${data.item_code} — ${data.item_name || ''}`.trim()
+                    : (data.item_name || 'this item');
+                const ok = confirm(
+                    `${itemLabel}\n\n` +
+                    `This item is normally tracked with an expiration date in PS365, ` +
+                    `but no expiry was entered.\n\nSave the receipt without an expiry date?`
+                );
+                if (!ok) {
+                    expiryEl.focus();
+                    return;
+                }
+                data = await postSave({ ...basePayload, acknowledged_no_expiry: true });
+            }
+
             if (data.ok) {
                 line.total_received += data.line.qty_received;
                 line.expiry_date = data.line.expiry_date;
@@ -824,9 +847,9 @@ input[type=number] { -moz-appearance: textfield; }
     };
 
     window.sendToPS365 = async function() {
-        const hasErrors = Object.values(lineStatuses).some(s =>
+        const missingExpCount = Object.values(lineStatuses).filter(s =>
             s.status === 'missing_expiry'
-        );
+        ).length;
         const hasEntries = Object.values(lineStatuses).some(s => s.status !== 'not_entered');
 
         if (!hasEntries) {
@@ -834,12 +857,13 @@ input[type=number] { -moz-appearance: textfield; }
             return;
         }
 
-        if (hasErrors) {
-            alert('There are blocking errors. Please fix them before sending.');
-            return;
+        if (missingExpCount > 0) {
+            const msg = `${missingExpCount} line(s) were saved without an expiry date.\n\n` +
+                `Send the receipt to PS365 anyway?`;
+            if (!confirm(msg)) return;
+        } else {
+            if (!confirm('Send receipt to PS365? This will create a GRN and archive the PO.')) return;
         }
-
-        if (!confirm('Send receipt to PS365? This will create a GRN and archive the PO.')) return;
 
         const btn = document.getElementById('btnSendPS365');
         btn.disabled = true;

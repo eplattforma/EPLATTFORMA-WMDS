@@ -214,12 +214,12 @@
                 <th style="width: 14px;">#</th>
                 <th style="width: 32px;">Item Code</th>
                 <th style="width: 35px;">Barcode</th>
-                <th style="width: 130px; white-space: normal;">Item Name</th>
-                <th style="width: 12px; text-align: center;">O</th>
+                <th style="width: 110px; white-space: normal;">Item Name</th>
                 <th style="width: 30px; font-weight: bold;">Shelf</th>
-                <th style="width: 12px; text-align: center;">S</th>
-                <th style="width: 35px;">Expiry Date</th>
-                <th style="width: 22px; text-align: center; font-weight: bold;">R</th>
+                <th style="width: 60px;">Shelf stock by expiry date</th>
+                <th style="width: 18px; text-align: center;">Ordered</th>
+                <th style="width: 22px; text-align: center; font-weight: bold;">Received</th>
+                <th style="width: 50px;">Expiration date received</th>
             </tr>
         </thead>
         <tbody>
@@ -244,7 +244,6 @@
                         </div>
                     {% endif %}
                 </td>
-                <td class="qty-cell" style="text-align: center;">{{ item.line.line_quantity|int }}</td>
                 <td class="shelf-cell">
                     {% if item.shelf_locations %}
                         {{ item.shelf_locations|join(', ') }}
@@ -252,27 +251,38 @@
                         N/A
                     {% endif %}
                 </td>
-                <td class="qty-cell" style="text-align: center;">
-                    {% if item.stock_qty is not none %}
-                        {{ item.stock_qty|int }}
+                <td style="font-size: 10px;">
+                    {% if item.existing_stock_by_expiry %}
+                        {% for exp in item.existing_stock_by_expiry %}
+                            <div>
+                                {% if exp.date %}{{ exp.date }}{% else %}<span style="color:#666;">(no date)</span>{% endif %}
+                                <span style="font-weight: bold;">{{ exp.qty|int }}</span>
+                            </div>
+                        {% endfor %}
+                    {% elif item.stock_qty is not none %}
+                        <span style="color:#666;">{{ item.stock_qty|int }} (no expiry data)</span>
                     {% else %}
                         -
                     {% endif %}
                 </td>
-                <td style="font-size: 12px; font-weight: bold;">
-                    {% if item.expiry_dates %}
-                        {% if item.expiry_dates|length > 1 %}
-                            {% for exp in item.expiry_dates %}
+                <td class="qty-cell" style="text-align: center;">{{ item.line.line_quantity|int }}</td>
+                <td class="received-cell">{{ item.total_received|int }}</td>
+                <td style="font-size: 12px; font-weight: bold; {% if item.received_newer_than_existing %}background:#ffe5e5 !important; color:#950606 !important;{% endif %}">
+                    {% if item.received_expiry_dates %}
+                        {% if item.received_newer_than_existing %}
+                            <div style="font-size: 8px; font-weight: bold; color:#950606; margin-bottom:2px; text-transform:uppercase;">⚠ Newer than existing</div>
+                        {% endif %}
+                        {% if item.received_expiry_dates|length > 1 %}
+                            {% for exp in item.received_expiry_dates %}
                                 <div>{{ exp.date }} {{ exp.qty|int }}</div>
                             {% endfor %}
                         {% else %}
-                            <div>{{ item.expiry_dates[0].date }}</div>
+                            <div>{{ item.received_expiry_dates[0].date }}</div>
                         {% endif %}
                     {% else %}
                         -
                     {% endif %}
                 </td>
-                <td class="received-cell">{{ item.total_received|int }}</td>
             </tr>
             {% endfor %}
         </tbody>

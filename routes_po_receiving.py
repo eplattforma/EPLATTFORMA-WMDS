@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash
 from flask_login import login_required, current_user
 from app import db
-from models import PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine, DwItem
+from models import PurchaseOrder, PurchaseOrderLine, ReceivingSession, ReceivingLine, DwItem, StockPosition
 from sqlalchemy import func, or_
 from shelves_service import fetch_item_shelves, Ps365Error
 from utils.image_handler import get_product_image
@@ -710,7 +710,51 @@ def print_po(po_id):
         return redirect(url_for('dashboard'))
     
     po = PurchaseOrder.query.get_or_404(po_id)
-    
+
+    # Build a per-item map of existing stock broken down by expiry date,
+    # sourced from stock_positions (the same data shown on the Stock Dashboard,
+    # store 777 / E-SHOP). One row per (item_code, expiry_date).
+    item_codes_in_po = [l.item_code_365 for l in po.lines if l.item_code_365]
+    existing_stock_by_item = {}  # item_code -> list[{'date': 'YYYY-MM-DD', 'qty': float}]
+    latest_existing_by_item = {}  # item_code -> 'YYYY-MM-DD' (max expiry across batches)
+    if item_codes_in_po:
+        sp_rows = (
+            db.session.query(
+                StockPosition.item_code,
+                StockPosition.expiry_date,
+                func.sum(StockPosition.stock_quantity).label('qty'),
+            )
+            .filter(
+                StockPosition.item_code.in_(item_codes_in_po),
+                StockPosition.store_code == PS365_DEFAULT_STORE,
+            )
+            .group_by(StockPosition.item_code, StockPosition.expiry_date)
+            .all()
+        )
+        from datetime import datetime as _dt, date as _date
+        def _parse_iso(s):
+            try:
+                return _dt.strptime(s, '%Y-%m-%d').date()
+            except Exception:
+                return None
+        tmp = {}
+        for code, exp, qty in sp_rows:
+            if not code:
+                continue
+            raw = (exp or '').strip() if exp else ''
+            tmp.setdefault(code, []).append({
+                'date': raw,                      # display string
+                'date_obj': _parse_iso(raw),      # parsed date for compare/sort
+                'qty': float(qty or 0),
+            })
+        for code, rows in tmp.items():
+            # Sort batches by expiry asc using parsed date (un-parseable rows last)
+            rows.sort(key=lambda r: (r['date_obj'] is None, r['date_obj'] or _date.max))
+            existing_stock_by_item[code] = rows
+            dated = [r['date_obj'] for r in rows if r['date_obj']]
+            if dated:
+                latest_existing_by_item[code] = max(dated)  # date object
+
     # Get all lines with their barcodes, stock, and receiving data
     lines_with_data = []
     for line in po.lines:
@@ -742,16 +786,30 @@ def print_po(po_id):
             ReceivingLine.po_line_id == line.id
         ).order_by(ReceivingLine.received_at.desc()).all()
         
-        expiry_dates = []
+        received_expiry_dates = []
         notes = []
         for rcv_line in receiving_lines:
             if rcv_line.expiry_date:
-                expiry_dates.append({
+                received_expiry_dates.append({
                     'date': rcv_line.expiry_date.strftime('%Y-%m-%d'),
                     'qty': float(rcv_line.qty_received)
                 })
             if rcv_line.lot_note:
                 notes.append(rcv_line.lot_note)
+
+        # Existing-stock breakdown (from Stock Dashboard / stock_positions)
+        existing_stock_by_expiry = existing_stock_by_item.get(line.item_code_365, [])
+        latest_existing = latest_existing_by_item.get(line.item_code_365)  # date or None
+
+        # Flag rule: any received expiry date is NEWER (later) than the
+        # newest existing-stock expiry date for this item. Signals a FIFO
+        # rotation concern (fresher stock arriving than what's on the shelf).
+        received_newer_than_existing = False
+        if latest_existing and receiving_lines:
+            for rcv_line in receiving_lines:
+                if rcv_line.expiry_date and rcv_line.expiry_date > latest_existing:
+                    received_newer_than_existing = True
+                    break
         
         # Parse shelf locations
         shelf_locations = []
@@ -769,7 +827,9 @@ def print_po(po_id):
             'stock_qty': stock_qty,
             'total_received': float(total_received),
             'shelf_locations': shelf_locations,
-            'expiry_dates': expiry_dates,
+            'received_expiry_dates': received_expiry_dates,
+            'existing_stock_by_expiry': existing_stock_by_expiry,
+            'received_newer_than_existing': received_newer_than_existing,
             'notes': list(set(notes)),  # Unique notes
             'primary_shelf': shelf_locations[0] if shelf_locations else 'ZZZZ'  # For sorting
         })
@@ -1773,8 +1833,21 @@ def api_desktop_save_line():
         except Exception:
             return jsonify({'ok': False, 'error': 'Invalid date format'}), 400
 
-    if po_line.item_has_expiration_date and not expiry_dt:
-        return jsonify({'ok': False, 'error': 'Expiration date is required for this item'}), 400
+    # If the PS365 item-master flags this item as expirable but the user is
+    # saving without an expiry date, require an explicit acknowledgement from
+    # the client. The frontend handles this by showing a confirm dialog and
+    # retrying the save with acknowledged_no_expiry=true. This covers the case
+    # where PS365's item setup says "tracks expiry" but the actual goods being
+    # received don't carry a printed expiry date.
+    acknowledged_no_expiry = bool(data.get('acknowledged_no_expiry'))
+    if po_line.item_has_expiration_date and not expiry_dt and not acknowledged_no_expiry:
+        return jsonify({
+            'ok': False,
+            'error': 'This item is normally tracked with an expiration date.',
+            'error_code': 'expiry_required_confirm',
+            'item_name': po_line.item_name,
+            'item_code': po_line.item_code_365,
+        }), 400
 
     try:
         if line_id:
@@ -1904,8 +1977,15 @@ def api_desktop_validate_session():
                     status = 'partial'
                     issues.append(f'Partial: {total_received}/{ordered}')
 
-        if status in ('missing_expiry', 'missing_conversion'):
+        if status == 'missing_conversion':
             errors.append(f'{po_line.item_code_365}: {issues[0]}')
+        elif status == 'missing_expiry':
+            # Saving a lot without an expiry date already requires explicit
+            # acknowledgement at the per-line save step, so by the time we
+            # reach validation those lines were intentionally accepted by
+            # the operator. Surface them as warnings (not blocking errors)
+            # so the receipt can still be sent to PS365.
+            warnings.append(f'{po_line.item_code_365}: {issues[0]}')
         elif status == 'no_ps365_line':
             warnings.append(f'{po_line.item_code_365}: {issues[0]}')
         elif status in ('over_received', 'partial'):
