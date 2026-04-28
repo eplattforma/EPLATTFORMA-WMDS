@@ -639,112 +639,36 @@ def incremental_sync_execute():
 @dw_bp.route('/database-settings', methods=['GET'])
 @login_required
 def database_settings():
-    """Database management settings page"""
+    """Database management settings page — also serves as the admin scheduler UI.
+
+    Lists every registered APScheduler job with its current schedule and lets
+    administrators reschedule, pause, resume, or trigger a job on demand. Form
+    actions POST to the ``admin_scheduler.*`` endpoints (which redirect back
+    here on completion).
+    """
     if current_user.role != 'admin':
         flash('Access denied. Admin privileges required.', 'error')
         return redirect(url_for('index'))
-    
+
     try:
-        from scheduler import list_scheduled_jobs
-        scheduled_jobs = list_scheduled_jobs()
+        from scheduler import list_scheduled_jobs_full
+        jobs = list_scheduled_jobs_full()
+        error = None
     except Exception as e:
-        logger.warning(f"Could not retrieve scheduled jobs: {str(e)}")
-        scheduled_jobs = []
-    
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Database Settings</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .header h1 { margin-bottom: 5px; font-size: 28px; }
-            .header p { opacity: 0.9; font-size: 14px; }
-            .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-            .section { background: white; border-radius: 8px; padding: 25px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-            .section h2 { color: #333; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #667eea; }
-            .settings-grid { display: grid; gap: 15px; }
-            .setting-item { padding: 15px; background: #f9f9f9; border-radius: 6px; border-left: 4px solid #667eea; }
-            .setting-item label { font-weight: 600; color: #333; display: block; margin-bottom: 5px; }
-            .setting-item p { color: #666; font-size: 13px; line-height: 1.5; }
-            .button-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-            button { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.3s; }
-            .btn-primary { background: #667eea; color: white; }
-            .btn-primary:hover { background: #5568d3; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(102,126,234,0.3); }
-            .btn-secondary { background: #e0e0e0; color: #333; }
-            .btn-secondary:hover { background: #d0d0d0; }
-            .btn-danger { background: #ef5350; color: white; }
-            .btn-danger:hover { background: #e53935; }
-            .jobs-list { background: #f9f9f9; padding: 15px; border-radius: 6px; }
-            .job-item { padding: 12px; background: white; border-radius: 4px; margin-bottom: 10px; border-left: 3px solid #4caf50; }
-            .job-name { font-weight: 600; color: #333; }
-            .job-detail { color: #666; font-size: 12px; margin-top: 3px; font-family: monospace; }
-            .job-time { color: #667eea; font-weight: 600; font-size: 12px; margin-top: 5px; }
-            .no-jobs { color: #999; font-style: italic; padding: 20px; text-align: center; }
-            .warning-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 6px; margin-bottom: 20px; color: #856404; }
-            .warning-box strong { display: block; margin-bottom: 5px; }
-            .back-link { margin-top: 30px; }
-            .back-link a { color: #667eea; text-decoration: none; font-weight: 600; }
-            .back-link a:hover { text-decoration: underline; }
-            .success-message { background: #d4edda; color: #155724; padding: 12px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #28a745; }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>⚙️ Database Settings</h1>
-            <p>Manage database operations, schedules, and configurations</p>
-        </div>
-        
-        <div class="container">
-            <!-- Scheduled Tasks Section -->
-            <div class="section">
-                <h2>🕐 Scheduled Tasks</h2>
-                <p style="margin-bottom: 15px; color: #666;">Automatic data warehouse syncs that run at specified times. The scheduler runs continuously in the background.</p>
-                
-                {% if scheduled_jobs %}
-                <div class="jobs-list">
-                    {% for job in scheduled_jobs %}
-                    <div class="job-item">
-                        <div class="job-name">{{ job.name }}</div>
-                        <div class="job-detail">ID: {{ job.id }}</div>
-                        <div class="job-detail">Schedule: {{ job.trigger }}</div>
-                        {% if job.next_run %}
-                        <div class="job-time">Next run: {{ job.next_run }}</div>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="no-jobs">
-                    <p>No scheduled tasks configured. Background scheduling will be enabled when your app is published to production.</p>
-                </div>
-                {% endif %}
-                
-                <div class="settings-grid" style="margin-top: 15px;">
-                    <div class="setting-item">
-                        <label>Current Schedule:</label>
-                        <p>• Incremental Sync: Daily at 1:00 AM and 1:00 PM</p>
-                        <p>• Full DW Sync: Daily at 3:00 AM</p>
-                        <p>• Customer Sync: Daily at 4:00 AM</p>
-                        <p>• Invoice Sync: Daily at 6:00 PM (last 2 days)</p>
-                        <p style="margin-top: 10px; color: #999; font-size: 12px;"><em>To modify schedules, edit scheduler.py</em></p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="back-link">
-                <a href="/">← Back to Home</a>
-            </div>
-        </div>
-        
-        <script></script>
-    </body>
-    </html>
-    """
-    
-    return render_template_string(html, scheduled_jobs=scheduled_jobs)
+        logger.error(f"Could not retrieve scheduled jobs: {str(e)}", exc_info=True)
+        jobs = []
+        error = str(e)
+
+    return render_template(
+        'datawarehouse/database_settings.html',
+        jobs=jobs,
+        error=error,
+    )
+
+
+# Note: the previous inline-HTML implementation of database_settings was
+# replaced by templates/datawarehouse/database_settings.html, which now
+# also embeds the editable scheduler UI (formerly at /admin/scheduler).
 
 
 @dw_bp.route('/logs', methods=['GET'])

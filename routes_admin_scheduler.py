@@ -1,20 +1,24 @@
 """
-Admin UI for the background scheduler.
+POST endpoints for the merged database-settings / scheduler admin page.
 
-Lists every APScheduler job with its current schedule and next-run time, and
-lets administrators reschedule, pause, resume, or trigger a job on demand.
+The page itself is rendered by ``datawarehouse.database_settings`` (URL:
+``/datawarehouse/database-settings``). The forms on that page POST to the
+endpoints in this blueprint, which mutate the shared APScheduler jobstore via
+helpers in ``scheduler.py`` and then redirect the user back to the page.
 
-Mutations write directly to the shared SQLAlchemy jobstore via helpers in
-`scheduler.py`, so they work even when the request lands on a worker that
-isn't the designated scheduler worker (only one worker runs the scheduler in
-autoscale; all workers share the jobstore).
+Mutations work even when the request lands on a worker that isn't the
+designated scheduler worker: the helpers wrap each operation in a
+``_JobstoreContext`` that talks directly to the SQL jobstore.
+
+The ``/admin/scheduler/`` GET URL is preserved as a permanent redirect to the
+merged page so any existing bookmarks keep working.
 """
 
 import logging
 from functools import wraps
 
 from flask import (
-    Blueprint, render_template, redirect, url_for, flash, request, abort
+    Blueprint, redirect, url_for, flash, request, abort
 )
 from flask_login import login_required, current_user
 
@@ -43,20 +47,17 @@ def _validate_csrf():
         abort(400, 'Invalid or missing CSRF token')
 
 
+def _back_to_settings():
+    """All scheduler actions redirect back to the merged settings page."""
+    return redirect(url_for('datawarehouse.database_settings'))
+
+
 @admin_scheduler_bp.route('/', methods=['GET'])
+@admin_scheduler_bp.route('', methods=['GET'])
 @admin_required
 def list_jobs():
-    """Render the scheduler dashboard."""
-    try:
-        from scheduler import list_scheduled_jobs_full
-        jobs = list_scheduled_jobs_full()
-        error = None
-    except Exception as e:
-        logger.error(f"Failed to load scheduler jobs: {e}", exc_info=True)
-        jobs = []
-        error = str(e)
-    # csrf_token() is provided by the global context processor in routes.py
-    return render_template('admin/scheduler.html', jobs=jobs, error=error)
+    """Legacy URL — the scheduler UI is now part of database-settings."""
+    return _back_to_settings()
 
 
 @admin_scheduler_bp.route('/<job_id>/reschedule', methods=['POST'])
@@ -69,7 +70,7 @@ def reschedule(job_id):
 
     if not hour or not minute:
         flash('Hour and minute are required.', 'danger')
-        return redirect(url_for('admin_scheduler.list_jobs'))
+        return _back_to_settings()
 
     try:
         from scheduler import reschedule_job
@@ -77,15 +78,15 @@ def reschedule(job_id):
         flash(
             f"Rescheduled '{job_id}' to hour={hour} minute={minute}"
             + (f" day_of_week={day_of_week}" if day_of_week else "")
-            + ". Note: changes only take effect after the next deployment "
-              "(the in-process scheduler reloads jobs at boot).",
+            + ". The running scheduler picks this up on its next wake cycle "
+              "(usually within a few minutes).",
             'success',
         )
     except Exception as e:
         logger.error(f"Reschedule failed for {job_id}: {e}", exc_info=True)
         flash(f"Reschedule failed: {e}", 'danger')
 
-    return redirect(url_for('admin_scheduler.list_jobs'))
+    return _back_to_settings()
 
 
 @admin_scheduler_bp.route('/<job_id>/pause', methods=['POST'])
@@ -99,7 +100,7 @@ def pause(job_id):
     except Exception as e:
         logger.error(f"Pause failed for {job_id}: {e}", exc_info=True)
         flash(f"Pause failed: {e}", 'danger')
-    return redirect(url_for('admin_scheduler.list_jobs'))
+    return _back_to_settings()
 
 
 @admin_scheduler_bp.route('/<job_id>/resume', methods=['POST'])
@@ -113,7 +114,7 @@ def resume(job_id):
     except Exception as e:
         logger.error(f"Resume failed for {job_id}: {e}", exc_info=True)
         flash(f"Resume failed: {e}", 'danger')
-    return redirect(url_for('admin_scheduler.list_jobs'))
+    return _back_to_settings()
 
 
 @admin_scheduler_bp.route('/<job_id>/run-now', methods=['POST'])
@@ -133,4 +134,4 @@ def run_now(job_id):
     except Exception as e:
         logger.error(f"Run-now failed for {job_id}: {e}", exc_info=True)
         flash(f"Run-now failed: {e}", 'danger')
-    return redirect(url_for('admin_scheduler.list_jobs'))
+    return _back_to_settings()
