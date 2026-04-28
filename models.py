@@ -3293,3 +3293,21 @@ class StockDashboardReserved(db.Model):
 
     def __repr__(self):
         return f"<StockDashboardReserved {self.item_code} reserved={self.stock_reserved}>"
+
+
+class Supplier(db.Model):
+    __tablename__ = "suppliers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(50), nullable=False, unique=True, index=True)
+    detail_account_no = db.Column(db.String(50), nullable=True)
+    short_name = db.Column(db.String(255), nullable=True)
+    name = db.Column(db.String(255), nullable=False)
+    telephone = db.Column(db.String(64), nullable=True)
+    sms = db.Column(db.String(64), nullable=True)
+    balance = db.Column(db.Numeric(18, 2), nullable=True)
+    imported_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+    def __repr__(self):
+        return f"<Supplier {self.code} {self.name}>"

@@ -263,6 +263,13 @@ def dw_menu():
                 </a>
             </div>
 
+            <div class="menu-option">
+                <a href="{{ url_for('datawarehouse.import_suppliers') }}">
+                    <h3>Import Suppliers</h3>
+                    <p>Upload a Powersoft365 supplier export (XLSX) to create or update the supplier directory (code, name, telephone, SMS, balance).</p>
+                </a>
+            </div>
+
             <div class="menu-option" style="display:flex; align-items:center; justify-content:space-between;">
                 <div style="flex:1;">
                     <h3>Load OOS Items (Store 777)</h3>
@@ -1115,6 +1122,53 @@ def invoice_lines_preview():
         logger.error(f"Error fetching invoice preview: {str(e)}", exc_info=True)
         flash(f'Error fetching invoice preview: {str(e)}', 'error')
         return redirect(url_for('datawarehouse.dw_menu'))
+
+
+@dw_bp.route('/import-suppliers', methods=['GET', 'POST'])
+@login_required
+def import_suppliers():
+    """Upload a Powersoft365 supplier export (XLSX) and upsert suppliers."""
+    if current_user.role != 'admin':
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('index'))
+
+    from models import Supplier
+    from services.supplier_import import parse_supplier_workbook, upsert_suppliers
+
+    summary = None
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if not file or not file.filename:
+            flash('Please choose an XLSX file to upload.', 'error')
+        elif not file.filename.lower().endswith('.xlsx'):
+            flash('Only .xlsx files are supported.', 'error')
+        else:
+            try:
+                records = parse_supplier_workbook(file.read())
+                if not records:
+                    flash('No supplier rows were found in the file.', 'error')
+                else:
+                    summary = upsert_suppliers(records)
+                    flash(
+                        f"Import complete: {summary['created']} created, "
+                        f"{summary['updated']} updated, "
+                        f"{summary['unchanged']} unchanged "
+                        f"({summary['total']} processed).",
+                        'success',
+                    )
+            except ValueError as ve:
+                flash(f'Could not read file: {ve}', 'error')
+            except Exception as e:
+                logger.error(f"Supplier import error: {e}", exc_info=True)
+                db.session.rollback()
+                flash(f'Import failed: {e}', 'error')
+
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    return render_template(
+        'datawarehouse/import_suppliers.html',
+        suppliers=suppliers,
+        summary=summary,
+    )
 
 
 # Blueprint will be registered by routes.py

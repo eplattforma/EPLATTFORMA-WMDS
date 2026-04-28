@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Import Suppliers{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0"><i class="fas fa-truck-loading me-2"></i>Import Suppliers</h2>
+    <a href="{{ url_for('datawarehouse.dw_menu') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-arrow-left me-1"></i>Back to Data Warehouse
+    </a>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <p class="text-muted mb-3">
+        Upload a Powersoft365 supplier export (XLSX). The first row must contain the
+        column headers <code>Code</code>, <code>Detail Account No</code>,
+        <code>Short Name</code>, <code>Name</code>, <code>Telephone</code>,
+        <code>SMS</code>, <code>Balance</code>. Existing suppliers (matched by
+        <code>Code</code>) will be updated; new ones will be created.
+      </p>
+
+      <form method="post" enctype="multipart/form-data">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-8">
+            <label for="file" class="form-label">Suppliers file (.xlsx)</label>
+            <input class="form-control" type="file" id="file" name="file"
+                   accept=".xlsx" required>
+          </div>
+          <div class="col-md-4">
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="fas fa-file-import me-1"></i>Import
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if summary %}
+  <div class="alert alert-success">
+    <strong>Import complete.</strong>
+    {{ summary.total }} rows processed —
+    <span class="badge bg-success">{{ summary.created }} created</span>
+    <span class="badge bg-info text-dark">{{ summary.updated }} updated</span>
+    <span class="badge bg-secondary">{{ summary.unchanged }} unchanged</span>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="fas fa-list me-2"></i>Suppliers in database</span>
+      <span class="badge bg-secondary">{{ suppliers|length }} total</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Code</th>
+            <th>Detail Account No</th>
+            <th>Name</th>
+            <th>Short Name</th>
+            <th>Telephone</th>
+            <th>SMS</th>
+            <th class="text-end">Balance</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in suppliers %}
+          <tr>
+            <td><code>{{ s.code }}</code></td>
+            <td>{{ s.detail_account_no or '' }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.short_name or '' }}</td>
+            <td>{{ s.telephone or '' }}</td>
+            <td>{{ s.sms or '' }}</td>
+            <td class="text-end">
+              {% if s.balance is not none %}{{ '%.2f'|format(s.balance) }}{% endif %}
+            </td>
+            <td class="text-muted small">
+              {{ s.updated_at.strftime('%Y-%m-%d %H:%M') if s.updated_at else '' }}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-center text-muted py-4">
+            No suppliers imported yet.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
