@@ -3,144 +3,339 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Print PO {{ po.po_code }}</title>
+    <title>Print PO {{ po.code_365 or po.shopping_cart_code }}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
+            box-sizing: border-box;
         }
-        
+
         html, body {
             width: 100% !important;
             height: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
         }
-        
+
         body {
-            font-family: Arial, sans-serif;
-            padding: 20px !important;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            padding: 18px !important;
             background: white !important;
-            color: #000 !important;
+            color: #111 !important;
+            font-size: 10px;
+            line-height: 1.35;
         }
-        
+
         @media print {
-            .no-print {
-                display: none !important;
-            }
-            html, body {
-                margin: 0 !important;
-                padding: 0 !important;
-                height: auto !important;
-            }
-            body {
-                padding: 6px !important;
-            }
+            .no-print { display: none !important; }
+            html, body { margin: 0 !important; padding: 0 !important; height: auto !important; }
+            body { padding: 8px !important; }
             @page {
-                margin: 0.2cm !important;
+                margin: 0.4cm 0.3cm !important;
                 size: A4 !important;
                 orphans: 0 !important;
                 widows: 0 !important;
             }
-            * {
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-            }
+            tr { page-break-inside: avoid; }
+            thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
         }
-        
+
         @media screen {
-            body {
-                max-width: 1200px;
-                margin: 0 auto;
-            }
+            body { max-width: 1100px; margin: 0 auto; }
         }
-        
+
+        /* ---------- Header ---------- */
         .header {
-            border-bottom: 2px solid #000;
-            padding-bottom: 8px;
-            margin-bottom: 8px;
+            border-bottom: 2.5px solid #111;
+            padding-bottom: 10px;
+            margin-bottom: 12px;
         }
-        
-        .header h1 {
-            margin: 0 0 2px 0;
-            font-size: 20px;
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
         }
-        
-        .header-info {
+
+        .header-title h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .header-title .subtitle {
+            font-size: 10px;
+            color: #555;
+            margin-top: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+
+        .header-meta {
+            text-align: right;
+            font-size: 10px;
+            color: #333;
+        }
+
+        .header-meta .meta-row {
+            margin: 1px 0;
+        }
+
+        .header-meta .meta-label {
+            color: #777;
+            margin-right: 4px;
+        }
+
+        .header-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 5px;
-            font-size: 12px;
+            gap: 4px 24px;
+            margin-top: 8px;
+            font-size: 11px;
         }
-        
+
         .info-row {
-            margin: 2px 0;
+            display: flex;
+            margin: 1px 0;
+            line-height: 1.4;
         }
-        
+
         .info-label {
-            font-weight: bold;
-            display: inline-block;
-            width: 120px;
+            font-weight: 700;
+            color: #555;
+            min-width: 90px;
+            flex-shrink: 0;
         }
-        
+
+        .info-value {
+            flex: 1;
+            color: #111;
+        }
+
+        /* ---------- Table ---------- */
         .items-table {
             width: 100% !important;
             border-collapse: collapse !important;
-            margin-top: 6px !important;
+            margin-top: 4px !important;
             table-layout: fixed !important;
         }
-        
+
         .items-table th {
-            background: #fff !important;
-            border: 1px solid #000 !important;
-            padding: 5px 4px !important;
+            background: #2c3e50 !important;
+            border: 1px solid #2c3e50 !important;
+            padding: 6px 5px !important;
             text-align: left !important;
-            font-weight: bold !important;
+            font-weight: 700 !important;
             font-size: 9px !important;
-            color: #000 !important;
+            color: #fff !important;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
-        
+
         .items-table td {
-            border: 1px solid #000 !important;
-            padding: 4px 3px !important;
-            font-size: 9px !important;
+            border: 1px solid #c8ccd1 !important;
+            padding: 5px 5px !important;
+            font-size: 10px !important;
             vertical-align: middle !important;
-            color: #000 !important;
+            color: #111 !important;
             background: #fff !important;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }
-        
-        .items-table tr:nth-child(even) {
-            background: #fff !important;
+
+        .items-table tbody tr:nth-child(even) td {
+            background: #f6f8fa !important;
         }
-        
+
+        .items-table tbody tr:hover td {
+            background: #eef3fa !important;
+        }
+
+        .num-cell {
+            text-align: center;
+            color: #666 !important;
+            font-size: 9px !important;
+        }
+
         .item-code {
-            font-weight: bold;
+            font-family: 'Menlo', 'Consolas', monospace !important;
+            font-weight: 700;
+            font-size: 10px !important;
         }
-        
-        .qty-cell {
-            text-align: right;
-            font-weight: bold;
+
+        .barcode-cell {
+            font-family: 'Menlo', 'Consolas', monospace !important;
+            font-size: 10px !important;
+            font-weight: 600;
         }
-        
-        .items-table td.shelf-cell {
+
+        .item-name-cell {
+            font-size: 10.5px !important;
+            line-height: 1.3;
+        }
+
+        .shelf-cell {
+            font-family: 'Menlo', 'Consolas', monospace !important;
             font-size: 11px !important;
-            font-weight: bold !important;
+            font-weight: 700 !important;
+            text-align: center;
         }
-        
-        .items-table td.received-cell {
-            font-size: 11px !important;
-            font-weight: bold !important;
+
+        .qty-ordered {
             text-align: center !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
         }
-        
-        .footer {
-            margin-top: 6px;
-            padding-top: 4px;
-            border-top: 1px solid #000;
+
+        .qty-received {
+            text-align: center !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            background: #e8f5e9 !important;
+        }
+
+        .items-table tbody tr:nth-child(even) td.qty-received {
+            background: #d8eddb !important;
+        }
+
+        .qty-zero { color: #888 !important; font-weight: 500 !important; }
+
+        .stock-cell {
+            font-size: 10px !important;
+            padding: 3px 4px !important;
+        }
+
+        .stock-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .stock-total {
+            font-size: 14px;
+            font-weight: 700;
+            min-width: 24px;
+            text-align: right;
+            border-right: 1.5px solid #444;
+            padding-right: 6px;
+            color: #1f4e79;
+        }
+
+        .stock-batches {
+            flex: 1;
+            line-height: 1.3;
+        }
+
+        .stock-batch-row {
+            white-space: nowrap;
+        }
+
+        .stock-batch-qty {
+            font-weight: 700;
+            display: inline-block;
+            min-width: 16px;
+        }
+
+        .stock-batch-date {
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 9.5px;
+            color: #444;
+            margin-left: 2px;
+        }
+
+        .no-data {
+            color: #999 !important;
+            font-style: italic;
+            font-size: 9px !important;
+        }
+
+        .expiry-cell {
+            font-family: 'Menlo', 'Consolas', monospace !important;
+            font-size: 11px !important;
+            font-weight: 700 !important;
+        }
+
+        .expiry-warning {
+            background: #fff0f0 !important;
+            color: #8a0c0c !important;
+        }
+
+        .items-table tbody tr:nth-child(even) td.expiry-warning {
+            background: #ffe0e0 !important;
+        }
+
+        .expiry-warning-label {
+            display: block;
+            font-size: 8px;
+            font-weight: 800;
+            color: #8a0c0c;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .note-block {
+            font-size: 9px;
+            font-style: italic;
+            margin-top: 3px;
+            color: #555;
+            border-left: 2px solid #d0d0d0;
+            padding-left: 5px;
+        }
+
+        /* ---------- Footer / Summary ---------- */
+        .summary-bar {
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: #f3f4f6;
+            border: 1px solid #d8dde3;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+        }
+
+        .summary-stats {
+            display: flex;
+            gap: 18px;
+        }
+
+        .summary-stat {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .summary-stat .label {
+            color: #666;
             font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
-        
+
+        .summary-stat .value {
+            font-weight: 700;
+            font-size: 13px;
+            color: #1f4e79;
+        }
+
+        .footer {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid #d8dde3;
+            font-size: 9px;
+            color: #777;
+            text-align: center;
+        }
+
+        /* ---------- Action buttons ---------- */
         .action-buttons {
             position: fixed;
             top: 20px;
@@ -149,37 +344,26 @@
             gap: 10px;
             z-index: 1000;
         }
-        
+
         .action-btn {
             padding: 12px 24px;
             color: white !important;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 16px;
-            font-weight: bold;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            font-size: 15px;
+            font-weight: 600;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
             text-decoration: none;
             display: inline-flex;
             align-items: center;
             gap: 8px;
         }
-        
-        .btn-blue {
-            background: #007bff !important;
-        }
-        
-        .btn-blue:hover {
-            background: #0056b3 !important;
-        }
-        
-        .btn-secondary-custom {
-            background: #6c757d !important;
-        }
-        
-        .btn-secondary-custom:hover {
-            background: #5a6268 !important;
-        }
+
+        .btn-blue { background: #1976d2 !important; }
+        .btn-blue:hover { background: #115293 !important; }
+        .btn-secondary-custom { background: #6c757d !important; }
+        .btn-secondary-custom:hover { background: #5a6268 !important; }
     </style>
 </head>
 <body>
@@ -191,55 +375,81 @@
             <i class="fas fa-print"></i> Print
         </button>
     </div>
-    
+
+    {# Pre-compute totals for the summary bar #}
+    {% set total_lines = lines_with_data|length %}
+    {% set total_ordered = lines_with_data|sum(attribute='line.line_quantity')|int %}
+    {% set total_received = lines_with_data|sum(attribute='total_received')|int %}
+    {% set lines_full = lines_with_data|selectattr('total_received', 'ge', 1)|list|length %}
+
     <div class="header">
-        <h1>Purchase Order #{{ po.code_365 or po.shopping_cart_code }}</h1>
-        <div class="header-info">
-            <div>
-                <div class="info-row">
-                    <span class="info-label">Supplier:</span>
-                    <span>{% if po.supplier_code %}{{ po.supplier_code }} — {% endif %}{{ resolve_supplier_name(po) or 'N/A' }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Description:</span>
-                    <span>{{ po.description or 'N/A' }}</span>
-                </div>
+        <div class="header-top">
+            <div class="header-title">
+                <h1>Purchase Order #{{ po.code_365 or po.shopping_cart_code }}</h1>
+                <div class="subtitle">Receiving Sheet</div>
+            </div>
+            <div class="header-meta">
+                {% if po.created_at %}
+                <div class="meta-row"><span class="meta-label">PO Date:</span><strong>{{ po.created_at.strftime('%Y-%m-%d') }}</strong></div>
+                {% endif %}
+                {% if po.status %}
+                <div class="meta-row"><span class="meta-label">Status:</span><strong>{{ po.status|title }}</strong></div>
+                {% endif %}
+                <div class="meta-row"><span class="meta-label">Printed:</span><strong>{{ now.strftime('%Y-%m-%d %H:%M') }}</strong></div>
+            </div>
+        </div>
+
+        <div class="header-grid">
+            <div class="info-row">
+                <span class="info-label">Supplier:</span>
+                <span class="info-value">{% if po.supplier_code %}{{ po.supplier_code }} — {% endif %}{{ resolve_supplier_name(po) or 'N/A' }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Description:</span>
+                <span class="info-value">{{ po.description or '—' }}</span>
             </div>
         </div>
     </div>
-    
+
     <table class="items-table">
+        <colgroup>
+            <col style="width: 22px;">
+            <col style="width: 60px;">
+            <col style="width: 78px;">
+            <col style="width: auto;">
+            <col style="width: 60px;">
+            <col style="width: 150px;">
+            <col style="width: 50px;">
+            <col style="width: 55px;">
+            <col style="width: 95px;">
+        </colgroup>
         <thead>
             <tr>
-                <th style="width: 14px;">#</th>
-                <th style="width: 32px;">Item Code</th>
-                <th style="width: 35px;">Barcode</th>
-                <th style="width: 110px; white-space: normal;">Item Name</th>
-                <th style="width: 30px; font-weight: bold;">Shelf</th>
-                <th style="width: 75px;">Shelf stock by expiry date</th>
-                <th style="width: 18px; text-align: center;">Ordered</th>
-                <th style="width: 22px; text-align: center; font-weight: bold;">Received</th>
-                <th style="width: 50px;">Expiration date received</th>
+                <th>#</th>
+                <th>Item Code</th>
+                <th>Barcode</th>
+                <th>Item Name</th>
+                <th style="text-align:center;">Shelf</th>
+                <th>Shelf Stock by Expiry</th>
+                <th style="text-align:center;">Ord</th>
+                <th style="text-align:center;">Recv</th>
+                <th>Expiry Received</th>
             </tr>
         </thead>
         <tbody>
             {% for item in lines_with_data %}
             <tr>
-                <td>{{ item.line.line_number }}</td>
+                <td class="num-cell">{{ item.line.line_number }}</td>
                 <td class="item-code">{{ item.line.item_code_365 }}</td>
-                <td style="font-family: monospace; font-size: 11px; font-weight: bold;">
-                    {% if item.barcode %}
-                        {{ item.barcode }}
-                    {% else %}
-                        -
-                    {% endif %}
+                <td class="barcode-cell">
+                    {% if item.barcode %}{{ item.barcode }}{% else %}<span class="no-data">—</span>{% endif %}
                 </td>
-                <td>
+                <td class="item-name-cell">
                     {{ item.line.item_name or 'N/A' }}
                     {% if item.notes %}
-                        <div style="font-size: 8px; font-style: italic; margin-top: 2px; color: #333;">
+                        <div class="note-block">
                             {% for note in item.notes %}
-                                <div>📝 {{ note }}</div>
+                                <div><i class="fas fa-sticky-note"></i> {{ note }}</div>
                             {% endfor %}
                         </div>
                     {% endif %}
@@ -248,66 +458,74 @@
                     {% if item.shelf_locations %}
                         {{ item.shelf_locations|join(', ') }}
                     {% else %}
-                        N/A
+                        <span class="no-data">N/A</span>
                     {% endif %}
                 </td>
-                <td style="font-size: 10px; padding: 2px 3px !important;">
+                <td class="stock-cell">
                     {% if item.existing_stock_by_expiry %}
                         {% set total_stock = item.existing_stock_by_expiry|sum(attribute='qty') %}
-                        <div style="display: flex; align-items: center; gap: 4px;">
-                            <div style="font-size: 14px; font-weight: bold; min-width: 22px; text-align: right; border-right: 1px solid #000; padding-right: 4px;">
-                                {{ total_stock|int }}
-                            </div>
-                            <div style="flex: 1; line-height: 1.25;">
+                        <div class="stock-wrapper">
+                            <div class="stock-total">{{ total_stock|int }}</div>
+                            <div class="stock-batches">
                                 {% for exp in item.existing_stock_by_expiry %}
-                                    <div>
-                                        <span style="font-weight: bold;">{{ exp.qty|int }}</span>
+                                    <div class="stock-batch-row">
+                                        <span class="stock-batch-qty">{{ exp.qty|int }}</span>
                                         {% if exp.date and exp.date|length == 10 %}
-                                            <span>{{ exp.date[8:10] }}-{{ exp.date[5:7] }}-{{ exp.date[2:4] }}</span>
+                                            <span class="stock-batch-date">{{ exp.date[8:10] }}-{{ exp.date[5:7] }}-{{ exp.date[2:4] }}</span>
                                         {% else %}
-                                            <span style="color:#666;">(no date)</span>
+                                            <span class="no-data">(no date)</span>
                                         {% endif %}
                                     </div>
                                 {% endfor %}
                             </div>
                         </div>
                     {% elif item.stock_qty is not none %}
-                        <div style="display: flex; align-items: center; gap: 4px;">
-                            <div style="font-size: 14px; font-weight: bold; min-width: 22px; text-align: right; border-right: 1px solid #000; padding-right: 4px;">
-                                {{ item.stock_qty|int }}
-                            </div>
-                            <div style="flex: 1; color:#666; font-style: italic;">no expiry data</div>
+                        <div class="stock-wrapper">
+                            <div class="stock-total">{{ item.stock_qty|int }}</div>
+                            <div class="stock-batches no-data">no expiry data</div>
                         </div>
                     {% else %}
-                        -
+                        <span class="no-data">—</span>
                     {% endif %}
                 </td>
-                <td class="qty-cell" style="text-align: center;">{{ item.line.line_quantity|int }}</td>
-                <td class="received-cell">{{ item.total_received|int }}</td>
-                <td style="font-size: 12px; font-weight: bold; {% if item.received_earlier_than_existing %}background:#ffe5e5 !important; color:#950606 !important;{% endif %}">
+                <td class="qty-ordered">{{ item.line.line_quantity|int }}</td>
+                <td class="qty-received {% if item.total_received|int == 0 %}qty-zero{% endif %}">
+                    {{ item.total_received|int }}
+                </td>
+                <td class="expiry-cell {% if item.received_earlier_than_existing %}expiry-warning{% endif %}">
                     {% if item.received_expiry_dates %}
                         {% if item.received_earlier_than_existing %}
-                            <div style="font-size: 8px; font-weight: bold; color:#950606; margin-bottom:2px; text-transform:uppercase;">⚠ Expires before stock</div>
+                            <span class="expiry-warning-label"><i class="fas fa-exclamation-triangle"></i> Expires before stock</span>
                         {% endif %}
                         {% if item.received_expiry_dates|length > 1 %}
                             {% for exp in item.received_expiry_dates %}
-                                <div>{{ exp.date }} {{ exp.qty|int }}</div>
+                                <div>{{ exp.date }} <span style="color:#666;font-weight:600;">({{ exp.qty|int }})</span></div>
                             {% endfor %}
                         {% else %}
                             <div>{{ item.received_expiry_dates[0].date }}</div>
                         {% endif %}
                     {% else %}
-                        -
+                        <span class="no-data">—</span>
                     {% endif %}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    
-    <div class="footer">
-        <p>Printed: {{ now.strftime('%Y-%m-%d %H:%M') }}</p>
+
+    <div class="summary-bar">
+        <div class="summary-stats">
+            <div class="summary-stat"><span class="label">Lines:</span><span class="value">{{ total_lines }}</span></div>
+            <div class="summary-stat"><span class="label">Received Lines:</span><span class="value">{{ lines_full }}</span></div>
+            <div class="summary-stat"><span class="label">Total Ordered:</span><span class="value">{{ total_ordered }}</span></div>
+            <div class="summary-stat"><span class="label">Total Received:</span><span class="value">{{ total_received }}</span></div>
+        </div>
+        <div style="font-size:10px;color:#666;">PO #{{ po.code_365 or po.shopping_cart_code }}</div>
     </div>
-    
+
+    <div class="footer">
+        Generated {{ now.strftime('%Y-%m-%d %H:%M') }} · EP SmartGrowth WMDS
+    </div>
+
 </body>
 </html>
