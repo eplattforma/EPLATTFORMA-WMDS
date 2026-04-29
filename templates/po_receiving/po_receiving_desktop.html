@@ -459,6 +459,7 @@ input[type=number] { -moz-appearance: textfield; }
     // Validate an ISO expiry date against today's date.
     // - Blocks dates already in the past (returns {ok:false, reason:'expired'})
     // - For dates within 30 days, asks the operator to confirm
+    // - For dates beyond 16 months, asks the operator to confirm
     //   (returns {ok:false, reason:'cancelled'} if they decline)
     // Returns {ok:true} when the date is acceptable.
     function validateExpiryISO(expiryISO) {
@@ -475,6 +476,12 @@ input[type=number] { -moz-appearance: textfield; }
             const ddmmyy = formatISOtoDDMMYY(expiryISO);
             alert(`Expiry date ${ddmmyy} is already expired (${Math.abs(diffDays)} day(s) past). Please enter a date that has not expired yet.`);
             return {ok: false, reason: 'expired', diffDays};
+        }
+        if (diffDays > 487) {
+            const ddmmyy = formatISOtoDDMMYY(expiryISO);
+            if (!confirm(`Expiry date ${ddmmyy} is more than 16 months away. OK to proceed?`)) {
+                return {ok: false, reason: 'too_far', diffDays};
+            }
         }
         if (diffDays < 30) {
             const ddmmyy = formatISOtoDDMMYY(expiryISO);
