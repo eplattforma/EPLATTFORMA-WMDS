@@ -179,17 +179,17 @@ def setup_scheduler(app):
 
             scheduler.add_job(
                 func=_run_erp_item_cost_refresh,
-                trigger=CronTrigger(hour=16, minute=20),
+                trigger=CronTrigger(hour=17, minute=55),
                 id='erp_item_cost_refresh',
-                name='ERP Item Catalogue Cost Refresh',
+                name='Cost Update',
                 replace_existing=True,
                 max_instances=1,
                 misfire_grace_time=21600,
                 coalesce=True,
             )
-            logger.info("✓ ERP item cost refresh scheduled: Daily at 16:20 Cairo (before evening DW sync)")
+            logger.info("✓ Cost Update scheduled: Daily at 17:55 Cairo (ERP Item Catalogue cost refresh)")
 
-            # Pre-warm Playwright Chromium in production so the 16:20 ERP cron
+            # Pre-warm Playwright Chromium in production so the 17:55 Cost Update cron
             # doesn't pay first-time install cost (and any install failure is
             # surfaced in boot logs instead of silently killing the cron before
             # it can write its BotRunLog row).
@@ -253,21 +253,19 @@ def setup_scheduler(app):
                     misfire_grace_time=600
                 )
                 logger.info("✓ FTP login sync scheduled: Every 30 minutes (at :15 and :45)")
-
-                scheduler.add_job(
-                    func=_run_ftp_price_master_sync,
-                    trigger=CronTrigger(hour=17, minute=55),
-                    id='ftp_price_master_sync',
-                    name='FTP Price Master Sync',
-                    replace_existing=True,
-                    max_instances=1,
-                    misfire_grace_time=21600,
-                    coalesce=True,
-                )
-                logger.info("✓ FTP price master sync scheduled: Daily at 17:55 Cairo")
             else:
                 logger.info("⏭ FTP login sync skipped (not deployed)")
-                logger.info("⏭ FTP price master sync skipped (not deployed)")
+
+            # Cleanup: remove the legacy FTP Price Master Sync job from the
+            # jobstore if a previous deploy registered it. The Cost Update
+            # job (ERP Item Catalogue export) now owns the 17:55 Cairo slot.
+            try:
+                legacy_job = scheduler.get_job('ftp_price_master_sync')
+                if legacy_job is not None:
+                    scheduler.remove_job('ftp_price_master_sync')
+                    logger.info("🧹 Removed legacy 'ftp_price_master_sync' job from jobstore (replaced by Cost Update)")
+            except Exception as e:
+                logger.debug(f"Legacy ftp_price_master_sync cleanup skipped: {e}")
 
         scheduler.start()
         logger.info("Background scheduler started successfully")
@@ -840,6 +838,7 @@ def list_scheduled_jobs():
             {'id': 'customer_sync', 'name': 'Customer Sync from PS365', 'trigger': 'Daily at 4:00 AM', 'next_run': None},
             {'id': 'invoice_sync', 'name': 'Invoice Sync from PS365', 'trigger': 'Daily at 6:00 PM', 'next_run': None},
             {'id': 'balance_fetch', 'name': 'Customer Balance Fetch from PS365', 'trigger': 'Daily at 2:30 AM', 'next_run': None},
+            {'id': 'erp_item_cost_refresh', 'name': 'Cost Update', 'trigger': 'Daily at 17:55 Cairo', 'next_run': None},
             {'id': 'nightly_forecast', 'name': 'Nightly Forecast Run', 'trigger': 'Daily at 5:00 AM', 'next_run': None},
             {'id': 'pending_orders', 'name': 'PS365 Pending Orders Sync', 'trigger': 'Every 30 minutes', 'next_run': None},
             {'id': 'payment_retry', 'name': 'Retry PENDING_RETRY Payments to PS365', 'trigger': 'Every 5 minutes', 'next_run': None},
@@ -882,7 +881,6 @@ def _register_job_funcs():
         'stock_777_sync_production': _run_stock_777_sync,
         'stock_777_sync': _run_stock_777_sync,
         'ftp_login_sync': _run_ftp_login_sync,
-        'ftp_price_master_sync': _run_ftp_price_master_sync,
     }
 
 
