@@ -471,7 +471,7 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         logger.warning(f"Could not load OOS data for base forecast: {e}")
         oos_map = {}
 
-    for profile in profiles:
+    for idx, profile in enumerate(profiles, start=1):
         item_code = profile.item_code_365
         demand_class = profile.demand_class
         weekly_qtys = sales_by_item.get(item_code, [])
@@ -693,6 +693,9 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
             logger.info(f"Processed {count} forecasts...")
             if progress_callback:
                 progress_callback(f"Processed {count}/{len(profiles)} base forecasts")
+
+        if progress_callback and (idx % 25 == 0 or idx == len(profiles)):
+            progress_callback(f"Processed {idx}/{len(profiles)} base forecasts")
 
     session.flush()
     logger.info(f"Completed base forecasts for {count} items")
