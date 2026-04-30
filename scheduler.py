@@ -204,6 +204,22 @@ def setup_scheduler(app):
             )
             logger.info("✓ Cost Update scheduled: Daily at 17:55 Cairo (ERP Item Catalogue cost refresh)")
 
+            # Offers Update: pull the latest customer price master from FTP
+            # and rebuild per-customer offer rows + summary KPIs. Runs after
+            # Cost Update so cost columns are fresh when offer margins are
+            # recomputed.
+            scheduler.add_job(
+                func=_run_offers_update,
+                trigger=CronTrigger(hour=18, minute=10),
+                id='offers_update',
+                name='Offers Update',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=21600,
+                coalesce=True,
+            )
+            logger.info("✓ Offers Update scheduled: Daily at 18:10 Cairo (FTP price master + customer offer summaries)")
+
             # Pre-warm Playwright Chromium in production so the 17:55 Cost Update cron
             # doesn't pay first-time install cost (and any install failure is
             # surfaced in boot logs instead of silently killing the cron before
@@ -845,6 +861,40 @@ def _run_ftp_price_master_sync():
         logger.error(f"Error in FTP price master sync: {str(e)}", exc_info=True)
 
 
+def _run_offers_update():
+    """Daily refresh of customer price offers from the FTP price master.
+
+    Pulls the latest customer_price_master CSV from FTP, parses it,
+    upserts the per-customer offer rows, and rebuilds the per-customer
+    offer summary KPIs (offer_sales_share_pct, top_rule, etc.) used
+    across the CRM dashboard.
+    """
+    try:
+        from app import app
+        from services.crm_price_offers import sync_price_master_from_ftp
+
+        with app.app_context():
+            logger.info("=" * 60)
+            logger.info("STARTING SCHEDULED OFFERS UPDATE")
+            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 60)
+
+            result = sync_price_master_from_ftp()
+
+            if isinstance(result, dict) and result.get("success"):
+                logger.info(
+                    "OFFERS UPDATE COMPLETED: "
+                    f"rows={result.get('rows', '?')}, "
+                    f"customers={result.get('customers', '?')}, "
+                    f"batch_id={result.get('batch_id', '?')}"
+                )
+            else:
+                err = result.get("error") if isinstance(result, dict) else str(result)
+                logger.error(f"OFFERS UPDATE FAILED: {err}")
+    except Exception as e:
+        logger.error(f"Error in scheduled offers update: {str(e)}", exc_info=True)
+
+
 def _run_erp_item_cost_refresh():
     """Daily refresh of cost_price in ps_items_dw from the PS365 ERP Item Catalogue.
 
@@ -1008,6 +1058,7 @@ def _register_job_funcs():
         'pending_orders_sync': _run_pending_orders_sync,
         'retry_pending_payments': _retry_pending_payments,
         'erp_item_cost_refresh': _run_erp_item_cost_refresh,
+        'offers_update': _run_offers_update,
         'expiry_ftp_upload': _run_expiry_ftp_upload,
         'stock_777_sync_production': _run_stock_777_sync,
         'stock_777_sync': _run_stock_777_sync,
