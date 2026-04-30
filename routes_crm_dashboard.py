@@ -1541,6 +1541,7 @@ def api_price_offers_refresh():
 @login_required
 def admin_offers():
     from services.crm_offer_admin import get_offer_admin_overview, get_offer_admin_customer_rows, get_offer_admin_rule_rows, get_offer_admin_product_rows, get_offer_admin_product_by_rule_rows, get_offer_admin_price_review_rows
+    from services.crm_price_offers import get_last_successful_offers_update
     filters = _parse_offer_admin_filters(request)
     tab = request.args.get("tab", "overview")
     sort = request.args.get("sort", "")
@@ -1559,12 +1560,30 @@ def admin_offers():
     all_classifications = _get_all_classifications()
     all_districts = _get_all_districts()
 
+    last_update = get_last_successful_offers_update()
+    last_update_display = None
+    if last_update and last_update.get("imported_at"):
+        try:
+            from datetime import timezone, timedelta
+            ts = last_update["imported_at"]
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            cairo_ts = ts.astimezone(timezone(timedelta(hours=3)))
+            last_update_display = {
+                "when": cairo_ts.strftime("%Y-%m-%d %H:%M Cairo"),
+                "source": last_update.get("source_name", "manual"),
+                "rows": last_update.get("row_count", 0),
+            }
+        except Exception:
+            last_update_display = None
+
     return render_template("crm/admin_offers.html",
         overview=overview, customers=customers, rules=rules, products=products,
         price_review=price_review,
         filters=filters, tab=tab, sort=sort, sort_dir=sort_dir, page=page,
         all_classifications=all_classifications, all_districts=all_districts,
         excluded_rules_count=excluded_count,
+        last_update_display=last_update_display,
     )
 
 

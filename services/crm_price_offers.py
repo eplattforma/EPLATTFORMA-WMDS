@@ -344,6 +344,35 @@ def _get_recent_sales_bulk(customer_codes):
         return {}
 
 
+def get_last_successful_offers_update():
+    """Return metadata about the most recent successful offers import.
+
+    Returns a dict with imported_at (UTC datetime), source_name, row_count
+    and snapshot_at, or None if no successful import has ever run. Used
+    by the offers admin page header so users can see whether the cron
+    last ran successfully and when.
+    """
+    try:
+        row = db.session.execute(text("""
+            SELECT imported_at, source_name, row_count, snapshot_at
+            FROM crm_customer_offer_import_batch
+            WHERE status = 'done'
+            ORDER BY imported_at DESC
+            LIMIT 1
+        """)).fetchone()
+        if not row:
+            return None
+        return {
+            "imported_at": row[0],
+            "source_name": row[1] or "manual",
+            "row_count": int(row[2]) if row[2] is not None else 0,
+            "snapshot_at": row[3],
+        }
+    except Exception as e:
+        logger.warning(f"Could not load last successful offers update: {e}")
+        return None
+
+
 def acquire_price_offers_lock(locked_by="manual"):
     try:
         db.session.execute(text("""

@@ -44,7 +44,18 @@
 
 <div class="oa-page">
     <div class="d-flex justify-content-between align-items-center mb-2">
-        <h5 class="mb-0"><i class="fas fa-chart-bar me-2 text-primary"></i>Offer Intelligence Admin</h5>
+        <div class="d-flex align-items-center gap-3">
+            <h5 class="mb-0"><i class="fas fa-chart-bar me-2 text-primary"></i>Offer Intelligence Admin</h5>
+            {% if last_update_display %}
+            <span class="badge bg-dark border border-secondary text-light" style="font-weight:500; font-size:0.7rem; padding:5px 9px;" title="Source: {{ last_update_display.source }} · {{ "{:,}".format(last_update_display.rows) }} raw rows imported">
+                <i class="fas fa-clock me-1 text-success"></i>Last update: {{ last_update_display.when }}
+            </span>
+            {% else %}
+            <span class="badge bg-dark border border-secondary text-muted" style="font-weight:500; font-size:0.7rem; padding:5px 9px;">
+                <i class="fas fa-clock me-1"></i>Last update: never
+            </span>
+            {% endif %}
+        </div>
         <div class="d-flex gap-2">
             <a href="/crm/admin/offers/export?tab={{ tab }}&{{ request.query_string.decode() }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>Export CSV</a>
             <a href="/crm/admin/offers" class="btn btn-sm btn-outline-secondary"><i class="fas fa-redo me-1"></i></a>
