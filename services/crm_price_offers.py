@@ -373,15 +373,19 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
 
     db.session.rollback()
 
+    logger.info(f"Offers import: parsing CSV ({len(csv_text)} bytes, source={source_label})...")
     reader = csv.DictReader(io.StringIO(csv_text))
     fieldnames = reader.fieldnames or []
     missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
     if missing:
+        logger.error(f"Offers import aborted: CSV missing columns {missing}")
         return {"success": False, "error": f"Missing columns: {missing}"}
 
     rows_list = list(reader)
     if not rows_list:
+        logger.error("Offers import aborted: CSV is empty")
         return {"success": False, "error": "CSV is empty"}
+    logger.info(f"Offers import: parsed {len(rows_list)} CSV rows")
 
     now = datetime.now(timezone.utc)
     snapshot_val = _parse_snapshot_at(rows_list[0].get("snapshot_at", ""))
@@ -397,8 +401,33 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
     }).fetchone()
     batch_id = batch_row[0]
     db.session.commit()
+    logger.info(f"Offers import: created batch {batch_id}, inserting raw rows in chunks...")
 
-    raw_params = []
+    # Insert raw rows in chunks of 5000 with a commit per chunk. A single
+    # 50K-row INSERT inside one transaction takes long enough that an
+    # autoscale worker recycle / OOM kills it mid-statement and we lose
+    # the whole import silently. Chunked commits make progress visible
+    # in logs and limit the worst-case loss to one chunk if the worker dies.
+    CHUNK_SIZE = 5000
+    total_inserted = 0
+    chunk_buf = []
+
+    def _flush_chunk():
+        nonlocal total_inserted, chunk_buf
+        if not chunk_buf:
+            return
+        db.session.execute(text("""
+            INSERT INTO crm_customer_offer_raw
+            (import_batch_id, snapshot_at, customer_id_magento, customer_email,
+             sku, product_name, rule_code, rule_name, rule_description,
+             origin_price, offer_price, imported_at)
+            VALUES (:bid, :sa, :mid, :em, :sku, :pn, :rc, :rn, :rd, :op, :cfp, :ia)
+        """), chunk_buf)
+        db.session.commit()
+        total_inserted += len(chunk_buf)
+        logger.info(f"Offers import: inserted {total_inserted}/{len(rows_list)} raw rows (batch {batch_id})")
+        chunk_buf = []
+
     for row in rows_list:
         magento_id = None
         try:
@@ -407,7 +436,7 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
             pass
 
         snap = _parse_snapshot_at(row.get("snapshot_at", ""))
-        raw_params.append({
+        chunk_buf.append({
             "bid": batch_id, "sa": snap,
             "mid": magento_id,
             "em": (row.get("customer_email") or "").strip(),
@@ -420,26 +449,22 @@ def import_customer_price_master_csv(csv_text, source_label="manual"):
             "cfp": _safe_decimal(row.get("customer_final_price")),
             "ia": now,
         })
+        if len(chunk_buf) >= CHUNK_SIZE:
+            _flush_chunk()
 
-    if raw_params:
-        db.session.execute(text("""
-            INSERT INTO crm_customer_offer_raw
-            (import_batch_id, snapshot_at, customer_id_magento, customer_email,
-             sku, product_name, rule_code, rule_name, rule_description,
-             origin_price, offer_price, imported_at)
-            VALUES (:bid, :sa, :mid, :em, :sku, :pn, :rc, :rn, :rd, :op, :cfp, :ia)
-        """), raw_params)
-    db.session.commit()
-    logger.info(f"Raw import: {len(raw_params)} rows (batch {batch_id})")
+    _flush_chunk()
+    logger.info(f"Raw import: {total_inserted} rows (batch {batch_id})")
 
+    logger.info(f"Offers import: starting offer rebuild from batch {batch_id}...")
     result = _rebuild_from_batch(batch_id)
-    result["raw_imported"] = len(raw_params)
+    result["raw_imported"] = total_inserted
     result["batch_id"] = batch_id
 
     db.session.execute(text("""
         UPDATE crm_customer_offer_import_batch SET status = 'done' WHERE id = :bid
     """), {"bid": batch_id})
     db.session.commit()
+    logger.info(f"Offers import: batch {batch_id} marked done")
 
     return result
 

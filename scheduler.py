@@ -868,31 +868,57 @@ def _run_offers_update():
     upserts the per-customer offer rows, and rebuilds the per-customer
     offer summary KPIs (offer_sales_share_pct, top_rule, etc.) used
     across the CRM dashboard.
+
+    Uses the same DB-backed lock as the manual UI refresh button so a
+    cron run cannot collide with a user-triggered refresh (and vice
+    versa). The lock auto-expires after 15 minutes to prevent a crashed
+    worker from leaving it stuck. Releases the lock in finally so the
+    next run is never blocked by the previous failure.
     """
-    try:
-        from app import app
-        from services.crm_price_offers import sync_price_master_from_ftp
+    from app import app
+    from services.crm_price_offers import (
+        sync_price_master_from_ftp,
+        acquire_price_offers_lock,
+        release_price_offers_lock,
+    )
 
-        with app.app_context():
-            logger.info("=" * 60)
-            logger.info("STARTING SCHEDULED OFFERS UPDATE")
-            logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
-            logger.info("=" * 60)
+    with app.app_context():
+        logger.info("=" * 60)
+        logger.info("STARTING SCHEDULED OFFERS UPDATE")
+        logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+        logger.info("=" * 60)
 
+        if not acquire_price_offers_lock("scheduler"):
+            logger.warning(
+                "OFFERS UPDATE skipped: another refresh is already in "
+                "progress (lock held by manual UI or previous cron). "
+                "Lock auto-expires after 15 minutes."
+            )
+            return
+
+        try:
+            logger.info("OFFERS UPDATE step 1/2: downloading FTP price master and importing CSV...")
             result = sync_price_master_from_ftp()
 
             if isinstance(result, dict) and result.get("success"):
                 logger.info(
                     "OFFERS UPDATE COMPLETED: "
-                    f"rows={result.get('rows', '?')}, "
-                    f"customers={result.get('customers', '?')}, "
+                    f"raw_imported={result.get('raw_imported', '?')}, "
+                    f"customers_with_offers={result.get('customers_with_offers', '?')}, "
+                    f"offers_inserted={result.get('offers_inserted', '?')}, "
                     f"batch_id={result.get('batch_id', '?')}"
                 )
             else:
                 err = result.get("error") if isinstance(result, dict) else str(result)
                 logger.error(f"OFFERS UPDATE FAILED: {err}")
-    except Exception as e:
-        logger.error(f"Error in scheduled offers update: {str(e)}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Error in scheduled offers update: {str(e)}", exc_info=True)
+        finally:
+            try:
+                release_price_offers_lock()
+                logger.info("OFFERS UPDATE: lock released")
+            except Exception as e:
+                logger.warning(f"Could not release offers update lock (will auto-expire): {e}")
 
 
 def _run_erp_item_cost_refresh():
