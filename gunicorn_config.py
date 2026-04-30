@@ -3,6 +3,7 @@ import os
 
 # Worker configuration
 bind = "0.0.0.0:5000"
+reuse_port = True           # Required by autoscale (Cloud Run) for fast worker handoff
 workers = 2                 # 2 workers — enough headroom for scheduler + user traffic
 threads = 6                 # 6 threads per worker for better concurrency
 worker_class = "gthread"    # Threaded worker class
