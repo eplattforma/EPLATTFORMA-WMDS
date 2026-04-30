@@ -689,8 +689,8 @@ def compute_base_forecasts(session: Session, run_id=None, progress_callback=None
         count += 1
 
         if count % 500 == 0:
-            session.flush()
-            logger.info(f"Processed {count} forecasts...")
+            session.commit()
+            logger.info(f"Processed {count} forecasts (committed batch)...")
             if progress_callback:
                 progress_callback(f"Processed {count}/{len(profiles)} base forecasts")
 

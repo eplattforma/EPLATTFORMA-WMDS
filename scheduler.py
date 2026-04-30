@@ -155,6 +155,21 @@ def setup_scheduler(app):
             )
             logger.info("✓ Forecast run scheduled: Daily at 17:35 Cairo")
 
+            # Watchdog: every 10 min, mark stale forecast runs as failed and
+            # auto-relaunch (up to 3x per day). Catches workers killed mid-run
+            # by autoscale/OOM/gunicorn timeout so failures self-heal.
+            scheduler.add_job(
+                func=_run_forecast_watchdog,
+                trigger=CronTrigger(minute="*/10"),
+                id='forecast_watchdog',
+                name='Forecast Run Watchdog (auto-retry)',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=300,
+                coalesce=True,
+            )
+            logger.info("✓ Forecast watchdog scheduled: Every 10 minutes (auto-retry stale runs)")
+
             scheduler.add_job(
                 func=_run_pending_orders_sync,
                 trigger=CronTrigger(minute="0,30"),
@@ -604,6 +619,121 @@ def _run_forecast():
         logger.error(f"Error in scheduled forecast run: {str(e)}", exc_info=True)
 
 
+# Watchdog tunables ------------------------------------------------------
+# A forecast run with no heartbeat for STALE_HEARTBEAT_MINUTES is treated as
+# crashed (worker killed by autoscale, OOM, gunicorn timeout, etc.) and
+# auto-marked failed. After failing it, we relaunch a fresh run unless we've
+# already auto-retried MAX_AUTO_RETRIES_PER_DAY times today, to keep a broken
+# pipeline from spinning forever.
+STALE_HEARTBEAT_MINUTES = 45
+MAX_AUTO_RETRIES_PER_DAY = 3
+AUTO_RETRY_CREATED_BY = "auto_retry_watchdog"
+
+
+def _run_forecast_watchdog():
+    """Sweep stale forecast runs and auto-retry once per failure.
+
+    Runs every 10 minutes. If the most recent run is in 'running' state but
+    its heartbeat is older than STALE_HEARTBEAT_MINUTES, mark it failed and
+    immediately launch a replacement run (in a daemon thread, so the cron
+    tick returns fast). We cap auto-retries per day so a permanently broken
+    forecast pipeline does not loop indefinitely.
+    """
+    try:
+        from app import app, db
+        from models import ForecastRun
+        from datetime import timedelta
+        from timezone_utils import get_utc_now
+
+        with app.app_context():
+            stale_cutoff = datetime.utcnow() - timedelta(minutes=STALE_HEARTBEAT_MINUTES)
+
+            running = (
+                ForecastRun.query
+                .filter_by(status="running")
+                .order_by(ForecastRun.started_at.desc())
+                .first()
+            )
+
+            stale_marked = False
+            if running:
+                reference = running.last_heartbeat_at or running.started_at
+                if reference and reference < stale_cutoff:
+                    minutes_silent = int((datetime.utcnow() - reference).total_seconds() / 60)
+                    logger.warning(
+                        f"forecast watchdog: marking stale run {running.id} as failed "
+                        f"(no heartbeat for {minutes_silent} min)"
+                    )
+                    running.status = "failed"
+                    running.completed_at = get_utc_now()
+                    running.notes = (
+                        f"Auto-marked failed by watchdog: no heartbeat for {minutes_silent} min "
+                        f"(threshold {STALE_HEARTBEAT_MINUTES} min)"
+                    )
+                    db.session.commit()
+                    stale_marked = True
+
+            if not stale_marked:
+                last = ForecastRun.query.order_by(ForecastRun.started_at.desc()).first()
+                if last is None or last.status != "failed":
+                    return
+
+                today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                if last.started_at is None or last.started_at < today_start:
+                    return
+
+                # Only auto-retry runs that the scheduler / watchdog launched.
+                # Admin-triggered runs that failed are the admin's call to retry.
+                if last.created_by not in ("scheduler", AUTO_RETRY_CREATED_BY):
+                    return
+
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            auto_retries_today = (
+                ForecastRun.query
+                .filter(ForecastRun.created_by == AUTO_RETRY_CREATED_BY)
+                .filter(ForecastRun.started_at >= today_start)
+                .count()
+            )
+            if auto_retries_today >= MAX_AUTO_RETRIES_PER_DAY:
+                logger.warning(
+                    f"forecast watchdog: skipping auto-retry — already retried "
+                    f"{auto_retries_today}/{MAX_AUTO_RETRIES_PER_DAY} times today"
+                )
+                return
+
+            already_running = (
+                ForecastRun.query
+                .filter_by(status="running")
+                .first()
+            )
+            if already_running:
+                logger.info(
+                    f"forecast watchdog: another run already in progress (id={already_running.id}), skipping retry"
+                )
+                return
+
+            logger.warning(
+                f"forecast watchdog: launching auto-retry "
+                f"(attempt {auto_retries_today + 1}/{MAX_AUTO_RETRIES_PER_DAY} today)"
+            )
+
+            import threading as _t
+
+            def _bg_retry():
+                try:
+                    from app import app as _app, db as _db
+                    from services.forecast.run_service import execute_forecast_run
+                    with _app.app_context():
+                        result = execute_forecast_run(_db.session, created_by=AUTO_RETRY_CREATED_BY)
+                        logger.info(f"forecast watchdog: auto-retry result={result}")
+                except Exception as e:
+                    logger.error(f"forecast watchdog: auto-retry failed: {e}", exc_info=True)
+
+            _t.Thread(target=_bg_retry, daemon=True, name="forecast-auto-retry").start()
+    except Exception as e:
+        logger.error(f"Error in forecast watchdog: {str(e)}", exc_info=True)
+
+
 def _run_pending_orders_sync():
     try:
         from app import app, db
@@ -874,6 +1004,7 @@ def _register_job_funcs():
         'invoice_sync': _run_invoice_sync,
         'balance_fetch': _run_balance_fetch,
         'forecast_run': _run_forecast,
+        'forecast_watchdog': _run_forecast_watchdog,
         'pending_orders_sync': _run_pending_orders_sync,
         'retry_pending_payments': _retry_pending_payments,
         'erp_item_cost_refresh': _run_erp_item_cost_refresh,
