@@ -1,15 +1,23 @@
 """Phase 3 closeout: 7-key x 5-role decorator behavior matrix (Task #16).
 
 Captures actual HTTP status codes for every (key, role) cell with the
-``permissions_enforcement_enabled`` flag temporarily flipped ON inside
-the test fixture. The captured matrix is written to
+``permissions_enforcement_enabled`` flag temporarily flipped ON for
+the duration of each test cell. The captured matrix is written to
 ``PHASE3_CLOSEOUT_MATRIX.txt`` so the closeout audit trail can be
 embedded in ``PHASE_TEST_RESULTS.md`` (Section 1.3 of the Verification
 & Closeout brief).
 
-No live flag flips: the ``enforcement_on`` fixture toggles
-``permissions_enforcement_enabled`` inside a transaction and restores
-it after each test -- same pattern used in
+Flag isolation (honest description): the ``enforcement_on`` fixture
+**does** call ``Setting.set(...)`` followed by ``db.session.commit()``
+to flip ``permissions_enforcement_enabled`` to ``'true'`` (and
+``permissions_role_fallback_enabled`` to ``'true'``) -- so the new
+values are briefly committed to the dev DB. The fixture's teardown
+then writes the previous values back via the same ``Setting.set`` +
+``commit`` pair, so the dev DB ends in its prior state. This is
+**not** a SQL transaction; if the test process crashes between
+``yield`` and teardown, the flag may be left in the flipped state
+until the next run. No production database is touched -- this test
+suite runs against the dev DB only. Same pattern as
 ``tests/test_permission_enforcement.py``.
 
 Each (key, role) cell is its own parametrised test so pytest gives a
