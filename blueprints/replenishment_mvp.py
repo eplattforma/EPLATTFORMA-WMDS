@@ -80,7 +80,14 @@ def legacy_required(f):
                 'Use Forecast Workbench for ordering proposals.',
                 'warning',
             )
-            return redirect(url_for('index'))
+            # Redirect to Forecast Workbench (the replacement) so the user
+            # lands directly on the supported tool, not the generic home.
+            try:
+                return redirect(url_for('forecast_workbench.suppliers'))
+            except Exception:
+                # Fall back to home only if the workbench endpoint is not
+                # registered (e.g. blueprint disabled in some env).
+                return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
 

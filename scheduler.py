@@ -447,10 +447,17 @@ def setup_scheduler(app):
             # jobstore if a previous deploy registered it. The Cost Update
             # job (ERP Item Catalogue export) now owns the 17:55 Cairo slot.
             try:
+                # One-time WARN if the legacy slot is still in the jobstore
+                # so reconciliation is loud (jobstore is persistent — a
+                # silent INFO would be easy to miss). The cleanup itself is
+                # idempotent so subsequent boots will simply be silent.
                 legacy_job = scheduler.get_job('ftp_price_master_sync')
                 if legacy_job is not None:
                     scheduler.remove_job('ftp_price_master_sync')
-                    logger.info("🧹 Removed legacy 'ftp_price_master_sync' job from jobstore (replaced by Cost Update)")
+                    logger.warning(
+                        "🧹 Removed legacy 'ftp_price_master_sync' job from jobstore "
+                        "(replaced by Cost Update at 17:55 Africa/Cairo — see SCHEDULING.md)"
+                    )
             except Exception as e:
                 logger.debug(f"Legacy ftp_price_master_sync cleanup skipped: {e}")
 

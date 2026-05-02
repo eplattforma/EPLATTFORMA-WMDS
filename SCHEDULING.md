@@ -77,12 +77,26 @@ every 10 min (legacy cadence) AND the live `/forecast/api/suppliers`
 call self-heals on every page hit, so a stuck run can never block the
 suppliers page indefinitely.
 
+## Future placeholders (not yet scheduled)
+
+| Slot                   | Planned cadence              | Owner module (planned)                  | Status |
+|------------------------|------------------------------|-----------------------------------------|--------|
+| `log_cleanup`          | Daily at 03:00 Africa/Cairo  | `services.maintenance.log_cleanup` (TBD)| **Not implemented in Phase 2.** Placeholder reserved for a later phase that will prune `job_runs` history older than the configured retention window. Today the table grows unbounded; operators can truncate manually if needed. |
+
+When this slot is implemented it MUST go through `_tracked(...)` like
+every other catalogue job so its sweeps are visible in the operations
+dashboard with the same RUNNING/SUCCESS/SKIPPED/FAILED/STALE_FAILED
+semantics.
+
 ## Removed / legacy
 
 - **`ftp_price_master_sync`** — removed from the jobstore on every
-  scheduler boot (see the cleanup block right after the daily-job
-  registration loop). The 17:55 slot now belongs to `erp_item_cost_refresh`
-  (a.k.a. "Cost Update") and the FTP price master pull is owned by
+  scheduler boot. If the legacy slot is found we log a one-time `WARN`
+  for explicit reconciliation visibility (jobstore is persistent — a
+  silent INFO would be easy to miss); subsequent boots are silent
+  because the slot is already gone. The 17:55 slot now belongs to
+  `erp_item_cost_refresh` (a.k.a. "Cost Update") and the FTP price
+  master pull is owned by
   `offers_update` at 18:10. There is no duplicate registration.
 
 ## Boot-time catch-up
