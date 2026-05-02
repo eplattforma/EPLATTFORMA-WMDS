@@ -1,19 +1,9 @@
-"""Integration tests for Task #14 — wildcard removal in per-user permission editor.
-
-Exercises the new `remove_wildcards` form field and confirmation gates
-added to `manage_user_permissions` in routes.py, and verifies that
-revocation actually flips `services.permissions.has_permission()` —
-not just the database row.
-"""
+"""Task #14 — wildcard removal in the per-user permission editor."""
 import os
 import sys
 import uuid
 from types import SimpleNamespace
 
-# Ensure the project root is importable regardless of the cwd pytest is
-# invoked from. Mirrors the bootstrap used by
-# tests/test_override_ordering_pipeline.py so this file works under both
-# `pytest tests/...` from the repo root and from any other cwd.
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(THIS_DIR, os.pardir))
 if PROJECT_ROOT not in sys.path:
@@ -25,16 +15,10 @@ from sqlalchemy import text
 
 @pytest.fixture
 def app_ctx():
-    # Import the gunicorn entry-point module (`main.py`, run as `main:app`
-    # by gunicorn_config.py). It registers every blueprint base.html
-    # references — warehouse, batch, routes, etc. Importing only `routes`
-    # is not enough to render even a single permission editor page.
+    # Import main (not routes) so every blueprint base.html references is registered.
     import main  # noqa: F401
     from app import app, db
-    # Function-scoped: close any leftover scoped session from a prior test
-    # so the ORM identity map cannot carry stale User instances across
-    # tests (Flask-Login's user_loader and the editor view both populate
-    # the map on every request).
+    # Function-scoped session reset to avoid ORM identity-map carryover between tests.
     with app.app_context():
         db.session.remove()
         yield app, db
@@ -42,14 +26,8 @@ def app_ctx():
 
 
 def _seed_target_user(db, username, role="warehouse_manager"):
-    """Create a user via raw SQL to bypass the ORM identity map.
-
-    The user_loader (`User.query.get(username)`) in routes.py runs on every
-    request via Flask-Login. Using the ORM here pulls the new user into a
-    long-lived identity map that persists across tests, which causes
-    `ObjectDeletedError` when later tests reuse the session after cleanup.
-    Raw INSERT keeps the session pristine.
-    """
+    # Raw SQL avoids polluting the ORM identity map (Flask-Login's user_loader
+    # picks up ORM-created users and they then survive raw-SQL cleanup).
     from werkzeug.security import generate_password_hash
     db.session.execute(
         text(
@@ -81,14 +59,7 @@ def _perm_keys(db, username):
 
 
 def _has_perm(username, role, key):
-    """Resolve effective permission via the real services.permissions.has_permission().
-
-    Builds a duck-typed user object (username + role + is_authenticated)
-    matching what has_permission() consumes. Goes through the same
-    explicit-rows-then-role-fallback path that production uses, so this
-    function answers "would this user actually be allowed?" — not just
-    "is the row present?".
-    """
+    """Run the real has_permission() resolver (explicit rows + role fallback)."""
     from services.permissions import has_permission
     fake_user = SimpleNamespace(
         username=username,
@@ -100,12 +71,7 @@ def _has_perm(username, role, key):
 
 
 def _login(client, app, db, username):
-    """Inject Flask-Login session for `username` without going through /login.
-
-    The User model uses `username` as primary key and `get_id` returns the
-    username, so Flask-Login expects `_user_id` to be the username string.
-    Existence is verified via raw SQL (no ORM identity map pollution).
-    """
+    """Inject a Flask-Login session for `username` (User PK == username)."""
     row = db.session.execute(
         text("SELECT 1 FROM users WHERE username = :u"),
         {"u": username},
@@ -131,17 +97,8 @@ def admin_user(app_ctx):
 
 @pytest.fixture
 def target_user(app_ctx):
-    """warehouse_manager target with three classes of grants:
-
-    - `*` — direct/user-specific (warehouse_manager role does NOT grant '*'),
-      revoking it actually flips effective access.
-    - `comms.*` — direct/user-specific (warehouse_manager role does NOT grant
-      `comms.*`); revoking it really revokes `comms.send` etc.
-    - `picking.*` — INHERITED from role (warehouse_manager grants `picking.*`);
-      removing the explicit row is a no-op for effective access, so the UI
-      and the route both refuse to do it.
-    - `menu.dashboard`, `picking.perform` — granular (non-wildcard) rows.
-    """
+    # warehouse_manager target. '*' and 'comms.*' are direct (not in role);
+    # 'picking.*' is inherited (warehouse_manager role grants picking.*).
     app, db = app_ctx
     name = f"t14_tgt_{uuid.uuid4().hex[:6]}"
     _seed_target_user(db, name, role="warehouse_manager")
@@ -192,17 +149,13 @@ def test_get_renders_direct_and_inherited_sections(app_ctx, admin_user, target_u
 # ---------------------------------------------------------------------------
 
 def test_remove_direct_wildcard_actually_revokes_access(app_ctx, admin_user, target_user):
-    """Removing comms.* from a warehouse_manager genuinely revokes comms.send,
-    because warehouse_manager's role does NOT grant comms.*. This is the
-    real behavior we promise the admin.
-    """
+    """Removing comms.* from warehouse_manager flips has_permission(comms.send) to False."""
     app, db = app_ctx
     client = app.test_client()
     _login(client, app, db, admin_user)
 
-    # The fixture seeds '*' alongside comms.*. '*' matches every key, so to
-    # isolate the comms.* revocation we strip '*' first (a separate test
-    # below covers the '*' revocation flow on its own).
+    # Strip '*' first so this test isolates the comms.* revocation
+    # ('*' would still grant comms.send on its own).
     db.session.execute(
         text("DELETE FROM user_permissions WHERE username = :u AND permission_key = '*'"),
         {"u": target_user},
@@ -237,9 +190,8 @@ def test_remove_direct_wildcard_actually_revokes_access(app_ctx, admin_user, tar
 def test_remove_star_revokes_full_admin_when_role_is_not_admin(
     app_ctx, admin_user, target_user
 ):
-    """Revoking '*' from a warehouse_manager actually flips effective access:
-    warehouse_manager's role doesn't grant '*', so explicit row was the only path.
-    """
+    """Revoking '*' from warehouse_manager flips arbitrary keys to denied
+    (warehouse_manager role doesn't grant '*')."""
     app, db = app_ctx
     client = app.test_client()
     _login(client, app, db, admin_user)
@@ -275,13 +227,11 @@ def test_remove_star_revokes_full_admin_when_role_is_not_admin(
 
 @pytest.fixture
 def admin_target(app_ctx):
-    """Second admin user (distinct from the actor) used to test that role
-    `*` covers any narrower user wildcard via role_covers_wildcard()."""
+    # Second admin user (distinct from the actor) for the role-* coverage test.
     app, db = app_ctx
     name = f"t14_admt_{uuid.uuid4().hex[:6]}"
     _seed_target_user(db, name, role="admin")
-    # Seed both '*' (matches role exactly) and a narrower wildcard 'picking.*'
-    # which is NOT in admin's role list literally but IS covered by '*'.
+    # 'picking.*' is not literally in admin's role list, but admin's '*' covers it.
     _seed_perm_rows(db, name, ["*", "picking.*"])
     db.session.commit()
     yield name
@@ -291,11 +241,8 @@ def admin_target(app_ctx):
 
 
 def test_admin_role_star_covers_narrower_user_wildcard(app_ctx, admin_user, admin_target):
-    """Admin role grants '*'. A narrower user wildcard (e.g. 'picking.*')
-    must be classified as inherited (read-only) and refused for removal,
-    because the role's '*' makes the row redundant — deleting it is a
-    no-op for effective access. Locks in the implication-aware coverage
-    check (role_covers_wildcard) added after architect re-review."""
+    """Admin role '*' covers narrower user wildcards (e.g. 'picking.*'):
+    classified as inherited and refused for removal."""
     app, db = app_ctx
     client = app.test_client()
     _login(client, app, db, admin_user)
@@ -336,10 +283,8 @@ def test_admin_role_star_covers_narrower_user_wildcard(app_ctx, admin_user, admi
 
 
 def test_inherited_wildcard_cannot_be_revoked_via_form(app_ctx, admin_user, target_user):
-    """Submitting picking.* (a warehouse_manager role default) in remove_wildcards
-    must NOT delete the row, AND has_permission for a picking.* match must
-    remain True regardless — because role fallback would still grant it.
-    Locks in the honest-revocation guard added with Task #14."""
+    """Submitting an inherited wildcard (picking.* for warehouse_manager) is
+    refused; row stays and has_permission stays True via role fallback."""
     app, db = app_ctx
     client = app.test_client()
     _login(client, app, db, admin_user)
