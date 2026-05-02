@@ -16,22 +16,70 @@ logger = logging.getLogger(__name__)
 scheduler = None
 
 
+class JobSkipped(Exception):
+    """Body funcs raise this to signal an early-return guard path.
+
+    `_tracked` catches it and writes status='SKIPPED' (with the message as
+    the result_summary reason) instead of FAILED. APScheduler never sees the
+    exception. Examples: lock already held, "already ran today", "no work to
+    do this tick", concurrent run in progress.
+    """
+    pass
+
+
+# Per-thread context for the active job_runs row id, so body funcs can
+# emit heartbeats without `_tracked` having to plumb run_id through every
+# call signature.
+import contextvars as _ctxvars
+_CURRENT_JOB_RUN_ID = _ctxvars.ContextVar("_CURRENT_JOB_RUN_ID", default=None)
+
+
+def heartbeat(current_step=None, progress_current=None,
+              progress_total=None, progress_message=None):
+    """Emit a heartbeat for the active job_runs row, if any.
+
+    Body funcs called via `_tracked` can call this freely; outside of a
+    tracked job (e.g. ad-hoc scripts) it is a safe no-op. Failures inside
+    the logger are swallowed — heartbeats must never break the body.
+    """
+    run_id = _CURRENT_JOB_RUN_ID.get()
+    if not run_id:
+        return
+    try:
+        from services.job_run_logger import heartbeat as _hb
+        _hb(
+            run_id,
+            current_step=current_step,
+            progress_current=progress_current,
+            progress_total=progress_total,
+            progress_message=progress_message,
+        )
+    except Exception as e:
+        logger.debug(f"heartbeat() failed (non-fatal): {e}")
+
+
 def _tracked(job_id, job_name=None, trigger_source="scheduled"):
     """Generic APScheduler entrypoint that emits a `job_runs` lifecycle row.
 
     Phase 2 visibility: every scheduled tick goes through this wrapper so a
-    row appears in `job_runs` (RUNNING -> SUCCESS/FAILED) for each fire. The
-    body func is looked up from `JOB_FUNCTIONS` at call time so we don't have
-    to ship a closure into the SQLAlchemyJobStore (it can only persist a
-    module-level callable by dotted path).
+    row appears in `job_runs` (RUNNING -> SUCCESS / FAILED / SKIPPED) for
+    each fire. The body func is looked up from `JOB_FUNCTIONS` at call time
+    so we don't have to ship a closure into the SQLAlchemyJobStore (it can
+    only persist a module-level callable by dotted path).
 
-    The wrapper records SUCCESS unless the body raises into APScheduler.
-    Several `_run_*` body funcs catch their own exceptions and only log,
-    which is intentional ("logging failures must not stop scheduled jobs"
-    per the brief) — those will appear SUCCESS at this layer; finer-grained
-    business success/failure lives in domain-specific log tables
-    (PS365SyncLog, ForecastRun, BotRunLog, etc.) and will be linked into
-    job_runs via parent_run_id in a later phase.
+    Status semantics:
+      - SUCCESS  — body returned normally
+      - SKIPPED  — body raised `JobSkipped(reason)` (early-return guard:
+                   lock held, already ran today, no work, etc.)
+      - FAILED   — body raised any other exception (re-raised so APScheduler
+                   logs it too)
+
+    Several `_run_*` body funcs still catch their own exceptions and only
+    log, which is intentional ("logging failures must not stop scheduled
+    jobs" per the brief) — those will appear SUCCESS at this layer;
+    finer-grained business success/failure lives in domain-specific log
+    tables (PS365SyncLog, ForecastRun, BotRunLog, etc.) and will be linked
+    into job_runs via parent_run_id in a later phase.
 
     Writes are gated by the job_runs_enabled / job_runs_write_enabled flags
     inside `services.job_run_logger`; if either is OFF the lifecycle calls
@@ -50,16 +98,29 @@ def _tracked(job_id, job_name=None, trigger_source="scheduled"):
         job_name=job_name or job_id,
         trigger_source=trigger_source,
     )
+    token = _CURRENT_JOB_RUN_ID.set(run_id)
     try:
-        body()
-    except Exception as e:
-        finish_job_run(
-            run_id,
-            status="FAILED",
-            error_message=(str(e) or type(e).__name__)[:500],
-        )
-        raise
-    finish_job_run(run_id, status="SUCCESS")
+        try:
+            body()
+        except JobSkipped as skip:
+            reason = (str(skip) or "skipped")[:500]
+            finish_job_run(
+                run_id,
+                status="SKIPPED",
+                result_summary={"reason": reason},
+            )
+            logger.info(f"Job {job_id} SKIPPED: {reason}")
+            return
+        except Exception as e:
+            finish_job_run(
+                run_id,
+                status="FAILED",
+                error_message=(str(e) or type(e).__name__)[:500],
+            )
+            raise
+        finish_job_run(run_id, status="SUCCESS")
+    finally:
+        _CURRENT_JOB_RUN_ID.reset(token)
 
 
 def setup_scheduler(app):
@@ -207,14 +268,15 @@ def setup_scheduler(app):
             )
             logger.info("✓ Forecast run scheduled: Daily at 17:35 Cairo")
 
-            # Watchdog: gated on `forecast_watchdog_enabled` (default OFF in
-            # Phase 1). When ON, cadence reads from
-            # `forecast_watchdog_interval_minutes` (default 5; clamped 1..60)
-            # so operators can tune sweep frequency without a code deploy.
-            # When OFF, the live `/forecast/api/suppliers` endpoint still
-            # calls `mark_stale_forecast_run_if_needed` on every page hit,
-            # so a stuck run can never block the suppliers page indefinitely
-            # — only the background sweep (and auto-retry) is disabled.
+            # Watchdog cadence is gated on `forecast_watchdog_enabled`:
+            #   OFF (default)  -> legacy 10-min cadence
+            #   ON             -> `forecast_watchdog_interval_minutes`
+            #                     (default 5, clamped 1..60)
+            # The job is ALWAYS scheduled — the flag only tunes how often
+            # the watchdog sweeps. The live `/forecast/api/suppliers`
+            # endpoint also calls `mark_stale_forecast_run_if_needed` on
+            # every page hit, so a stuck run can never block the suppliers
+            # page even if the cron is paused.
             try:
                 from models import Setting
                 # Settings live on the Flask-SQLAlchemy scoped session, so
@@ -228,35 +290,27 @@ def setup_scheduler(app):
                     wd_interval_raw = Setting.get(db.session, 'forecast_watchdog_interval_minutes', '5')
                     wd_interval = max(min(int(wd_interval_raw or '5'), 60), 1)
             except Exception as e:
-                logger.warning(f"Could not read watchdog settings ({e}); defaulting to OFF")
+                logger.warning(f"Could not read watchdog settings ({e}); defaulting to OFF / 10min cadence")
                 wd_enabled = False
                 wd_interval = 5
 
-            if wd_enabled:
-                scheduler.add_job(
-                    func=_tracked,
-                    kwargs={'job_id': 'forecast_watchdog',
-                            'job_name': 'Forecast Run Watchdog (auto-retry)'},
-                    trigger=CronTrigger(minute=f"*/{wd_interval}"),
-                    id='forecast_watchdog',
-                    name='Forecast Run Watchdog (auto-retry)',
-                    replace_existing=True,
-                    max_instances=1,
-                    misfire_grace_time=300,
-                    coalesce=True,
-                )
-                logger.info(
-                    f"✓ Forecast watchdog scheduled: every {wd_interval} min "
-                    "(auto-retry stale runs)"
-                )
-            else:
-                logger.info("⏭ Forecast watchdog skipped (forecast_watchdog_enabled=false)")
-                # Note: defensive cleanup of any persisted forecast_watchdog
-                # row from a prior ON-boot happens AFTER scheduler.start(), see
-                # the cleanup block right after the start() call. Doing it
-                # here would race against the SQLAlchemyJobStore's job loading
-                # (scheduler.get_job in standby may return None for persisted
-                # rows that have not yet been pulled into memory).
+            wd_cadence = wd_interval if wd_enabled else 10
+            scheduler.add_job(
+                func=_tracked,
+                kwargs={'job_id': 'forecast_watchdog',
+                        'job_name': 'Forecast Run Watchdog (auto-retry)'},
+                trigger=CronTrigger(minute=f"*/{wd_cadence}"),
+                id='forecast_watchdog',
+                name='Forecast Run Watchdog (auto-retry)',
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=300,
+                coalesce=True,
+            )
+            logger.info(
+                f"✓ Forecast watchdog scheduled: every {wd_cadence} min "
+                f"(forecast_watchdog_enabled={'on' if wd_enabled else 'off → legacy 10min cadence'})"
+            )
 
             scheduler.add_job(
                 func=_tracked,
@@ -398,23 +452,6 @@ def setup_scheduler(app):
 
         scheduler.start()
         logger.info("Background scheduler started successfully")
-
-        # Post-start cleanup: now that the SQLAlchemyJobStore has loaded
-        # persisted rows into memory, drop any forecast_watchdog row left
-        # over from a previous boot when the flag was ON. We can't do this
-        # before start() because get_job/remove_job in standby do not see
-        # persisted rows from the jobstore reliably.
-        if not wd_enabled:
-            try:
-                existing_wd = scheduler.get_job('forecast_watchdog')
-                if existing_wd is not None:
-                    scheduler.remove_job('forecast_watchdog')
-                    logger.info(
-                        "🧹 Removed forecast_watchdog from jobstore "
-                        "(flag is OFF)"
-                    )
-            except Exception as e:
-                logger.debug(f"Watchdog cleanup skipped: {e}")
 
         if is_production:
             import threading
@@ -747,7 +784,18 @@ def _run_forecast():
             logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
             logger.info("=" * 80)
 
+            # Heartbeat #1: signal that we're past boot and into the actual
+            # forecast pipeline. The pipeline itself writes per-step
+            # heartbeats into ForecastRun.last_heartbeat_at + current_step;
+            # we mirror the start signal into job_runs so the watchdog and
+            # the admin Job Runs page both see the run is alive.
+            heartbeat(current_step="forecast_pipeline_start",
+                      progress_message="execute_forecast_run dispatched")
+
             result = execute_forecast_run(db.session, created_by='scheduler')
+
+            heartbeat(current_step="forecast_pipeline_done",
+                      progress_message=str(result)[:200])
 
             logger.info("=" * 80)
             logger.info("SCHEDULED FORECAST RUN COMPLETED")
@@ -773,9 +821,9 @@ def _run_forecast_watchdog():
 
     Stale-run detection lives in `services.forecast.stale_detection` so the
     live `/forecast/api/suppliers` endpoint and this background tick agree on
-    what "stale" means and on the threshold. Cadence is driven by the
-    `forecast_watchdog_interval_minutes` setting (default 5 min when the
-    `forecast_watchdog_enabled` flag is on).
+    what "stale" means and on the threshold. Cadence is gated by the
+    `forecast_watchdog_enabled` flag (OFF -> legacy 10-min cadence, ON ->
+    `forecast_watchdog_interval_minutes`).
 
     If the most recent run is in 'running' state but its heartbeat is older
     than the configured threshold (`forecast_heartbeat_timeout_seconds`,
@@ -783,6 +831,10 @@ def _run_forecast_watchdog():
     replacement run (in a daemon thread, so the cron tick returns fast). We
     cap auto-retries per day so a permanently broken forecast pipeline does
     not loop indefinitely.
+
+    Early-return guard paths raise `JobSkipped` so each tick is recorded
+    accurately in `job_runs` (SUCCESS only when a real action ran;
+    SKIPPED when there was nothing to do or the retry budget was spent).
     """
     try:
         from app import app, db
@@ -797,16 +849,16 @@ def _run_forecast_watchdog():
             if not stale_marked:
                 last = ForecastRun.query.order_by(ForecastRun.started_at.desc()).first()
                 if last is None or last.status != "failed":
-                    return
+                    raise JobSkipped("no stale run and last run not failed — nothing to do")
 
                 today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
                 if last.started_at is None or last.started_at < today_start:
-                    return
+                    raise JobSkipped("last failed run is from a previous day — not retrying")
 
                 # Only auto-retry runs that the scheduler / watchdog launched.
                 # Admin-triggered runs that failed are the admin's call to retry.
                 if last.created_by not in ("scheduler", AUTO_RETRY_CREATED_BY):
-                    return
+                    raise JobSkipped(f"last failed run was admin-triggered ({last.created_by}) — not auto-retrying")
 
             today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
             auto_retries_today = (
@@ -820,7 +872,9 @@ def _run_forecast_watchdog():
                     f"forecast watchdog: skipping auto-retry — already retried "
                     f"{auto_retries_today}/{MAX_AUTO_RETRIES_PER_DAY} times today"
                 )
-                return
+                raise JobSkipped(
+                    f"daily auto-retry budget spent ({auto_retries_today}/{MAX_AUTO_RETRIES_PER_DAY})"
+                )
 
             already_running = (
                 ForecastRun.query
@@ -831,12 +885,14 @@ def _run_forecast_watchdog():
                 logger.info(
                     f"forecast watchdog: another run already in progress (id={already_running.id}), skipping retry"
                 )
-                return
+                raise JobSkipped(f"another forecast run is already in progress (id={already_running.id})")
 
             logger.warning(
                 f"forecast watchdog: launching auto-retry "
                 f"(attempt {auto_retries_today + 1}/{MAX_AUTO_RETRIES_PER_DAY} today)"
             )
+            heartbeat(current_step="auto_retry_dispatch",
+                      progress_message=f"attempt {auto_retries_today + 1}/{MAX_AUTO_RETRIES_PER_DAY}")
 
             import threading as _t
 
@@ -851,6 +907,8 @@ def _run_forecast_watchdog():
                     logger.error(f"forecast watchdog: auto-retry failed: {e}", exc_info=True)
 
             _t.Thread(target=_bg_retry, daemon=True, name="forecast-auto-retry").start()
+    except JobSkipped:
+        raise
     except Exception as e:
         logger.error(f"Error in forecast watchdog: {str(e)}", exc_info=True)
 
@@ -866,7 +924,7 @@ def _run_pending_orders_sync():
             locked = acquire_sync_lock(JOB_NAME, "scheduler")
             if not locked:
                 logger.warning("Pending orders sync already running, skipping scheduled run")
-                return
+                raise JobSkipped("sync lock already held by another run")
 
             try:
                 logger.info("=" * 80)
@@ -882,12 +940,14 @@ def _run_pending_orders_sync():
                 logger.info("=" * 80)
             finally:
                 release_sync_lock(JOB_NAME)
+    except JobSkipped:
+        raise
     except Exception as e:
         err_msg = str(e).lower()
         if any(p in err_msg for p in ('timed out', 'timeout', 'max retries exceeded', 'connectionerror')):
             logger.warning(f"Pending orders sync skipped — PS365 temporarily unavailable: {str(e)[:150]}")
-        else:
-            logger.error(f"Error in scheduled pending orders sync: {str(e)}", exc_info=True)
+            raise JobSkipped(f"PS365 temporarily unavailable: {str(e)[:150]}")
+        logger.error(f"Error in scheduled pending orders sync: {str(e)}", exc_info=True)
 
 
 def _retry_pending_payments():
@@ -905,7 +965,7 @@ def _retry_pending_payments():
             ).order_by(PaymentEntry.created_at).limit(20).all()
 
             if not pending:
-                return
+                raise JobSkipped("no PENDING_RETRY payments to process")
 
             logger.info(f"Retrying {len(pending)} PENDING_RETRY payment(s)")
 
@@ -936,6 +996,8 @@ def _retry_pending_payments():
                 except Exception as exc:
                     db.session.rollback()
                     logger.warning(f"Background retry error for PaymentEntry {pe.id}: {str(exc)[:120]}")
+    except JobSkipped:
+        raise
     except Exception as e:
         logger.error(f"Error in _retry_pending_payments: {str(e)}")
 
@@ -999,7 +1061,7 @@ def _run_offers_update():
                 "progress (lock held by manual UI or previous cron). "
                 "Lock auto-expires after 15 minutes."
             )
-            return
+            raise JobSkipped("offers refresh lock already held")
 
         try:
             logger.info("OFFERS UPDATE step 1/2: downloading FTP price master and importing CSV...")
@@ -1044,7 +1106,7 @@ def _run_erp_item_cost_refresh():
                 logger.warning(
                     "ERP ITEM COST REFRESH skipped: another item_catalogue export is already running"
                 )
-                return
+                raise JobSkipped("item_catalogue export already in progress")
             result = run_export_sync('item_catalogue', triggered_by='scheduler')
             if result.get('status') == 'success':
                 post = result.get('post_process', {}) or {}
@@ -1059,6 +1121,8 @@ def _run_erp_item_cost_refresh():
                 logger.error(
                     f"ERP ITEM COST REFRESH FAILED: {result.get('error_message', 'unknown error')}"
                 )
+    except JobSkipped:
+        raise
     except Exception as e:
         logger.error(f"Error in scheduled ERP item cost refresh: {str(e)}", exc_info=True)
 
@@ -1108,6 +1172,10 @@ def _run_stock_777_sync():
 
 
 def _run_stock_777_catch_up_on_startup():
+    # Note: this helper is invoked directly during boot (not via _tracked),
+    # so JobSkipped wouldn't be observed by `_tracked` here. We keep the
+    # plain log + return shape for parity with how the boot-path call site
+    # consumes the result.
     try:
         from app import app, db
         from sqlalchemy import text

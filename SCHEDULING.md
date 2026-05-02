@@ -34,19 +34,41 @@ ON in Phase 1).
 | `forecast_watchdog`      | every N minutes (gated)       | `services.forecast.stale_detection`         | See "Forecast watchdog" below |
 | `ftp_login_sync`         | every :15 and :45 (deployed)  | `services.ftp_login_sync`                   | Pulls FTP login logs |
 
-## Forecast watchdog (gated)
+## Job-runs lifecycle status semantics
 
-The watchdog is gated by the `forecast_watchdog_enabled` setting (default
-OFF in Phase 1, see `services/settings_defaults.py`). When the operator
-turns it on:
+Every tick of every catalogue job writes one row to `job_runs` via the
+`_tracked(job_id, job_name, trigger_source)` wrapper:
 
-- Cadence is read from `forecast_watchdog_interval_minutes` (default `5`).
+| Status         | When |
+|----------------|------|
+| `RUNNING`      | Inserted on tick start. `last_heartbeat` is bumped by `scheduler.heartbeat()` from inside the body (currently wired on the forecast pipeline; other long jobs can opt in by importing the same helper). |
+| `SUCCESS`      | Body returned normally (no exception). |
+| `SKIPPED`      | Body raised `JobSkipped(reason)` — early-return guards: lock already held, "no work to do", "auto-retry budget spent", PS365 temporarily unavailable, etc. The reason is stored in `result_summary.reason`. |
+| `FAILED`       | Body raised any other exception. The exception message is stored in `error_message` and is also re-raised so APScheduler logs it. |
+| `STALE_FAILED` | Forecast watchdog (or the live suppliers page) marked a `RUNNING` row whose heartbeat aged past `forecast_heartbeat_timeout_seconds`. |
+
+## Forecast watchdog (cadence flag)
+
+The watchdog **always runs**; the `forecast_watchdog_enabled` flag only
+tunes how often it sweeps:
+
+- **OFF (default)** — legacy 10-min cadence.
+- **ON** — cadence is read from `forecast_watchdog_interval_minutes`
+  (default `5`, clamped 1..60) so operators can tighten the sweep without
+  a code deploy.
+
+Detection / retry behaviour (independent of the cadence flag):
+
 - Stale-run detection logic lives in
   `services/forecast/stale_detection.mark_stale_forecast_run_if_needed`,
   which is also called by the live `/forecast/api/suppliers` endpoint so
   both paths agree on what "stale" means.
 - Stale threshold is `forecast_heartbeat_timeout_seconds` (default
   `2700` seconds = 45 minutes).
+- Each early-return guard inside the watchdog raises `JobSkipped` with
+  a reason ("nothing to do", "budget spent", "another run already in
+  progress", etc.) so each tick's `job_runs` row reflects the actual
+  outcome.
 - Capped at 3 auto-retries per UTC day to stop a permanently broken
   pipeline from looping.
 
