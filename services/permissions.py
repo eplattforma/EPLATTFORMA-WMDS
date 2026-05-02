@@ -6,9 +6,13 @@ Phase 1 shipped this module **disabled by default**:
   - `@require_permission(key)` logs but never blocks while disabled
   - `has_permission(user, key)` returns True with role-fallback when disabled
 
-Phase 3 flips `permissions_enforcement_enabled = true` so direct URL/API access
-without the right key returns HTTP 403. Role fallback
-(`permissions_role_fallback_enabled`) stays ON in Phase 3 as the safety net.
+Phase 3 keeps `permissions_enforcement_enabled = false` as the seeded default
+(Verification & Closeout brief Section 1.2, Option A). Admins flip the flag to
+`true` manually from the Settings UI when production is ready; that flip is
+the signal that "Phase 3 enforcement is live." When the flag is `true`, direct
+URL/API access without the right key returns HTTP 403. Role fallback
+(`permissions_role_fallback_enabled`) stays ON as the safety net so admin /
+warehouse_manager / crm_admin users keep working without per-user grants.
 
 Phase 3 also adds request-scoped caching: each request resolves a given user's
 explicit permissions exactly once even when many menu items / decorators check

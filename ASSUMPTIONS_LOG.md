@@ -131,16 +131,17 @@ Format defined in Section 3 of the brief.
   1. Normalise the header — `driver_id = (request.headers.get('x-driver-id') or '').strip()` — so trailing whitespace from the mobile client is not misclassified as "Unknown driver".
   2. Add WARN-level logs for every rejected auth attempt (missing/blank header, unknown driver, disabled account, non-driver role), each tagged with `request.remote_addr`. No secrets are logged.
 
-## ASSUMPTION-014: Phase 3 enforcement default flipped ON; admin role wildcard kept
+## ASSUMPTION-014: Phase 3 enforcement ships OFF; admin manually flips it ON when ready (Option A)
 
-**Date:** 2026-05-02
-**Phase:** Phase 3 (Permission Enforcement)
-**Files affected:** `services/settings_defaults.py`, `services/permissions.py`, `ROLLBACK_AND_FLAGS.md`
-**Decision made:** Set `permissions_enforcement_enabled = "true"` as the seeded default for Phase 3, while keeping `permissions_role_fallback_enabled = "true"` and the `admin: ["*"]` wildcard in `ROLE_PERMISSIONS`. Admins and warehouse managers therefore keep working without per-user grants; pickers/drivers/crm_admins are subject to the role-fallback table only.
-**Reason:** Brief Section 4 Phase 3 DoD: "permission enforcement on, role-string checks migrated, no admin/WM lockout." Wildcard + role fallback is the safety net during rollout. One-flag rollback documented in `ROLLBACK_AND_FLAGS.md`.
-**Safer alternative considered:** Ship enforcement OFF and require operator to flip it. Rejected — Phase 3 DoD requires enforcement to be on by default.
-**Feature flag / rollback:** `permissions_enforcement_enabled = false` reverts decorators to log-only mode without code changes.
+**Date:** 2026-05-02 (revised same day during Phase 3 closeout)
+**Phase:** Phase 3 (Permission Enforcement) — closeout reconciliation
+**Files affected:** `services/settings_defaults.py`, `services/permissions.py`, `ROLLBACK_AND_FLAGS.md`, `replit.md`
+**Decision made:** Seed `permissions_enforcement_enabled = "false"` by default. Admins flip it to `"true"` manually from the Settings UI when production is ready. While the flag is `false`, `@require_permission` decorators only log missing keys (so accidental key/decorator drift surfaces in logs without breaking users). `permissions_role_fallback_enabled = "true"` and the `admin: ["*"]` wildcard remain in place so the eventual flip cannot lock out admin / warehouse_manager / crm_admin users without explicit grants. The Phase 3 auto-seeder still runs once on first boot, so by the time an admin flips enforcement on, every active user already has explicit `user_permissions` rows derived from their role.
+**Reason:** Verification & Closeout brief Section 1.2 (Option A): match the seeded value to the per-phase rollout discipline of the rest of the batch — every high-risk flag ships OFF and is flipped manually after operational sign-off. An interim Phase 3 commit briefly seeded `"true"` while interpreting "Phase 3 turns enforcement ON" literally; that conflicted with the rollback doc, the assumptions log, and `replit.md`, all of which assume manual flip. Reconciling to `false` keeps every source of truth aligned and matches Production Safety Rule #2 ("enable one module/flag at a time").
+**Safer alternative considered:** Option B — keep `"true"` and update the docs to match. Rejected by the project owner during closeout: ships a high-risk behaviour change without operational sign-off, and contradicts the otherwise-uniform pattern of "all high-risk flags default OFF."
+**Feature flag / rollback:** Manual flip from the Settings UI, or `Setting.set(db.session, 'permissions_enforcement_enabled', 'true')`. Setting it back to `'false'` reverts decorators to log-only mode without code changes.
 **Reversibility:** High
+**Recommendation if user disagrees:** Switch to Option B by editing `services/settings_defaults.py` to seed `"true"` and reverting the doc updates above.
 
 ---
 
@@ -179,4 +180,41 @@ Format defined in Section 3 of the brief.
 **Reason:** Phase 3 DoD requires migrating role-string checks to permission keys without breaking existing flows. Widening (admin/WM/perm) preserves the legacy behaviour as defense in depth while letting an operator grant `routes.manage` to a custom-role user from the editor UI.
 **Safer alternative considered:** Replace the role check entirely with `@require_permission('routes.manage')`. Rejected — would couple route management to the master enforcement flag; admins would lose access if `permissions_enforcement_enabled = true` and the seeder hasn't run for them. The OR keeps behaviour identical for admin/WM regardless of flag state.
 **Feature flag / rollback:** Toggle `permissions_enforcement_enabled = false` to revert; or reapply the previous 6-line decorator from git.
+**Reversibility:** High
+
+## ASSUMPTION-018: comms/sms blueprints keep coarse `menu.communications` key (no per-action fan-out)
+
+**Date:** 2026-05-02
+**Phase:** Phase 3 (Permission Enforcement) — closeout
+**Files affected:** `blueprints/communications.py`, `blueprints/sms.py`
+**Decision made:** The `_role_ok()` helpers in `blueprints/communications.py:25` and `blueprints/sms.py:48` are kept as-is. Both already delegate to `has_permission(current_user, "menu.communications")` (the migration from raw role-string checks landed in Phase 3) and gate every state-changing endpoint in those blueprints — 17 sites in `communications.py` (compose / preview / send-microsms / send-finalized / push send / bulk send / templates CRUD / logs view / launch URL / etc.) and 9 sites in `sms.py` (compose / preview / send / templates CRUD / logs / balance / etc.). The function name is the only legacy artefact; the body is the new model. We are deliberately **not** fanning out into per-action keys (`comms.send_sms`, `comms.send_bulk`, `comms.manage_templates`, `comms.view_logs`, etc.) at this time.
+**Reason:** (1) The product owner's existing operational model treats "communications access" as a single binary capability — anyone allowed in the comms area can send, view, and manage templates; there is no current request to split these. (2) `crm_admin`, `warehouse_manager`, and `admin` already get `menu.communications` via `ROLE_PERMISSIONS`, plus `crm_admin` carries the broader `comms.*` wildcard, so role fallback covers every legitimate user today. (3) Adding per-action keys without an operational consumer would mean editing the permission editor grid (`PERMISSION_EDITOR_GROUPS` in `routes.py:1681`), the role table, the seeder coverage tests, and 26 call sites — pure churn for no behavioural change. (4) The keys are reserved namespace: any future request to split (e.g. "let template editors view but not send") can flip the helper to `has_permission(current_user, "comms.send_sms")` etc. without touching call sites because every call site goes through the helper.
+**Safer alternative considered:** Migrate every call site to `@require_permission(...)` decorators with a fan-out of fine-grained keys. Rejected — see (3) above; also moves the gate from a single helper to 26 decorator lines and requires editor-grid + role-table + seeder updates that would each need their own ASSUMPTION entry.
+**Feature flag / rollback:** None needed — behaviour is unchanged from the merged Phase 3 work. If the fan-out is ever wanted, it is a one-file edit to each helper.
+**Reversibility:** High
+
+---
+
+## ASSUMPTION-019: customer_analytics / category_manager / peer_analytics keep raw role-string checks (out of scope for Task #16)
+
+**Date:** 2026-05-02
+**Phase:** Phase 3 (Permission Enforcement) — closeout
+**Files affected:** `routes_customer_analytics.py`, `blueprints/category_manager.py`, `blueprints/peer_analytics.py`
+**Decision made:** The `_role_ok()` helpers in these three analytics blueprints (11 + 3 + 4 = 18 call sites total) keep their raw `current_user.role in ('admin', 'warehouse_manager')` checks for now and are explicitly listed as known gaps in `KNOWN_GAPS.md`. Task #16's scope (per the task plan's "Done looks like") is the comms/sms migration plus closeout verification; widening to these three blueprints would be a separate task with its own role-table + seeder-coverage audit.
+**Reason:** Production safety — touching access control on three more blueprints inside a closeout/verification task widens the blast radius beyond what the brief calls for ("either complete the migration or document the deliberate dual-track"). Documenting the dual-track here is the explicit option chosen by the brief. Both `admin` and `warehouse_manager` are still gated via the role string, so behaviour is unchanged from pre-Phase-3; the migration is purely a defense-in-depth widening that can wait.
+**Safer alternative considered:** Migrate all three in this task. Rejected — three more files, three more sets of call-site audits, and no operational driver requesting it.
+**Feature flag / rollback:** None — these helpers are already strict role checks. The migration, when undertaken, will follow the same pattern as comms/sms (replace body with `has_permission(current_user, "menu.<area>")`) and be guarded by `permissions_enforcement_enabled` like every other Phase 3 decorator.
+**Reversibility:** High
+
+---
+
+## ASSUMPTION-020: Forecast workbench "On Hand" / "Case Qty" UI removed without forecast-math change (commit 7f75e73)
+
+**Date:** 2026-05-02
+**Phase:** Phase 3 (Permission Enforcement) — closeout (UI tidy reconciliation)
+**Files affected:** `blueprints/forecast_workbench.py`, `templates/supplier_detail.html` (commit `7f75e73`)
+**Decision made:** Per commit `7f75e73` ("Remove 'On Hand' and 'Case Qty' from forecast display and calculations"), both columns were dropped from the supplier-detail forecast table and from the per-row payload the workbench builds for the template. Forecast totals, suggested order quantity, and override pipeline are unchanged — `on_hand` is no longer surfaced, but the underlying values are still pulled from the warehouse for any code path that needs them (e.g. picking, transfers).
+**Reason:** Operational sign-off from the project owner: the two columns were leftover noise from an earlier iteration and were confusing the supplier-review workflow. Removing display surface area only (not data) means no migration, no rollback flag needed, and no impact on the `tests/test_override_ordering_pipeline.py` regression baseline (still passing).
+**Safer alternative considered:** Hide the columns behind a flag rather than remove them. Rejected — no operational consumer asked for the toggle, and the columns were cluttering the display for every supplier review session.
+**Feature flag / rollback:** Pure UI removal — revert commit `7f75e73` to restore.
 **Reversibility:** High

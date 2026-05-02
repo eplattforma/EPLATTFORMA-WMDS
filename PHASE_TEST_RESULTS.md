@@ -112,3 +112,100 @@ each scenario lists command, expected, actual, pass/fail, and the file:line of t
 **Regression baseline preserved.** `pytest -q tests/test_override_ordering_pipeline.py` continues to pass (1 passed in 1.27s). Workflow `Start application` boots both gunicorn workers cleanly through `PHASE 7: main.py fully loaded`.
 
 **Conclusion:** Phase 3 acceptance criteria met (enforcement on with one-flag rollback, seeder idempotent + manual re-seed, per-user editor live with reset-to-role-defaults, role-string checks migrated to `has_permission` across all non-driver templates, key admin endpoints decorated, request-scoped caching live, Driver Mode untouched, `crm_admin` role unblocked).
+
+---
+
+# Phase 3 Closeout & Verification (Task #16 — 2026-05-02)
+
+This block reconciles the Phase 3 closeout brief (Verification & Closeout Instructions, Sections 1.1 – 1.5) with the merged Task #14 (wildcard removal) + Task #15 (automated permission tests) work and the just-completed flag reconciliation (Option A — see ASSUMPTION-014). It is **evidence-only** — no production flag flips, no Phase 4/5 work.
+
+## 1.1 — `_role_ok` migration audit (closeout)
+
+| Blueprint | `_role_ok` call sites | Body | Status | Notes |
+|---|---:|---|---|---|
+| `blueprints/communications.py` | 17 | `return has_permission(current_user, "menu.communications")` | **Migrated** (Phase 3, pre-Task-#16) | Function name is the only legacy artefact; ASSUMPTION-018 documents the decision to keep a single coarse `menu.communications` key rather than fan out to per-action keys. |
+| `blueprints/sms.py` | 9 | `return has_permission(current_user, "menu.communications")` | **Migrated** (Phase 3, pre-Task-#16) | Same as above. |
+| `routes_customer_analytics.py` | 11 | `return r in ("admin", "warehouse_manager")` | **Deliberate dual-track** | Out of scope for Task #16; logged in `KNOWN_GAPS.md` and ASSUMPTION-019. |
+| `blueprints/category_manager.py` | 3 | `return r in ("admin", "warehouse_manager")` | **Deliberate dual-track** | Same as above. |
+| `blueprints/peer_analytics.py` | 4 | `return r in ("admin", "warehouse_manager")` | **Deliberate dual-track** | Same as above. |
+
+Total `_role_ok` sites repo-wide: 44. Migrated: 26 (comms 17 + sms 9). Dual-track: 18.
+
+## 1.2 — `permissions_enforcement_enabled` posture reconciled
+
+`services/settings_defaults.py:33` ships `"false"`. Manual flip from the Settings UI (or `Setting.set(db.session, 'permissions_enforcement_enabled', 'true')`) is the operational signal that "Phase 3 enforcement is live in production." See `ROLLBACK_AND_FLAGS.md` (line 27 + Phase 3 section) and ASSUMPTION-014 for the full rationale and one-flag rollback.
+
+While the flag is `false`, `@require_permission` decorators only log missing keys — accidental key/decorator drift surfaces in logs without blocking users. Role fallback (`permissions_role_fallback_enabled = "true"`) and the `admin: ["*"]` wildcard remain in place so the eventual flip cannot lock out admin / warehouse_manager / crm_admin users who never had explicit `user_permissions` rows.
+
+## 1.3 — Role × permission-key matrix (7 keys × 5 roles)
+
+Distinct `@require_permission(...)` keys in use today (counted by `rg -n "@require_permission" --type py`):
+
+| Key | Sites | Routes |
+|---|---:|---|
+| `picking.manage_batches` | 17 | `routes_batch.py` (15) + `routes.py` (2) |
+| `sync.run_manual` | 15 | `routes_admin_scheduler.py` (4) + `datawarehouse_routes.py` (6) + `blueprints/forecast_workbench.py` (5) |
+| `settings.manage_users` | 8 | `routes.py` (admin user CRUD + permissions editor + seed-now + sorting settings) |
+| `menu.datawarehouse` | 1 | `datawarehouse_routes.py` (menu landing) |
+| `menu.warehouse` | 1 | `routes.py` (warehouse menu landing) |
+| `routes.manage` | 1 | `routes.py` (route-management menu landing) |
+| `menu.communications` | 26 (via helpers) | `blueprints/communications.py` (17) + `blueprints/sms.py` (9) — gated through `_role_ok()` instead of decorator |
+
+**Effective grants per role** (resolved against `services.permissions.ROLE_PERMISSIONS` with role-fallback ON; cells reflect what the user can reach when enforcement is `true` AND they have no explicit `user_permissions` rows beyond the seeder defaults):
+
+| Key | admin | warehouse_manager | crm_admin | picker | driver |
+|---|:-:|:-:|:-:|:-:|:-:|
+| `picking.manage_batches`  | ✅ via `*` | ✅ via `picking.*` | ❌ | ❌ | ❌ |
+| `sync.run_manual`         | ✅ via `*` | ❌ | ❌ | ❌ | ❌ |
+| `settings.manage_users`   | ✅ via `*` | ❌ | ❌ | ❌ | ❌ |
+| `menu.datawarehouse`      | ✅ via `*` | ✅ explicit | ❌ | ❌ | ❌ |
+| `menu.warehouse`          | ✅ via `*` | ✅ explicit | ❌ | ❌ | ❌ |
+| `routes.manage`           | ✅ via `*` | ✅ explicit | ❌ | ❌ | ❌ |
+| `menu.communications`     | ✅ via `*` | ✅ explicit | ✅ explicit | ❌ | ❌ |
+
+**Gap analysis.** Every `❌` cell is a deliberate role-table decision, not an oversight:
+- `crm_admin` is intentionally CRM-focused (dashboard / CRM / communications + `comms.*`); no warehouse, picking, sync, routes, or settings access. Confirmed against the brief Section 4 role definition.
+- `warehouse_manager` is deliberately blocked from `sync.run_manual` and `settings.manage_users` per the brief's "admin-only" sub-list. Pinning these as `❌` in the matrix tests means any future widening of the role grant flips the assertion and fails loudly.
+- `picker` and `driver` keep their narrow per-workflow keys (`picking.perform`, `picking.claim_batch`, `driver.*`) — no admin reach.
+
+Adding any cell would require explicit operational sign-off and a new ASSUMPTION entry.
+
+## 1.4 — 20-scenario verification matrix (brief Section 1.4)
+
+Mapped to existing automated coverage. Tests use `enforcement_on` / `enforcement_no_fallback` fixtures (`tests/test_permission_enforcement.py:127-140`) that flip the flag inside a transaction and restore it afterwards — no live flag mutation.
+
+| # | Scenario | Evidence | Expected |
+|---:|---|---|---|
+| 1 | Admin → `/admin/users/<u>/permissions` | `tests/test_permission_enforcement.py:149` `__user_perms__/admin → 200` | 200 |
+| 2 | Admin → `/datawarehouse/full-sync` (sync.run_manual) | `tests/test_permission_enforcement.py:152` | 200 |
+| 3 | Admin → `/admin/batch/manage` (picking.manage_batches) | `tests/test_permission_enforcement.py:149` | 200 |
+| 4 | warehouse_manager → `/admin/batch/manage` | `tests/test_permission_enforcement.py:150` | 200 |
+| 5 | warehouse_manager → `/datawarehouse/full-sync` (admin-only body) | `tests/test_permission_enforcement.py:153` | 403 |
+| 6 | warehouse_manager → `/admin/users/<u>/permissions` | `tests/test_permission_enforcement.py:156` | 403 |
+| 7 | picker → `/admin/users/...` | `tests/test_permission_enforcement.py:157` | 403 |
+| 8 | picker → `/datawarehouse/full-sync` | `tests/test_permission_enforcement.py:154` | 403 |
+| 9 | picker → `/admin/batch/manage` | `tests/test_permission_enforcement.py:151` | 403 |
+| 10 | Explicit-grant non-admin (role_fallback OFF) → `/admin/batch/manage` | `test_explicit_grant_passes_decorator_on_batch` | 200 |
+| 11 | Explicit-grant non-admin → `/admin/users/.../permissions` | `test_explicit_grant_passes_decorator_on_user_mgmt` | 200 |
+| 12 | Explicit-grant non-admin → `/datawarehouse/full-sync` (admin-only body redirects) | `test_explicit_grant_blocked_by_admin_only_body_on_sync` | 302 |
+| 13 | Same role, NO explicit rows, fallback OFF → decorator denies | `test_explicit_grant_user_without_grants_is_denied` | 403 |
+| 14 | Explicit grant beats role fallback (picker gets `settings.manage_users`) | `tests/test_permissions.py:test_explicit_grant_beats_role_fallback` | True / True |
+| 15 | Wildcard `picking.*` covers `picking.manage_batches` for warehouse_manager | `tests/test_permissions.py:test_wildcard_picking_star_covers_picking_manage_batches` | True |
+| 16 | Wildcard matcher unit (positive + negative) | `tests/test_permissions.py:test_matches_unit` | All 6 asserts |
+| 17 | Unauthenticated user always denied (no cache poisoning) | `tests/test_permissions.py:test_unauthenticated_user_always_denied` + `test_anon_check_does_not_poison_request_cache` | False / cache clean |
+| 18 | crm_admin role grants (`menu.communications`, `comms.send`, NOT `menu.warehouse`) | `tests/test_permissions.py:test_crm_admin_role_grants` | True / True / False |
+| 19 | Auto-seeder grants admin `*` and is idempotent on re-run | `tests/test_permissions.py:test_seeder_grants_admin_star_and_is_idempotent` | `*` present, second run is a no-op |
+| 20 | Wildcard removal flow (admin revokes `*` from another user, with confirmation gate + self-lockout guard) | `tests/test_wildcard_removal.py` (Task #14, 22 assertions) | All pass |
+
+Total automated assertions covering Section 1.4: **22 wildcard-removal + 14 enforcement matrix + 6 service-level = 42 assertions across 3 test files**, all passing on the closeout run (see Section 1.5 below).
+
+## 1.5 — Closeout sign-off
+
+- **Files reconciled (Step 1 — Option A):** `services/settings_defaults.py:33` (`"false"`), `services/permissions.py` (module docstring), `ROLLBACK_AND_FLAGS.md` (line 27 + Phase 3 section), `replit.md` (Phase 3 "What Phase 3 added" bullet), `ASSUMPTIONS_LOG.md` (ASSUMPTION-014 rewritten in place).
+- **`_role_ok` migration (Step 2):** comms (17) + sms (9) helpers confirmed permission-based, ASSUMPTION-018 added; analytics blueprints out-of-scope per ASSUMPTION-019 and `KNOWN_GAPS.md`.
+- **Role × key matrix (Step 3-4):** complete, every `❌` cell is a documented role-table decision; the matrix is pinned by the parametrised tests in `test_permission_enforcement.py:149-159`.
+- **20-scenario verification (Step 4):** see table above.
+- **Per-role test evidence (Step 5):** `pytest -q tests/test_permission_enforcement.py tests/test_permissions.py tests/test_wildcard_removal.py` — all green; no live flag flip required.
+- **"On Hand" / "Case Qty" UI removal (Step 6):** ASSUMPTION-020 records commit `7f75e73`; forecast math unchanged; `tests/test_override_ordering_pipeline.py` regression baseline still passing.
+
+**No Phase 4/5 work performed; no production flag flips performed; no production database writes performed.**

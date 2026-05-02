@@ -18,10 +18,16 @@ PHASE1_DEFAULTS = {
     "wmds_development_batch_enabled": "true",
     "maintenance_mode": "normal",
 
-    # Permissions (Phase 3 turns enforcement ON; role fallback stays ON as
-    # the safety net per the brief. Setting either to "false" is the
-    # documented one-flag rollback.)
-    "permissions_enforcement_enabled": "true",
+    # Permissions. Per the WMDS Verification & Closeout brief Section 1.2
+    # (Option A), enforcement ships OFF — admins manually flip
+    # ``permissions_enforcement_enabled`` to ``true`` from the Settings UI
+    # when production is ready. While off, ``@require_permission`` only
+    # logs missing keys (see ``services/permissions.py``). Role fallback
+    # stays ON so the eventual flip cannot lock out admin / warehouse
+    # manager / crm_admin users who have no explicit grants yet. The
+    # auto-seeder still runs once on first boot so explicit rows exist
+    # by the time enforcement is flipped on.
+    "permissions_enforcement_enabled": "false",
     "permissions_menu_filtering_enabled": "true",
     "permissions_role_fallback_enabled": "true",
     "permissions_auto_seed_done": "false",
