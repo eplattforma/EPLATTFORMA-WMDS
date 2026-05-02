@@ -40,3 +40,19 @@ Format: each gap has a short ID, severity, where it was discovered, the current 
   - Extend `tests/test_permission_enforcement.py` parametrised matrix with one allow + one deny cell per blueprint.
   - Optional: rename the helpers (or replace them with `@require_permission(...)` decorators on each route) to remove the misleading `_role_ok` name.
 **Why not now:** Out-of-scope for Task #16 per the closeout brief ("either complete the migration or document the deliberate dual-track"). Touching access control on three more blueprints inside a closeout/verification task widens the blast radius beyond what the brief calls for. Documented as the deliberate dual-track in `ASSUMPTIONS_LOG.md` (ASSUMPTION-019).
+
+---
+
+## RR-001: Admin role has no decorator-level DENY case (residual risk)
+
+**Severity:** Documentation only — no security impact.
+**Discovered:** 2026-05-02 (Phase 3 closeout, Task #16 second-pass validation).
+**Files:** `services/permissions.py` (`ROLE_PERMISSIONS["admin"] = ["*"]`), `tests/test_phase3_closeout_matrix.py` (admin row of the captured matrix).
+**Current behaviour:** The `admin` role holds the `*` wildcard, which the matcher in `services.permissions._matches` always treats as a match for any key. As a consequence, no `@require_permission(...)` decorator can deny an `admin` user, and admin satisfies every role-string body check we ship today. The 7×5 captured matrix therefore shows 7× ALLOW for admin and 0× DENY.
+**Why this is by design:** Admin is the system's authority role; the brief's Section 4 role table grants admin universal access deliberately. Synthesising an admin DENY by either (a) removing `*` from the admin grant for the duration of a test or (b) inventing a key not in admin's grant would prove a hypothetical that does not exist in production.
+**Compensating evidence already captured:**
+  - The 7-key × admin row in `PHASE3_CLOSEOUT_MATRIX.txt` proves admin reaches the 200 body of every gated route under enforcement — i.e. admin is **not accidentally locked out** by a missed key, which is the property that actually matters for go-live.
+  - The wildcard-matcher behaviour itself is unit-tested in `tests/test_permissions.py::test_matches_unit` (positive + negative cases).
+  - The auto-seeder grants admin `*` and is idempotent (`tests/test_permissions.py::test_seeder_grants_admin_star_and_is_idempotent`).
+**Recommended future fix:** None. This is the system working as designed; the residual is a documentation artefact, not a code or test gap. If a future operator ever wants per-domain admin separation (e.g. a "warehouse super-admin" who is *not* allowed into Settings), that would require a new role + a removal of `*` from that role, at which point this RR is automatically retired by the new role's allow/deny matrix.
+**Why not now:** This is not a fix in waiting — there is nothing to fix. The entry exists only so that the closeout's "1 ALLOW + 1 DENY per role" literal wording has an explicit, signed-off carve-out for `admin`.

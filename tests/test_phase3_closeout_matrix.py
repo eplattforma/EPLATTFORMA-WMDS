@@ -263,3 +263,51 @@ def test_decorator_cell(
             f"{key} via {role} on {method} {path}: decorator should "
             f"ALLOW (non-403), got 403"
         )
+
+
+# ------------------------------------------------------------------
+# Supplemental per-role ALLOW evidence
+# ------------------------------------------------------------------
+# The 7-key matrix above only enforces *admin-tier* permission keys
+# (picking/sync/settings/menu.{warehouse,datawarehouse,communications}/
+# routes), so picker and driver cannot earn an ALLOW cell inside it --
+# their roles legitimately deny on all 7. To honour the closeout
+# requirement that each role has at least one captured ALLOW, the two
+# tests below hit picker- and driver-facing routes (gated by
+# ``current_user.role`` checks rather than ``@require_permission``,
+# but still subject to login + the same enforcement-on fixture).
+#
+# Admin DENY is design-impossible: admin holds the ``*`` wildcard so
+# no @require_permission can deny them, and admin satisfies every
+# role-string body check we ship. This is documented as Residual Risk
+# RR-001 in PHASE_TEST_RESULTS.md Section 1.3 (no test attempts to
+# fabricate an admin DENY).
+
+
+def test_picker_allow_dashboard(app_ctx, role_users, enforcement_on):
+    """Supplemental ALLOW evidence: picker reaches /picker/dashboard
+    cleanly with enforcement on. The route is @login_required only,
+    with a body-level role check that returns the dashboard HTML for
+    pickers and a 302 redirect for everyone else -- so picker → 200
+    is the right ALLOW signal under enforcement."""
+    client = app_ctx[0].test_client()
+    _login(client, role_users["picker"])
+    resp = client.get("/picker/dashboard")
+    assert resp.status_code == 200, (
+        f"picker → /picker/dashboard should ALLOW (200), got "
+        f"{resp.status_code}"
+    )
+
+
+def test_driver_allow_routes_list(app_ctx, role_users, enforcement_on):
+    """Supplemental ALLOW evidence: driver reaches /driver/routes
+    cleanly with enforcement on. The route uses the
+    ``driver_required`` decorator (role in ['driver', 'admin']) and
+    returns the routes list HTML for drivers."""
+    client = app_ctx[0].test_client()
+    _login(client, role_users["driver"])
+    resp = client.get("/driver/routes")
+    assert resp.status_code == 200, (
+        f"driver → /driver/routes should ALLOW (200), got "
+        f"{resp.status_code}"
+    )
