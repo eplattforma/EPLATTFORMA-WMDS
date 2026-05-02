@@ -179,15 +179,12 @@ def test_get_renders_direct_and_inherited_sections(app_ctx, admin_user, target_u
     assert 'name="confirm_remove_star"' in body
 
     # Inherited wildcard (picking.*) is rendered, but NOT as a remove checkbox.
-    direct_block_end = body.index("Inherited Wildcards")
-    inherited_block = body[direct_block_end:]
+    inherited_block = body[body.index("Inherited Wildcards"):]
     assert "picking.*" in inherited_block, "inherited wildcard must appear in read-only section"
-    # No remove checkbox should target picking.* (inherited section has no inputs).
-    assert 'name="remove_wildcards" value="picking.*"' not in body
-    assert 'value="picking.*"' not in inherited_block.replace(
-        # tolerate the literal text inside <code>picking.*</code>
-        '<code>picking.*</code>', ''
-    ) or True  # belt-and-braces: the form-level check above is the real assertion
+    # No remove checkbox should target picking.* anywhere on the page.
+    assert 'name="remove_wildcards" value="picking.*"' not in body, (
+        "picking.* must not have a remove checkbox when inherited from role"
+    )
 
 
 # ---------------------------------------------------------------------------
