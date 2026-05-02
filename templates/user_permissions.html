@@ -31,16 +31,15 @@
     and back in. Driver Mode core workflow is unaffected.
 </div>
 
-{% if role_wildcards %}
+{% if direct_wildcards or inherited_wildcards %}
 <div class="alert alert-secondary">
     <i class="fas fa-asterisk me-2"></i>
     This user has wildcard grants that don't appear in the grid below:
-    {% for w in role_wildcards %}<code>{{ w }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+    {% for w in direct_wildcards + inherited_wildcards %}<code>{{ w }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
     Wildcards stay in effect alongside any explicit selections.
-    To revoke a single wildcard without resetting everything else, use the
-    <em>Wildcard Grants</em> section below.
-    Use <em>Reset to role defaults</em> to restore the default set if you
-    accidentally remove them.
+    Direct grants can be removed individually below; wildcards inherited
+    from the user's role can only be revoked by changing the role
+    (or via <em>Reset to role defaults</em>).
 </div>
 {% endif %}
 
@@ -76,17 +75,17 @@
         {% endfor %}
     </div>
 
-    {% if role_wildcards %}
+    {% if direct_wildcards %}
     <div class="card shadow-sm mb-4 border-warning">
         <div class="card-header bg-warning-subtle d-flex flex-wrap align-items-center gap-2">
-            <strong><i class="fas fa-asterisk me-2"></i>Wildcard Grants</strong>
+            <strong><i class="fas fa-asterisk me-2"></i>Direct Wildcard Grants</strong>
             <small class="text-muted">
-                Tick a wildcard below to <strong>remove</strong> it on Save.
-                Untouched wildcards stay in effect.
+                Tick a wildcard below to <strong>revoke</strong> it on Save.
+                These are user-specific grants — removing them really takes effect.
             </small>
         </div>
         <div class="list-group list-group-flush">
-            {% for w in role_wildcards %}
+            {% for w in direct_wildcards %}
             <label class="list-group-item d-flex align-items-center">
                 <input type="checkbox"
                        class="form-check-input me-2"
@@ -99,13 +98,10 @@
                     <span class="badge bg-danger ms-2">Full admin — revokes all access</span>
                     {% endif %}
                 </span>
-                {% if w in role_perm_set %}
-                <span class="badge bg-light text-dark border" title="Granted by role">from role</span>
-                {% endif %}
             </label>
             {% endfor %}
         </div>
-        {% if '*' in role_wildcards %}
+        {% if '*' in direct_wildcards %}
         <div class="card-footer bg-light">
             <label class="form-check small mb-0">
                 <input type="checkbox"
@@ -119,6 +115,27 @@
             </label>
         </div>
         {% endif %}
+    </div>
+    {% endif %}
+
+    {% if inherited_wildcards %}
+    <div class="card shadow-sm mb-4 border-secondary">
+        <div class="card-header bg-light d-flex flex-wrap align-items-center gap-2">
+            <strong><i class="fas fa-shield-alt me-2"></i>Inherited Wildcards</strong>
+            <small class="text-muted">
+                Granted by role <code>{{ user.role }}</code>. Cannot be removed
+                here — change the user's role to revoke them.
+            </small>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for w in inherited_wildcards %}
+            <label class="list-group-item d-flex align-items-center text-muted">
+                <i class="fas fa-lock me-2 text-secondary"></i>
+                <span class="flex-grow-1"><code>{{ w }}</code></span>
+                <span class="badge bg-light text-dark border" title="Granted by role">from role</span>
+            </label>
+            {% endfor %}
+        </div>
     </div>
     {% endif %}
 

@@ -1709,7 +1709,7 @@ def manage_user_permissions(username):
     are preserved unless the admin clicks "Reset to role defaults", which
     re-runs the per-user seeding.
     """
-    from services.permissions import ROLE_PERMISSIONS
+    from services.permissions import ROLE_PERMISSIONS, role_covers_wildcard
     from services.permission_seeding import reset_user_to_role_defaults
 
     user = User.query.filter_by(username=username).first_or_404()
@@ -1739,10 +1739,37 @@ def manage_user_permissions(username):
 
         # Wildcards the admin chose to remove. Filter to actual wildcards
         # so a forged form can't slip a non-wildcard delete through this path.
-        to_remove_wildcards = [
+        submitted_wildcards = [
             w for w in request.form.getlist('remove_wildcards')
             if w == '*' or w.endswith('.*')
         ]
+
+        # Honest revocation guard. has_permission() falls back to
+        # ROLE_PERMISSIONS when an explicit row is missing, so deleting a
+        # row that the role ALREADY COVERS is a no-op — the user keeps
+        # the access. Removing such a row creates a misleading "revoked"
+        # UX (and a hidden time-bomb if role fallback is later disabled).
+        # Use role_covers_wildcard() (not exact-match) so a broader role
+        # grant like `*` (admin) or `picking.*` correctly classifies
+        # narrower user wildcards (e.g., `picking.warehouse.*`) as
+        # inherited. Admins must change the user's role to revoke them.
+        role_grants = ROLE_PERMISSIONS.get(user.role, [])
+        inherited_attempts = [
+            w for w in submitted_wildcards if role_covers_wildcard(role_grants, w)
+        ]
+        to_remove_wildcards = [
+            w for w in submitted_wildcards
+            if not role_covers_wildcard(role_grants, w)
+        ]
+
+        if inherited_attempts:
+            flash(
+                "These wildcards are granted by the user's role "
+                f"({user.role}) and cannot be revoked from this page: "
+                + ", ".join(sorted(inherited_attempts))
+                + ". Change the user's role to remove them.",
+                "warning",
+            )
 
         # Self-lockout guard: cannot revoke '*' from your own account here.
         if '*' in to_remove_wildcards and username == current_user.username:
@@ -1807,16 +1834,31 @@ def manage_user_permissions(username):
     ), {"u": username}).fetchall()
     all_keys = {r[0] for r in rows}
     current_perms = {k for k in all_keys if "*" not in k}
-    role_wildcards = sorted({k for k in all_keys if "*" in k})
+    all_wildcards = sorted({k for k in all_keys if "*" in k})
 
-    role_perm_set = set(ROLE_PERMISSIONS.get(user.role, []))
+    role_grants = ROLE_PERMISSIONS.get(user.role, [])
+    role_perm_set = set(role_grants)
+    # Wildcards split by where the access really comes from. Removing an
+    # `inherited_wildcard` row would leave the access intact via role
+    # fallback in services/permissions.has_permission(), so we only show
+    # truly user-specific grants as removable. Coverage uses
+    # role_covers_wildcard() (implication-aware, not exact-match) so a
+    # broader role grant like `*` correctly hides any narrower user
+    # wildcard from the "Direct" section.
+    direct_wildcards = [
+        w for w in all_wildcards if not role_covers_wildcard(role_grants, w)
+    ]
+    inherited_wildcards = [
+        w for w in all_wildcards if role_covers_wildcard(role_grants, w)
+    ]
 
     return render_template(
         'user_permissions.html',
         user=user,
         permission_groups=PERMISSION_EDITOR_GROUPS,
         current_perms=current_perms,
-        role_wildcards=role_wildcards,
+        direct_wildcards=direct_wildcards,
+        inherited_wildcards=inherited_wildcards,
         role_perm_set=role_perm_set,
     )
 

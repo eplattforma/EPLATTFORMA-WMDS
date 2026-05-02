@@ -110,6 +110,41 @@ def _matches(granted, key):
     return False
 
 
+def role_covers_wildcard(role_grants, wildcard):
+    """Return True if any grant in `role_grants` makes `wildcard` redundant.
+
+    A user-specific wildcard row is "redundant" (and revoking it is a no-op
+    in effective access) when some role grant already matches every key
+    that `wildcard` covers. Used by the per-user permission editor to
+    classify wildcards as inherited (read-only) vs direct (removable),
+    so admins aren't shown a "revoke" affordance whose effect role
+    fallback would silently undo.
+
+    Cases:
+      - role has `*`           → covers any wildcard
+      - role has the same wildcard literally
+      - role has a broader `g.*` that is a prefix of `wildcard` (e.g.
+        role grants `picking.*`, user has `picking.warehouse.*`)
+    """
+    if not wildcard:
+        return False
+    for g in role_grants:
+        if g == "*":
+            return True
+        if g == wildcard:
+            return True
+        if g.endswith(".*"):
+            g_prefix = g[:-2]
+            if wildcard == "*":
+                # Only '*' covers '*'; a g.* grant cannot.
+                continue
+            if wildcard.endswith(".*"):
+                w_prefix = wildcard[:-2]
+                if w_prefix == g_prefix or w_prefix.startswith(g_prefix + "."):
+                    return True
+    return False
+
+
 def has_permission(user, key):
     """Return True if `user` is allowed to use the permission `key`.
 
