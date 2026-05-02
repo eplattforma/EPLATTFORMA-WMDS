@@ -4,7 +4,17 @@ Exercises the new `remove_wildcards` form field and confirmation gates
 added to `manage_user_permissions` in routes.py.
 """
 import os
+import sys
 import uuid
+
+# Ensure the project root is importable regardless of the cwd pytest is
+# invoked from. Mirrors the bootstrap used by
+# tests/test_override_ordering_pipeline.py so this file works under both
+# `pytest tests/...` from the repo root and from any other cwd.
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(THIS_DIR, os.pardir))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 import pytest
 from sqlalchemy import text
@@ -12,9 +22,9 @@ from sqlalchemy import text
 
 @pytest.fixture
 def app_ctx():
-    # Import main to trigger the same route + blueprint registration the
-    # gunicorn entry point uses. base.html references many blueprint
-    # endpoints (warehouse, batch, routes, etc.), so importing only `routes`
+    # Import the gunicorn entry-point module (`main.py`, run as `main:app`
+    # by gunicorn_config.py). It registers every blueprint base.html
+    # references — warehouse, batch, routes, etc. Importing only `routes`
     # is not enough to render even a single permission editor page.
     import main  # noqa: F401
     from app import app, db
