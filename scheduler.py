@@ -144,6 +144,12 @@ def setup_scheduler(app):
         except Exception as e:
             logger.warning(f"Could not access Flask-SQLAlchemy engine for jobstore ({e}); will fall back to DATABASE_URL")
 
+        # Phase 2: scheduler timezone is anchored to Africa/Cairo so the
+        # daily fixed-time jobs (17:35 Forecast, 17:55 Cost Update,
+        # 18:10 Offers, 18:05 Stock 777, etc.) match the cadence stated
+        # in SCHEDULING.md regardless of host TZ. Cairo and Athens differ
+        # in DST so an explicit IANA tz is required for correctness.
+        SCHEDULER_TZ = 'Africa/Cairo'
         if jobstore_engine is not None:
             jobstores = {
                 'default': SQLAlchemyJobStore(
@@ -151,8 +157,8 @@ def setup_scheduler(app):
                     tablename='apscheduler_jobs',
                 )
             }
-            scheduler = BackgroundScheduler(daemon=True, jobstores=jobstores)
-            logger.info("Scheduler using SQLAlchemy jobstore (shared engine, pool_pre_ping enabled) — missed runs will be recovered on worker boot")
+            scheduler = BackgroundScheduler(daemon=True, jobstores=jobstores, timezone=SCHEDULER_TZ)
+            logger.info(f"Scheduler using SQLAlchemy jobstore (shared engine, pool_pre_ping enabled, timezone={SCHEDULER_TZ}) — missed runs will be recovered on worker boot")
         elif os.environ.get("DATABASE_URL"):
             jobstores = {
                 'default': SQLAlchemyJobStore(
@@ -160,10 +166,10 @@ def setup_scheduler(app):
                     tablename='apscheduler_jobs',
                 )
             }
-            scheduler = BackgroundScheduler(daemon=True, jobstores=jobstores)
-            logger.info("Scheduler using SQLAlchemy jobstore (own engine via DATABASE_URL) — missed runs will be recovered on worker boot")
+            scheduler = BackgroundScheduler(daemon=True, jobstores=jobstores, timezone=SCHEDULER_TZ)
+            logger.info(f"Scheduler using SQLAlchemy jobstore (own engine via DATABASE_URL, timezone={SCHEDULER_TZ}) — missed runs will be recovered on worker boot")
         else:
-            scheduler = BackgroundScheduler(daemon=True)
+            scheduler = BackgroundScheduler(daemon=True, timezone=SCHEDULER_TZ)
             logger.warning("DATABASE_URL not set — scheduler falling back to in-memory jobstore (missed runs will be lost on restart)")
 
         # Only set up scheduled jobs in production or if explicitly enabled
@@ -939,6 +945,8 @@ def _run_forecast_watchdog():
         raise
     except Exception as e:
         logger.error(f"Error in forecast watchdog: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_pending_orders_sync():
@@ -962,10 +970,15 @@ def _run_pending_orders_sync():
 
                 result = sync_pending_order_totals_from_ps365(triggered_by="scheduler")
 
+                ok = bool(isinstance(result, dict) and result.get('success'))
                 logger.info("=" * 80)
-                logger.info(f"SCHEDULED PENDING ORDERS SYNC {'COMPLETED' if result.get('success') else 'FAILED'}")
+                logger.info(f"SCHEDULED PENDING ORDERS SYNC {'COMPLETED' if ok else 'FAILED'}")
                 logger.info(f"Result: {result}")
                 logger.info("=" * 80)
+                if not ok:
+                    err = result.get('error') if isinstance(result, dict) else str(result)
+                    # Surface to _tracked as FAILED rather than swallowing.
+                    raise RuntimeError(f"Pending orders sync failed: {err}")
             finally:
                 release_sync_lock(JOB_NAME)
     except JobSkipped:
@@ -976,6 +989,8 @@ def _run_pending_orders_sync():
             logger.warning(f"Pending orders sync skipped — PS365 temporarily unavailable: {str(e)[:150]}")
             raise JobSkipped(f"PS365 temporarily unavailable: {str(e)[:150]}")
         logger.error(f"Error in scheduled pending orders sync: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _retry_pending_payments():
@@ -1028,6 +1043,8 @@ def _retry_pending_payments():
         raise
     except Exception as e:
         logger.error(f"Error in _retry_pending_payments: {str(e)}")
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_ftp_login_sync():
