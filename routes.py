@@ -1744,15 +1744,10 @@ def manage_user_permissions(username):
             if w == '*' or w.endswith('.*')
         ]
 
-        # Honest revocation guard. has_permission() falls back to
-        # ROLE_PERMISSIONS when an explicit row is missing, so deleting a
-        # row that the role ALREADY COVERS is a no-op — the user keeps
-        # the access. Removing such a row creates a misleading "revoked"
-        # UX (and a hidden time-bomb if role fallback is later disabled).
-        # Use role_covers_wildcard() (not exact-match) so a broader role
-        # grant like `*` (admin) or `picking.*` correctly classifies
-        # narrower user wildcards (e.g., `picking.warehouse.*`) as
-        # inherited. Admins must change the user's role to revoke them.
+        # has_permission() falls back to ROLE_PERMISSIONS, so deleting a
+        # wildcard row the role already covers is a no-op for effective
+        # access. Refuse such deletions and tell the admin to change the
+        # role instead.
         role_grants = ROLE_PERMISSIONS.get(user.role, [])
         inherited_attempts = [
             w for w in submitted_wildcards if role_covers_wildcard(role_grants, w)
@@ -1838,13 +1833,9 @@ def manage_user_permissions(username):
 
     role_grants = ROLE_PERMISSIONS.get(user.role, [])
     role_perm_set = set(role_grants)
-    # Wildcards split by where the access really comes from. Removing an
-    # `inherited_wildcard` row would leave the access intact via role
-    # fallback in services/permissions.has_permission(), so we only show
-    # truly user-specific grants as removable. Coverage uses
-    # role_covers_wildcard() (implication-aware, not exact-match) so a
-    # broader role grant like `*` correctly hides any narrower user
-    # wildcard from the "Direct" section.
+    # Only truly user-specific wildcards are removable; wildcards the
+    # role already covers (incl. broader grants like `*`) render as
+    # read-only inherited.
     direct_wildcards = [
         w for w in all_wildcards if not role_covers_wildcard(role_grants, w)
     ]
