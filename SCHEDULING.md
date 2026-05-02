@@ -45,7 +45,7 @@ Every tick of every catalogue job writes one row to `job_runs` via the
 | `SUCCESS`      | Body returned normally (no exception). |
 | `SKIPPED`      | Body raised `JobSkipped(reason)` — early-return guards: lock already held, "no work to do", "auto-retry budget spent", PS365 temporarily unavailable, etc. The reason is stored in `result_summary.reason`. |
 | `FAILED`       | Body raised any other exception. The exception message is stored in `error_message` and is also re-raised so APScheduler logs it. |
-| `STALE_FAILED` | Forecast watchdog (or the live suppliers page) marked a `RUNNING` row whose heartbeat aged past `forecast_heartbeat_timeout_seconds`. |
+| `STALE_FAILED` | `services.forecast.stale_detection.mark_stale_forecast_run_if_needed` (called by both the watchdog cron and the live `/forecast/api/suppliers` endpoint) detected a `RUNNING` `forecast_run` row whose heartbeat aged past `forecast_heartbeat_timeout_seconds`. The helper marks the `forecast_runs` row failed AND calls `services.job_run_logger.mark_stale_runs(timeout, job_id_filter='forecast_run')` so the matching `job_runs` row is flipped from RUNNING to STALE_FAILED in the same pass. |
 
 ## Forecast watchdog (cadence flag)
 

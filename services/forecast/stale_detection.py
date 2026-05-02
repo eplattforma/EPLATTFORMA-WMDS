@@ -85,6 +85,23 @@ def mark_stale_forecast_run_if_needed(session, timeout_seconds=None):
             f"(threshold {timeout_minutes} min)"
         )
         session.commit()
+
+        # Also flip the matching `job_runs` row to STALE_FAILED so the
+        # operations dashboard does not leave the tick stuck in RUNNING.
+        # The forecast pipeline calls `scheduler.heartbeat(...)` which
+        # bumps `job_runs.last_heartbeat`, so the same threshold applies.
+        # `mark_stale_runs` is best-effort and never raises.
+        try:
+            from services.job_run_logger import mark_stale_runs
+            stale_jr_count = mark_stale_runs(timeout, job_id_filter="forecast_run")
+            if stale_jr_count:
+                logger.warning(
+                    f"forecast stale-detection: also marked {stale_jr_count} "
+                    f"job_runs row(s) as STALE_FAILED for forecast_run"
+                )
+        except Exception as e:
+            logger.warning(f"mark_stale_runs (job_runs lifecycle) failed: {e}")
+
         return running.id
     except Exception as e:
         logger.warning(f"mark_stale_forecast_run_if_needed failed: {e}")
