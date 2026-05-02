@@ -1211,13 +1211,26 @@ def _run_expiry_ftp_upload():
         logger.info("=" * 60)
         with app.app_context():
             result = run_expiry_dates_export_and_upload()
+            csv_state = result.get('csv_export')
+            ftp_state = result.get('ftp_upload')
+            details = result.get('details') or {}
             logger.info(
                 "EXPIRY DATES EXPORT AND FTP UPLOAD COMPLETED: "
-                f"csv_export={result.get('csv_export')}, "
-                f"ftp_upload={result.get('ftp_upload')}"
+                f"csv_export={csv_state}, ftp_upload={ftp_state}"
             )
-            if result.get('details'):
-                logger.info(f"Details: {result['details']}")
+            if details:
+                logger.info(f"Details: {details}")
+            # The upstream service reports failure-as-data instead of
+            # raising. Surface either failure to _tracked so the
+            # job_runs row is marked FAILED, not SUCCESS.
+            if csv_state != "success":
+                raise RuntimeError(
+                    f"Expiry CSV export failed: {details.get('csv_error') or 'unknown error'}"
+                )
+            if ftp_state != "success":
+                raise RuntimeError(
+                    f"Expiry FTP upload failed: {details.get('ftp_error') or 'unknown error'}"
+                )
     except Exception as e:
         logger.error(f"Error in scheduled expiry FTP upload: {str(e)}", exc_info=True)
         # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
