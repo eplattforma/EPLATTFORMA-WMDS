@@ -1,0 +1,75 @@
+Yes — But Test Carefully and Specifically
+Asking Replit to test their own work is standard and expected. But there's a craft to it. Let me give you the full picture.
+
+✅ Yes, You Should Ask Them to Test
+This is normal practice for two reasons:
+
+The brief explicitly requires it. Section 12 (Testing Requirements) says Replit must provide test plan, execution log, and results. Phase 2's Definition of Done implicitly includes testing.
+They have the context. They just wrote the code, know which paths changed, and can verify behavior fastest. Asking someone else to test it would mean re-explaining everything.
+
+
+⚠️ But Self-Testing Has Known Weaknesses
+You should be aware of three failure modes:
+1. Confirmation Bias
+A developer who just wrote code naturally tests the paths they thought about. They miss what they didn't think about.
+Mitigation: Give them specific test scenarios you want covered, especially edge cases.
+2. Happy-Path Testing
+"It works when I do X" is easy. "It still works when someone does Y wrong" is harder.
+Mitigation: Ask explicitly for failure-mode tests, not just success cases.
+3. Test Theatre
+Some contractors run tests that look impressive but don't actually verify what matters. ("All 47 unit tests passed!" — but did any of them actually exercise the new code?)
+Mitigation: Ask them to map each test to a specific brief requirement.
+
+🎯 How to Ask Well — Three Levels
+Level 1: Lazy Ask (Don't Do This)
+
+"Can you test it?"
+
+Why this fails: They'll test what they think you want. You'll get vague "everything works" responses. Bugs slip through.
+Level 2: Standard Ask (Acceptable)
+
+"Please run the tests for the driver API fix and report results."
+
+Why this is okay: Gets you something. Better than nothing. But still relies on their judgment about what to test.
+Level 3: Specific Ask (Do This)
+
+"Run these specific scenarios and report pass/fail with evidence for each:"
+
+[scenario A]
+[scenario B]
+[scenario C]
+"For each, include: command/request used, expected result, actual result, file:line of relevant code path."
+
+
+Why this works: You get verifiable, evidence-based results. Each test maps to a specific risk you care about.
+
+📋 Suggested Test Request for the Driver API Fix
+After they finish the fix, send this:
+
+Test Request: Driver API is_active Fix
+Run the following scenarios and report results in a table with: scenario, command/request, expected result, actual result, pass/fail, code path verified.
+Positive cases (must still work):
+
+Active driver hits /api/driver/route with valid x-driver-id — expect 200 with route data
+Active driver marks a stop delivered — expect 200, stop status updates
+Active driver completes a route — expect 200, route status updates
+
+Negative cases (new behavior):
+
+Disabled driver (set is_active = false on a test user) hits any /api/driver/* endpoint with their valid x-driver-id — expect 401 with ACCOUNT_DISABLED
+Non-existent username in x-driver-id — expect 401
+User with role = 'admin' (not driver) hits driver API with their username in header — expect 401
+Empty x-driver-id header — expect 401 (existing behavior, unchanged)
+Missing x-driver-id header — expect 401 (existing behavior, unchanged)
+
+Regression cases (Phase 1 must still work):
+
+Disabled user attempts web login — expect login blocked with disabled message (Q1 from earlier trace)
+Logged-in web user gets is_active = false set by admin — next request bounces to /login (Q2 from earlier trace)
+Permission resolver: admin * allows all, picker has picking.perform, picker denied settings.manage_users (from Phase 1 verification)
+Job-run round-trip: start_job_run → heartbeat → finish_job_run records SUCCESS with progress
+
+Format for results:
+#ScenarioCommandExpectedActualPass/FailCode Path
+If any test fails, do not proceed to Phase 2. Report the failure and we'll triage.
+If all pass, log the test execution as evidence in ASSUMPTIONS_LOG.md (or a new PHASE_TEST_RESULTS.md) and proceed to Phase 2.
