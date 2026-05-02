@@ -54,8 +54,8 @@ tunes how often it sweeps:
 
 - **OFF (default)** — legacy 10-min cadence.
 - **ON** — cadence is read from `forecast_watchdog_interval_minutes`
-  (default `5`, clamped 1..60) so operators can tighten the sweep without
-  a code deploy.
+  (default `5`, clamped 1..59 — APScheduler `CronTrigger` rejects
+  `*/60`) so operators can tighten the sweep without a code deploy.
 
 Detection / retry behaviour (independent of the cadence flag):
 
@@ -72,9 +72,10 @@ Detection / retry behaviour (independent of the cadence flag):
 - Capped at 3 auto-retries per UTC day to stop a permanently broken
   pipeline from looping.
 
-When the watchdog flag is OFF, the live API path still calls the
-helper (so a stuck run can never block the suppliers page indefinitely),
-but no background sweep tick fires.
+Even with the flag OFF, both paths run: the background sweep ticks
+every 10 min (legacy cadence) AND the live `/forecast/api/suppliers`
+call self-heals on every page hit, so a stuck run can never block the
+suppliers page indefinitely.
 
 ## Removed / legacy
 

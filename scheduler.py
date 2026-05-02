@@ -271,7 +271,8 @@ def setup_scheduler(app):
             # Watchdog cadence is gated on `forecast_watchdog_enabled`:
             #   OFF (default)  -> legacy 10-min cadence
             #   ON             -> `forecast_watchdog_interval_minutes`
-            #                     (default 5, clamped 1..60)
+            #                     (default 5, clamped 1..59 — APScheduler
+            #                     CronTrigger rejects `*/60`)
             # The job is ALWAYS scheduled — the flag only tunes how often
             # the watchdog sweeps. The live `/forecast/api/suppliers`
             # endpoint also calls `mark_stale_forecast_run_if_needed` on
@@ -288,7 +289,10 @@ def setup_scheduler(app):
                     wd_raw = Setting.get(db.session, 'forecast_watchdog_enabled', 'false')
                     wd_enabled = str(wd_raw).strip().lower() in ('true', '1', 'yes', 'on')
                     wd_interval_raw = Setting.get(db.session, 'forecast_watchdog_interval_minutes', '5')
-                    wd_interval = max(min(int(wd_interval_raw or '5'), 60), 1)
+                    # Clamp to 1..59 because APScheduler CronTrigger rejects
+                    # `*/60` ("step value 60 is higher than range 59"). 59-min
+                    # is effectively hourly and avoids the crash at boot.
+                    wd_interval = max(min(int(wd_interval_raw or '5'), 59), 1)
             except Exception as e:
                 logger.warning(f"Could not read watchdog settings ({e}); defaulting to OFF / 10min cadence")
                 wd_enabled = False
