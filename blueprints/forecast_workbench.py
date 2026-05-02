@@ -814,29 +814,16 @@ def api_items_stock_risk():
 def api_run():
     import threading
     from models import ForecastRun
-    from timezone_utils import get_utc_now
-    from datetime import datetime, timedelta
-    from sqlalchemy import text
-    TIMEOUT_MINUTES = 45
-    now_naive = datetime.utcnow()
-    stale_cutoff = now_naive - timedelta(minutes=TIMEOUT_MINUTES)
+    from services.forecast.stale_detection import mark_stale_forecast_run_if_needed
 
-    stale_runs = ForecastRun.query.filter_by(status='running').all()
-    for sr in stale_runs:
-        reference_time = sr.last_heartbeat_at or sr.started_at
-        if reference_time and reference_time < stale_cutoff:
-            logger.warning(f"Marking stale forecast run {sr.id} as failed (last heartbeat {reference_time})")
-            sr.status = "failed"
-            sr.completed_at = get_utc_now()
-            sr.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
-    if stale_runs:
-        db.session.commit()
+    # Centralized stale-detection: same threshold as the watchdog cron
+    # (`forecast_heartbeat_timeout_seconds`, default 2700s). The helper
+    # also flips the matching `job_runs` row to STALE_FAILED.
+    mark_stale_forecast_run_if_needed(db.session)
 
     active = ForecastRun.query.filter_by(status='running').first()
     if active:
-        reference_time = active.last_heartbeat_at or active.started_at
-        if reference_time and reference_time >= stale_cutoff:
-            return jsonify({'status': 'already_running', 'run_id': active.id})
+        return jsonify({'status': 'already_running', 'run_id': active.id})
 
     username = current_user.username
     body = request.get_json(silent=True) or {}
@@ -929,22 +916,16 @@ def api_recompute_seasonality():
 @admin_or_warehouse_required
 def api_run_status():
     from models import ForecastRun
-    from datetime import datetime, timedelta
-    from timezone_utils import get_utc_now
-    TIMEOUT_MINUTES = 45
+    from services.forecast.stale_detection import mark_stale_forecast_run_if_needed
+
+    # Centralized stale-detection: same threshold + same job_runs lifecycle
+    # update as the watchdog cron.
+    mark_stale_forecast_run_if_needed(db.session)
+
     running = ForecastRun.query.filter_by(status="running").order_by(ForecastRun.started_at.desc()).first()
     run = running or ForecastRun.query.order_by(ForecastRun.id.desc()).first()
     if not run:
         return jsonify({'status': 'none'})
-    if run.status == 'running':
-        reference_time = run.last_heartbeat_at or run.started_at
-        stale_cutoff = datetime.utcnow() - timedelta(minutes=TIMEOUT_MINUTES)
-        if reference_time and reference_time < stale_cutoff:
-            logger.warning(f"Status poll: marking stale run {run.id} as failed (last heartbeat {reference_time})")
-            run.status = "failed"
-            run.completed_at = get_utc_now()
-            run.notes = f"Marked as failed: no heartbeat for {TIMEOUT_MINUTES}+ minutes"
-            db.session.commit()
     sales_period_start = getattr(run, 'sales_period_start', None)
     sales_period_end = getattr(run, 'sales_period_end', None)
     sales_total_qty = float(getattr(run, 'sales_total_qty', 0) or 0)

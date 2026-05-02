@@ -43,3 +43,35 @@ each scenario lists command, expected, actual, pass/fail, and the file:line of t
 **Regression baseline preserved.** `pytest -q tests/test_override_ordering_pipeline.py` continues to pass (1 passed). Workflow `Start application` running normally throughout the test execution.
 
 **Conclusion:** All Phase 1 acceptance criteria + the ASSUMPTION-009 driver-API hardening verified end-to-end. Phase 2 is unblocked.
+
+---
+
+## 2026-05-02 — Phase 2 Visibility & Cleanup closeout
+
+**Trigger:** WMDS Task #11 (Phase 2 — Visibility & Cleanup) closeout.
+**Environment:** Local workflow `Start application` against `http://localhost:5000`.
+
+**Result: Regression baseline preserved + scheduler boot clean.**
+
+| # | Scenario | Command | Expected | Actual | Pass | Code path |
+|---|---|---|---|---|---|---|
+| 1 | Override ordering pipeline regression | `pytest -q tests/test_override_ordering_pipeline.py` | 1 passed | 1 passed (~1.2–1.8s across runs) | PASS | `tests/test_override_ordering_pipeline.py` |
+| 2 | Scheduler boot — every catalogue job registers without warnings | restart `Start application` workflow, scan `/tmp/logs/Start_application_*.log` for `WARNING:scheduler` / `ERROR:scheduler` / `Traceback` / `UnboundLocal` / `ValueError` | empty match set | empty match set | PASS | `scheduler.py:setup_scheduler` |
+| 3 | Watchdog flag = OFF (default) → legacy 10-min cadence, job IS scheduled | scan boot log for `Forecast watchdog scheduled` line | `every 10 min (forecast_watchdog_enabled=off → legacy 10min cadence)` | exact match | PASS | `scheduler.py:setup_scheduler` (watchdog block) |
+| 4 | Cost Update at 17:55 Cairo registered | scan boot log for `✓ Cost Update scheduled` | `Daily at 17:55 Cairo (ERP Item Catalogue cost refresh)` | exact match | PASS | `scheduler.py` daily-job loop |
+| 5 | Legacy `ftp_price_master_sync` job removed (one-time WARN if present) | first-boot log scan after deploy | one-time WARN, idempotent on subsequent boots | (current jobstore is clean — no row to remove) | PASS-BY-INSPECTION | `scheduler.py` cleanup block (post-`setup_scheduler`) |
+| 6 | `_tracked` lifecycle: SUCCESS / SKIPPED / FAILED / STALE_FAILED all reachable | code review of `scheduler._tracked` + `services.forecast.stale_detection.mark_stale_forecast_run_if_needed` | guard paths raise `JobSkipped`; failures re-raise; stale flips both `forecast_runs` and `job_runs` rows | confirmed in code | PASS-BY-INSPECTION | `scheduler.py:_tracked`; `services/forecast/stale_detection.py` |
+| 7 | Forecast pipeline heartbeats reach `job_runs.last_heartbeat` | code review of `services/forecast/run_service._heartbeat` | also calls `scheduler.heartbeat(...)` so long healthy runs are not flipped STALE_FAILED | confirmed in code | PASS-BY-INSPECTION | `services/forecast/run_service.py:_heartbeat` |
+| 8 | Stale-detection centralized — no duplicated 45-min logic in workbench | grep `TIMEOUT_MINUTES` in `blueprints/forecast_workbench.py` | only the `mark_stale_forecast_run_if_needed` call sites remain | confirmed in diff | PASS-BY-INSPECTION | `blueprints/forecast_workbench.py:api_run`, `:api_run_status`, `:api_suppliers` |
+| 9 | Legacy MVP Replenishment menu hidden + routes 302/404 when flag OFF | flag default OFF; HTML routes redirect to Forecast Workbench, JSON paths 404 | redirects to `forecast_workbench.suppliers`, JSON returns `legacy_replenishment_disabled` | confirmed in code | PASS-BY-INSPECTION | `blueprints/replenishment_mvp.py:legacy_required` |
+| 10 | Replenishment blueprint stays registered (Forecast Workbench imports `_build_po_email_content` / `_send_po_email`) | `main.py` still calls `app.register_blueprint(replenishment_bp)` | unchanged | unchanged | PASS-BY-INSPECTION | `main.py:264` |
+
+### Notes
+
+**#5 — legacy job cleanup.** This installation's jobstore does not currently contain `ftp_price_master_sync`, so the cleanup block is a no-op on every boot. The one-time WARN message has been verified by inspection of `scheduler.py` (the `if legacy_job is not None` branch logs at `logger.warning` level with a self-explanatory reason).
+
+**#6–#8 "verified by inspection".** These verify code paths that only fire under fault conditions (a stale heartbeat older than the configured threshold, an exception inside a body func, a JSON path on a disabled blueprint, etc.). Each was code-reviewed against the diff; tests #1, #2, and the scheduler boot prove the happy paths.
+
+**Regression baseline preserved.** `pytest -q tests/test_override_ordering_pipeline.py` continues to pass. Workflow `Start application` boots cleanly with all 14 catalogue jobs scheduled and no warnings/errors.
+
+**Conclusion:** Phase 2 acceptance criteria met (job-runs lifecycle wrapper covers every catalogue job and propagates real failures, forecast watchdog cadence flag wired correctly, stale-detection centralized, legacy MVP Replenishment retired behind a flag, scheduling docs current).

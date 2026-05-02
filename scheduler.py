@@ -606,6 +606,8 @@ def _run_full_sync():
                     fail_sync_log(db.session, running, str(e))
         except Exception:
             pass
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_incremental_sync():
@@ -637,6 +639,8 @@ def _run_incremental_sync():
                     fail_sync_log(db.session, running, str(e))
         except Exception:
             pass
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_invoice_sync():
@@ -661,6 +665,8 @@ def _run_invoice_sync():
             logger.info("=" * 80)
     except Exception as e:
         logger.error(f"Error in scheduled invoice sync: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_customer_sync():
@@ -695,8 +701,11 @@ def _run_customer_sync():
                     details=status.get('message', ''))
                 logger.info("SCHEDULED CUSTOMER SYNC COMPLETED")
             else:
-                fail_sync_log(db.session, slog, result.get('error', 'Failed to start'))
-                logger.error(f"Customer sync failed to start: {result.get('error')}")
+                err_msg = result.get('error', 'Failed to start')
+                fail_sync_log(db.session, slog, err_msg)
+                logger.error(f"Customer sync failed to start: {err_msg}")
+                # Surface this to _tracked as FAILED rather than swallowing it.
+                raise RuntimeError(f"Customer sync failed to start: {err_msg}")
     except Exception as e:
         logger.error(f"Error in scheduled customer sync: {str(e)}", exc_info=True)
         try:
@@ -708,6 +717,8 @@ def _run_customer_sync():
                     fail_sync_log(db.session, running, str(e))
         except Exception:
             pass
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_balance_fetch():
@@ -723,7 +734,7 @@ def _run_balance_fetch():
 
         if recon_routes._balance_fetch_status.get('running'):
             logger.warning("Balance fetch already running, skipping scheduled run")
-            return
+            raise JobSkipped("balance fetch already running")
 
         recon_routes._balance_fetch_status = {
             'running': True, 'success': 0, 'failed': 0, 'skipped': 0,
@@ -738,8 +749,12 @@ def _run_balance_fetch():
         logger.info("SCHEDULED CUSTOMER BALANCE FETCH COMPLETED")
         logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
         logger.info("=" * 80)
+    except JobSkipped:
+        raise
     except Exception as e:
         logger.error(f"Error in scheduled balance fetch: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def add_custom_job(schedule_description, job_name, job_func, hour=None, minute=0, day_of_week=None):
@@ -814,6 +829,8 @@ def _run_forecast():
             logger.info("=" * 80)
     except Exception as e:
         logger.error(f"Error in scheduled forecast run: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 # Watchdog tunables ------------------------------------------------------
@@ -1020,9 +1037,16 @@ def _run_ftp_login_sync():
         logger.info("STARTING FTP LOGIN LOGS SYNC")
         logger.info("=" * 60)
         result = sync_login_logs_from_ftp()
-        logger.info(f"FTP LOGIN SYNC {'COMPLETED' if result.get('success') else 'FAILED'}: {result}")
+        ok = bool(isinstance(result, dict) and result.get('success'))
+        logger.info(f"FTP LOGIN SYNC {'COMPLETED' if ok else 'FAILED'}: {result}")
+        if not ok:
+            # Result indicates failure — surface to _tracked as FAILED.
+            err = result.get('error') if isinstance(result, dict) else str(result)
+            raise RuntimeError(f"FTP login sync failed: {err}")
     except Exception as e:
         logger.error(f"Error in FTP login sync: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_ftp_price_master_sync():
@@ -1034,9 +1058,15 @@ def _run_ftp_price_master_sync():
         logger.info("=" * 60)
         with app.app_context():
             result = sync_price_master_from_ftp()
-        logger.info(f"FTP PRICE MASTER SYNC {'COMPLETED' if result.get('success') else 'FAILED'}: {result}")
+        ok = bool(isinstance(result, dict) and result.get('success'))
+        logger.info(f"FTP PRICE MASTER SYNC {'COMPLETED' if ok else 'FAILED'}: {result}")
+        if not ok:
+            err = result.get('error') if isinstance(result, dict) else str(result)
+            raise RuntimeError(f"FTP price master sync failed: {err}")
     except Exception as e:
         logger.error(f"Error in FTP price master sync: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_offers_update():
@@ -1089,8 +1119,13 @@ def _run_offers_update():
             else:
                 err = result.get("error") if isinstance(result, dict) else str(result)
                 logger.error(f"OFFERS UPDATE FAILED: {err}")
+                # Surface to _tracked as FAILED rather than swallowing.
+                raise RuntimeError(f"Offers update failed: {err}")
         except Exception as e:
             logger.error(f"Error in scheduled offers update: {str(e)}", exc_info=True)
+            # Re-raise so _tracked records this tick as FAILED, not SUCCESS
+            # (after the finally: lock-release runs).
+            raise
         finally:
             try:
                 release_price_offers_lock()
@@ -1129,13 +1164,16 @@ def _run_erp_item_cost_refresh():
                     f"{post.get('items_skipped', 0)} skipped"
                 )
             else:
-                logger.error(
-                    f"ERP ITEM COST REFRESH FAILED: {result.get('error_message', 'unknown error')}"
-                )
+                err = result.get('error_message', 'unknown error')
+                logger.error(f"ERP ITEM COST REFRESH FAILED: {err}")
+                # Surface to _tracked as FAILED rather than swallowing.
+                raise RuntimeError(f"ERP item cost refresh failed: {err}")
     except JobSkipped:
         raise
     except Exception as e:
         logger.error(f"Error in scheduled ERP item cost refresh: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_expiry_ftp_upload():
@@ -1156,6 +1194,8 @@ def _run_expiry_ftp_upload():
                 logger.info(f"Details: {result['details']}")
     except Exception as e:
         logger.error(f"Error in scheduled expiry FTP upload: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_stock_777_sync():
@@ -1171,15 +1211,22 @@ def _run_stock_777_sync():
 
             result = sync_ps365_stock_777(trigger="scheduled")
 
+            ok = bool(isinstance(result, dict) and result.get('success'))
             logger.info("=" * 80)
             logger.info(
                 f"SCHEDULED PS365 STOCK 777 SYNC "
-                f"{'COMPLETED' if result.get('success') else 'FAILED'}"
+                f"{'COMPLETED' if ok else 'FAILED'}"
             )
             logger.info(f"Result: {result}")
             logger.info("=" * 80)
+            if not ok:
+                err = result.get('error') if isinstance(result, dict) else str(result)
+                # Surface to _tracked as FAILED rather than swallowing.
+                raise RuntimeError(f"Stock 777 sync failed: {err}")
     except Exception as e:
         logger.error(f"Error in scheduled stock 777 sync: {str(e)}", exc_info=True)
+        # Re-raise so _tracked records this tick as FAILED, not SUCCESS.
+        raise
 
 
 def _run_stock_777_catch_up_on_startup():

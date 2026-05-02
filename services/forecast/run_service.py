@@ -44,6 +44,18 @@ def _heartbeat(run_id, step=None, note=None):
     except Exception as e:
         logger.warning(f"Heartbeat update failed for run {run_id}: {e}")
 
+    # Phase 2: also bump `job_runs.last_heartbeat` for the wrapping
+    # `forecast_run` tick so the watchdog's stale-detection sweep
+    # (`mark_stale_runs` with timeout `forecast_heartbeat_timeout_seconds`)
+    # cannot incorrectly flip a healthy long-running forecast tick to
+    # STALE_FAILED. `scheduler.heartbeat` is a no-op when called outside
+    # a tracked job (e.g. when invoked from /forecast/api/run threads).
+    try:
+        from scheduler import heartbeat as _job_runs_heartbeat
+        _job_runs_heartbeat(current_step=step, progress_message=note)
+    except Exception as e:
+        logger.debug(f"job_runs heartbeat mirror skipped: {e}")
+
 
 def _mark_run_finished(run_id, status, note=None, completed_at=None):
     if completed_at is None:

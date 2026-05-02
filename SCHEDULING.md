@@ -81,7 +81,7 @@ suppliers page indefinitely.
 
 | Slot                   | Planned cadence              | Owner module (planned)                  | Status |
 |------------------------|------------------------------|-----------------------------------------|--------|
-| `log_cleanup`          | Daily at 03:00 Africa/Cairo  | `services.maintenance.log_cleanup` (TBD)| **Not implemented in Phase 2.** Placeholder reserved for a later phase that will prune `job_runs` history older than the configured retention window. Today the table grows unbounded; operators can truncate manually if needed. |
+| `log_cleanup`          | Daily at 06:00 Europe/Nicosia| `services.maintenance.log_cleanup` (TBD)| **Not implemented in Phase 2.** Placeholder reserved for a later phase that will prune `job_runs` history older than the configured retention window. Today the table grows unbounded; operators can truncate manually if needed. |
 
 When this slot is implemented it MUST go through `_tracked(...)` like
 every other catalogue job so its sweeps are visible in the operations
