@@ -92,35 +92,44 @@ def _tracked(job_id, job_name=None, trigger_source="scheduled"):
         logger.error(f"_tracked: no registered body for job_id={job_id!r}")
         return
 
+    from app import app as _flask_app
     from services.job_run_logger import start_job_run, finish_job_run
-    run_id = start_job_run(
-        job_id,
-        job_name=job_name or job_id,
-        trigger_source=trigger_source,
-    )
-    token = _CURRENT_JOB_RUN_ID.set(run_id)
-    try:
+
+    # Phase 2 fix: APScheduler executor threads (and the daemon thread used
+    # by `run_job_now`) have no Flask app context. The lifecycle helpers in
+    # `services.job_run_logger` use `db.engine.connect()` which requires
+    # one. Wrap the whole tick in `app.app_context()`. Body funcs already
+    # push their own `with app.app_context():` and Flask app contexts
+    # nest cleanly.
+    with _flask_app.app_context():
+        run_id = start_job_run(
+            job_id,
+            job_name=job_name or job_id,
+            trigger_source=trigger_source,
+        )
+        token = _CURRENT_JOB_RUN_ID.set(run_id)
         try:
-            body()
-        except JobSkipped as skip:
-            reason = (str(skip) or "skipped")[:500]
-            finish_job_run(
-                run_id,
-                status="SKIPPED",
-                result_summary={"reason": reason},
-            )
-            logger.info(f"Job {job_id} SKIPPED: {reason}")
-            return
-        except Exception as e:
-            finish_job_run(
-                run_id,
-                status="FAILED",
-                error_message=(str(e) or type(e).__name__)[:500],
-            )
-            raise
-        finish_job_run(run_id, status="SUCCESS")
-    finally:
-        _CURRENT_JOB_RUN_ID.reset(token)
+            try:
+                body()
+            except JobSkipped as skip:
+                reason = (str(skip) or "skipped")[:500]
+                finish_job_run(
+                    run_id,
+                    status="SKIPPED",
+                    result_summary={"reason": reason},
+                )
+                logger.info(f"Job {job_id} SKIPPED: {reason}")
+                return
+            except Exception as e:
+                finish_job_run(
+                    run_id,
+                    status="FAILED",
+                    error_message=(str(e) or type(e).__name__)[:500],
+                )
+                raise
+            finish_job_run(run_id, status="SUCCESS")
+        finally:
+            _CURRENT_JOB_RUN_ID.reset(token)
 
 
 def setup_scheduler(app):
