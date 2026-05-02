@@ -46,7 +46,12 @@ ERR_MAP = {
 }
 
 def _role_ok():
-    return getattr(current_user, "role", None) in ("admin", "warehouse_manager", "crm_admin")
+    """Phase 3: permission-based access. Admin/WM/crm_admin roles still pass via
+    role fallback (they all have ``menu.communications`` in ROLE_PERMISSIONS),
+    plus any user with an explicit ``menu.communications`` or ``comms.*`` grant.
+    """
+    from services.permissions import has_permission
+    return has_permission(current_user, "menu.communications")
 
 def _normalize_mob(n: str) -> str:
     if not n:

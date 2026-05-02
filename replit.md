@@ -114,3 +114,36 @@ This is the first phase of the multi-phase WMDS Development Batch. The full brie
 - New DB objects are visible at: `\d job_runs`, `\d user_permissions`, `\d users` (look for `display_name`).
 - Toggle flags via `Setting.set(db.session, key, value)` or by directly editing the `settings` table.
 - Phase 2/3/4/5 will each be done in their own focused batch — do not enable two high-risk flags in the same production step (see `ROLLBACK_AND_FLAGS.md` Production Safety Rules).
+
+## WMDS Development Batch — Phase 3 (Permission Enforcement)
+
+Phase 3 turns the Phase 1 permission scaffolding ON across the app and migrates role-string checks to the `has_permission(...)` API. **Driver Mode workflow is untouched** (brief Section 7).
+
+### What Phase 3 added
+- **Seeder** (`services/permission_seeding.py`): on first boot after Phase 3, `seed_permissions_from_roles()` walks every active user and inserts the role's permission keys (literal wildcards preserved — the matcher already handles them) into `user_permissions`. Gated by the one-time `permissions_auto_seed_done` setting. Manual "Re-seed Permissions" button on Manage Users force-runs it. Helper `reset_user_to_role_defaults(username)` clears one user back to defaults.
+- **Per-user permission editor** (`/admin/users/<username>/permissions`, defined in `routes.py`): 21-key checkbox grid grouped into Menu / Picking / Routes & Sync / Settings. Save replaces only non-wildcard rows (`NOT LIKE '%*%'`) so admin-style wildcards stay intact. "Reset to role defaults" calls the seeder for that one user. Linked from a shield button on each row of Manage Users.
+- **Per-request cache** in `services/permissions.py`: `_explicit_permissions_for(username)` memoizes on `flask.g`, so a page that checks 30 menu items issues one SELECT instead of 30.
+- **Enforcement flag flipped**: `permissions_enforcement_enabled` default is now `true`. `permissions_role_fallback_enabled` stays `true` as the safety net. Admin role keeps the `*` wildcard.
+- **`crm_admin` role added to `ROLE_PERMISSIONS`**: previously a string-only role inside `_role_ok()` in comms/sms blueprints. Now has `menu.dashboard`, `menu.crm`, `menu.communications`, `comms.*` so role fallback covers them.
+- **Decorators added** (`@require_permission(...)`):
+  - `settings.manage_users` — admin user routes (`manage_users`, `edit_user`, `delete_user`, `toggle_user_status`, `admin_reset_password`, `admin_sorting_settings`, `manage_user_permissions`, `seed_permissions_admin`).
+  - `sync.run_manual` — scheduler (`routes_admin_scheduler.py`: run_now/pause/resume/reschedule), forecast workbench (`blueprints/forecast_workbench.py`: api/run, refresh-weekly-sales, recompute-seasonality, ordering/refresh, stock/refresh), data warehouse (`datawarehouse_routes.py`: full-sync, incremental-sync, incremental-sync-execute, test-one-item, invoice-sync, import-suppliers).
+  - `menu.datawarehouse` — `datawarehouse.dw_menu`.
+  - `picking.manage_batches` — every `/admin/batch/*` endpoint plus `/batch/<id>/force_complete` and `/batch/delete/<id>` in `routes_batch.py`.
+  - `routes.manage` — wired into the existing `admin_required` decorator in `routes_routes.py` (admin/WM/explicit-grant pass; everyone else gets 403).
+- **Templates migrated** from `current_user.role == 'admin'` (or `current_user.role in ['admin', 'warehouse_manager']`) to `has_permission(...)`:
+  - `templates/base.html` (admin dropdown), `batch_picking_debug.html`, `batch_picking_list.html`, `batch_picking_view.html`, `help_section.html`, `help_dashboard.html`, `admin_dashboard.html`, `admin/review_delivery_issues.html`, `shipped_orders_report.html` → `settings.manage_users`.
+  - `reports/reserved_stock_777.html` → `menu.warehouse`.
+  - `routes_dashboard.html`, `route_detail.html` → `routes.manage`.
+- **What was deliberately left as role-only checks**:
+  - Three workflow-routing cases that aren't access control: `templates/admin_dashboard.html:211` (warehouse-manager-specific issue badge), `templates/admin/review_delivery_issues.html:198,203` (warehouse-manager filter UI), `templates/change_password.html:59` (picker dashboard URL pick after password reset).
+  - Inline `if current_user.role not in ['admin', 'warehouse_manager']:` blocks inside batch routes — kept as defense in depth alongside the new decorator.
+
+### One-flag rollback
+`Setting.set(db.session, 'permissions_enforcement_enabled', 'false')` reverts `@require_permission` to log-only mode without touching code or templates. The `admin_required` widening in `routes_routes.py` automatically respects the flag through `has_permission`. `ROLLBACK_AND_FLAGS.md` Phase 3 section is the canonical reference.
+
+### Verification (PHASE_TEST_RESULTS.md, 2026-05-02)
+- Override-ordering pipeline regression: 1 passed.
+- Both gunicorn workers reach `PHASE 7: main.py fully loaded` cleanly.
+- Phase 3 seeder runs once on first boot, marker set, idempotent on subsequent boots (`Phase 3 seeder: skipped (already done)`).
+- Driver Mode invariant preserved (zero edits to `templates/driver/*` or driver routes).

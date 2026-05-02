@@ -130,3 +130,53 @@ Format defined in Section 3 of the brief.
 **Code-review tightening (2026-05-02 same-day):** Architect review flagged two robustness items, both applied:
   1. Normalise the header — `driver_id = (request.headers.get('x-driver-id') or '').strip()` — so trailing whitespace from the mobile client is not misclassified as "Unknown driver".
   2. Add WARN-level logs for every rejected auth attempt (missing/blank header, unknown driver, disabled account, non-driver role), each tagged with `request.remote_addr`. No secrets are logged.
+
+## ASSUMPTION-014: Phase 3 enforcement default flipped ON; admin role wildcard kept
+
+**Date:** 2026-05-02
+**Phase:** Phase 3 (Permission Enforcement)
+**Files affected:** `services/settings_defaults.py`, `services/permissions.py`, `ROLLBACK_AND_FLAGS.md`
+**Decision made:** Set `permissions_enforcement_enabled = "true"` as the seeded default for Phase 3, while keeping `permissions_role_fallback_enabled = "true"` and the `admin: ["*"]` wildcard in `ROLE_PERMISSIONS`. Admins and warehouse managers therefore keep working without per-user grants; pickers/drivers/crm_admins are subject to the role-fallback table only.
+**Reason:** Brief Section 4 Phase 3 DoD: "permission enforcement on, role-string checks migrated, no admin/WM lockout." Wildcard + role fallback is the safety net during rollout. One-flag rollback documented in `ROLLBACK_AND_FLAGS.md`.
+**Safer alternative considered:** Ship enforcement OFF and require operator to flip it. Rejected — Phase 3 DoD requires enforcement to be on by default.
+**Feature flag / rollback:** `permissions_enforcement_enabled = false` reverts decorators to log-only mode without code changes.
+**Reversibility:** High
+
+---
+
+## ASSUMPTION-015: Phase 3 auto-seeder writes role-default rows once, marker-gated
+
+**Date:** 2026-05-02
+**Phase:** Phase 3 (Permission Enforcement)
+**Files affected:** `services/permission_seeding.py`, `services/settings_defaults.py`, `main.py`
+**Decision made:** On first boot after Phase 3 ships, walk every active user and insert their role's permission keys into `user_permissions` (literal wildcards preserved — the matcher already handles them). Gate with a one-time `permissions_auto_seed_done` marker so subsequent boots are idempotent. Provide a manual "Re-seed Permissions" button on Manage Users that calls the seeder with `force=True`.
+**Reason:** Without seeded rows, `permissions_role_fallback_enabled` is the only source of truth — and the editor UI shows nothing in checkboxes for users with role fallback only. Seeding once gives the editor a concrete starting point and lets operators diverge per user.
+**Safer alternative considered:** Run the seeder on every boot. Rejected — would re-grant permissions an operator deliberately revoked.
+**Feature flag / rollback:** Set `permissions_auto_seed_done = "false"` and restart, or click the "Re-seed Permissions" button. To wipe a single user back to defaults, use "Reset to role defaults" on their permission editor.
+**Reversibility:** High
+
+---
+
+## ASSUMPTION-016: `crm_admin` role added to `ROLE_PERMISSIONS` map (was string-only role)
+
+**Date:** 2026-05-02
+**Phase:** Phase 3 (Permission Enforcement)
+**Files affected:** `services/permissions.py`
+**Decision made:** Add a `crm_admin` entry to `ROLE_PERMISSIONS` with `menu.dashboard`, `menu.crm`, `menu.communications`, and the `comms.*` wildcard. The role exists in production (used by `_role_ok()` in `blueprints/communications.py` and `blueprints/sms.py`) but was previously string-checked only — Phase 3 enforcement would have locked them out of comms otherwise.
+**Reason:** Brief Section 6 lists comms templates and customer messaging as a CRM admin's daily workflow. Migrating those blueprints to `@require_permission` without a corresponding role-fallback entry would have been a regression.
+**Safer alternative considered:** Leave `_role_ok()` in place as the only guard and skip comms migration this phase. Rejected — leaves a string-role check in production code that contradicts Phase 3 DoD.
+**Feature flag / rollback:** Remove the `crm_admin` entry; existing explicit grants in `user_permissions` still apply.
+**Reversibility:** High
+
+---
+
+## ASSUMPTION-017: `routes_routes.py:admin_required` widened to honour `routes.manage` permission
+
+**Date:** 2026-05-02
+**Phase:** Phase 3 (Permission Enforcement)
+**Files affected:** `routes_routes.py`
+**Decision made:** The local `admin_required` decorator (used on every state-changing route in `routes_routes.py`) now passes if the current user is admin/warehouse_manager **or** holds the `routes.manage` permission. Before Phase 3 it was a strict role string check.
+**Reason:** Phase 3 DoD requires migrating role-string checks to permission keys without breaking existing flows. Widening (admin/WM/perm) preserves the legacy behaviour as defense in depth while letting an operator grant `routes.manage` to a custom-role user from the editor UI.
+**Safer alternative considered:** Replace the role check entirely with `@require_permission('routes.manage')`. Rejected — would couple route management to the master enforcement flag; admins would lose access if `permissions_enforcement_enabled = true` and the seeder hasn't run for them. The OR keeps behaviour identical for admin/WM regardless of flag state.
+**Feature flag / rollback:** Toggle `permissions_enforcement_enabled = false` to revert; or reapply the previous 6-line decorator from git.
+**Reversibility:** High

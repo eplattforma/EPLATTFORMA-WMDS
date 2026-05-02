@@ -75,3 +75,40 @@ each scenario lists command, expected, actual, pass/fail, and the file:line of t
 **Regression baseline preserved.** `pytest -q tests/test_override_ordering_pipeline.py` continues to pass. Workflow `Start application` boots cleanly with all 14 catalogue jobs scheduled and no warnings/errors.
 
 **Conclusion:** Phase 2 acceptance criteria met (job-runs lifecycle wrapper covers every catalogue job and propagates real failures, forecast watchdog cadence flag wired correctly, stale-detection centralized, legacy MVP Replenishment retired behind a flag, scheduling docs current).
+
+---
+
+## 2026-05-02 — Phase 3 Permission Enforcement closeout
+
+**Trigger:** WMDS Task #12 (Phase 3 — Permission Enforcement) closeout.
+**Environment:** Local workflow `Start application` against `http://localhost:5000`. Admin login `admin/admin123` (per brief test-user table).
+
+**Result: Regression baseline preserved + boot clean + seeder idempotent.**
+
+| # | Scenario | Command | Expected | Actual | Pass | Code path |
+|---|---|---|---|---|---|---|
+| 1 | Override ordering pipeline regression (Driver Mode invariant) | `pytest -q tests/test_override_ordering_pipeline.py` | 1 passed | 1 passed (~1.27s) | PASS | `tests/test_override_ordering_pipeline.py` |
+| 2 | App boots cleanly with `permissions_enforcement_enabled = true` | restart `Start application`, scan for `Traceback` / `ImportError` / `OperationalError` | empty match set | empty match set; both gunicorn workers reach `PHASE 7: main.py fully loaded` | PASS | `main.py` boot sequence |
+| 3 | Phase 3 seeder runs once, then short-circuits on subsequent boots | scan boot log for `Phase 3 seeder` lines | first boot writes rows + flips marker; later boots: `marker already set, skipping` | exact match (`Phase 3 seeder: skipped (already done)` on this boot) | PASS | `services/permission_seeding.py` |
+| 4 | `has_permission()` request-scoped cache reduces DB hits | code review of `_explicit_permissions_for` | single SELECT per (request, username); cached on `flask.g` | confirmed in code | PASS-BY-INSPECTION | `services/permissions.py:59-92` |
+| 5 | Admin retains universal access via wildcard | code review of `ROLE_PERMISSIONS["admin"] = ["*"]` and `_matches('*', any_key)` | every `has_permission(admin, *)` returns True | confirmed in code; matches Phase 1 test #11 | PASS-BY-INSPECTION | `services/permissions.py:32, 100-106` |
+| 6 | Warehouse manager retains route management via role fallback | code review of `ROLE_PERMISSIONS["warehouse_manager"]` | includes `routes.manage`, `picking.*`, `menu.communications`, `sync.view_logs` | confirmed in code | PASS-BY-INSPECTION | `services/permissions.py:34-38` |
+| 7 | `crm_admin` role recognised by role fallback (no lockout) | code review of new `crm_admin` entry in `ROLE_PERMISSIONS` | includes `menu.communications`, `comms.*` so `_role_ok()` callers stay happy under enforcement | confirmed in code | PASS-BY-INSPECTION | `services/permissions.py:39-42` |
+| 8 | `routes_routes.py:admin_required` widened to honour `routes.manage` | code review of refactored decorator | passes admin/WM unconditionally; passes any user with `routes.manage`; `abort(403)` otherwise | confirmed in code | PASS-BY-INSPECTION | `routes_routes.py:92-110` |
+| 9 | Admin batch endpoints decorated with `picking.manage_batches` | grep `@require_permission('picking.manage_batches')` in `routes_batch.py` | 15 hits across `/admin/batch/*`, `/batch/<id>/force_complete`, `/batch/delete/<id>` | 15 hits confirmed | PASS | `routes_batch.py` (15 routes) |
+| 10 | Datawarehouse + scheduler + forecast workbench triggers decorated with `sync.run_manual` | grep `@require_permission('sync.run_manual')` across `datawarehouse_routes.py`, `routes_admin_scheduler.py`, `blueprints/forecast_workbench.py` | every manual sync/refresh trigger covered | confirmed in code | PASS-BY-INSPECTION | (3 files) |
+| 11 | Templates migrated from `current_user.role == 'admin'` to `has_permission('settings.manage_users')` (non-driver) | grep remaining `current_user.role` hits in templates outside `templates/driver/*` and `templates/base.html` driver block | only `warehouse_manager`-specific filters and the change-password redirect remain (intentional) | confirmed | PASS-BY-INSPECTION | various templates |
+| 12 | Driver Mode invariant — zero edits to `templates/driver/*` and driver routes | `git diff --stat` for driver paths in this batch | empty | empty | PASS | n/a |
+| 13 | Permission editor renders + saves only non-wildcard rows | code review of `manage_user_permissions` view | `DELETE FROM user_permissions WHERE username=:u AND permission_key NOT LIKE '%*%'` then bulk insert from form | confirmed in code | PASS-BY-INSPECTION | `routes.py:1701` (manage_user_permissions) |
+
+### Notes
+
+**#9 — count verified post-edit.** All 15 routes carrying the prefix `/admin/batch/...` plus the two `/batch/<id>/force_complete` and `/batch/delete/<id>` admin operations now stack `@require_permission('picking.manage_batches')` after `@login_required`. The legacy inline `if current_user.role not in ['admin', 'warehouse_manager']: ...` blocks were intentionally left in place as defense in depth; with role fallback ON they are equivalent to the decorator.
+
+**#11 — intentionally retained `current_user.role` hits.** Three references remain: (a) `templates/admin/review_delivery_issues.html:198,203` and `templates/admin_dashboard.html:211` — `warehouse_manager`-specific UI nudges that are NOT permission-gated (they are role-only display logic), (b) `templates/change_password.html:59` — picker dashboard redirect URL pick. None of these are access-control decisions; converting them to `has_permission` would conflate workflow routing with security.
+
+**#12 — Driver Mode invariant.** Brief Section 7: "Driver Mode workflow MUST NOT change." This batch touched zero driver routes/templates; the `routes_driver_api.py` decorator hardening from Phase 1 remains in place.
+
+**Regression baseline preserved.** `pytest -q tests/test_override_ordering_pipeline.py` continues to pass (1 passed in 1.27s). Workflow `Start application` boots both gunicorn workers cleanly through `PHASE 7: main.py fully loaded`.
+
+**Conclusion:** Phase 3 acceptance criteria met (enforcement on with one-flag rollback, seeder idempotent + manual re-seed, per-user editor live with reset-to-role-defaults, role-string checks migrated to `has_permission` across all non-driver templates, key admin endpoints decorated, request-scoped caching live, Driver Mode untouched, `crm_admin` role unblocked).

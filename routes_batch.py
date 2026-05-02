@@ -11,6 +11,7 @@ from timezone_utils import get_local_time, utc_now_for_db
 from app import db
 from models import User, Invoice, InvoiceItem, PickingException, BatchPickingSession, BatchSessionInvoice, BatchPickedItem, Setting, ActivityLog, OrderTimeBreakdown, ItemTimeTracking
 from sorting_utils import sort_batch_items, get_sorting_config
+from services.permissions import require_permission
 
 # Create a blueprint for batch picking routes
 batch_bp = Blueprint('batch', __name__)
@@ -58,6 +59,7 @@ def clear_batch_cache(batch_id):
 
 @batch_bp.route('/admin/batch/manage')
 @login_required
+@require_permission('picking.manage_batches')
 def batch_picking_manage():
     """Admin page to manage batch picking sessions"""
     # Only admin users can access this page
@@ -85,6 +87,7 @@ def batch_picking_manage():
 
 @batch_bp.route('/admin/batch/edit/<int:batch_id>', methods=['GET', 'POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def batch_edit(batch_id):
     """Edit an existing batch picking session"""
     if current_user.role not in ['admin', 'warehouse_manager']:
@@ -209,6 +212,7 @@ def batch_edit(batch_id):
 
 @batch_bp.route('/admin/batch/add-invoices/<int:batch_id>', methods=['GET', 'POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def add_invoices_to_batch(batch_id):
     """Add invoices to an existing batch picking session"""
     if current_user.role not in ['admin', 'warehouse_manager']:
@@ -405,6 +409,7 @@ def add_invoices_to_batch(batch_id):
 
 @batch_bp.route('/admin/batch/delete/<int:batch_id>', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def batch_delete(batch_id):
     """Delete a batch picking session"""
     if current_user.role not in ['admin', 'warehouse_manager']:
@@ -439,6 +444,7 @@ def batch_delete(batch_id):
 
 @batch_bp.route('/admin/batch/simple', methods=['GET', 'POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def batch_picking_create_simple():
     """Simple admin page to create a new batch picking session"""
     # Only admin users can access this page
@@ -564,6 +570,7 @@ def batch_picking_create_simple():
 
 @batch_bp.route('/admin/batch/filter', methods=['GET', 'POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def batch_picking_filter():
     """Admin page to filter invoices for a batch"""
     # Only admin users can access this page
@@ -604,6 +611,7 @@ def batch_picking_filter():
 
 @batch_bp.route('/admin/batch/filter-invoices', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def filter_invoices_for_batch():
     """Filter invoices for batch picking and show selection interface"""
     # Only admin users can access this page
@@ -782,6 +790,7 @@ def filter_invoices_for_batch():
 
 @batch_bp.route('/admin/batch/create', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def batch_picking_create():
     """Create a new batch picking session from selected invoices"""
     # Only admin users can access this page
@@ -1001,6 +1010,7 @@ def batch_picking_create():
 
 @batch_bp.route('/admin/batch/filter-by-zone', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def filter_invoices_by_zone():
     """API endpoint to filter invoices by zone"""
     # Only admin users can access this endpoint
@@ -1146,6 +1156,7 @@ def filter_invoices_by_zone():
 
 @batch_bp.route('/admin/batch/assign/<int:batch_id>', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def batch_picking_assign(batch_id):
     """Assign a picker to a batch picking session"""
     # Only admin users can access this endpoint
@@ -1179,6 +1190,7 @@ def batch_picking_assign(batch_id):
 
 @batch_bp.route('/admin/batch/unassign/<int:batch_id>', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def batch_picking_unassign(batch_id):
     """Unassign a picker from a batch picking session"""
     # Only admin users can access this endpoint
@@ -2330,6 +2342,7 @@ def complete_batch_confirm(batch_id):
 
 @batch_bp.route('/batch/<int:batch_id>/force_complete')
 @login_required
+@require_permission('picking.manage_batches')
 def force_complete_batch(batch_id):
     """Force complete a batch even if items remain unpicked"""
     try:
@@ -2621,6 +2634,7 @@ def delete_batch_comprehensive(batch_id, batch_name, admin_username):
 
 @batch_bp.route('/batch/delete/<int:batch_id>', methods=['POST'])
 @login_required
+@require_permission('picking.manage_batches')
 def delete_batch(batch_id):
     """Delete a batch that hasn't had any items picked yet (admin only)"""
     # Only admin users can delete batches
@@ -2933,6 +2947,7 @@ def skip_batch_item(batch_id):
 
 @batch_bp.route('/admin/batch/verify/<int:batch_id>')
 @login_required
+@require_permission('picking.manage_batches')
 def manual_verify_batch(batch_id):
     """Manually verify specific items are included in a batch"""
     # Only admin users can access this page
@@ -3185,6 +3200,7 @@ def batch_print_reports(batch_id):
 
 @batch_bp.route('/admin/batch/print-report/<int:batch_id>')
 @login_required
+@require_permission('picking.manage_batches')
 def batch_admin_print_report(batch_id):
     """Admin picking report for completed batches"""
     # Allow admin and picker users to access print reports
