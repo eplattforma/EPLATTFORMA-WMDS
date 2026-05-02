@@ -1705,9 +1705,18 @@ def manage_user_permissions(username):
     """Phase 3: explicit per-user permission editor.
 
     Replaces the user's explicit (non-wildcard) permission rows with the
-    submitted set. Wildcard rows seeded from the role (`*`, `picking.*`, etc.)
-    are preserved unless the admin clicks "Reset to role defaults", which
-    re-runs the per-user seeding.
+    submitted set. Wildcard rows are split into two classes:
+
+    - Direct wildcards (NOT covered by the user's role) can be revoked
+      individually via the `remove_wildcards` form field; '*' removal is
+      gated by `confirm_remove_star` and a self-lockout guard.
+    - Inherited wildcards (covered by the user's role per
+      `services.permissions.role_covers_wildcard`) are read-only here:
+      removing the row would be a no-op for effective access because
+      role fallback would re-grant it. Change the user's role to revoke.
+
+    "Reset to role defaults" re-runs the per-user seeding, clearing any
+    direct/user-specific wildcards the admin previously added.
     """
     from services.permissions import ROLE_PERMISSIONS, role_covers_wildcard
     from services.permission_seeding import reset_user_to_role_defaults
